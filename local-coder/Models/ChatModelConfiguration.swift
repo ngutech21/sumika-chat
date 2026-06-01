@@ -63,8 +63,7 @@ enum LocalModelDirectory {
 
         for value in object.values {
             if let nestedObject = value as? [String: Any],
-               let nestedLimit = contextTokenLimit(in: nestedObject)
-            {
+               let nestedLimit = contextTokenLimit(in: nestedObject) {
                 return nestedLimit
             }
         }

@@ -65,7 +65,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             attachments: attachments,
             systemPrompt: systemPrompt
         )
-            .map { ["role": $0.role.rawValue, "content": $0.content] as [String: any Sendable] }
+        .map { ["role": $0.role.rawValue, "content": $0.content] as [String: any Sendable] }
         let usedTokens = try await modelContainer.perform { context in
             try context.tokenizer.applyChatTemplate(messages: rawMessages).count
         }
@@ -109,6 +109,12 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         self.session = session
 
         let stream = session.streamDetails(to: prompt, images: [], videos: [])
+        return Self.modelStream(from: stream)
+    }
+
+    private static func modelStream(
+        from stream: AsyncThrowingStream<Generation, Error>
+    ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -160,7 +166,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                 attachments: messages[lastUserIndex].attachments + attachments
             )
             contextMessages.append(.user(prompt))
-            contextMessages.append(contentsOf: messages[messages.index(after: lastUserIndex)...].compactMap(Chat.Message.init))
+            let remainingMessages = messages[messages.index(after: lastUserIndex)...]
+            contextMessages.append(contentsOf: remainingMessages.compactMap(Chat.Message.init))
         } else {
             contextMessages.append(contentsOf: messages.compactMap(Chat.Message.init))
         }
@@ -205,7 +212,8 @@ private func promptWithAttachments(
     Attached files for this request:
     \(attachmentContextBlock(attachments))
 
-    Use the attached file contents above when answering this request. If the user says "file" or "the file", they mean the attached file.
+    Use the attached file contents above when answering this request.
+    If the user says "file" or "the file", they mean the attached file.
     """
 }
 

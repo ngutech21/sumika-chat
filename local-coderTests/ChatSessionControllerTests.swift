@@ -47,7 +47,12 @@ struct ChatSessionControllerTests {
         #expect(controller.chatSession.messages[0].attachments == [attachment])
         #expect(controller.chatSession.messages[1].role == .assistant)
         #expect(controller.chatSession.messages[1].content == "hello world")
-        #expect(controller.chatSession.messages[1].generationMetrics == ChatGenerationMetrics(generatedTokenCount: 2, tokensPerSecond: 100))
+        #expect(
+            controller.chatSession.messages[1].generationMetrics == ChatGenerationMetrics(
+                generatedTokenCount: 2,
+                tokensPerSecond: 100
+            )
+        )
     }
 
     @Test
@@ -173,7 +178,9 @@ private actor FakeChatModelRuntime: ChatModelRuntime {
             for chunk in chunks {
                 continuation.yield(.chunk(chunk))
             }
-            continuation.yield(.completed(ChatGenerationMetrics(generatedTokenCount: chunks.count, tokensPerSecond: 100)))
+            continuation.yield(
+                .completed(ChatGenerationMetrics(generatedTokenCount: chunks.count, tokensPerSecond: 100))
+            )
             continuation.finish()
         }
     }

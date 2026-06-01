@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -128,7 +129,7 @@ private struct ModelSidebar: View {
                         Label(modelActionTitle, systemImage: modelActionSystemImage)
                     }
                     .accessibilityIdentifier(modelState == .ready ? "unload-model-button" : "load-model-button")
-                    .disabled(isLoading || (modelState != .ready && modelPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                    .disabled(isModelActionDisabled)
                 }
 
                 Label(modelState.label, systemImage: modelState.systemImage)
@@ -242,6 +243,10 @@ private struct ModelSidebar: View {
             "square.and.arrow.down"
         }
     }
+
+    private var isModelActionDisabled: Bool {
+        isLoading || (modelState != .ready && modelPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
 }
 
 private struct ResourceUsageRow: View {
@@ -325,7 +330,7 @@ private struct ChatBubble: View {
                     MessageContentText(message: message)
                         .textSelection(.enabled)
                         .padding(10)
-                        .background(message.role == .user ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12))
+                        .background(messageBubbleBackground)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
 
@@ -398,8 +403,7 @@ private struct MessageContentText: View {
 
     var body: some View {
         if message.role == .assistant,
-           let markdown = try? AttributedString(markdown: message.content)
-        {
+           let markdown = try? AttributedString(markdown: message.content) {
             Text(markdown)
         } else {
             Text(message.content)
@@ -410,6 +414,12 @@ private struct MessageContentText: View {
 private extension ChatGenerationMetrics {
     var summary: String {
         "\(generatedTokenCount) tokens · \(tokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tokens/s"
+    }
+}
+
+private extension ChatBubble {
+    var messageBubbleBackground: Color {
+        message.role == .user ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
     }
 }
 
