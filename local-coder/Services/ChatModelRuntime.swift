@@ -4,6 +4,7 @@ protocol ChatModelRuntime: Sendable {
     func load(configuration: ChatModelConfiguration) async throws
     func streamReply(
         for messages: [ChatMessage],
+        systemPrompt: String,
         settings: ChatGenerationSettings
     ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
 }
@@ -21,8 +22,10 @@ struct MockChatRuntime: ChatModelRuntime {
 
     func streamReply(
         for messages: [ChatMessage],
+        systemPrompt: String,
         settings: ChatGenerationSettings
     ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+        _ = systemPrompt
         _ = settings
 
         let lastPrompt = messages.last(where: { $0.role == .user })?.content ?? ""

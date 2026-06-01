@@ -5,6 +5,7 @@ struct ContentView: View {
     @State private var modelPath = LocalModelDirectory.defaultModelURL.path(percentEncoded: false)
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var modelState: ModelLoadState = .notLoaded
+    @State private var systemPrompt = ChatPromptDefaults.codingSystemPrompt
     @State private var generationSettings = ChatGenerationSettings.codingDefault
     @State private var messages: [ChatMessage] = []
     @State private var draft = ""
@@ -18,6 +19,7 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             ModelSidebar(
                 modelPath: $modelPath,
+                systemPrompt: $systemPrompt,
                 generationSettings: $generationSettings,
                 modelState: modelState,
                 isLoading: modelState == .loading,
@@ -102,6 +104,7 @@ struct ContentView: View {
             do {
                 let stream = try await runtime.streamReply(
                     for: messages,
+                    systemPrompt: systemPrompt,
                     settings: generationSettings
                 )
 
@@ -199,6 +202,7 @@ struct ContentView: View {
 
 private struct ModelSidebar: View {
     @Binding var modelPath: String
+    @Binding var systemPrompt: String
     @Binding var generationSettings: ChatGenerationSettings
     let modelState: ModelLoadState
     let isLoading: Bool
@@ -232,6 +236,13 @@ private struct ModelSidebar: View {
 
             Section("Generation") {
                 VStack(alignment: .leading, spacing: 6) {
+                    Label("System Prompt", systemImage: "text.quote")
+                    TextField("System Prompt", text: $systemPrompt, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(4...8)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Label("Temperature", systemImage: "thermometer.variable")
                         Spacer()
@@ -262,6 +273,7 @@ private struct ModelSidebar: View {
                 }
 
                 Button("Coding Defaults") {
+                    systemPrompt = ChatPromptDefaults.codingSystemPrompt
                     generationSettings = .codingDefault
                 }
             }

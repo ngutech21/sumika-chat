@@ -19,6 +19,7 @@ enum GemmaMLXRuntimeError: LocalizedError {
 
 final actor GemmaMLXRuntime: ChatModelRuntime {
     private var session: ChatSession?
+    private var currentSystemPrompt: String?
 
     func load(configuration: ChatModelConfiguration) async throws {
         let modelConfiguration = ModelConfiguration(
@@ -37,6 +38,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
     func streamReply(
         for messages: [ChatMessage],
+        systemPrompt: String,
         settings: ChatGenerationSettings
     ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
         guard let session else {
@@ -47,6 +49,14 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             throw GemmaMLXRuntimeError.missingUserMessage
         }
 
+        let effectiveSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instructions = effectiveSystemPrompt.isEmpty ? nil : effectiveSystemPrompt
+        if currentSystemPrompt != instructions {
+            await session.clear()
+            currentSystemPrompt = instructions
+        }
+
+        session.instructions = instructions
         session.generateParameters = GenerateParameters(
             maxTokens: settings.maxTokens,
             temperature: Float(settings.temperature),
