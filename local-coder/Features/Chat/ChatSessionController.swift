@@ -35,6 +35,8 @@ final class ChatSessionController {
     @ObservationIgnored private var resourceMonitorTask: Task<Void, Never>?
     @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
     @ObservationIgnored private let maxToolIterations = 1
+    @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
+    @ObservationIgnored private let streamingFlushCharacterLimit = 240
 
     var canSend: Bool {
         modelState == .ready && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -593,11 +595,37 @@ private extension ChatSessionController {
             settings: chatSession.generationSettings
         )
 
+        var bufferedChunk = ""
+        var lastFlushDate = Date()
+
+        func flushBufferedChunks() {
+            guard !bufferedChunk.isEmpty else {
+                return
+            }
+
+            appendChunk(bufferedChunk, to: assistantMessageID)
+            bufferedChunk = ""
+            lastFlushDate = Date()
+        }
+
+        func shouldFlushBufferedChunks() -> Bool {
+            bufferedChunk.count >= streamingFlushCharacterLimit
+                || Date().timeIntervalSince(lastFlushDate) >= streamingFlushInterval
+        }
+
+        defer {
+            flushBufferedChunks()
+        }
+
         for try await event in stream {
             switch event {
             case .chunk(let chunk):
-                appendChunk(chunk, to: assistantMessageID)
+                bufferedChunk += chunk
+                if shouldFlushBufferedChunks() {
+                    flushBufferedChunks()
+                }
             case .completed(let metrics):
+                flushBufferedChunks()
                 updateGenerationMetrics(metrics, for: assistantMessageID)
                 await updateContextUsage()
             }
