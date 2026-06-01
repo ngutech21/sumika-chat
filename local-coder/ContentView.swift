@@ -896,7 +896,7 @@ private struct MessageContentText: View {
             ToolCallSummaryView(toolCall: toolCall)
         } else if let toolResult = message.toolResult {
             ToolResultSummaryView(toolResult: toolResult)
-        } else if message.role == .assistant {
+        } else if message.kind == .assistant {
             Markdown(AssistantMarkdownPreprocessor.renderableContent(for: message.content))
                 .markdownTheme(.chatMessage)
                 .markdownCodeSyntaxHighlighter(ChatCodeSyntaxHighlighter())
@@ -927,6 +927,10 @@ private struct ToolCallSummaryView: View {
                     LabeledContent(argument.name, value: argument.value)
                 }
             }
+
+            Text("Call ID \(toolCall.callID.uuidString)")
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
         }
         .font(.callout)
     }
@@ -950,6 +954,9 @@ private struct ToolResultSummaryView: View {
             }
 
             LabeledContent("Tool", value: toolResult.toolName.rawValue)
+            Text("Call ID \(toolResult.callID.uuidString)")
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
 
             if !toolResult.metaSummary.isEmpty {
                 Text(toolResult.metaSummary)
@@ -1050,11 +1057,11 @@ extension ChatBubble {
 
 extension ChatMessage {
     fileprivate var shouldShowAssistantPlaceholder: Bool {
-        role == .assistant && toolCall == nil && (content.isEmpty || containsStreamingToolCallMarkup)
+        kind == .assistant && (content.isEmpty || containsStreamingToolCallMarkup)
     }
 
     fileprivate var canCopyAssistantContent: Bool {
-        role == .assistant && toolCall == nil && !containsStreamingToolCallMarkup && !content.isEmpty
+        kind == .assistant && !containsStreamingToolCallMarkup && !content.isEmpty
     }
 
     fileprivate var assistantPlaceholderTitle: String {
@@ -1066,23 +1073,15 @@ extension ChatMessage {
     }
 
     fileprivate var isDisplayedAsUser: Bool {
-        role == .user && toolResult == nil
+        kind == .user
     }
 
     fileprivate var displayTitle: String {
-        if toolResult != nil {
-            return ChatRole.assistant.title
-        }
-
-        return role.title
+        kind.title
     }
 
     fileprivate var displaySystemImage: String {
-        if toolResult != nil {
-            return ChatRole.assistant.systemImage
-        }
-
-        return role.systemImage
+        kind.systemImage
     }
 }
 

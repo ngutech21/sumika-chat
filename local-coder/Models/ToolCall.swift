@@ -109,16 +109,19 @@ struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
 }
 
 struct ToolCallModelMessage: Codable, Equatable, Sendable {
+  var callID: UUID
   var toolName: ToolName
   var arguments: [ToolCallModelArgument]
 
-  init(toolName: ToolName, arguments: [ToolCallModelArgument]) {
+  init(callID: UUID, toolName: ToolName, arguments: [ToolCallModelArgument]) {
+    self.callID = callID
     self.toolName = toolName
     self.arguments = arguments
   }
 
   init(request: ToolCallRequest) {
     self.init(
+      callID: request.id,
       toolName: request.toolName,
       arguments: request.arguments.keys.sorted().map { key in
         ToolCallModelArgument(name: key, value: request.arguments[key]?.displayValue ?? "")
@@ -248,23 +251,6 @@ struct ToolResultPreview: Codable, Equatable, Sendable {
     self.affectedPaths = affectedPaths
   }
 
-  func modelMessage(toolName: ToolName) -> String {
-    let paths = affectedPaths.isEmpty ? "none" : affectedPaths.joined(separator: "\n")
-    let truncation = truncated ? "\nResult was truncated." : ""
-    return """
-      Tool result
-      Tool: \(toolName.rawValue)
-      Status: \(status.rawValue)
-      Paths:
-      \(paths)\(truncation)
-
-      Result:
-      \(text)
-
-      Use this tool result to answer the user directly. Do not call another tool for this response.
-      """
-  }
-
   private enum CodingKeys: String, CodingKey {
     case status
     case text
@@ -290,6 +276,7 @@ enum ToolResultStatus: String, Codable, Equatable, Sendable {
 }
 
 struct ToolResultModelMessage: Codable, Equatable, Sendable {
+  var callID: UUID
   var toolName: ToolName
   var preview: ToolResultPreview
 }

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import local_coder
@@ -9,11 +10,11 @@ struct ChatMessageTests {
             "<",
             "<act",
             "<action",
-            "<action name=\"list_files\">",
+            "<action name=\"list_files\">"
         ]
 
         for content in partialMessages {
-            let message = ChatMessage(role: .assistant, content: content)
+            let message = ChatMessage(kind: .assistant, content: content)
 
             #expect(message.containsStreamingToolCallMarkup)
         }
@@ -21,17 +22,17 @@ struct ChatMessageTests {
 
     @Test
     func ignoresPlainAssistantContentWhenDetectingStreamingToolCallMarkup() {
-        let message = ChatMessage(role: .assistant, content: "Here are the files:")
+        let message = ChatMessage(kind: .assistant, content: "Here are the files:")
 
         #expect(!message.containsStreamingToolCallMarkup)
     }
 
     @Test
-    func ignoresAnnotatedToolCallsWhenDetectingStreamingToolCallMarkup() {
+    func ignoresToolCallMessagesWhenDetectingStreamingToolCallMarkup() {
         let message = ChatMessage(
-            role: .assistant,
-            content: "<action name=\"list_files\"></action>",
-            toolCall: ToolCallModelMessage(toolName: .listFiles, arguments: [])
+            kind: .toolCall,
+            content: "",
+            toolCall: ToolCallModelMessage(callID: UUID(), toolName: .listFiles, arguments: [])
         )
 
         #expect(!message.containsStreamingToolCallMarkup)

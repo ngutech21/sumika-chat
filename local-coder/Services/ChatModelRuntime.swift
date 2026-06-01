@@ -54,7 +54,7 @@ struct MockChatRuntime: ChatModelRuntime {
         _ = systemPrompt
         _ = settings
 
-        let lastMessage = messages.last(where: { $0.role == .user })
+        let lastMessage = messages.last(where: { $0.kind == .user })
         let attachmentSummary = lastMessage?.attachments.map(\.displayName).joined(separator: ", ") ?? ""
         let lastPrompt = lastMessage?.content ?? ""
         let chunks = [

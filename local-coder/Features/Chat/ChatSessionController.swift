@@ -380,9 +380,9 @@ final class ChatSessionController {
         errorMessage = nil
         chatSession.attachments.removeAll()
         chatSession.messages.append(
-            ChatMessage(role: .user, content: prompt, attachments: sentAttachments))
+            ChatMessage(kind: .user, content: prompt, attachments: sentAttachments))
         let assistantMessageID = UUID()
-        chatSession.messages.append(ChatMessage(id: assistantMessageID, role: .assistant, content: ""))
+        chatSession.messages.append(ChatMessage(id: assistantMessageID, kind: .assistant, content: ""))
         isGenerating = true
         notifySessionDidChange()
 
@@ -512,7 +512,7 @@ final class ChatSessionController {
         let message = chatSession.messages[index]
         chatSession.messages[index] = ChatMessage(
             id: message.id,
-            role: message.role,
+            kind: message.kind,
             content: message.content + chunk,
             attachments: message.attachments,
             generationMetrics: message.generationMetrics,
@@ -529,7 +529,7 @@ final class ChatSessionController {
         let message = chatSession.messages[index]
         chatSession.messages[index] = ChatMessage(
             id: message.id,
-            role: message.role,
+            kind: message.kind,
             content: message.content,
             attachments: message.attachments,
             generationMetrics: metrics,
@@ -548,10 +548,8 @@ final class ChatSessionController {
 
     private func removeTransientAssistantPlaceholders() {
         chatSession.messages.removeAll { message in
-            message.role == .assistant
+            message.kind == .assistant
                 && message.content.isEmpty
-                && message.toolCall == nil
-                && message.toolResult == nil
         }
     }
 
@@ -636,18 +634,23 @@ private extension ChatSessionController {
             chatSession.toolCalls.append(record)
             notifySessionDidChange()
 
-            let resultPreview = record.resultPreview
-            let resultMessage = resultPreview?.modelMessage(toolName: request.toolName)
-                ?? "Tool result unavailable for \(request.toolName.rawValue)."
-            let toolResult = resultPreview.map {
-                ToolResultModelMessage(toolName: request.toolName, preview: $0)
-            }
+            let resultPreview =
+                record.resultPreview
+                    ?? ToolResultPreview(
+                        status: .failed,
+                        text: "Tool result unavailable for \(request.toolName.rawValue)."
+                    )
+            let toolResult = ToolResultModelMessage(
+                callID: request.id,
+                toolName: request.toolName,
+                preview: resultPreview
+            )
             chatSession.messages.append(
-                ChatMessage(role: .user, content: resultMessage, toolResult: toolResult))
+                ChatMessage(kind: .toolResult, content: "", toolResult: toolResult))
 
             let nextAssistantMessageID = UUID()
             chatSession.messages.append(
-                ChatMessage(id: nextAssistantMessageID, role: .assistant, content: ""))
+                ChatMessage(id: nextAssistantMessageID, kind: .assistant, content: ""))
             notifySessionDidChange()
 
             try await streamAssistantReply(to: nextAssistantMessageID, toolPromptMode: .afterToolResult)
@@ -739,12 +742,12 @@ private extension ChatSessionController {
         let message = chatSession.messages[index]
         chatSession.messages[index] = ChatMessage(
             id: message.id,
-            role: message.role,
+            kind: .toolCall,
             content: "",
             attachments: message.attachments,
             generationMetrics: message.generationMetrics,
             toolCall: toolCall,
-            toolResult: message.toolResult
+            toolResult: nil
         )
     }
 

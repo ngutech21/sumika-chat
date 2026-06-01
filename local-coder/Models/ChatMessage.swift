@@ -2,7 +2,7 @@ import Foundation
 
 struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
-    let role: ChatRole
+    let kind: MessageKind
     let content: String
     let attachments: [ChatAttachment]
     let generationMetrics: ChatGenerationMetrics?
@@ -11,15 +11,16 @@ struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
 
     init(
         id: UUID = UUID(),
-        role: ChatRole,
+        kind: MessageKind,
         content: String,
         attachments: [ChatAttachment] = [],
         generationMetrics: ChatGenerationMetrics? = nil,
         toolCall: ToolCallModelMessage? = nil,
         toolResult: ToolResultModelMessage? = nil
     ) {
+        precondition(kind.allows(content: content, toolCall: toolCall, toolResult: toolResult))
         self.id = id
-        self.role = role
+        self.kind = kind
         self.content = content
         self.attachments = attachments
         self.generationMetrics = generationMetrics
@@ -29,39 +30,38 @@ struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id
-        case role
+        case kind
         case content
         case attachments
         case generationMetrics
         case toolCall
-        case toolCallRequest
         case toolResult
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
-        role = try container.decode(ChatRole.self, forKey: .role)
+        kind = try container.decode(MessageKind.self, forKey: .kind)
         content = try container.decode(String.self, forKey: .content)
         attachments = try container.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? []
         generationMetrics = try container.decodeIfPresent(
             ChatGenerationMetrics.self, forKey: .generationMetrics)
-        if let toolCall = try container.decodeIfPresent(ToolCallModelMessage.self, forKey: .toolCall) {
-            self.toolCall = toolCall
-        } else if let legacyRequest = try container.decodeIfPresent(
-            ToolCallRequest.self, forKey: .toolCallRequest
-        ) {
-            self.toolCall = ToolCallModelMessage(request: legacyRequest)
-        } else {
-            toolCall = nil
-        }
+        toolCall = try container.decodeIfPresent(ToolCallModelMessage.self, forKey: .toolCall)
         toolResult = try container.decodeIfPresent(ToolResultModelMessage.self, forKey: .toolResult)
+
+        guard kind.allows(content: content, toolCall: toolCall, toolResult: toolResult) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind,
+                in: container,
+                debugDescription: "Message kind does not match message payload."
+            )
+        }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
-        try container.encode(role, forKey: .role)
+        try container.encode(kind, forKey: .kind)
         try container.encode(content, forKey: .content)
         try container.encode(attachments, forKey: .attachments)
         try container.encodeIfPresent(generationMetrics, forKey: .generationMetrics)
@@ -77,7 +77,7 @@ struct ChatGenerationMetrics: Codable, Equatable, Sendable {
 
 extension ChatMessage {
     var containsStreamingToolCallMarkup: Bool {
-        guard role == .assistant, toolCall == nil, toolResult == nil else {
+        guard kind == .assistant else {
             return false
         }
 
@@ -90,9 +90,12 @@ extension ChatMessage {
     }
 }
 
-enum ChatRole: String, Codable, Equatable, Sendable {
+enum MessageKind: String, Codable, Equatable, Sendable {
     case user
     case assistant
+    case toolCall
+    case toolResult
+    case system
 
     var title: String {
         switch self {
@@ -100,6 +103,10 @@ enum ChatRole: String, Codable, Equatable, Sendable {
             "You"
         case .assistant:
             "Local Coder"
+        case .toolCall, .toolResult:
+            "Local Coder"
+        case .system:
+            "System"
         }
     }
 
@@ -109,6 +116,27 @@ enum ChatRole: String, Codable, Equatable, Sendable {
             "person.crop.circle"
         case .assistant:
             "cpu"
+        case .toolCall:
+            "wrench.and.screwdriver"
+        case .toolResult:
+            "checkmark.circle"
+        case .system:
+            "gearshape"
+        }
+    }
+
+    fileprivate func allows(
+        content: String,
+        toolCall: ToolCallModelMessage?,
+        toolResult: ToolResultModelMessage?
+    ) -> Bool {
+        switch self {
+        case .user, .assistant, .system:
+            return toolCall == nil && toolResult == nil
+        case .toolCall:
+            return content.isEmpty && toolCall != nil && toolResult == nil
+        case .toolResult:
+            return content.isEmpty && toolCall == nil && toolResult != nil
         }
     }
 }
