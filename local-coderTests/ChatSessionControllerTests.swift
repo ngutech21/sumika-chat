@@ -463,6 +463,106 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func refreshContextUsagePublishesOnlyLatestResult() async throws {
+    let runtime = ControlledContextUsageRuntime()
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelState = .ready
+    controller.chatSession.messages = [ChatMessage(kind: .user, content: "hello")]
+
+    controller.refreshContextUsage()
+    try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
+
+    controller.refreshContextUsage()
+    try await waitUntilAsync { await runtime.contextUsageRequestCount == 2 }
+
+    await runtime.resolveContextUsage(
+      at: 1,
+      with: ChatContextUsage(usedTokens: 20, tokenLimit: 100)
+    )
+    try await waitUntil { controller.contextUsage?.usedTokens == 20 }
+
+    await runtime.resolveContextUsage(
+      at: 0,
+      with: ChatContextUsage(usedTokens: 10, tokenLimit: 100)
+    )
+    try await Task.sleep(for: .milliseconds(60))
+
+    #expect(controller.contextUsage?.usedTokens == 20)
+    #expect(controller.contextUsage?.tokenLimit == 100)
+  }
+
+  @Test
+  func clearChatHistoryDoesNotPublishStaleContextUsageAfterModelChange() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = DelayedClearContextRuntime()
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+    controller.modelState = .ready
+    controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
+    controller.chatSession.messages = [ChatMessage(kind: .user, content: "old session")]
+
+    controller.clearChatHistory()
+    try await waitUntilAsync { await runtime.didStartClearContext }
+
+    controller.loadModel()
+    try await waitUntil { controller.modelState == .ready }
+    try await waitUntil { controller.contextUsage?.usedTokens == 42 }
+
+    await runtime.releaseClearContext()
+    try await Task.sleep(for: .milliseconds(60))
+
+    #expect(controller.modelState == .ready)
+    #expect(controller.contextUsage?.usedTokens == 42)
+  }
+
+  @Test
+  func staleUnloadDoesNotOverwriteRuntimeAfterSubsequentLoad() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = DelayedUnloadRuntime()
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+    controller.modelState = .ready
+
+    controller.unloadModel()
+    try await waitUntilAsync { await runtime.didStartUnload }
+
+    controller.loadModel()
+    try await Task.sleep(for: .milliseconds(60))
+    #expect(await runtime.loadCount == 0)
+
+    await runtime.releaseUnload()
+    try await waitUntil { controller.modelState == .ready }
+
+    #expect(await runtime.isLoaded)
+    #expect(controller.errorMessage == nil)
+  }
+
+  @Test
+  func staleAttachmentLoadDoesNotAppendAfterNewerAttachmentRequest() async throws {
+    let loader = BlockingFirstAttachmentLoader()
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      chatAttachmentLoader: loader
+    )
+
+    controller.addAttachments(from: [URL(filePath: "/tmp/first.swift")])
+    try await waitUntil { loader.startedCount == 1 }
+
+    controller.addAttachments(from: [URL(filePath: "/tmp/second.swift")])
+    try await waitUntil { controller.chatSession.attachments.map(\.displayName) == ["second.swift"] }
+
+    loader.releaseFirstLoad()
+    try await Task.sleep(for: .milliseconds(60))
+
+    #expect(controller.chatSession.attachments.map(\.displayName) == ["second.swift"])
+  }
+
+  @Test
   func unloadModelReleasesRuntimeAndResetsModelState() async throws {
     let runtime = FakeChatModelRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -617,6 +717,207 @@ private actor NonCooperativeStreamingRuntime: ChatModelRuntime {
       return
     }
     streamContinuation = continuation
+  }
+}
+
+private actor ControlledContextUsageRuntime: ChatModelRuntime {
+  private var contextUsageContinuations: [CheckedContinuation<ChatContextUsage, Never>] = []
+
+  var contextUsageRequestCount: Int {
+    contextUsageContinuations.count
+  }
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+  }
+
+  func unload() async {}
+  func clearContext() async {}
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    return await withCheckedContinuation { continuation in
+      contextUsageContinuations.append(continuation)
+    }
+  }
+
+  func resolveContextUsage(at index: Int, with usage: ChatContextUsage) {
+    guard contextUsageContinuations.indices.contains(index) else {
+      return
+    }
+    let continuation = contextUsageContinuations.remove(at: index)
+    continuation.resume(returning: usage)
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+    return AsyncThrowingStream { continuation in
+      continuation.finish()
+    }
+  }
+}
+
+private actor DelayedClearContextRuntime: ChatModelRuntime {
+  private var clearContextContinuation: CheckedContinuation<Void, Never>?
+  private(set) var didStartClearContext = false
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+  }
+
+  func unload() async {}
+
+  func clearContext() async {
+    didStartClearContext = true
+    await withCheckedContinuation { continuation in
+      clearContextContinuation = continuation
+    }
+  }
+
+  func releaseClearContext() {
+    clearContextContinuation?.resume()
+    clearContextContinuation = nil
+  }
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 42, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+    return AsyncThrowingStream { continuation in
+      continuation.finish()
+    }
+  }
+}
+
+private actor DelayedUnloadRuntime: ChatModelRuntime {
+  private var unloadContinuation: CheckedContinuation<Void, Never>?
+  private(set) var didStartUnload = false
+  private(set) var isLoaded = true
+  private(set) var loadCount = 0
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+    loadCount += 1
+    isLoaded = true
+  }
+
+  func unload() async {
+    didStartUnload = true
+    await withCheckedContinuation { continuation in
+      unloadContinuation = continuation
+    }
+    isLoaded = false
+  }
+
+  func releaseUnload() {
+    unloadContinuation?.resume()
+    unloadContinuation = nil
+  }
+
+  func clearContext() async {}
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+    return AsyncThrowingStream { continuation in
+      continuation.finish()
+    }
+  }
+}
+
+private final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sendable {
+  private let lock = NSLock()
+  private let firstLoadRelease = DispatchSemaphore(value: 0)
+  private var _startedCount = 0
+
+  var startedCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return _startedCount
+  }
+
+  func loadAttachments(
+    from urls: [URL],
+    existingAttachments: [ChatAttachment]
+  ) throws -> [ChatAttachment] {
+    _ = existingAttachments
+    lock.lock()
+    _startedCount += 1
+    let callNumber = _startedCount
+    lock.unlock()
+
+    if callNumber == 1 {
+      firstLoadRelease.wait()
+    }
+
+    guard let url = urls.first else {
+      return []
+    }
+    return [
+      ChatAttachment(
+        url: url,
+        displayName: url.lastPathComponent,
+        kind: .text,
+        content: callNumber == 1 ? "first" : "second"
+      )
+    ]
+  }
+
+  func extractDroppedAttachments(from draft: String) -> DroppedAttachmentExtraction {
+    DroppedAttachmentExtraction(cleanedDraft: draft)
+  }
+
+  func releaseFirstLoad() {
+    firstLoadRelease.signal()
   }
 }
 

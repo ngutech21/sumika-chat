@@ -117,6 +117,7 @@ struct ModelManagementTests {
     try await waitUntil { controller.downloadState == .downloaded }
     #expect(controller.downloadProgress == 1)
     #expect(downloader.downloadedModelID == ManagedModelCatalog.defaultModelID)
+    #expect(controller.isModelDownloaded(ManagedModelCatalog.defaultModel))
   }
 
   @Test
