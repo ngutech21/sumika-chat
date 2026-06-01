@@ -56,6 +56,31 @@ struct ChatSessionControllerTests {
     }
 
     @Test
+    func sendMessageInWorkspaceKeepsNormalChatFreeOfToolInstructions() async throws {
+        let sessionID = UUID()
+        let workspace = try makeWorkspace(sessionID: sessionID)
+        let runtime = FakeChatModelRuntime(chunks: ["a short poem"])
+        let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+        controller.modelState = .ready
+        controller.draft = "write a short poem"
+
+        controller.sendMessage(in: workspace, sessionID: sessionID)
+
+        try await waitUntil { !controller.isGenerating }
+
+        #expect(controller.errorMessage == nil)
+        #expect(controller.chatSession.toolCalls.isEmpty)
+        #expect(controller.chatSession.messages.count == 2)
+        #expect(controller.chatSession.messages[1].content == "a short poem")
+
+        let capturedSystemPrompts = await runtime.capturedSystemPrompts
+        #expect(capturedSystemPrompts.count == 1)
+        #expect(!capturedSystemPrompts[0].contains("read_file"))
+        #expect(!capturedSystemPrompts[0].contains("list_files"))
+        #expect(!capturedSystemPrompts[0].contains("Tool calling uses"))
+    }
+
+    @Test
     func sendMessageRunsReadOnlyToolCallAndContinuesWithToolResultContext() async throws {
         let rootURL = FileManager.default.temporaryDirectory.appending(
             path: "local-coder-tests-\(UUID().uuidString)",
@@ -187,6 +212,75 @@ struct ChatSessionControllerTests {
     }
 
     @Test
+    func sendMessageExecutesToolCallWhenModelEmitsExtraneousToolMarkup() async throws {
+        let sessionID = UUID()
+        let workspace = try makeWorkspace(sessionID: sessionID)
+        let runtime = FakeChatModelRuntime(
+            turns: [
+                [
+                    """
+                    I should inspect this.
+                    <action name="read_file">
+                    <path>README.md</path>
+                    </action>
+                    """
+                ],
+                ["The README says project notes."],
+            ])
+        let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+        controller.modelState = .ready
+        controller.draft = "Read the README"
+
+        controller.sendMessage(in: workspace, sessionID: sessionID)
+
+        try await waitUntil { !controller.isGenerating }
+
+        #expect(controller.errorMessage == nil)
+        #expect(controller.chatSession.toolCalls.count == 1)
+        #expect(controller.chatSession.messages.count == 4)
+        #expect(controller.chatSession.messages[1].content.isEmpty)
+        #expect(controller.chatSession.messages[1].toolCall?.toolName == .readFile)
+        #expect(controller.chatSession.messages[2].toolResult?.toolName == .readFile)
+        #expect(controller.chatSession.messages[3].content == "The README says project notes.")
+    }
+
+    @Test
+    func sendMessageExecutesToolCallWhenModelWrapsActionInMarkdownFence() async throws {
+        let sessionID = UUID()
+        let workspace = try makeWorkspace(sessionID: sessionID)
+        let runtime = FakeChatModelRuntime(
+            turns: [
+                [
+                    """
+                    ```xml
+                    <action name="list_files">
+                    <path>.</path>
+                    </action>
+                    ```
+                    """
+                ],
+                ["The current directory contains README.md."],
+            ])
+        let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+        controller.modelState = .ready
+        controller.draft = "list the files in the current directory"
+
+        controller.sendMessage(in: workspace, sessionID: sessionID)
+
+        try await waitUntil { !controller.isGenerating }
+
+        #expect(controller.errorMessage == nil)
+        #expect(controller.chatSession.toolCalls.count == 1)
+        #expect(controller.chatSession.toolCalls[0].request.toolName == .listFiles)
+        #expect(controller.chatSession.toolCalls[0].resultPreview?.text.contains("README.md") == true)
+        #expect(controller.chatSession.messages.count == 4)
+        #expect(controller.chatSession.messages[1].content.isEmpty)
+        #expect(controller.chatSession.messages[1].toolCall?.toolName == .listFiles)
+        #expect(controller.chatSession.messages[2].toolResult?.toolName == .listFiles)
+        #expect(controller.chatSession.messages[3].content == "The current directory contains README.md.")
+    }
+
+    @Test
     func loadModelUsesDirectoryConfigurationAndUpdatesReadyState() async throws {
         let modelDirectory = FileManager.default.temporaryDirectory.appending(
             path: "local-coder-tests-\(UUID().uuidString)",
@@ -285,6 +379,31 @@ struct ChatSessionControllerTests {
             }
             try await Task.sleep(for: .milliseconds(10))
         }
+    }
+
+    private func makeWorkspace(sessionID: CodingSession.ID) throws -> Workspace {
+        let rootURL = FileManager.default.temporaryDirectory.appending(
+            path: "local-coder-tests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "project notes".write(
+            to: rootURL.appending(path: "README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        return Workspace(
+            name: "Project",
+            rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)),
+            sessions: [
+                CodingSession(
+                    id: sessionID,
+                    selectedModelID: ManagedModelCatalog.defaultModelID,
+                    systemPrompt: ChatPromptDefaults.codingSystemPrompt,
+                    generationSettings: .codingDefault
+                )
+            ]
+        )
     }
 }
 

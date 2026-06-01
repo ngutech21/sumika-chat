@@ -26,6 +26,7 @@ final class ChatSessionController {
     @ObservationIgnored private let toolCallParser: any ToolCallParsing
     @ObservationIgnored private let toolPromptRenderer: any ToolPromptRendering
     @ObservationIgnored private let toolOrchestrator: ToolOrchestrator
+    @ObservationIgnored private let chatAttachmentLoader: any ChatAttachmentLoading
     @ObservationIgnored private var isHandlingDroppedDraftPath = false
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
@@ -59,7 +60,8 @@ final class ChatSessionController {
         resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
         toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
         toolPromptRenderer: any ToolPromptRendering = TaggedToolPromptRenderer(),
-        toolOrchestrator: ToolOrchestrator = ToolOrchestrator()
+        toolOrchestrator: ToolOrchestrator = ToolOrchestrator(),
+        chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader()
     ) {
         let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
         let selectedModelID = settingsStore.selectedModelID(availableModelIDs: availableModelIDs)
@@ -74,6 +76,7 @@ final class ChatSessionController {
         self.toolCallParser = toolCallParser
         self.toolPromptRenderer = toolPromptRenderer
         self.toolOrchestrator = toolOrchestrator
+        self.chatAttachmentLoader = chatAttachmentLoader
         self.selectedModelID = selectedModel.id
         self.modelPath = selectedModel.localPath
         self.modelContextTokenLimit = storedSettings.contextTokenLimit
@@ -94,7 +97,8 @@ final class ChatSessionController {
         modelDownloader: any ModelDownloading = HuggingFaceModelDownloader(),
         toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
         toolPromptRenderer: any ToolPromptRendering = TaggedToolPromptRenderer(),
-        toolOrchestrator: ToolOrchestrator = ToolOrchestrator()
+        toolOrchestrator: ToolOrchestrator = ToolOrchestrator(),
+        chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader()
     ) {
         self.runtime = runtime
         self.resourceMonitor = resourceMonitor
@@ -103,6 +107,7 @@ final class ChatSessionController {
         self.toolCallParser = toolCallParser
         self.toolPromptRenderer = toolPromptRenderer
         self.toolOrchestrator = toolOrchestrator
+        self.chatAttachmentLoader = chatAttachmentLoader
         self.selectedModelID = ManagedModelCatalog.defaultModelID
         self.modelPath = modelPath
         self.modelContextTokenLimit = ManagedModelCatalog.defaultModel.defaultContextTokenLimit
@@ -383,13 +388,20 @@ final class ChatSessionController {
 
         generationTask = Task {
             do {
-                await updateContextUsage()
-                try await streamAssistantReply(to: assistantMessageID, allowsToolCalls: true)
-                try await runReadOnlyToolLoop(
+                let allowsToolCalls = shouldAllowToolCalls(
                     workspace: workspace,
-                    sessionID: sessionID,
-                    lastAssistantMessageID: assistantMessageID
+                    prompt: prompt,
+                    attachments: sentAttachments
                 )
+                await updateContextUsage()
+                try await streamAssistantReply(to: assistantMessageID, toolPromptMode: .enabled(allowsToolCalls))
+                if allowsToolCalls {
+                    try await runReadOnlyToolLoop(
+                        workspace: workspace,
+                        sessionID: sessionID,
+                        lastAssistantMessageID: assistantMessageID
+                    )
+                }
             } catch is CancellationError {
                 removeTransientAssistantPlaceholders()
                 await updateContextUsage()
@@ -450,7 +462,7 @@ final class ChatSessionController {
             contextUsage = try await runtime.contextUsage(
                 for: chatSession.messages,
                 attachments: chatSession.attachments,
-                systemPrompt: toolEnabledSystemPrompt()
+                systemPrompt: systemPrompt(toolPromptMode: .disabled)
             )
         } catch {
             contextUsage = nil
@@ -459,21 +471,10 @@ final class ChatSessionController {
 
     func addAttachments(from urls: [URL]) {
         do {
-            let remainingSlots = ChatAttachmentLimits.maxAttachmentCount - chatSession.attachments.count
-            guard urls.count <= remainingSlots else {
-                throw ChatAttachmentError.tooManyFiles(ChatAttachmentLimits.maxAttachmentCount)
-            }
-
-            let existingPaths = Set(chatSession.attachments.map(\.displayPath))
-            let attachments = try urls.compactMap { url -> ChatAttachment? in
-                let path = url.path(percentEncoded: false)
-                guard !existingPaths.contains(path) else {
-                    return nil
-                }
-
-                return try readTextAttachment(from: url)
-            }
-
+            let attachments = try chatAttachmentLoader.loadAttachments(
+                from: urls,
+                existingAttachments: chatSession.attachments
+            )
             chatSession.attachments.append(contentsOf: attachments)
             errorMessage = nil
             refreshContextUsage()
@@ -487,7 +488,7 @@ final class ChatSessionController {
             return
         }
 
-        let droppedFiles = droppedAttachmentURLs(in: draft)
+        let droppedFiles = chatAttachmentLoader.extractDroppedAttachments(from: draft)
         guard !droppedFiles.urls.isEmpty else {
             return
         }
@@ -558,119 +559,6 @@ final class ChatSessionController {
         chatSession.messages.first(where: { $0.id == id })?.content ?? ""
     }
 
-    private func droppedAttachmentURLs(in text: String) -> (urls: [URL], cleanedDraft: String) {
-        let pattern = droppedAttachmentPathPattern()
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return ([], text)
-        }
-
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        let matches = regex.matches(in: text, range: range)
-        guard !matches.isEmpty else {
-            return ([], text)
-        }
-
-        var urls: [URL] = []
-        var rangesToRemove: [Range<String.Index>] = []
-
-        for match in matches {
-            guard let matchRange = Range(match.range, in: text) else {
-                continue
-            }
-
-            let rawPath = String(text[matchRange])
-            guard let url = attachmentURL(fromDroppedPath: rawPath), isSupportedAttachmentURL(url) else {
-                continue
-            }
-
-            urls.append(url)
-            rangesToRemove.append(matchRange)
-        }
-
-        guard !urls.isEmpty else {
-            return ([], text)
-        }
-
-        var cleanedDraft = text
-        for range in rangesToRemove.reversed() {
-            cleanedDraft.removeSubrange(range)
-        }
-
-        return (urls, normalizeDraftAfterRemovingAttachmentPaths(cleanedDraft))
-    }
-
-    private func droppedAttachmentPathPattern() -> String {
-        let extensions = ChatAttachmentLimits.supportedTextFileExtensions
-            .sorted { $0.count > $1.count }
-            .map(NSRegularExpression.escapedPattern(for:))
-            .joined(separator: "|")
-        return #"file://[^\s]+|/[^\n\r\t]*?\.(?:"# + extensions + #")(?=\s|$)"#
-    }
-
-    private func attachmentURL(fromDroppedPath path: String) -> URL? {
-        if path.hasPrefix("file://") {
-            return URL(string: path)?.standardizedFileURL
-        }
-
-        return URL(filePath: path).standardizedFileURL
-    }
-
-    private func isSupportedAttachmentURL(_ url: URL) -> Bool {
-        let path = url.path(percentEncoded: false)
-        let fileExtension = url.pathExtension.lowercased()
-        var isDirectory: ObjCBool = false
-
-        return ChatAttachmentLimits.supportedTextFileExtensions.contains(fileExtension)
-            && FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-            && !isDirectory.boolValue
-    }
-
-    private func normalizeDraftAfterRemovingAttachmentPaths(_ text: String) -> String {
-        var cleaned =
-            text
-            .replacingOccurrences(of: " \n", with: "\n")
-            .replacingOccurrences(of: "\n ", with: "\n")
-
-        while cleaned.contains("  ") {
-            cleaned = cleaned.replacingOccurrences(of: "  ", with: " ")
-        }
-
-        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func readTextAttachment(from url: URL) throws -> ChatAttachment {
-        let didStartSecurityScope = url.startAccessingSecurityScopedResource()
-        defer {
-            if didStartSecurityScope {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        let fileName = url.lastPathComponent
-        let fileExtension = url.pathExtension.lowercased()
-        guard ChatAttachmentLimits.supportedTextFileExtensions.contains(fileExtension) else {
-            throw ChatAttachmentError.unsupportedFileType(fileName)
-        }
-
-        let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
-        let fileSize = resourceValues.fileSize ?? 0
-        guard fileSize <= ChatAttachmentLimits.maxTextFileBytes else {
-            throw ChatAttachmentError.fileTooLarge(fileName, ChatAttachmentLimits.maxTextFileBytes)
-        }
-
-        let data = try Data(contentsOf: url)
-        guard let content = String(data: data, encoding: .utf8) else {
-            throw ChatAttachmentError.unreadableText(fileName)
-        }
-
-        return ChatAttachment(
-            url: url,
-            displayName: fileName,
-            kind: .text,
-            content: content
-        )
-    }
-
     private func validateModelDirectory(_ url: URL) throws {
         var isDirectory: ObjCBool = false
         let path = url.path(percentEncoded: false)
@@ -693,11 +581,17 @@ final class ChatSessionController {
 }
 
 private extension ChatSessionController {
-    func streamAssistantReply(to assistantMessageID: UUID, allowsToolCalls: Bool) async throws {
+    enum ToolPromptMode {
+        case disabled
+        case enabled(Bool)
+        case afterToolResult
+    }
+
+    func streamAssistantReply(to assistantMessageID: UUID, toolPromptMode: ToolPromptMode) async throws {
         let stream = try await runtime.streamReply(
             for: chatSession.messages,
             attachments: [],
-            systemPrompt: systemPrompt(allowsToolCalls: allowsToolCalls),
+            systemPrompt: systemPrompt(toolPromptMode: toolPromptMode),
             settings: chatSession.generationSettings
         )
 
@@ -726,11 +620,10 @@ private extension ChatSessionController {
         for _ in 0..<maxToolIterations {
             try Task.checkCancellation()
             let assistantContent = messageContent(for: assistantMessageID)
-            let parseResult = try toolCallParser.parse(
+            let parseResult = try parseToolCallResult(
                 assistantContent,
                 workspaceID: workspace.id,
-                sessionID: sessionID,
-                createdAt: Date()
+                sessionID: sessionID
             )
 
             guard case .toolCall(let output) = parseResult else {
@@ -757,9 +650,85 @@ private extension ChatSessionController {
                 ChatMessage(id: nextAssistantMessageID, role: .assistant, content: ""))
             notifySessionDidChange()
 
-            try await streamAssistantReply(to: nextAssistantMessageID, allowsToolCalls: false)
+            try await streamAssistantReply(to: nextAssistantMessageID, toolPromptMode: .afterToolResult)
             assistantMessageID = nextAssistantMessageID
         }
+    }
+
+    func parseToolCallResult(
+        _ content: String,
+        workspaceID: Workspace.ID,
+        sessionID: CodingSession.ID
+    ) throws -> ToolCallParseResult {
+        do {
+            return try toolCallParser.parse(
+                content,
+                workspaceID: workspaceID,
+                sessionID: sessionID,
+                createdAt: Date()
+            )
+        } catch is TaggedToolCallParseError {
+            guard let actionContent = recoverableToolActionContent(from: content) else {
+                return .none
+            }
+
+            do {
+                return try toolCallParser.parse(
+                    actionContent,
+                    workspaceID: workspaceID,
+                    sessionID: sessionID,
+                    createdAt: Date()
+                )
+            } catch is TaggedToolCallParseError {
+                return .none
+            }
+        }
+    }
+
+    func recoverableToolActionContent(from content: String) -> String? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        if let fencedContent = singleFencedCodeBlockContent(from: trimmed) {
+            return recoverableToolActionContent(from: fencedContent)
+        }
+
+        guard let actionStart = trimmed.range(of: "<action") else {
+            return nil
+        }
+        guard let actionEnd = trimmed.range(of: "</action>", range: actionStart.upperBound..<trimmed.endIndex) else {
+            return nil
+        }
+
+        let blockEnd = actionEnd.upperBound
+        guard trimmed[blockEnd...].range(of: "<action") == nil else {
+            return nil
+        }
+
+        return String(trimmed[actionStart.lowerBound..<blockEnd])
+    }
+
+    func singleFencedCodeBlockContent(from content: String) -> String? {
+        guard content.hasPrefix("```") else {
+            return nil
+        }
+
+        var lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count >= 2 else {
+            return nil
+        }
+        guard let first = lines.first, first.trimmingCharacters(in: .whitespaces).hasPrefix("```") else {
+            return nil
+        }
+        guard let last = lines.last, last.trimmingCharacters(in: .whitespaces) == "```" else {
+            return nil
+        }
+
+        lines.removeFirst()
+        lines.removeLast()
+        return lines.joined(separator: "\n")
     }
 
     func annotateToolCall(_ toolCall: ToolCallModelMessage, for messageID: UUID) {
@@ -779,12 +748,11 @@ private extension ChatSessionController {
         )
     }
 
-    func toolEnabledSystemPrompt() -> String {
-        systemPrompt(allowsToolCalls: true)
-    }
-
-    func systemPrompt(allowsToolCalls: Bool) -> String {
-        guard allowsToolCalls else {
+    func systemPrompt(toolPromptMode: ToolPromptMode) -> String {
+        switch toolPromptMode {
+        case .disabled, .enabled(false):
+            return chatSession.systemPrompt
+        case .afterToolResult:
             return [
                 chatSession.systemPrompt,
                 """
@@ -792,15 +760,61 @@ private extension ChatSessionController {
                 Do not emit another <action> tag in this response.
                 """
             ].joined(separator: "\n\n")
+        case .enabled(true):
+            return [
+                chatSession.systemPrompt,
+                toolPromptRenderer.renderToolInstructions(
+                    registry: .promptTools,
+                    payloadDelimiter: "LC_PAYLOAD_V1"
+                )
+            ].joined(separator: "\n\n")
+        }
+    }
+
+    func shouldAllowToolCalls(
+        workspace: Workspace?,
+        prompt: String,
+        attachments: [ChatAttachment]
+    ) -> Bool {
+        guard workspace != nil else {
+            return false
         }
 
-        return [
-            chatSession.systemPrompt,
-            toolPromptRenderer.renderToolInstructions(
-                registry: .promptTools,
-                payloadDelimiter: "LC_PAYLOAD_V1"
-            )
-        ].joined(separator: "\n\n")
+        if !attachments.isEmpty {
+            return true
+        }
+
+        let normalizedPrompt = prompt.lowercased()
+        let explicitToolIntentPhrases = [
+            "read ",
+            "open ",
+            "show ",
+            "inspect",
+            "look at",
+            "list files",
+            "list the files",
+            "what files",
+            "which files",
+            "file",
+            "folder",
+            "directory",
+            "workspace",
+            "repo",
+            "repository",
+            "project",
+            "source",
+            "code",
+            "implementation",
+            "readme",
+        ]
+
+        if explicitToolIntentPhrases.contains(where: { normalizedPrompt.contains($0) }) {
+            return true
+        }
+
+        return ChatAttachmentLimits.supportedTextFileExtensions.contains { fileExtension in
+            normalizedPrompt.contains(".\(fileExtension)")
+        }
     }
 }
 
