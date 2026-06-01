@@ -1,0 +1,52 @@
+import SwiftUI
+
+struct WorkspaceChatView: View {
+  @Bindable var controller: ChatSessionController
+  let workspace: Workspace
+  let sessionID: CodingSession.ID?
+  let onAddAttachments: () -> Void
+
+  private var onSend: () -> Void {
+    {
+      if let sessionID {
+        controller.sendMessage(in: workspace, sessionID: sessionID)
+      } else {
+        controller.sendMessage(in: workspace)
+      }
+    }
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      ChatTranscript(
+        messages: controller.chatSession.messages,
+        selectedModel: controller.selectedModel,
+        modelState: controller.modelState
+      )
+
+      Divider()
+
+      ChatComposer(
+        draft: $controller.draft,
+        attachments: controller.chatSession.attachments,
+        availableModels: controller.availableModels,
+        selectedModel: controller.selectedModel,
+        modelState: controller.modelState,
+        contextUsage: controller.contextUsage,
+        processUsage: controller.processUsage,
+        canChangeModel: controller.canChangeModel,
+        isSelectedModelDownloaded: controller.isModelDownloaded(controller.selectedModel),
+        canSend: controller.canSend,
+        isGenerating: controller.isGenerating,
+        errorMessage: controller.errorMessage,
+        onSelectModel: controller.selectModel,
+        onLoadModel: controller.loadSelectedModel,
+        onAddAttachments: onAddAttachments,
+        onDropAttachments: controller.addAttachments,
+        onRemoveAttachment: controller.removeAttachment,
+        onSend: onSend,
+        onCancel: controller.cancelGeneration
+      )
+    }
+  }
+}

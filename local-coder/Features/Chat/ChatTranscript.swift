@@ -1,0 +1,273 @@
+import AppKit
+import MarkdownUI
+import SwiftUI
+
+struct ChatTranscript: View {
+  let messages: [ChatMessage]
+  let selectedModel: ManagedModel
+  let modelState: ModelLoadState
+
+  var body: some View {
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 12) {
+        if messages.isEmpty {
+          ContentUnavailableView(
+            emptyStateTitle,
+            systemImage: "bubble.left.and.bubble.right",
+            description: Text(emptyStateDescription)
+          )
+          .frame(maxWidth: .infinity, minHeight: 360)
+        } else {
+          ForEach(messages) { message in
+            ChatBubble(message: message)
+          }
+        }
+      }
+      .padding(20)
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private var emptyStateTitle: String {
+    switch modelState {
+    case .ready:
+      "\(selectedModel.displayName) Ready"
+    case .loading:
+      "Loading Model"
+    case .failed:
+      "Model Not Ready"
+    case .notLoaded:
+      "No Model Loaded"
+    }
+  }
+
+  private var emptyStateDescription: String {
+    switch modelState {
+    case .ready:
+      "Send a prompt with \(selectedModel.displayName) to start chatting."
+    case .loading:
+      "Loading \(selectedModel.displayName). You can write a prompt once it is ready."
+    case .failed:
+      "Loading failed. Select or load a model below before writing a prompt."
+    case .notLoaded:
+      "Select and load a Gemma model below before writing a prompt."
+    }
+  }
+}
+
+private struct ChatBubble: View {
+  let message: ChatMessage
+  @State private var didCopy = false
+
+  var body: some View {
+    HStack(alignment: .top) {
+      if message.isDisplayedAsUser {
+        Spacer(minLength: 80)
+      }
+
+      VStack(alignment: message.isDisplayedAsUser ? .trailing : .leading, spacing: 6) {
+        Label(message.displayTitle, systemImage: message.displaySystemImage)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+
+        if message.shouldShowAssistantPlaceholder {
+          Label(
+            message.assistantPlaceholderTitle,
+            systemImage: message.assistantPlaceholderSystemImage
+          )
+          .foregroundStyle(.secondary)
+          .padding(10)
+          .background(Color.secondary.opacity(0.12))
+          .clipShape(RoundedRectangle(cornerRadius: 8))
+        } else {
+          MessageContentText(message: message)
+            .textSelection(.enabled)
+            .padding(10)
+            .background(messageBubbleBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+
+        if message.isDisplayedAsUser && !message.attachments.isEmpty {
+          SentAttachmentList(attachments: message.attachments)
+        }
+
+        if message.canCopyAssistantContent {
+          HStack(spacing: 8) {
+            if let metrics = message.generationMetrics {
+              Text(metrics.summary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+
+            Button {
+              copyMessageToClipboard()
+            } label: {
+              Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help(didCopy ? "Copied" : "Copy")
+            .accessibilityLabel("Copy assistant message")
+          }
+        }
+      }
+      .frame(maxWidth: 680, alignment: message.isDisplayedAsUser ? .trailing : .leading)
+
+      if !message.isDisplayedAsUser {
+        Spacer(minLength: 80)
+      }
+    }
+    .frame(maxWidth: .infinity)
+  }
+
+  private func copyMessageToClipboard() {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(message.content, forType: .string)
+    didCopy = true
+
+    Task {
+      try? await Task.sleep(for: .seconds(1.2))
+      didCopy = false
+    }
+  }
+}
+
+private struct SentAttachmentList: View {
+  let attachments: [ChatAttachment]
+
+  var body: some View {
+    VStack(alignment: .trailing, spacing: 4) {
+      ForEach(attachments) { attachment in
+        Label(attachment.displayName, systemImage: "doc.text")
+          .font(.caption)
+          .lineLimit(1)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 5)
+          .background(Color.secondary.opacity(0.12))
+          .clipShape(RoundedRectangle(cornerRadius: 8))
+          .help(attachment.displayPath)
+      }
+    }
+  }
+}
+
+private struct MessageContentText: View {
+  let message: ChatMessage
+
+  @ViewBuilder
+  var body: some View {
+    if let toolCall = message.toolCall {
+      ToolCallSummaryView(toolCall: toolCall)
+    } else if let toolResult = message.toolResult {
+      ToolResultSummaryView(toolResult: toolResult)
+    } else if message.kind == .assistant {
+      Markdown(AssistantMarkdownPreprocessor.renderableContent(for: message.content))
+        .markdownTheme(.chatMessage)
+        .markdownCodeSyntaxHighlighter(ChatCodeSyntaxHighlighter())
+    } else {
+      Text(message.content)
+    }
+  }
+}
+
+private struct ChatCodeSyntaxHighlighter: CodeSyntaxHighlighter {
+  func highlightCode(_ code: String, language: String?) -> Text {
+    _ = language
+    return Text(code)
+  }
+}
+
+extension Theme {
+  static let chatMessage = Theme()
+    .text {
+      ForegroundColor(.primary)
+      FontSize(13)
+    }
+    .code {
+      FontFamilyVariant(.monospaced)
+      FontSize(.em(0.92))
+      ForegroundColor(.primary)
+      BackgroundColor(.secondary.opacity(0.16))
+    }
+    .link {
+      ForegroundColor(.accentColor)
+      UnderlineStyle(.single)
+    }
+    .paragraph { configuration in
+      configuration.label
+        .relativeLineSpacing(.em(0.2))
+        .markdownMargin(top: 0, bottom: 8)
+    }
+    .listItem { configuration in
+      configuration.label
+        .markdownMargin(top: 2, bottom: 2)
+    }
+    .blockquote { configuration in
+      HStack(spacing: 0) {
+        Rectangle()
+          .fill(Color.secondary.opacity(0.45))
+          .frame(width: 3)
+        configuration.label
+          .padding(.leading, 8)
+          .markdownTextStyle {
+            ForegroundColor(.secondary)
+          }
+      }
+      .markdownMargin(top: 4, bottom: 8)
+    }
+    .codeBlock { configuration in
+      ScrollView(.horizontal, showsIndicators: true) {
+        configuration.label
+          .markdownTextStyle {
+            FontFamilyVariant(.monospaced)
+            FontSize(.em(0.92))
+            BackgroundColor(nil)
+          }
+          .padding(10)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .markdownMargin(top: 4, bottom: 8)
+    }
+}
+
+extension ChatGenerationMetrics {
+  var summary: String {
+    "\(generatedTokenCount) tokens · \(tokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tokens/s"
+  }
+}
+
+extension ChatBubble {
+  var messageBubbleBackground: Color {
+    message.isDisplayedAsUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
+  }
+}
+
+extension ChatMessage {
+  var shouldShowAssistantPlaceholder: Bool {
+    kind == .assistant && (content.isEmpty || containsStreamingToolCallMarkup)
+  }
+
+  var canCopyAssistantContent: Bool {
+    kind == .assistant && !containsStreamingToolCallMarkup && !content.isEmpty
+  }
+
+  var assistantPlaceholderTitle: String {
+    containsStreamingToolCallMarkup ? "Preparing tool call" : "Generating"
+  }
+
+  var assistantPlaceholderSystemImage: String {
+    containsStreamingToolCallMarkup ? "wrench.and.screwdriver" : "sparkles"
+  }
+
+  var isDisplayedAsUser: Bool {
+    kind == .user
+  }
+
+  var displayTitle: String {
+    kind.title
+  }
+
+  var displaySystemImage: String {
+    kind.systemImage
+  }
+}
