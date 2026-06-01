@@ -5,9 +5,7 @@ struct ContentView: View {
     @State private var modelPath = LocalModelDirectory.defaultModelURL.path(percentEncoded: false)
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var modelState: ModelLoadState = .notLoaded
-    @State private var systemPrompt = ChatPromptDefaults.codingSystemPrompt
-    @State private var generationSettings = ChatGenerationSettings.codingDefault
-    @State private var messages: [ChatMessage] = []
+    @State private var chatSession = ChatSessionState.codingDefault
     @State private var draft = ""
     @State private var isGenerating = false
     @State private var generationTask: Task<Void, Never>?
@@ -19,8 +17,8 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             ModelSidebar(
                 modelPath: $modelPath,
-                systemPrompt: $systemPrompt,
-                generationSettings: $generationSettings,
+                systemPrompt: $chatSession.systemPrompt,
+                generationSettings: $chatSession.generationSettings,
                 modelState: modelState,
                 isLoading: modelState == .loading,
                 onChooseModelDirectory: chooseModelDirectory,
@@ -29,7 +27,7 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 260, ideal: 300)
         } detail: {
             VStack(spacing: 0) {
-                ChatTranscript(messages: messages)
+                ChatTranscript(messages: chatSession.messages)
 
                 Divider()
 
@@ -95,17 +93,17 @@ struct ContentView: View {
 
         draft = ""
         errorMessage = nil
-        messages.append(ChatMessage(role: .user, content: prompt))
+        chatSession.messages.append(ChatMessage(role: .user, content: prompt))
         let assistantMessageID = UUID()
-        messages.append(ChatMessage(id: assistantMessageID, role: .assistant, content: ""))
+        chatSession.messages.append(ChatMessage(id: assistantMessageID, role: .assistant, content: ""))
         isGenerating = true
 
         generationTask = Task {
             do {
                 let stream = try await runtime.streamReply(
-                    for: messages,
-                    systemPrompt: systemPrompt,
-                    settings: generationSettings
+                    for: chatSession.messages,
+                    systemPrompt: chatSession.systemPrompt,
+                    settings: chatSession.generationSettings
                 )
 
                 for try await event in stream {
@@ -137,12 +135,12 @@ struct ContentView: View {
     }
 
     private func appendChunk(_ chunk: String, to messageID: UUID) {
-        guard let index = messages.firstIndex(where: { $0.id == messageID }) else {
+        guard let index = chatSession.messages.firstIndex(where: { $0.id == messageID }) else {
             return
         }
 
-        let message = messages[index]
-        messages[index] = ChatMessage(
+        let message = chatSession.messages[index]
+        chatSession.messages[index] = ChatMessage(
             id: message.id,
             role: message.role,
             content: message.content + chunk,
@@ -151,12 +149,12 @@ struct ContentView: View {
     }
 
     private func updateGenerationMetrics(_ metrics: ChatGenerationMetrics?, for messageID: UUID) {
-        guard let index = messages.firstIndex(where: { $0.id == messageID }) else {
+        guard let index = chatSession.messages.firstIndex(where: { $0.id == messageID }) else {
             return
         }
 
-        let message = messages[index]
-        messages[index] = ChatMessage(
+        let message = chatSession.messages[index]
+        chatSession.messages[index] = ChatMessage(
             id: message.id,
             role: message.role,
             content: message.content,
@@ -165,11 +163,19 @@ struct ContentView: View {
     }
 
     private func removeMessage(id: UUID) {
-        messages.removeAll { $0.id == id }
+        chatSession.messages.removeAll { $0.id == id }
     }
 
     private func messageContent(for id: UUID) -> String {
-        messages.first(where: { $0.id == id })?.content ?? ""
+        chatSession.messages.first(where: { $0.id == id })?.content ?? ""
+    }
+
+    private func clearChatHistory() {
+        chatSession.messages.removeAll()
+
+        Task {
+            await runtime.clearContext()
+        }
     }
 
     private func chooseModelDirectory() {
@@ -186,7 +192,7 @@ struct ContentView: View {
             modelPath = url.path(percentEncoded: false)
             modelState = .notLoaded
             errorMessage = nil
-            messages.removeAll()
+            clearChatHistory()
         }
     }
 

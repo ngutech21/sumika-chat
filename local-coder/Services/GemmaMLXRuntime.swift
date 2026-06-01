@@ -18,8 +18,8 @@ enum GemmaMLXRuntimeError: LocalizedError {
 }
 
 final actor GemmaMLXRuntime: ChatModelRuntime {
+    private var modelContainer: ModelContainer?
     private var session: ChatSession?
-    private var currentSystemPrompt: String?
 
     func load(configuration: ChatModelConfiguration) async throws {
         let modelConfiguration = ModelConfiguration(
@@ -33,7 +33,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             configuration: modelConfiguration
         )
 
-        session = ChatSession(container)
+        modelContainer = container
+        session = nil
+    }
+
+    func clearContext() async {
+        await session?.clear()
+        session = nil
     }
 
     func streamReply(
@@ -41,28 +47,31 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         systemPrompt: String,
         settings: ChatGenerationSettings
     ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-        guard let session else {
+        guard let modelContainer else {
             throw GemmaMLXRuntimeError.modelNotLoaded
         }
 
-        guard let prompt = messages.last(where: { $0.role == .user })?.content else {
+        guard let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) else {
             throw GemmaMLXRuntimeError.missingUserMessage
         }
 
+        let prompt = messages[lastUserIndex].content
         let effectiveSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let instructions = effectiveSystemPrompt.isEmpty ? nil : effectiveSystemPrompt
-        if currentSystemPrompt != instructions {
-            await session.clear()
-            currentSystemPrompt = instructions
-        }
-
-        session.instructions = instructions
-        session.generateParameters = GenerateParameters(
+        let generateParameters = GenerateParameters(
             maxTokens: settings.maxTokens,
             temperature: Float(settings.temperature),
             topP: Float(settings.topP),
             topK: settings.topK
         )
+        let history = messages[..<lastUserIndex].compactMap(Chat.Message.init)
+        let session = ChatSession(
+            modelContainer,
+            instructions: instructions,
+            history: history,
+            generateParameters: generateParameters
+        )
+        self.session = session
 
         let stream = session.streamDetails(to: prompt, images: [], videos: [])
         return AsyncThrowingStream { continuation in
@@ -93,6 +102,21 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             continuation.onTermination = { _ in
                 task.cancel()
             }
+        }
+    }
+}
+
+private extension Chat.Message {
+    init?(_ message: ChatMessage) {
+        guard !message.content.isEmpty else {
+            return nil
+        }
+
+        switch message.role {
+        case .user:
+            self = .user(message.content)
+        case .assistant:
+            self = .assistant(message.content)
         }
     }
 }
