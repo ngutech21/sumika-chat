@@ -15,11 +15,27 @@
 		F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1B2FCE1000000A270C /* Tokenizers */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		F910000B2FD0720000A270C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F9D7F5F32FCC80CD00FECA78 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F9D7F5FA2FCC80CD00FECA78;
+			remoteInfo = "local-coder";
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		F910000A2FD0720000A270C /* local-coderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "local-coderTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F9D7F5FB2FCC80CD00FECA78 /* local-coder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "local-coder.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		F91000092FD0720000A270C /* local-coderTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "local-coderTests";
+			sourceTree = "<group>";
+		};
 		F9D7F5FD2FCC80CD00FECA78 /* local-coder */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "local-coder";
@@ -28,6 +44,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		F91000062FD0720000A270C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F9D7F5F82FCC80CD00FECA78 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -48,6 +71,7 @@
 			isa = PBXGroup;
 			children = (
 				F9D7F5FD2FCC80CD00FECA78 /* local-coder */,
+				F91000092FD0720000A270C /* local-coderTests */,
 				F9D7F5FC2FCC80CD00FECA78 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -56,6 +80,7 @@
 			isa = PBXGroup;
 			children = (
 				F9D7F5FB2FCC80CD00FECA78 /* local-coder.app */,
+				F910000A2FD0720000A270C /* local-coderTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -63,6 +88,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		F91000012FD0720000A270C /* local-coderTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F910000D2FD0720000A270C /* Build configuration list for PBXNativeTarget "local-coderTests" */;
+			buildPhases = (
+				F91000052FD0720000A270C /* Sources */,
+				F91000062FD0720000A270C /* Frameworks */,
+				F91000072FD0720000A270C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F910000C2FD0720000A270C /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				F91000092FD0720000A270C /* local-coderTests */,
+			);
+			name = "local-coderTests";
+			packageProductDependencies = (
+			);
+			productName = "local-coderTests";
+			productReference = F910000A2FD0720000A270C /* local-coderTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		F9D7F5FA2FCC80CD00FECA78 /* local-coder */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = F9D7F6062FCC80CE00FECA78 /* Build configuration list for PBXNativeTarget "local-coder" */;
@@ -101,6 +149,10 @@
 				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
+					F91000012FD0720000A270C = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = F9D7F5FA2FCC80CD00FECA78;
+					};
 					F9D7F5FA2FCC80CD00FECA78 = {
 						CreatedOnToolsVersion = 26.5;
 					};
@@ -126,11 +178,19 @@
 			projectRoot = "";
 			targets = (
 				F9D7F5FA2FCC80CD00FECA78 /* local-coder */,
+				F91000012FD0720000A270C /* local-coderTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		F91000072FD0720000A270C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F9D7F5F92FCC80CD00FECA78 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -141,6 +201,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		F91000052FD0720000A270C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F9D7F5F72FCC80CD00FECA78 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -150,7 +217,69 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		F910000C2FD0720000A270C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F9D7F5FA2FCC80CD00FECA78 /* local-coder */;
+			targetProxy = F910000B2FD0720000A270C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		F910000E2FD0720000A270C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "ngutech21.local-coderTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/local-coder.app/Contents/MacOS/local-coder";
+			};
+			name = Debug;
+		};
+		F910000F2FD0720000A270C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "ngutech21.local-coderTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/local-coder.app/Contents/MacOS/local-coder";
+			};
+			name = Release;
+		};
 		F9D7F6042FCC80CE00FECA78 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -352,6 +481,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		F910000D2FD0720000A270C /* Build configuration list for PBXNativeTarget "local-coderTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F910000E2FD0720000A270C /* Debug */,
+				F910000F2FD0720000A270C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		F9D7F5F62FCC80CD00FECA78 /* Build configuration list for PBXProject "local-coder" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

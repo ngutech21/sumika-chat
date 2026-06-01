@@ -100,6 +100,14 @@ The app is an Xcode macOS project:
 xcodebuild -project local-coder.xcodeproj -scheme local-coder -destination "platform=macOS" build
 ```
 
+Run the unit test suite after every implementation task:
+
+```sh
+xcodebuild -project local-coder.xcodeproj -scheme local-coder -destination "platform=macOS" -derivedDataPath build/DerivedData test
+```
+
+If a task only changes docs or comments, explain why tests were not run. Otherwise, treat a passing test run as part of the task's definition of done.
+
 ## Git
 
 - Use intentional commits: each commit should describe one coherent change and avoid bundling unrelated work.
