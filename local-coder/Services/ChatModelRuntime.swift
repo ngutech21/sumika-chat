@@ -3,9 +3,14 @@ import Foundation
 protocol ChatModelRuntime: Sendable {
     func load(configuration: ChatModelConfiguration) async throws
     func clearContext() async
-    func contextUsage(for messages: [ChatMessage], systemPrompt: String) async throws -> ChatContextUsage
+    func contextUsage(
+        for messages: [ChatMessage],
+        attachments: [ChatAttachment],
+        systemPrompt: String
+    ) async throws -> ChatContextUsage
     func streamReply(
         for messages: [ChatMessage],
+        attachments: [ChatAttachment],
         systemPrompt: String,
         settings: ChatGenerationSettings
     ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
@@ -24,24 +29,35 @@ struct MockChatRuntime: ChatModelRuntime {
 
     func clearContext() async {}
 
-    func contextUsage(for messages: [ChatMessage], systemPrompt: String) async throws -> ChatContextUsage {
-        let content = ([systemPrompt] + messages.map(\.content)).joined(separator: "\n")
+    func contextUsage(
+        for messages: [ChatMessage],
+        attachments: [ChatAttachment],
+        systemPrompt: String
+    ) async throws -> ChatContextUsage {
+        let messageAttachments = messages.flatMap(\.attachments).map(\.content)
+        let content = ([systemPrompt] + attachments.map(\.content) + messageAttachments + messages.map(\.content))
+            .joined(separator: "\n")
         let tokenEstimate = content.split(whereSeparator: \.isWhitespace).count
         return ChatContextUsage(usedTokens: tokenEstimate, tokenLimit: nil)
     }
 
     func streamReply(
         for messages: [ChatMessage],
+        attachments: [ChatAttachment],
         systemPrompt: String,
         settings: ChatGenerationSettings
     ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+        _ = attachments
         _ = systemPrompt
         _ = settings
 
-        let lastPrompt = messages.last(where: { $0.role == .user })?.content ?? ""
+        let lastMessage = messages.last(where: { $0.role == .user })
+        let attachmentSummary = lastMessage?.attachments.map(\.displayName).joined(separator: ", ") ?? ""
+        let lastPrompt = lastMessage?.content ?? ""
         let chunks = [
             "Mock runtime received:\n\n",
             lastPrompt,
+            attachmentSummary.isEmpty ? "" : "\n\nAttached files: \(attachmentSummary)",
             "\n\n",
             "Next step: replace MockChatRuntime with a Gemma MLX runtime behind the same ChatModelRuntime protocol."
         ]

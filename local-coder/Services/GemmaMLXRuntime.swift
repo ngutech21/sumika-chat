@@ -44,12 +44,20 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         session = nil
     }
 
-    func contextUsage(for messages: [ChatMessage], systemPrompt: String) async throws -> ChatContextUsage {
+    func contextUsage(
+        for messages: [ChatMessage],
+        attachments: [ChatAttachment],
+        systemPrompt: String
+    ) async throws -> ChatContextUsage {
         guard let modelContainer else {
             throw GemmaMLXRuntimeError.modelNotLoaded
         }
 
-        let rawMessages = Self.contextMessages(from: messages, systemPrompt: systemPrompt)
+        let rawMessages = Self.contextMessages(
+            from: messages,
+            attachments: attachments,
+            systemPrompt: systemPrompt
+        )
             .map { ["role": $0.role.rawValue, "content": $0.content] as [String: any Sendable] }
         let usedTokens = try await modelContainer.perform { context in
             try context.tokenizer.applyChatTemplate(messages: rawMessages).count
@@ -60,6 +68,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
     func streamReply(
         for messages: [ChatMessage],
+        attachments: [ChatAttachment],
         systemPrompt: String,
         settings: ChatGenerationSettings
     ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
@@ -71,7 +80,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             throw GemmaMLXRuntimeError.missingUserMessage
         }
 
-        let prompt = messages[lastUserIndex].content
+        let prompt = promptWithAttachments(
+            prompt: messages[lastUserIndex].content,
+            attachments: messages[lastUserIndex].attachments + attachments
+        )
         let instructions = Self.normalizedSystemPrompt(systemPrompt)
         let generateParameters = GenerateParameters(
             maxTokens: settings.maxTokens,
@@ -123,6 +135,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
     private static func contextMessages(
         from messages: [ChatMessage],
+        attachments: [ChatAttachment],
         systemPrompt: String
     ) -> [Chat.Message] {
         var contextMessages: [Chat.Message] = []
@@ -131,7 +144,20 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             contextMessages.append(.system(instructions))
         }
 
-        contextMessages.append(contentsOf: messages.compactMap(Chat.Message.init))
+        if messages.isEmpty, !attachments.isEmpty {
+            contextMessages.append(.user(attachmentContextBlock(attachments)))
+        } else if let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) {
+            contextMessages.append(contentsOf: messages[..<lastUserIndex].compactMap(Chat.Message.init))
+            let prompt = promptWithAttachments(
+                prompt: messages[lastUserIndex].content,
+                attachments: messages[lastUserIndex].attachments + attachments
+            )
+            contextMessages.append(.user(prompt))
+            contextMessages.append(contentsOf: messages[messages.index(after: lastUserIndex)...].compactMap(Chat.Message.init))
+        } else {
+            contextMessages.append(contentsOf: messages.compactMap(Chat.Message.init))
+        }
+
         return contextMessages
     }
 
@@ -150,11 +176,44 @@ private extension Chat.Message {
 
         switch message.role {
         case .user:
-            self = .user(message.content)
+            self = .user(promptWithAttachments(prompt: message.content, attachments: message.attachments))
         case .assistant:
             self = .assistant(message.content)
         }
     }
+}
+
+private func promptWithAttachments(
+    prompt: String,
+    attachments: [ChatAttachment]
+) -> String {
+    guard !attachments.isEmpty else {
+        return prompt
+    }
+
+    return """
+    User request:
+    \(prompt)
+
+    Attached files for this request:
+    \(attachmentContextBlock(attachments))
+
+    Use the attached file contents above when answering this request. If the user says "file" or "the file", they mean the attached file.
+    """
+}
+
+private func attachmentContextBlock(_ attachments: [ChatAttachment]) -> String {
+    attachments.enumerated().map { index, attachment in
+        """
+        File \(index + 1) of \(attachments.count)
+        Name: \(attachment.displayName)
+        Path: \(attachment.displayPath)
+        <context_file path="\(attachment.displayPath)">
+        \(attachment.content)
+        </context_file>
+        """
+    }
+    .joined(separator: "\n\n")
 }
 
 private struct LocalDownloader: MLXLMCommon.Downloader {

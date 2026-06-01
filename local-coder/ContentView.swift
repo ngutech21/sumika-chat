@@ -35,9 +35,12 @@ struct ContentView: View {
 
                 ChatComposer(
                     draft: $draft,
+                    attachments: chatSession.attachments,
                     canSend: canSend,
                     isGenerating: isGenerating,
                     errorMessage: errorMessage,
+                    onAddAttachments: chooseAttachments,
+                    onRemoveAttachment: removeAttachment,
                     onSend: sendMessage,
                     onCancel: cancelGeneration
                 )
@@ -101,9 +104,11 @@ struct ContentView: View {
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend else { return }
 
+        let sentAttachments = chatSession.attachments
         draft = ""
         errorMessage = nil
-        chatSession.messages.append(ChatMessage(role: .user, content: prompt))
+        chatSession.attachments.removeAll()
+        chatSession.messages.append(ChatMessage(role: .user, content: prompt, attachments: sentAttachments))
         let assistantMessageID = UUID()
         chatSession.messages.append(ChatMessage(id: assistantMessageID, role: .assistant, content: ""))
         isGenerating = true
@@ -113,6 +118,7 @@ struct ContentView: View {
                 await updateContextUsage()
                 let stream = try await runtime.streamReply(
                     for: chatSession.messages,
+                    attachments: [],
                     systemPrompt: chatSession.systemPrompt,
                     settings: chatSession.generationSettings
                 )
@@ -158,6 +164,7 @@ struct ContentView: View {
             id: message.id,
             role: message.role,
             content: message.content + chunk,
+            attachments: message.attachments,
             generationMetrics: message.generationMetrics
         )
     }
@@ -172,6 +179,7 @@ struct ContentView: View {
             id: message.id,
             role: message.role,
             content: message.content,
+            attachments: message.attachments,
             generationMetrics: metrics
         )
     }
@@ -186,6 +194,7 @@ struct ContentView: View {
 
     private func clearChatHistory() {
         chatSession.messages.removeAll()
+        chatSession.attachments.removeAll()
         contextUsage = nil
 
         Task {
@@ -209,6 +218,7 @@ struct ContentView: View {
         do {
             contextUsage = try await runtime.contextUsage(
                 for: chatSession.messages,
+                attachments: chatSession.attachments,
                 systemPrompt: chatSession.systemPrompt
             )
         } catch {
@@ -232,6 +242,76 @@ struct ContentView: View {
             errorMessage = nil
             clearChatHistory()
         }
+    }
+
+    private func chooseAttachments() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.canCreateDirectories = false
+        panel.message = "Choose text files to add as model context."
+        panel.prompt = "Add"
+
+        if panel.runModal() == .OK {
+            addAttachments(from: panel.urls)
+        }
+    }
+
+    private func addAttachments(from urls: [URL]) {
+        do {
+            let remainingSlots = ChatAttachmentLimits.maxAttachmentCount - chatSession.attachments.count
+            guard urls.count <= remainingSlots else {
+                throw ChatAttachmentError.tooManyFiles(ChatAttachmentLimits.maxAttachmentCount)
+            }
+
+            let existingPaths = Set(chatSession.attachments.map(\.displayPath))
+            let attachments = try urls.compactMap { url -> ChatAttachment? in
+                let path = url.path(percentEncoded: false)
+                guard !existingPaths.contains(path) else {
+                    return nil
+                }
+
+                return try readTextAttachment(from: url)
+            }
+
+            chatSession.attachments.append(contentsOf: attachments)
+            errorMessage = nil
+            refreshContextUsage()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func readTextAttachment(from url: URL) throws -> ChatAttachment {
+        let fileName = url.lastPathComponent
+        let fileExtension = url.pathExtension.lowercased()
+        guard ChatAttachmentLimits.supportedTextFileExtensions.contains(fileExtension) else {
+            throw ChatAttachmentError.unsupportedFileType(fileName)
+        }
+
+        let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
+        let fileSize = resourceValues.fileSize ?? 0
+        guard fileSize <= ChatAttachmentLimits.maxTextFileBytes else {
+            throw ChatAttachmentError.fileTooLarge(fileName, ChatAttachmentLimits.maxTextFileBytes)
+        }
+
+        let data = try Data(contentsOf: url)
+        guard let content = String(data: data, encoding: .utf8) else {
+            throw ChatAttachmentError.unreadableText(fileName)
+        }
+
+        return ChatAttachment(
+            url: url,
+            displayName: fileName,
+            kind: .text,
+            content: content
+        )
+    }
+
+    private func removeAttachment(id: ChatAttachment.ID) {
+        chatSession.attachments.removeAll { $0.id == id }
+        refreshContextUsage()
     }
 
     private func validateModelDirectory(_ url: URL) throws {
@@ -418,6 +498,10 @@ private struct ChatBubble: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
 
+                if message.role == .user && !message.attachments.isEmpty {
+                    SentAttachmentList(attachments: message.attachments)
+                }
+
                 if message.role == .assistant && !message.content.isEmpty {
                     HStack(spacing: 8) {
                         if let metrics = message.generationMetrics {
@@ -459,6 +543,25 @@ private struct ChatBubble: View {
     }
 }
 
+private struct SentAttachmentList: View {
+    let attachments: [ChatAttachment]
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            ForEach(attachments) { attachment in
+                Label(attachment.displayName, systemImage: "doc.text")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Color.secondary.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .help(attachment.displayPath)
+            }
+        }
+    }
+}
+
 private struct MessageContentText: View {
     let message: ChatMessage
 
@@ -481,9 +584,12 @@ private extension ChatGenerationMetrics {
 
 private struct ChatComposer: View {
     @Binding var draft: String
+    let attachments: [ChatAttachment]
     let canSend: Bool
     let isGenerating: Bool
     let errorMessage: String?
+    let onAddAttachments: () -> Void
+    let onRemoveAttachment: (ChatAttachment.ID) -> Void
     let onSend: () -> Void
     let onCancel: () -> Void
 
@@ -495,7 +601,23 @@ private struct ChatComposer: View {
                     .font(.callout)
             }
 
+            if !attachments.isEmpty {
+                AttachmentList(
+                    attachments: attachments,
+                    canRemove: !isGenerating,
+                    onRemoveAttachment: onRemoveAttachment
+                )
+            }
+
             HStack(alignment: .bottom, spacing: 10) {
+                Button(action: onAddAttachments) {
+                    Image(systemName: "paperclip")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isGenerating)
+                .help("Add context files")
+                .accessibilityLabel("Add context files")
+
                 TextField("Message", text: $draft, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...5)
@@ -512,6 +634,46 @@ private struct ChatComposer: View {
             }
         }
         .padding(16)
+    }
+}
+
+private struct AttachmentList: View {
+    let attachments: [ChatAttachment]
+    let canRemove: Bool
+    let onRemoveAttachment: (ChatAttachment.ID) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(attachments) { attachment in
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.text")
+                            .foregroundStyle(.secondary)
+
+                        Text(attachment.displayName)
+                            .lineLimit(1)
+
+                        Button {
+                            onRemoveAttachment(attachment.id)
+                        } label: {
+                            Image(systemName: "xmark")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .disabled(!canRemove)
+                        .help("Remove")
+                        .accessibilityLabel("Remove \(attachment.displayName)")
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Color.secondary.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .help(attachment.displayPath)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
