@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var messages: [ChatMessage] = []
     @State private var draft = ""
     @State private var isGenerating = false
+    @State private var generationTask: Task<Void, Never>?
     @State private var errorMessage: String?
 
     private let runtime: any ChatModelRuntime = GemmaMLXRuntime()
@@ -33,8 +34,10 @@ struct ContentView: View {
                 ChatComposer(
                     draft: $draft,
                     canSend: canSend,
+                    isGenerating: isGenerating,
                     errorMessage: errorMessage,
-                    onSend: sendMessage
+                    onSend: sendMessage,
+                    onCancel: cancelGeneration
                 )
             }
             .navigationTitle("Local Coder")
@@ -95,7 +98,7 @@ struct ContentView: View {
         messages.append(ChatMessage(id: assistantMessageID, role: .assistant, content: ""))
         isGenerating = true
 
-        Task {
+        generationTask = Task {
             do {
                 let stream = try await runtime.streamReply(
                     for: messages,
@@ -110,13 +113,24 @@ struct ContentView: View {
                         updateGenerationMetrics(metrics, for: assistantMessageID)
                     }
                 }
+            } catch is CancellationError {
+                if messageContent(for: assistantMessageID).isEmpty {
+                    removeMessage(id: assistantMessageID)
+                }
             } catch {
                 removeMessage(id: assistantMessageID)
                 errorMessage = error.localizedDescription
             }
 
             isGenerating = false
+            generationTask = nil
         }
+    }
+
+    private func cancelGeneration() {
+        generationTask?.cancel()
+        generationTask = nil
+        isGenerating = false
     }
 
     private func appendChunk(_ chunk: String, to messageID: UUID) {
@@ -149,6 +163,10 @@ struct ContentView: View {
 
     private func removeMessage(id: UUID) {
         messages.removeAll { $0.id == id }
+    }
+
+    private func messageContent(for id: UUID) -> String {
+        messages.first(where: { $0.id == id })?.content ?? ""
     }
 
     private func chooseModelDirectory() {
@@ -359,8 +377,10 @@ private extension ChatGenerationMetrics {
 private struct ChatComposer: View {
     @Binding var draft: String
     let canSend: Bool
+    let isGenerating: Bool
     let errorMessage: String?
     let onSend: () -> Void
+    let onCancel: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -377,13 +397,13 @@ private struct ChatComposer: View {
                     .accessibilityIdentifier("message-field")
                     .onSubmit(onSend)
 
-                Button(action: onSend) {
-                    Image(systemName: "paperplane.fill")
+                Button(action: isGenerating ? onCancel : onSend) {
+                    Image(systemName: isGenerating ? "stop.fill" : "paperplane.fill")
                 }
-                .accessibilityIdentifier("send-button")
+                .accessibilityIdentifier(isGenerating ? "cancel-generation-button" : "send-button")
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(!canSend)
-                .help("Send")
+                .disabled(!isGenerating && !canSend)
+                .help(isGenerating ? "Cancel" : "Send")
             }
         }
         .padding(16)

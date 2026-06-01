@@ -59,6 +59,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             let task = Task {
                 do {
                     for try await generation in stream {
+                        try Task.checkCancellation()
+
                         if let chunk = generation.chunk {
                             continuation.yield(.chunk(chunk))
                         }
