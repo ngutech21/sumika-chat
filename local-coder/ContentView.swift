@@ -333,7 +333,7 @@ private struct ChatBubble: View {
                 Spacer(minLength: 80)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
                 Label(message.role.title, systemImage: message.role.systemImage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -372,12 +372,13 @@ private struct ChatBubble: View {
                     }
                 }
             }
-            .frame(maxWidth: 680, alignment: .leading)
+            .frame(maxWidth: 680, alignment: message.role == .user ? .trailing : .leading)
 
             if message.role == .assistant {
                 Spacer(minLength: 80)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private func copyMessageToClipboard() {
