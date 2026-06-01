@@ -682,6 +682,8 @@ private struct WorkspaceChatView: View {
                 availableModels: controller.availableModels,
                 selectedModel: controller.selectedModel,
                 modelState: controller.modelState,
+                contextUsage: controller.contextUsage,
+                processUsage: controller.processUsage,
                 canChangeModel: controller.canChangeModel,
                 isSelectedModelDownloaded: controller.isModelDownloaded(controller.selectedModel),
                 canSend: controller.canSend,
@@ -877,6 +879,8 @@ private struct ChatComposer: View {
     let availableModels: [ManagedModel]
     let selectedModel: ManagedModel
     let modelState: ModelLoadState
+    let contextUsage: ChatContextUsage?
+    let processUsage: ProcessResourceUsage?
     let canChangeModel: Bool
     let isSelectedModelDownloaded: Bool
     let canSend: Bool
@@ -908,6 +912,11 @@ private struct ChatComposer: View {
             }
 
             VStack(spacing: 8) {
+                ComposerResourceSummary(
+                    contextUsage: contextUsage,
+                    processUsage: processUsage
+                )
+
                 TextField("Message", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...5)
@@ -1058,6 +1067,71 @@ private struct ChatComposer: View {
         }
 
         return nil
+    }
+}
+
+private struct ComposerResourceSummary: View {
+    let contextUsage: ChatContextUsage?
+    let processUsage: ProcessResourceUsage?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ComposerMetric(
+                title: "RAM",
+                systemImage: "memorychip",
+                value: processUsage?.memorySummary ?? "Measuring"
+            )
+
+            ComposerMetric(
+                title: "CPU",
+                systemImage: "cpu",
+                value: processUsage?.cpuSummary ?? "Measuring"
+            )
+
+            if let tokenValue {
+                ComposerMetric(
+                    title: "Tokens",
+                    systemImage: "rectangle.stack",
+                    value: tokenValue
+                )
+            }
+
+            Spacer(minLength: 0)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private var tokenValue: String? {
+        guard let contextUsage else {
+            return nil
+        }
+
+        let usedTokens = contextUsage.usedTokens.formatted(.number)
+        guard let availableTokens = contextUsage.availableTokens else {
+            return usedTokens
+        }
+
+        return "\(usedTokens)/\(availableTokens.formatted(.number))"
+    }
+}
+
+private struct ComposerMetric: View {
+    let title: String
+    let systemImage: String
+    let value: String
+
+    var body: some View {
+        Label {
+            HStack(spacing: 4) {
+                Text(title)
+                Text(value)
+                    .monospacedDigit()
+            }
+        } icon: {
+            Image(systemName: systemImage)
+        }
+        .lineLimit(1)
     }
 }
 

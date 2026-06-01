@@ -28,4 +28,17 @@ struct ChatContextUsageTests {
 
         #expect(usage.fraction == 1)
     }
+
+    @Test
+    func availableTokensUsesRemainingPositiveBudget() {
+        let usage = ChatContextUsage(usedTokens: 42, tokenLimit: 128)
+
+        #expect(usage.availableTokens == 86)
+    }
+
+    @Test
+    func availableTokensIsNilWithoutLimitAndClampedAtZero() {
+        #expect(ChatContextUsage(usedTokens: 42, tokenLimit: nil).availableTokens == nil)
+        #expect(ChatContextUsage(usedTokens: 300, tokenLimit: 100).availableTokens == 0)
+    }
 }
