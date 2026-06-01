@@ -124,6 +124,57 @@ final class AppState {
     loadActiveSession()
   }
 
+  func renameSession(_ sessionID: CodingSession.ID, title: String) {
+    let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard
+      !trimmedTitle.isEmpty,
+      let workspaceIndex = workspaceLibrary.workspaces.firstIndex(where: { workspace in
+        workspace.sessions.contains { $0.id == sessionID }
+      }),
+      let sessionIndex = workspaceLibrary.workspaces[workspaceIndex].sessions.firstIndex(where: {
+        $0.id == sessionID
+      })
+    else {
+      return
+    }
+
+    let now = Date()
+    workspaceLibrary.workspaces[workspaceIndex].sessions[sessionIndex].title = trimmedTitle
+    workspaceLibrary.workspaces[workspaceIndex].sessions[sessionIndex].updatedAt = now
+    workspaceLibrary.workspaces[workspaceIndex].updatedAt = now
+    saveLibrary()
+  }
+
+  func deleteSession(_ sessionID: CodingSession.ID) {
+    guard
+      let workspaceIndex = workspaceLibrary.workspaces.firstIndex(where: { workspace in
+        workspace.sessions.contains { $0.id == sessionID }
+      })
+    else {
+      return
+    }
+
+    let wasActiveSession = workspaceLibrary.activeSessionID == sessionID
+    workspaceLibrary.workspaces[workspaceIndex].sessions.removeAll { $0.id == sessionID }
+
+    if workspaceLibrary.workspaces[workspaceIndex].sessions.isEmpty {
+      let replacementSession = makeDefaultSession()
+      workspaceLibrary.workspaces[workspaceIndex].sessions = [replacementSession]
+      workspaceLibrary.activeWorkspaceID = workspaceLibrary.workspaces[workspaceIndex].id
+      workspaceLibrary.activeSessionID = replacementSession.id
+    } else if wasActiveSession {
+      workspaceLibrary.activeWorkspaceID = workspaceLibrary.workspaces[workspaceIndex].id
+      workspaceLibrary.activeSessionID = workspaceLibrary.workspaces[workspaceIndex].sessions.first?.id
+    }
+
+    workspaceLibrary.workspaces[workspaceIndex].updatedAt = Date()
+    saveLibrary()
+
+    if wasActiveSession {
+      loadActiveSession()
+    }
+  }
+
   func persistActiveSession() {
     guard
       let workspaceIndex = activeWorkspaceIndex,

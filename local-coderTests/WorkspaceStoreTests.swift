@@ -140,6 +140,168 @@ struct WorkspaceStoreTests {
   }
 
   @Test
+  func appStateRenamesSessionAndPersistsTitle() throws {
+    let workspaceURL = try makeTemporaryDirectory()
+    let workspaceStore = FakeWorkspaceStore()
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      chatController: ChatSessionController(
+        runtime: FakeChatModelRuntime(),
+        modelPath: "/tmp/model",
+        modelSettingsStore: FakeModelSettingsStore()
+      )
+    )
+    let sessionID = try #require(appState.addWorkspace(from: workspaceURL))
+
+    appState.renameSession(sessionID, title: "  Refactor parser  ")
+
+    #expect(appState.activeSession?.title == "Refactor parser")
+    #expect(workspaceStore.savedLibrary?.workspaces.first?.sessions.first?.title == "Refactor parser")
+  }
+
+  @Test
+  func appStateIgnoresEmptySessionRename() throws {
+    let workspaceURL = try makeTemporaryDirectory()
+    let workspaceStore = FakeWorkspaceStore()
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      chatController: ChatSessionController(
+        runtime: FakeChatModelRuntime(),
+        modelPath: "/tmp/model",
+        modelSettingsStore: FakeModelSettingsStore()
+      )
+    )
+    let sessionID = try #require(appState.addWorkspace(from: workspaceURL))
+
+    appState.renameSession(sessionID, title: "   ")
+
+    #expect(appState.activeSession?.title == "New Session")
+  }
+
+  @Test
+  func appStateDeletesInactiveSessionAndItsMessages() throws {
+    let deletedSession = CodingSession(
+      title: "Delete me",
+      selectedModelID: "gemma3-1b",
+      messages: [ChatMessage(role: .user, content: "remove this chat")],
+      systemPrompt: "Delete prompt",
+      generationSettings: .codingDefault
+    )
+    let activeSession = CodingSession(
+      title: "Keep me",
+      selectedModelID: "gemma3-4b",
+      messages: [ChatMessage(role: .user, content: "keep this chat")],
+      systemPrompt: "Keep prompt",
+      generationSettings: .codingDefault
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [deletedSession, activeSession]
+    )
+    let workspaceStore = FakeWorkspaceStore(
+      library: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspace.id,
+        activeSessionID: activeSession.id
+      )
+    )
+    let appState = AppState(workspaceStore: workspaceStore)
+
+    appState.deleteSession(deletedSession.id)
+
+    #expect(appState.activeSession?.id == activeSession.id)
+    #expect(appState.workspaceLibrary.workspaces.first?.sessions.map(\.id) == [activeSession.id])
+    #expect(
+      workspaceStore.savedLibrary?.workspaces.first?.sessions.contains {
+        $0.messages.contains { $0.content == "remove this chat" }
+      } == false)
+  }
+
+  @Test
+  func appStateDeletesActiveSessionAndSelectsRemainingSession() throws {
+    let activeSession = CodingSession(
+      title: "Active",
+      selectedModelID: "gemma3-1b",
+      messages: [ChatMessage(role: .user, content: "active chat")],
+      systemPrompt: "Active prompt",
+      generationSettings: .codingDefault
+    )
+    let remainingSession = CodingSession(
+      title: "Remaining",
+      selectedModelID: "gemma3-4b",
+      messages: [ChatMessage(role: .user, content: "remaining chat")],
+      systemPrompt: "Remaining prompt",
+      generationSettings: .codingDefault
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [activeSession, remainingSession]
+    )
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      modelSettingsStore: FakeModelSettingsStore()
+    )
+    let appState = AppState(
+      workspaceStore: FakeWorkspaceStore(
+        library: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspace.id,
+          activeSessionID: activeSession.id
+        )
+      ),
+      chatController: controller
+    )
+
+    appState.deleteSession(activeSession.id)
+
+    #expect(appState.activeSession?.id == remainingSession.id)
+    #expect(controller.chatSession.messages == remainingSession.messages)
+    #expect(controller.chatSession.systemPrompt == "Remaining prompt")
+  }
+
+  @Test
+  func appStateDeletingLastSessionCreatesEmptyReplacementSession() throws {
+    let onlySession = CodingSession(
+      title: "Only",
+      selectedModelID: "gemma3-1b",
+      messages: [ChatMessage(role: .user, content: "deleted chat")],
+      systemPrompt: "Only prompt",
+      generationSettings: .codingDefault
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [onlySession]
+    )
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      modelSettingsStore: FakeModelSettingsStore()
+    )
+    let appState = AppState(
+      workspaceStore: FakeWorkspaceStore(
+        library: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspace.id,
+          activeSessionID: onlySession.id
+        )
+      ),
+      chatController: controller
+    )
+
+    appState.deleteSession(onlySession.id)
+
+    #expect(appState.workspaceLibrary.workspaces.first?.sessions.count == 1)
+    #expect(appState.activeSession?.id != onlySession.id)
+    #expect(appState.activeSession?.title == "New Session")
+    #expect(appState.activeSession?.messages.isEmpty == true)
+    #expect(controller.chatSession.messages.isEmpty)
+  }
+
+  @Test
   func appStatePersistsChatMutationIntoActiveSession() async throws {
     let workspaceURL = try makeTemporaryDirectory()
     let workspaceStore = FakeWorkspaceStore()
