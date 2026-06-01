@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		F9071F142FCD7946000A270C /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = F9071F132FCD7946000A270C /* MLX */; };
+		F9071F162FCD7946000A270C /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = F9071F152FCD7946000A270C /* MLXNN */; };
+		F9071F182FCD7946000A270C /* MLXRandom in Frameworks */ = {isa = PBXBuildFile; productRef = F9071F172FCD7946000A270C /* MLXRandom */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		F9D7F5FB2FCC80CD00FECA78 /* local-coder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "local-coder.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +29,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F9071F162FCD7946000A270C /* MLXNN in Frameworks */,
+				F9071F182FCD7946000A270C /* MLXRandom in Frameworks */,
+				F9071F142FCD7946000A270C /* MLX in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +74,9 @@
 			);
 			name = "local-coder";
 			packageProductDependencies = (
+				F9071F132FCD7946000A270C /* MLX */,
+				F9071F152FCD7946000A270C /* MLXNN */,
+				F9071F172FCD7946000A270C /* MLXRandom */,
 			);
 			productName = "local-coder";
 			productReference = F9D7F5FB2FCC80CD00FECA78 /* local-coder.app */;
@@ -94,6 +106,9 @@
 			);
 			mainGroup = F9D7F5F22FCC80CD00FECA78;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F9071F122FCD7946000A270C /* XCRemoteSwiftPackageReference "mlx-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F9D7F5FC2FCC80CD00FECA78 /* Products */;
 			projectDirPath = "";
@@ -345,6 +360,35 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F9071F122FCD7946000A270C /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift/";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.31.3;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F9071F132FCD7946000A270C /* MLX */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F9071F122FCD7946000A270C /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLX;
+		};
+		F9071F152FCD7946000A270C /* MLXNN */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F9071F122FCD7946000A270C /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLXNN;
+		};
+		F9071F172FCD7946000A270C /* MLXRandom */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F9071F122FCD7946000A270C /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLXRandom;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F9D7F5F32FCC80CD00FECA78 /* Project object */;
 }
