@@ -926,23 +926,42 @@ private struct ToolCallSummaryView: View {
 
 private struct ToolResultSummaryView: View {
     let toolResult: ToolResultModelMessage
+    @State private var isResultExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Tool result", systemImage: toolResult.systemImage)
-                .font(.headline)
+            HStack(spacing: 8) {
+                Label("Tool result", systemImage: toolResult.systemImage)
+                    .font(.headline)
+
+                Spacer(minLength: 8)
+
+                Text(toolResult.preview.status.rawValue)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(toolResult.statusColor)
+            }
 
             LabeledContent("Tool", value: toolResult.toolName.rawValue)
-            LabeledContent("Status", value: toolResult.preview.status.rawValue)
 
-            if !toolResult.preview.affectedPaths.isEmpty {
-                LabeledContent("Paths", value: toolResult.preview.affectedPaths.joined(separator: "\n"))
+            if !toolResult.metaSummary.isEmpty {
+                Text(toolResult.metaSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
 
             if !toolResult.preview.text.isEmpty {
-                Divider()
-                Text(toolResult.preview.text)
-                    .font(.system(.callout, design: .monospaced))
+                DisclosureGroup(isExpanded: $isResultExpanded) {
+                    Divider()
+                    Text(toolResult.preview.text)
+                        .font(.system(.callout, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 2)
+                } label: {
+                    Text(isResultExpanded ? "Hide result" : "Show result")
+                        .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.plain)
             }
         }
         .font(.callout)
@@ -1046,6 +1065,52 @@ extension ChatMessage {
 extension ToolResultModelMessage {
     fileprivate var systemImage: String {
         preview.status == .success ? "checkmark.circle" : "exclamationmark.triangle"
+    }
+
+    fileprivate var statusColor: Color {
+        switch preview.status {
+        case .success:
+            .green
+        case .failed, .denied:
+            .orange
+        }
+    }
+
+    fileprivate var metaSummary: String {
+        var parts: [String] = []
+
+        if !preview.affectedPaths.isEmpty {
+            parts.append(pathSummary)
+        }
+
+        if preview.truncated {
+            parts.append("truncated")
+        }
+
+        parts.append(resultSizeSummary)
+        return parts.joined(separator: " · ")
+    }
+
+    private var pathSummary: String {
+        guard let firstPath = preview.affectedPaths.first else {
+            return ""
+        }
+
+        if preview.affectedPaths.count == 1 {
+            return firstPath
+        }
+
+        return "\(firstPath) +\(preview.affectedPaths.count - 1) paths"
+    }
+
+    private var resultSizeSummary: String {
+        let lineCount = preview.text.isEmpty ? 0 : preview.text.components(separatedBy: .newlines).count
+        let byteCount = preview.text.utf8.count
+        let formattedBytes = ByteCountFormatter.string(
+            fromByteCount: Int64(byteCount),
+            countStyle: .file
+        )
+        return "\(lineCount) lines, \(formattedBytes)"
     }
 }
 
