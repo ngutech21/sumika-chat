@@ -26,6 +26,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		F9071FA72FCDAD93000A270C /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		F910000A2FD0720000A270C /* local-coderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "local-coderTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F9D7F5FB2FCC80CD00FECA78 /* local-coder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "local-coder.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -70,6 +71,7 @@
 		F9D7F5F22FCC80CD00FECA78 = {
 			isa = PBXGroup;
 			children = (
+				F9071FA72FCDAD93000A270C /* LICENSE */,
 				F9D7F5FD2FCC80CD00FECA78 /* local-coder */,
 				F91000092FD0720000A270C /* local-coderTests */,
 				F9D7F5FC2FCC80CD00FECA78 /* Products */,
