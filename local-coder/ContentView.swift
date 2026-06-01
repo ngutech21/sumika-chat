@@ -517,16 +517,27 @@ private struct WorkspaceChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ChatTranscript(messages: controller.chatSession.messages)
+            ChatTranscript(
+                messages: controller.chatSession.messages,
+                selectedModel: controller.selectedModel,
+                modelState: controller.modelState
+            )
 
             Divider()
 
             ChatComposer(
                 draft: $controller.draft,
                 attachments: controller.chatSession.attachments,
+                availableModels: controller.availableModels,
+                selectedModel: controller.selectedModel,
+                modelState: controller.modelState,
+                canChangeModel: controller.canChangeModel,
+                isSelectedModelDownloaded: controller.isModelDownloaded(controller.selectedModel),
                 canSend: controller.canSend,
                 isGenerating: controller.isGenerating,
                 errorMessage: controller.errorMessage,
+                onSelectModel: controller.selectModel,
+                onLoadModel: controller.loadSelectedModel,
                 onAddAttachments: onAddAttachments,
                 onDropAttachments: controller.addAttachments,
                 onRemoveAttachment: controller.removeAttachment,
@@ -539,15 +550,17 @@ private struct WorkspaceChatView: View {
 
 private struct ChatTranscript: View {
     let messages: [ChatMessage]
+    let selectedModel: ManagedModel
+    let modelState: ModelLoadState
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 if messages.isEmpty {
                     ContentUnavailableView(
-                        "No Messages",
+                        emptyStateTitle,
                         systemImage: "bubble.left.and.bubble.right",
-                        description: Text("Load a Gemma model from Models to start chatting.")
+                        description: Text(emptyStateDescription)
                     )
                     .frame(maxWidth: .infinity, minHeight: 360)
                 } else {
@@ -558,6 +571,32 @@ private struct ChatTranscript: View {
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var emptyStateTitle: String {
+        switch modelState {
+        case .ready:
+            "\(selectedModel.displayName) Ready"
+        case .loading:
+            "Loading Model"
+        case .failed:
+            "Model Not Ready"
+        case .notLoaded:
+            "No Model Loaded"
+        }
+    }
+
+    private var emptyStateDescription: String {
+        switch modelState {
+        case .ready:
+            "Send a prompt with \(selectedModel.displayName) to start chatting."
+        case .loading:
+            "Loading \(selectedModel.displayName). You can write a prompt once it is ready."
+        case .failed:
+            "Loading failed. Select or load a model below before writing a prompt."
+        case .notLoaded:
+            "Select and load a Gemma model below before writing a prompt."
         }
     }
 }
@@ -684,9 +723,16 @@ extension ChatBubble {
 private struct ChatComposer: View {
     @Binding var draft: String
     let attachments: [ChatAttachment]
+    let availableModels: [ManagedModel]
+    let selectedModel: ManagedModel
+    let modelState: ModelLoadState
+    let canChangeModel: Bool
+    let isSelectedModelDownloaded: Bool
     let canSend: Bool
     let isGenerating: Bool
     let errorMessage: String?
+    let onSelectModel: (ManagedModel) -> Void
+    let onLoadModel: () -> Void
     let onAddAttachments: () -> Void
     let onDropAttachments: ([URL]) -> Void
     let onRemoveAttachment: (ChatAttachment.ID) -> Void
@@ -710,19 +756,13 @@ private struct ChatComposer: View {
                 )
             }
 
-            HStack(alignment: .bottom, spacing: 10) {
-                Button(action: onAddAttachments) {
-                    Image(systemName: "paperclip")
-                }
-                .buttonStyle(.borderless)
-                .disabled(isGenerating)
-                .help("Add context files")
-                .accessibilityLabel("Add context files")
-
+            VStack(spacing: 8) {
                 TextField("Message", text: $draft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
                     .lineLimit(1...5)
+                    .frame(minHeight: 36, alignment: .topLeading)
                     .accessibilityIdentifier("message-field")
+                    .disabled(modelState != .ready || isGenerating)
                     .onSubmit(onSend)
                     .onDrop(
                         of: [UTType.fileURL.identifier],
@@ -730,13 +770,55 @@ private struct ChatComposer: View {
                         perform: handleDrop
                     )
 
-                Button(action: isGenerating ? onCancel : onSend) {
-                    Image(systemName: isGenerating ? "stop.fill" : "paperplane.fill")
+                HStack(spacing: 8) {
+                    Button(action: onAddAttachments) {
+                        Image(systemName: "paperclip")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .disabled(isGenerating || modelState != .ready)
+                    .help("Add context files")
+                    .accessibilityLabel("Add context files")
+
+                    Picker("Model", selection: modelSelection) {
+                        ForEach(availableModels) { model in
+                            Text(model.displayName)
+                                .tag(model.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 150)
+                    .controlSize(.small)
+                    .disabled(!canChangeModel)
+                    .help("Select model for this workspace")
+
+                    if modelState != .ready {
+                        Button(action: onLoadModel) {
+                            Label(modelLoadActionTitle, systemImage: "play.fill")
+                        }
+                        .controlSize(.small)
+                        .disabled(!canLoadSelectedModel)
+                        .help(modelLoadHelp)
+                    }
+
+                    Spacer()
+
+                    Button(action: isGenerating ? onCancel : onSend) {
+                        Image(systemName: isGenerating ? "stop.fill" : "paperplane.fill")
+                    }
+                    .accessibilityIdentifier(isGenerating ? "cancel-generation-button" : "send-button")
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(!isGenerating && !canSend)
+                    .help(isGenerating ? "Cancel" : "Send")
                 }
-                .accessibilityIdentifier(isGenerating ? "cancel-generation-button" : "send-button")
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(!isGenerating && !canSend)
-                .help(isGenerating ? "Cancel" : "Send")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 14)
+            .background(Color.secondary.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color.secondary.opacity(0.16), lineWidth: 1)
             }
         }
         .padding(16)
@@ -758,8 +840,35 @@ private struct ChatComposer: View {
         )
     }
 
+    private var modelSelection: Binding<ManagedModel.ID> {
+        Binding(
+            get: { selectedModel.id },
+            set: { modelID in
+                guard let model = availableModels.first(where: { $0.id == modelID }) else {
+                    return
+                }
+
+                onSelectModel(model)
+            }
+        )
+    }
+
+    private var canLoadSelectedModel: Bool {
+        modelState != .loading && !isGenerating && isSelectedModelDownloaded
+    }
+
+    private var modelLoadActionTitle: String {
+        modelState == .loading ? "Loading" : "Load"
+    }
+
+    private var modelLoadHelp: String {
+        isSelectedModelDownloaded
+            ? "Load selected model"
+            : "Download this model from Models first"
+    }
+
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard !isGenerating else {
+        guard !isGenerating, modelState == .ready else {
             return false
         }
 
