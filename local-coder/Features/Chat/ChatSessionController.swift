@@ -8,15 +8,18 @@ final class ChatSessionController {
     var modelState: ModelLoadState = .notLoaded
     var chatSession = ChatSessionState.codingDefault
     var contextUsage: ChatContextUsage?
+    var processUsage: ProcessResourceUsage?
     var draft = ""
     var isGenerating = false
     var errorMessage: String?
 
     @ObservationIgnored private let runtime: any ChatModelRuntime
+    @ObservationIgnored private let resourceMonitor: any ProcessResourceMonitoring
     @ObservationIgnored private var isHandlingDroppedDraftPath = false
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var modelOperationID = UUID()
     @ObservationIgnored private var generationTask: Task<Void, Never>?
+    @ObservationIgnored private var resourceMonitorTask: Task<Void, Never>?
 
     var canSend: Bool {
         modelState == .ready && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isGenerating
@@ -24,17 +27,24 @@ final class ChatSessionController {
 
     init() {
         self.runtime = GemmaMLXRuntime()
+        self.resourceMonitor = ProcessResourceMonitor()
         self.modelPath = LocalModelDirectory.defaultModelURL.path(percentEncoded: false)
     }
 
-    init(runtime: any ChatModelRuntime, modelPath: String) {
+    init(
+        runtime: any ChatModelRuntime,
+        resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
+        modelPath: String
+    ) {
         self.runtime = runtime
+        self.resourceMonitor = resourceMonitor
         self.modelPath = modelPath
     }
 
     deinit {
         loadTask?.cancel()
         generationTask?.cancel()
+        resourceMonitorTask?.cancel()
     }
 
     func prepareDefaultModelDirectory() {
@@ -47,6 +57,19 @@ final class ChatSessionController {
             }
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func startResourceMonitoring() {
+        guard resourceMonitorTask == nil else {
+            return
+        }
+
+        resourceMonitorTask = Task {
+            while !Task.isCancelled {
+                processUsage = await resourceMonitor.currentUsage()
+                try? await Task.sleep(for: .seconds(1))
+            }
         }
     }
 

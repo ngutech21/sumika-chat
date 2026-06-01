@@ -25,6 +25,7 @@ struct ContentView: View {
                 systemPrompt: $controller.chatSession.systemPrompt,
                 generationSettings: $controller.chatSession.generationSettings,
                 contextUsage: controller.contextUsage,
+                processUsage: controller.processUsage,
                 modelState: controller.modelState,
                 isLoading: controller.modelState == .loading,
                 onChooseModelDirectory: chooseModelDirectory,
@@ -64,6 +65,7 @@ struct ContentView: View {
         .onAppear {
             columnVisibility = .all
             controller.prepareDefaultModelDirectory()
+            controller.startResourceMonitoring()
         }
     }
 
@@ -102,6 +104,7 @@ private struct ModelSidebar: View {
     @Binding var systemPrompt: String
     @Binding var generationSettings: ChatGenerationSettings
     let contextUsage: ChatContextUsage?
+    let processUsage: ProcessResourceUsage?
     let modelState: ModelLoadState
     let isLoading: Bool
     let onChooseModelDirectory: () -> Void
@@ -131,6 +134,24 @@ private struct ModelSidebar: View {
                 Label(modelState.label, systemImage: modelState.systemImage)
                     .accessibilityIdentifier("model-state-label")
                     .foregroundStyle(modelState.tint)
+            }
+
+            Section("Resources") {
+                if let processUsage {
+                    ResourceUsageRow(
+                        title: "Memory",
+                        systemImage: "memorychip",
+                        value: processUsage.memorySummary
+                    )
+                    ResourceUsageRow(
+                        title: "CPU",
+                        systemImage: "cpu",
+                        value: processUsage.cpuSummary
+                    )
+                } else {
+                    Label("Measuring resources.", systemImage: "gauge.with.dots.needle.33percent")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Context") {
@@ -219,6 +240,22 @@ private struct ModelSidebar: View {
             "eject"
         case .loading, .notLoaded, .failed:
             "square.and.arrow.down"
+        }
+    }
+}
+
+private struct ResourceUsageRow: View {
+    let title: String
+    let systemImage: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Label(title, systemImage: systemImage)
+            Spacer()
+            Text(value)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
         }
     }
 }
