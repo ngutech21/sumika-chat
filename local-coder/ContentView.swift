@@ -313,6 +313,7 @@ private struct ChatTranscript: View {
 
 private struct ChatBubble: View {
     let message: ChatMessage
+    @State private var didCopy = false
 
     var body: some View {
         HStack(alignment: .top) {
@@ -339,10 +340,24 @@ private struct ChatBubble: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
 
-                if message.role == .assistant, let metrics = message.generationMetrics {
-                    Text(metrics.summary)
-                        .font(.caption2)
+                if message.role == .assistant && !message.content.isEmpty {
+                    HStack(spacing: 8) {
+                        if let metrics = message.generationMetrics {
+                            Text(metrics.summary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Button {
+                            copyMessageToClipboard()
+                        } label: {
+                            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
                         .foregroundStyle(.secondary)
+                        .help(didCopy ? "Copied" : "Copy")
+                        .accessibilityLabel("Copy assistant message")
+                    }
                 }
             }
             .frame(maxWidth: 680, alignment: .leading)
@@ -350,6 +365,17 @@ private struct ChatBubble: View {
             if message.role == .assistant {
                 Spacer(minLength: 80)
             }
+        }
+    }
+
+    private func copyMessageToClipboard() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(message.content, forType: .string)
+        didCopy = true
+
+        Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            didCopy = false
         }
     }
 }
