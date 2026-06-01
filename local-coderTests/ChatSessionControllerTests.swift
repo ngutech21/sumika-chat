@@ -58,6 +58,28 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func cancelGenerationStopsControllerAndDropsTransientAssistantPlaceholder() async throws {
+    let runtime = NonCooperativeStreamingRuntime(chunks: ["late reply"])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelState = .ready
+    controller.draft = "Cancel this"
+
+    controller.sendMessage()
+
+    try await waitUntilAsync { await runtime.didStartStreaming }
+    controller.cancelGeneration()
+    await runtime.releaseChunks()
+
+    try await Task.sleep(for: .milliseconds(60))
+
+    #expect(!controller.isGenerating)
+    #expect(controller.chatSession.messages.count == 1)
+    #expect(controller.chatSession.messages.first?.kind == .user)
+    #expect(controller.chatSession.messages.first?.content == "Cancel this")
+    #expect(controller.errorMessage == nil)
+  }
+
+  @Test
   func sendMessageInWorkspaceKeepsNormalChatFreeOfToolInstructions() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -410,6 +432,37 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func loadModelIgnoresCancelledEarlierOperationAfterNewLoadStarts() async throws {
+    let firstModelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let secondModelDirectory = try makeModelDirectory(config: #"{"n_ctx":4096}"#)
+    let runtime = RaceLoadingRuntime()
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: firstModelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+    try await waitUntilAsync { await runtime.loadCount == 1 }
+
+    controller.modelPath = secondModelDirectory.path(percentEncoded: false)
+    controller.loadModel()
+
+    try await waitUntil { controller.modelState == .ready }
+    try await waitUntilAsync { await runtime.loadCount == 2 }
+    await runtime.releaseFirstLoad()
+    try await Task.sleep(for: .milliseconds(60))
+
+    #expect(controller.modelState == .ready)
+    #expect(controller.errorMessage == nil)
+    #expect(controller.contextUsage?.tokenLimit == nil)
+    let configurations = await runtime.loadedConfigurations
+    #expect(configurations.count == 2)
+    #expect(configurations[0].localModelDirectory == firstModelDirectory)
+    #expect(configurations[1].localModelDirectory == secondModelDirectory)
+    #expect(configurations[1].contextTokenLimit == 4096)
+  }
+
+  @Test
   func unloadModelReleasesRuntimeAndResetsModelState() async throws {
     let runtime = FakeChatModelRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -479,6 +532,145 @@ struct ChatSessionControllerTests {
         )
       ]
     )
+  }
+
+  private func makeModelDirectory(config: String) throws -> URL {
+    let modelDirectory = FileManager.default.temporaryDirectory.appending(
+      path: "local-coder-tests-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
+    try config.write(
+      to: modelDirectory.appending(path: "config.json", directoryHint: .notDirectory),
+      atomically: true,
+      encoding: .utf8
+    )
+    return modelDirectory
+  }
+}
+
+private actor NonCooperativeStreamingRuntime: ChatModelRuntime {
+  private let chunks: [String]
+  private var streamContinuation: CheckedContinuation<Void, Never>?
+  private var didReleaseChunks = false
+  private(set) var didStartStreaming = false
+
+  init(chunks: [String]) {
+    self.chunks = chunks
+  }
+
+  func load(configuration: ChatModelConfiguration) async throws {}
+  func unload() async {}
+  func clearContext() async {}
+
+  func releaseChunks() {
+    didReleaseChunks = true
+    if let streamContinuation {
+      streamContinuation.resume()
+      self.streamContinuation = nil
+    }
+  }
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+
+    didStartStreaming = true
+    return AsyncThrowingStream { continuation in
+      Task.detached { [chunks] in
+        await withCheckedContinuation { release in
+          Task {
+            await self.storeStreamContinuation(release)
+          }
+        }
+
+        for chunk in chunks {
+          continuation.yield(.chunk(chunk))
+        }
+        continuation.yield(.completed(nil))
+        continuation.finish()
+      }
+    }
+  }
+
+  private func storeStreamContinuation(_ continuation: CheckedContinuation<Void, Never>) {
+    if didReleaseChunks {
+      continuation.resume()
+      return
+    }
+    streamContinuation = continuation
+  }
+}
+
+private actor RaceLoadingRuntime: ChatModelRuntime {
+  private var firstLoadContinuation: CheckedContinuation<Void, Never>?
+  private(set) var loadedConfigurations: [ChatModelConfiguration] = []
+
+  var loadCount: Int {
+    loadedConfigurations.count
+  }
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    loadedConfigurations.append(configuration)
+
+    if loadedConfigurations.count == 1 {
+      await withCheckedContinuation { continuation in
+        firstLoadContinuation = continuation
+      }
+      try Task.checkCancellation()
+    }
+  }
+
+  func releaseFirstLoad() {
+    firstLoadContinuation?.resume()
+    firstLoadContinuation = nil
+  }
+
+  func unload() async {}
+  func clearContext() async {}
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+    return AsyncThrowingStream { continuation in
+      continuation.finish()
+    }
   }
 }
 

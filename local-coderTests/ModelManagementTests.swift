@@ -138,6 +138,25 @@ struct ModelManagementTests {
     #expect(controller.downloadProgress == 1)
   }
 
+  @Test
+  func downloadSelectedModelPublishesFailureAndClearsProgress() async throws {
+    let downloader = FakeModelDownloader(error: FakeModelDownloadError.failed)
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(),
+      modelPath: ManagedModelCatalog.defaultModel.localPath,
+      modelSettingsStore: FakeModelSettingsStore(),
+      modelDownloader: downloader
+    )
+
+    controller.downloadSelectedModel()
+
+    try await waitUntil {
+      controller.downloadState == .failed(FakeModelDownloadError.failed.localizedDescription)
+    }
+    #expect(controller.downloadProgress == nil)
+    #expect(controller.errorMessage == FakeModelDownloadError.failed.localizedDescription)
+  }
+
   private func makeUserDefaults() -> UserDefaults {
     let suiteName = "local-coder-tests-\(UUID().uuidString)"
     return UserDefaults(suiteName: suiteName)!
@@ -195,9 +214,11 @@ private final class FakeModelSettingsStore: ModelSettingsStoring, @unchecked Sen
 private final class FakeModelDownloader: ModelDownloading, @unchecked Sendable {
   var downloadedModelID: String?
   private let progressFractions: [Double]
+  private let error: Error?
 
-  init(progressFractions: [Double] = [1]) {
+  init(progressFractions: [Double] = [1], error: Error? = nil) {
     self.progressFractions = progressFractions
+    self.error = error
   }
 
   func download(
@@ -211,7 +232,18 @@ private final class FakeModelDownloader: ModelDownloading, @unchecked Sendable {
       await progressHandler(progress)
       try await Task.sleep(for: .milliseconds(20))
     }
+    if let error {
+      throw error
+    }
     return model.localDirectoryURL
+  }
+}
+
+private enum FakeModelDownloadError: LocalizedError {
+  case failed
+
+  var errorDescription: String? {
+    "download failed"
   }
 }
 

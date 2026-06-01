@@ -188,7 +188,7 @@ final class ChatSessionController {
 
     loadTask?.cancel()
     loadTask = nil
-    cancelGeneration()
+    cancelGeneration(notify: false)
     selectedModelID = model.id
     modelPath = model.localPath
     downloadState = .idle
@@ -422,9 +422,17 @@ final class ChatSessionController {
   }
 
   func cancelGeneration() {
+    cancelGeneration(notify: true)
+  }
+
+  private func cancelGeneration(notify: Bool) {
     generationTask?.cancel()
     generationTask = nil
     isGenerating = false
+    removeTransientAssistantPlaceholders()
+    if notify {
+      notifySessionDidChange()
+    }
   }
 
   func clearChatHistory() {
@@ -606,6 +614,10 @@ extension ChatSessionController {
       guard !bufferedChunk.isEmpty else {
         return
       }
+      guard !Task.isCancelled else {
+        bufferedChunk = ""
+        return
+      }
 
       appendChunk(bufferedChunk, to: assistantMessageID)
       bufferedChunk = ""
@@ -622,6 +634,7 @@ extension ChatSessionController {
     }
 
     for try await event in stream {
+      try Task.checkCancellation()
       switch event {
       case .chunk(let chunk):
         bufferedChunk += chunk
