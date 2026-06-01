@@ -1,5 +1,6 @@
 // swiftlint:disable file_length
 import AppKit
+import MarkdownUI
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -851,14 +852,290 @@ private struct MessageContentText: View {
     let message: ChatMessage
 
     var body: some View {
-        if message.role == .assistant,
-            let markdown = try? AttributedString(markdown: message.content)
-        {
-            Text(markdown)
+        if message.role == .assistant {
+            Markdown(AssistantMarkdownPreprocessor.renderableContent(for: message.content))
+                .markdownTheme(.chatMessage)
+                .markdownCodeSyntaxHighlighter(ChatCodeSyntaxHighlighter())
         } else {
             Text(message.content)
         }
     }
+}
+
+private struct ChatCodeSyntaxHighlighter: CodeSyntaxHighlighter {
+    func highlightCode(_ code: String, language: String?) -> Text {
+        switch language?.lowercased() {
+        case "html", "xml":
+            return highlightHTML(code)
+        case "css":
+            return highlightCSS(code)
+        case "json":
+            return highlightJSON(code)
+        case "bash", "sh", "shell", "zsh":
+            return highlightShell(code)
+        case "diff", "patch":
+            return highlightDiff(code)
+        default:
+            return Text(code)
+        }
+    }
+
+    private func highlightHTML(_ code: String) -> Text {
+        var result = Text("")
+        var currentIndex = code.startIndex
+
+        while currentIndex < code.endIndex {
+            if code[currentIndex...].lowercased().hasPrefix("<style"),
+                let openTagEnd = code[currentIndex...].firstIndex(of: ">"),
+                let closeTagRange = code[openTagEnd...].range(of: "</style>", options: .caseInsensitive) {
+                result = append(result, highlightHTMLTag(String(code[currentIndex...openTagEnd])))
+                let styleContent = String(code[code.index(after: openTagEnd)..<closeTagRange.lowerBound])
+                result = append(result, highlightCSS(styleContent))
+                result = append(result, highlightHTMLTag(String(code[closeTagRange])))
+                currentIndex = closeTagRange.upperBound
+            } else if code[currentIndex] == "<",
+                let tagEnd = code[currentIndex...].firstIndex(of: ">") {
+                result = append(result, highlightHTMLTag(String(code[currentIndex...tagEnd])))
+                currentIndex = code.index(after: tagEnd)
+            } else {
+                let nextTag = code[currentIndex...].firstIndex(of: "<") ?? code.endIndex
+                result = append(result, Text(String(code[currentIndex..<nextTag])))
+                currentIndex = nextTag
+            }
+        }
+
+        return result
+    }
+
+    private func highlightHTMLTag(_ tag: String) -> Text {
+        if tag.hasPrefix("<!--") {
+            return Text(tag).foregroundColor(.secondary)
+        }
+
+        var result = Text("")
+        var currentIndex = tag.startIndex
+
+        while currentIndex < tag.endIndex {
+            let character = tag[currentIndex]
+
+            if character == "<" || character == ">" || character == "/" || character == "!" {
+                result = append(result, Text(String(character)).foregroundColor(.secondary))
+                currentIndex = tag.index(after: currentIndex)
+            } else if character == "\"" || character == "'" {
+                let quote = character
+                let startIndex = currentIndex
+                currentIndex = tag.index(after: currentIndex)
+
+                while currentIndex < tag.endIndex && tag[currentIndex] != quote {
+                    currentIndex = tag.index(after: currentIndex)
+                }
+
+                if currentIndex < tag.endIndex {
+                    currentIndex = tag.index(after: currentIndex)
+                }
+
+                result = append(result, Text(String(tag[startIndex..<currentIndex])).foregroundColor(.green))
+            } else if character.isLetter || character == "-" {
+                let startIndex = currentIndex
+
+                while currentIndex < tag.endIndex,
+                    tag[currentIndex].isLetter || tag[currentIndex].isNumber || tag[currentIndex] == "-" {
+                    currentIndex = tag.index(after: currentIndex)
+                }
+
+                result = append(result, Text(String(tag[startIndex..<currentIndex])).foregroundColor(.cyan))
+            } else {
+                result = append(result, Text(String(character)))
+                currentIndex = tag.index(after: currentIndex)
+            }
+        }
+
+        return result
+    }
+
+    private func highlightCSS(_ code: String) -> Text {
+        var result = Text("")
+        var currentIndex = code.startIndex
+
+        while currentIndex < code.endIndex {
+            if code[currentIndex...].hasPrefix("/*"),
+                let commentEnd = code[currentIndex...].range(of: "*/") {
+                result = append(
+                    result,
+                    Text(String(code[currentIndex..<commentEnd.upperBound])).foregroundColor(.secondary)
+                )
+                currentIndex = commentEnd.upperBound
+            } else if code[currentIndex] == "\"" || code[currentIndex] == "'" {
+                let quote = code[currentIndex]
+                let startIndex = currentIndex
+                currentIndex = code.index(after: currentIndex)
+
+                while currentIndex < code.endIndex && code[currentIndex] != quote {
+                    currentIndex = code.index(after: currentIndex)
+                }
+
+                if currentIndex < code.endIndex {
+                    currentIndex = code.index(after: currentIndex)
+                }
+
+                result = append(result, Text(String(code[startIndex..<currentIndex])).foregroundColor(.green))
+            } else if code[currentIndex].isLetter || code[currentIndex] == "-" || code[currentIndex] == "#" {
+                let startIndex = currentIndex
+
+                while currentIndex < code.endIndex,
+                    code[currentIndex].isLetter
+                        || code[currentIndex].isNumber
+                        || code[currentIndex] == "-"
+                        || code[currentIndex] == "#"
+                        || code[currentIndex] == "." {
+                    currentIndex = code.index(after: currentIndex)
+                }
+
+                let token = String(code[startIndex..<currentIndex])
+                let nextNonWhitespace = code[currentIndex...].first { !$0.isWhitespace }
+                let color: Color = nextNonWhitespace == ":" ? .purple : .cyan
+                result = append(result, Text(token).foregroundColor(color))
+            } else if code[currentIndex].isNumber {
+                let startIndex = currentIndex
+
+                while currentIndex < code.endIndex,
+                    code[currentIndex].isNumber || code[currentIndex] == "." || code[currentIndex] == "%" {
+                    currentIndex = code.index(after: currentIndex)
+                }
+
+                result = append(result, Text(String(code[startIndex..<currentIndex])).foregroundColor(.orange))
+            } else {
+                result = append(result, Text(String(code[currentIndex])))
+                currentIndex = code.index(after: currentIndex)
+            }
+        }
+
+        return result
+    }
+
+    private func highlightJSON(_ code: String) -> Text {
+        var result = Text("")
+        var currentIndex = code.startIndex
+
+        while currentIndex < code.endIndex {
+            if code[currentIndex] == "\"" {
+                let startIndex = currentIndex
+                currentIndex = code.index(after: currentIndex)
+
+                while currentIndex < code.endIndex {
+                    if code[currentIndex] == "\\" {
+                        currentIndex = code.index(after: currentIndex)
+                    } else if code[currentIndex] == "\"" {
+                        currentIndex = code.index(after: currentIndex)
+                        break
+                    }
+
+                    if currentIndex < code.endIndex {
+                        currentIndex = code.index(after: currentIndex)
+                    }
+                }
+
+                let nextNonWhitespace = code[currentIndex...].first { !$0.isWhitespace }
+                let color: Color = nextNonWhitespace == ":" ? .cyan : .green
+                result = append(result, Text(String(code[startIndex..<currentIndex])).foregroundColor(color))
+            } else if code[currentIndex].isNumber || code[currentIndex] == "-" {
+                let startIndex = currentIndex
+
+                while currentIndex < code.endIndex,
+                    code[currentIndex].isNumber || code[currentIndex] == "." || code[currentIndex] == "-" {
+                    currentIndex = code.index(after: currentIndex)
+                }
+
+                result = append(result, Text(String(code[startIndex..<currentIndex])).foregroundColor(.orange))
+            } else {
+                result = append(result, Text(String(code[currentIndex])))
+                currentIndex = code.index(after: currentIndex)
+            }
+        }
+
+        return result
+    }
+
+    private func append(_ base: Text, _ next: Text) -> Text {
+        base + next
+    }
+
+    private func highlightShell(_ code: String) -> Text {
+        code.split(separator: "\n", omittingEmptySubsequences: false)
+            .reduce(Text("")) { partialResult, line in
+                if line.trimmingCharacters(in: .whitespaces).hasPrefix("#") {
+                    partialResult + Text(line).foregroundColor(.secondary) + Text("\n")
+                } else {
+                    partialResult + Text(line) + Text("\n")
+                }
+            }
+    }
+
+    private func highlightDiff(_ code: String) -> Text {
+        code.split(separator: "\n", omittingEmptySubsequences: false)
+            .reduce(Text("")) { partialResult, line in
+                if line.hasPrefix("+") {
+                    partialResult + Text(line).foregroundColor(.green) + Text("\n")
+                } else if line.hasPrefix("-") {
+                    partialResult + Text(line).foregroundColor(.red) + Text("\n")
+                } else {
+                    partialResult + Text(line) + Text("\n")
+                }
+            }
+    }
+}
+
+extension Theme {
+    fileprivate static let chatMessage = Theme()
+        .text {
+            ForegroundColor(.primary)
+            FontSize(13)
+        }
+        .code {
+            FontFamilyVariant(.monospaced)
+            FontSize(.em(0.92))
+            ForegroundColor(.primary)
+            BackgroundColor(.secondary.opacity(0.16))
+        }
+        .link {
+            ForegroundColor(.accentColor)
+            UnderlineStyle(.single)
+        }
+        .paragraph { configuration in
+            configuration.label
+                .relativeLineSpacing(.em(0.2))
+                .markdownMargin(top: 0, bottom: 8)
+        }
+        .listItem { configuration in
+            configuration.label
+                .markdownMargin(top: 2, bottom: 2)
+        }
+        .blockquote { configuration in
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.45))
+                    .frame(width: 3)
+                configuration.label
+                    .padding(.leading, 8)
+                    .markdownTextStyle {
+                        ForegroundColor(.secondary)
+                    }
+            }
+            .markdownMargin(top: 4, bottom: 8)
+        }
+        .codeBlock { configuration in
+            ScrollView(.horizontal, showsIndicators: true) {
+                configuration.label
+                    .markdownTextStyle {
+                        FontFamilyVariant(.monospaced)
+                        FontSize(.em(0.92))
+                        BackgroundColor(nil)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .markdownMargin(top: 4, bottom: 8)
+        }
 }
 
 extension ChatGenerationMetrics {

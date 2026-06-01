@@ -14,6 +14,7 @@
 		F9081F162FCE1000000A270C /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F152FCE1000000A270C /* MLXLMCommon */; };
 		F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1B2FCE1000000A270C /* Tokenizers */; };
 		F9081F202FCE1000000A270C /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1F2FCE1000000A270C /* HuggingFace */; };
+		F92000012FD2000000A270C /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = F92000032FD2000000A270C /* MarkdownUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -64,6 +65,7 @@
 				F9081F162FCE1000000A270C /* MLXLMCommon in Frameworks */,
 				F9081F202FCE1000000A270C /* HuggingFace in Frameworks */,
 				F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */,
+				F92000012FD2000000A270C /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -139,6 +141,7 @@
 				F9081F152FCE1000000A270C /* MLXLMCommon */,
 				F9081F1F2FCE1000000A270C /* HuggingFace */,
 				F9081F1B2FCE1000000A270C /* Tokenizers */,
+				F92000032FD2000000A270C /* MarkdownUI */,
 			);
 			productName = "local-coder";
 			productReference = F9D7F5FB2FCC80CD00FECA78 /* local-coder.app */;
@@ -177,6 +180,7 @@
 				F9081F122FCE1000000A270C /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */,
 				F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */,
+				F92000022FD2000000A270C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F9D7F5FC2FCC80CD00FECA78 /* Products */;
@@ -551,6 +555,14 @@
 				minimumVersion = 0.9.0;
 			};
 		};
+		F92000022FD2000000A270C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -588,6 +600,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */;
 			productName = HuggingFace;
+		};
+		F92000032FD2000000A270C /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F92000022FD2000000A270C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
