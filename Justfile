@@ -3,6 +3,9 @@ scheme := "local-coder"
 destination := "platform=macOS"
 derived_data := "build/DerivedData"
 
+default:
+  @just --list
+
 build:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} build
 
