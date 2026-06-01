@@ -20,6 +20,7 @@ enum GemmaMLXRuntimeError: LocalizedError {
 final actor GemmaMLXRuntime: ChatModelRuntime {
     private var modelContainer: ModelContainer?
     private var session: ChatSession?
+    private var contextTokenLimit: Int?
 
     func load(configuration: ChatModelConfiguration) async throws {
         let modelConfiguration = ModelConfiguration(
@@ -34,12 +35,27 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         )
 
         modelContainer = container
+        contextTokenLimit = configuration.contextTokenLimit
         session = nil
     }
 
     func clearContext() async {
         await session?.clear()
         session = nil
+    }
+
+    func contextUsage(for messages: [ChatMessage], systemPrompt: String) async throws -> ChatContextUsage {
+        guard let modelContainer else {
+            throw GemmaMLXRuntimeError.modelNotLoaded
+        }
+
+        let rawMessages = Self.contextMessages(from: messages, systemPrompt: systemPrompt)
+            .map { ["role": $0.role.rawValue, "content": $0.content] as [String: any Sendable] }
+        let usedTokens = try await modelContainer.perform { context in
+            try context.tokenizer.applyChatTemplate(messages: rawMessages).count
+        }
+
+        return ChatContextUsage(usedTokens: usedTokens, tokenLimit: contextTokenLimit)
     }
 
     func streamReply(
@@ -56,10 +72,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         }
 
         let prompt = messages[lastUserIndex].content
-        let effectiveSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let instructions = effectiveSystemPrompt.isEmpty ? nil : effectiveSystemPrompt
+        let instructions = Self.normalizedSystemPrompt(systemPrompt)
         let generateParameters = GenerateParameters(
             maxTokens: settings.maxTokens,
+            maxKVSize: contextTokenLimit,
             temperature: Float(settings.temperature),
             topP: Float(settings.topP),
             topK: settings.topK
@@ -104,6 +120,26 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             }
         }
     }
+
+    private static func contextMessages(
+        from messages: [ChatMessage],
+        systemPrompt: String
+    ) -> [Chat.Message] {
+        var contextMessages: [Chat.Message] = []
+
+        if let instructions = normalizedSystemPrompt(systemPrompt) {
+            contextMessages.append(.system(instructions))
+        }
+
+        contextMessages.append(contentsOf: messages.compactMap(Chat.Message.init))
+        return contextMessages
+    }
+
+    private static func normalizedSystemPrompt(_ systemPrompt: String) -> String? {
+        let effectiveSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return effectiveSystemPrompt.isEmpty ? nil : effectiveSystemPrompt
+    }
+
 }
 
 private extension Chat.Message {

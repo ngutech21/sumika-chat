@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var modelState: ModelLoadState = .notLoaded
     @State private var chatSession = ChatSessionState.codingDefault
+    @State private var contextUsage: ChatContextUsage?
     @State private var draft = ""
     @State private var isGenerating = false
     @State private var generationTask: Task<Void, Never>?
@@ -19,6 +20,7 @@ struct ContentView: View {
                 modelPath: $modelPath,
                 systemPrompt: $chatSession.systemPrompt,
                 generationSettings: $chatSession.generationSettings,
+                contextUsage: contextUsage,
                 modelState: modelState,
                 isLoading: modelState == .loading,
                 onChooseModelDirectory: chooseModelDirectory,
@@ -44,6 +46,9 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 880, minHeight: 560)
+        .onChange(of: chatSession.systemPrompt) {
+            refreshContextUsage()
+        }
         .onAppear {
             columnVisibility = .all
             do {
@@ -78,8 +83,13 @@ struct ContentView: View {
 
             do {
                 try validateModelDirectory(directoryURL)
-                try await runtime.load(configuration: ChatModelConfiguration(localModelDirectory: directoryURL))
+                let configuration = ChatModelConfiguration(
+                    localModelDirectory: directoryURL,
+                    contextTokenLimit: LocalModelDirectory.readContextTokenLimit(from: directoryURL)
+                )
+                try await runtime.load(configuration: configuration)
                 modelState = .ready
+                await updateContextUsage()
             } catch {
                 modelState = .failed(error.localizedDescription)
                 errorMessage = error.localizedDescription
@@ -100,6 +110,7 @@ struct ContentView: View {
 
         generationTask = Task {
             do {
+                await updateContextUsage()
                 let stream = try await runtime.streamReply(
                     for: chatSession.messages,
                     systemPrompt: chatSession.systemPrompt,
@@ -112,15 +123,18 @@ struct ContentView: View {
                         appendChunk(chunk, to: assistantMessageID)
                     case .completed(let metrics):
                         updateGenerationMetrics(metrics, for: assistantMessageID)
+                        await updateContextUsage()
                     }
                 }
             } catch is CancellationError {
                 if messageContent(for: assistantMessageID).isEmpty {
                     removeMessage(id: assistantMessageID)
                 }
+                await updateContextUsage()
             } catch {
                 removeMessage(id: assistantMessageID)
                 errorMessage = error.localizedDescription
+                await updateContextUsage()
             }
 
             isGenerating = false
@@ -172,9 +186,33 @@ struct ContentView: View {
 
     private func clearChatHistory() {
         chatSession.messages.removeAll()
+        contextUsage = nil
 
         Task {
             await runtime.clearContext()
+            await updateContextUsage()
+        }
+    }
+
+    private func refreshContextUsage() {
+        Task {
+            await updateContextUsage()
+        }
+    }
+
+    private func updateContextUsage() async {
+        guard modelState == .ready else {
+            contextUsage = nil
+            return
+        }
+
+        do {
+            contextUsage = try await runtime.contextUsage(
+                for: chatSession.messages,
+                systemPrompt: chatSession.systemPrompt
+            )
+        } catch {
+            contextUsage = nil
         }
     }
 
@@ -210,6 +248,7 @@ private struct ModelSidebar: View {
     @Binding var modelPath: String
     @Binding var systemPrompt: String
     @Binding var generationSettings: ChatGenerationSettings
+    let contextUsage: ChatContextUsage?
     let modelState: ModelLoadState
     let isLoading: Bool
     let onChooseModelDirectory: () -> Void
@@ -238,6 +277,27 @@ private struct ModelSidebar: View {
                 Label(modelState.label, systemImage: modelState.systemImage)
                     .accessibilityIdentifier("model-state-label")
                     .foregroundStyle(modelState.tint)
+            }
+
+            Section("Context") {
+                if let contextUsage {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Label("Tokens", systemImage: "rectangle.stack")
+                            Spacer()
+                            Text(contextUsage.summary)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+
+                        if let fraction = contextUsage.fraction {
+                            ProgressView(value: fraction)
+                        }
+                    }
+                } else {
+                    Label("Load a model to count tokens.", systemImage: "rectangle.stack")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Generation") {

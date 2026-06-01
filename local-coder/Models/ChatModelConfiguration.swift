@@ -2,9 +2,11 @@ import Foundation
 
 struct ChatModelConfiguration: Equatable, Sendable {
     let localModelDirectory: URL
+    let contextTokenLimit: Int?
 
-    init(localModelDirectory: URL) {
+    init(localModelDirectory: URL, contextTokenLimit: Int? = nil) {
         self.localModelDirectory = localModelDirectory
+        self.contextTokenLimit = contextTokenLimit
     }
 
     var displayPath: String {
@@ -34,5 +36,39 @@ enum LocalModelDirectory {
         let url = defaultBaseURL
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    static func readContextTokenLimit(from modelDirectory: URL) -> Int? {
+        let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
+        guard
+            let data = try? Data(contentsOf: configURL),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+
+        return contextTokenLimit(in: object)
+    }
+
+    private static func contextTokenLimit(in object: [String: Any]) -> Int? {
+        for key in ["max_position_embeddings", "max_seq_len", "seq_length", "n_ctx"] {
+            if let value = object[key] as? Int {
+                return value
+            }
+
+            if let value = object[key] as? Double {
+                return Int(value)
+            }
+        }
+
+        for value in object.values {
+            if let nestedObject = value as? [String: Any],
+               let nestedLimit = contextTokenLimit(in: nestedObject)
+            {
+                return nestedLimit
+            }
+        }
+
+        return nil
     }
 }

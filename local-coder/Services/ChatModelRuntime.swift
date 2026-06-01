@@ -3,6 +3,7 @@ import Foundation
 protocol ChatModelRuntime: Sendable {
     func load(configuration: ChatModelConfiguration) async throws
     func clearContext() async
+    func contextUsage(for messages: [ChatMessage], systemPrompt: String) async throws -> ChatContextUsage
     func streamReply(
         for messages: [ChatMessage],
         systemPrompt: String,
@@ -22,6 +23,12 @@ struct MockChatRuntime: ChatModelRuntime {
     }
 
     func clearContext() async {}
+
+    func contextUsage(for messages: [ChatMessage], systemPrompt: String) async throws -> ChatContextUsage {
+        let content = ([systemPrompt] + messages.map(\.content)).joined(separator: "\n")
+        let tokenEstimate = content.split(whereSeparator: \.isWhitespace).count
+        return ChatContextUsage(usedTokens: tokenEstimate, tokenLimit: nil)
+    }
 
     func streamReply(
         for messages: [ChatMessage],
