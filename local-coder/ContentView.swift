@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var modelPath = LocalModelDirectory.defaultModelURL.path(percentEncoded: false)
@@ -9,6 +10,7 @@ struct ContentView: View {
     @State private var contextUsage: ChatContextUsage?
     @State private var draft = ""
     @State private var isGenerating = false
+    @State private var isHandlingDroppedDraftPath = false
     @State private var generationTask: Task<Void, Never>?
     @State private var errorMessage: String?
 
@@ -40,6 +42,7 @@ struct ContentView: View {
                     isGenerating: isGenerating,
                     errorMessage: errorMessage,
                     onAddAttachments: chooseAttachments,
+                    onDropAttachments: addAttachments,
                     onRemoveAttachment: removeAttachment,
                     onSend: sendMessage,
                     onCancel: cancelGeneration
@@ -51,6 +54,9 @@ struct ContentView: View {
         .frame(minWidth: 880, minHeight: 560)
         .onChange(of: chatSession.systemPrompt) {
             refreshContextUsage()
+        }
+        .onChange(of: draft) {
+            convertDroppedFilePathsInDraft()
         }
         .onAppear {
             columnVisibility = .all
@@ -283,7 +289,109 @@ struct ContentView: View {
         }
     }
 
+    private func convertDroppedFilePathsInDraft() {
+        guard !isHandlingDroppedDraftPath, !isGenerating else {
+            return
+        }
+
+        let droppedFiles = droppedAttachmentURLs(in: draft)
+        guard !droppedFiles.urls.isEmpty else {
+            return
+        }
+
+        isHandlingDroppedDraftPath = true
+        draft = droppedFiles.cleanedDraft
+        addAttachments(from: droppedFiles.urls)
+        isHandlingDroppedDraftPath = false
+    }
+
+    private func droppedAttachmentURLs(in text: String) -> (urls: [URL], cleanedDraft: String) {
+        let pattern = droppedAttachmentPathPattern()
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return ([], text)
+        }
+
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = regex.matches(in: text, range: range)
+        guard !matches.isEmpty else {
+            return ([], text)
+        }
+
+        var urls: [URL] = []
+        var rangesToRemove: [Range<String.Index>] = []
+
+        for match in matches {
+            guard let matchRange = Range(match.range, in: text) else {
+                continue
+            }
+
+            let rawPath = String(text[matchRange])
+            guard let url = attachmentURL(fromDroppedPath: rawPath), isSupportedAttachmentURL(url) else {
+                continue
+            }
+
+            urls.append(url)
+            rangesToRemove.append(matchRange)
+        }
+
+        guard !urls.isEmpty else {
+            return ([], text)
+        }
+
+        var cleanedDraft = text
+        for range in rangesToRemove.reversed() {
+            cleanedDraft.removeSubrange(range)
+        }
+
+        return (urls, normalizeDraftAfterRemovingAttachmentPaths(cleanedDraft))
+    }
+
+    private func droppedAttachmentPathPattern() -> String {
+        let extensions = ChatAttachmentLimits.supportedTextFileExtensions
+            .sorted { $0.count > $1.count }
+            .map(NSRegularExpression.escapedPattern(for:))
+            .joined(separator: "|")
+        return #"file://[^\s]+|/[^\n\r\t]*?\.(?:"# + extensions + #")(?=\s|$)"#
+    }
+
+    private func attachmentURL(fromDroppedPath path: String) -> URL? {
+        if path.hasPrefix("file://") {
+            return URL(string: path)?.standardizedFileURL
+        }
+
+        return URL(filePath: path).standardizedFileURL
+    }
+
+    private func isSupportedAttachmentURL(_ url: URL) -> Bool {
+        let path = url.path(percentEncoded: false)
+        let fileExtension = url.pathExtension.lowercased()
+        var isDirectory: ObjCBool = false
+
+        return ChatAttachmentLimits.supportedTextFileExtensions.contains(fileExtension)
+            && FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+            && !isDirectory.boolValue
+    }
+
+    private func normalizeDraftAfterRemovingAttachmentPaths(_ text: String) -> String {
+        var cleaned = text
+            .replacingOccurrences(of: " \n", with: "\n")
+            .replacingOccurrences(of: "\n ", with: "\n")
+
+        while cleaned.contains("  ") {
+            cleaned = cleaned.replacingOccurrences(of: "  ", with: " ")
+        }
+
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func readTextAttachment(from url: URL) throws -> ChatAttachment {
+        let didStartSecurityScope = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartSecurityScope {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
         let fileName = url.lastPathComponent
         let fileExtension = url.pathExtension.lowercased()
         guard ChatAttachmentLimits.supportedTextFileExtensions.contains(fileExtension) else {
@@ -589,9 +697,11 @@ private struct ChatComposer: View {
     let isGenerating: Bool
     let errorMessage: String?
     let onAddAttachments: () -> Void
+    let onDropAttachments: ([URL]) -> Void
     let onRemoveAttachment: (ChatAttachment.ID) -> Void
     let onSend: () -> Void
     let onCancel: () -> Void
+    @State private var isDropTarget = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -623,6 +733,11 @@ private struct ChatComposer: View {
                     .lineLimit(1...5)
                     .accessibilityIdentifier("message-field")
                     .onSubmit(onSend)
+                    .onDrop(
+                        of: [UTType.fileURL.identifier],
+                        isTargeted: $isDropTarget,
+                        perform: handleDrop
+                    )
 
                 Button(action: isGenerating ? onCancel : onSend) {
                     Image(systemName: isGenerating ? "stop.fill" : "paperplane.fill")
@@ -634,6 +749,64 @@ private struct ChatComposer: View {
             }
         }
         .padding(16)
+        .background {
+            if isDropTarget {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.accentColor.opacity(0.08))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 1)
+                    }
+                    .padding(6)
+            }
+        }
+        .onDrop(
+            of: [UTType.fileURL.identifier],
+            isTargeted: $isDropTarget,
+            perform: handleDrop
+        )
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard !isGenerating else {
+            return false
+        }
+
+        let fileURLType = UTType.fileURL.identifier
+        let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier(fileURLType) }
+        guard !fileProviders.isEmpty else {
+            return false
+        }
+
+        for provider in fileProviders {
+            provider.loadItem(forTypeIdentifier: fileURLType, options: nil) { item, _ in
+                guard let url = Self.fileURL(from: item) else {
+                    return
+                }
+
+                Task { @MainActor in
+                    onDropAttachments([url])
+                }
+            }
+        }
+
+        return true
+    }
+
+    private static func fileURL(from item: NSSecureCoding?) -> URL? {
+        if let url = item as? URL {
+            return url
+        }
+
+        if let data = item as? Data {
+            return URL(dataRepresentation: data, relativeTo: nil)
+        }
+
+        if let string = item as? String {
+            return URL(string: string)
+        }
+
+        return nil
     }
 }
 
