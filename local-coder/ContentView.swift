@@ -5,6 +5,7 @@ struct ContentView: View {
     @State private var modelPath = LocalModelDirectory.defaultModelURL.path(percentEncoded: false)
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var modelState: ModelLoadState = .notLoaded
+    @State private var generationSettings = ChatGenerationSettings.codingDefault
     @State private var messages: [ChatMessage] = []
     @State private var draft = ""
     @State private var isGenerating = false
@@ -16,6 +17,7 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             ModelSidebar(
                 modelPath: $modelPath,
+                generationSettings: $generationSettings,
                 modelState: modelState,
                 isLoading: modelState == .loading,
                 onChooseModelDirectory: chooseModelDirectory,
@@ -24,7 +26,7 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 260, ideal: 300)
         } detail: {
             VStack(spacing: 0) {
-                ChatTranscript(messages: messages, isGenerating: isGenerating)
+                ChatTranscript(messages: messages)
 
                 Divider()
 
@@ -89,18 +91,64 @@ struct ContentView: View {
         draft = ""
         errorMessage = nil
         messages.append(ChatMessage(role: .user, content: prompt))
+        let assistantMessageID = UUID()
+        messages.append(ChatMessage(id: assistantMessageID, role: .assistant, content: ""))
         isGenerating = true
 
         Task {
             do {
-                let reply = try await runtime.generateReply(for: messages)
-                messages.append(ChatMessage(role: .assistant, content: reply))
+                let stream = try await runtime.streamReply(
+                    for: messages,
+                    settings: generationSettings
+                )
+
+                for try await event in stream {
+                    switch event {
+                    case .chunk(let chunk):
+                        appendChunk(chunk, to: assistantMessageID)
+                    case .completed(let metrics):
+                        updateGenerationMetrics(metrics, for: assistantMessageID)
+                    }
+                }
             } catch {
+                removeMessage(id: assistantMessageID)
                 errorMessage = error.localizedDescription
             }
 
             isGenerating = false
         }
+    }
+
+    private func appendChunk(_ chunk: String, to messageID: UUID) {
+        guard let index = messages.firstIndex(where: { $0.id == messageID }) else {
+            return
+        }
+
+        let message = messages[index]
+        messages[index] = ChatMessage(
+            id: message.id,
+            role: message.role,
+            content: message.content + chunk,
+            generationMetrics: message.generationMetrics
+        )
+    }
+
+    private func updateGenerationMetrics(_ metrics: ChatGenerationMetrics?, for messageID: UUID) {
+        guard let index = messages.firstIndex(where: { $0.id == messageID }) else {
+            return
+        }
+
+        let message = messages[index]
+        messages[index] = ChatMessage(
+            id: message.id,
+            role: message.role,
+            content: message.content,
+            generationMetrics: metrics
+        )
+    }
+
+    private func removeMessage(id: UUID) {
+        messages.removeAll { $0.id == id }
     }
 
     private func chooseModelDirectory() {
@@ -133,6 +181,7 @@ struct ContentView: View {
 
 private struct ModelSidebar: View {
     @Binding var modelPath: String
+    @Binding var generationSettings: ChatGenerationSettings
     let modelState: ModelLoadState
     let isLoading: Bool
     let onChooseModelDirectory: () -> Void
@@ -162,15 +211,65 @@ private struct ModelSidebar: View {
                     .accessibilityIdentifier("model-state-label")
                     .foregroundStyle(modelState.tint)
             }
+
+            Section("Generation") {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Label("Temperature", systemImage: "thermometer.variable")
+                        Spacer()
+                        Text(generationSettings.temperature.formatted(.number.precision(.fractionLength(1))))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: $generationSettings.temperature, in: 0...2, step: 0.1)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Label("Top P", systemImage: "chart.line.uptrend.xyaxis")
+                        Spacer()
+                        Text(generationSettings.topP.formatted(.number.precision(.fractionLength(2))))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: $generationSettings.topP, in: 0.05...1, step: 0.05)
+                }
+
+                Stepper(value: $generationSettings.topK, in: 0...200, step: 10) {
+                    SettingValueLabel(title: "Top K", value: "\(generationSettings.topK)")
+                }
+
+                Stepper(value: $generationSettings.maxTokens, in: 128...8192, step: 128) {
+                    SettingValueLabel(title: "Max Tokens", value: "\(generationSettings.maxTokens)")
+                }
+
+                Button("Coding Defaults") {
+                    generationSettings = .codingDefault
+                }
+            }
         }
         .listStyle(.sidebar)
         .navigationTitle("Runtime")
     }
 }
 
+private struct SettingValueLabel: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+    }
+}
+
 private struct ChatTranscript: View {
     let messages: [ChatMessage]
-    let isGenerating: Bool
 
     var body: some View {
         ScrollView {
@@ -185,12 +284,6 @@ private struct ChatTranscript: View {
                 } else {
                     ForEach(messages) { message in
                         ChatBubble(message: message)
-                    }
-
-                    if isGenerating {
-                        Label("Generating", systemImage: "sparkles")
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal)
                     }
                 }
             }
@@ -214,11 +307,25 @@ private struct ChatBubble: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text(message.content)
-                    .textSelection(.enabled)
-                    .padding(10)
-                    .background(message.role == .user ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                if message.content.isEmpty && message.role == .assistant {
+                    Label("Generating", systemImage: "sparkles")
+                        .foregroundStyle(.secondary)
+                        .padding(10)
+                        .background(Color.secondary.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    Text(message.content)
+                        .textSelection(.enabled)
+                        .padding(10)
+                        .background(message.role == .user ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
+                if message.role == .assistant, let metrics = message.generationMetrics {
+                    Text(metrics.summary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(maxWidth: 680, alignment: .leading)
 
@@ -226,6 +333,12 @@ private struct ChatBubble: View {
                 Spacer(minLength: 80)
             }
         }
+    }
+}
+
+private extension ChatGenerationMetrics {
+    var summary: String {
+        "\(generatedTokenCount) tokens · \(tokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tokens/s"
     }
 }
 

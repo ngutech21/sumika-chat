@@ -4,12 +4,24 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     let id: UUID
     let role: ChatRole
     let content: String
+    let generationMetrics: ChatGenerationMetrics?
 
-    init(id: UUID = UUID(), role: ChatRole, content: String) {
+    init(
+        id: UUID = UUID(),
+        role: ChatRole,
+        content: String,
+        generationMetrics: ChatGenerationMetrics? = nil
+    ) {
         self.id = id
         self.role = role
         self.content = content
+        self.generationMetrics = generationMetrics
     }
+}
+
+struct ChatGenerationMetrics: Equatable, Sendable {
+    let generatedTokenCount: Int
+    let tokensPerSecond: Double
 }
 
 enum ChatRole: String, Equatable, Sendable {

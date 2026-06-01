@@ -2,7 +2,15 @@ import Foundation
 
 protocol ChatModelRuntime: Sendable {
     func load(configuration: ChatModelConfiguration) async throws
-    func generateReply(for messages: [ChatMessage]) async throws -> String
+    func streamReply(
+        for messages: [ChatMessage],
+        settings: ChatGenerationSettings
+    ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
+}
+
+enum ChatModelStreamEvent: Sendable {
+    case chunk(String)
+    case completed(ChatGenerationMetrics?)
 }
 
 struct MockChatRuntime: ChatModelRuntime {
@@ -11,16 +19,37 @@ struct MockChatRuntime: ChatModelRuntime {
         try await Task.sleep(for: .milliseconds(350))
     }
 
-    func generateReply(for messages: [ChatMessage]) async throws -> String {
-        try await Task.sleep(for: .milliseconds(450))
+    func streamReply(
+        for messages: [ChatMessage],
+        settings: ChatGenerationSettings
+    ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+        _ = settings
 
         let lastPrompt = messages.last(where: { $0.role == .user })?.content ?? ""
-        return """
-        Mock runtime received:
+        let chunks = [
+            "Mock runtime received:\n\n",
+            lastPrompt,
+            "\n\n",
+            "Next step: replace MockChatRuntime with a Gemma MLX runtime behind the same ChatModelRuntime protocol."
+        ]
 
-        \(lastPrompt)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                for chunk in chunks {
+                    try? await Task.sleep(for: .milliseconds(120))
+                    guard !Task.isCancelled else { break }
+                    continuation.yield(.chunk(chunk))
+                }
 
-        Next step: replace MockChatRuntime with a Gemma MLX runtime behind the same ChatModelRuntime protocol.
-        """
+                continuation.yield(
+                    .completed(ChatGenerationMetrics(generatedTokenCount: 18, tokensPerSecond: 40))
+                )
+                continuation.finish()
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
     }
 }

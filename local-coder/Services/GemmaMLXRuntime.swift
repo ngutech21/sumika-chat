@@ -35,7 +35,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         session = ChatSession(container)
     }
 
-    func generateReply(for messages: [ChatMessage]) async throws -> String {
+    func streamReply(
+        for messages: [ChatMessage],
+        settings: ChatGenerationSettings
+    ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
         guard let session else {
             throw GemmaMLXRuntimeError.modelNotLoaded
         }
@@ -44,7 +47,41 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             throw GemmaMLXRuntimeError.missingUserMessage
         }
 
-        return try await session.respond(to: prompt)
+        session.generateParameters = GenerateParameters(
+            maxTokens: settings.maxTokens,
+            temperature: Float(settings.temperature),
+            topP: Float(settings.topP),
+            topK: settings.topK
+        )
+
+        let stream = session.streamDetails(to: prompt, images: [], videos: [])
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await generation in stream {
+                        if let chunk = generation.chunk {
+                            continuation.yield(.chunk(chunk))
+                        }
+
+                        if let info = generation.info {
+                            let metrics = ChatGenerationMetrics(
+                                generatedTokenCount: info.generationTokenCount,
+                                tokensPerSecond: info.tokensPerSecond
+                            )
+                            continuation.yield(.completed(metrics))
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
     }
 }
 
