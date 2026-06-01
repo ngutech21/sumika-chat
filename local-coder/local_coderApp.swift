@@ -3,7 +3,7 @@
 import SwiftUI
 
 @main
-struct local_coderApp: App {
+struct LocalCoderApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

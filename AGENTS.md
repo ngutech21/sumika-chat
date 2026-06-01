@@ -100,10 +100,19 @@ The app is an Xcode macOS project:
 xcodebuild -project local-coder.xcodeproj -scheme local-coder -destination "platform=macOS" build
 ```
 
+Prefer the project task runner for routine local checks:
+
+```sh
+just build
+just test
+just lint
+just format
+```
+
 Run the unit test suite after every implementation task:
 
 ```sh
-xcodebuild -project local-coder.xcodeproj -scheme local-coder -destination "platform=macOS" -derivedDataPath build/DerivedData test
+just test
 ```
 
 If a task only changes docs or comments, explain why tests were not run. Otherwise, treat a passing test run as part of the task's definition of done.
@@ -120,5 +129,7 @@ If a task only changes docs or comments, explain why tests were not run. Otherwi
 - Prefer ASCII in source files unless the file already uses non-ASCII text for a reason.
 - Keep comments sparse and useful.
 - Use clear names over clever abstractions.
+- Use `just format` to format Swift sources with `swift-format`.
+- Use `just lint` to lint Swift sources with SwiftLint.
 - Add tests or focused verification when touching shared logic, patch application, prompt construction, or command execution.
 - Keep generated files, build output, and DerivedData out of source control.

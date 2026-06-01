@@ -1,0 +1,12 @@
+included:
+  - local-coder
+  - local-coderTests
+
+excluded:
+  - build
+  - DerivedData
+  - local-coder.xcodeproj
+
+type_body_length:
+  warning: 450
+  error: 600
