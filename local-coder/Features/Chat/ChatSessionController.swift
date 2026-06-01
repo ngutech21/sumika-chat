@@ -14,6 +14,8 @@ final class ChatSessionController {
 
     @ObservationIgnored private let runtime: any ChatModelRuntime
     @ObservationIgnored private var isHandlingDroppedDraftPath = false
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var modelOperationID = UUID()
     @ObservationIgnored private var generationTask: Task<Void, Never>?
 
     var canSend: Bool {
@@ -31,6 +33,7 @@ final class ChatSessionController {
     }
 
     deinit {
+        loadTask?.cancel()
         generationTask?.cancel()
     }
 
@@ -62,24 +65,58 @@ final class ChatSessionController {
         }
 
         let directoryURL = URL(filePath: trimmedPath, directoryHint: .isDirectory)
+        loadTask?.cancel()
+        modelOperationID = UUID()
+        let operationID = modelOperationID
 
-        Task {
+        loadTask = Task {
             errorMessage = nil
             modelState = .loading
 
             do {
                 try validateModelDirectory(directoryURL)
+                try Task.checkCancellation()
                 let configuration = ChatModelConfiguration(
                     localModelDirectory: directoryURL,
                     contextTokenLimit: LocalModelDirectory.readContextTokenLimit(from: directoryURL)
                 )
                 try await runtime.load(configuration: configuration)
+                try Task.checkCancellation()
+                guard operationID == modelOperationID else {
+                    return
+                }
                 modelState = .ready
                 await updateContextUsage()
+            } catch is CancellationError {
+                if operationID == modelOperationID {
+                    modelState = .notLoaded
+                    contextUsage = nil
+                }
             } catch {
+                guard operationID == modelOperationID else {
+                    return
+                }
                 modelState = .failed(error.localizedDescription)
                 errorMessage = error.localizedDescription
             }
+
+            if operationID == modelOperationID {
+                loadTask = nil
+            }
+        }
+    }
+
+    func unloadModel() {
+        modelOperationID = UUID()
+        loadTask?.cancel()
+        loadTask = nil
+        cancelGeneration()
+        errorMessage = nil
+        modelState = .notLoaded
+        contextUsage = nil
+
+        Task {
+            await runtime.unload()
         }
     }
 

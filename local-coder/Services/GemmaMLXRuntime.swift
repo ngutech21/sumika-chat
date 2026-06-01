@@ -39,6 +39,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         session = nil
     }
 
+    func unload() async {
+        await session?.clear()
+        session = nil
+        modelContainer = nil
+        contextTokenLimit = nil
+    }
+
     func clearContext() async {
         await session?.clear()
         session = nil

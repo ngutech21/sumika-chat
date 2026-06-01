@@ -2,6 +2,7 @@ import Foundation
 
 protocol ChatModelRuntime: Sendable {
     func load(configuration: ChatModelConfiguration) async throws
+    func unload() async
     func clearContext() async
     func contextUsage(
         for messages: [ChatMessage],
@@ -26,6 +27,8 @@ struct MockChatRuntime: ChatModelRuntime {
         _ = configuration
         try await Task.sleep(for: .milliseconds(350))
     }
+
+    func unload() async {}
 
     func clearContext() async {}
 

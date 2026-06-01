@@ -28,7 +28,8 @@ struct ContentView: View {
                 modelState: controller.modelState,
                 isLoading: controller.modelState == .loading,
                 onChooseModelDirectory: chooseModelDirectory,
-                onLoad: controller.loadModel
+                onLoad: controller.loadModel,
+                onUnload: controller.unloadModel
             )
             .navigationSplitViewColumnWidth(min: 260, ideal: 300)
         } detail: {
@@ -105,6 +106,7 @@ private struct ModelSidebar: View {
     let isLoading: Bool
     let onChooseModelDirectory: () -> Void
     let onLoad: () -> Void
+    let onUnload: () -> Void
 
     var body: some View {
         List {
@@ -119,11 +121,11 @@ private struct ModelSidebar: View {
                     }
                     .disabled(isLoading)
 
-                    Button(action: onLoad) {
-                        Label(isLoading ? "Loading" : "Load Model", systemImage: "square.and.arrow.down")
+                    Button(action: modelState == .ready ? onUnload : onLoad) {
+                        Label(modelActionTitle, systemImage: modelActionSystemImage)
                     }
-                    .accessibilityIdentifier("load-model-button")
-                    .disabled(isLoading || modelPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier(modelState == .ready ? "unload-model-button" : "load-model-button")
+                    .disabled(isLoading || (modelState != .ready && modelPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                 }
 
                 Label(modelState.label, systemImage: modelState.systemImage)
@@ -198,6 +200,26 @@ private struct ModelSidebar: View {
         }
         .listStyle(.sidebar)
         .navigationTitle("Runtime")
+    }
+
+    private var modelActionTitle: String {
+        switch modelState {
+        case .ready:
+            "Unload Model"
+        case .loading:
+            "Loading"
+        case .notLoaded, .failed:
+            "Load Model"
+        }
+    }
+
+    private var modelActionSystemImage: String {
+        switch modelState {
+        case .ready:
+            "eject"
+        case .loading, .notLoaded, .failed:
+            "square.and.arrow.down"
+        }
     }
 }
 

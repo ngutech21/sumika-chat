@@ -78,6 +78,25 @@ struct ChatSessionControllerTests {
         #expect(controller.errorMessage == nil)
     }
 
+    @Test
+    func unloadModelReleasesRuntimeAndResetsModelState() async throws {
+        let runtime = FakeChatModelRuntime()
+        let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+        controller.modelState = .ready
+        controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
+        controller.draft = "hello"
+
+        controller.unloadModel()
+
+        try await waitUntil { controller.modelState == .notLoaded }
+        try await waitUntilAsync { await runtime.didUnload }
+
+        #expect(await runtime.didUnload)
+        #expect(controller.contextUsage == nil)
+        #expect(!controller.canSend)
+        #expect(controller.errorMessage == nil)
+    }
+
     private func waitUntil(
         timeout: Duration = .seconds(1),
         condition: @escaping @MainActor () -> Bool
@@ -91,11 +110,26 @@ struct ChatSessionControllerTests {
             try await Task.sleep(for: .milliseconds(10))
         }
     }
+
+    private func waitUntilAsync(
+        timeout: Duration = .seconds(1),
+        condition: @escaping () async -> Bool
+    ) async throws {
+        let start = ContinuousClock.now
+        while !(await condition()) {
+            if start.duration(to: .now) > timeout {
+                Issue.record("Timed out waiting for async condition")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
 }
 
 private actor FakeChatModelRuntime: ChatModelRuntime {
     private let chunks: [String]
     private(set) var loadedConfiguration: ChatModelConfiguration?
+    private(set) var didUnload = false
 
     init(chunks: [String] = []) {
         self.chunks = chunks
@@ -103,6 +137,11 @@ private actor FakeChatModelRuntime: ChatModelRuntime {
 
     func load(configuration: ChatModelConfiguration) async throws {
         loadedConfiguration = configuration
+    }
+
+    func unload() async {
+        didUnload = true
+        loadedConfiguration = nil
     }
 
     func clearContext() async {}
