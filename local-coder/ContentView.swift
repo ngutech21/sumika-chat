@@ -314,7 +314,7 @@ private struct ChatBubble: View {
                         .background(Color.secondary.opacity(0.12))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
-                    Text(message.content)
+                    MessageContentText(message: message)
                         .textSelection(.enabled)
                         .padding(10)
                         .background(message.role == .user ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12))
@@ -332,6 +332,20 @@ private struct ChatBubble: View {
             if message.role == .assistant {
                 Spacer(minLength: 80)
             }
+        }
+    }
+}
+
+private struct MessageContentText: View {
+    let message: ChatMessage
+
+    var body: some View {
+        if message.role == .assistant,
+           let markdown = try? AttributedString(markdown: message.content)
+        {
+            Text(markdown)
+        } else {
+            Text(message.content)
         }
     }
 }
