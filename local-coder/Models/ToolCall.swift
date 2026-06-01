@@ -245,6 +245,11 @@ enum ToolResultStatus: String, Codable, Equatable, Sendable {
   case denied
 }
 
+struct ToolResultModelMessage: Codable, Equatable, Sendable {
+  var toolName: ToolName
+  var preview: ToolResultPreview
+}
+
 struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
   var decision: ToolPermissionDecision
   var reason: String

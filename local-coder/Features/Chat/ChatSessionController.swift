@@ -516,7 +516,9 @@ final class ChatSessionController {
             role: message.role,
             content: message.content + chunk,
             attachments: message.attachments,
-            generationMetrics: message.generationMetrics
+            generationMetrics: message.generationMetrics,
+            toolCallRequest: message.toolCallRequest,
+            toolResult: message.toolResult
         )
     }
 
@@ -531,7 +533,9 @@ final class ChatSessionController {
             role: message.role,
             content: message.content,
             attachments: message.attachments,
-            generationMetrics: metrics
+            generationMetrics: metrics,
+            toolCallRequest: message.toolCallRequest,
+            toolResult: message.toolResult
         )
     }
 
@@ -726,13 +730,19 @@ private extension ChatSessionController {
                 return
             }
 
+            annotateToolCall(request, for: assistantMessageID)
             let record = await toolOrchestrator.execute(request: request, workspace: workspace)
             chatSession.toolCalls.append(record)
             notifySessionDidChange()
 
-            let resultMessage = record.resultPreview?.modelMessage(toolName: request.toolName)
+            let resultPreview = record.resultPreview
+            let resultMessage = resultPreview?.modelMessage(toolName: request.toolName)
                 ?? "Tool result unavailable for \(request.toolName.rawValue)."
-            chatSession.messages.append(ChatMessage(role: .user, content: resultMessage))
+            let toolResult = resultPreview.map {
+                ToolResultModelMessage(toolName: request.toolName, preview: $0)
+            }
+            chatSession.messages.append(
+                ChatMessage(role: .user, content: resultMessage, toolResult: toolResult))
 
             let nextAssistantMessageID = UUID()
             chatSession.messages.append(
@@ -742,6 +752,23 @@ private extension ChatSessionController {
             try await streamAssistantReply(to: nextAssistantMessageID, allowsToolCalls: false)
             assistantMessageID = nextAssistantMessageID
         }
+    }
+
+    func annotateToolCall(_ request: ToolCallRequest, for messageID: UUID) {
+        guard let index = chatSession.messages.firstIndex(where: { $0.id == messageID }) else {
+            return
+        }
+
+        let message = chatSession.messages[index]
+        chatSession.messages[index] = ChatMessage(
+            id: message.id,
+            role: message.role,
+            content: message.content,
+            attachments: message.attachments,
+            generationMetrics: message.generationMetrics,
+            toolCallRequest: request,
+            toolResult: message.toolResult
+        )
     }
 
     func toolEnabledSystemPrompt() -> String {

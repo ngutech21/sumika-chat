@@ -889,9 +889,9 @@ private struct MessageContentText: View {
 
     @ViewBuilder
     var body: some View {
-        if let toolCall = RenderedToolCall(message: message) {
+        if let toolCall = message.toolCallRequest {
             ToolCallSummaryView(toolCall: toolCall)
-        } else if let toolResult = RenderedToolResult(message: message) {
+        } else if let toolResult = message.toolResult {
             ToolResultSummaryView(toolResult: toolResult)
         } else if message.role == .assistant {
             Markdown(AssistantMarkdownPreprocessor.renderableContent(for: message.content))
@@ -904,19 +904,19 @@ private struct MessageContentText: View {
 }
 
 private struct ToolCallSummaryView: View {
-    let toolCall: RenderedToolCall
+    let toolCall: ToolCallRequest
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Tool call", systemImage: "wrench.and.screwdriver")
                 .font(.headline)
 
-            LabeledContent("Tool", value: toolCall.name)
+            LabeledContent("Tool", value: toolCall.toolName.rawValue)
 
-            if !toolCall.parameters.isEmpty {
+            if !toolCall.arguments.isEmpty {
                 Divider()
-                ForEach(toolCall.parameters) { parameter in
-                    LabeledContent(parameter.name, value: parameter.value)
+                ForEach(toolCall.displayArguments) { argument in
+                    LabeledContent(argument.name, value: argument.value)
                 }
             }
         }
@@ -925,155 +925,27 @@ private struct ToolCallSummaryView: View {
 }
 
 private struct ToolResultSummaryView: View {
-    let toolResult: RenderedToolResult
+    let toolResult: ToolResultModelMessage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Tool result", systemImage: toolResult.systemImage)
                 .font(.headline)
 
-            LabeledContent("Tool", value: toolResult.toolName)
-            LabeledContent("Status", value: toolResult.status)
+            LabeledContent("Tool", value: toolResult.toolName.rawValue)
+            LabeledContent("Status", value: toolResult.preview.status.rawValue)
 
-            if !toolResult.paths.isEmpty {
-                LabeledContent("Paths", value: toolResult.paths.joined(separator: "\n"))
+            if !toolResult.preview.affectedPaths.isEmpty {
+                LabeledContent("Paths", value: toolResult.preview.affectedPaths.joined(separator: "\n"))
             }
 
-            if !toolResult.resultText.isEmpty {
+            if !toolResult.preview.text.isEmpty {
                 Divider()
-                Text(toolResult.resultText)
+                Text(toolResult.preview.text)
                     .font(.system(.callout, design: .monospaced))
             }
         }
         .font(.callout)
-    }
-}
-
-private struct RenderedToolCall {
-    struct Parameter: Identifiable {
-        let id = UUID()
-        let name: String
-        let value: String
-    }
-
-    let name: String
-    let parameters: [Parameter]
-
-    init?(message: ChatMessage) {
-        guard message.role == .assistant else {
-            return nil
-        }
-
-        let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        let actionPattern = #"(?s)^<action\s+name="([^"]+)">\s*(.*)\s*</action>$"#
-        guard let match = Self.firstMatch(pattern: actionPattern, in: content),
-            match.numberOfRanges == 3,
-            let nameRange = Range(match.range(at: 1), in: content),
-            let bodyRange = Range(match.range(at: 2), in: content)
-        else {
-            return nil
-        }
-
-        name = String(content[nameRange])
-        parameters = Self.parameters(in: String(content[bodyRange]))
-    }
-
-    private static func parameters(in body: String) -> [Parameter] {
-        let pattern = #"(?s)<([A-Za-z0-9_:-]+)(?:\s[^>]*)?>(.*?)</\1>"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return []
-        }
-
-        let range = NSRange(body.startIndex..<body.endIndex, in: body)
-        return regex.matches(in: body, range: range).compactMap { match in
-            guard match.numberOfRanges == 3,
-                let nameRange = Range(match.range(at: 1), in: body),
-                let valueRange = Range(match.range(at: 2), in: body)
-            else {
-                return nil
-            }
-
-            return Parameter(
-                name: String(body[nameRange]),
-                value: String(body[valueRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
-    }
-
-    private static func firstMatch(pattern: String, in content: String) -> NSTextCheckingResult? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return nil
-        }
-
-        let range = NSRange(content.startIndex..<content.endIndex, in: content)
-        return regex.firstMatch(in: content, range: range)
-    }
-}
-
-private struct RenderedToolResult {
-    let toolName: String
-    let status: String
-    let paths: [String]
-    let resultText: String
-
-    var systemImage: String {
-        status == "success" ? "checkmark.circle" : "exclamationmark.triangle"
-    }
-
-    init?(message: ChatMessage) {
-        guard message.content.hasPrefix("Tool result\n") else {
-            return nil
-        }
-
-        let lines = message.content.components(separatedBy: .newlines)
-        guard let toolLine = lines.first(where: { $0.hasPrefix("Tool: ") }),
-            let statusLine = lines.first(where: { $0.hasPrefix("Status: ") })
-        else {
-            return nil
-        }
-
-        toolName = String(toolLine[toolLine.index(toolLine.startIndex, offsetBy: "Tool: ".count)...])
-        status = String(statusLine[statusLine.index(statusLine.startIndex, offsetBy: "Status: ".count)...])
-        paths = Self.paths(in: lines)
-        resultText = Self.resultText(in: message.content)
-    }
-
-    private static func paths(in lines: [String]) -> [String] {
-        guard let pathsIndex = lines.firstIndex(of: "Paths:") else {
-            return []
-        }
-
-        var paths: [String] = []
-        for line in lines[(pathsIndex + 1)..<lines.endIndex] {
-            guard !line.isEmpty,
-                !line.hasPrefix("<tool_result"),
-                line != "Result was truncated."
-            else {
-                break
-            }
-
-            if line != "none" {
-                paths.append(line)
-            }
-        }
-        return paths
-    }
-
-    private static func resultText(in content: String) -> String {
-        let pattern = #"(?s)<tool_result[^>]*>\s*(.*?)\s*</tool_result>"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return ""
-        }
-
-        let range = NSRange(content.startIndex..<content.endIndex, in: content)
-        guard let match = regex.firstMatch(in: content, range: range),
-            match.numberOfRanges == 2,
-            let resultRange = Range(match.range(at: 1), in: content)
-        else {
-            return ""
-        }
-
-        return String(content[resultRange]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -1151,11 +1023,11 @@ extension ChatBubble {
 
 extension ChatMessage {
     fileprivate var isDisplayedAsUser: Bool {
-        role == .user && RenderedToolResult(message: self) == nil
+        role == .user && toolResult == nil
     }
 
     fileprivate var displayTitle: String {
-        if RenderedToolResult(message: self) != nil {
+        if toolResult != nil {
             return ChatRole.assistant.title
         }
 
@@ -1163,11 +1035,50 @@ extension ChatMessage {
     }
 
     fileprivate var displaySystemImage: String {
-        if RenderedToolResult(message: self) != nil {
+        if toolResult != nil {
             return ChatRole.assistant.systemImage
         }
 
         return role.systemImage
+    }
+}
+
+extension ToolCallRequest {
+    fileprivate struct DisplayArgument: Identifiable {
+        let id: String
+        let name: String
+        let value: String
+    }
+
+    fileprivate var displayArguments: [DisplayArgument] {
+        arguments.keys.sorted().map { key in
+            DisplayArgument(id: key, name: key, value: arguments[key]?.displayValue ?? "")
+        }
+    }
+}
+
+extension ToolArgumentValue {
+    fileprivate var displayValue: String {
+        switch self {
+        case .string(let value):
+            value
+        case .number(let value):
+            value.formatted()
+        case .bool(let value):
+            value ? "true" : "false"
+        case .array(let values):
+            values.map(\.displayValue).joined(separator: ", ")
+        case .object:
+            "{...}"
+        case .null:
+            "null"
+        }
+    }
+}
+
+extension ToolResultModelMessage {
+    fileprivate var systemImage: String {
+        preview.status == .success ? "checkmark.circle" : "exclamationmark.triangle"
     }
 }
 
