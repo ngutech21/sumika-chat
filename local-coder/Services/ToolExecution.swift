@@ -12,7 +12,7 @@ nonisolated struct ToolExecutorRegistry: Sendable {
   init(
     executors: [ToolName: any ToolExecutor] = [
       .readFile: ReadFileToolExecutor(),
-      .listFiles: ListFilesToolExecutor()
+      .listFiles: ListFilesToolExecutor(),
     ]
   ) {
     self.executors = executors
@@ -108,7 +108,7 @@ nonisolated struct ListFilesToolExecutor: ToolExecutor {
       "dist",
       "build",
       ".cache",
-      ".DS_Store"
+      ".DS_Store",
     ]
   ) {
     self.maxDepth = maxDepth

@@ -111,7 +111,9 @@ struct ModelsView: View {
   }
 
   private var effectiveDownloadState: ModelDownloadState {
-    if controller.isModelDownloaded(controller.selectedModel), !controller.downloadState.isDownloading {
+    if controller.isModelDownloaded(controller.selectedModel),
+      !controller.downloadState.isDownloading
+    {
       return .downloaded
     }
 

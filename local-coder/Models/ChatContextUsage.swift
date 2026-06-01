@@ -1,30 +1,30 @@
 import Foundation
 
 nonisolated struct ChatContextUsage: Equatable, Sendable {
-    let usedTokens: Int
-    let tokenLimit: Int?
+  let usedTokens: Int
+  let tokenLimit: Int?
 
-    var availableTokens: Int? {
-        guard let tokenLimit else {
-            return nil
-        }
-
-        return max(tokenLimit - usedTokens, 0)
+  var availableTokens: Int? {
+    guard let tokenLimit else {
+      return nil
     }
 
-    var summary: String {
-        guard let tokenLimit else {
-            return "\(usedTokens) tokens"
-        }
+    return max(tokenLimit - usedTokens, 0)
+  }
 
-        return "\(usedTokens)/\(tokenLimit) tokens"
+  var summary: String {
+    guard let tokenLimit else {
+      return "\(usedTokens) tokens"
     }
 
-    var fraction: Double? {
-        guard let tokenLimit, tokenLimit > 0 else {
-            return nil
-        }
+    return "\(usedTokens)/\(tokenLimit) tokens"
+  }
 
-        return min(Double(usedTokens) / Double(tokenLimit), 1)
+  var fraction: Double? {
+    guard let tokenLimit, tokenLimit > 0 else {
+      return nil
     }
+
+    return min(Double(usedTokens) / Double(tokenLimit), 1)
+  }
 }

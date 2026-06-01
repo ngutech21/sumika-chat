@@ -82,9 +82,10 @@ struct TaggedToolCallingTests {
       createdAt: createdAt
     ).modelMessage
     #expect(modelMessage.toolName == .readFile)
-    #expect(modelMessage.arguments == [
-      ToolCallModelArgument(name: "path", value: "Sources/AppState.swift")
-    ])
+    #expect(
+      modelMessage.arguments == [
+        ToolCallModelArgument(name: "path", value: "Sources/AppState.swift")
+      ])
   }
 
   @Test

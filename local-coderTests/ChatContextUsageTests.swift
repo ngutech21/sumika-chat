@@ -1,44 +1,45 @@
 import Testing
+
 @testable import local_coder
 
 struct ChatContextUsageTests {
-    @Test
-    func summaryWithoutTokenLimitShowsUsedTokens() {
-        let usage = ChatContextUsage(usedTokens: 42, tokenLimit: nil)
+  @Test
+  func summaryWithoutTokenLimitShowsUsedTokens() {
+    let usage = ChatContextUsage(usedTokens: 42, tokenLimit: nil)
 
-        #expect(usage.summary == "42 tokens")
-    }
+    #expect(usage.summary == "42 tokens")
+  }
 
-    @Test
-    func summaryWithTokenLimitShowsUsedAndLimit() {
-        let usage = ChatContextUsage(usedTokens: 42, tokenLimit: 128)
+  @Test
+  func summaryWithTokenLimitShowsUsedAndLimit() {
+    let usage = ChatContextUsage(usedTokens: 42, tokenLimit: 128)
 
-        #expect(usage.summary == "42/128 tokens")
-    }
+    #expect(usage.summary == "42/128 tokens")
+  }
 
-    @Test
-    func fractionIsNilWithoutPositiveLimit() {
-        #expect(ChatContextUsage(usedTokens: 42, tokenLimit: nil).fraction == nil)
-        #expect(ChatContextUsage(usedTokens: 42, tokenLimit: 0).fraction == nil)
-    }
+  @Test
+  func fractionIsNilWithoutPositiveLimit() {
+    #expect(ChatContextUsage(usedTokens: 42, tokenLimit: nil).fraction == nil)
+    #expect(ChatContextUsage(usedTokens: 42, tokenLimit: 0).fraction == nil)
+  }
 
-    @Test
-    func fractionIsClampedAtOne() {
-        let usage = ChatContextUsage(usedTokens: 300, tokenLimit: 100)
+  @Test
+  func fractionIsClampedAtOne() {
+    let usage = ChatContextUsage(usedTokens: 300, tokenLimit: 100)
 
-        #expect(usage.fraction == 1)
-    }
+    #expect(usage.fraction == 1)
+  }
 
-    @Test
-    func availableTokensUsesRemainingPositiveBudget() {
-        let usage = ChatContextUsage(usedTokens: 42, tokenLimit: 128)
+  @Test
+  func availableTokensUsesRemainingPositiveBudget() {
+    let usage = ChatContextUsage(usedTokens: 42, tokenLimit: 128)
 
-        #expect(usage.availableTokens == 86)
-    }
+    #expect(usage.availableTokens == 86)
+  }
 
-    @Test
-    func availableTokensIsNilWithoutLimitAndClampedAtZero() {
-        #expect(ChatContextUsage(usedTokens: 42, tokenLimit: nil).availableTokens == nil)
-        #expect(ChatContextUsage(usedTokens: 300, tokenLimit: 100).availableTokens == 0)
-    }
+  @Test
+  func availableTokensIsNilWithoutLimitAndClampedAtZero() {
+    #expect(ChatContextUsage(usedTokens: 42, tokenLimit: nil).availableTokens == nil)
+    #expect(ChatContextUsage(usedTokens: 300, tokenLimit: 100).availableTokens == 0)
+  }
 }

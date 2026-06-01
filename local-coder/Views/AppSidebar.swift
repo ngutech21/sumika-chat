@@ -69,7 +69,8 @@ struct AppSidebar: View {
         renameTitle = ""
       }
     }
-    .alert("Delete Session?", isPresented: deleteAlertBinding, presenting: sessionPendingDeletion) { session in
+    .alert("Delete Session?", isPresented: deleteAlertBinding, presenting: sessionPendingDeletion) {
+      session in
       Button("Cancel", role: .cancel) {
         sessionPendingDeletion = nil
       }

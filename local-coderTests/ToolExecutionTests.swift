@@ -84,7 +84,7 @@ struct ToolExecutionTests {
     #expect(result.status == .success)
     #expect(
       result.text.split(separator: "\n").map(String.init) == [
-        "alpha.txt", "Sources/", "Sources/App.swift"
+        "alpha.txt", "Sources/", "Sources/App.swift",
       ])
     #expect(!result.text.contains(".git"))
     #expect(!result.text.contains("node_modules"))

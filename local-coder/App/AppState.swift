@@ -164,7 +164,8 @@ final class AppState {
       workspaceLibrary.activeSessionID = replacementSession.id
     } else if wasActiveSession {
       workspaceLibrary.activeWorkspaceID = workspaceLibrary.workspaces[workspaceIndex].id
-      workspaceLibrary.activeSessionID = workspaceLibrary.workspaces[workspaceIndex].sessions.first?.id
+      workspaceLibrary.activeSessionID =
+        workspaceLibrary.workspaces[workspaceIndex].sessions.first?.id
     }
 
     workspaceLibrary.workspaces[workspaceIndex].updatedAt = Date()

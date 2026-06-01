@@ -23,7 +23,8 @@ enum AssistantMarkdownPreprocessor {
 
     if lowercasedContent.hasPrefix("<!doctype")
       || lowercasedContent.hasPrefix("<html")
-      || lowercasedContent.contains("</html>") {
+      || lowercasedContent.contains("</html>")
+    {
       return "html"
     }
 

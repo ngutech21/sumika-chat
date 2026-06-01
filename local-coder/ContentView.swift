@@ -104,7 +104,9 @@ struct ContentView: View {
     panel.message = "Choose a folder to use as a local-coder workspace."
     panel.prompt = "Add Workspace"
 
-    if panel.runModal() == .OK, let url = panel.url, let sessionID = appState.addWorkspace(from: url) {
+    if panel.runModal() == .OK, let url = panel.url,
+      let sessionID = appState.addWorkspace(from: url)
+    {
       selection = .session(sessionID)
     }
   }
