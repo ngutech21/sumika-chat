@@ -1,7 +1,8 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    @State private var modelID = "mlx-community/gemma-3-1b-it-qat-4bit"
+    @State private var modelPath = LocalModelDirectory.defaultModelURL.path(percentEncoded: false)
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var modelState: ModelLoadState = .notLoaded
     @State private var messages: [ChatMessage] = []
@@ -9,14 +10,15 @@ struct ContentView: View {
     @State private var isGenerating = false
     @State private var errorMessage: String?
 
-    private let runtime: any ChatModelRuntime = MockChatRuntime()
+    private let runtime: any ChatModelRuntime = GemmaMLXRuntime()
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             ModelSidebar(
-                modelID: $modelID,
+                modelPath: $modelPath,
                 modelState: modelState,
                 isLoading: modelState == .loading,
+                onChooseModelDirectory: chooseModelDirectory,
                 onLoad: loadModel
             )
             .navigationSplitViewColumnWidth(min: 260, ideal: 300)
@@ -39,6 +41,16 @@ struct ContentView: View {
         .frame(minWidth: 880, minHeight: 560)
         .onAppear {
             columnVisibility = .all
+            do {
+                let baseURL = try LocalModelDirectory.ensureDefaultBaseDirectoryExists()
+                if modelPath.isEmpty {
+                    modelPath = baseURL
+                        .appending(path: LocalModelDirectory.defaultModelName, directoryHint: .isDirectory)
+                        .path(percentEncoded: false)
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -47,12 +59,21 @@ struct ContentView: View {
     }
 
     private func loadModel() {
+        let trimmedPath = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else {
+            errorMessage = "Choose a local model directory before loading."
+            return
+        }
+
+        let directoryURL = URL(filePath: trimmedPath, directoryHint: .isDirectory)
+
         Task {
             errorMessage = nil
             modelState = .loading
 
             do {
-                try await runtime.load(modelID: modelID.trimmingCharacters(in: .whitespacesAndNewlines))
+                try validateModelDirectory(directoryURL)
+                try await runtime.load(configuration: ChatModelConfiguration(localModelDirectory: directoryURL))
                 modelState = .ready
             } catch {
                 modelState = .failed(error.localizedDescription)
@@ -81,25 +102,61 @@ struct ContentView: View {
             isGenerating = false
         }
     }
+
+    private func chooseModelDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = URL(filePath: modelPath, directoryHint: .isDirectory)
+        panel.message = "Choose a local MLX Gemma model directory."
+        panel.prompt = "Choose"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            modelPath = url.path(percentEncoded: false)
+            modelState = .notLoaded
+            errorMessage = nil
+            messages.removeAll()
+        }
+    }
+
+    private func validateModelDirectory(_ url: URL) throws {
+        var isDirectory: ObjCBool = false
+        let path = url.path(percentEncoded: false)
+
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw LocalModelDirectoryError.notFound(path)
+        }
+    }
 }
 
 private struct ModelSidebar: View {
-    @Binding var modelID: String
+    @Binding var modelPath: String
     let modelState: ModelLoadState
     let isLoading: Bool
+    let onChooseModelDirectory: () -> Void
     let onLoad: () -> Void
 
     var body: some View {
         List {
             Section("Model") {
-                TextField("Model ID", text: $modelID)
+                TextField("Model Path", text: $modelPath, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
+                    .lineLimit(2...4)
 
-                Button(action: onLoad) {
-                    Label(isLoading ? "Loading" : "Load Mock", systemImage: "square.and.arrow.down")
+                HStack {
+                    Button(action: onChooseModelDirectory) {
+                        Label("Choose", systemImage: "folder")
+                    }
+                    .disabled(isLoading)
+
+                    Button(action: onLoad) {
+                        Label(isLoading ? "Loading" : "Load Model", systemImage: "square.and.arrow.down")
+                    }
+                    .accessibilityIdentifier("load-model-button")
+                    .disabled(isLoading || modelPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                .accessibilityIdentifier("load-model-button")
-                .disabled(isLoading || modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 Label(modelState.label, systemImage: modelState.systemImage)
                     .accessibilityIdentifier("model-state-label")
@@ -122,7 +179,7 @@ private struct ChatTranscript: View {
                     ContentUnavailableView(
                         "No Messages",
                         systemImage: "bubble.left.and.bubble.right",
-                        description: Text("Load the mock runtime to start a local coding chat.")
+                        description: Text("Choose a local Gemma model directory to start chatting.")
                     )
                     .frame(maxWidth: .infinity, minHeight: 360)
                 } else {
@@ -215,13 +272,13 @@ private enum ModelLoadState: Equatable {
     var label: String {
         switch self {
         case .notLoaded:
-            "No runtime loaded"
+            "No model loaded"
         case .loading:
-            "Loading runtime"
+            "Loading model"
         case .ready:
-            "Mock runtime ready"
+            "Model ready"
         case .failed:
-            "Runtime failed"
+            "Model failed"
         }
     }
 
@@ -246,6 +303,17 @@ private enum ModelLoadState: Equatable {
             .green
         case .failed:
             .red
+        }
+    }
+}
+
+private enum LocalModelDirectoryError: LocalizedError {
+    case notFound(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notFound(let path):
+            "Model directory does not exist: \(path)"
         }
     }
 }

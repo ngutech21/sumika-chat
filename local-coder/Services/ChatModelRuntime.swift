@@ -1,13 +1,13 @@
 import Foundation
 
 protocol ChatModelRuntime: Sendable {
-    func load(modelID: String) async throws
+    func load(configuration: ChatModelConfiguration) async throws
     func generateReply(for messages: [ChatMessage]) async throws -> String
 }
 
 struct MockChatRuntime: ChatModelRuntime {
-    func load(modelID: String) async throws {
-        _ = modelID
+    func load(configuration: ChatModelConfiguration) async throws {
+        _ = configuration
         try await Task.sleep(for: .milliseconds(350))
     }
 
