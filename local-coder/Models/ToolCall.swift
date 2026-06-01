@@ -108,6 +108,51 @@ struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
+struct ToolCallModelMessage: Codable, Equatable, Sendable {
+  var toolName: ToolName
+  var arguments: [ToolCallModelArgument]
+
+  init(toolName: ToolName, arguments: [ToolCallModelArgument]) {
+    self.toolName = toolName
+    self.arguments = arguments
+  }
+
+  init(request: ToolCallRequest) {
+    self.init(
+      toolName: request.toolName,
+      arguments: request.arguments.keys.sorted().map { key in
+        ToolCallModelArgument(name: key, value: request.arguments[key]?.displayValue ?? "")
+      }
+    )
+  }
+}
+
+struct ToolCallModelArgument: Codable, Identifiable, Equatable, Sendable {
+  var id: String { name }
+
+  var name: String
+  var value: String
+}
+
+extension ToolArgumentValue {
+  var displayValue: String {
+    switch self {
+    case .string(let value):
+      value
+    case .number(let value):
+      value.formatted()
+    case .bool(let value):
+      value ? "true" : "false"
+    case .array(let values):
+      values.map(\.displayValue).joined(separator: ", ")
+    case .object:
+      "{...}"
+    case .null:
+      "null"
+    }
+  }
+}
+
 struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   var id: UUID { request.id }
 

@@ -68,6 +68,23 @@ struct TaggedToolCallingTests {
     #expect(request.createdAt == createdAt)
     #expect(request.toolName == .readFile)
     #expect(request.arguments == ["path": .string("Sources/AppState.swift")])
+
+    let modelMessage = try parsedOutput(
+      """
+      <action name="READ-FILE">
+      <path>
+        Sources/AppState.swift
+      </path>
+      </action>
+      """,
+      workspaceID: workspaceID,
+      sessionID: sessionID,
+      createdAt: createdAt
+    ).modelMessage
+    #expect(modelMessage.toolName == .readFile)
+    #expect(modelMessage.arguments == [
+      ToolCallModelArgument(name: "path", value: "Sources/AppState.swift")
+    ])
   }
 
   @Test
@@ -299,6 +316,20 @@ struct TaggedToolCallingTests {
     sessionID: UUID = UUID(),
     createdAt: Date = Date(timeIntervalSince1970: 1)
   ) throws -> ToolCallRequest {
+    try parsedOutput(
+      text,
+      workspaceID: workspaceID,
+      sessionID: sessionID,
+      createdAt: createdAt
+    ).request
+  }
+
+  private func parsedOutput(
+    _ text: String,
+    workspaceID: UUID = UUID(),
+    sessionID: UUID = UUID(),
+    createdAt: Date = Date(timeIntervalSince1970: 1)
+  ) throws -> ToolCallParseOutput {
     let result = try TaggedToolCallParser().parse(
       text,
       workspaceID: workspaceID,
@@ -306,12 +337,12 @@ struct TaggedToolCallingTests {
       createdAt: createdAt
     )
 
-    guard case .toolCall(let request) = result else {
+    guard case .toolCall(let output) = result else {
       Issue.record("Expected a parsed tool call")
       throw TestFailure()
     }
 
-    return request
+    return output
   }
 }
 

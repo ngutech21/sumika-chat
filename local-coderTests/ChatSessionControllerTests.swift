@@ -103,8 +103,12 @@ struct ChatSessionControllerTests {
         #expect(controller.chatSession.toolCalls[0].resultPreview?.text == "project notes")
         #expect(controller.chatSession.messages.count == 4)
         #expect(controller.chatSession.messages[1].role == .assistant)
-        #expect(controller.chatSession.messages[1].toolCallRequest?.toolName == .readFile)
-        #expect(controller.chatSession.messages[1].toolCallRequest?.arguments["path"] == .string("README.md"))
+        #expect(controller.chatSession.messages[1].toolCall?.toolName == .readFile)
+        #expect(
+            controller.chatSession.messages[1].toolCall?.arguments == [
+                ToolCallModelArgument(name: "path", value: "README.md")
+            ]
+        )
         #expect(controller.chatSession.messages[2].role == .user)
         #expect(controller.chatSession.messages[2].toolResult?.toolName == .readFile)
         #expect(controller.chatSession.messages[2].toolResult?.preview.status == .success)

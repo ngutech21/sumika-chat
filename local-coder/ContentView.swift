@@ -889,7 +889,7 @@ private struct MessageContentText: View {
 
     @ViewBuilder
     var body: some View {
-        if let toolCall = message.toolCallRequest {
+        if let toolCall = message.toolCall {
             ToolCallSummaryView(toolCall: toolCall)
         } else if let toolResult = message.toolResult {
             ToolResultSummaryView(toolResult: toolResult)
@@ -904,7 +904,7 @@ private struct MessageContentText: View {
 }
 
 private struct ToolCallSummaryView: View {
-    let toolCall: ToolCallRequest
+    let toolCall: ToolCallModelMessage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -915,7 +915,7 @@ private struct ToolCallSummaryView: View {
 
             if !toolCall.arguments.isEmpty {
                 Divider()
-                ForEach(toolCall.displayArguments) { argument in
+                ForEach(toolCall.arguments) { argument in
                     LabeledContent(argument.name, value: argument.value)
                 }
             }
@@ -1040,39 +1040,6 @@ extension ChatMessage {
         }
 
         return role.systemImage
-    }
-}
-
-extension ToolCallRequest {
-    fileprivate struct DisplayArgument: Identifiable {
-        let id: String
-        let name: String
-        let value: String
-    }
-
-    fileprivate var displayArguments: [DisplayArgument] {
-        arguments.keys.sorted().map { key in
-            DisplayArgument(id: key, name: key, value: arguments[key]?.displayValue ?? "")
-        }
-    }
-}
-
-extension ToolArgumentValue {
-    fileprivate var displayValue: String {
-        switch self {
-        case .string(let value):
-            value
-        case .number(let value):
-            value.formatted()
-        case .bool(let value):
-            value ? "true" : "false"
-        case .array(let values):
-            values.map(\.displayValue).joined(separator: ", ")
-        case .object:
-            "{...}"
-        case .null:
-            "null"
-        }
     }
 }
 

@@ -517,7 +517,7 @@ final class ChatSessionController {
             content: message.content + chunk,
             attachments: message.attachments,
             generationMetrics: message.generationMetrics,
-            toolCallRequest: message.toolCallRequest,
+            toolCall: message.toolCall,
             toolResult: message.toolResult
         )
     }
@@ -534,7 +534,7 @@ final class ChatSessionController {
             content: message.content,
             attachments: message.attachments,
             generationMetrics: metrics,
-            toolCallRequest: message.toolCallRequest,
+            toolCall: message.toolCall,
             toolResult: message.toolResult
         )
     }
@@ -726,11 +726,12 @@ private extension ChatSessionController {
                 createdAt: Date()
             )
 
-            guard case .toolCall(let request) = parseResult else {
+            guard case .toolCall(let output) = parseResult else {
                 return
             }
 
-            annotateToolCall(request, for: assistantMessageID)
+            let request = output.request
+            annotateToolCall(output.modelMessage, for: assistantMessageID)
             let record = await toolOrchestrator.execute(request: request, workspace: workspace)
             chatSession.toolCalls.append(record)
             notifySessionDidChange()
@@ -754,7 +755,7 @@ private extension ChatSessionController {
         }
     }
 
-    func annotateToolCall(_ request: ToolCallRequest, for messageID: UUID) {
+    func annotateToolCall(_ toolCall: ToolCallModelMessage, for messageID: UUID) {
         guard let index = chatSession.messages.firstIndex(where: { $0.id == messageID }) else {
             return
         }
@@ -766,7 +767,7 @@ private extension ChatSessionController {
             content: message.content,
             attachments: message.attachments,
             generationMetrics: message.generationMetrics,
-            toolCallRequest: request,
+            toolCall: toolCall,
             toolResult: message.toolResult
         )
     }

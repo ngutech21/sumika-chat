@@ -2,7 +2,12 @@ import Foundation
 
 enum ToolCallParseResult: Equatable, Sendable {
   case none
-  case toolCall(ToolCallRequest)
+  case toolCall(ToolCallParseOutput)
+}
+
+struct ToolCallParseOutput: Equatable, Sendable {
+  var request: ToolCallRequest
+  var modelMessage: ToolCallModelMessage
 }
 
 protocol ToolCallParsing: Sendable {
@@ -219,7 +224,8 @@ struct TaggedToolCallParser: ToolCallParsing {
       arguments: arguments,
       createdAt: createdAt
     )
-    return .toolCall(request)
+    return .toolCall(
+      ToolCallParseOutput(request: request, modelMessage: ToolCallModelMessage(request: request)))
   }
 
   private func openingTagEnd(in text: String, from start: String.Index) throws -> String.Index {

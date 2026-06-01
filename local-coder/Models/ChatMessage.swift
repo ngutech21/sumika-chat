@@ -6,7 +6,7 @@ struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     let content: String
     let attachments: [ChatAttachment]
     let generationMetrics: ChatGenerationMetrics?
-    let toolCallRequest: ToolCallRequest?
+    let toolCall: ToolCallModelMessage?
     let toolResult: ToolResultModelMessage?
 
     init(
@@ -15,7 +15,7 @@ struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
         content: String,
         attachments: [ChatAttachment] = [],
         generationMetrics: ChatGenerationMetrics? = nil,
-        toolCallRequest: ToolCallRequest? = nil,
+        toolCall: ToolCallModelMessage? = nil,
         toolResult: ToolResultModelMessage? = nil
     ) {
         self.id = id
@@ -23,7 +23,7 @@ struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
         self.content = content
         self.attachments = attachments
         self.generationMetrics = generationMetrics
-        self.toolCallRequest = toolCallRequest
+        self.toolCall = toolCall
         self.toolResult = toolResult
     }
 
@@ -33,6 +33,7 @@ struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
         case content
         case attachments
         case generationMetrics
+        case toolCall
         case toolCallRequest
         case toolResult
     }
@@ -45,9 +46,27 @@ struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
         attachments = try container.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? []
         generationMetrics = try container.decodeIfPresent(
             ChatGenerationMetrics.self, forKey: .generationMetrics)
-        toolCallRequest = try container.decodeIfPresent(
-            ToolCallRequest.self, forKey: .toolCallRequest)
+        if let toolCall = try container.decodeIfPresent(ToolCallModelMessage.self, forKey: .toolCall) {
+            self.toolCall = toolCall
+        } else if let legacyRequest = try container.decodeIfPresent(
+            ToolCallRequest.self, forKey: .toolCallRequest
+        ) {
+            self.toolCall = ToolCallModelMessage(request: legacyRequest)
+        } else {
+            toolCall = nil
+        }
         toolResult = try container.decodeIfPresent(ToolResultModelMessage.self, forKey: .toolResult)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(role, forKey: .role)
+        try container.encode(content, forKey: .content)
+        try container.encode(attachments, forKey: .attachments)
+        try container.encodeIfPresent(generationMetrics, forKey: .generationMetrics)
+        try container.encodeIfPresent(toolCall, forKey: .toolCall)
+        try container.encodeIfPresent(toolResult, forKey: .toolResult)
     }
 }
 
