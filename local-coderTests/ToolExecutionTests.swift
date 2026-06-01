@@ -68,6 +68,25 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func readFileDoesNotDecodeBytesPastPreviewLimit() async throws {
+    let workspace = try makeWorkspace()
+    let fileURL = workspace.rootURL.appending(path: "mixed.txt")
+    let validPreview = String(repeating: "a", count: 40)
+    var data = Data(validPreview.utf8)
+    data.append(0xff)
+    try data.write(to: fileURL)
+
+    let result = await ReadFileToolExecutor(maxBytes: 40).execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("mixed.txt")]),
+      workspace: workspace
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text == validPreview)
+    #expect(result.truncated)
+  }
+
+  @Test
   func listFilesSortsSkipsAndTruncates() async throws {
     let workspace = try makeWorkspace()
     try write("root", to: "zeta.txt", in: workspace)

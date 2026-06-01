@@ -47,8 +47,8 @@ nonisolated struct ReadFileToolExecutor: ToolExecutor {
 
     do {
       let resolvedURL = try workspace.resolveAllowedPath(path)
-      let data = try Data(contentsOf: resolvedURL)
-      guard let content = String(data: data, encoding: .utf8) else {
+      let preview = try Self.readPreview(from: resolvedURL, maxBytes: maxBytes)
+      guard let content = preview.content else {
         return ToolResultPreview(
           status: .failed,
           text: "File is not valid UTF-8 text.",
@@ -56,12 +56,10 @@ nonisolated struct ReadFileToolExecutor: ToolExecutor {
         )
       }
 
-      let truncated = data.count > maxBytes
-      let text = truncated ? Self.prefix(content, maxUTF8Bytes: maxBytes) : content
       return ToolResultPreview(
         status: .success,
-        text: text,
-        truncated: truncated,
+        text: content,
+        truncated: preview.truncated,
         affectedPaths: [resolvedURL.path(percentEncoded: false)]
       )
     } catch {
@@ -72,23 +70,47 @@ nonisolated struct ReadFileToolExecutor: ToolExecutor {
     }
   }
 
-  private static func prefix(_ text: String, maxUTF8Bytes: Int) -> String {
-    var result = ""
-    result.reserveCapacity(min(text.count, maxUTF8Bytes))
-    var usedBytes = 0
-
-    for character in text {
-      let byteCount = String(character).utf8.count
-      guard usedBytes + byteCount <= maxUTF8Bytes else {
-        break
-      }
-
-      result.append(character)
-      usedBytes += byteCount
+  private static func readPreview(
+    from url: URL,
+    maxBytes: Int
+  ) throws -> (content: String?, truncated: Bool) {
+    let previewByteLimit = max(maxBytes, 0)
+    let bytesToRead = previewByteLimit + 1
+    let fileHandle = try FileHandle(forReadingFrom: url)
+    defer {
+      try? fileHandle.close()
     }
 
-    return result
+    let data = try fileHandle.read(upToCount: bytesToRead) ?? Data()
+    let truncated = data.count > previewByteLimit
+    let previewData = data.prefix(previewByteLimit)
+
+    guard truncated else {
+      return (String(data: previewData, encoding: .utf8), false)
+    }
+
+    return (utf8StringDroppingPartialSuffix(from: previewData), true)
   }
+
+  private static func utf8StringDroppingPartialSuffix(from data: Data) -> String? {
+    if let string = String(data: data, encoding: .utf8) {
+      return string
+    }
+
+    guard !data.isEmpty else {
+      return ""
+    }
+
+    for droppedByteCount in 1...min(3, data.count) {
+      let shortenedData = data.dropLast(droppedByteCount)
+      if let string = String(data: shortenedData, encoding: .utf8) {
+        return string
+      }
+    }
+
+    return nil
+  }
+
 }
 
 nonisolated struct ListFilesToolExecutor: ToolExecutor {
