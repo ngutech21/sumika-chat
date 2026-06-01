@@ -67,6 +67,7 @@ final class ChatSessionController {
         self.modelPath = selectedModel.localPath
         self.chatSession = ChatSessionState(
             messages: [],
+            toolCalls: [],
             attachments: [],
             systemPrompt: storedSettings.systemPrompt,
             generationSettings: storedSettings.generationSettings
@@ -168,6 +169,7 @@ final class ChatSessionController {
         contextUsage = nil
         chatSession = ChatSessionState(
             messages: session.messages,
+            toolCalls: session.toolCalls,
             attachments: [],
             systemPrompt: session.systemPrompt,
             generationSettings: session.generationSettings
@@ -187,6 +189,7 @@ final class ChatSessionController {
         var snapshot = session
         snapshot.selectedModelID = selectedModelID
         snapshot.messages = chatSession.messages
+        snapshot.toolCalls = chatSession.toolCalls
         snapshot.systemPrompt = chatSession.systemPrompt
         snapshot.generationSettings = chatSession.generationSettings
         snapshot.updatedAt = Date()

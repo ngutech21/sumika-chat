@@ -56,6 +56,62 @@ struct WorkspaceStoreTests {
   }
 
   @Test
+  func workspaceStorePersistsToolCallRecords() throws {
+    let libraryURL = temporaryLibraryURL()
+    let store = WorkspaceStore(libraryURL: libraryURL)
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let toolCall = makeToolCallRecord(workspaceID: workspaceID, sessionID: sessionID)
+    let session = CodingSession(
+      id: sessionID,
+      selectedModelID: "gemma3-1b",
+      toolCalls: [toolCall],
+      systemPrompt: "Use short answers.",
+      generationSettings: .codingDefault
+    )
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [session]
+    )
+    let library = WorkspaceLibrary(
+      workspaces: [workspace],
+      activeWorkspaceID: workspaceID,
+      activeSessionID: sessionID
+    )
+
+    try store.saveLibrary(library)
+
+    let reloaded = WorkspaceStore(libraryURL: libraryURL).loadLibrary()
+    let reloadedToolCall = try #require(reloaded.workspaces.first?.sessions.first?.toolCalls.first)
+    #expect(reloadedToolCall == toolCall)
+    #expect(reloadedToolCall.events.first?.actor == .assistant)
+    #expect(reloadedToolCall.resultPreview?.redacted == true)
+  }
+
+  @Test
+  func codingSessionDecodesLegacyJSONWithoutToolCalls() throws {
+    let legacySession = LegacyCodingSession(
+      id: UUID(),
+      title: "Legacy",
+      selectedModelID: "gemma3-1b",
+      messages: [ChatMessage(role: .user, content: "hello")],
+      systemPrompt: "Legacy prompt",
+      generationSettings: .codingDefault,
+      createdAt: Date(),
+      updatedAt: Date()
+    )
+    let data = try JSONEncoder().encode(legacySession)
+
+    let decoded = try JSONDecoder().decode(CodingSession.self, from: data)
+
+    #expect(decoded.id == legacySession.id)
+    #expect(decoded.messages == legacySession.messages)
+    #expect(decoded.toolCalls.isEmpty)
+  }
+
+  @Test
   func appStateAddsWorkspaceWithDefaultSessionAndDeduplicatesByPath() throws {
     let workspaceURL = try makeTemporaryDirectory()
     let workspaceStore = FakeWorkspaceStore()
@@ -140,6 +196,45 @@ struct WorkspaceStoreTests {
   }
 
   @Test
+  func appStateSwitchesSessionsAndLoadsToolCalls() throws {
+    let firstSession = CodingSession(
+      title: "First",
+      selectedModelID: "gemma3-1b",
+      systemPrompt: "First prompt",
+      generationSettings: .codingDefault
+    )
+    let secondSession = CodingSession(
+      title: "Second",
+      selectedModelID: "gemma3-1b",
+      toolCalls: [makeToolCallRecord(workspaceID: UUID(), sessionID: UUID())],
+      systemPrompt: "Second prompt",
+      generationSettings: .codingDefault
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [firstSession, secondSession]
+    )
+    let workspaceStore = FakeWorkspaceStore(
+      library: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspace.id,
+        activeSessionID: firstSession.id
+      )
+    )
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      modelSettingsStore: FakeModelSettingsStore()
+    )
+    let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+
+    appState.selectSession(secondSession.id)
+
+    #expect(controller.chatSession.toolCalls == secondSession.toolCalls)
+  }
+
+  @Test
   func appStateRenamesSessionAndPersistsTitle() throws {
     let workspaceURL = try makeTemporaryDirectory()
     let workspaceStore = FakeWorkspaceStore()
@@ -156,7 +251,8 @@ struct WorkspaceStoreTests {
     appState.renameSession(sessionID, title: "  Refactor parser  ")
 
     #expect(appState.activeSession?.title == "Refactor parser")
-    #expect(workspaceStore.savedLibrary?.workspaces.first?.sessions.first?.title == "Refactor parser")
+    #expect(
+      workspaceStore.savedLibrary?.workspaces.first?.sessions.first?.title == "Refactor parser")
   }
 
   @Test
@@ -325,6 +421,28 @@ struct WorkspaceStoreTests {
     #expect(workspaceStore.savedLibrary?.activeSessionID == appState.activeSession?.id)
   }
 
+  @Test
+  func appStatePersistsToolCallsFromSessionSnapshot() throws {
+    let workspaceURL = try makeTemporaryDirectory()
+    let workspaceStore = FakeWorkspaceStore()
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      modelSettingsStore: FakeModelSettingsStore()
+    )
+    let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+    _ = appState.addWorkspace(from: workspaceURL)
+    let workspaceID = try #require(appState.activeWorkspace?.id)
+    let sessionID = try #require(appState.activeSession?.id)
+    let toolCall = makeToolCallRecord(workspaceID: workspaceID, sessionID: sessionID)
+
+    controller.chatSession.toolCalls = [toolCall]
+    appState.persistActiveSession()
+
+    #expect(appState.activeSession?.toolCalls == [toolCall])
+    #expect(workspaceStore.savedLibrary?.workspaces.first?.sessions.first?.toolCalls == [toolCall])
+  }
+
   private func temporaryLibraryURL() -> URL {
     FileManager.default.temporaryDirectory
       .appending(path: "local-coder-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -351,6 +469,63 @@ struct WorkspaceStoreTests {
       try await Task.sleep(for: .milliseconds(10))
     }
   }
+
+  private func makeToolCallRecord(
+    workspaceID: Workspace.ID,
+    sessionID: CodingSession.ID
+  ) -> ToolCallRecord {
+    let request = ToolCallRequest(
+      id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+      workspaceID: workspaceID,
+      sessionID: sessionID,
+      toolName: .readFile,
+      arguments: ["path": .string("README.md")],
+      createdAt: Date(timeIntervalSinceReferenceDate: 1)
+    )
+    return ToolCallRecord(
+      request: request,
+      status: .awaitingApproval,
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Reading files inside the workspace is allowed.",
+        riskLevel: .low,
+        normalizedPaths: ["/tmp/project/README.md"]
+      ),
+      events: [
+        ToolCallEvent(
+          id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+          timestamp: Date(timeIntervalSinceReferenceDate: 2),
+          actor: .assistant,
+          kind: .requested,
+          message: "Read README.md"
+        ),
+        ToolCallEvent(
+          id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+          timestamp: Date(timeIntervalSinceReferenceDate: 3),
+          actor: .user,
+          kind: .cancelled,
+          message: "Cancelled by user"
+        ),
+      ],
+      resultPreview: ToolResultPreview(
+        text: "Preview",
+        truncated: true,
+        redacted: true,
+        affectedPaths: ["/tmp/project/README.md"]
+      )
+    )
+  }
+}
+
+private struct LegacyCodingSession: Codable {
+  let id: UUID
+  let title: String
+  let selectedModelID: ManagedModel.ID
+  let messages: [ChatMessage]
+  let systemPrompt: String
+  let generationSettings: ChatGenerationSettings
+  let createdAt: Date
+  let updatedAt: Date
 }
 
 private final class FakeWorkspaceStore: WorkspaceStoring, @unchecked Sendable {
