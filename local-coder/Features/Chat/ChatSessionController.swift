@@ -12,6 +12,7 @@ final class ChatSessionController {
     var modelPath: String
     var modelState: ModelLoadState = .notLoaded
     var chatSession = ChatSessionState.codingDefault
+    var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
     var contextUsage: ChatContextUsage?
     var processUsage: ProcessResourceUsage?
     var draft = ""
@@ -65,6 +66,7 @@ final class ChatSessionController {
         self.modelDownloader = downloader
         self.selectedModelID = selectedModel.id
         self.modelPath = selectedModel.localPath
+        self.modelContextTokenLimit = storedSettings.contextTokenLimit
         self.chatSession = ChatSessionState(
             messages: [],
             toolCalls: [],
@@ -87,6 +89,7 @@ final class ChatSessionController {
         self.modelDownloader = modelDownloader
         self.selectedModelID = ManagedModelCatalog.defaultModelID
         self.modelPath = modelPath
+        self.modelContextTokenLimit = ManagedModelCatalog.defaultModel.defaultContextTokenLimit
     }
 
     deinit {
@@ -146,6 +149,7 @@ final class ChatSessionController {
         let settings = modelSettingsStore.settings(for: model)
         chatSession.systemPrompt = settings.systemPrompt
         chatSession.generationSettings = settings.generationSettings
+        modelContextTokenLimit = settings.contextTokenLimit
         notifySessionDidChange()
     }
 
@@ -174,6 +178,7 @@ final class ChatSessionController {
             systemPrompt: session.systemPrompt,
             generationSettings: session.generationSettings
         )
+        modelContextTokenLimit = modelSettingsStore.settings(for: model).contextTokenLimit
 
         if shouldUnloadRuntime {
             modelState = .notLoaded
@@ -250,7 +255,8 @@ final class ChatSessionController {
     func saveSelectedModelSettings() {
         let settings = StoredModelSettings(
             systemPrompt: chatSession.systemPrompt,
-            generationSettings: chatSession.generationSettings
+            generationSettings: chatSession.generationSettings,
+            contextTokenLimit: modelContextTokenLimit
         )
 
         do {
@@ -290,7 +296,7 @@ final class ChatSessionController {
                 try Task.checkCancellation()
                 let configuration = ChatModelConfiguration(
                     localModelDirectory: directoryURL,
-                    contextTokenLimit: LocalModelDirectory.readContextTokenLimit(from: directoryURL)
+                    contextTokenLimit: effectiveContextTokenLimit(for: directoryURL)
                 )
                 try await runtime.load(configuration: configuration)
                 try Task.checkCancellation()
@@ -405,6 +411,17 @@ final class ChatSessionController {
         Task {
             await updateContextUsage()
         }
+    }
+
+    func effectiveContextTokenLimit(for modelDirectory: URL) -> Int {
+        let modelLimit = LocalModelDirectory.readContextTokenLimit(from: modelDirectory)
+        let requestedLimit = max(modelContextTokenLimit, 1)
+
+        guard let modelLimit else {
+            return requestedLimit
+        }
+
+        return min(requestedLimit, modelLimit)
     }
 
     func updateContextUsage() async {

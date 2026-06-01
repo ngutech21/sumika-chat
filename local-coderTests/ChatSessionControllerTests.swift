@@ -84,6 +84,32 @@ struct ChatSessionControllerTests {
     }
 
     @Test
+    func loadModelCapsContextLimitAtUserRequestedSetting() async throws {
+        let modelDirectory = FileManager.default.temporaryDirectory.appending(
+            path: "local-coder-tests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
+        try #"{"max_position_embeddings":131072}"#.write(
+            to: modelDirectory.appending(path: "config.json", directoryHint: .notDirectory),
+            atomically: true,
+            encoding: .utf8
+        )
+        let runtime = FakeChatModelRuntime()
+        let controller = ChatSessionController(
+            runtime: runtime,
+            modelPath: modelDirectory.path(percentEncoded: false)
+        )
+
+        controller.loadModel()
+
+        try await waitUntil { controller.modelState == .ready }
+
+        let configuration = await runtime.loadedConfiguration
+        #expect(configuration?.contextTokenLimit == 65_536)
+    }
+
+    @Test
     func unloadModelReleasesRuntimeAndResetsModelState() async throws {
         let runtime = FakeChatModelRuntime()
         let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")

@@ -3,13 +3,32 @@ import Foundation
 struct StoredModelSettings: Codable, Equatable, Sendable {
     var systemPrompt: String
     var generationSettings: ChatGenerationSettings
+    var contextTokenLimit: Int
 
     init(
         systemPrompt: String = ChatPromptDefaults.codingSystemPrompt,
-        generationSettings: ChatGenerationSettings = .codingDefault
+        generationSettings: ChatGenerationSettings = .codingDefault,
+        contextTokenLimit: Int = ManagedModelCatalog.defaultContextTokenLimit
     ) {
         self.systemPrompt = systemPrompt
         self.generationSettings = generationSettings
+        self.contextTokenLimit = contextTokenLimit
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case systemPrompt
+        case generationSettings
+        case contextTokenLimit
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
+        generationSettings = try container.decode(
+            ChatGenerationSettings.self, forKey: .generationSettings)
+        contextTokenLimit =
+            try container.decodeIfPresent(Int.self, forKey: .contextTokenLimit)
+            ?? ManagedModelCatalog.defaultContextTokenLimit
     }
 }
 
@@ -61,7 +80,8 @@ final class ModelSettingsStore: ModelSettingsStoring, @unchecked Sendable {
         guard let stored = readSettingsFile().modelSettings[model.id] else {
             return StoredModelSettings(
                 systemPrompt: model.defaultSystemPrompt,
-                generationSettings: model.defaultGenerationSettings
+                generationSettings: model.defaultGenerationSettings,
+                contextTokenLimit: model.defaultContextTokenLimit
             )
         }
 

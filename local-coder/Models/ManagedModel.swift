@@ -14,6 +14,7 @@ struct ManagedModel: Identifiable, Equatable, Sendable {
     let requiresLargeMemory: Bool
     let defaultSystemPrompt: String
     let defaultGenerationSettings: ChatGenerationSettings
+    let defaultContextTokenLimit: Int
 
     var localDirectoryURL: URL {
         LocalModelDirectory.defaultBaseURL.appending(
@@ -27,6 +28,7 @@ struct ManagedModel: Identifiable, Equatable, Sendable {
 
 enum ManagedModelCatalog {
     static let defaultModelID = "gemma3-4b"
+    static let defaultContextTokenLimit = 65_536
 
     static let models: [ManagedModel] = [
         ManagedModel(
@@ -42,7 +44,8 @@ enum ManagedModelCatalog {
             isRecommended: false,
             requiresLargeMemory: false,
             defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
-            defaultGenerationSettings: .codingDefault
+            defaultGenerationSettings: .codingDefault,
+            defaultContextTokenLimit: defaultContextTokenLimit
         ),
         ManagedModel(
             id: "gemma3-4b",
@@ -57,7 +60,8 @@ enum ManagedModelCatalog {
             isRecommended: true,
             requiresLargeMemory: false,
             defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
-            defaultGenerationSettings: .codingDefault
+            defaultGenerationSettings: .codingDefault,
+            defaultContextTokenLimit: defaultContextTokenLimit
         ),
         ManagedModel(
             id: "gemma3-27b",
@@ -72,7 +76,8 @@ enum ManagedModelCatalog {
             isRecommended: false,
             requiresLargeMemory: true,
             defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
-            defaultGenerationSettings: .codingDefault
+            defaultGenerationSettings: .codingDefault,
+            defaultContextTokenLimit: defaultContextTokenLimit
         ),
     ]
 

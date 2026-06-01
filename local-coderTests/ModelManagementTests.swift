@@ -12,6 +12,7 @@ struct ModelManagementTests {
         #expect(models.map(\.id) == ["gemma3-1b", "gemma3-4b", "gemma3-27b"])
         #expect(ManagedModelCatalog.defaultModelID == "gemma3-4b")
         #expect(ManagedModelCatalog.defaultModel.id == "gemma3-4b")
+        #expect(ManagedModelCatalog.defaultModel.defaultContextTokenLimit == 65_536)
         #expect(ManagedModelCatalog.defaultModel.isRecommended)
         #expect(ManagedModelCatalog.model(id: "gemma3-27b")?.requiresLargeMemory == true)
         #expect(
@@ -42,7 +43,8 @@ struct ModelManagementTests {
         let settings = StoredModelSettings(
             systemPrompt: "Use short answers.",
             generationSettings: ChatGenerationSettings(
-                temperature: 0.4, topP: 0.8, topK: 20, maxTokens: 512)
+                temperature: 0.4, topP: 0.8, topK: 20, maxTokens: 512),
+            contextTokenLimit: 32_768
         )
 
         store.setSelectedModelID(model.id)
@@ -69,6 +71,7 @@ struct ModelManagementTests {
 
         #expect(settings.systemPrompt == ChatPromptDefaults.codingSystemPrompt)
         #expect(settings.generationSettings == .codingDefault)
+        #expect(settings.contextTokenLimit == ManagedModelCatalog.defaultModel.defaultContextTokenLimit)
     }
 
     @Test
@@ -78,7 +81,8 @@ struct ModelManagementTests {
         let settings = StoredModelSettings(
             systemPrompt: "Tiny model prompt",
             generationSettings: ChatGenerationSettings(
-                temperature: 0.2, topP: 0.7, topK: 10, maxTokens: 256)
+                temperature: 0.2, topP: 0.7, topK: 10, maxTokens: 256),
+            contextTokenLimit: 16_384
         )
         store.settingsByModelID[selectedModel.id] = settings
         let controller = ChatSessionController(
@@ -94,6 +98,7 @@ struct ModelManagementTests {
         #expect(controller.modelPath == selectedModel.localPath)
         #expect(controller.chatSession.systemPrompt == settings.systemPrompt)
         #expect(controller.chatSession.generationSettings == settings.generationSettings)
+        #expect(controller.modelContextTokenLimit == settings.contextTokenLimit)
         #expect(store.selectedModelIDValue == selectedModel.id)
     }
 
@@ -177,7 +182,8 @@ private final class FakeModelSettingsStore: ModelSettingsStoring, @unchecked Sen
         settingsByModelID[model.id]
             ?? StoredModelSettings(
                 systemPrompt: model.defaultSystemPrompt,
-                generationSettings: model.defaultGenerationSettings
+                generationSettings: model.defaultGenerationSettings,
+                contextTokenLimit: model.defaultContextTokenLimit
             )
     }
 

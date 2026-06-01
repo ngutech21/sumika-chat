@@ -1,4 +1,5 @@
 import Foundation
+import MLX
 import MLXLLM
 import MLXLMCommon
 import Tokenizers
@@ -23,6 +24,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     private var contextTokenLimit: Int?
 
     func load(configuration: ChatModelConfiguration) async throws {
+        configureMLXMemory()
+
         let modelConfiguration = ModelConfiguration(
             directory: configuration.localModelDirectory,
             extraEOSTokens: ["<end_of_turn>"]
@@ -44,11 +47,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         session = nil
         modelContainer = nil
         contextTokenLimit = nil
+        Memory.clearCache()
     }
 
     func clearContext() async {
         await session?.clear()
         session = nil
+        Memory.clearCache()
     }
 
     func contextUsage(
@@ -112,11 +117,23 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         return Self.modelStream(from: stream)
     }
 
-    private static func modelStream(
+    private func configureMLXMemory() {
+        if Memory.cacheLimit > Self.maxMLXCacheBytes {
+            Memory.cacheLimit = Self.maxMLXCacheBytes
+        }
+    }
+
+    nonisolated private static let maxMLXCacheBytes = 512 * 1024 * 1024
+
+    nonisolated private static func modelStream(
         from stream: AsyncThrowingStream<Generation, Error>
     ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
         return AsyncThrowingStream { continuation in
             let task = Task {
+                defer {
+                    Memory.clearCache()
+                }
+
                 do {
                     for try await generation in stream {
                         try Task.checkCancellation()

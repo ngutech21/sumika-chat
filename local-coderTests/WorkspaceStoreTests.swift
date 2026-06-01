@@ -563,7 +563,8 @@ private final class FakeModelSettingsStore: ModelSettingsStoring, @unchecked Sen
     settingsByModelID[model.id]
       ?? StoredModelSettings(
         systemPrompt: model.defaultSystemPrompt,
-        generationSettings: model.defaultGenerationSettings
+        generationSettings: model.defaultGenerationSettings,
+        contextTokenLimit: model.defaultContextTokenLimit
       )
   }
 
