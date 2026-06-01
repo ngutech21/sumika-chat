@@ -100,6 +100,13 @@ The app is an Xcode macOS project:
 xcodebuild -project local-coder.xcodeproj -scheme local-coder -destination "platform=macOS" build
 ```
 
+## Git
+
+- Use intentional commits: each commit should describe one coherent change and avoid bundling unrelated work.
+- Write commit messages with a lowercase conventional prefix and a lowercase imperative subject, for example `feat: add mock chat runtime`.
+- Prefer prefixes such as `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, and `build`.
+- Review the diff before committing so generated files, build output, and unrelated user changes are not included accidentally.
+
 ## Coding Standards
 
 - Prefer ASCII in source files unless the file already uses non-ASCII text for a reason.
@@ -107,4 +114,3 @@ xcodebuild -project local-coder.xcodeproj -scheme local-coder -destination "plat
 - Use clear names over clever abstractions.
 - Add tests or focused verification when touching shared logic, patch application, prompt construction, or command execution.
 - Keep generated files, build output, and DerivedData out of source control.
-
