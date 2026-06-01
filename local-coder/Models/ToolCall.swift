@@ -133,6 +133,7 @@ struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
 }
 
 enum ToolCallStatus: String, Codable, Equatable, Sendable {
+  case pending
   case awaitingApproval
   case approved
   case denied
@@ -182,22 +183,66 @@ enum ToolCallEventKind: String, Codable, Equatable, Sendable {
 }
 
 struct ToolResultPreview: Codable, Equatable, Sendable {
+  var status: ToolResultStatus
   var text: String
   var truncated: Bool
   var redacted: Bool
   var affectedPaths: [String]
 
   init(
+    status: ToolResultStatus = .success,
     text: String,
     truncated: Bool = false,
     redacted: Bool = false,
     affectedPaths: [String] = []
   ) {
+    self.status = status
     self.text = text
     self.truncated = truncated
     self.redacted = redacted
     self.affectedPaths = affectedPaths
   }
+
+  func modelMessage(toolName: ToolName) -> String {
+    let paths = affectedPaths.isEmpty ? "none" : affectedPaths.joined(separator: "\n")
+    let truncation = truncated ? "\nResult was truncated." : ""
+    return """
+      Tool result
+      Tool: \(toolName.rawValue)
+      Status: \(status.rawValue)
+      Paths:
+      \(paths)\(truncation)
+
+      <tool_result name="\(toolName.rawValue)" status="\(status.rawValue)">
+      \(text)
+      </tool_result>
+
+      Use this tool result to answer the user directly. Do not call another tool for this response.
+      """
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case status
+    case text
+    case truncated
+    case redacted
+    case affectedPaths
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    status = try container.decodeIfPresent(ToolResultStatus.self, forKey: .status) ?? .success
+    text = try container.decode(String.self, forKey: .text)
+    truncated = try container.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+    redacted = try container.decodeIfPresent(Bool.self, forKey: .redacted) ?? false
+    affectedPaths = try container.decodeIfPresent([String].self, forKey: .affectedPaths) ?? []
+  }
+}
+
+enum ToolResultStatus: String, Codable, Equatable, Sendable {
+  case success
+  case failed
+  case denied
 }
 
 struct ToolPermissionEvaluation: Codable, Equatable, Sendable {

@@ -23,6 +23,9 @@ final class ChatSessionController {
     @ObservationIgnored private let resourceMonitor: any ProcessResourceMonitoring
     @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
     @ObservationIgnored private let modelDownloader: any ModelDownloading
+    @ObservationIgnored private let toolCallParser: any ToolCallParsing
+    @ObservationIgnored private let toolPromptRenderer: any ToolPromptRendering
+    @ObservationIgnored private let toolOrchestrator: ToolOrchestrator
     @ObservationIgnored private var isHandlingDroppedDraftPath = false
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
@@ -30,6 +33,7 @@ final class ChatSessionController {
     @ObservationIgnored private var generationTask: Task<Void, Never>?
     @ObservationIgnored private var resourceMonitorTask: Task<Void, Never>?
     @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
+    @ObservationIgnored private let maxToolIterations = 1
 
     var canSend: Bool {
         modelState == .ready && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -52,7 +56,10 @@ final class ChatSessionController {
         modelSettingsStore settingsStore: any ModelSettingsStoring,
         modelDownloader downloader: any ModelDownloading = HuggingFaceModelDownloader(),
         runtime: any ChatModelRuntime = GemmaMLXRuntime(),
-        resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor()
+        resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
+        toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
+        toolPromptRenderer: any ToolPromptRendering = TaggedToolPromptRenderer(),
+        toolOrchestrator: ToolOrchestrator = ToolOrchestrator()
     ) {
         let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
         let selectedModelID = settingsStore.selectedModelID(availableModelIDs: availableModelIDs)
@@ -64,6 +71,9 @@ final class ChatSessionController {
         self.resourceMonitor = resourceMonitor
         self.modelSettingsStore = settingsStore
         self.modelDownloader = downloader
+        self.toolCallParser = toolCallParser
+        self.toolPromptRenderer = toolPromptRenderer
+        self.toolOrchestrator = toolOrchestrator
         self.selectedModelID = selectedModel.id
         self.modelPath = selectedModel.localPath
         self.modelContextTokenLimit = storedSettings.contextTokenLimit
@@ -81,12 +91,18 @@ final class ChatSessionController {
         resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
         modelPath: String,
         modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
-        modelDownloader: any ModelDownloading = HuggingFaceModelDownloader()
+        modelDownloader: any ModelDownloading = HuggingFaceModelDownloader(),
+        toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
+        toolPromptRenderer: any ToolPromptRendering = TaggedToolPromptRenderer(),
+        toolOrchestrator: ToolOrchestrator = ToolOrchestrator()
     ) {
         self.runtime = runtime
         self.resourceMonitor = resourceMonitor
         self.modelSettingsStore = modelSettingsStore
         self.modelDownloader = modelDownloader
+        self.toolCallParser = toolCallParser
+        self.toolPromptRenderer = toolPromptRenderer
+        self.toolOrchestrator = toolOrchestrator
         self.selectedModelID = ManagedModelCatalog.defaultModelID
         self.modelPath = modelPath
         self.modelContextTokenLimit = ManagedModelCatalog.defaultModel.defaultContextTokenLimit
@@ -339,6 +355,18 @@ final class ChatSessionController {
     }
 
     func sendMessage() {
+        sendMessage(workspace: nil, sessionID: nil)
+    }
+
+    func sendMessage(in workspace: Workspace, sessionID: CodingSession.ID) {
+        sendMessage(workspace: workspace, sessionID: sessionID)
+    }
+
+    func sendMessage(in workspace: Workspace) {
+        sendMessage(workspace: workspace, sessionID: workspace.sessions.first?.id)
+    }
+
+    private func sendMessage(workspace: Workspace?, sessionID: CodingSession.ID?) {
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend else { return }
 
@@ -356,22 +384,12 @@ final class ChatSessionController {
         generationTask = Task {
             do {
                 await updateContextUsage()
-                let stream = try await runtime.streamReply(
-                    for: chatSession.messages,
-                    attachments: [],
-                    systemPrompt: chatSession.systemPrompt,
-                    settings: chatSession.generationSettings
+                try await streamAssistantReply(to: assistantMessageID, allowsToolCalls: true)
+                try await runReadOnlyToolLoop(
+                    workspace: workspace,
+                    sessionID: sessionID,
+                    lastAssistantMessageID: assistantMessageID
                 )
-
-                for try await event in stream {
-                    switch event {
-                    case .chunk(let chunk):
-                        appendChunk(chunk, to: assistantMessageID)
-                    case .completed(let metrics):
-                        updateGenerationMetrics(metrics, for: assistantMessageID)
-                        await updateContextUsage()
-                    }
-                }
             } catch is CancellationError {
                 if messageContent(for: assistantMessageID).isEmpty {
                     removeMessage(id: assistantMessageID)
@@ -434,7 +452,7 @@ final class ChatSessionController {
             contextUsage = try await runtime.contextUsage(
                 for: chatSession.messages,
                 attachments: chatSession.attachments,
-                systemPrompt: chatSession.systemPrompt
+                systemPrompt: toolEnabledSystemPrompt()
             )
         } catch {
             contextUsage = nil
@@ -660,6 +678,94 @@ final class ChatSessionController {
         }
 
         return min(max(fraction, 0), 1)
+    }
+}
+
+private extension ChatSessionController {
+    func streamAssistantReply(to assistantMessageID: UUID, allowsToolCalls: Bool) async throws {
+        let stream = try await runtime.streamReply(
+            for: chatSession.messages,
+            attachments: [],
+            systemPrompt: systemPrompt(allowsToolCalls: allowsToolCalls),
+            settings: chatSession.generationSettings
+        )
+
+        for try await event in stream {
+            switch event {
+            case .chunk(let chunk):
+                appendChunk(chunk, to: assistantMessageID)
+            case .completed(let metrics):
+                updateGenerationMetrics(metrics, for: assistantMessageID)
+                await updateContextUsage()
+            }
+        }
+    }
+
+    func runReadOnlyToolLoop(
+        workspace: Workspace?,
+        sessionID: CodingSession.ID?,
+        lastAssistantMessageID: UUID
+    ) async throws {
+        guard let workspace, let sessionID else {
+            return
+        }
+
+        var assistantMessageID = lastAssistantMessageID
+
+        for _ in 0..<maxToolIterations {
+            try Task.checkCancellation()
+            let assistantContent = messageContent(for: assistantMessageID)
+            let parseResult = try toolCallParser.parse(
+                assistantContent,
+                workspaceID: workspace.id,
+                sessionID: sessionID,
+                createdAt: Date()
+            )
+
+            guard case .toolCall(let request) = parseResult else {
+                return
+            }
+
+            let record = await toolOrchestrator.execute(request: request, workspace: workspace)
+            chatSession.toolCalls.append(record)
+            notifySessionDidChange()
+
+            let resultMessage = record.resultPreview?.modelMessage(toolName: request.toolName)
+                ?? "Tool result unavailable for \(request.toolName.rawValue)."
+            chatSession.messages.append(ChatMessage(role: .user, content: resultMessage))
+
+            let nextAssistantMessageID = UUID()
+            chatSession.messages.append(
+                ChatMessage(id: nextAssistantMessageID, role: .assistant, content: ""))
+            notifySessionDidChange()
+
+            try await streamAssistantReply(to: nextAssistantMessageID, allowsToolCalls: false)
+            assistantMessageID = nextAssistantMessageID
+        }
+    }
+
+    func toolEnabledSystemPrompt() -> String {
+        systemPrompt(allowsToolCalls: true)
+    }
+
+    func systemPrompt(allowsToolCalls: Bool) -> String {
+        guard allowsToolCalls else {
+            return [
+                chatSession.systemPrompt,
+                """
+                You just received a tool result. Use it to answer the user's request directly.
+                Do not emit another <action> tag in this response.
+                """
+            ].joined(separator: "\n\n")
+        }
+
+        return [
+            chatSession.systemPrompt,
+            toolPromptRenderer.renderToolInstructions(
+                registry: .promptTools,
+                payloadDelimiter: "LC_PAYLOAD_V1"
+            )
+        ].joined(separator: "\n\n")
     }
 }
 

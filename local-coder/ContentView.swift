@@ -42,7 +42,12 @@ struct ContentView: View {
                         .navigationTitle("Models")
                 case .session:
                     if let workspace = appState.activeWorkspace {
-                        WorkspaceChatView(controller: controller, onAddAttachments: chooseAttachments)
+                        WorkspaceChatView(
+                            controller: controller,
+                            workspace: workspace,
+                            sessionID: appState.activeSessionID,
+                            onAddAttachments: chooseAttachments
+                        )
                             .navigationTitle(workspace.name)
                     } else {
                         EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
@@ -684,7 +689,19 @@ private struct SettingValueLabel: View {
 
 private struct WorkspaceChatView: View {
     @Bindable var controller: ChatSessionController
+    let workspace: Workspace
+    let sessionID: CodingSession.ID?
     let onAddAttachments: () -> Void
+
+    private var onSend: () -> Void {
+        {
+            if let sessionID {
+                controller.sendMessage(in: workspace, sessionID: sessionID)
+            } else {
+                controller.sendMessage(in: workspace)
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -714,7 +731,7 @@ private struct WorkspaceChatView: View {
                 onAddAttachments: onAddAttachments,
                 onDropAttachments: controller.addAttachments,
                 onRemoveAttachment: controller.removeAttachment,
-                onSend: controller.sendMessage,
+                onSend: onSend,
                 onCancel: controller.cancelGeneration
             )
         }
@@ -780,12 +797,12 @@ private struct ChatBubble: View {
 
     var body: some View {
         HStack(alignment: .top) {
-            if message.role == .user {
+            if message.isDisplayedAsUser {
                 Spacer(minLength: 80)
             }
 
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
-                Label(message.role.title, systemImage: message.role.systemImage)
+            VStack(alignment: message.isDisplayedAsUser ? .trailing : .leading, spacing: 6) {
+                Label(message.displayTitle, systemImage: message.displaySystemImage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -803,7 +820,7 @@ private struct ChatBubble: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
 
-                if message.role == .user && !message.attachments.isEmpty {
+                if message.isDisplayedAsUser && !message.attachments.isEmpty {
                     SentAttachmentList(attachments: message.attachments)
                 }
 
@@ -827,9 +844,9 @@ private struct ChatBubble: View {
                     }
                 }
             }
-            .frame(maxWidth: 680, alignment: message.role == .user ? .trailing : .leading)
+            .frame(maxWidth: 680, alignment: message.isDisplayedAsUser ? .trailing : .leading)
 
-            if message.role == .assistant {
+            if !message.isDisplayedAsUser {
                 Spacer(minLength: 80)
             }
         }
@@ -870,14 +887,193 @@ private struct SentAttachmentList: View {
 private struct MessageContentText: View {
     let message: ChatMessage
 
+    @ViewBuilder
     var body: some View {
-        if message.role == .assistant {
+        if let toolCall = RenderedToolCall(message: message) {
+            ToolCallSummaryView(toolCall: toolCall)
+        } else if let toolResult = RenderedToolResult(message: message) {
+            ToolResultSummaryView(toolResult: toolResult)
+        } else if message.role == .assistant {
             Markdown(AssistantMarkdownPreprocessor.renderableContent(for: message.content))
                 .markdownTheme(.chatMessage)
                 .markdownCodeSyntaxHighlighter(ChatCodeSyntaxHighlighter())
         } else {
             Text(message.content)
         }
+    }
+}
+
+private struct ToolCallSummaryView: View {
+    let toolCall: RenderedToolCall
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Tool call", systemImage: "wrench.and.screwdriver")
+                .font(.headline)
+
+            LabeledContent("Tool", value: toolCall.name)
+
+            if !toolCall.parameters.isEmpty {
+                Divider()
+                ForEach(toolCall.parameters) { parameter in
+                    LabeledContent(parameter.name, value: parameter.value)
+                }
+            }
+        }
+        .font(.callout)
+    }
+}
+
+private struct ToolResultSummaryView: View {
+    let toolResult: RenderedToolResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Tool result", systemImage: toolResult.systemImage)
+                .font(.headline)
+
+            LabeledContent("Tool", value: toolResult.toolName)
+            LabeledContent("Status", value: toolResult.status)
+
+            if !toolResult.paths.isEmpty {
+                LabeledContent("Paths", value: toolResult.paths.joined(separator: "\n"))
+            }
+
+            if !toolResult.resultText.isEmpty {
+                Divider()
+                Text(toolResult.resultText)
+                    .font(.system(.callout, design: .monospaced))
+            }
+        }
+        .font(.callout)
+    }
+}
+
+private struct RenderedToolCall {
+    struct Parameter: Identifiable {
+        let id = UUID()
+        let name: String
+        let value: String
+    }
+
+    let name: String
+    let parameters: [Parameter]
+
+    init?(message: ChatMessage) {
+        guard message.role == .assistant else {
+            return nil
+        }
+
+        let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let actionPattern = #"(?s)^<action\s+name="([^"]+)">\s*(.*)\s*</action>$"#
+        guard let match = Self.firstMatch(pattern: actionPattern, in: content),
+            match.numberOfRanges == 3,
+            let nameRange = Range(match.range(at: 1), in: content),
+            let bodyRange = Range(match.range(at: 2), in: content)
+        else {
+            return nil
+        }
+
+        name = String(content[nameRange])
+        parameters = Self.parameters(in: String(content[bodyRange]))
+    }
+
+    private static func parameters(in body: String) -> [Parameter] {
+        let pattern = #"(?s)<([A-Za-z0-9_:-]+)(?:\s[^>]*)?>(.*?)</\1>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+
+        let range = NSRange(body.startIndex..<body.endIndex, in: body)
+        return regex.matches(in: body, range: range).compactMap { match in
+            guard match.numberOfRanges == 3,
+                let nameRange = Range(match.range(at: 1), in: body),
+                let valueRange = Range(match.range(at: 2), in: body)
+            else {
+                return nil
+            }
+
+            return Parameter(
+                name: String(body[nameRange]),
+                value: String(body[valueRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+    }
+
+    private static func firstMatch(pattern: String, in content: String) -> NSTextCheckingResult? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let range = NSRange(content.startIndex..<content.endIndex, in: content)
+        return regex.firstMatch(in: content, range: range)
+    }
+}
+
+private struct RenderedToolResult {
+    let toolName: String
+    let status: String
+    let paths: [String]
+    let resultText: String
+
+    var systemImage: String {
+        status == "success" ? "checkmark.circle" : "exclamationmark.triangle"
+    }
+
+    init?(message: ChatMessage) {
+        guard message.content.hasPrefix("Tool result\n") else {
+            return nil
+        }
+
+        let lines = message.content.components(separatedBy: .newlines)
+        guard let toolLine = lines.first(where: { $0.hasPrefix("Tool: ") }),
+            let statusLine = lines.first(where: { $0.hasPrefix("Status: ") })
+        else {
+            return nil
+        }
+
+        toolName = String(toolLine[toolLine.index(toolLine.startIndex, offsetBy: "Tool: ".count)...])
+        status = String(statusLine[statusLine.index(statusLine.startIndex, offsetBy: "Status: ".count)...])
+        paths = Self.paths(in: lines)
+        resultText = Self.resultText(in: message.content)
+    }
+
+    private static func paths(in lines: [String]) -> [String] {
+        guard let pathsIndex = lines.firstIndex(of: "Paths:") else {
+            return []
+        }
+
+        var paths: [String] = []
+        for line in lines[(pathsIndex + 1)..<lines.endIndex] {
+            guard !line.isEmpty,
+                !line.hasPrefix("<tool_result"),
+                line != "Result was truncated."
+            else {
+                break
+            }
+
+            if line != "none" {
+                paths.append(line)
+            }
+        }
+        return paths
+    }
+
+    private static func resultText(in content: String) -> String {
+        let pattern = #"(?s)<tool_result[^>]*>\s*(.*?)\s*</tool_result>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return ""
+        }
+
+        let range = NSRange(content.startIndex..<content.endIndex, in: content)
+        guard let match = regex.firstMatch(in: content, range: range),
+            match.numberOfRanges == 2,
+            let resultRange = Range(match.range(at: 1), in: content)
+        else {
+            return ""
+        }
+
+        return String(content[resultRange]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -949,7 +1145,29 @@ extension ChatGenerationMetrics {
 
 extension ChatBubble {
     fileprivate var messageBubbleBackground: Color {
-        message.role == .user ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
+        message.isDisplayedAsUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
+    }
+}
+
+extension ChatMessage {
+    fileprivate var isDisplayedAsUser: Bool {
+        role == .user && RenderedToolResult(message: self) == nil
+    }
+
+    fileprivate var displayTitle: String {
+        if RenderedToolResult(message: self) != nil {
+            return ChatRole.assistant.title
+        }
+
+        return role.title
+    }
+
+    fileprivate var displaySystemImage: String {
+        if RenderedToolResult(message: self) != nil {
+            return ChatRole.assistant.systemImage
+        }
+
+        return role.systemImage
     }
 }
 

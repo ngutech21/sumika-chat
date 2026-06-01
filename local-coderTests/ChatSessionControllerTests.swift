@@ -56,6 +56,72 @@ struct ChatSessionControllerTests {
     }
 
     @Test
+    func sendMessageRunsReadOnlyToolCallAndContinuesWithToolResultContext() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appending(
+            path: "local-coder-tests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "project notes".write(
+            to: rootURL.appending(path: "README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let sessionID = UUID()
+        let workspace = Workspace(
+            name: "Project",
+            rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)),
+            sessions: [
+                CodingSession(
+                    id: sessionID,
+                    selectedModelID: ManagedModelCatalog.defaultModelID,
+                    systemPrompt: ChatPromptDefaults.codingSystemPrompt,
+                    generationSettings: .codingDefault
+                )
+            ]
+        )
+        let runtime = FakeChatModelRuntime(turns: [
+            [
+                """
+                <action name="read_file">
+                <path>README.md</path>
+                </action>
+                """
+            ],
+            ["The README says project notes."]
+        ])
+        let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+        controller.modelState = .ready
+        controller.draft = "Read the README"
+
+        controller.sendMessage(in: workspace, sessionID: sessionID)
+
+        try await waitUntil { !controller.isGenerating }
+
+        #expect(controller.chatSession.toolCalls.count == 1)
+        #expect(controller.chatSession.toolCalls[0].status == .completed)
+        #expect(controller.chatSession.toolCalls[0].resultPreview?.text == "project notes")
+        #expect(controller.chatSession.messages.count == 4)
+        #expect(controller.chatSession.messages[1].role == .assistant)
+        #expect(controller.chatSession.messages[2].role == .user)
+        let toolResultMessage = controller.chatSession.messages[2].content
+        #expect(toolResultMessage.contains("<tool_result name=\"read_file\" status=\"success\">"))
+        #expect(toolResultMessage.contains("project notes"))
+        #expect(controller.chatSession.messages[3].content == "The README says project notes.")
+
+        let capturedMessages = await runtime.capturedMessages
+        #expect(capturedMessages.count == 2)
+        #expect(capturedMessages[1].contains { message in
+            message.role == .user && message.content.contains("project notes")
+        })
+        let capturedSystemPrompts = await runtime.capturedSystemPrompts
+        #expect(capturedSystemPrompts.count == 2)
+        #expect(capturedSystemPrompts[0].contains("read_file"))
+        #expect(capturedSystemPrompts[0].contains("list_files"))
+        #expect(capturedSystemPrompts[1].contains("Do not emit another <action> tag"))
+    }
+
+    @Test
     func loadModelUsesDirectoryConfigurationAndUpdatesReadyState() async throws {
         let modelDirectory = FileManager.default.temporaryDirectory.appending(
             path: "local-coder-tests-\(UUID().uuidString)",
@@ -158,12 +224,19 @@ struct ChatSessionControllerTests {
 }
 
 private actor FakeChatModelRuntime: ChatModelRuntime {
-    private let chunks: [String]
+    private let turns: [[String]]
+    private var streamReplyCount = 0
     private(set) var loadedConfiguration: ChatModelConfiguration?
     private(set) var didUnload = false
+    private(set) var capturedMessages: [[ChatMessage]] = []
+    private(set) var capturedSystemPrompts: [String] = []
 
     init(chunks: [String] = []) {
-        self.chunks = chunks
+        self.turns = [chunks]
+    }
+
+    init(turns: [[String]]) {
+        self.turns = turns
     }
 
     func load(configuration: ChatModelConfiguration) async throws {
@@ -195,10 +268,13 @@ private actor FakeChatModelRuntime: ChatModelRuntime {
         systemPrompt: String,
         settings: ChatGenerationSettings
     ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-        _ = messages
         _ = attachments
-        _ = systemPrompt
         _ = settings
+
+        capturedMessages.append(messages)
+        capturedSystemPrompts.append(systemPrompt)
+        let chunks = turns[min(streamReplyCount, turns.count - 1)]
+        streamReplyCount += 1
 
         return AsyncThrowingStream { continuation in
             for chunk in chunks {

@@ -191,6 +191,7 @@ final class AppState {
   }
 
   private func normalizeLoadedLibrary() {
+    workspaceLibrary.workspaces = workspaceLibrary.workspaces.map(resolveBookmarkedWorkspace)
     workspaceLibrary.workspaces = deduplicatedWorkspaces(workspaceLibrary.workspaces)
 
     if let activeWorkspaceID = workspaceLibrary.activeWorkspaceID,
@@ -217,6 +218,30 @@ final class AppState {
     }
 
     saveLibrary()
+  }
+
+  private func resolveBookmarkedWorkspace(_ workspace: Workspace) -> Workspace {
+    guard let bookmarkData = workspace.bookmarkData else {
+      return workspace
+    }
+
+    do {
+      var isStale = false
+      let resolvedURL = try URL(
+        resolvingBookmarkData: bookmarkData,
+        options: [.withSecurityScope],
+        relativeTo: nil,
+        bookmarkDataIsStale: &isStale
+      )
+      var resolvedWorkspace = workspace
+      resolvedWorkspace.rootURL = resolvedURL.standardizedFileURL.resolvingSymlinksInPath()
+      if isStale {
+        resolvedWorkspace.bookmarkData = makeSecurityScopedBookmarkData(for: resolvedURL)
+      }
+      return resolvedWorkspace
+    } catch {
+      return workspace
+    }
   }
 
   private func ensureActiveWorkspaceHasSession() {
