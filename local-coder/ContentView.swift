@@ -1189,11 +1189,6 @@ private struct ChatComposer: View {
             }
 
             VStack(spacing: 8) {
-                ComposerResourceSummary(
-                    contextUsage: contextUsage,
-                    processUsage: processUsage
-                )
-
                 TextField("Message", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...5)
@@ -1237,6 +1232,11 @@ private struct ChatComposer: View {
                         .disabled(!canLoadSelectedModel)
                         .help(modelLoadHelp)
                     }
+
+                    ComposerResourceSummary(
+                        contextUsage: contextUsage,
+                        processUsage: processUsage
+                    )
 
                     Spacer()
 
@@ -1372,8 +1372,6 @@ private struct ComposerResourceSummary: View {
                     value: tokenValue
                 )
             }
-
-            Spacer(minLength: 0)
         }
         .font(.caption)
         .foregroundStyle(.secondary)
