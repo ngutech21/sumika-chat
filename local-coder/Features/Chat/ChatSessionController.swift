@@ -5,6 +5,10 @@ import Observation
 @MainActor
 @Observable
 final class ChatSessionController {
+    var availableModels = ManagedModelCatalog.models
+    var selectedModelID: ManagedModel.ID
+    var downloadState: ModelDownloadState = .idle
+    var downloadProgress: Double?
     var modelPath: String
     var modelState: ModelLoadState = .notLoaded
     var chatSession = ChatSessionState.codingDefault
@@ -16,34 +20,69 @@ final class ChatSessionController {
 
     @ObservationIgnored private let runtime: any ChatModelRuntime
     @ObservationIgnored private let resourceMonitor: any ProcessResourceMonitoring
+    @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
+    @ObservationIgnored private let modelDownloader: any ModelDownloading
     @ObservationIgnored private var isHandlingDroppedDraftPath = false
     @ObservationIgnored private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var downloadTask: Task<Void, Never>?
     @ObservationIgnored private var modelOperationID = UUID()
     @ObservationIgnored private var generationTask: Task<Void, Never>?
     @ObservationIgnored private var resourceMonitorTask: Task<Void, Never>?
 
     var canSend: Bool {
-        modelState == .ready && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isGenerating
+        modelState == .ready && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isGenerating
+    }
+
+    var selectedModel: ManagedModel {
+        availableModels.first { $0.id == selectedModelID } ?? ManagedModelCatalog.defaultModel
+    }
+
+    var canChangeModel: Bool {
+        !isGenerating && modelState != .loading && !downloadState.isDownloading
     }
 
     init() {
+        let settingsStore = ModelSettingsStore()
+        let downloader = HuggingFaceModelDownloader()
+        let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
+        let selectedModelID = settingsStore.selectedModelID(availableModelIDs: availableModelIDs)
+        let selectedModel =
+            ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
+        let storedSettings = settingsStore.settings(for: selectedModel)
+
         self.runtime = GemmaMLXRuntime()
         self.resourceMonitor = ProcessResourceMonitor()
-        self.modelPath = LocalModelDirectory.defaultModelURL.path(percentEncoded: false)
+        self.modelSettingsStore = settingsStore
+        self.modelDownloader = downloader
+        self.selectedModelID = selectedModel.id
+        self.modelPath = selectedModel.localPath
+        self.chatSession = ChatSessionState(
+            messages: [],
+            attachments: [],
+            systemPrompt: storedSettings.systemPrompt,
+            generationSettings: storedSettings.generationSettings
+        )
     }
 
     init(
         runtime: any ChatModelRuntime,
         resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
-        modelPath: String
+        modelPath: String,
+        modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
+        modelDownloader: any ModelDownloading = HuggingFaceModelDownloader()
     ) {
         self.runtime = runtime
         self.resourceMonitor = resourceMonitor
+        self.modelSettingsStore = modelSettingsStore
+        self.modelDownloader = modelDownloader
+        self.selectedModelID = ManagedModelCatalog.defaultModelID
         self.modelPath = modelPath
     }
 
     deinit {
         loadTask?.cancel()
+        downloadTask?.cancel()
         generationTask?.cancel()
         resourceMonitorTask?.cancel()
     }
@@ -52,9 +91,9 @@ final class ChatSessionController {
         do {
             let baseURL = try LocalModelDirectory.ensureDefaultBaseDirectoryExists()
             if modelPath.isEmpty {
-                modelPath = baseURL
-                    .appending(path: LocalModelDirectory.defaultModelName, directoryHint: .isDirectory)
-                    .path(percentEncoded: false)
+                modelPath = selectedModel.localPath
+            } else if !modelPath.hasPrefix(baseURL.path(percentEncoded: false)) {
+                modelPath = selectedModel.localPath
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -81,7 +120,100 @@ final class ChatSessionController {
         clearChatHistory()
     }
 
+    func selectModel(_ model: ManagedModel) {
+        guard canChangeModel, selectedModelID != model.id else {
+            return
+        }
+
+        saveSelectedModelSettings()
+        unloadModel()
+        selectedModelID = model.id
+        modelSettingsStore.setSelectedModelID(model.id)
+        modelPath = model.localPath
+        downloadState = .idle
+        downloadProgress = nil
+        errorMessage = nil
+        clearChatHistory()
+
+        let settings = modelSettingsStore.settings(for: model)
+        chatSession.systemPrompt = settings.systemPrompt
+        chatSession.generationSettings = settings.generationSettings
+    }
+
+    func isModelDownloaded(_ model: ManagedModel) -> Bool {
+        let modelDirectory = model.localDirectoryURL
+        let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
+        var isDirectory: ObjCBool = false
+        guard
+            FileManager.default.fileExists(
+                atPath: modelDirectory.path(percentEncoded: false),
+                isDirectory: &isDirectory
+            ), isDirectory.boolValue
+        else {
+            return false
+        }
+
+        return FileManager.default.fileExists(atPath: configURL.path(percentEncoded: false))
+    }
+
+    func downloadSelectedModel() {
+        guard !downloadState.isDownloading else {
+            return
+        }
+
+        let model = selectedModel
+        downloadTask?.cancel()
+        downloadProgress = nil
+        downloadState = .downloading(progress: nil)
+        errorMessage = nil
+
+        downloadTask = Task {
+            do {
+                _ = try await modelDownloader.download(model: model) { progress in
+                    let fraction = Self.normalizedDownloadProgress(progress)
+                    self.downloadProgress = fraction
+                    self.downloadState = .downloading(progress: self.downloadProgress)
+                }
+                try Task.checkCancellation()
+                downloadState = .downloaded
+                downloadProgress = 1
+                modelPath = model.localPath
+            } catch is CancellationError {
+                downloadState = .idle
+                downloadProgress = nil
+            } catch {
+                downloadState = .failed(error.localizedDescription)
+                errorMessage = error.localizedDescription
+                downloadProgress = nil
+            }
+
+            downloadTask = nil
+        }
+    }
+
+    func saveSelectedModelSettings() {
+        let settings = StoredModelSettings(
+            systemPrompt: chatSession.systemPrompt,
+            generationSettings: chatSession.generationSettings
+        )
+
+        do {
+            try modelSettingsStore.save(settings: settings, for: selectedModel)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadSelectedModel() {
+        modelPath = selectedModel.localPath
+        loadModel()
+    }
+
     func loadModel() {
+        guard !downloadState.isDownloading else {
+            return
+        }
+
         let trimmedPath = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPath.isEmpty else {
             errorMessage = "Choose a local model directory before loading."
@@ -152,7 +284,8 @@ final class ChatSessionController {
         draft = ""
         errorMessage = nil
         chatSession.attachments.removeAll()
-        chatSession.messages.append(ChatMessage(role: .user, content: prompt, attachments: sentAttachments))
+        chatSession.messages.append(
+            ChatMessage(role: .user, content: prompt, attachments: sentAttachments))
         let assistantMessageID = UUID()
         chatSession.messages.append(ChatMessage(id: assistantMessageID, role: .assistant, content: ""))
         isGenerating = true
@@ -384,7 +517,8 @@ final class ChatSessionController {
     }
 
     private func normalizeDraftAfterRemovingAttachmentPaths(_ text: String) -> String {
-        var cleaned = text
+        var cleaned =
+            text
             .replacingOccurrences(of: " \n", with: "\n")
             .replacingOccurrences(of: "\n ", with: "\n")
 
@@ -432,8 +566,51 @@ final class ChatSessionController {
         var isDirectory: ObjCBool = false
         let path = url.path(percentEncoded: false)
 
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+            isDirectory.boolValue
+        else {
             throw LocalModelDirectoryError.notFound(path)
+        }
+    }
+
+    private static func normalizedDownloadProgress(_ progress: Progress) -> Double? {
+        let fraction = progress.fractionCompleted
+        guard fraction.isFinite else {
+            return nil
+        }
+
+        return min(max(fraction, 0), 1)
+    }
+}
+
+enum ModelDownloadState: Equatable {
+    case idle
+    case downloading(progress: Double?)
+    case downloaded
+    case failed(String)
+
+    var isDownloading: Bool {
+        if case .downloading = self {
+            return true
+        }
+
+        return false
+    }
+
+    var label: String {
+        switch self {
+        case .idle:
+            "Not downloaded"
+        case .downloading(let progress):
+            if let progress {
+                "Downloading \(progress.formatted(.percent.precision(.fractionLength(0))))"
+            } else {
+                "Downloading"
+            }
+        case .downloaded:
+            "Downloaded"
+        case .failed:
+            "Download failed"
         }
     }
 }

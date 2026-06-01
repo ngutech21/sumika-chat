@@ -15,7 +15,7 @@ struct ChatModelConfiguration: Equatable, Sendable {
 }
 
 enum LocalModelDirectory {
-    static let defaultModelName = "gemma-3-4b-it-qat-4bit"
+    static let defaultModelName = ManagedModelCatalog.defaultModel.localDirectoryName
 
     static var defaultBaseURL: URL {
         let applicationSupportURL = FileManager.default.urls(

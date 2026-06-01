@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var selection: AppNavigationSelection? = .models
     @State private var controller: ChatSessionController
 
     @MainActor
@@ -21,44 +22,26 @@ struct ContentView: View {
         @Bindable var controller = controller
 
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            ModelSidebar(
-                modelPath: $controller.modelPath,
-                systemPrompt: $controller.chatSession.systemPrompt,
-                generationSettings: $controller.chatSession.generationSettings,
-                contextUsage: controller.contextUsage,
-                processUsage: controller.processUsage,
-                modelState: controller.modelState,
-                isLoading: controller.modelState == .loading,
-                onChooseModelDirectory: chooseModelDirectory,
-                onLoad: controller.loadModel,
-                onUnload: controller.unloadModel
-            )
-            .navigationSplitViewColumnWidth(min: 260, ideal: 300)
+            AppSidebar(selection: $selection)
+                .navigationSplitViewColumnWidth(min: 260, ideal: 300)
         } detail: {
-            VStack(spacing: 0) {
-                ChatTranscript(messages: controller.chatSession.messages)
-
-                Divider()
-
-                ChatComposer(
-                    draft: $controller.draft,
-                    attachments: controller.chatSession.attachments,
-                    canSend: controller.canSend,
-                    isGenerating: controller.isGenerating,
-                    errorMessage: controller.errorMessage,
-                    onAddAttachments: chooseAttachments,
-                    onDropAttachments: controller.addAttachments,
-                    onRemoveAttachment: controller.removeAttachment,
-                    onSend: controller.sendMessage,
-                    onCancel: controller.cancelGeneration
-                )
+            switch selection ?? .models {
+            case .models:
+                ModelsView(controller: controller)
+                    .navigationTitle("Models")
+            case .workspace:
+                WorkspaceChatView(controller: controller, onAddAttachments: chooseAttachments)
+                    .navigationTitle("Local Coder")
             }
-            .navigationTitle("Local Coder")
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 880, minHeight: 560)
         .onChange(of: controller.chatSession.systemPrompt) {
+            controller.saveSelectedModelSettings()
             controller.refreshContextUsage()
+        }
+        .onChange(of: controller.chatSession.generationSettings) {
+            controller.saveSelectedModelSettings()
         }
         .onChange(of: controller.draft) {
             controller.convertDroppedFilePathsInDraft()
@@ -67,21 +50,6 @@ struct ContentView: View {
             columnVisibility = .all
             controller.prepareDefaultModelDirectory()
             controller.startResourceMonitoring()
-        }
-    }
-
-    private func chooseModelDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = true
-        panel.directoryURL = URL(filePath: controller.modelPath, directoryHint: .isDirectory)
-        panel.message = "Choose a local MLX Gemma model directory."
-        panel.prompt = "Choose"
-
-        if panel.runModal() == .OK, let url = panel.url {
-            controller.setModelDirectory(url)
         }
     }
 
@@ -100,152 +68,182 @@ struct ContentView: View {
     }
 }
 
-private struct ModelSidebar: View {
-    @Binding var modelPath: String
-    @Binding var systemPrompt: String
-    @Binding var generationSettings: ChatGenerationSettings
-    let contextUsage: ChatContextUsage?
-    let processUsage: ProcessResourceUsage?
-    let modelState: ModelLoadState
-    let isLoading: Bool
-    let onChooseModelDirectory: () -> Void
-    let onLoad: () -> Void
-    let onUnload: () -> Void
+private enum AppNavigationSelection: Hashable {
+    case models
+    case workspace
+}
+
+private struct AppSidebar: View {
+    @Binding var selection: AppNavigationSelection?
 
     var body: some View {
-        List {
-            Section("Model") {
-                TextField("Model Path", text: $modelPath, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(2...4)
-
-                HStack {
-                    Button(action: onChooseModelDirectory) {
-                        Label("Choose", systemImage: "folder")
-                    }
-                    .disabled(isLoading)
-
-                    Button(action: modelState == .ready ? onUnload : onLoad) {
-                        Label(modelActionTitle, systemImage: modelActionSystemImage)
-                    }
-                    .accessibilityIdentifier(modelState == .ready ? "unload-model-button" : "load-model-button")
-                    .disabled(isModelActionDisabled)
-                }
-
-                Label(modelState.label, systemImage: modelState.systemImage)
-                    .accessibilityIdentifier("model-state-label")
-                    .foregroundStyle(modelState.tint)
-            }
-
-            Section("Resources") {
-                if let processUsage {
-                    ResourceUsageRow(
-                        title: "Memory",
-                        systemImage: "memorychip",
-                        value: processUsage.memorySummary
-                    )
-                    ResourceUsageRow(
-                        title: "CPU",
-                        systemImage: "cpu",
-                        value: processUsage.cpuSummary
-                    )
-                } else {
-                    Label("Measuring resources.", systemImage: "gauge.with.dots.needle.33percent")
-                        .foregroundStyle(.secondary)
+        List(selection: $selection) {
+            Section {
+                NavigationLink(value: AppNavigationSelection.models) {
+                    Label("Models", systemImage: "cpu")
                 }
             }
 
-            Section("Context") {
-                if let contextUsage {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Label("Tokens", systemImage: "rectangle.stack")
-                            Spacer()
-                            Text(contextUsage.summary)
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-
-                        if let fraction = contextUsage.fraction {
-                            ProgressView(value: fraction)
-                        }
-                    }
-                } else {
-                    Label("Load a model to count tokens.", systemImage: "rectangle.stack")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Generation") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label("System Prompt", systemImage: "text.quote")
-                    TextField("System Prompt", text: $systemPrompt, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(4...8)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Label("Temperature", systemImage: "thermometer.variable")
-                        Spacer()
-                        Text(generationSettings.temperature.formatted(.number.precision(.fractionLength(1))))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                    Slider(value: $generationSettings.temperature, in: 0...2, step: 0.1)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Label("Top P", systemImage: "chart.line.uptrend.xyaxis")
-                        Spacer()
-                        Text(generationSettings.topP.formatted(.number.precision(.fractionLength(2))))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                    Slider(value: $generationSettings.topP, in: 0.05...1, step: 0.05)
-                }
-
-                Stepper(value: $generationSettings.topK, in: 0...200, step: 10) {
-                    SettingValueLabel(title: "Top K", value: "\(generationSettings.topK)")
-                }
-
-                Stepper(value: $generationSettings.maxTokens, in: 128...8192, step: 128) {
-                    SettingValueLabel(title: "Max Tokens", value: "\(generationSettings.maxTokens)")
-                }
-
-                Button("Coding Defaults") {
-                    systemPrompt = ChatPromptDefaults.codingSystemPrompt
-                    generationSettings = .codingDefault
+            Section("Projects") {
+                NavigationLink(value: AppNavigationSelection.workspace) {
+                    Label("Local Workspace", systemImage: "folder")
                 }
             }
         }
         .listStyle(.sidebar)
-        .navigationTitle("Runtime")
+        .navigationTitle("local-coder")
+    }
+}
+
+private struct ModelsView: View {
+    @Bindable var controller: ChatSessionController
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Models")
+                        .font(.title2.weight(.semibold))
+                    Text(
+                        "Choose a local Gemma 3 model. Downloads are explicit so you stay in control of storage and network use."
+                    )
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: 720, alignment: .leading)
+                }
+
+                VStack(spacing: 10) {
+                    ForEach(controller.availableModels) { model in
+                        ManagedModelRow(
+                            model: model,
+                            isSelected: controller.selectedModelID == model.id,
+                            isActive: controller.selectedModelID == model.id && controller.modelState == .ready,
+                            isDownloaded: controller.isModelDownloaded(model),
+                            downloadState: controller.selectedModelID == model.id
+                                ? controller.downloadState : .idle,
+                            canSelect: controller.canChangeModel,
+                            onSelect: {
+                                controller.selectModel(model)
+                            }
+                        )
+                    }
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(controller.selectedModel.displayName)
+                                .font(.headline)
+                            Text(selectedModelStatusText)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+
+                        Button {
+                            controller.downloadSelectedModel()
+                        } label: {
+                            Label("Download", systemImage: "square.and.arrow.down")
+                        }
+                        .disabled(
+                            !controller.canChangeModel
+                                || controller.downloadState.isDownloading
+                                || controller.isModelDownloaded(controller.selectedModel))
+
+                        Button {
+                            controller.modelState == .ready
+                                ? controller.unloadModel() : controller.loadSelectedModel()
+                        } label: {
+                            Label(modelActionTitle, systemImage: modelActionSystemImage)
+                        }
+                        .accessibilityIdentifier(
+                            controller.modelState == .ready ? "unload-model-button" : "load-model-button"
+                        )
+                        .disabled(isModelActionDisabled)
+                    }
+
+                    if case .downloading(let progress) = controller.downloadState {
+                        DownloadProgressView(progress: progress)
+                    }
+
+                    ModelRuntimeStatus(
+                        modelState: controller.modelState,
+                        downloadState: effectiveDownloadState,
+                        contextUsage: controller.contextUsage,
+                        processUsage: controller.processUsage
+                    )
+
+                    if let errorMessage = controller.errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                DisclosureGroup("Details") {
+                    ModelAdvancedSettings(
+                        model: controller.selectedModel,
+                        systemPrompt: $controller.chatSession.systemPrompt,
+                        generationSettings: $controller.chatSession.generationSettings
+                    )
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: 920, alignment: .leading)
+        }
+    }
+
+    private var selectedModelStatusText: String {
+        if controller.selectedModel.requiresLargeMemory {
+            return "\(controller.selectedModel.estimatedDownloadSize), needs a lot of memory"
+        }
+
+        return
+            "\(controller.selectedModel.estimatedDownloadSize), \(controller.selectedModel.summary.lowercased())"
+    }
+
+    private var effectiveDownloadState: ModelDownloadState {
+        if controller.isModelDownloaded(controller.selectedModel),
+           !controller.downloadState.isDownloading {
+            return .downloaded
+        }
+
+        return controller.downloadState
     }
 
     private var modelActionTitle: String {
-        switch modelState {
-        case .ready:
-            "Unload Model"
-        case .loading:
-            "Loading"
-        case .notLoaded, .failed:
-            "Load Model"
-        }
+        controller.modelState == .ready ? "Unload" : "Load"
     }
 
     private var modelActionSystemImage: String {
-        switch modelState {
-        case .ready:
-            "eject"
-        case .loading, .notLoaded, .failed:
-            "square.and.arrow.down"
-        }
+        controller.modelState == .ready ? "eject" : "play.fill"
     }
 
     private var isModelActionDisabled: Bool {
-        isLoading || (modelState != .ready && modelPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        controller.modelState == .loading
+            || controller.downloadState.isDownloading
+            || (controller.modelState != .ready
+                && !controller.isModelDownloaded(controller.selectedModel))
+    }
+}
+
+private struct DownloadProgressView: View {
+    let progress: Double?
+
+    var body: some View {
+        if let progress {
+            ProgressView(value: progress) {
+                Text("Downloading model")
+            } currentValueLabel: {
+                Text(progress.formatted(.percent.precision(.fractionLength(0))))
+                    .monospacedDigit()
+            }
+        } else {
+            ProgressView {
+                Text("Preparing download")
+            }
+        }
     }
 }
 
@@ -265,6 +263,239 @@ private struct ResourceUsageRow: View {
     }
 }
 
+private struct ManagedModelRow: View {
+    let model: ManagedModel
+    let isSelected: Bool
+    let isActive: Bool
+    let isDownloaded: Bool
+    let downloadState: ModelDownloadState
+    let canSelect: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(model.displayName)
+                            .font(.headline)
+
+                        if model.isRecommended {
+                            Text("Recommended")
+                                .font(.caption.weight(.medium))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Color.accentColor.opacity(0.14))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+
+                        if model.requiresLargeMemory {
+                            Label("High memory", systemImage: "memorychip")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Text(model.detail)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(model.estimatedDownloadSize)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                    Text(statusText)
+                        .font(.caption)
+                        .foregroundStyle(statusTint)
+                }
+            }
+            .padding(12)
+            .background(isSelected ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.07))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canSelect && !isSelected)
+    }
+
+    private var statusText: String {
+        if isActive {
+            return "Active"
+        }
+
+        switch downloadState {
+        case .downloading(let progress):
+            guard let progress else {
+                return "Downloading"
+            }
+            return progress.formatted(.percent.precision(.fractionLength(0)))
+        case .failed:
+            return "Failed"
+        case .downloaded:
+            return "Ready"
+        case .idle:
+            return isDownloaded ? "Ready" : "Not downloaded"
+        }
+    }
+
+    private var statusTint: Color {
+        if isActive || isDownloaded {
+            return .green
+        }
+
+        if case .failed = downloadState {
+            return .red
+        }
+
+        return .secondary
+    }
+}
+
+private struct ModelRuntimeStatus: View {
+    let modelState: ModelLoadState
+    let downloadState: ModelDownloadState
+    let contextUsage: ChatContextUsage?
+    let processUsage: ProcessResourceUsage?
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
+            GridRow {
+                StatusValue(
+                    title: "Runtime", systemImage: modelState.systemImage, value: modelState.label,
+                    tint: modelState.tint)
+                StatusValue(
+                    title: "Download", systemImage: "arrow.down.circle", value: downloadState.label,
+                    tint: downloadTint)
+            }
+
+            GridRow {
+                StatusValue(
+                    title: "Context",
+                    systemImage: "rectangle.stack",
+                    value: contextUsage?.summary ?? "Not loaded",
+                    tint: .secondary
+                )
+                StatusValue(
+                    title: "Memory",
+                    systemImage: "memorychip",
+                    value: processUsage?.memorySummary ?? "Measuring",
+                    tint: .secondary
+                )
+            }
+        }
+        .font(.callout)
+    }
+
+    private var downloadTint: Color {
+        switch downloadState {
+        case .downloaded:
+            .green
+        case .failed:
+            .red
+        case .idle, .downloading:
+            .secondary
+        }
+    }
+}
+
+private struct StatusValue: View {
+    let title: String
+    let systemImage: String
+    let value: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+                .frame(width: 18)
+            Text(title)
+            Spacer(minLength: 12)
+            Text(value)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+    }
+}
+
+private struct ModelAdvancedSettings: View {
+    let model: ManagedModel
+    @Binding var systemPrompt: String
+    @Binding var generationSettings: ChatGenerationSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            LabeledContent("Hugging Face") {
+                Text(model.huggingFaceRepoID)
+                    .textSelection(.enabled)
+                    .foregroundStyle(.secondary)
+            }
+
+            LabeledContent("Local Folder") {
+                Text(model.localPath)
+                    .textSelection(.enabled)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Label("System Prompt", systemImage: "text.quote")
+                TextField("System Prompt", text: $systemPrompt, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(4...8)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Label("Creativity", systemImage: "thermometer.variable")
+                    Spacer()
+                    Text(generationSettings.temperature.formatted(.number.precision(.fractionLength(1))))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $generationSettings.temperature, in: 0...2, step: 0.1)
+            }
+
+            Stepper(value: $generationSettings.maxTokens, in: 128...8192, step: 128) {
+                SettingValueLabel(title: "Response Length", value: "\(generationSettings.maxTokens)")
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Technical Generation")
+                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Label("Top P", systemImage: "chart.line.uptrend.xyaxis")
+                        Spacer()
+                        Text(generationSettings.topP.formatted(.number.precision(.fractionLength(2))))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: $generationSettings.topP, in: 0.05...1, step: 0.05)
+                }
+
+                Stepper(value: $generationSettings.topK, in: 0...200, step: 10) {
+                    SettingValueLabel(title: "Top K", value: "\(generationSettings.topK)")
+                }
+            }
+
+            Button("Coding Defaults") {
+                systemPrompt = model.defaultSystemPrompt
+                generationSettings = model.defaultGenerationSettings
+            }
+        }
+        .padding(.top, 10)
+    }
+}
+
 private struct SettingValueLabel: View {
     let title: String
     let value: String
@@ -280,6 +511,32 @@ private struct SettingValueLabel: View {
     }
 }
 
+private struct WorkspaceChatView: View {
+    @Bindable var controller: ChatSessionController
+    let onAddAttachments: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ChatTranscript(messages: controller.chatSession.messages)
+
+            Divider()
+
+            ChatComposer(
+                draft: $controller.draft,
+                attachments: controller.chatSession.attachments,
+                canSend: controller.canSend,
+                isGenerating: controller.isGenerating,
+                errorMessage: controller.errorMessage,
+                onAddAttachments: onAddAttachments,
+                onDropAttachments: controller.addAttachments,
+                onRemoveAttachment: controller.removeAttachment,
+                onSend: controller.sendMessage,
+                onCancel: controller.cancelGeneration
+            )
+        }
+    }
+}
+
 private struct ChatTranscript: View {
     let messages: [ChatMessage]
 
@@ -290,7 +547,7 @@ private struct ChatTranscript: View {
                     ContentUnavailableView(
                         "No Messages",
                         systemImage: "bubble.left.and.bubble.right",
-                        description: Text("Choose a local Gemma model directory to start chatting.")
+                        description: Text("Load a Gemma model from Models to start chatting.")
                     )
                     .frame(maxWidth: .infinity, minHeight: 360)
                 } else {
@@ -403,7 +660,8 @@ private struct MessageContentText: View {
 
     var body: some View {
         if message.role == .assistant,
-           let markdown = try? AttributedString(markdown: message.content) {
+            let markdown = try? AttributedString(markdown: message.content)
+        {
             Text(markdown)
         } else {
             Text(message.content)
@@ -411,14 +669,14 @@ private struct MessageContentText: View {
     }
 }
 
-private extension ChatGenerationMetrics {
-    var summary: String {
+extension ChatGenerationMetrics {
+    fileprivate var summary: String {
         "\(generatedTokenCount) tokens · \(tokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tokens/s"
     }
 }
 
-private extension ChatBubble {
-    var messageBubbleBackground: Color {
+extension ChatBubble {
+    fileprivate var messageBubbleBackground: Color {
         message.role == .user ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
     }
 }
@@ -583,8 +841,8 @@ private struct AttachmentList: View {
     }
 }
 
-private extension ModelLoadState {
-    var tint: Color {
+extension ModelLoadState {
+    fileprivate var tint: Color {
         switch self {
         case .notLoaded, .loading:
             .secondary

@@ -13,6 +13,7 @@
 		F9081F142FCE1000000A270C /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F132FCE1000000A270C /* MLXLLM */; };
 		F9081F162FCE1000000A270C /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F152FCE1000000A270C /* MLXLMCommon */; };
 		F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1B2FCE1000000A270C /* Tokenizers */; };
+		F9081F202FCE1000000A270C /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1F2FCE1000000A270C /* HuggingFace */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -61,6 +62,7 @@
 				F9071F142FCD7946000A270C /* MLX in Frameworks */,
 				F9081F142FCE1000000A270C /* MLXLLM in Frameworks */,
 				F9081F162FCE1000000A270C /* MLXLMCommon in Frameworks */,
+				F9081F202FCE1000000A270C /* HuggingFace in Frameworks */,
 				F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -135,6 +137,7 @@
 				F9071F172FCD7946000A270C /* MLXRandom */,
 				F9081F132FCE1000000A270C /* MLXLLM */,
 				F9081F152FCE1000000A270C /* MLXLMCommon */,
+				F9081F1F2FCE1000000A270C /* HuggingFace */,
 				F9081F1B2FCE1000000A270C /* Tokenizers */,
 			);
 			productName = "local-coder";
@@ -172,6 +175,7 @@
 			packageReferences = (
 				F9071F122FCD7946000A270C /* XCRemoteSwiftPackageReference "mlx-swift" */,
 				F9081F122FCE1000000A270C /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */,
 				F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -404,6 +408,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -446,6 +451,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -537,6 +543,14 @@
 				minimumVersion = 1.3.3;
 			};
 		};
+		F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-huggingface";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -569,6 +583,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */;
 			productName = Tokenizers;
+		};
+		F9081F1F2FCE1000000A270C /* HuggingFace */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */;
+			productName = HuggingFace;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

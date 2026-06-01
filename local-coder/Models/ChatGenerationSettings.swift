@@ -1,6 +1,6 @@
 import Foundation
 
-struct ChatGenerationSettings: Equatable, Sendable {
+struct ChatGenerationSettings: Codable, Equatable, Sendable {
     var temperature: Double
     var topP: Double
     var topK: Int
