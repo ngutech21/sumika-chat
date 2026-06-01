@@ -5,51 +5,100 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var selection: AppNavigationSelection? = .models
-    @State private var controller: ChatSessionController
+    @State private var selection: AppNavigationSelection?
+    @State private var appState: AppState
 
     @MainActor
     init() {
-        _controller = State(initialValue: ChatSessionController())
+        _appState = State(initialValue: AppState())
     }
 
     @MainActor
     init(controller: ChatSessionController) {
-        _controller = State(initialValue: controller)
+        _appState = State(initialValue: AppState(chatController: controller))
+    }
+
+    @MainActor
+    init(appState: AppState) {
+        _appState = State(initialValue: appState)
     }
 
     var body: some View {
-        @Bindable var controller = controller
+        let controller = appState.chatController
 
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            AppSidebar(selection: $selection)
+            AppSidebar(
+                appState: appState,
+                selection: $selection,
+                onAddWorkspace: chooseWorkspace
+            )
                 .navigationSplitViewColumnWidth(min: 260, ideal: 300)
         } detail: {
-            switch selection ?? .models {
-            case .models:
-                ModelsView(controller: controller)
-                    .navigationTitle("Models")
-            case .workspace:
-                WorkspaceChatView(controller: controller, onAddAttachments: chooseAttachments)
+            if let selection {
+                switch selection {
+                case .models:
+                    ModelsView(controller: controller)
+                        .navigationTitle("Models")
+                case .session:
+                    if let workspace = appState.activeWorkspace {
+                        WorkspaceChatView(controller: controller, onAddAttachments: chooseAttachments)
+                            .navigationTitle(workspace.name)
+                    } else {
+                        EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
+                            .navigationTitle("Local Coder")
+                    }
+                }
+            } else {
+                EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
                     .navigationTitle("Local Coder")
             }
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 880, minHeight: 560)
         .onChange(of: controller.chatSession.systemPrompt) {
-            controller.saveSelectedModelSettings()
             controller.refreshContextUsage()
+            appState.persistActiveSession()
         }
         .onChange(of: controller.chatSession.generationSettings) {
-            controller.saveSelectedModelSettings()
+            appState.persistActiveSession()
         }
         .onChange(of: controller.draft) {
             controller.convertDroppedFilePathsInDraft()
+        }
+        .onChange(of: selection) {
+            if case .session(let sessionID) = selection {
+                appState.selectSession(sessionID)
+            }
+        }
+        .onChange(of: appState.activeSessionID) {
+            if let sessionID = appState.activeSessionID {
+                selection = .session(sessionID)
+            } else if selection != .models {
+                selection = nil
+            }
         }
         .onAppear {
             columnVisibility = .all
             controller.prepareDefaultModelDirectory()
             controller.startResourceMonitoring()
+            if let sessionID = appState.activeSessionID {
+                selection = .session(sessionID)
+            }
+        }
+    }
+
+    private func chooseWorkspace() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.message = "Choose a folder to use as a local-coder workspace."
+        panel.prompt = "Add Workspace"
+
+        if panel.runModal() == .OK, let url = panel.url,
+           let sessionID = appState.addWorkspace(from: url) {
+            selection = .session(sessionID)
         }
     }
 
@@ -63,18 +112,20 @@ struct ContentView: View {
         panel.prompt = "Add"
 
         if panel.runModal() == .OK {
-            controller.addAttachments(from: panel.urls)
+            appState.chatController.addAttachments(from: panel.urls)
         }
     }
 }
 
 private enum AppNavigationSelection: Hashable {
     case models
-    case workspace
+    case session(CodingSession.ID)
 }
 
 private struct AppSidebar: View {
+    let appState: AppState
     @Binding var selection: AppNavigationSelection?
+    let onAddWorkspace: () -> Void
 
     var body: some View {
         List(selection: $selection) {
@@ -84,14 +135,50 @@ private struct AppSidebar: View {
                 }
             }
 
-            Section("Projects") {
-                NavigationLink(value: AppNavigationSelection.workspace) {
-                    Label("Local Workspace", systemImage: "folder")
+            Section {
+                Button(action: onAddWorkspace) {
+                    Label("Add Workspace", systemImage: "folder.badge.plus")
+                }
+            }
+
+            ForEach(appState.workspaceLibrary.workspaces) { workspace in
+                Section(workspace.name) {
+                    ForEach(workspace.sessions) { session in
+                        NavigationLink(value: AppNavigationSelection.session(session.id)) {
+                            Label(session.title, systemImage: "bubble.left.and.bubble.right")
+                        }
+                    }
+
+                    Button {
+                        if let sessionID = appState.createSession(in: workspace.id) {
+                            selection = .session(sessionID)
+                        }
+                    } label: {
+                        Label("New Session", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderless)
                 }
             }
         }
         .listStyle(.sidebar)
         .navigationTitle("local-coder")
+    }
+}
+
+private struct EmptyWorkspaceView: View {
+    let onAddWorkspace: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("No Workspace", systemImage: "folder")
+        } description: {
+            Text("Choose a folder to start a local coding session.")
+        } actions: {
+            Button(action: onAddWorkspace) {
+                Label("Add Workspace", systemImage: "folder.badge.plus")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -28,6 +28,7 @@ final class ChatSessionController {
     @ObservationIgnored private var modelOperationID = UUID()
     @ObservationIgnored private var generationTask: Task<Void, Never>?
     @ObservationIgnored private var resourceMonitorTask: Task<Void, Never>?
+    @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
 
     var canSend: Bool {
         modelState == .ready && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -42,17 +43,24 @@ final class ChatSessionController {
         !isGenerating && modelState != .loading && !downloadState.isDownloading
     }
 
-    init() {
-        let settingsStore = ModelSettingsStore()
-        let downloader = HuggingFaceModelDownloader()
+    convenience init() {
+        self.init(modelSettingsStore: ModelSettingsStore())
+    }
+
+    init(
+        modelSettingsStore settingsStore: any ModelSettingsStoring,
+        modelDownloader downloader: any ModelDownloading = HuggingFaceModelDownloader(),
+        runtime: any ChatModelRuntime = GemmaMLXRuntime(),
+        resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor()
+    ) {
         let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
         let selectedModelID = settingsStore.selectedModelID(availableModelIDs: availableModelIDs)
         let selectedModel =
             ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
         let storedSettings = settingsStore.settings(for: selectedModel)
 
-        self.runtime = GemmaMLXRuntime()
-        self.resourceMonitor = ProcessResourceMonitor()
+        self.runtime = runtime
+        self.resourceMonitor = resourceMonitor
         self.modelSettingsStore = settingsStore
         self.modelDownloader = downloader
         self.selectedModelID = selectedModel.id
@@ -125,7 +133,6 @@ final class ChatSessionController {
             return
         }
 
-        saveSelectedModelSettings()
         unloadModel()
         selectedModelID = model.id
         modelSettingsStore.setSelectedModelID(model.id)
@@ -138,6 +145,52 @@ final class ChatSessionController {
         let settings = modelSettingsStore.settings(for: model)
         chatSession.systemPrompt = settings.systemPrompt
         chatSession.generationSettings = settings.generationSettings
+        notifySessionDidChange()
+    }
+
+    func setSessionChangeHandler(_ handler: (@MainActor @Sendable () -> Void)?) {
+        onSessionDidChange = handler
+    }
+
+    func loadSession(_ session: CodingSession) {
+        let model = ManagedModelCatalog.model(id: session.selectedModelID)
+            ?? ManagedModelCatalog.defaultModel
+        let shouldUnloadRuntime = selectedModelID != model.id && modelState != .notLoaded
+
+        loadTask?.cancel()
+        loadTask = nil
+        cancelGeneration()
+        selectedModelID = model.id
+        modelPath = model.localPath
+        downloadState = .idle
+        downloadProgress = nil
+        errorMessage = nil
+        contextUsage = nil
+        chatSession = ChatSessionState(
+            messages: session.messages,
+            attachments: [],
+            systemPrompt: session.systemPrompt,
+            generationSettings: session.generationSettings
+        )
+
+        if shouldUnloadRuntime {
+            modelState = .notLoaded
+            Task {
+                await runtime.unload()
+            }
+        } else {
+            refreshContextUsage()
+        }
+    }
+
+    func sessionSnapshot(updating session: CodingSession) -> CodingSession {
+        var snapshot = session
+        snapshot.selectedModelID = selectedModelID
+        snapshot.messages = chatSession.messages
+        snapshot.systemPrompt = chatSession.systemPrompt
+        snapshot.generationSettings = chatSession.generationSettings
+        snapshot.updatedAt = Date()
+        return snapshot
     }
 
     func isModelDownloaded(_ model: ManagedModel) -> Bool {
@@ -289,6 +342,7 @@ final class ChatSessionController {
         let assistantMessageID = UUID()
         chatSession.messages.append(ChatMessage(id: assistantMessageID, role: .assistant, content: ""))
         isGenerating = true
+        notifySessionDidChange()
 
         generationTask = Task {
             do {
@@ -322,6 +376,7 @@ final class ChatSessionController {
 
             isGenerating = false
             generationTask = nil
+            notifySessionDidChange()
         }
     }
 
@@ -335,6 +390,7 @@ final class ChatSessionController {
         chatSession.messages.removeAll()
         chatSession.attachments.removeAll()
         contextUsage = nil
+        notifySessionDidChange()
 
         Task {
             await runtime.clearContext()
@@ -439,6 +495,10 @@ final class ChatSessionController {
             attachments: message.attachments,
             generationMetrics: metrics
         )
+    }
+
+    private func notifySessionDidChange() {
+        onSessionDidChange?()
     }
 
     private func removeMessage(id: UUID) {

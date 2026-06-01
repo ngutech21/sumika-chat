@@ -1,0 +1,278 @@
+import Foundation
+import Testing
+
+@testable import local_coder
+
+@MainActor
+struct WorkspaceStoreTests {
+  @Test
+  func workspaceStoreReturnsEmptyLibraryForMissingOrCorruptFile() throws {
+    let missingStore = WorkspaceStore(libraryURL: temporaryLibraryURL())
+
+    #expect(missingStore.loadLibrary() == WorkspaceLibrary())
+
+    let corruptURL = temporaryLibraryURL()
+    try FileManager.default.createDirectory(
+      at: corruptURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
+    let corruptStore = WorkspaceStore(libraryURL: corruptURL)
+
+    #expect(corruptStore.loadLibrary() == WorkspaceLibrary())
+  }
+
+  @Test
+  func workspaceStorePersistsLibraryAndBookmarkData() throws {
+    let libraryURL = temporaryLibraryURL()
+    let store = WorkspaceStore(libraryURL: libraryURL)
+    let session = CodingSession(
+      selectedModelID: "gemma3-1b",
+      systemPrompt: "Use short answers.",
+      generationSettings: ChatGenerationSettings(
+        temperature: 0.2,
+        topP: 0.8,
+        topK: 20,
+        maxTokens: 512
+      )
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      bookmarkData: Data([1, 2, 3]),
+      sessions: [session]
+    )
+    let library = WorkspaceLibrary(
+      workspaces: [workspace],
+      activeWorkspaceID: workspace.id,
+      activeSessionID: session.id
+    )
+
+    try store.saveLibrary(library)
+
+    let reloaded = WorkspaceStore(libraryURL: libraryURL).loadLibrary()
+    #expect(reloaded == library)
+    #expect(reloaded.workspaces.first?.bookmarkData == Data([1, 2, 3]))
+  }
+
+  @Test
+  func appStateAddsWorkspaceWithDefaultSessionAndDeduplicatesByPath() throws {
+    let workspaceURL = try makeTemporaryDirectory()
+    let workspaceStore = FakeWorkspaceStore()
+    let modelStore = FakeModelSettingsStore()
+    modelStore.selectedModelIDValue = "gemma3-1b"
+    modelStore.settingsByModelID["gemma3-1b"] = StoredModelSettings(
+      systemPrompt: "Tiny model prompt",
+      generationSettings: ChatGenerationSettings(
+        temperature: 0.1,
+        topP: 0.7,
+        topK: 10,
+        maxTokens: 256
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: modelStore,
+      chatController: ChatSessionController(
+        runtime: FakeChatModelRuntime(),
+        modelPath: "/tmp/model",
+        modelSettingsStore: modelStore
+      )
+    )
+
+    let firstSessionID = appState.addWorkspace(from: workspaceURL)
+    let duplicateSessionID = appState.addWorkspace(from: workspaceURL)
+
+    #expect(firstSessionID == duplicateSessionID)
+    #expect(appState.workspaceLibrary.workspaces.count == 1)
+    #expect(appState.activeWorkspace?.name == workspaceURL.lastPathComponent)
+    #expect(appState.activeSession?.title == "New Session")
+    #expect(appState.activeSession?.selectedModelID == "gemma3-1b")
+    #expect(appState.activeSession?.systemPrompt == "Tiny model prompt")
+    #expect(appState.activeSession?.generationSettings.maxTokens == 256)
+  }
+
+  @Test
+  func appStateSwitchesSessionsAndLoadsChatState() throws {
+    let firstSession = CodingSession(
+      title: "First",
+      selectedModelID: "gemma3-1b",
+      messages: [ChatMessage(role: .user, content: "first")],
+      systemPrompt: "First prompt",
+      generationSettings: .codingDefault
+    )
+    let secondSession = CodingSession(
+      title: "Second",
+      selectedModelID: "gemma3-4b",
+      messages: [ChatMessage(role: .user, content: "second")],
+      systemPrompt: "Second prompt",
+      generationSettings: ChatGenerationSettings(
+        temperature: 0.4,
+        topP: 0.9,
+        topK: 30,
+        maxTokens: 1024
+      )
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [firstSession, secondSession]
+    )
+    let library = WorkspaceLibrary(
+      workspaces: [workspace],
+      activeWorkspaceID: workspace.id,
+      activeSessionID: firstSession.id
+    )
+    let workspaceStore = FakeWorkspaceStore(library: library)
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      modelSettingsStore: FakeModelSettingsStore()
+    )
+    let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+
+    appState.selectSession(secondSession.id)
+
+    #expect(controller.selectedModelID == "gemma3-4b")
+    #expect(controller.chatSession.messages == secondSession.messages)
+    #expect(controller.chatSession.systemPrompt == "Second prompt")
+    #expect(controller.chatSession.generationSettings.maxTokens == 1024)
+  }
+
+  @Test
+  func appStatePersistsChatMutationIntoActiveSession() async throws {
+    let workspaceURL = try makeTemporaryDirectory()
+    let workspaceStore = FakeWorkspaceStore()
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(chunks: ["hello", " world"]),
+      modelPath: "/tmp/model",
+      modelSettingsStore: FakeModelSettingsStore()
+    )
+    let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+    _ = appState.addWorkspace(from: workspaceURL)
+    controller.modelState = .ready
+    controller.draft = "Say hello"
+
+    controller.sendMessage()
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(appState.activeSession?.messages.count == 2)
+    #expect(appState.activeSession?.messages.first?.content == "Say hello")
+    #expect(appState.activeSession?.messages.last?.content == "hello world")
+    #expect(workspaceStore.savedLibrary?.activeSessionID == appState.activeSession?.id)
+  }
+
+  private func temporaryLibraryURL() -> URL {
+    FileManager.default.temporaryDirectory
+      .appending(path: "local-coder-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+      .appending(path: "workspaces.json", directoryHint: .notDirectory)
+  }
+
+  private func makeTemporaryDirectory() throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+      .appending(path: "local-coder-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+  }
+
+  private func waitUntil(
+    timeout: Duration = .seconds(1),
+    condition: @escaping @MainActor () -> Bool
+  ) async throws {
+    let start = ContinuousClock.now
+    while !condition() {
+      if start.duration(to: .now) > timeout {
+        Issue.record("Timed out waiting for condition")
+        return
+      }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+  }
+}
+
+private final class FakeWorkspaceStore: WorkspaceStoring, @unchecked Sendable {
+  var library: WorkspaceLibrary
+  var savedLibrary: WorkspaceLibrary?
+
+  init(library: WorkspaceLibrary = WorkspaceLibrary()) {
+    self.library = library
+  }
+
+  func loadLibrary() -> WorkspaceLibrary {
+    library
+  }
+
+  func saveLibrary(_ library: WorkspaceLibrary) throws {
+    self.library = library
+    savedLibrary = library
+  }
+}
+
+private final class FakeModelSettingsStore: ModelSettingsStoring, @unchecked Sendable {
+  var selectedModelIDValue = ManagedModelCatalog.defaultModelID
+  var settingsByModelID: [String: StoredModelSettings] = [:]
+
+  func selectedModelID(availableModelIDs: Set<String>) -> String {
+    availableModelIDs.contains(selectedModelIDValue)
+      ? selectedModelIDValue : ManagedModelCatalog.defaultModelID
+  }
+
+  func setSelectedModelID(_ modelID: String) {
+    selectedModelIDValue = modelID
+  }
+
+  func settings(for model: ManagedModel) -> StoredModelSettings {
+    settingsByModelID[model.id]
+      ?? StoredModelSettings(
+        systemPrompt: model.defaultSystemPrompt,
+        generationSettings: model.defaultGenerationSettings
+      )
+  }
+
+  func save(settings: StoredModelSettings, for model: ManagedModel) throws {
+    settingsByModelID[model.id] = settings
+  }
+}
+
+private actor FakeChatModelRuntime: ChatModelRuntime {
+  private let chunks: [String]
+
+  init(chunks: [String] = []) {
+    self.chunks = chunks
+  }
+
+  func load(configuration: ChatModelConfiguration) async throws {}
+  func unload() async {}
+  func clearContext() async {}
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+
+    return AsyncThrowingStream { continuation in
+      for chunk in chunks {
+        continuation.yield(.chunk(chunk))
+      }
+      continuation.yield(
+        .completed(ChatGenerationMetrics(generatedTokenCount: chunks.count, tokensPerSecond: 100))
+      )
+      continuation.finish()
+    }
+  }
+}

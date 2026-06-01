@@ -1,6 +1,6 @@
 import Foundation
 
-struct ChatAttachment: Identifiable, Equatable, Sendable {
+struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let url: URL
     let displayName: String
@@ -26,7 +26,7 @@ struct ChatAttachment: Identifiable, Equatable, Sendable {
     }
 }
 
-enum ChatAttachmentKind: String, Equatable, Sendable {
+enum ChatAttachmentKind: String, Codable, Equatable, Sendable {
     case text
 }
 

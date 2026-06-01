@@ -1,6 +1,6 @@
 import Foundation
 
-struct ChatMessage: Identifiable, Equatable, Sendable {
+struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let role: ChatRole
     let content: String
@@ -22,12 +22,12 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     }
 }
 
-struct ChatGenerationMetrics: Equatable, Sendable {
+struct ChatGenerationMetrics: Codable, Equatable, Sendable {
     let generatedTokenCount: Int
     let tokensPerSecond: Double
 }
 
-enum ChatRole: String, Equatable, Sendable {
+enum ChatRole: String, Codable, Equatable, Sendable {
     case user
     case assistant
 
