@@ -806,8 +806,11 @@ private struct ChatBubble: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                if message.content.isEmpty && message.role == .assistant {
-                    Label("Generating", systemImage: "sparkles")
+                if message.shouldShowAssistantPlaceholder {
+                    Label(
+                        message.assistantPlaceholderTitle,
+                        systemImage: message.assistantPlaceholderSystemImage
+                    )
                         .foregroundStyle(.secondary)
                         .padding(10)
                         .background(Color.secondary.opacity(0.12))
@@ -824,7 +827,7 @@ private struct ChatBubble: View {
                     SentAttachmentList(attachments: message.attachments)
                 }
 
-                if message.role == .assistant && !message.content.isEmpty {
+                if message.canCopyAssistantContent {
                     HStack(spacing: 8) {
                         if let metrics = message.generationMetrics {
                             Text(metrics.summary)
@@ -907,14 +910,19 @@ private struct ToolCallSummaryView: View {
     let toolCall: ToolCallModelMessage
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Tool call", systemImage: "wrench.and.screwdriver")
-                .font(.headline)
-
-            LabeledContent("Tool", value: toolCall.toolName.rawValue)
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                HStack(spacing: 4) {
+                    Text("Tool call:")
+                    Text(toolCall.toolName.rawValue)
+                        .fontWeight(.semibold)
+                }
+            } icon: {
+                Image(systemName: "wrench.and.screwdriver")
+            }
+            .font(.headline)
 
             if !toolCall.arguments.isEmpty {
-                Divider()
                 ForEach(toolCall.arguments) { argument in
                     LabeledContent(argument.name, value: argument.value)
                 }
@@ -1041,6 +1049,22 @@ extension ChatBubble {
 }
 
 extension ChatMessage {
+    fileprivate var shouldShowAssistantPlaceholder: Bool {
+        role == .assistant && toolCall == nil && (content.isEmpty || containsStreamingToolCallMarkup)
+    }
+
+    fileprivate var canCopyAssistantContent: Bool {
+        role == .assistant && toolCall == nil && !containsStreamingToolCallMarkup && !content.isEmpty
+    }
+
+    fileprivate var assistantPlaceholderTitle: String {
+        containsStreamingToolCallMarkup ? "Preparing tool call" : "Generating"
+    }
+
+    fileprivate var assistantPlaceholderSystemImage: String {
+        containsStreamingToolCallMarkup ? "wrench.and.screwdriver" : "sparkles"
+    }
+
     fileprivate var isDisplayedAsUser: Bool {
         role == .user && toolResult == nil
     }

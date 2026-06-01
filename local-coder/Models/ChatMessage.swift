@@ -75,6 +75,21 @@ struct ChatGenerationMetrics: Codable, Equatable, Sendable {
     let tokensPerSecond: Double
 }
 
+extension ChatMessage {
+    var containsStreamingToolCallMarkup: Bool {
+        guard role == .assistant, toolCall == nil, toolResult == nil else {
+            return false
+        }
+
+        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedContent.isEmpty else {
+            return false
+        }
+
+        return "<action".hasPrefix(trimmedContent) || trimmedContent.hasPrefix("<action")
+    }
+}
+
 enum ChatRole: String, Codable, Equatable, Sendable {
     case user
     case assistant

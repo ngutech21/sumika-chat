@@ -391,12 +391,10 @@ final class ChatSessionController {
                     lastAssistantMessageID: assistantMessageID
                 )
             } catch is CancellationError {
-                if messageContent(for: assistantMessageID).isEmpty {
-                    removeMessage(id: assistantMessageID)
-                }
+                removeTransientAssistantPlaceholders()
                 await updateContextUsage()
             } catch {
-                removeMessage(id: assistantMessageID)
+                removeTransientAssistantPlaceholders()
                 errorMessage = error.localizedDescription
                 await updateContextUsage()
             }
@@ -545,6 +543,15 @@ final class ChatSessionController {
 
     private func removeMessage(id: UUID) {
         chatSession.messages.removeAll { $0.id == id }
+    }
+
+    private func removeTransientAssistantPlaceholders() {
+        chatSession.messages.removeAll { message in
+            message.role == .assistant
+                && message.content.isEmpty
+                && message.toolCall == nil
+                && message.toolResult == nil
+        }
     }
 
     private func messageContent(for id: UUID) -> String {
@@ -764,7 +771,7 @@ private extension ChatSessionController {
         chatSession.messages[index] = ChatMessage(
             id: message.id,
             role: message.role,
-            content: message.content,
+            content: "",
             attachments: message.attachments,
             generationMetrics: message.generationMetrics,
             toolCall: toolCall,

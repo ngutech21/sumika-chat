@@ -103,6 +103,7 @@ struct ChatSessionControllerTests {
         #expect(controller.chatSession.toolCalls[0].resultPreview?.text == "project notes")
         #expect(controller.chatSession.messages.count == 4)
         #expect(controller.chatSession.messages[1].role == .assistant)
+        #expect(controller.chatSession.messages[1].content.isEmpty)
         #expect(controller.chatSession.messages[1].toolCall?.toolName == .readFile)
         #expect(
             controller.chatSession.messages[1].toolCall?.arguments == [
@@ -113,7 +114,7 @@ struct ChatSessionControllerTests {
         #expect(controller.chatSession.messages[2].toolResult?.toolName == .readFile)
         #expect(controller.chatSession.messages[2].toolResult?.preview.status == .success)
         let toolResultMessage = controller.chatSession.messages[2].content
-        #expect(toolResultMessage.contains("<tool_result name=\"read_file\" status=\"success\">"))
+        #expect(!toolResultMessage.contains("<tool_result"))
         #expect(toolResultMessage.contains("project notes"))
         #expect(controller.chatSession.messages[3].content == "The README says project notes.")
 
@@ -127,6 +128,62 @@ struct ChatSessionControllerTests {
         #expect(capturedSystemPrompts[0].contains("read_file"))
         #expect(capturedSystemPrompts[0].contains("list_files"))
         #expect(capturedSystemPrompts[1].contains("Do not emit another <action> tag"))
+    }
+
+    @Test
+    func sendMessageKeepsToolCallHistoryWhenFollowUpResponseFails() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appending(
+            path: "local-coder-tests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "project notes".write(
+            to: rootURL.appending(path: "README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let sessionID = UUID()
+        let workspace = Workspace(
+            name: "Project",
+            rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)),
+            sessions: [
+                CodingSession(
+                    id: sessionID,
+                    selectedModelID: ManagedModelCatalog.defaultModelID,
+                    systemPrompt: ChatPromptDefaults.codingSystemPrompt,
+                    generationSettings: .codingDefault
+                )
+            ]
+        )
+        let runtime = FakeChatModelRuntime(
+            turns: [
+                [
+                    """
+                    <action name="read_file">
+                    <path>README.md</path>
+                    </action>
+                    """
+                ],
+                [],
+            ],
+            failingStreamReplyCalls: [1]
+        )
+        let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+        controller.modelState = .ready
+        controller.draft = "Read the README"
+
+        controller.sendMessage(in: workspace, sessionID: sessionID)
+
+        try await waitUntil { !controller.isGenerating }
+
+        #expect(controller.errorMessage == FakeChatModelRuntimeError.streamFailed.localizedDescription)
+        #expect(controller.chatSession.messages.count == 3)
+        #expect(controller.chatSession.messages[1].toolCall?.toolName == .readFile)
+        #expect(controller.chatSession.messages[1].content.isEmpty)
+        #expect(controller.chatSession.messages[2].toolResult?.toolName == .readFile)
+        #expect(!controller.chatSession.messages.contains { message in
+            message.role == .assistant && message.content.isEmpty && message.toolCall == nil
+        })
     }
 
     @Test
@@ -233,6 +290,7 @@ struct ChatSessionControllerTests {
 
 private actor FakeChatModelRuntime: ChatModelRuntime {
     private let turns: [[String]]
+    private let failingStreamReplyCalls: Set<Int>
     private var streamReplyCount = 0
     private(set) var loadedConfiguration: ChatModelConfiguration?
     private(set) var didUnload = false
@@ -241,10 +299,12 @@ private actor FakeChatModelRuntime: ChatModelRuntime {
 
     init(chunks: [String] = []) {
         self.turns = [chunks]
+        self.failingStreamReplyCalls = []
     }
 
-    init(turns: [[String]]) {
+    init(turns: [[String]], failingStreamReplyCalls: Set<Int> = []) {
         self.turns = turns
+        self.failingStreamReplyCalls = failingStreamReplyCalls
     }
 
     func load(configuration: ChatModelConfiguration) async throws {
@@ -281,8 +341,15 @@ private actor FakeChatModelRuntime: ChatModelRuntime {
 
         capturedMessages.append(messages)
         capturedSystemPrompts.append(systemPrompt)
-        let chunks = turns[min(streamReplyCount, turns.count - 1)]
+        let callIndex = streamReplyCount
+        let chunks = turns[min(callIndex, turns.count - 1)]
         streamReplyCount += 1
+
+        if failingStreamReplyCalls.contains(callIndex) {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: FakeChatModelRuntimeError.streamFailed)
+            }
+        }
 
         return AsyncThrowingStream { continuation in
             for chunk in chunks {
@@ -294,4 +361,8 @@ private actor FakeChatModelRuntime: ChatModelRuntime {
             continuation.finish()
         }
     }
+}
+
+private enum FakeChatModelRuntimeError: Error {
+    case streamFailed
 }

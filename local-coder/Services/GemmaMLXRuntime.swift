@@ -201,16 +201,38 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
 private extension Chat.Message {
     init?(_ message: ChatMessage) {
-        guard !message.content.isEmpty else {
-            return nil
-        }
-
         switch message.role {
         case .user:
+            guard !message.content.isEmpty else {
+                return nil
+            }
             self = .user(promptWithAttachments(prompt: message.content, attachments: message.attachments))
         case .assistant:
-            self = .assistant(message.content)
+            if let toolCall = message.toolCall {
+                self = .assistant(toolCall.modelContextMessage)
+            } else if !message.content.isEmpty {
+                self = .assistant(message.content)
+            } else {
+                return nil
+            }
         }
+    }
+}
+
+private extension ToolCallModelMessage {
+    var modelContextMessage: String {
+        let argumentLines = arguments.map { argument in
+            "\(argument.name): \(argument.value)"
+        }
+
+        guard !argumentLines.isEmpty else {
+            return "Tool call: \(toolName.rawValue)"
+        }
+
+        return """
+        Tool call: \(toolName.rawValue)
+        \(argumentLines.joined(separator: "\n"))
+        """
     }
 }
 

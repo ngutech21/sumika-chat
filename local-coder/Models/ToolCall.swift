@@ -258,9 +258,8 @@ struct ToolResultPreview: Codable, Equatable, Sendable {
       Paths:
       \(paths)\(truncation)
 
-      <tool_result name="\(toolName.rawValue)" status="\(status.rawValue)">
+      Result:
       \(text)
-      </tool_result>
 
       Use this tool result to answer the user directly. Do not call another tool for this response.
       """
