@@ -1,6 +1,6 @@
 import Foundation
 
-struct ManagedModel: Identifiable, Equatable, Sendable {
+nonisolated struct ManagedModel: Identifiable, Equatable, Sendable {
     let id: String
     let displayName: String
     let shortName: String
@@ -26,7 +26,7 @@ struct ManagedModel: Identifiable, Equatable, Sendable {
     }
 }
 
-enum ManagedModelCatalog {
+nonisolated enum ManagedModelCatalog {
     static let defaultModelID = "gemma3-4b"
     static let defaultContextTokenLimit = 65_536
 

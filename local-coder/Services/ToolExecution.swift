@@ -1,10 +1,10 @@
 import Foundation
 
-protocol ToolExecutor: Sendable {
+nonisolated protocol ToolExecutor: Sendable {
   func execute(request: ToolCallRequest, workspace: Workspace) async -> ToolResultPreview
 }
 
-struct ToolExecutorRegistry: Sendable {
+nonisolated struct ToolExecutorRegistry: Sendable {
   static let readOnly = ToolExecutorRegistry()
 
   private let executors: [ToolName: any ToolExecutor]
@@ -23,7 +23,7 @@ struct ToolExecutorRegistry: Sendable {
   }
 }
 
-struct ReadFileToolExecutor: ToolExecutor {
+nonisolated struct ReadFileToolExecutor: ToolExecutor {
   private let maxBytes: Int
 
   init(maxBytes: Int = 40 * 1024) {
@@ -91,7 +91,7 @@ struct ReadFileToolExecutor: ToolExecutor {
   }
 }
 
-struct ListFilesToolExecutor: ToolExecutor {
+nonisolated struct ListFilesToolExecutor: ToolExecutor {
   private let maxDepth: Int
   private let maxEntries: Int
   private let skippedNames: Set<String>
@@ -226,7 +226,7 @@ struct ListFilesToolExecutor: ToolExecutor {
   }
 }
 
-struct ToolOrchestrator: Sendable {
+nonisolated struct ToolOrchestrator: Sendable {
   private let permissionEvaluator: ToolPermissionEvaluator
   private let executorRegistry: ToolExecutorRegistry
 

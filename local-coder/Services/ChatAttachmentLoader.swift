@@ -1,6 +1,6 @@
 import Foundation
 
-protocol ChatAttachmentLoading: Sendable {
+nonisolated protocol ChatAttachmentLoading: Sendable {
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
@@ -9,7 +9,7 @@ protocol ChatAttachmentLoading: Sendable {
   func extractDroppedAttachments(from draft: String) -> DroppedAttachmentExtraction
 }
 
-struct DroppedAttachmentExtraction: Equatable, Sendable {
+nonisolated struct DroppedAttachmentExtraction: Equatable, Sendable {
   var urls: [URL]
   var cleanedDraft: String
 
@@ -19,7 +19,7 @@ struct DroppedAttachmentExtraction: Equatable, Sendable {
   }
 }
 
-struct ChatAttachmentLoader: ChatAttachmentLoading {
+nonisolated struct ChatAttachmentLoader: ChatAttachmentLoading {
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]

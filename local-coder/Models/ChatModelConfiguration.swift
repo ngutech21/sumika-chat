@@ -1,6 +1,6 @@
 import Foundation
 
-struct ChatModelConfiguration: Equatable, Sendable {
+nonisolated struct ChatModelConfiguration: Equatable, Sendable {
     let localModelDirectory: URL
     let contextTokenLimit: Int?
 
@@ -14,7 +14,7 @@ struct ChatModelConfiguration: Equatable, Sendable {
     }
 }
 
-enum LocalModelDirectory {
+nonisolated enum LocalModelDirectory {
     static let defaultModelName = ManagedModelCatalog.defaultModel.localDirectoryName
 
     static var defaultBaseURL: URL {

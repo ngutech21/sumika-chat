@@ -1,6 +1,6 @@
 import Foundation
 
-struct StoredModelSettings: Codable, Equatable, Sendable {
+nonisolated struct StoredModelSettings: Codable, Equatable, Sendable {
     var systemPrompt: String
     var generationSettings: ChatGenerationSettings
     var contextTokenLimit: Int
@@ -32,14 +32,14 @@ struct StoredModelSettings: Codable, Equatable, Sendable {
     }
 }
 
-protocol ModelSettingsStoring: Sendable {
+nonisolated protocol ModelSettingsStoring: Sendable {
     func selectedModelID(availableModelIDs: Set<String>) -> String
     func setSelectedModelID(_ modelID: String)
     func settings(for model: ManagedModel) -> StoredModelSettings
     func save(settings: StoredModelSettings, for model: ManagedModel) throws
 }
 
-final class ModelSettingsStore: ModelSettingsStoring, @unchecked Sendable {
+nonisolated final class ModelSettingsStore: ModelSettingsStoring, @unchecked Sendable {
     private struct SettingsFile: Codable {
         var modelSettings: [String: StoredModelSettings]
     }

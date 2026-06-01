@@ -2,7 +2,7 @@ import Foundation
 
 typealias ToolCallArguments = [String: ToolArgumentValue]
 
-struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable {
+nonisolated struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable {
   let rawValue: String
 
   init(rawValue: String) {
@@ -37,7 +37,7 @@ struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable {
   }
 }
 
-enum ToolArgumentValue: Codable, Equatable, Sendable {
+nonisolated enum ToolArgumentValue: Codable, Equatable, Sendable {
   case string(String)
   case number(Double)
   case bool(Bool)
@@ -83,7 +83,7 @@ enum ToolArgumentValue: Codable, Equatable, Sendable {
   }
 }
 
-struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
+nonisolated struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   let id: UUID
   let workspaceID: Workspace.ID
   let sessionID: CodingSession.ID
@@ -108,7 +108,7 @@ struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-struct ToolCallModelMessage: Codable, Equatable, Sendable {
+nonisolated struct ToolCallModelMessage: Codable, Equatable, Sendable {
   var callID: UUID
   var toolName: ToolName
   var arguments: [ToolCallModelArgument]
@@ -130,14 +130,14 @@ struct ToolCallModelMessage: Codable, Equatable, Sendable {
   }
 }
 
-struct ToolCallModelArgument: Codable, Identifiable, Equatable, Sendable {
+nonisolated struct ToolCallModelArgument: Codable, Identifiable, Equatable, Sendable {
   var id: String { name }
 
   var name: String
   var value: String
 }
 
-extension ToolArgumentValue {
+nonisolated extension ToolArgumentValue {
   var displayValue: String {
     switch self {
     case .string(let value):
@@ -156,7 +156,7 @@ extension ToolArgumentValue {
   }
 }
 
-struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
+nonisolated struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   var id: UUID { request.id }
 
   var request: ToolCallRequest
@@ -180,7 +180,7 @@ struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-enum ToolCallStatus: String, Codable, Equatable, Sendable {
+nonisolated enum ToolCallStatus: String, Codable, Equatable, Sendable {
   case pending
   case awaitingApproval
   case approved
@@ -191,7 +191,7 @@ enum ToolCallStatus: String, Codable, Equatable, Sendable {
   case cancelled
 }
 
-struct ToolCallEvent: Codable, Identifiable, Equatable, Sendable {
+nonisolated struct ToolCallEvent: Codable, Identifiable, Equatable, Sendable {
   let id: UUID
   var timestamp: Date
   var actor: ToolCallActor
@@ -213,14 +213,14 @@ struct ToolCallEvent: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-enum ToolCallActor: String, Codable, Equatable, Sendable {
+nonisolated enum ToolCallActor: String, Codable, Equatable, Sendable {
   case assistant
   case user
   case system
   case tool
 }
 
-enum ToolCallEventKind: String, Codable, Equatable, Sendable {
+nonisolated enum ToolCallEventKind: String, Codable, Equatable, Sendable {
   case requested
   case approved
   case denied
@@ -230,7 +230,7 @@ enum ToolCallEventKind: String, Codable, Equatable, Sendable {
   case cancelled
 }
 
-struct ToolResultPreview: Codable, Equatable, Sendable {
+nonisolated struct ToolResultPreview: Codable, Equatable, Sendable {
   var status: ToolResultStatus
   var text: String
   var truncated: Bool
@@ -269,19 +269,19 @@ struct ToolResultPreview: Codable, Equatable, Sendable {
   }
 }
 
-enum ToolResultStatus: String, Codable, Equatable, Sendable {
+nonisolated enum ToolResultStatus: String, Codable, Equatable, Sendable {
   case success
   case failed
   case denied
 }
 
-struct ToolResultModelMessage: Codable, Equatable, Sendable {
+nonisolated struct ToolResultModelMessage: Codable, Equatable, Sendable {
   var callID: UUID
   var toolName: ToolName
   var preview: ToolResultPreview
 }
 
-struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
+nonisolated struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
   var decision: ToolPermissionDecision
   var reason: String
   var riskLevel: ToolRiskLevel
@@ -300,13 +300,13 @@ struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
   }
 }
 
-enum ToolPermissionDecision: String, Codable, Equatable, Sendable {
+nonisolated enum ToolPermissionDecision: String, Codable, Equatable, Sendable {
   case allowed
   case requiresApproval
   case denied
 }
 
-enum ToolRiskLevel: String, Codable, Equatable, Sendable {
+nonisolated enum ToolRiskLevel: String, Codable, Equatable, Sendable {
   case low
   case medium
   case high

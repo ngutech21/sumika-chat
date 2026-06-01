@@ -1,6 +1,6 @@
 import Foundation
 
-enum ChatPromptDefaults {
+nonisolated enum ChatPromptDefaults {
   static let codingSystemPrompt = [
     "You are Local Coder, a concise local coding assistant running on the user's Mac.",
     "Help with software development tasks using small, focused steps.",

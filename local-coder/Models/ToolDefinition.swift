@@ -1,6 +1,6 @@
 import Foundation
 
-struct ToolParameterDefinition: Equatable, Sendable {
+nonisolated struct ToolParameterDefinition: Equatable, Sendable {
   var name: String
   var description: String
   var isRequired: Bool
@@ -19,7 +19,7 @@ struct ToolParameterDefinition: Equatable, Sendable {
   }
 }
 
-struct ToolDefinition: Identifiable, Equatable, Sendable {
+nonisolated struct ToolDefinition: Identifiable, Equatable, Sendable {
   var id: ToolName { name }
 
   var name: ToolName
@@ -40,7 +40,7 @@ struct ToolDefinition: Identifiable, Equatable, Sendable {
   }
 }
 
-struct ToolRegistry: Equatable, Sendable {
+nonisolated struct ToolRegistry: Equatable, Sendable {
   static let promptTools = ToolRegistry(tools: [.readFile, .listFiles])
 
   var tools: [ToolDefinition]
@@ -58,7 +58,7 @@ struct ToolRegistry: Equatable, Sendable {
   }
 }
 
-extension ToolDefinition {
+nonisolated extension ToolDefinition {
   static let readFile = ToolDefinition(
     name: .readFile,
     description: "Read a text file inside the active workspace.",

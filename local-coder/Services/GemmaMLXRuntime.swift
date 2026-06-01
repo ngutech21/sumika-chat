@@ -4,7 +4,7 @@ import MLXLLM
 import MLXLMCommon
 import Tokenizers
 
-enum GemmaMLXRuntimeError: LocalizedError {
+nonisolated enum GemmaMLXRuntimeError: LocalizedError {
     case modelNotLoaded
     case missingUserMessage
     case invalidChatTemplateMessageSequence
@@ -169,7 +169,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         }
     }
 
-    static func templateMessages(
+    nonisolated static func templateMessages(
         from messages: [ChatMessage],
         attachments: [ChatAttachment],
         systemPrompt: String
@@ -185,7 +185,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         )
     }
 
-    private static func contextMessages(
+    nonisolated private static func contextMessages(
         from messages: [ChatMessage],
         attachments: [ChatAttachment],
         systemPrompt: String
@@ -231,7 +231,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         }
     }
 
-    static func validatedTemplateMessages(_ messages: [Chat.Message]) throws -> [Chat.Message] {
+    nonisolated static func validatedTemplateMessages(_ messages: [Chat.Message]) throws -> [Chat.Message] {
         for index in messages.indices.dropFirst() {
             let previousIndex = messages.index(before: index)
             if messages[previousIndex].role == .assistant && messages[index].role == .assistant {
@@ -242,14 +242,14 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         return messages
     }
 
-    private static func normalizedSystemPrompt(_ systemPrompt: String) -> String? {
+    nonisolated private static func normalizedSystemPrompt(_ systemPrompt: String) -> String? {
         let effectiveSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         return effectiveSystemPrompt.isEmpty ? nil : effectiveSystemPrompt
     }
 
 }
 
-private extension Chat.Message {
+nonisolated private extension Chat.Message {
     init?(_ message: ChatMessage) {
         switch message.kind {
         case .user:
@@ -282,7 +282,7 @@ private extension Chat.Message {
     }
 }
 
-private extension ToolCallModelMessage {
+nonisolated private extension ToolCallModelMessage {
     var modelContextMessage: String {
         let argumentLines = arguments.map { argument in
             "<\(argument.name)>\(argument.value)</\(argument.name)>"
@@ -303,7 +303,7 @@ private extension ToolCallModelMessage {
     }
 }
 
-private extension ToolResultModelMessage {
+nonisolated private extension ToolResultModelMessage {
     var modelContextMessage: String {
         let paths = preview.affectedPaths.isEmpty ? "none" : preview.affectedPaths.joined(separator: "\n")
         let truncation = preview.truncated ? "\nResult was truncated." : ""
@@ -318,7 +318,7 @@ private extension ToolResultModelMessage {
     }
 }
 
-private func generationPrompt(
+nonisolated private func generationPrompt(
     prompt: String,
     attachments: [ChatAttachment],
     remainingMessages: ArraySlice<ChatMessage>
@@ -347,7 +347,7 @@ private func generationPrompt(
     """
 }
 
-private func promptWithAttachments(
+nonisolated private func promptWithAttachments(
     prompt: String,
     attachments: [ChatAttachment]
 ) -> String {
@@ -367,7 +367,7 @@ private func promptWithAttachments(
     """
 }
 
-private func attachmentContextBlock(_ attachments: [ChatAttachment]) -> String {
+nonisolated private func attachmentContextBlock(_ attachments: [ChatAttachment]) -> String {
     attachments.enumerated().map { index, attachment in
         """
         File \(index + 1) of \(attachments.count)
@@ -381,7 +381,7 @@ private func attachmentContextBlock(_ attachments: [ChatAttachment]) -> String {
     .joined(separator: "\n\n")
 }
 
-private struct LocalDownloader: MLXLMCommon.Downloader {
+nonisolated private struct LocalDownloader: MLXLMCommon.Downloader {
     func download(
         id: String,
         revision: String?,
@@ -393,14 +393,14 @@ private struct LocalDownloader: MLXLMCommon.Downloader {
     }
 }
 
-private struct LocalTokenizerLoader: MLXLMCommon.TokenizerLoader {
+nonisolated private struct LocalTokenizerLoader: MLXLMCommon.TokenizerLoader {
     func load(from directory: URL) async throws -> any MLXLMCommon.Tokenizer {
         let tokenizer = try await AutoTokenizer.from(modelFolder: directory)
         return LocalTokenizer(tokenizer: tokenizer)
     }
 }
 
-private struct LocalTokenizer: MLXLMCommon.Tokenizer {
+nonisolated private struct LocalTokenizer: MLXLMCommon.Tokenizer {
     let tokenizer: any Tokenizers.Tokenizer
 
     func encode(text: String, addSpecialTokens: Bool) -> [Int] {

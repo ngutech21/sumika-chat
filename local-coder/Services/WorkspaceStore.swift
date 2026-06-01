@@ -1,11 +1,11 @@
 import Foundation
 
-protocol WorkspaceStoring: Sendable {
+nonisolated protocol WorkspaceStoring: Sendable {
   func loadLibrary() -> WorkspaceLibrary
   func saveLibrary(_ library: WorkspaceLibrary) throws
 }
 
-final class WorkspaceStore: WorkspaceStoring, @unchecked Sendable {
+nonisolated final class WorkspaceStore: WorkspaceStoring, @unchecked Sendable {
   private let libraryURL: URL
   private let fileManager: FileManager
 

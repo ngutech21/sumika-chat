@@ -1,6 +1,6 @@
 import Foundation
 
-struct CodingSession: Codable, Identifiable, Equatable, Sendable {
+nonisolated struct CodingSession: Codable, Identifiable, Equatable, Sendable {
   let id: UUID
   var title: String
   var selectedModelID: ManagedModel.ID
@@ -60,7 +60,7 @@ struct CodingSession: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-struct Workspace: Codable, Identifiable, Equatable, Sendable {
+nonisolated struct Workspace: Codable, Identifiable, Equatable, Sendable {
   let id: UUID
   var name: String
   var rootURL: URL
@@ -163,7 +163,7 @@ struct Workspace: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-enum WorkspacePathResolutionError: LocalizedError, Equatable {
+nonisolated enum WorkspacePathResolutionError: LocalizedError, Equatable {
   case emptyPath
   case unsupportedURLScheme(String)
   case pathOutsideWorkspace
@@ -180,7 +180,7 @@ enum WorkspacePathResolutionError: LocalizedError, Equatable {
   }
 }
 
-struct WorkspaceLibrary: Codable, Equatable, Sendable {
+nonisolated struct WorkspaceLibrary: Codable, Equatable, Sendable {
   var workspaces: [Workspace]
   var activeWorkspaceID: Workspace.ID?
   var activeSessionID: CodingSession.ID?

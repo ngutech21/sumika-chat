@@ -1,14 +1,14 @@
 import Foundation
 import HuggingFace
 
-protocol ModelDownloading: Sendable {
+nonisolated protocol ModelDownloading: Sendable {
     func download(
         model: ManagedModel,
         progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
     ) async throws -> URL
 }
 
-enum ModelDownloadError: LocalizedError {
+nonisolated enum ModelDownloadError: LocalizedError {
     case invalidRepositoryID(String)
 
     var errorDescription: String? {
@@ -19,7 +19,7 @@ enum ModelDownloadError: LocalizedError {
     }
 }
 
-struct HuggingFaceModelDownloader: ModelDownloading {
+nonisolated struct HuggingFaceModelDownloader: ModelDownloading, @unchecked Sendable {
     private let hubClient: HubClient
     private let fileManager: FileManager
 

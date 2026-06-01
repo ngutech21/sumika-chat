@@ -1,6 +1,6 @@
 import Foundation
 
-struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
+nonisolated struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let url: URL
     let displayName: String
@@ -26,11 +26,11 @@ struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-enum ChatAttachmentKind: String, Codable, Equatable, Sendable {
+nonisolated enum ChatAttachmentKind: String, Codable, Equatable, Sendable {
     case text
 }
 
-enum ChatAttachmentLimits {
+nonisolated enum ChatAttachmentLimits {
     static let maxTextFileBytes = 256 * 1024
     static let maxAttachmentCount = 8
 
@@ -41,7 +41,7 @@ enum ChatAttachmentLimits {
     ]
 }
 
-enum ChatAttachmentError: LocalizedError {
+nonisolated enum ChatAttachmentError: LocalizedError {
     case tooManyFiles(Int)
     case unsupportedFileType(String)
     case fileTooLarge(String, Int)

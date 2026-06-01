@@ -1,6 +1,6 @@
 import Foundation
 
-struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
+nonisolated struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let kind: MessageKind
     let content: String
@@ -70,12 +70,12 @@ struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-struct ChatGenerationMetrics: Codable, Equatable, Sendable {
+nonisolated struct ChatGenerationMetrics: Codable, Equatable, Sendable {
     let generatedTokenCount: Int
     let tokensPerSecond: Double
 }
 
-extension ChatMessage {
+nonisolated extension ChatMessage {
     var containsStreamingToolCallMarkup: Bool {
         guard kind == .assistant else {
             return false
@@ -90,7 +90,7 @@ extension ChatMessage {
     }
 }
 
-enum MessageKind: String, Codable, Equatable, Sendable {
+nonisolated enum MessageKind: String, Codable, Equatable, Sendable {
     case user
     case assistant
     case toolCall

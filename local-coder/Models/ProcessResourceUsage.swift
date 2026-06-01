@@ -1,6 +1,6 @@
 import Foundation
 
-struct ProcessResourceUsage: Equatable, Sendable {
+nonisolated struct ProcessResourceUsage: Equatable, Sendable {
     let memoryBytes: UInt64
     let cpuPercent: Double
 
@@ -30,12 +30,12 @@ struct ProcessResourceUsage: Equatable, Sendable {
     }
 }
 
-struct ProcessResourceSample: Equatable, Sendable {
+nonisolated struct ProcessResourceSample: Equatable, Sendable {
     let cpuTime: TimeInterval
     let wallTime: TimeInterval
 }
 
-enum ProcessResourceCalculator {
+nonisolated enum ProcessResourceCalculator {
     static func cpuPercent(
         previous: ProcessResourceSample,
         current: ProcessResourceSample

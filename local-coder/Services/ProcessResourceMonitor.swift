@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-protocol ProcessResourceMonitoring: Sendable {
+nonisolated protocol ProcessResourceMonitoring: Sendable {
     func currentUsage() async -> ProcessResourceUsage?
 }
 

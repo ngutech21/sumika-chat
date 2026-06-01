@@ -1,6 +1,6 @@
 import Foundation
 
-struct ToolPermissionEvaluator: Sendable {
+nonisolated struct ToolPermissionEvaluator: Sendable {
   func evaluate(_ request: ToolCallRequest, in workspace: Workspace) -> ToolPermissionEvaluation {
     guard request.workspaceID == workspace.id else {
       return ToolPermissionEvaluation(

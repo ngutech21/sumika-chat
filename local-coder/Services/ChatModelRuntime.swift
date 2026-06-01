@@ -1,6 +1,6 @@
 import Foundation
 
-protocol ChatModelRuntime: Sendable {
+nonisolated protocol ChatModelRuntime: Sendable {
     func load(configuration: ChatModelConfiguration) async throws
     func unload() async
     func clearContext() async
@@ -17,12 +17,12 @@ protocol ChatModelRuntime: Sendable {
     ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
 }
 
-enum ChatModelStreamEvent: Sendable {
+nonisolated enum ChatModelStreamEvent: Sendable {
     case chunk(String)
     case completed(ChatGenerationMetrics?)
 }
 
-struct MockChatRuntime: ChatModelRuntime {
+nonisolated struct MockChatRuntime: ChatModelRuntime {
     func load(configuration: ChatModelConfiguration) async throws {
         _ = configuration
         try await Task.sleep(for: .milliseconds(350))

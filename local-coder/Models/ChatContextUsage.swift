@@ -1,6 +1,6 @@
 import Foundation
 
-struct ChatContextUsage: Equatable, Sendable {
+nonisolated struct ChatContextUsage: Equatable, Sendable {
     let usedTokens: Int
     let tokenLimit: Int?
 

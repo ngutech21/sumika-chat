@@ -1,6 +1,6 @@
 import Foundation
 
-struct ChatSessionState: Equatable, Sendable {
+nonisolated struct ChatSessionState: Equatable, Sendable {
   var messages: [ChatMessage]
   var toolCalls: [ToolCallRecord]
   var attachments: [ChatAttachment]

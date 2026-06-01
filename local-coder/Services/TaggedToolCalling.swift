@@ -1,16 +1,16 @@
 import Foundation
 
-enum ToolCallParseResult: Equatable, Sendable {
+nonisolated enum ToolCallParseResult: Equatable, Sendable {
   case none
   case toolCall(ToolCallParseOutput)
 }
 
-struct ToolCallParseOutput: Equatable, Sendable {
+nonisolated struct ToolCallParseOutput: Equatable, Sendable {
   var request: ToolCallRequest
   var modelMessage: ToolCallModelMessage
 }
 
-protocol ToolCallParsing: Sendable {
+nonisolated protocol ToolCallParsing: Sendable {
   func parse(
     _ text: String,
     workspaceID: Workspace.ID,
@@ -19,14 +19,14 @@ protocol ToolCallParsing: Sendable {
   ) throws -> ToolCallParseResult
 }
 
-protocol ToolPromptRendering: Sendable {
+nonisolated protocol ToolPromptRendering: Sendable {
   func renderToolInstructions(
     registry: ToolRegistry,
     payloadDelimiter: String
   ) -> String
 }
 
-enum TaggedToolCallParseError: Error, Equatable, LocalizedError {
+nonisolated enum TaggedToolCallParseError: Error, Equatable, LocalizedError {
   case multipleActions
   case extraneousContent
   case missingActionName
@@ -64,7 +64,7 @@ enum TaggedToolCallParseError: Error, Equatable, LocalizedError {
   }
 }
 
-struct TaggedToolPromptRenderer: ToolPromptRendering {
+nonisolated struct TaggedToolPromptRenderer: ToolPromptRendering {
   func renderToolInstructions(
     registry: ToolRegistry = .promptTools,
     payloadDelimiter: String
@@ -103,7 +103,7 @@ struct TaggedToolPromptRenderer: ToolPromptRendering {
   }
 }
 
-struct TaggedToolCallParser: ToolCallParsing {
+nonisolated struct TaggedToolCallParser: ToolCallParsing {
   private let payloadParameterNames: Set<String>
 
   init(payloadParameterNames: Set<String> = ["content", "patch"]) {
