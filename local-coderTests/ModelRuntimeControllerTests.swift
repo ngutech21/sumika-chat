@@ -95,6 +95,54 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func setModelDirectoryUpdatesPathWhenRuntimeIsNotLoaded() throws {
+    let controller = makeController()
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+
+    controller.setModelDirectory(modelDirectory)
+
+    #expect(controller.modelPath == modelDirectory.path(percentEncoded: false))
+    #expect(controller.modelState == .notLoaded)
+  }
+
+  @Test
+  func saveSelectedModelSettingsPersistsCurrentRuntimeSettings() {
+    let store = RuntimeFakeModelSettingsStore()
+    let controller = makeController(modelSettingsStore: store)
+    controller.modelContextTokenLimit = 12_288
+    let generationSettings = ChatGenerationSettings(
+      temperature: 0.3,
+      topP: 0.85,
+      topK: 40,
+      maxTokens: 768
+    )
+
+    controller.saveSelectedModelSettings(
+      systemPrompt: "Use concise code review notes.",
+      generationSettings: generationSettings
+    )
+
+    let savedSettings = store.savedSettingsByModelID[controller.selectedModel.id]
+    #expect(savedSettings?.systemPrompt == "Use concise code review notes.")
+    #expect(savedSettings?.generationSettings == generationSettings)
+    #expect(savedSettings?.contextTokenLimit == 12_288)
+  }
+
+  @Test
+  func loadSelectedModelResetsPathToSelectedModelDirectoryBeforeLoading() async throws {
+    let runtime = RuntimeControllerRecordingRuntime()
+    let controller = makeController(runtime: runtime, modelPath: "/tmp/custom-model")
+    controller.modelAvailabilitySnapshot[controller.selectedModel.id] = true
+    let initialOperationID = controller.currentOperationID()
+
+    controller.loadSelectedModel()
+
+    #expect(controller.modelPath == controller.selectedModel.localPath)
+    #expect(controller.currentOperationID() != initialOperationID)
+    try await waitUntil { controller.modelState != .loading }
+  }
+
+  @Test
   func loadModelUsesDirectoryConfigurationAndUpdatesReadyState() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = RuntimeControllerRecordingRuntime()

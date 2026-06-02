@@ -149,6 +149,120 @@ struct WorkspaceStoreTests {
   }
 
   @Test
+  func appStateCreateSessionInExplicitWorkspaceActivatesAndLoadsNewSession() throws {
+    let firstSession = CodingSession(
+      title: "Existing",
+      selectedModelID: "gemma3-1b",
+      messages: [ChatMessage(kind: .user, content: "existing")],
+      systemPrompt: "Existing prompt",
+      generationSettings: .codingDefault
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [firstSession]
+    )
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      modelSettingsStore: FakeModelSettingsStore()
+    )
+    let workspaceStore = FakeWorkspaceStore(
+      library: WorkspaceLibrary(workspaces: [workspace])
+    )
+    let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+
+    let newSessionID = try #require(appState.createSession(in: workspace.id))
+
+    #expect(appState.workspaceLibrary.activeWorkspaceID == workspace.id)
+    #expect(appState.workspaceLibrary.activeSessionID == newSessionID)
+    #expect(appState.activeWorkspace?.sessions.map(\.id).contains(newSessionID) == true)
+    #expect(controller.chatSession.messages.isEmpty)
+    #expect(controller.chatSession.systemPrompt == appState.activeSession?.systemPrompt)
+    #expect(workspaceStore.savedLibrary?.activeSessionID == newSessionID)
+  }
+
+  @Test
+  func appStateCreateSessionReturnsNilWithoutActiveOrRequestedWorkspace() {
+    let workspaceStore = FakeWorkspaceStore()
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      chatController: ChatSessionController(
+        runtime: FakeChatModelRuntime(),
+        modelPath: "/tmp/model",
+        modelSettingsStore: FakeModelSettingsStore()
+      )
+    )
+
+    let sessionID = appState.createSession()
+
+    #expect(sessionID == nil)
+    #expect(appState.workspaceLibrary.workspaces.isEmpty)
+  }
+
+  @Test
+  func appStateInitializationCreatesSessionForActiveWorkspaceWithoutSessions() {
+    let workspace = Workspace(
+      name: "Empty",
+      rootURL: URL(filePath: "/tmp/empty", directoryHint: .isDirectory),
+      sessions: []
+    )
+    let workspaceStore = FakeWorkspaceStore(
+      library: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspace.id,
+        activeSessionID: nil
+      )
+    )
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      modelSettingsStore: FakeModelSettingsStore()
+    )
+
+    let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+
+    let activeSession = appState.activeSession
+    #expect(activeSession != nil)
+    #expect(appState.activeWorkspace?.sessions.count == 1)
+    #expect(appState.workspaceLibrary.activeSessionID == activeSession?.id)
+    #expect(controller.chatSession.systemPrompt == activeSession?.systemPrompt)
+    #expect(workspaceStore.savedLibrary?.activeSessionID == activeSession?.id)
+  }
+
+  @Test
+  func appStateInitializationClearsMissingActiveWorkspaceAndSelectsFirstWorkspace() {
+    let firstSession = CodingSession(
+      selectedModelID: "gemma3-1b",
+      systemPrompt: "Prompt",
+      generationSettings: .codingDefault
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [firstSession]
+    )
+    let workspaceStore = FakeWorkspaceStore(
+      library: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: UUID(),
+        activeSessionID: UUID()
+      )
+    )
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      modelSettingsStore: FakeModelSettingsStore()
+    )
+
+    let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+
+    #expect(appState.workspaceLibrary.activeWorkspaceID == workspace.id)
+    #expect(appState.workspaceLibrary.activeSessionID == firstSession.id)
+    #expect(controller.chatSession.systemPrompt == firstSession.systemPrompt)
+  }
+
+  @Test
   func appStateSwitchesSessionsAndLoadsChatState() throws {
     let firstSession = CodingSession(
       title: "First",

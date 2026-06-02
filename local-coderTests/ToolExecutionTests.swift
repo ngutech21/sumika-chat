@@ -86,6 +86,85 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func readFileDropsPartialUTF8SuffixWhenTruncating() async throws {
+    let workspace = try makeWorkspace()
+    let fileURL = workspace.rootURL.appending(path: "emoji.txt")
+    let content = "abc🙂def"
+    try content.write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let result = await ReadFileToolExecutor(maxBytes: 5).run(
+      ReadFileInput(path: "emoji.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text == "abc")
+    #expect(result.truncated)
+  }
+
+  @Test
+  func readFileDropsEntirePartialUTF8CharacterWhenPreviewHasNoValidPrefix() async throws {
+    let workspace = try makeWorkspace()
+    let fileURL = workspace.rootURL.appending(path: "emoji.txt")
+    try "🙂".write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let result = await ReadFileToolExecutor(maxBytes: 2).run(
+      ReadFileInput(path: "emoji.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text == "")
+    #expect(result.truncated)
+  }
+
+  @Test
+  func listFilesPermissionAllowsDefaultAndNestedWorkspacePaths() async throws {
+    let workspace = try makeWorkspace()
+    let executor = ListFilesToolExecutor()
+
+    let defaultEvaluation = executor.evaluatePermission(
+      ListFilesInput(path: nil),
+      context: ToolContext(workspace: workspace)
+    )
+    let nestedEvaluation = executor.evaluatePermission(
+      ListFilesInput(path: "Sources"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(defaultEvaluation.decision == .allowed)
+    #expect(defaultEvaluation.normalizedPaths == [workspace.rootURL.path(percentEncoded: false)])
+    #expect(nestedEvaluation.decision == .allowed)
+    #expect(
+      nestedEvaluation.normalizedPaths == [
+        workspace.rootURL.appending(path: "Sources").path(percentEncoded: false)
+      ])
+  }
+
+  @Test
+  func listFilesPermissionDeniesWorkspaceEscapesAndUnsupportedURLs() async throws {
+    let workspace = try makeWorkspace()
+    let executor = ListFilesToolExecutor()
+
+    let parentEscape = executor.evaluatePermission(
+      ListFilesInput(path: "../secret"),
+      context: ToolContext(workspace: workspace)
+    )
+    let absoluteEscape = executor.evaluatePermission(
+      ListFilesInput(path: "/tmp/secret"),
+      context: ToolContext(workspace: workspace)
+    )
+    let unsupportedURL = executor.evaluatePermission(
+      ListFilesInput(path: "https://example.com/project"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(parentEscape.decision == .denied)
+    #expect(absoluteEscape.decision == .denied)
+    #expect(unsupportedURL.decision == .denied)
+  }
+
+  @Test
   func listFilesSortsSkipsAndTruncates() async throws {
     let workspace = try makeWorkspace()
     try write("root", to: "zeta.txt", in: workspace)
