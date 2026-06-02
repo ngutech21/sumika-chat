@@ -173,60 +173,6 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
   }
 }
 
-actor DelayedUnloadRuntime: ChatModelRuntime {
-  private var unloadContinuation: CheckedContinuation<Void, Never>?
-  private(set) var didStartUnload = false
-  private(set) var isLoaded = true
-  private(set) var loadCount = 0
-
-  func load(configuration: ChatModelConfiguration) async throws {
-    _ = configuration
-    loadCount += 1
-    isLoaded = true
-  }
-
-  func unload() async {
-    didStartUnload = true
-    await withCheckedContinuation { continuation in
-      unloadContinuation = continuation
-    }
-    isLoaded = false
-  }
-
-  func releaseUnload() {
-    unloadContinuation?.resume()
-    unloadContinuation = nil
-  }
-
-  func clearContext() async {}
-
-  func contextUsage(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String
-  ) async throws -> ChatContextUsage {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-  }
-
-  func streamReply(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    _ = settings
-    return AsyncThrowingStream { continuation in
-      continuation.finish()
-    }
-  }
-}
-
 final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sendable {
   private let lock = NSLock()
   private let firstLoadRelease = DispatchSemaphore(value: 0)
@@ -274,66 +220,10 @@ final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sen
   }
 }
 
-actor RaceLoadingRuntime: ChatModelRuntime {
-  private var firstLoadContinuation: CheckedContinuation<Void, Never>?
-  private(set) var loadedConfigurations: [ChatModelConfiguration] = []
-
-  var loadCount: Int {
-    loadedConfigurations.count
-  }
-
-  func load(configuration: ChatModelConfiguration) async throws {
-    loadedConfigurations.append(configuration)
-
-    if loadedConfigurations.count == 1 {
-      await withCheckedContinuation { continuation in
-        firstLoadContinuation = continuation
-      }
-      try Task.checkCancellation()
-    }
-  }
-
-  func releaseFirstLoad() {
-    firstLoadContinuation?.resume()
-    firstLoadContinuation = nil
-  }
-
-  func unload() async {}
-  func clearContext() async {}
-
-  func contextUsage(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String
-  ) async throws -> ChatContextUsage {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-  }
-
-  func streamReply(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    _ = settings
-    return AsyncThrowingStream { continuation in
-      continuation.finish()
-    }
-  }
-}
-
 actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private let turns: [[String]]
   private let failingStreamReplyCalls: Set<Int>
   private var streamReplyCount = 0
-  private(set) var loadedConfiguration: ChatModelConfiguration?
-  private(set) var didUnload = false
   private(set) var capturedMessages: [[ChatMessage]] = []
   private(set) var capturedSystemPrompts: [String] = []
 
@@ -348,13 +238,10 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   }
 
   func load(configuration: ChatModelConfiguration) async throws {
-    loadedConfiguration = configuration
+    _ = configuration
   }
 
-  func unload() async {
-    didUnload = true
-    loadedConfiguration = nil
-  }
+  func unload() async {}
 
   func clearContext() async {}
 

@@ -63,6 +63,20 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func downloadSelectedModelPublishesIntermediateProgress() async throws {
+    let downloader = RuntimeControllerFakeModelDownloader(progressFractions: [0.25, 1])
+    let controller = makeController(modelDownloader: downloader)
+
+    controller.downloadSelectedModel()
+
+    try await waitUntil { controller.downloadProgress == 0.25 }
+    #expect(controller.downloadState == .downloading(progress: 0.25))
+
+    try await waitUntil { controller.downloadState == .downloaded }
+    #expect(controller.downloadProgress == 1)
+  }
+
+  @Test
   func downloadSelectedModelPublishesFailureAndClearsProgress() async throws {
     let downloader = RuntimeControllerFakeModelDownloader(
       error: RuntimeControllerFakeDownloadError.failed)
@@ -80,19 +94,129 @@ struct ModelRuntimeControllerTests {
     #expect(errorMessage == RuntimeControllerFakeDownloadError.failed.localizedDescription)
   }
 
+  @Test
+  func loadModelUsesDirectoryConfigurationAndUpdatesReadyState() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = RuntimeControllerRecordingRuntime()
+    let controller = makeController(
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+
+    try await waitUntil { controller.modelState == .ready }
+
+    let configuration = await runtime.loadedConfiguration
+    #expect(configuration?.localModelDirectory == modelDirectory)
+    #expect(configuration?.contextTokenLimit == 2048)
+  }
+
+  @Test
+  func loadModelCapsContextLimitAtUserRequestedSetting() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"max_position_embeddings":131072}"#)
+    let runtime = RuntimeControllerRecordingRuntime()
+    let controller = makeController(
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+
+    try await waitUntil { controller.modelState == .ready }
+
+    let configuration = await runtime.loadedConfiguration
+    #expect(configuration?.contextTokenLimit == 65_536)
+  }
+
+  @Test
+  func loadModelIgnoresCancelledEarlierOperationAfterNewLoadStarts() async throws {
+    let firstModelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let secondModelDirectory = try makeModelDirectory(config: #"{"n_ctx":4096}"#)
+    let runtime = RuntimeControllerRaceLoadingRuntime()
+    let controller = makeController(
+      runtime: runtime,
+      modelPath: firstModelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+    try await waitUntilAsync { await runtime.loadCount == 1 }
+
+    controller.modelPath = secondModelDirectory.path(percentEncoded: false)
+    controller.loadModel()
+
+    try await waitUntil { controller.modelState == .ready }
+    try await waitUntilAsync { await runtime.loadCount == 2 }
+    await runtime.releaseFirstLoad()
+    try await Task.sleep(for: .milliseconds(60))
+
+    #expect(controller.modelState == .ready)
+    let configurations = await runtime.loadedConfigurations
+    #expect(configurations.count == 2)
+    #expect(configurations[0].localModelDirectory == firstModelDirectory)
+    #expect(configurations[1].localModelDirectory == secondModelDirectory)
+    #expect(configurations[1].contextTokenLimit == 4096)
+  }
+
+  @Test
+  func staleUnloadDoesNotOverwriteRuntimeAfterSubsequentLoad() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = RuntimeControllerDelayedUnloadRuntime()
+    let controller = makeController(
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+    controller.modelState = .ready
+
+    controller.unloadModel()
+    try await waitUntilAsync { await runtime.didStartUnload }
+
+    controller.loadModel()
+    try await Task.sleep(for: .milliseconds(60))
+    #expect(await runtime.loadCount == 0)
+
+    await runtime.releaseUnload()
+    try await waitUntil { controller.modelState == .ready }
+
+    #expect(await runtime.isLoaded)
+  }
+
+  @Test
+  func unloadModelReleasesRuntimeAndResetsModelState() async throws {
+    let runtime = RuntimeControllerRecordingRuntime()
+    let controller = makeController(runtime: runtime)
+    controller.modelState = .ready
+
+    controller.unloadModel()
+
+    try await waitUntil { controller.modelState == .notLoaded }
+    try await waitUntilAsync { await runtime.didUnload }
+
+    #expect(await runtime.didUnload)
+  }
+
   private func makeController(
     modelSettingsStore: RuntimeFakeModelSettingsStore =
       RuntimeFakeModelSettingsStore(),
-    modelDownloader: RuntimeControllerFakeModelDownloader = RuntimeControllerFakeModelDownloader()
+    modelDownloader: RuntimeControllerFakeModelDownloader = RuntimeControllerFakeModelDownloader(),
+    runtime: any ChatModelRuntime = RuntimeControllerRecordingRuntime(),
+    modelPath: String? = nil
   ) -> ModelRuntimeController {
-    let runtimeOperations = RuntimeOperationCoordinator(runtime: RuntimeControllerFakeRuntime())
+    let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
+    let selectedModelID = modelSettingsStore.selectedModelID(availableModelIDs: availableModelIDs)
+    let selectedModel =
+      ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
+    let settings = modelSettingsStore.settings(for: selectedModel)
+    let runtimeOperations = RuntimeOperationCoordinator(runtime: runtime)
     let lifecycleCoordinator = ModelLifecycleCoordinator(
       modelDownloader: modelDownloader,
       runtimeOperations: runtimeOperations
     )
     return ModelRuntimeController(
+      selectedModelID: selectedModel.id,
+      modelPath: modelPath ?? selectedModel.localPath,
+      modelContextTokenLimit: settings.contextTokenLimit,
       modelSettingsStore: modelSettingsStore,
-      modelDownloader: modelDownloader,
       runtimeOperations: runtimeOperations,
       modelLifecycleCoordinator: lifecycleCoordinator,
       resourceMonitor: RuntimeControllerFakeResourceMonitor(),
@@ -112,6 +236,34 @@ struct ModelRuntimeControllerTests {
       }
       try await Task.sleep(for: .milliseconds(10))
     }
+  }
+
+  private func waitUntilAsync(
+    timeout: Duration = .seconds(1),
+    condition: @escaping () async -> Bool
+  ) async throws {
+    let start = ContinuousClock.now
+    while !(await condition()) {
+      if start.duration(to: .now) > timeout {
+        Issue.record("Timed out waiting for async condition")
+        return
+      }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+  }
+
+  private func makeModelDirectory(config: String) throws -> URL {
+    let modelDirectory = FileManager.default.temporaryDirectory.appending(
+      path: "local-coder-tests-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
+    try config.write(
+      to: modelDirectory.appending(path: "config.json", directoryHint: .notDirectory),
+      atomically: true,
+      encoding: .utf8
+    )
+    return modelDirectory
   }
 }
 
@@ -145,9 +297,11 @@ private final class RuntimeFakeModelSettingsStore: ModelSettingsStoring, @unchec
 
 private final class RuntimeControllerFakeModelDownloader: ModelDownloading, @unchecked Sendable {
   var downloadedModelID: String?
+  private let progressFractions: [Double]
   private let error: Error?
 
-  init(error: Error? = nil) {
+  init(progressFractions: [Double] = [1], error: Error? = nil) {
+    self.progressFractions = progressFractions
     self.error = error
   }
 
@@ -156,9 +310,12 @@ private final class RuntimeControllerFakeModelDownloader: ModelDownloading, @unc
     progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
   ) async throws -> URL {
     downloadedModelID = model.id
-    let progress = Progress(totalUnitCount: 100)
-    progress.completedUnitCount = 100
-    await progressHandler(progress)
+    for fraction in progressFractions {
+      let progress = Progress(totalUnitCount: 100)
+      progress.completedUnitCount = Int64(fraction * 100)
+      await progressHandler(progress)
+      try await Task.sleep(for: .milliseconds(20))
+    }
     if let error {
       throw error
     }
@@ -174,9 +331,19 @@ private enum RuntimeControllerFakeDownloadError: LocalizedError {
   }
 }
 
-private actor RuntimeControllerFakeRuntime: ChatModelRuntime {
-  func load(configuration: ChatModelConfiguration) async throws {}
-  func unload() async {}
+private actor RuntimeControllerRecordingRuntime: ChatModelRuntime {
+  private(set) var loadedConfiguration: ChatModelConfiguration?
+  private(set) var didUnload = false
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    loadedConfiguration = configuration
+  }
+
+  func unload() async {
+    didUnload = true
+    loadedConfiguration = nil
+  }
+
   func clearContext() async {}
 
   func contextUsage(
@@ -194,6 +361,114 @@ private actor RuntimeControllerFakeRuntime: ChatModelRuntime {
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     AsyncThrowingStream { continuation in
+      continuation.finish()
+    }
+  }
+}
+
+private actor RuntimeControllerRaceLoadingRuntime: ChatModelRuntime {
+  private var firstLoadContinuation: CheckedContinuation<Void, Never>?
+  private(set) var loadedConfigurations: [ChatModelConfiguration] = []
+
+  var loadCount: Int {
+    loadedConfigurations.count
+  }
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    loadedConfigurations.append(configuration)
+
+    if loadedConfigurations.count == 1 {
+      await withCheckedContinuation { continuation in
+        firstLoadContinuation = continuation
+      }
+      try Task.checkCancellation()
+    }
+  }
+
+  func releaseFirstLoad() {
+    firstLoadContinuation?.resume()
+    firstLoadContinuation = nil
+  }
+
+  func unload() async {}
+  func clearContext() async {}
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+    return AsyncThrowingStream { continuation in
+      continuation.finish()
+    }
+  }
+}
+
+private actor RuntimeControllerDelayedUnloadRuntime: ChatModelRuntime {
+  private var unloadContinuation: CheckedContinuation<Void, Never>?
+  private(set) var didStartUnload = false
+  private(set) var isLoaded = true
+  private(set) var loadCount = 0
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+    loadCount += 1
+    isLoaded = true
+  }
+
+  func unload() async {
+    didStartUnload = true
+    await withCheckedContinuation { continuation in
+      unloadContinuation = continuation
+    }
+    isLoaded = false
+  }
+
+  func releaseUnload() {
+    unloadContinuation?.resume()
+    unloadContinuation = nil
+  }
+
+  func clearContext() async {}
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+    return AsyncThrowingStream { continuation in
       continuation.finish()
     }
   }

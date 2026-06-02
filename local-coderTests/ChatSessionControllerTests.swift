@@ -383,95 +383,6 @@ struct ChatSessionControllerTests {
   }
 
   @Test
-  func loadModelUsesDirectoryConfigurationAndUpdatesReadyState() async throws {
-    let modelDirectory = FileManager.default.temporaryDirectory.appending(
-      path: "local-coder-tests-\(UUID().uuidString)",
-      directoryHint: .isDirectory
-    )
-    try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
-    try #"{"n_ctx":2048}"#.write(
-      to: modelDirectory.appending(path: "config.json", directoryHint: .notDirectory),
-      atomically: true,
-      encoding: .utf8
-    )
-    let runtime = ChatSessionFakeChatModelRuntime()
-    let controller = ChatSessionController(
-      runtime: runtime,
-      modelPath: modelDirectory.path(percentEncoded: false)
-    )
-
-    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
-    controller.modelRuntime.loadModel()
-
-    try await waitUntil { controller.modelRuntime.modelState == .ready }
-
-    let configuration = await runtime.loadedConfiguration
-    #expect(configuration?.localModelDirectory == modelDirectory)
-    #expect(configuration?.contextTokenLimit == 2048)
-    #expect(controller.errorMessage == nil)
-  }
-
-  @Test
-  func loadModelCapsContextLimitAtUserRequestedSetting() async throws {
-    let modelDirectory = FileManager.default.temporaryDirectory.appending(
-      path: "local-coder-tests-\(UUID().uuidString)",
-      directoryHint: .isDirectory
-    )
-    try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
-    try #"{"max_position_embeddings":131072}"#.write(
-      to: modelDirectory.appending(path: "config.json", directoryHint: .notDirectory),
-      atomically: true,
-      encoding: .utf8
-    )
-    let runtime = ChatSessionFakeChatModelRuntime()
-    let controller = ChatSessionController(
-      runtime: runtime,
-      modelPath: modelDirectory.path(percentEncoded: false)
-    )
-
-    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
-    controller.modelRuntime.loadModel()
-
-    try await waitUntil { controller.modelRuntime.modelState == .ready }
-
-    let configuration = await runtime.loadedConfiguration
-    #expect(configuration?.contextTokenLimit == 65_536)
-  }
-
-  @Test
-  func loadModelIgnoresCancelledEarlierOperationAfterNewLoadStarts() async throws {
-    let firstModelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
-    let secondModelDirectory = try makeModelDirectory(config: #"{"n_ctx":4096}"#)
-    let runtime = RaceLoadingRuntime()
-    let controller = ChatSessionController(
-      runtime: runtime,
-      modelPath: firstModelDirectory.path(percentEncoded: false)
-    )
-
-    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
-    controller.modelRuntime.loadModel()
-    try await waitUntilAsync { await runtime.loadCount == 1 }
-
-    controller.modelRuntime.modelPath = secondModelDirectory.path(percentEncoded: false)
-    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
-    controller.modelRuntime.loadModel()
-
-    try await waitUntil { controller.modelRuntime.modelState == .ready }
-    try await waitUntilAsync { await runtime.loadCount == 2 }
-    await runtime.releaseFirstLoad()
-    try await Task.sleep(for: .milliseconds(60))
-
-    #expect(controller.modelRuntime.modelState == .ready)
-    #expect(controller.errorMessage == nil)
-    #expect(controller.contextUsage?.tokenLimit == nil)
-    let configurations = await runtime.loadedConfigurations
-    #expect(configurations.count == 2)
-    #expect(configurations[0].localModelDirectory == firstModelDirectory)
-    #expect(configurations[1].localModelDirectory == secondModelDirectory)
-    #expect(configurations[1].contextTokenLimit == 4096)
-  }
-
-  @Test
   func refreshContextUsagePublishesOnlyLatestResult() async throws {
     let runtime = ControlledContextUsageRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -528,32 +439,6 @@ struct ChatSessionControllerTests {
   }
 
   @Test
-  func staleUnloadDoesNotOverwriteRuntimeAfterSubsequentLoad() async throws {
-    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
-    let runtime = DelayedUnloadRuntime()
-    let controller = ChatSessionController(
-      runtime: runtime,
-      modelPath: modelDirectory.path(percentEncoded: false)
-    )
-    controller.modelRuntime.modelState = .ready
-
-    controller.prepareForModelRuntimeAction(cancelGeneration: true, invalidateContext: true)
-    controller.modelRuntime.unloadModel()
-    try await waitUntilAsync { await runtime.didStartUnload }
-
-    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
-    controller.modelRuntime.loadModel()
-    try await Task.sleep(for: .milliseconds(60))
-    #expect(await runtime.loadCount == 0)
-
-    await runtime.releaseUnload()
-    try await waitUntil { controller.modelRuntime.modelState == .ready }
-
-    #expect(await runtime.isLoaded)
-    #expect(controller.errorMessage == nil)
-  }
-
-  @Test
   func staleAttachmentLoadDoesNotAppendAfterNewerAttachmentRequest() async throws {
     let loader = BlockingFirstAttachmentLoader()
     let controller = ChatSessionController(
@@ -574,26 +459,6 @@ struct ChatSessionControllerTests {
     try await Task.sleep(for: .milliseconds(60))
 
     #expect(controller.chatSession.attachments.map(\.displayName) == ["second.swift"])
-  }
-
-  @Test
-  func unloadModelReleasesRuntimeAndResetsModelState() async throws {
-    let runtime = ChatSessionFakeChatModelRuntime()
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
-    controller.draft = "hello"
-
-    controller.prepareForModelRuntimeAction(cancelGeneration: true, invalidateContext: true)
-    controller.modelRuntime.unloadModel()
-
-    try await waitUntil { controller.modelRuntime.modelState == .notLoaded }
-    try await waitUntilAsync { await runtime.didUnload }
-
-    #expect(await runtime.didUnload)
-    #expect(controller.contextUsage == nil)
-    #expect(!controller.canSend)
-    #expect(controller.errorMessage == nil)
   }
 
   private func waitUntil(
