@@ -10,10 +10,10 @@ finding is tied to concrete files and describes an incremental direction rather 
 
 The codebase is a SwiftUI/MVVM hybrid with service-oriented boundaries for runtime,
 model lifecycle, stores, attachment loading, and tools. The chat workflow now has an explicit
-turn lifecycle with cancellation state and model-context filtering, which removes the largest
-stale-task risk from generation cancellation. The main remaining risks are incomplete typed-tool
+turn lifecycle with cancellation state, model-context filtering, and consistent delivery status
+cleanup for cancelled or failed partial output. The main remaining risks are incomplete typed-tool
 approval support, duplicate permission policy paths, UI-adjacent session persistence, and the
-controller still applying many transcript mutations.
+controller still applying some workflow transcript mutations directly.
 
 ## Findings
 
@@ -23,8 +23,7 @@ controller still applying many transcript mutations.
 | A-02 | Medium | Tool permission logic exists in two paths | `local-coder/Services/ToolExecution.swift`, `local-coder/Services/ToolPermissionEvaluator.swift` |
 | A-03 | Medium | The approval flow is not implemented in the typed tool runtime path yet | `local-coder/Services/ToolExecution.swift` |
 | A-04 | Medium | `AppState` couples navigation, session lifecycle, and persistence | `local-coder/App/AppState.swift` |
-| A-05 | Low | Stores are actor-isolated but still perform synchronous file IO internally | `local-coder/Services/WorkspaceStore.swift`, `local-coder/Services/ModelSettingsStore.swift` |
-| A-06 | Low | Tool-loop transcript application remains controller-adjacent | `local-coder/Features/Chat/ChatSessionController.swift`, `local-coder/Features/Chat/ToolLoopCoordinator.swift` |
+| A-05 | Low | Tool-loop transcript application remains controller-adjacent | `local-coder/Features/Chat/ChatSessionController.swift`, `local-coder/Features/Chat/ToolLoopCoordinator.swift` |
 
 ## Details
 
@@ -118,26 +117,7 @@ Concrete solution:
 - Keep `AppState` as an observable facade.
 - Move persistence scheduling into a dedicated coordinator.
 
-### A-05: Stores are actor-isolated but still perform synchronous file IO internally
-
-Severity: Low
-
-Evidence:
-
-- `WorkspaceStore` and `ModelSettingsStore` are actors, so callers are serialized.
-- The actual file reads and writes still use synchronous `Data(contentsOf:)` and `data.write(...)`.
-
-Risk:
-
-- This is acceptable for small local JSON files today.
-- If store payloads grow, actor calls can still occupy executor time during disk IO.
-
-Concrete solution:
-
-- Keep actor isolation.
-- Move larger future persistence work to async file APIs or detached IO inside the actor boundary.
-
-### A-06: Tool-loop transcript application remains controller-adjacent
+### A-05: Tool-loop transcript application remains controller-adjacent
 
 Severity: Low
 
@@ -164,6 +144,11 @@ Concrete solution:
 - Cancelled tool-turn audit data remains visible but is excluded from future model context through
   `ChatModelContextBuilder`.
 - `ChatMessage` now records `turnID` and `deliveryStatus` with migration-safe decode defaults.
+- Transient assistant placeholders are removed from both the transcript and the owning turn's
+  `messageIDs`, so persisted turn audit links do not point at deleted messages.
+- Failed or cancelled partial assistant output no longer stays in `deliveryStatus == .streaming`;
+  cancelled partial tool markup remains inspectable instead of being shown as an active
+  "Preparing tool call" placeholder.
 - `WorkspaceStore` and `ModelSettingsStore` are actor-isolated.
 - `ToolLoopCoordinator` and `ToolPromptPolicy` have been extracted from the controller.
 - The typed tool system has typed inputs, type erasure, a registry, and documentation in
@@ -175,4 +160,3 @@ Concrete solution:
 2. Consolidate or remove `ToolPermissionEvaluator` so only one active permission path exists.
 3. Move tool-loop transcript application to typed events.
 4. Split `AppState` into an observable facade plus a workspace/session coordinator.
-5. Revisit async file IO inside actor-backed stores if persisted payloads grow.
