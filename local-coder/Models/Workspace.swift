@@ -6,6 +6,7 @@ nonisolated struct CodingSession: Codable, Identifiable, Equatable, Sendable {
   var selectedModelID: ManagedModel.ID
   var messages: [ChatMessage]
   var toolCalls: [ToolCallRecord]
+  var turns: [ChatTurnRecord]
   var systemPrompt: String
   var generationSettings: ChatGenerationSettings
   var createdAt: Date
@@ -17,6 +18,7 @@ nonisolated struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     selectedModelID: ManagedModel.ID,
     messages: [ChatMessage] = [],
     toolCalls: [ToolCallRecord] = [],
+    turns: [ChatTurnRecord] = [],
     systemPrompt: String,
     generationSettings: ChatGenerationSettings,
     createdAt: Date = Date(),
@@ -27,6 +29,7 @@ nonisolated struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     self.selectedModelID = selectedModelID
     self.messages = messages
     self.toolCalls = toolCalls
+    self.turns = turns
     self.systemPrompt = systemPrompt
     self.generationSettings = generationSettings
     self.createdAt = createdAt
@@ -39,6 +42,7 @@ nonisolated struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     case selectedModelID
     case messages
     case toolCalls
+    case turns
     case systemPrompt
     case generationSettings
     case createdAt
@@ -52,6 +56,7 @@ nonisolated struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     selectedModelID = try container.decode(ManagedModel.ID.self, forKey: .selectedModelID)
     messages = try container.decode([ChatMessage].self, forKey: .messages)
     toolCalls = try container.decodeIfPresent([ToolCallRecord].self, forKey: .toolCalls) ?? []
+    turns = try container.decodeIfPresent([ChatTurnRecord].self, forKey: .turns) ?? []
     systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
     generationSettings = try container.decode(
       ChatGenerationSettings.self, forKey: .generationSettings)

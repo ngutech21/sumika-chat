@@ -4,6 +4,8 @@
 
 - [Tool Runtime](docs/tool-runtime.md): core flow for adding type-safe tools,
   permissions, registries, and model-facing tool calls.
+- [Chat Runtime](docs/chat-runtime.md): chat turn lifecycle, cancellation,
+  transcript state, and model-context filtering.
 
 ## Development
 

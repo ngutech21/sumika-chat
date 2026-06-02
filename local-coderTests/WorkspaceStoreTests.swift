@@ -62,10 +62,16 @@ struct WorkspaceStoreTests {
     let workspaceID = UUID()
     let sessionID = UUID()
     let toolCall = makeToolCallRecord(workspaceID: workspaceID, sessionID: sessionID)
+    let turn = ChatTurnRecord(
+      status: .cancelled,
+      modelContextPolicy: .excluded,
+      toolCallIDs: [toolCall.id]
+    )
     let session = CodingSession(
       id: sessionID,
       selectedModelID: "gemma3-1b",
       toolCalls: [toolCall],
+      turns: [turn],
       systemPrompt: "Use short answers.",
       generationSettings: .codingDefault
     )
@@ -88,10 +94,11 @@ struct WorkspaceStoreTests {
     #expect(reloadedToolCall == toolCall)
     #expect(reloadedToolCall.events.first?.actor == .assistant)
     #expect(reloadedToolCall.resultPreview?.redacted == true)
+    #expect(reloaded.workspaces.first?.sessions.first?.turns == [turn])
   }
 
   @Test
-  func codingSessionDecodesLegacyJSONWithoutToolCalls() throws {
+  func codingSessionDecodesLegacyJSONWithoutToolCallsOrTurns() throws {
     let legacySession = LegacyCodingSession(
       id: UUID(),
       title: "Legacy",
@@ -109,6 +116,7 @@ struct WorkspaceStoreTests {
     #expect(decoded.id == legacySession.id)
     #expect(decoded.messages == legacySession.messages)
     #expect(decoded.toolCalls.isEmpty)
+    #expect(decoded.turns.isEmpty)
   }
 
   @Test

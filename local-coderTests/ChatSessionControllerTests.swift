@@ -51,6 +51,14 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.messages[0].attachments == [attachment])
     #expect(controller.chatSession.messages[1].kind == .assistant)
     #expect(controller.chatSession.messages[1].content == "hello world")
+    #expect(controller.chatSession.messages[1].deliveryStatus == .complete)
+    #expect(controller.chatSession.turns.count == 1)
+    #expect(controller.chatSession.turns[0].status == .completed)
+    #expect(controller.chatSession.turns[0].modelContextPolicy == .included)
+    #expect(
+      controller.chatSession.messages.map(\.turnID).allSatisfy {
+        $0 == controller.chatSession.turns[0].id
+      })
     #expect(
       controller.chatSession.messages[1].generationMetrics
         == ChatGenerationMetrics(
@@ -79,7 +87,118 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.messages.count == 1)
     #expect(controller.chatSession.messages.first?.kind == .user)
     #expect(controller.chatSession.messages.first?.content == "Cancel this")
+    #expect(controller.chatSession.turns.count == 1)
+    #expect(controller.chatSession.turns[0].status == .cancelled)
+    #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
+    #expect(controller.chatSession.turns[0].messageIDs == [controller.chatSession.messages[0].id])
     #expect(controller.errorMessage == nil)
+  }
+
+  @Test
+  func failedStreamWithPartialOutputDoesNotLeaveAssistantMessageStreaming() async throws {
+    let runtime = PartialFailingStreamingRuntime(chunks: ["partial answer"])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "fail after partial output"
+
+    controller.sendMessage()
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.turns.count == 1)
+    #expect(controller.chatSession.turns[0].status == .failed)
+    #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
+    #expect(controller.chatSession.messages.count == 2)
+    #expect(controller.chatSession.messages[1].kind == .assistant)
+    #expect(controller.chatSession.messages[1].content == "partial answer")
+    #expect(controller.chatSession.messages[1].deliveryStatus == .cancelled)
+    #expect(
+      controller.errorMessage
+        == ChatSessionFakeChatModelRuntimeError.streamFailed.localizedDescription)
+  }
+
+  @Test
+  func cancelAfterToolResultKeepsAuditButExcludesCancelledTurnFromNextPrompt() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ControlledStreamingRuntime(
+      turns: [
+        [
+          """
+          <action name="list_files">
+          <path>.</path>
+          </action>
+          """
+        ],
+        ["This follow-up should be cancelled."],
+        ["Yes, I'm here."],
+      ],
+      blockedCallIndexes: [1]
+    )
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "list the files in the current directory"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntilAsync { await runtime.startedStreamCount == 2 }
+    try await waitUntil { controller.chatSession.messages.contains { $0.kind == .toolResult } }
+
+    controller.cancelGeneration()
+    await runtime.releaseStream(callIndex: 1)
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.toolCalls.count == 1)
+    #expect(controller.chatSession.toolCalls[0].status == .completed)
+    #expect(controller.chatSession.messages.contains { $0.kind == .toolCall })
+    #expect(controller.chatSession.messages.contains { $0.kind == .toolResult })
+    #expect(controller.chatSession.turns.count == 1)
+    #expect(controller.chatSession.turns[0].status == .cancelled)
+    #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
+
+    controller.draft = "are you there"
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntil { !controller.isGenerating }
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 3)
+    #expect(capturedMessages[2].contains { $0.kind == .toolCall } == false)
+    #expect(capturedMessages[2].contains { $0.kind == .toolResult } == false)
+    #expect(capturedMessages[2].contains { $0.content.contains("list the files") } == false)
+    #expect(capturedMessages[2].contains { $0.content == "are you there" })
+  }
+
+  @Test
+  func staleCancelledStreamDoesNotResetNewTurnGenerationState() async throws {
+    let runtime = ControlledStreamingRuntime(
+      turns: [
+        ["late first answer"],
+        ["second answer"],
+      ],
+      blockedCallIndexes: [0, 1]
+    )
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "first"
+
+    controller.sendMessage()
+    try await waitUntilAsync { await runtime.startedStreamCount == 1 }
+    controller.cancelGeneration()
+
+    controller.draft = "second"
+    controller.sendMessage()
+    try await waitUntilAsync { await runtime.startedStreamCount == 2 }
+
+    await runtime.releaseStream(callIndex: 0)
+    try await Task.sleep(for: .milliseconds(80))
+    #expect(controller.isGenerating)
+    #expect(controller.chatSession.turns.count == 2)
+    #expect(controller.chatSession.turns[0].status == .cancelled)
+    #expect(controller.chatSession.turns[1].status == .running)
+
+    await runtime.releaseStream(callIndex: 1)
+    try await waitUntil { !controller.isGenerating }
+    #expect(controller.chatSession.turns[1].status == .completed)
+    #expect(controller.chatSession.messages.last?.content == "second answer")
   }
 
   @Test

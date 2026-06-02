@@ -124,6 +124,150 @@ actor ControlledContextUsageRuntime: ChatModelRuntime {
   }
 }
 
+actor ControlledStreamingRuntime: ChatModelRuntime {
+  private let turns: [[String]]
+  private let blockedCallIndexes: Set<Int>
+  private var streamContinuations: [Int: CheckedContinuation<Void, Never>] = [:]
+  private var releasedCallIndexes: Set<Int> = []
+  private var streamReplyCount = 0
+  private(set) var capturedMessages: [[ChatMessage]] = []
+  private(set) var capturedSystemPrompts: [String] = []
+
+  init(turns: [[String]], blockedCallIndexes: Set<Int>) {
+    self.turns = turns
+    self.blockedCallIndexes = blockedCallIndexes
+  }
+
+  var startedStreamCount: Int {
+    streamReplyCount
+  }
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+  }
+
+  func unload() async {}
+  func clearContext() async {}
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func releaseStream(callIndex: Int) {
+    releasedCallIndexes.insert(callIndex)
+    streamContinuations.removeValue(forKey: callIndex)?.resume()
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = attachments
+    _ = settings
+
+    capturedMessages.append(messages)
+    capturedSystemPrompts.append(systemPrompt)
+    let callIndex = streamReplyCount
+    streamReplyCount += 1
+    let chunks = turns[min(callIndex, turns.count - 1)]
+    let shouldBlock = blockedCallIndexes.contains(callIndex)
+
+    return AsyncThrowingStream { continuation in
+      let task = Task {
+        if shouldBlock {
+          await withCheckedContinuation { release in
+            Task {
+              await self.storeStreamContinuation(release, callIndex: callIndex)
+            }
+          }
+        }
+
+        guard !Task.isCancelled else {
+          continuation.finish(throwing: CancellationError())
+          return
+        }
+
+        for chunk in chunks {
+          continuation.yield(.chunk(chunk))
+        }
+        continuation.yield(
+          .completed(ChatGenerationMetrics(generatedTokenCount: chunks.count, tokensPerSecond: 100))
+        )
+        continuation.finish()
+      }
+
+      continuation.onTermination = { _ in
+        task.cancel()
+      }
+    }
+  }
+
+  private func storeStreamContinuation(
+    _ continuation: CheckedContinuation<Void, Never>,
+    callIndex: Int
+  ) {
+    guard !releasedCallIndexes.contains(callIndex) else {
+      continuation.resume()
+      return
+    }
+    streamContinuations[callIndex] = continuation
+  }
+}
+
+actor PartialFailingStreamingRuntime: ChatModelRuntime {
+  private let chunks: [String]
+
+  init(chunks: [String]) {
+    self.chunks = chunks
+  }
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+  }
+
+  func unload() async {}
+  func clearContext() async {}
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+
+    return AsyncThrowingStream { continuation in
+      for chunk in chunks {
+        continuation.yield(.chunk(chunk))
+      }
+      continuation.finish(throwing: ChatSessionFakeChatModelRuntimeError.streamFailed)
+    }
+  }
+}
+
 actor DelayedClearContextRuntime: ChatModelRuntime {
   private var clearContextContinuation: CheckedContinuation<Void, Never>?
   private(set) var didStartClearContext = false

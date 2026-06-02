@@ -95,3 +95,6 @@ flowchart TD
   execution.
 - Tool results must report affected paths where possible so the UI can show a
   useful audit trail.
+- Tool results from a cancelled chat turn may remain visible for auditability,
+  but the chat model context must exclude them unless that same turn is still
+  actively generating its direct follow-up response.

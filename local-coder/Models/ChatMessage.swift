@@ -8,6 +8,8 @@ nonisolated struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
   let generationMetrics: ChatGenerationMetrics?
   let toolCall: ToolCallModelMessage?
   let toolResult: ToolResultModelMessage?
+  let turnID: ChatTurnRecord.ID?
+  let deliveryStatus: ChatMessageDeliveryStatus
 
   init(
     id: UUID = UUID(),
@@ -16,7 +18,9 @@ nonisolated struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     attachments: [ChatAttachment] = [],
     generationMetrics: ChatGenerationMetrics? = nil,
     toolCall: ToolCallModelMessage? = nil,
-    toolResult: ToolResultModelMessage? = nil
+    toolResult: ToolResultModelMessage? = nil,
+    turnID: ChatTurnRecord.ID? = nil,
+    deliveryStatus: ChatMessageDeliveryStatus = .complete
   ) {
     precondition(kind.allows(content: content, toolCall: toolCall, toolResult: toolResult))
     self.id = id
@@ -26,6 +30,8 @@ nonisolated struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     self.generationMetrics = generationMetrics
     self.toolCall = toolCall
     self.toolResult = toolResult
+    self.turnID = turnID
+    self.deliveryStatus = deliveryStatus
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -36,6 +42,8 @@ nonisolated struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     case generationMetrics
     case toolCall
     case toolResult
+    case turnID
+    case deliveryStatus
   }
 
   init(from decoder: Decoder) throws {
@@ -48,6 +56,10 @@ nonisolated struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
       ChatGenerationMetrics.self, forKey: .generationMetrics)
     toolCall = try container.decodeIfPresent(ToolCallModelMessage.self, forKey: .toolCall)
     toolResult = try container.decodeIfPresent(ToolResultModelMessage.self, forKey: .toolResult)
+    turnID = try container.decodeIfPresent(ChatTurnRecord.ID.self, forKey: .turnID)
+    deliveryStatus =
+      try container.decodeIfPresent(ChatMessageDeliveryStatus.self, forKey: .deliveryStatus)
+      ?? .complete
 
     guard kind.allows(content: content, toolCall: toolCall, toolResult: toolResult) else {
       throw DecodingError.dataCorruptedError(
@@ -67,12 +79,22 @@ nonisolated struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     try container.encodeIfPresent(generationMetrics, forKey: .generationMetrics)
     try container.encodeIfPresent(toolCall, forKey: .toolCall)
     try container.encodeIfPresent(toolResult, forKey: .toolResult)
+    try container.encodeIfPresent(turnID, forKey: .turnID)
+    if deliveryStatus != .complete {
+      try container.encode(deliveryStatus, forKey: .deliveryStatus)
+    }
   }
 }
 
 nonisolated struct ChatGenerationMetrics: Codable, Equatable, Sendable {
   let generatedTokenCount: Int
   let tokensPerSecond: Double
+}
+
+nonisolated enum ChatMessageDeliveryStatus: String, Codable, Equatable, Sendable {
+  case complete
+  case streaming
+  case cancelled
 }
 
 nonisolated extension ChatMessage {

@@ -2,311 +2,177 @@
 
 Date: 2026-06-02
 
-This list captures the current system-level architecture findings for the codebase after
-`1f0afa3 refactor: add typed tool runtime`. It is intentionally pragmatic: every finding is tied
-to concrete files and describes a small incremental direction rather than a rewrite.
+This list captures the current system-level architecture findings for the codebase after the
+typed tool runtime and explicit chat-turn lifecycle work. It is intentionally pragmatic: every
+finding is tied to concrete files and describes an incremental direction rather than a rewrite.
 
 ## Summary
 
 The codebase is a SwiftUI/MVVM hybrid with service-oriented boundaries for runtime,
-model lifecycle, stores, attachment loading, and tools. The largest remaining risks are in the
-central UI-state orchestration, synchronous stores marked as `@unchecked Sendable`, a still
-inconsistent tool-permission history, and partially UI-adjacent persistence/task coordination.
+model lifecycle, stores, attachment loading, and tools. The chat workflow now has an explicit
+turn lifecycle with cancellation state and model-context filtering, which removes the largest
+stale-task risk from generation cancellation. The main remaining risks are incomplete typed-tool
+approval support, duplicate permission policy paths, UI-adjacent session persistence, and the
+controller still applying many transcript mutations.
 
 ## Findings
 
 | ID | Severity | Finding | Affected Files |
 | --- | --- | --- | --- |
-| A-01 | High | `ChatSessionController` is still an oversized UI-state orchestrator | `local-coder/Features/Chat/ChatSessionController.swift` |
-| A-02 | High | Store implementations are synchronous and marked as `@unchecked Sendable` | `local-coder/Services/WorkspaceStore.swift`, `local-coder/Services/ModelSettingsStore.swift` |
-| A-03 | Medium | Tool permission logic exists in two paths | `local-coder/Services/ToolExecution.swift`, `local-coder/Services/ToolPermissionEvaluator.swift` |
-| A-04 | Medium | The approval flow is not implemented in the typed tool runtime path yet | `local-coder/Services/ToolExecution.swift` |
-| A-05 | Medium | `AppState` couples navigation, session lifecycle, and persistence | `local-coder/App/AppState.swift` |
-| A-06 | Medium | The tool loop still lives in `ChatSessionController` instead of a dedicated coordinator | `local-coder/Features/Chat/ChatSessionController.swift` |
-| A-07 | Low | Tool-call parser recovery is controller-adjacent | `local-coder/Features/Chat/ChatSessionController.swift` |
-| A-08 | Low | Model/workspace persistence is not actor-isolated yet | `local-coder/Services/WorkspaceStore.swift`, `local-coder/Services/ModelSettingsStore.swift` |
+| A-01 | Medium | `ChatSessionController` is still a broad UI-state adapter | `local-coder/Features/Chat/ChatSessionController.swift` |
+| A-02 | Medium | Tool permission logic exists in two paths | `local-coder/Services/ToolExecution.swift`, `local-coder/Services/ToolPermissionEvaluator.swift` |
+| A-03 | Medium | The approval flow is not implemented in the typed tool runtime path yet | `local-coder/Services/ToolExecution.swift` |
+| A-04 | Medium | `AppState` couples navigation, session lifecycle, and persistence | `local-coder/App/AppState.swift` |
+| A-05 | Low | Stores are actor-isolated but still perform synchronous file IO internally | `local-coder/Services/WorkspaceStore.swift`, `local-coder/Services/ModelSettingsStore.swift` |
+| A-06 | Low | Tool-loop transcript application remains controller-adjacent | `local-coder/Features/Chat/ChatSessionController.swift`, `local-coder/Features/Chat/ToolLoopCoordinator.swift` |
 
 ## Details
 
-### A-01: `ChatSessionController` is still an oversized UI-state orchestrator
-
-Severity: High
-
-Affected files:
-
-- `local-coder/Features/Chat/ChatSessionController.swift`
-
-Evidence:
-
-- The file still has `swiftlint:disable file_length` and is over 1000 lines long.
-- The controller owns UI state, runtime coordination, model lifecycle, download state,
-  context usage, attachments, tool prompting, the tool loop, and persistence callbacks.
-- Examples: state and dependencies live in `ChatSessionController.swift:5-45`; the tool loop and
-  prompt decision logic live in `ChatSessionController.swift:726-940`.
-
-Risk:
-
-- High change coupling for new features.
-- Harder test isolation because many side effects are attached to the same type.
-- Higher risk of stale task results and UI-state regressions.
-
-Concrete solution:
-
-- Continue the existing incremental extraction strategy.
-- Move the tool loop into a `ToolLoopCoordinator`.
-- Move prompt-mode/tool-intent decisions into a small `ToolPromptPolicy` type.
-- Keep the controller as the SwiftUI state adapter.
-
-Example refactoring:
-
-```swift
-struct ToolLoopRequest: Sendable {
-  let assistantMessageID: UUID
-  let workspace: Workspace
-  let sessionID: CodingSession.ID
-}
-
-struct ToolLoopCoordinator: Sendable {
-  func run(_ request: ToolLoopRequest, messages: [ChatMessage]) async throws -> ToolLoopResult
-}
-```
-
-### A-02: Store implementations are synchronous and marked as `@unchecked Sendable`
-
-Severity: High
-
-Affected files:
-
-- `local-coder/Services/WorkspaceStore.swift`
-- `local-coder/Services/ModelSettingsStore.swift`
-
-Evidence:
-
-- `WorkspaceStore` is `@unchecked Sendable` and reads/writes synchronously with
-  `Data(contentsOf:)` and `data.write(...)` (`WorkspaceStore.swift:8`,
-  `WorkspaceStore.swift:22-40`).
-- `ModelSettingsStore` is also `@unchecked Sendable` and mixes `UserDefaults` with synchronous
-  file IO (`ModelSettingsStore.swift:42`, `ModelSettingsStore.swift:64-103`).
-
-Risk:
-
-- `@unchecked Sendable` moves thread-safety responsibility onto the developer.
-- Synchronous IO can be called from MainActor paths.
-- The read-modify-write flow in `ModelSettingsStore.save` can lose updates without serialization
-  once multiple callers save concurrently.
-
-Concrete solution:
-
-- Gradually migrate store protocols to async APIs or introduce actor-backed implementations.
-- Serialize persistence inside `actor WorkspaceStoreActor` and `actor ModelSettingsStoreActor`.
-- Keep adapter methods for UI callers initially so views do not need a broad rewrite.
-
-Example refactoring:
-
-```swift
-actor WorkspaceStoreActor: WorkspaceStoring {
-  func loadLibrary() async -> WorkspaceLibrary
-  func saveLibrary(_ library: WorkspaceLibrary) async throws
-}
-```
-
-### A-03: Tool permission logic exists in two paths
+### A-01: `ChatSessionController` is still a broad UI-state adapter
 
 Severity: Medium
 
-Affected files:
-
-- `local-coder/Services/ToolExecution.swift`
-- `local-coder/Services/ToolPermissionEvaluator.swift`
-
 Evidence:
 
-- The new typed runtime path calls `TypedToolExecutor.evaluatePermission` through
-  `AnyToolExecutor` (`ToolExecution.swift:25-34`).
-- The old `ToolPermissionEvaluator` still exists and contains its own rules for `read_file`,
-  `list_files`, `write_file`, `apply_patch`, and `run_command`
-  (`ToolPermissionEvaluator.swift:3-68`).
-- The workspace-ID guard was restored centrally in the active orchestrator path
-  (`ToolExecution.swift:459-480`), but the remaining policies can still diverge.
+- `ChatTurnCoordinator` now owns the active turn task and turn-ID gating, but
+  `ChatSessionController` still applies transcript mutations, context refreshes, model state
+  callbacks, attachment events, and persistence notifications.
+- Generation, tool-loop, cancellation, and context-refresh events still meet in one observable
+  type.
 
 Risk:
 
-- Tests can cover the old evaluator while the active runtime path behaves differently.
-- For new tools, it is unclear whether permission should live in the tool, in the evaluator, or in
-  both places.
+- Future features such as write-tool approvals, multi-step plans, or per-turn review panes can
+  grow the controller again.
+- Tests still need to instantiate a large controller to verify some workflow behavior.
 
 Concrete solution:
 
-- Either remove `ToolPermissionEvaluator` or convert it into a shared `ToolPermissionPolicy` for
-  reusable path/workspace checks.
+- Keep `ChatSessionController` as the SwiftUI-observable facade.
+- Move transcript mutation application toward turn events emitted by `ChatTurnCoordinator`.
+- Keep context filtering in `ChatModelContextBuilder` as the single model-context boundary.
+
+### A-02: Tool permission logic exists in two paths
+
+Severity: Medium
+
+Evidence:
+
+- The active typed runtime path evaluates permissions through each `TypedToolExecutor`.
+- `ToolPermissionEvaluator` still exists with its own rules for read, list, write, patch, and
+  command requests.
+
+Risk:
+
+- Tests or future features can accidentally cover one permission path while production behavior
+  uses the other.
+- New tools have an unclear policy home.
+
+Concrete solution:
+
+- Either remove `ToolPermissionEvaluator` or convert it into a shared reusable
+  `WorkspacePathPermissionPolicy`.
 - Focus tests on the active `ToolOrchestrator` path.
 
-Example refactoring:
-
-```swift
-struct WorkspacePathPermissionPolicy: Sendable {
-  func allowRead(path: String, in workspace: Workspace) -> ToolPermissionEvaluation
-  func requireWriteApproval(path: String, in workspace: Workspace) -> ToolPermissionEvaluation
-}
-```
-
-### A-04: The approval flow is not implemented in the typed tool runtime path yet
+### A-03: The approval flow is not implemented in the typed tool runtime path yet
 
 Severity: Medium
 
-Affected files:
-
-- `local-coder/Services/ToolExecution.swift`
-
 Evidence:
 
-- `AnyToolExecutor` currently only executes `.allowed`.
-- Everything else fails closed as `.denied` (`ToolExecution.swift:31-45`).
-- The inline comment documents that `.requiresApproval` must become an approval handoff when
-  write/patch/command tools are introduced.
+- `AnyToolExecutor` executes only `.allowed`.
+- `.requiresApproval` currently falls into the denied branch instead of an awaiting-approval
+  handoff.
 
 Risk:
 
-- Once a typed write/command tool is registered, it cannot transition into a UI approval state.
-- The active runtime path loses the distinction between "denied" and "requires approval".
+- Write, patch, and command tools cannot enter a reviewable approval state through the active
+  typed runtime.
+- The system can lose the product distinction between denied and requires approval.
 
 Concrete solution:
 
-- Switch explicitly on `evaluation.decision`.
-- Map `.requiresApproval` to `ToolCallStatus.awaitingApproval` and prevent execution.
-- Introduce a separate `approveToolCall` runtime API for later execution.
+- Switch explicitly on `ToolPermissionDecision`.
+- Map `.requiresApproval` to `ToolCallStatus.awaitingApproval`.
+- Add a separate approval API for executing approved tool calls.
 
-Example refactoring:
-
-```swift
-switch evaluation.decision {
-case .allowed:
-  return await runAllowedTool()
-case .requiresApproval:
-  return makeAwaitingApprovalRecord(evaluation)
-case .denied:
-  return makeDeniedRecord(evaluation)
-}
-```
-
-### A-05: `AppState` couples navigation, session lifecycle, and persistence
+### A-04: `AppState` couples navigation, session lifecycle, and persistence
 
 Severity: Medium
 
-Affected files:
-
-- `local-coder/App/AppState.swift`
-
 Evidence:
 
-- `AppState` is `@MainActor @Observable` and owns the workspace library, active selection,
-  `ChatSessionController`, stores, and persistence callbacks (`AppState.swift:4-35`).
-- Methods such as `addWorkspace`, `createSession`, and `selectSession` mutate navigation,
-  sessions, persistence, and controller loading state in one type (`AppState.swift:61-124`).
+- `AppState` owns the workspace library, active selection, chat controller, stores, and
+  persistence callbacks.
+- Workspace/session mutations still mix navigation changes, controller loading, snapshotting, and
+  save scheduling.
 
 Risk:
 
-- New workspace/session features increase coupling between UI navigation and persistence.
-- Session-switch edge cases are harder to test because persistence and controller snapshots are
-  intertwined.
+- Session switching, deletion, persistence, and future background operations remain highly
+  coupled.
 
 Concrete solution:
 
 - Introduce a `WorkspaceSessionCoordinator` for workspace/session mutations.
 - Keep `AppState` as an observable facade.
-- Move persistence calls out of UI mutation methods into a dedicated coordinator.
+- Move persistence scheduling into a dedicated coordinator.
 
-### A-06: The tool loop still lives in `ChatSessionController` instead of a dedicated coordinator
-
-Severity: Medium
-
-Affected files:
-
-- `local-coder/Features/Chat/ChatSessionController.swift`
-
-Evidence:
-
-- `runReadOnlyToolLoop` parses assistant content, annotates messages, executes tools, writes
-  `ToolCallRecord`, creates `ToolResultModelMessage`, appends an assistant placeholder, and starts
-  follow-up streaming (`ChatSessionController.swift:726-778`).
-
-Risk:
-
-- The app's core tool system is functionally important but still bound to UI-state mutation.
-- Future multi-iteration, write approval, or provider-native tool calls will further grow the
-  controller.
-
-Concrete solution:
-
-- Move tool-loop orchestration into `ToolLoopCoordinator`.
-- Return mutations as events or a `ToolLoopResult` for the controller to apply.
-- Keep the current `maxToolIterations = 1` semantics initially.
-
-### A-07: Tool-call parser recovery is controller-adjacent
+### A-05: Stores are actor-isolated but still perform synchronous file IO internally
 
 Severity: Low
 
-Affected files:
-
-- `local-coder/Features/Chat/ChatSessionController.swift`
-
 Evidence:
 
-- `parseToolCallResult`, `recoverableToolActionContent`, and `singleFencedCodeBlockContent` live in
-  the controller (`ChatSessionController.swift:780-858`).
+- `WorkspaceStore` and `ModelSettingsStore` are actors, so callers are serialized.
+- The actual file reads and writes still use synchronous `Data(contentsOf:)` and `data.write(...)`.
 
 Risk:
 
-- Parser behavior and recovery rules are harder to reuse once JSON or provider-native tool calls
-  are added.
+- This is acceptable for small local JSON files today.
+- If store payloads grow, actor calls can still occupy executor time during disk IO.
 
 Concrete solution:
 
-- Move recovery into a decorator around the parser, for example `RecoveringToolCallParser`.
-- The controller should only call `toolCallParser.parse(...)`.
+- Keep actor isolation.
+- Move larger future persistence work to async file APIs or detached IO inside the actor boundary.
 
-### A-08: Model/workspace persistence is not actor-isolated yet
+### A-06: Tool-loop transcript application remains controller-adjacent
 
 Severity: Low
 
-Affected files:
-
-- `local-coder/Services/WorkspaceStore.swift`
-- `local-coder/Services/ModelSettingsStore.swift`
-
 Evidence:
 
-- Stores are plain classes with synchronous file IO and no internal queue/actor isolation.
-- `@unchecked Sendable` is used, but there is no explicit serialization
-  (`WorkspaceStore.swift:8`, `ModelSettingsStore.swift:42`).
+- `ToolLoopCoordinator` parses and executes a read-only tool call.
+- The controller still annotates the tool-call message, appends the tool result, registers turn
+  message/tool IDs, and starts the follow-up generation.
 
 Risk:
 
-- This is probably controllable today because many calls come from the MainActor.
-- During a future async migration, the same instance can be used concurrently.
+- Multi-iteration tool loops and approval flows will add more transcript-application cases.
 
 Concrete solution:
 
-- Introduce actor-backed store implementations first.
-- Then remove `@unchecked Sendable` or limit it to adapters.
-- Add tests for concurrent saves.
+- Evolve `ToolLoopCoordinator` to emit typed transcript events.
+- Let the controller apply events through `ChatTranscriptMutator` without knowing each tool-loop
+  step.
 
 ## Already Improved
 
-- `ChatSessionController` is no longer the sole owner of runtime operation ordering;
-  `RuntimeOperationCoordinator` serializes runtime operations.
-- Model lifecycle and generation have already been extracted into `ModelLifecycleCoordinator` and
-  `ChatGenerationCoordinator`.
-- `read_file` now reads bounded previews instead of whole files.
-- The tool system now has typed inputs, type erasure, a registry, and documentation in
+- `ChatTurnCoordinator` owns the active generation task and turn ID.
+- Cancelled turns are persisted as `ChatTurnRecord.status == .cancelled`.
+- Cancelled tool-turn audit data remains visible but is excluded from future model context through
+  `ChatModelContextBuilder`.
+- `ChatMessage` now records `turnID` and `deliveryStatus` with migration-safe decode defaults.
+- `WorkspaceStore` and `ModelSettingsStore` are actor-isolated.
+- `ToolLoopCoordinator` and `ToolPromptPolicy` have been extracted from the controller.
+- The typed tool system has typed inputs, type erasure, a registry, and documentation in
   `docs/tool-runtime.md`.
-- The active `ToolOrchestrator` now verifies that `ToolCallRequest.workspaceID` matches the active
-  workspace.
 
 ## Recommended Order
 
-1. Consolidate or remove `ToolPermissionEvaluator` so only one active permission path exists.
-2. Model `.requiresApproval` in the typed runtime path as `awaitingApproval`.
-3. Introduce `ToolLoopCoordinator` and move `runReadOnlyToolLoop` out of the controller.
-4. Actor-isolate store implementations and reduce `@unchecked Sendable`.
-5. Split `AppState` into an observable facade plus a workspace/session coordinator.
+1. Model `.requiresApproval` in the typed runtime path as `awaitingApproval`.
+2. Consolidate or remove `ToolPermissionEvaluator` so only one active permission path exists.
+3. Move tool-loop transcript application to typed events.
+4. Split `AppState` into an observable facade plus a workspace/session coordinator.
+5. Revisit async file IO inside actor-backed stores if persisted payloads grow.

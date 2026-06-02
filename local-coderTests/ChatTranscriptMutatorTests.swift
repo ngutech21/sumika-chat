@@ -26,7 +26,11 @@ struct ChatTranscriptMutatorTests {
 
     mutator.appendAssistantPlaceholder(id: assistantID, to: &state)
 
-    #expect(state.messages == [ChatMessage(id: assistantID, kind: .assistant, content: "")])
+    #expect(state.messages.count == 1)
+    #expect(state.messages[0].id == assistantID)
+    #expect(state.messages[0].kind == .assistant)
+    #expect(state.messages[0].content.isEmpty)
+    #expect(state.messages[0].deliveryStatus == .streaming)
   }
 
   @Test
@@ -126,7 +130,12 @@ struct ChatTranscriptMutatorTests {
     let userMessage = ChatMessage(kind: .user, content: "Prompt")
     var state = makeState(messages: [
       userMessage,
-      ChatMessage(id: emptyAssistantID, kind: .assistant, content: ""),
+      ChatMessage(
+        id: emptyAssistantID,
+        kind: .assistant,
+        content: "",
+        deliveryStatus: .streaming
+      ),
       filledAssistant,
     ])
     let mutator = ChatTranscriptMutator()
@@ -137,11 +146,55 @@ struct ChatTranscriptMutatorTests {
   }
 
   @Test
-  func clearTranscriptClearsMessagesAndAttachmentsOnly() {
+  func removeTransientAssistantPlaceholdersRemovesMessageIDsFromTurns() {
+    let turnID = UUID()
+    let userID = UUID()
+    let emptyAssistantID = UUID()
+    let filledAssistantID = UUID()
+    var state = makeState(
+      messages: [
+        ChatMessage(id: userID, kind: .user, content: "Prompt", turnID: turnID),
+        ChatMessage(
+          id: emptyAssistantID,
+          kind: .assistant,
+          content: "",
+          turnID: turnID,
+          deliveryStatus: .streaming
+        ),
+        ChatMessage(
+          id: filledAssistantID,
+          kind: .assistant,
+          content: "Done",
+          turnID: turnID,
+          deliveryStatus: .complete
+        ),
+      ],
+      turns: [
+        ChatTurnRecord(
+          id: turnID,
+          status: .cancelled,
+          messageIDs: [userID, emptyAssistantID, filledAssistantID]
+        )
+      ]
+    )
+    let mutator = ChatTranscriptMutator()
+
+    mutator.removeTransientAssistantPlaceholders(from: &state)
+
+    #expect(state.messages.map(\.id) == [userID, filledAssistantID])
+    #expect(state.turns[0].messageIDs == [userID, filledAssistantID])
+  }
+
+  @Test
+  func clearTranscriptClearsMessagesToolsTurnsAndAttachmentsOnly() {
     let attachment = makeAttachment(name: "notes.txt")
     let settings = ChatGenerationSettings(temperature: 0.2, topP: 0.8, topK: 10, maxTokens: 256)
+    let turn = ChatTurnRecord(status: .completed)
+    let toolCall = makeToolCallRecord()
     var state = makeState(
       messages: [ChatMessage(kind: .user, content: "Prompt")],
+      toolCalls: [toolCall],
+      turns: [turn],
       attachments: [attachment],
       systemPrompt: "Keep this prompt",
       generationSettings: settings
@@ -151,6 +204,8 @@ struct ChatTranscriptMutatorTests {
     mutator.clearTranscript(in: &state)
 
     #expect(state.messages.isEmpty)
+    #expect(state.toolCalls.isEmpty)
+    #expect(state.turns.isEmpty)
     #expect(state.attachments.isEmpty)
     #expect(state.systemPrompt == "Keep this prompt")
     #expect(state.generationSettings == settings)
@@ -174,12 +229,16 @@ struct ChatTranscriptMutatorTests {
 
 private func makeState(
   messages: [ChatMessage] = [],
+  toolCalls: [ToolCallRecord] = [],
+  turns: [ChatTurnRecord] = [],
   attachments: [ChatAttachment] = [],
   systemPrompt: String = "System",
   generationSettings: ChatGenerationSettings = .codingDefault
 ) -> ChatSessionState {
   ChatSessionState(
     messages: messages,
+    toolCalls: toolCalls,
+    turns: turns,
     attachments: attachments,
     systemPrompt: systemPrompt,
     generationSettings: generationSettings
@@ -192,5 +251,22 @@ private func makeAttachment(name: String) -> ChatAttachment {
     displayName: name,
     kind: .text,
     content: "content"
+  )
+}
+
+private func makeToolCallRecord() -> ToolCallRecord {
+  let request = ToolCallRequest(
+    workspaceID: UUID(),
+    sessionID: UUID(),
+    toolName: .listFiles
+  )
+  return ToolCallRecord(
+    request: request,
+    status: .completed,
+    evaluation: ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Allowed for test.",
+      riskLevel: .low
+    )
   )
 }

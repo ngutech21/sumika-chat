@@ -37,4 +37,21 @@ struct ChatMessageTests {
 
     #expect(!message.containsStreamingToolCallMarkup)
   }
+
+  @Test
+  func showsAssistantPlaceholderOnlyForStreamingMessages() {
+    let streamingPartialToolCall = ChatMessage(
+      kind: .assistant,
+      content: "<action name=\"list_files\">",
+      deliveryStatus: .streaming
+    )
+    let cancelledPartialToolCall = ChatMessage(
+      kind: .assistant,
+      content: "<action name=\"list_files\">",
+      deliveryStatus: .cancelled
+    )
+
+    #expect(streamingPartialToolCall.shouldShowAssistantPlaceholder)
+    #expect(!cancelledPartialToolCall.shouldShowAssistantPlaceholder)
+  }
 }

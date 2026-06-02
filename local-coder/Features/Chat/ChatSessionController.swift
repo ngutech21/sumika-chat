@@ -18,9 +18,10 @@ final class ChatSessionController {
   @ObservationIgnored private let toolOrchestrator: ToolOrchestrator
   @ObservationIgnored private let toolPromptPolicy: ToolPromptPolicy
   @ObservationIgnored private let toolLoopCoordinator: ToolLoopCoordinator
+  @ObservationIgnored private let chatTurnCoordinator = ChatTurnCoordinator()
+  @ObservationIgnored private let modelContextBuilder = ChatModelContextBuilder()
   @ObservationIgnored private let attachmentCoordinator: ChatAttachmentCoordinator
   @ObservationIgnored private let transcriptMutator = ChatTranscriptMutator()
-  @ObservationIgnored private var generationTask: Task<Void, Never>?
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
@@ -153,10 +154,6 @@ final class ChatSessionController {
     self.chatSession = chatSession
     configureModelRuntimeCallbacks()
   }
-
-  deinit {
-    generationTask?.cancel()
-  }
 }
 
 extension ChatSessionController {
@@ -202,6 +199,7 @@ extension ChatSessionController {
     chatSession = ChatSessionState(
       messages: session.messages,
       toolCalls: session.toolCalls,
+      turns: session.turns,
       attachments: [],
       systemPrompt: session.systemPrompt,
       generationSettings: session.generationSettings
@@ -219,6 +217,7 @@ extension ChatSessionController {
     snapshot.selectedModelID = modelRuntime.selectedModelID
     snapshot.messages = chatSession.messages
     snapshot.toolCalls = chatSession.toolCalls
+    snapshot.turns = chatSession.turns
     snapshot.systemPrompt = chatSession.systemPrompt
     snapshot.generationSettings = chatSession.generationSettings
     snapshot.updatedAt = Date()
@@ -255,43 +254,99 @@ extension ChatSessionController {
     guard canSend else { return }
 
     let sentAttachments = chatSession.attachments
+    let turnID = UUID()
+    let userMessageID = UUID()
+    let assistantMessageID = UUID()
     draft = ""
     errorMessage = nil
     chatSession.attachments.removeAll()
-    transcriptMutator.appendUserMessage(prompt, attachments: sentAttachments, to: &chatSession)
-    let assistantMessageID = UUID()
-    transcriptMutator.appendAssistantPlaceholder(id: assistantMessageID, to: &chatSession)
+    transcriptMutator.appendTurn(
+      ChatTurnRecord(
+        id: turnID,
+        status: .running,
+        messageIDs: [userMessageID, assistantMessageID]
+      ),
+      to: &chatSession
+    )
+    transcriptMutator.appendUserMessage(
+      prompt,
+      id: userMessageID,
+      turnID: turnID,
+      attachments: sentAttachments,
+      to: &chatSession
+    )
+    transcriptMutator.appendAssistantPlaceholder(
+      id: assistantMessageID,
+      turnID: turnID,
+      to: &chatSession
+    )
     isGenerating = true
     notifySessionDidChange()
 
-    generationTask = Task {
+    chatTurnCoordinator.startTurn(id: turnID) { [weak self] turnID in
+      guard let self else {
+        return
+      }
+
       do {
         let allowsToolCalls = toolPromptPolicy.shouldAllowToolCalls(
           workspace: workspace,
           prompt: prompt,
           attachments: sentAttachments
         )
-        await updateContextUsage()
+        refreshContextUsage()
         try await streamAssistantReply(
-          to: assistantMessageID, toolPromptMode: .enabled(allowsToolCalls))
+          to: assistantMessageID,
+          toolPromptMode: .enabled(allowsToolCalls),
+          turnID: turnID
+        )
+        guard isCurrentTurn(turnID) else {
+          return
+        }
         if allowsToolCalls {
           try await runReadOnlyToolLoop(
             workspace: workspace,
             sessionID: sessionID,
-            lastAssistantMessageID: assistantMessageID
+            lastAssistantMessageID: assistantMessageID,
+            turnID: turnID
           )
         }
       } catch is CancellationError {
-        transcriptMutator.removeTransientAssistantPlaceholders(from: &chatSession)
-        await updateContextUsage()
+        guard isCurrentTurn(turnID) else {
+          return
+        }
+        markTurnCancelled(turnID)
+        isGenerating = false
+        chatTurnCoordinator.finishTurn(turnID)
+        refreshContextUsage()
+        notifySessionDidChange()
+        return
       } catch {
+        guard isCurrentTurn(turnID) else {
+          return
+        }
+        transcriptMutator.updateTurnStatus(
+          .failed,
+          modelContextPolicy: .excluded,
+          for: turnID,
+          in: &chatSession
+        )
+        transcriptMutator.markStreamingAssistantMessagesCancelled(inTurn: turnID, in: &chatSession)
         transcriptMutator.removeTransientAssistantPlaceholders(from: &chatSession)
         errorMessage = error.localizedDescription
-        await updateContextUsage()
+        isGenerating = false
+        chatTurnCoordinator.finishTurn(turnID)
+        refreshContextUsage()
+        notifySessionDidChange()
+        return
       }
 
+      guard isCurrentTurn(turnID) else {
+        return
+      }
+      transcriptMutator.updateTurnStatus(.completed, for: turnID, in: &chatSession)
       isGenerating = false
-      generationTask = nil
+      chatTurnCoordinator.finishTurn(turnID)
       notifySessionDidChange()
     }
   }
@@ -301,10 +356,11 @@ extension ChatSessionController {
   }
 
   private func cancelGeneration(notify: Bool) {
-    generationTask?.cancel()
-    generationTask = nil
+    if let turnID = chatTurnCoordinator.cancelActiveTurn() {
+      markTurnCancelled(turnID)
+    }
     isGenerating = false
-    transcriptMutator.removeTransientAssistantPlaceholders(from: &chatSession)
+    refreshContextUsage()
     if notify {
       notifySessionDidChange()
     }
@@ -341,7 +397,10 @@ extension ChatSessionController {
     ContextUsageSnapshot(
       modelState: modelRuntime.modelState,
       operationID: modelRuntime.currentOperationID(),
-      messages: chatSession.messages,
+      messages: modelContextBuilder.messages(
+        from: chatSession,
+        includingTurnID: chatTurnCoordinator.activeTurnID
+      ),
       attachments: chatSession.attachments,
       systemPrompt: systemPrompt(toolPromptMode: .disabled)
     )
@@ -397,25 +456,52 @@ extension ChatSessionController {
     onSessionDidChange?()
   }
 
+  private func isCurrentTurn(_ turnID: ChatTurnRecord.ID) -> Bool {
+    chatTurnCoordinator.isActive(turnID)
+  }
+
+  private func markTurnCancelled(_ turnID: ChatTurnRecord.ID) {
+    transcriptMutator.updateTurnStatus(
+      .cancelled,
+      modelContextPolicy: .excluded,
+      for: turnID,
+      in: &chatSession
+    )
+    transcriptMutator.markStreamingAssistantMessagesCancelled(inTurn: turnID, in: &chatSession)
+    transcriptMutator.removeTransientAssistantPlaceholders(from: &chatSession)
+  }
+
 }
 
 extension ChatSessionController {
-  fileprivate func streamAssistantReply(to assistantMessageID: UUID, toolPromptMode: ToolPromptMode)
+  fileprivate func streamAssistantReply(
+    to assistantMessageID: UUID,
+    toolPromptMode: ToolPromptMode,
+    turnID: ChatTurnRecord.ID
+  )
     async throws
   {
+    let contextMessages = modelContextBuilder.messages(from: chatSession, includingTurnID: turnID)
     try await chatGenerationCoordinator.streamAssistantReply(
-      messages: chatSession.messages,
+      messages: contextMessages,
       systemPrompt: systemPrompt(toolPromptMode: toolPromptMode),
       settings: chatSession.generationSettings,
       appendChunk: { chunk in
+        guard isCurrentTurn(turnID) else {
+          return
+        }
         transcriptMutator.appendChunk(chunk, to: assistantMessageID, in: &chatSession)
       },
       updateGenerationMetrics: { metrics in
+        guard isCurrentTurn(turnID) else {
+          return
+        }
         transcriptMutator.updateGenerationMetrics(
           metrics, for: assistantMessageID, in: &chatSession)
+        transcriptMutator.updateDeliveryStatus(.complete, for: assistantMessageID, in: &chatSession)
       },
       updateContextUsage: {
-        await updateContextUsage()
+        refreshContextUsage()
       }
     )
   }
@@ -423,7 +509,8 @@ extension ChatSessionController {
   fileprivate func runReadOnlyToolLoop(
     workspace: Workspace?,
     sessionID: CodingSession.ID?,
-    lastAssistantMessageID: UUID
+    lastAssistantMessageID: UUID,
+    turnID: ChatTurnRecord.ID
   ) async throws {
     guard let workspace, let sessionID else {
       return
@@ -441,6 +528,10 @@ extension ChatSessionController {
     else {
       return
     }
+    try Task.checkCancellation()
+    guard isCurrentTurn(turnID) else {
+      return
+    }
 
     transcriptMutator.annotateToolCall(
       result.toolCall,
@@ -448,14 +539,31 @@ extension ChatSessionController {
       in: &chatSession
     )
     chatSession.toolCalls.append(result.toolCallRecord)
+    transcriptMutator.appendToolCallID(result.toolCallRecord.id, toTurn: turnID, in: &chatSession)
     notifySessionDidChange()
-    transcriptMutator.appendToolResult(result.toolResult, to: &chatSession)
+    let toolResultMessageID = UUID()
+    transcriptMutator.appendToolResult(
+      result.toolResult,
+      id: toolResultMessageID,
+      turnID: turnID,
+      to: &chatSession
+    )
+    transcriptMutator.appendMessageID(toolResultMessageID, toTurn: turnID, in: &chatSession)
     transcriptMutator.appendAssistantPlaceholder(
-      id: result.nextAssistantMessageID, to: &chatSession)
+      id: result.nextAssistantMessageID,
+      turnID: turnID,
+      to: &chatSession
+    )
+    transcriptMutator.appendMessageID(
+      result.nextAssistantMessageID,
+      toTurn: turnID,
+      in: &chatSession
+    )
     notifySessionDidChange()
     try await streamAssistantReply(
       to: result.nextAssistantMessageID,
-      toolPromptMode: .afterToolResult
+      toolPromptMode: .afterToolResult,
+      turnID: turnID
     )
   }
 

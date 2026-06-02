@@ -244,11 +244,16 @@ extension ChatBubble {
 
 extension ChatMessage {
   var shouldShowAssistantPlaceholder: Bool {
-    kind == .assistant && (content.isEmpty || containsStreamingToolCallMarkup)
+    kind == .assistant
+      && deliveryStatus == .streaming
+      && (content.isEmpty || containsStreamingToolCallMarkup)
   }
 
   var canCopyAssistantContent: Bool {
-    kind == .assistant && !containsStreamingToolCallMarkup && !content.isEmpty
+    kind == .assistant
+      && deliveryStatus != .streaming
+      && !containsStreamingToolCallMarkup
+      && !content.isEmpty
   }
 
   var assistantPlaceholderTitle: String {
