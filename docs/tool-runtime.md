@@ -87,6 +87,8 @@ flowchart TD
    static let readOnly = ToolExecutorRegistry([
      AnyToolExecutor(ReadFileToolExecutor()),
      AnyToolExecutor(ListFilesToolExecutor()),
+     AnyToolExecutor(GlobFilesToolExecutor()),
+     AnyToolExecutor(SearchFilesToolExecutor()),
    ])
    ```
 
@@ -101,6 +103,11 @@ flowchart TD
 - Registry membership controls prompt visibility, but it is not a complete
   security boundary.
 - Read-only tools may auto-run only after workspace/path validation.
+- `glob_files` and `search_files` are read-only discovery tools. They validate
+  the requested `path`, default it to `.`, skip project metadata/build
+  directories, and cap returned results. `search_files` treats a valid pattern
+  as a regular expression; invalid regular expressions fall back to literal
+  substring matching.
 - Write, patch, and command tools must require explicit approval before
   execution.
 - A tool that returns `.requiresApproval` must move to

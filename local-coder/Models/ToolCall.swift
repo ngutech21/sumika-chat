@@ -14,7 +14,9 @@ nonisolated struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresen
   }
 
   static let listFiles = ToolName(rawValue: "list_files")
+  static let globFiles = ToolName(rawValue: "glob_files")
   static let readFile = ToolName(rawValue: "read_file")
+  static let searchFiles = ToolName(rawValue: "search_files")
   static let writeFile = ToolName(rawValue: "write_file")
   static let applyPatch = ToolName(rawValue: "apply_patch")
   static let runCommand = ToolName(rawValue: "run_command")

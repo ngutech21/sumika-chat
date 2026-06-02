@@ -120,6 +120,64 @@ nonisolated extension ToolDefinition {
     riskLevel: .low
   )
 
+  static let globFiles = ToolDefinition(
+    name: .globFiles,
+    description: "Find workspace files matching a glob pattern.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "pattern",
+        description: "Required glob pattern such as **/*.swift.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "path",
+        description:
+          "Optional relative directory path inside the workspace. Defaults to workspace root.",
+        isRequired: false
+      ),
+    ],
+    taggedExample: """
+      <action name="glob_files">
+      <pattern>**/*.swift</pattern>
+      <path>.</path>
+      </action>
+      """,
+    capabilities: [.readWorkspace],
+    riskLevel: .low
+  )
+
+  static let searchFiles = ToolDefinition(
+    name: .searchFiles,
+    description: "Search workspace text files for a regex or literal pattern.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "pattern",
+        description: "Required regex pattern. Invalid regex values are treated as literal text.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "path",
+        description:
+          "Optional relative directory path inside the workspace. Defaults to workspace root.",
+        isRequired: false
+      ),
+      ToolParameterDefinition(
+        name: "include",
+        description: "Optional glob filter such as *.swift.",
+        isRequired: false
+      ),
+    ],
+    taggedExample: """
+      <action name="search_files">
+      <pattern>ToolDefinition</pattern>
+      <path>.</path>
+      <include>*.swift</include>
+      </action>
+      """,
+    capabilities: [.readWorkspace],
+    riskLevel: .low
+  )
+
   static let writeFile = ToolDefinition(
     name: .writeFile,
     description: "Write UTF-8 text content to a file inside the active workspace.",

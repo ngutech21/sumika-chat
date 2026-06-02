@@ -21,6 +21,16 @@ nonisolated struct ToolPermissionEvaluator: Sendable {
         riskLevel: .low,
         successReason: "Listing files inside the workspace is allowed."
       )
+    case .globFiles:
+      return evaluatePathTool(
+        request,
+        in: workspace,
+        argumentKeys: ["path"],
+        defaultPaths: ["."],
+        decision: .allowed,
+        riskLevel: .low,
+        successReason: "Finding files inside the workspace is allowed."
+      )
     case .readFile:
       return evaluatePathTool(
         request,
@@ -29,6 +39,16 @@ nonisolated struct ToolPermissionEvaluator: Sendable {
         decision: .allowed,
         riskLevel: .low,
         successReason: "Reading files inside the workspace is allowed."
+      )
+    case .searchFiles:
+      return evaluatePathTool(
+        request,
+        in: workspace,
+        argumentKeys: ["path"],
+        defaultPaths: ["."],
+        decision: .allowed,
+        riskLevel: .low,
+        successReason: "Searching files inside the workspace is allowed."
       )
     case .writeFile:
       return evaluatePathTool(

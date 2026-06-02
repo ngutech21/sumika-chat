@@ -197,11 +197,15 @@ nonisolated struct ToolExecutorRegistry: Sendable {
   static let readOnly = ToolExecutorRegistry([
     AnyToolExecutor(ReadFileToolExecutor()),
     AnyToolExecutor(ListFilesToolExecutor()),
+    AnyToolExecutor(GlobFilesToolExecutor()),
+    AnyToolExecutor(SearchFilesToolExecutor()),
   ])
 
   static let codingAgent = ToolExecutorRegistry([
     AnyToolExecutor(ReadFileToolExecutor()),
     AnyToolExecutor(ListFilesToolExecutor()),
+    AnyToolExecutor(GlobFilesToolExecutor()),
+    AnyToolExecutor(SearchFilesToolExecutor()),
     AnyToolExecutor(WriteFileToolExecutor()),
   ])
 

@@ -301,7 +301,13 @@ struct ToolExecutionTests {
         == true)
     #expect(definition.capabilities == [.writeWorkspace])
     #expect(definition.riskLevel == .high)
-    #expect(ToolExecutorRegistry.readOnly.definitions == [.readFile, .listFiles])
+    #expect(
+      ToolExecutorRegistry.readOnly.definitions == [
+        .readFile,
+        .listFiles,
+        .globFiles,
+        .searchFiles,
+      ])
   }
 
   @Test
@@ -600,9 +606,16 @@ struct ToolExecutionTests {
   func registryDefinitionsComeFromRegisteredExecutors() {
     let registry = ToolExecutorRegistry.readOnly
 
-    #expect(registry.definitions == [.readFile, .listFiles])
-    #expect(registry.toolRegistry.tools == [.readFile, .listFiles])
-    #expect(ToolExecutorRegistry.codingAgent.definitions == [.readFile, .listFiles, .writeFile])
+    #expect(registry.definitions == [.readFile, .listFiles, .globFiles, .searchFiles])
+    #expect(registry.toolRegistry.tools == [.readFile, .listFiles, .globFiles, .searchFiles])
+    #expect(
+      ToolExecutorRegistry.codingAgent.definitions == [
+        .readFile,
+        .listFiles,
+        .globFiles,
+        .searchFiles,
+        .writeFile,
+      ])
   }
 
   private func request(

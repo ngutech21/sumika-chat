@@ -8,10 +8,12 @@ struct TaggedToolCallingTests {
   func registryContainsPromptToolsAndCanonicalLookup() throws {
     let registry = ToolExecutorRegistry.readOnly.toolRegistry
 
-    #expect(registry.tools.map(\.name) == [.readFile, .listFiles])
+    #expect(registry.tools.map(\.name) == [.readFile, .listFiles, .globFiles, .searchFiles])
     #expect(registry.definition(canonicalizing: "READ-FILE")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "read-file")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "read file")?.name == .readFile)
+    #expect(registry.definition(canonicalizing: "glob-files")?.name == .globFiles)
+    #expect(registry.definition(canonicalizing: "search files")?.name == .searchFiles)
     #expect(registry.definition(canonicalizing: "run_command") == nil)
   }
 
@@ -24,8 +26,11 @@ struct TaggedToolCallingTests {
 
     #expect(prompt.contains("read_file"))
     #expect(prompt.contains("list_files"))
+    #expect(prompt.contains("glob_files"))
+    #expect(prompt.contains("search_files"))
     #expect(prompt.contains("Read a text file inside the active workspace."))
     #expect(prompt.contains("<path>Sources/AppState.swift</path>"))
+    #expect(prompt.contains("<pattern>**/*.swift</pattern>"))
     #expect(prompt.contains("LC_PAYLOAD_TEST"))
     #expect(prompt.contains("Emit one complete <action> block and then stop."))
     #expect(prompt.contains("XML-inspired, but it is not XML"))
@@ -100,6 +105,36 @@ struct TaggedToolCallingTests {
 
     #expect(request.toolName == .listFiles)
     #expect(request.arguments == ["path": .string(".")])
+  }
+
+  @Test
+  func parserParsesGlobAndSearchFilesActions() throws {
+    let globRequest = try parsedRequest(
+      """
+      <action name="glob_files">
+      <pattern>**/*.swift</pattern>
+      </action>
+      """
+    )
+    let searchRequest = try parsedRequest(
+      """
+      <action name="search_files">
+      <pattern>ToolDefinition</pattern>
+      <path>.</path>
+      <include>*.swift</include>
+      </action>
+      """
+    )
+
+    #expect(globRequest.toolName == .globFiles)
+    #expect(globRequest.arguments == ["pattern": .string("**/*.swift")])
+    #expect(searchRequest.toolName == .searchFiles)
+    #expect(
+      searchRequest.arguments == [
+        "pattern": .string("ToolDefinition"),
+        "path": .string("."),
+        "include": .string("*.swift"),
+      ])
   }
 
   @Test
