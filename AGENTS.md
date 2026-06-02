@@ -135,10 +135,12 @@ just test
 just lint
 just format
 just coverage
+just coverage-low
 just final-check
 ```
 
 Use `just coverage` when you need an Xcode code coverage report. It runs the test suite with coverage enabled and prints the latest `.xcresult` report via `xcrun xccov`.
+Use `just coverage-low threshold=80` for a compact local-source report that only lists files and functions below the chosen coverage percentage. It filters the `xccov` JSON report with the Swift script in `script/`.
 
 Run the final check after every implementation task:
 

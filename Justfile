@@ -21,6 +21,22 @@ coverage:
     fi; \
     xcrun xccov view --report "$result"
 
+coverage-low threshold="80":
+    @log=$(mktemp); \
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -enableCodeCoverage YES test >"$log" 2>&1 || { cat "$log"; rm -f "$log"; exit 1; }; \
+    rm -f "$log"
+    @threshold="{{threshold}}"; \
+    threshold="${threshold#threshold=}"; \
+    result=$(ls -td {{derived_data}}/Logs/Test/*.xcresult 2>/dev/null | head -n 1); \
+    if [ -z "$result" ]; then \
+        echo "No test result bundle found."; \
+        exit 1; \
+    fi; \
+    json=$(mktemp); \
+    xcrun xccov view --report --json "$result" >"$json" || { rm -f "$json"; exit 1; }; \
+    xcrun swift script/coverage_low.swift "$json" --threshold "$threshold"; \
+    rm -f "$json"
+
 check-warnings:
     @log=$(mktemp); \
     status=0; \
