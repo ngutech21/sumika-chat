@@ -4,56 +4,34 @@ import Observation
 @MainActor
 @Observable
 final class ChatSessionController {
-  var availableModels = ManagedModelCatalog.models
-  var selectedModelID: ManagedModel.ID
-  var downloadState: ModelDownloadState = .idle
-  var downloadProgress: Double?
-  var modelPath: String
-  var modelState: ModelLoadState = .notLoaded
   var chatSession = ChatSessionState.codingDefault
-  var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
   var contextUsage: ChatContextUsage?
-  var processUsage: ProcessResourceUsage?
-  var modelAvailabilitySnapshot: [ManagedModel.ID: Bool] = [:]
   var draft = ""
   var isGenerating = false
   var errorMessage: String?
 
-  @ObservationIgnored private let runtimeOperations: RuntimeOperationCoordinator
+  let modelRuntime: ModelRuntimeController
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
-  @ObservationIgnored private let resourceMonitor: any ProcessResourceMonitoring
-  @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private let toolPromptRenderer: any ToolPromptRendering
   @ObservationIgnored private let toolOrchestrator: ToolOrchestrator
   @ObservationIgnored private let toolPromptPolicy: ToolPromptPolicy
   @ObservationIgnored private let toolLoopCoordinator: ToolLoopCoordinator
   @ObservationIgnored private let chatAttachmentLoader: any ChatAttachmentLoading
   @ObservationIgnored private var isHandlingDroppedDraftPath = false
-  @ObservationIgnored private var loadTask: Task<Void, Never>?
-  @ObservationIgnored private var downloadTask: Task<Void, Never>?
-  @ObservationIgnored private var modelOperationID = UUID()
   @ObservationIgnored private var generationTask: Task<Void, Never>?
   @ObservationIgnored private var contextUsageTask: Task<Void, Never>?
   @ObservationIgnored private var contextUsageRequestID = UUID()
   @ObservationIgnored private var attachmentLoadTask: Task<Void, Never>?
   @ObservationIgnored private var attachmentLoadRequestID = UUID()
-  @ObservationIgnored private var resourceMonitorTask: Task<Void, Never>?
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
 
   var canSend: Bool {
-    modelState == .ready && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    modelRuntime.modelState == .ready
+      && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && !isGenerating
-  }
-
-  var selectedModel: ManagedModel {
-    availableModels.first { $0.id == selectedModelID } ?? ManagedModelCatalog.defaultModel
-  }
-
-  var canChangeModel: Bool {
-    !isGenerating && modelState != .loading && !downloadState.isDownloading
   }
 
   convenience init() {
@@ -143,18 +121,26 @@ final class ChatSessionController {
       runtime: runtime,
       initialOperationID: modelOperationID
     )
-    self.runtimeOperations = runtimeOperations
-    self.modelLifecycleCoordinator = ModelLifecycleCoordinator(
+    let modelLifecycleCoordinator = ModelLifecycleCoordinator(
       modelDownloader: modelDownloader,
       runtimeOperations: runtimeOperations
     )
+    self.modelLifecycleCoordinator = modelLifecycleCoordinator
     self.chatGenerationCoordinator = ChatGenerationCoordinator(
       runtime: runtime,
       streamingFlushInterval: streamingFlushInterval,
       streamingFlushCharacterLimit: streamingFlushCharacterLimit
     )
-    self.resourceMonitor = resourceMonitor
-    self.modelSettingsStore = modelSettingsStore
+    self.modelRuntime = ModelRuntimeController(
+      selectedModelID: selectedModelID,
+      modelPath: modelPath,
+      modelContextTokenLimit: modelContextTokenLimit,
+      modelSettingsStore: modelSettingsStore,
+      runtimeOperations: runtimeOperations,
+      modelLifecycleCoordinator: modelLifecycleCoordinator,
+      resourceMonitor: resourceMonitor,
+      initialOperationID: modelOperationID
+    )
     self.toolPromptRenderer = toolPromptRenderer
     self.toolOrchestrator = toolOrchestrator
     self.toolPromptPolicy = ToolPromptPolicy()
@@ -163,83 +149,52 @@ final class ChatSessionController {
       toolOrchestrator: toolOrchestrator
     )
     self.chatAttachmentLoader = chatAttachmentLoader
-    self.selectedModelID = selectedModelID
-    self.modelPath = modelPath
-    self.modelContextTokenLimit = modelContextTokenLimit
     self.chatSession = chatSession
-    self.modelOperationID = modelOperationID
-    refreshModelAvailability()
+    configureModelRuntimeCallbacks()
   }
 
   deinit {
-    loadTask?.cancel()
-    downloadTask?.cancel()
     generationTask?.cancel()
     contextUsageTask?.cancel()
     attachmentLoadTask?.cancel()
-    resourceMonitorTask?.cancel()
   }
 }
 
 extension ChatSessionController {
-  func prepareDefaultModelDirectory() {
-    let lifecycleCoordinator = modelLifecycleCoordinator
-    Task {
-      do {
-        let baseURL = try await Task.detached {
-          try lifecycleCoordinator.ensureDefaultModelDirectoryExists()
-        }.value
-        if modelPath.isEmpty {
-          modelPath = selectedModel.localPath
-        } else if !modelPath.hasPrefix(baseURL.path(percentEncoded: false)) {
-          modelPath = selectedModel.localPath
-        }
-        refreshModelAvailability()
-      } catch {
-        errorMessage = error.localizedDescription
+  private func configureModelRuntimeCallbacks() {
+    modelRuntime.onModelDidChange = { [weak self] settings in
+      guard let self else {
+        return
       }
-    }
-  }
 
-  func startResourceMonitoring() {
-    guard resourceMonitorTask == nil else {
-      return
+      self.clearChatHistory()
+      self.chatSession.systemPrompt = settings.systemPrompt
+      self.chatSession.generationSettings = settings.generationSettings
+      self.notifySessionDidChange()
     }
-
-    resourceMonitorTask = Task {
-      while !Task.isCancelled {
-        processUsage = await resourceMonitor.currentUsage()
-        try? await Task.sleep(for: .seconds(1))
+    modelRuntime.onRuntimeDidReset = { [weak self] in
+      guard let self else {
+        return
       }
-    }
-  }
 
-  func setModelDirectory(_ url: URL) {
-    modelPath = url.path(percentEncoded: false)
-    modelState = .notLoaded
-    errorMessage = nil
-    clearChatHistory()
+      self.contextUsage = nil
+      self.contextUsageRequestID = UUID()
+    }
+    modelRuntime.onContextUsageShouldRefresh = { [weak self] in
+      await self?.updateContextUsage()
+    }
+    modelRuntime.onError = { [weak self] message in
+      self?.errorMessage = message
+    }
   }
 
   func selectModel(_ model: ManagedModel) {
-    guard canChangeModel, selectedModelID != model.id else {
+    guard !isGenerating, modelRuntime.canChangeModel else {
       return
     }
 
-    unloadModel()
-    selectedModelID = model.id
-    modelSettingsStore.setSelectedModelID(model.id)
-    modelPath = model.localPath
-    downloadState = .idle
-    downloadProgress = nil
     errorMessage = nil
-    clearChatHistory()
-
-    let settings = modelSettingsStore.settings(for: model)
-    chatSession.systemPrompt = settings.systemPrompt
-    chatSession.generationSettings = settings.generationSettings
-    modelContextTokenLimit = settings.contextTokenLimit
-    notifySessionDidChange()
+    modelRuntime.selectModel(model)
   }
 
   func setSessionChangeHandler(_ handler: (@MainActor @Sendable () -> Void)?) {
@@ -250,15 +205,9 @@ extension ChatSessionController {
     let model =
       ManagedModelCatalog.model(id: session.selectedModelID)
       ?? ManagedModelCatalog.defaultModel
-    let shouldUnloadRuntime = selectedModelID != model.id && modelState != .notLoaded
 
-    loadTask?.cancel()
-    loadTask = nil
     cancelGeneration(notify: false)
-    selectedModelID = model.id
-    modelPath = model.localPath
-    downloadState = .idle
-    downloadProgress = nil
+    let didResetRuntime = modelRuntime.applySessionModel(model)
     errorMessage = nil
     contextUsage = nil
     chatSession = ChatSessionState(
@@ -268,26 +217,10 @@ extension ChatSessionController {
       systemPrompt: session.systemPrompt,
       generationSettings: session.generationSettings
     )
-    modelContextTokenLimit = modelSettingsStore.settings(for: model).contextTokenLimit
 
-    if shouldUnloadRuntime {
-      let operationID = UUID()
-      modelOperationID = operationID
+    if didResetRuntime {
       contextUsageRequestID = UUID()
-      modelState = .notLoaded
       contextUsage = nil
-      Task {
-        await runtimeOperations.setCurrentOperation(operationID)
-        do {
-          try await modelLifecycleCoordinator.unloadModel(operationID: operationID)
-        } catch is CancellationError {
-        } catch {
-          guard await runtimeOperations.isCurrent(operationID) else {
-            return
-          }
-          errorMessage = error.localizedDescription
-        }
-      }
     } else {
       refreshContextUsage()
     }
@@ -295,7 +228,7 @@ extension ChatSessionController {
 
   func sessionSnapshot(updating session: CodingSession) -> CodingSession {
     var snapshot = session
-    snapshot.selectedModelID = selectedModelID
+    snapshot.selectedModelID = modelRuntime.selectedModelID
     snapshot.messages = chatSession.messages
     snapshot.toolCalls = chatSession.toolCalls
     snapshot.systemPrompt = chatSession.systemPrompt
@@ -304,161 +237,36 @@ extension ChatSessionController {
     return snapshot
   }
 
-  func isModelDownloaded(_ model: ManagedModel) -> Bool {
-    modelAvailabilitySnapshot[model.id] ?? false
-  }
-
-  func refreshModelAvailability() {
-    let models = availableModels
-    let lifecycleCoordinator = modelLifecycleCoordinator
-    Task {
-      let snapshot = await Task.detached {
-        lifecycleCoordinator.modelAvailabilitySnapshot(for: models)
-      }.value
-      modelAvailabilitySnapshot = snapshot
-    }
-  }
-
   func downloadSelectedModel() {
-    guard !downloadState.isDownloading else {
-      return
-    }
-
-    let model = selectedModel
-    let lifecycleCoordinator = modelLifecycleCoordinator
-    downloadTask?.cancel()
-    downloadProgress = nil
-    downloadState = .downloading(progress: nil)
     errorMessage = nil
-
-    downloadTask = Task {
-      do {
-        let result = try await lifecycleCoordinator.download(model: model) { progress in
-          let fraction = Self.normalizedDownloadProgress(progress)
-          self.downloadProgress = fraction
-          self.downloadState = .downloading(progress: self.downloadProgress)
-        }
-        try Task.checkCancellation()
-        downloadState = .downloaded
-        downloadProgress = 1
-        modelPath = result.localPath
-        modelAvailabilitySnapshot[model.id] = true
-      } catch is CancellationError {
-        downloadState = .idle
-        downloadProgress = nil
-      } catch {
-        downloadState = .failed(error.localizedDescription)
-        errorMessage = error.localizedDescription
-        downloadProgress = nil
-      }
-
-      downloadTask = nil
-    }
+    modelRuntime.downloadSelectedModel()
   }
 
   func saveSelectedModelSettings() {
-    let settings = StoredModelSettings(
+    modelRuntime.saveSelectedModelSettings(
       systemPrompt: chatSession.systemPrompt,
-      generationSettings: chatSession.generationSettings,
-      contextTokenLimit: modelContextTokenLimit
+      generationSettings: chatSession.generationSettings
     )
-
-    do {
-      try modelSettingsStore.save(settings: settings, for: selectedModel)
-    } catch {
-      errorMessage = error.localizedDescription
-    }
   }
 
   func loadSelectedModel() {
-    modelPath = selectedModel.localPath
-    loadModel()
+    errorMessage = nil
+    contextUsageRequestID = UUID()
+    modelRuntime.loadSelectedModel()
   }
 
   func loadModel() {
-    guard !downloadState.isDownloading else {
-      return
-    }
-
-    let trimmedPath = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmedPath.isEmpty else {
-      errorMessage = "Choose a local model directory before loading."
-      return
-    }
-
-    let directoryURL = URL(filePath: trimmedPath, directoryHint: .isDirectory)
-    loadTask?.cancel()
-    let operationID = UUID()
-    modelOperationID = operationID
+    errorMessage = nil
     contextUsageRequestID = UUID()
-    let lifecycleCoordinator = modelLifecycleCoordinator
-    let runtimeOperations = runtimeOperations
-    let requestedContextTokenLimit = modelContextTokenLimit
-
-    loadTask = Task {
-      await runtimeOperations.setCurrentOperation(operationID)
-      errorMessage = nil
-      modelState = .loading
-
-      do {
-        let result = try await lifecycleCoordinator.loadModel(
-          from: directoryURL,
-          requestedContextTokenLimit: requestedContextTokenLimit,
-          operationID: operationID
-        )
-        try Task.checkCancellation()
-        guard await runtimeOperations.isCurrent(operationID), operationID == modelOperationID else {
-          return
-        }
-        modelState = .ready
-        contextUsage = result.contextUsage
-        await updateContextUsage()
-      } catch is CancellationError {
-        if await runtimeOperations.isCurrent(operationID), operationID == modelOperationID {
-          modelState = .notLoaded
-          contextUsage = nil
-        }
-      } catch {
-        guard await runtimeOperations.isCurrent(operationID), operationID == modelOperationID else {
-          return
-        }
-        modelState = .failed(error.localizedDescription)
-        errorMessage = error.localizedDescription
-      }
-
-      if operationID == modelOperationID {
-        loadTask = nil
-      }
-    }
+    modelRuntime.loadModel()
   }
 
   func unloadModel() {
-    let operationID = UUID()
-    modelOperationID = operationID
     contextUsageRequestID = UUID()
-    loadTask?.cancel()
     cancelGeneration()
     errorMessage = nil
-    modelState = .notLoaded
     contextUsage = nil
-    let lifecycleCoordinator = modelLifecycleCoordinator
-    let runtimeOperations = runtimeOperations
-
-    loadTask = Task {
-      await runtimeOperations.setCurrentOperation(operationID)
-      do {
-        try await lifecycleCoordinator.unloadModel(operationID: operationID)
-      } catch is CancellationError {
-      } catch {
-        guard await runtimeOperations.isCurrent(operationID), operationID == modelOperationID else {
-          return
-        }
-        errorMessage = error.localizedDescription
-      }
-      if await runtimeOperations.isCurrent(operationID), operationID == modelOperationID {
-        loadTask = nil
-      }
-    }
+    modelRuntime.unloadModel()
   }
 
   func sendMessage() {
@@ -542,7 +350,7 @@ extension ChatSessionController {
     contextUsageRequestID = requestID
     notifySessionDidChange()
 
-    let operationID = modelOperationID
+    let operationID = modelRuntime.currentOperationID()
     let lifecycleCoordinator = modelLifecycleCoordinator
     Task {
       do {
@@ -568,13 +376,13 @@ extension ChatSessionController {
   }
 
   func updateContextUsage() async {
-    guard modelState == .ready else {
+    guard modelRuntime.modelState == .ready else {
       contextUsage = nil
       return
     }
 
     let requestID = contextUsageRequestID
-    let operationID = modelOperationID
+    let operationID = modelRuntime.currentOperationID()
     let messages = chatSession.messages
     let attachments = chatSession.attachments
     let prompt = systemPrompt(toolPromptMode: .disabled)
@@ -587,13 +395,15 @@ extension ChatSessionController {
         systemPrompt: prompt,
         operationID: operationID
       )
-      guard requestID == contextUsageRequestID, operationID == modelOperationID else {
+      guard requestID == contextUsageRequestID, operationID == modelRuntime.currentOperationID()
+      else {
         return
       }
       contextUsage = usage
     } catch is CancellationError {
     } catch {
-      guard requestID == contextUsageRequestID, operationID == modelOperationID else {
+      guard requestID == contextUsageRequestID, operationID == modelRuntime.currentOperationID()
+      else {
         return
       }
       contextUsage = nil
@@ -705,14 +515,6 @@ extension ChatSessionController {
     }
   }
 
-  private static func normalizedDownloadProgress(_ progress: Progress) -> Double? {
-    let fraction = progress.fractionCompleted
-    guard fraction.isFinite else {
-      return nil
-    }
-
-    return min(max(fraction, 0), 1)
-  }
 }
 
 extension ChatSessionController {

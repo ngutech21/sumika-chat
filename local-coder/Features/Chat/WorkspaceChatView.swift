@@ -20,8 +20,8 @@ struct WorkspaceChatView: View {
     VStack(spacing: 0) {
       ChatTranscript(
         messages: controller.chatSession.messages,
-        selectedModel: controller.selectedModel,
-        modelState: controller.modelState
+        selectedModel: controller.modelRuntime.selectedModel,
+        modelState: controller.modelRuntime.modelState
       )
 
       Divider()
@@ -29,13 +29,14 @@ struct WorkspaceChatView: View {
       ChatComposer(
         draft: $controller.draft,
         attachments: controller.chatSession.attachments,
-        availableModels: controller.availableModels,
-        selectedModel: controller.selectedModel,
-        modelState: controller.modelState,
+        availableModels: controller.modelRuntime.availableModels,
+        selectedModel: controller.modelRuntime.selectedModel,
+        modelState: controller.modelRuntime.modelState,
         contextUsage: controller.contextUsage,
-        processUsage: controller.processUsage,
-        canChangeModel: controller.canChangeModel,
-        isSelectedModelDownloaded: controller.isModelDownloaded(controller.selectedModel),
+        processUsage: controller.modelRuntime.processUsage,
+        canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
+        isSelectedModelDownloaded: controller.modelRuntime.isModelDownloaded(
+          controller.modelRuntime.selectedModel),
         canSend: controller.canSend,
         isGenerating: controller.isGenerating,
         errorMessage: controller.errorMessage,

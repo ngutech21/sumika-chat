@@ -35,8 +35,25 @@ struct ContentView: View {
       if let selection {
         switch selection {
         case .models:
-          ModelsView(controller: controller)
-            .navigationTitle("Models")
+          ModelsView(
+            modelRuntime: controller.modelRuntime,
+            systemPrompt: Binding(
+              get: { controller.chatSession.systemPrompt },
+              set: { controller.chatSession.systemPrompt = $0 }
+            ),
+            generationSettings: Binding(
+              get: { controller.chatSession.generationSettings },
+              set: { controller.chatSession.generationSettings = $0 }
+            ),
+            contextUsage: controller.contextUsage,
+            errorMessage: controller.errorMessage,
+            canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
+            onSelectModel: controller.selectModel,
+            onLoadSelectedModel: controller.loadSelectedModel,
+            onUnloadModel: controller.unloadModel,
+            onDownloadSelectedModel: controller.downloadSelectedModel
+          )
+          .navigationTitle("Models")
         case .session:
           if let workspace = appState.activeWorkspace {
             WorkspaceChatView(
@@ -67,7 +84,7 @@ struct ContentView: View {
       controller.saveSelectedModelSettings()
       appState.persistActiveSession()
     }
-    .onChange(of: controller.modelContextTokenLimit) {
+    .onChange(of: controller.modelRuntime.modelContextTokenLimit) {
       controller.saveSelectedModelSettings()
     }
     .onChange(of: controller.draft) {
@@ -87,8 +104,8 @@ struct ContentView: View {
     }
     .onAppear {
       columnVisibility = .all
-      controller.prepareDefaultModelDirectory()
-      controller.startResourceMonitoring()
+      controller.modelRuntime.prepareDefaultModelDirectory()
+      controller.modelRuntime.startResourceMonitoring()
       if let sessionID = appState.activeSessionID {
         selection = .session(sessionID)
       }

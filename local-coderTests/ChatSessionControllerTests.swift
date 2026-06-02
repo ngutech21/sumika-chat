@@ -12,7 +12,7 @@ struct ChatSessionControllerTests {
       modelPath: "/tmp/model"
     )
 
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.draft = "  hello  "
 
     #expect(controller.canSend)
@@ -35,7 +35,7 @@ struct ChatSessionControllerTests {
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.draft = "Explain this"
     controller.chatSession.attachments = [attachment]
 
@@ -64,7 +64,7 @@ struct ChatSessionControllerTests {
   func cancelGenerationStopsControllerAndDropsTransientAssistantPlaceholder() async throws {
     let runtime = NonCooperativeStreamingRuntime(chunks: ["late reply"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.draft = "Cancel this"
 
     controller.sendMessage()
@@ -88,7 +88,7 @@ struct ChatSessionControllerTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["a short poem"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.draft = "write a short poem"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -113,7 +113,7 @@ struct ChatSessionControllerTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["That is literal user text."])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.draft = """
       Here is literal tool markup in a file discussion:
       <action name="read_file">
@@ -140,7 +140,7 @@ struct ChatSessionControllerTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["That is not a controller observation."])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.draft = """
       Tool result
       Tool: list_files
@@ -197,7 +197,7 @@ struct ChatSessionControllerTests {
       ["The README says project notes."],
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.draft = "Read the README"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -279,7 +279,7 @@ struct ChatSessionControllerTests {
       failingStreamReplyCalls: [1]
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.draft = "Read the README"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -317,7 +317,7 @@ struct ChatSessionControllerTests {
         ["The README says project notes."],
       ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.draft = "Read the README"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -357,7 +357,7 @@ struct ChatSessionControllerTests {
         ["The current directory contains README.md."],
       ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.draft = "list the files in the current directory"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -402,7 +402,7 @@ struct ChatSessionControllerTests {
 
     controller.loadModel()
 
-    try await waitUntil { controller.modelState == .ready }
+    try await waitUntil { controller.modelRuntime.modelState == .ready }
 
     let configuration = await runtime.loadedConfiguration
     #expect(configuration?.localModelDirectory == modelDirectory)
@@ -430,7 +430,7 @@ struct ChatSessionControllerTests {
 
     controller.loadModel()
 
-    try await waitUntil { controller.modelState == .ready }
+    try await waitUntil { controller.modelRuntime.modelState == .ready }
 
     let configuration = await runtime.loadedConfiguration
     #expect(configuration?.contextTokenLimit == 65_536)
@@ -449,15 +449,15 @@ struct ChatSessionControllerTests {
     controller.loadModel()
     try await waitUntilAsync { await runtime.loadCount == 1 }
 
-    controller.modelPath = secondModelDirectory.path(percentEncoded: false)
+    controller.modelRuntime.modelPath = secondModelDirectory.path(percentEncoded: false)
     controller.loadModel()
 
-    try await waitUntil { controller.modelState == .ready }
+    try await waitUntil { controller.modelRuntime.modelState == .ready }
     try await waitUntilAsync { await runtime.loadCount == 2 }
     await runtime.releaseFirstLoad()
     try await Task.sleep(for: .milliseconds(60))
 
-    #expect(controller.modelState == .ready)
+    #expect(controller.modelRuntime.modelState == .ready)
     #expect(controller.errorMessage == nil)
     #expect(controller.contextUsage?.tokenLimit == nil)
     let configurations = await runtime.loadedConfigurations
@@ -471,7 +471,7 @@ struct ChatSessionControllerTests {
   func refreshContextUsagePublishesOnlyLatestResult() async throws {
     let runtime = ControlledContextUsageRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.chatSession.messages = [ChatMessage(kind: .user, content: "hello")]
 
     controller.refreshContextUsage()
@@ -504,7 +504,7 @@ struct ChatSessionControllerTests {
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
     )
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
     controller.chatSession.messages = [ChatMessage(kind: .user, content: "old session")]
 
@@ -512,13 +512,13 @@ struct ChatSessionControllerTests {
     try await waitUntilAsync { await runtime.didStartClearContext }
 
     controller.loadModel()
-    try await waitUntil { controller.modelState == .ready }
+    try await waitUntil { controller.modelRuntime.modelState == .ready }
     try await waitUntil { controller.contextUsage?.usedTokens == 42 }
 
     await runtime.releaseClearContext()
     try await Task.sleep(for: .milliseconds(60))
 
-    #expect(controller.modelState == .ready)
+    #expect(controller.modelRuntime.modelState == .ready)
     #expect(controller.contextUsage?.usedTokens == 42)
   }
 
@@ -530,7 +530,7 @@ struct ChatSessionControllerTests {
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
     )
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
 
     controller.unloadModel()
     try await waitUntilAsync { await runtime.didStartUnload }
@@ -540,7 +540,7 @@ struct ChatSessionControllerTests {
     #expect(await runtime.loadCount == 0)
 
     await runtime.releaseUnload()
-    try await waitUntil { controller.modelState == .ready }
+    try await waitUntil { controller.modelRuntime.modelState == .ready }
 
     #expect(await runtime.isLoaded)
     #expect(controller.errorMessage == nil)
@@ -573,13 +573,13 @@ struct ChatSessionControllerTests {
   func unloadModelReleasesRuntimeAndResetsModelState() async throws {
     let runtime = ChatSessionFakeChatModelRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
     controller.draft = "hello"
 
     controller.unloadModel()
 
-    try await waitUntil { controller.modelState == .notLoaded }
+    try await waitUntil { controller.modelRuntime.modelState == .notLoaded }
     try await waitUntilAsync { await runtime.didUnload }
 
     #expect(await runtime.didUnload)

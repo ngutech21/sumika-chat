@@ -189,7 +189,7 @@ struct WorkspaceStoreTests {
 
     appState.selectSession(secondSession.id)
 
-    #expect(controller.selectedModelID == "gemma3-4b")
+    #expect(controller.modelRuntime.selectedModelID == "gemma3-4b")
     #expect(controller.chatSession.messages == secondSession.messages)
     #expect(controller.chatSession.systemPrompt == "Second prompt")
     #expect(controller.chatSession.generationSettings.maxTokens == 1024)
@@ -408,7 +408,7 @@ struct WorkspaceStoreTests {
     )
     let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
     _ = appState.addWorkspace(from: workspaceURL)
-    controller.modelState = .ready
+    controller.modelRuntime.modelState = .ready
     controller.draft = "Say hello"
 
     controller.sendMessage()

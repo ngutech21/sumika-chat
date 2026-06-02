@@ -1,7 +1,16 @@
 import SwiftUI
 
 struct ModelsView: View {
-  @Bindable var controller: ChatSessionController
+  @Bindable var modelRuntime: ModelRuntimeController
+  @Binding var systemPrompt: String
+  @Binding var generationSettings: ChatGenerationSettings
+  let contextUsage: ChatContextUsage?
+  let errorMessage: String?
+  let canChangeModel: Bool
+  let onSelectModel: (ManagedModel) -> Void
+  let onLoadSelectedModel: () -> Void
+  let onUnloadModel: () -> Void
+  let onDownloadSelectedModel: () -> Void
 
   var body: some View {
     ScrollView {
@@ -17,17 +26,18 @@ struct ModelsView: View {
         }
 
         VStack(spacing: 10) {
-          ForEach(controller.availableModels) { model in
+          ForEach(modelRuntime.availableModels) { model in
             ManagedModelRow(
               model: model,
-              isSelected: controller.selectedModelID == model.id,
-              isActive: controller.selectedModelID == model.id && controller.modelState == .ready,
-              isDownloaded: controller.isModelDownloaded(model),
-              downloadState: controller.selectedModelID == model.id
-                ? controller.downloadState : .idle,
-              canSelect: controller.canChangeModel,
+              isSelected: modelRuntime.selectedModelID == model.id,
+              isActive: modelRuntime.selectedModelID == model.id
+                && modelRuntime.modelState == .ready,
+              isDownloaded: modelRuntime.isModelDownloaded(model),
+              downloadState: modelRuntime.selectedModelID == model.id
+                ? modelRuntime.downloadState : .idle,
+              canSelect: canChangeModel,
               onSelect: {
-                controller.selectModel(model)
+                onSelectModel(model)
               }
             )
           }
@@ -38,7 +48,7 @@ struct ModelsView: View {
         VStack(alignment: .leading, spacing: 14) {
           HStack {
             VStack(alignment: .leading, spacing: 4) {
-              Text(controller.selectedModel.displayName)
+              Text(modelRuntime.selectedModel.displayName)
                 .font(.headline)
               Text(selectedModelStatusText)
                 .foregroundStyle(.secondary)
@@ -46,39 +56,39 @@ struct ModelsView: View {
             Spacer()
 
             Button {
-              controller.downloadSelectedModel()
+              onDownloadSelectedModel()
             } label: {
               Label("Download", systemImage: "square.and.arrow.down")
             }
             .disabled(
-              !controller.canChangeModel
-                || controller.downloadState.isDownloading
-                || controller.isModelDownloaded(controller.selectedModel))
+              !canChangeModel
+                || modelRuntime.downloadState.isDownloading
+                || modelRuntime.isModelDownloaded(modelRuntime.selectedModel))
 
             Button {
-              controller.modelState == .ready
-                ? controller.unloadModel() : controller.loadSelectedModel()
+              modelRuntime.modelState == .ready
+                ? onUnloadModel() : onLoadSelectedModel()
             } label: {
               Label(modelActionTitle, systemImage: modelActionSystemImage)
             }
             .accessibilityIdentifier(
-              controller.modelState == .ready ? "unload-model-button" : "load-model-button"
+              modelRuntime.modelState == .ready ? "unload-model-button" : "load-model-button"
             )
             .disabled(isModelActionDisabled)
           }
 
-          if case .downloading(let progress) = controller.downloadState {
+          if case .downloading(let progress) = modelRuntime.downloadState {
             DownloadProgressView(progress: progress)
           }
 
           ModelRuntimeStatus(
-            modelState: controller.modelState,
+            modelState: modelRuntime.modelState,
             downloadState: effectiveDownloadState,
-            contextUsage: controller.contextUsage,
-            processUsage: controller.processUsage
+            contextUsage: contextUsage,
+            processUsage: modelRuntime.processUsage
           )
 
-          if let errorMessage = controller.errorMessage {
+          if let errorMessage {
             Label(errorMessage, systemImage: "exclamationmark.triangle")
               .font(.callout)
               .foregroundStyle(.red)
@@ -88,11 +98,11 @@ struct ModelsView: View {
 
         DisclosureGroup("Details") {
           ModelAdvancedSettings(
-            model: controller.selectedModel,
-            systemPrompt: $controller.chatSession.systemPrompt,
-            generationSettings: $controller.chatSession.generationSettings,
-            contextTokenLimit: $controller.modelContextTokenLimit,
-            canChangeContextTokenLimit: controller.modelState == .notLoaded
+            model: modelRuntime.selectedModel,
+            systemPrompt: $systemPrompt,
+            generationSettings: $generationSettings,
+            contextTokenLimit: $modelRuntime.modelContextTokenLimit,
+            canChangeContextTokenLimit: modelRuntime.modelState == .notLoaded
           )
         }
       }
@@ -102,36 +112,36 @@ struct ModelsView: View {
   }
 
   private var selectedModelStatusText: String {
-    if controller.selectedModel.requiresLargeMemory {
-      return "\(controller.selectedModel.estimatedDownloadSize), needs a lot of memory"
+    if modelRuntime.selectedModel.requiresLargeMemory {
+      return "\(modelRuntime.selectedModel.estimatedDownloadSize), needs a lot of memory"
     }
 
     return
-      "\(controller.selectedModel.estimatedDownloadSize), \(controller.selectedModel.summary.lowercased())"
+      "\(modelRuntime.selectedModel.estimatedDownloadSize), \(modelRuntime.selectedModel.summary.lowercased())"
   }
 
   private var effectiveDownloadState: ModelDownloadState {
-    if controller.isModelDownloaded(controller.selectedModel),
-      !controller.downloadState.isDownloading
+    if modelRuntime.isModelDownloaded(modelRuntime.selectedModel),
+      !modelRuntime.downloadState.isDownloading
     {
       return .downloaded
     }
 
-    return controller.downloadState
+    return modelRuntime.downloadState
   }
 
   private var modelActionTitle: String {
-    controller.modelState == .ready ? "Unload" : "Load"
+    modelRuntime.modelState == .ready ? "Unload" : "Load"
   }
 
   private var modelActionSystemImage: String {
-    controller.modelState == .ready ? "eject" : "play.fill"
+    modelRuntime.modelState == .ready ? "eject" : "play.fill"
   }
 
   private var isModelActionDisabled: Bool {
-    controller.modelState == .loading
-      || controller.downloadState.isDownloading
-      || (controller.modelState != .ready
-        && !controller.isModelDownloaded(controller.selectedModel))
+    modelRuntime.modelState == .loading
+      || modelRuntime.downloadState.isDownloading
+      || (modelRuntime.modelState != .ready
+        && !modelRuntime.isModelDownloaded(modelRuntime.selectedModel))
   }
 }

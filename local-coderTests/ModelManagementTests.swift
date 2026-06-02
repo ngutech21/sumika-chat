@@ -94,11 +94,11 @@ struct ModelManagementTests {
 
     controller.selectModel(selectedModel)
 
-    #expect(controller.selectedModelID == selectedModel.id)
-    #expect(controller.modelPath == selectedModel.localPath)
+    #expect(controller.modelRuntime.selectedModelID == selectedModel.id)
+    #expect(controller.modelRuntime.modelPath == selectedModel.localPath)
     #expect(controller.chatSession.systemPrompt == settings.systemPrompt)
     #expect(controller.chatSession.generationSettings == settings.generationSettings)
-    #expect(controller.modelContextTokenLimit == settings.contextTokenLimit)
+    #expect(controller.modelRuntime.modelContextTokenLimit == settings.contextTokenLimit)
     #expect(store.selectedModelIDValue == selectedModel.id)
   }
 
@@ -114,10 +114,10 @@ struct ModelManagementTests {
 
     controller.downloadSelectedModel()
 
-    try await waitUntil { controller.downloadState == .downloaded }
-    #expect(controller.downloadProgress == 1)
+    try await waitUntil { controller.modelRuntime.downloadState == .downloaded }
+    #expect(controller.modelRuntime.downloadProgress == 1)
     #expect(downloader.downloadedModelID == ManagedModelCatalog.defaultModelID)
-    #expect(controller.isModelDownloaded(ManagedModelCatalog.defaultModel))
+    #expect(controller.modelRuntime.isModelDownloaded(ManagedModelCatalog.defaultModel))
   }
 
   @Test
@@ -132,11 +132,11 @@ struct ModelManagementTests {
 
     controller.downloadSelectedModel()
 
-    try await waitUntil { controller.downloadProgress == 0.25 }
-    #expect(controller.downloadState == .downloading(progress: 0.25))
+    try await waitUntil { controller.modelRuntime.downloadProgress == 0.25 }
+    #expect(controller.modelRuntime.downloadState == .downloading(progress: 0.25))
 
-    try await waitUntil { controller.downloadState == .downloaded }
-    #expect(controller.downloadProgress == 1)
+    try await waitUntil { controller.modelRuntime.downloadState == .downloaded }
+    #expect(controller.modelRuntime.downloadProgress == 1)
   }
 
   @Test
@@ -152,9 +152,10 @@ struct ModelManagementTests {
     controller.downloadSelectedModel()
 
     try await waitUntil {
-      controller.downloadState == .failed(FakeModelDownloadError.failed.localizedDescription)
+      controller.modelRuntime.downloadState
+        == .failed(FakeModelDownloadError.failed.localizedDescription)
     }
-    #expect(controller.downloadProgress == nil)
+    #expect(controller.modelRuntime.downloadProgress == nil)
     #expect(controller.errorMessage == FakeModelDownloadError.failed.localizedDescription)
   }
 
