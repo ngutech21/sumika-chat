@@ -222,6 +222,7 @@ nonisolated enum ToolCallActor: String, Codable, Equatable, Sendable {
 
 nonisolated enum ToolCallEventKind: String, Codable, Equatable, Sendable {
   case requested
+  case awaitingApproval
   case approved
   case denied
   case started

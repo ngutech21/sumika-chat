@@ -219,7 +219,7 @@ struct ToolExecutionTests {
         .readFile, workspace: workspace, arguments: ["path": .string("../README.md")]),
       workspace: workspace
     )
-    let requiresApproval = await ToolOrchestrator().execute(
+    let unregisteredWriteFile = await ToolOrchestrator().execute(
       request: request(.writeFile, workspace: workspace, arguments: ["path": .string("README.md")]),
       workspace: workspace
     )
@@ -234,9 +234,140 @@ struct ToolExecutionTests {
     #expect(completed.resultPreview?.status == .success)
     #expect(denied.status == .denied)
     #expect(denied.resultPreview?.status == .denied)
-    #expect(requiresApproval.status == .failed)
+    #expect(unregisteredWriteFile.status == .failed)
     #expect(unknownExecutor.status == .failed)
     #expect(unknownExecutor.resultPreview?.status == .failed)
+  }
+
+  @Test
+  func writeFileDefinitionIsAvailableButNotInReadOnlyRegistry() {
+    let definition = ToolDefinition.writeFile
+
+    #expect(definition.name == .writeFile)
+    #expect(definition.parameters.map(\.name) == ["path", "content"])
+    #expect(
+      definition.parameters.first(where: { $0.name == "content" })?.supportsHeredocPayload
+        == true)
+    #expect(definition.capabilities == [.writeWorkspace])
+    #expect(definition.riskLevel == .high)
+    #expect(ToolExecutorRegistry.readOnly.definitions == [.readFile, .listFiles])
+  }
+
+  @Test
+  func writeFileRequiresApprovalForWorkspacePath() async throws {
+    let workspace = try makeWorkspace()
+    let executor = WriteFileToolExecutor()
+
+    let evaluation = executor.evaluatePermission(
+      WriteFileInput(path: "Sources/App.swift", content: "let value = 1"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(evaluation.decision == .requiresApproval)
+    #expect(evaluation.riskLevel == .high)
+    #expect(
+      evaluation.normalizedPaths == [
+        workspace.rootURL.appending(path: "Sources/App.swift").path(percentEncoded: false)
+      ])
+  }
+
+  @Test
+  func writeFileDeniesWorkspaceEscapesBeforeApproval() async throws {
+    let workspace = try makeWorkspace()
+    let executor = WriteFileToolExecutor()
+
+    let parentEscape = executor.evaluatePermission(
+      WriteFileInput(path: "../secret.txt", content: "secret"),
+      context: ToolContext(workspace: workspace)
+    )
+    let absoluteEscape = executor.evaluatePermission(
+      WriteFileInput(path: "/tmp/secret.txt", content: "secret"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(parentEscape.decision == .denied)
+    #expect(absoluteEscape.decision == .denied)
+  }
+
+  @Test
+  func orchestratorMarksWriteFileAwaitingApprovalWithoutWriting() async throws {
+    let workspace = try makeWorkspace()
+    try write("old", to: "README.md", in: workspace)
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(ReadFileToolExecutor()),
+      AnyToolExecutor(ListFilesToolExecutor()),
+      AnyToolExecutor(WriteFileToolExecutor()),
+    ])
+
+    let result = await ToolOrchestrator(executorRegistry: registry).execute(
+      request: request(
+        .writeFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("README.md"),
+          "content": .string("new"),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .awaitingApproval)
+    #expect(result.evaluation.decision == .requiresApproval)
+    #expect(result.resultPreview == nil)
+    #expect(result.events.map(\.kind).contains(.awaitingApproval))
+    #expect(try String(contentsOf: workspace.rootURL.appending(path: "README.md")) == "old")
+  }
+
+  @Test
+  func writeFileRunWritesApprovedContent() async throws {
+    let workspace = try makeWorkspace()
+
+    let result = await WriteFileToolExecutor().run(
+      WriteFileInput(path: "Sources/App.swift", content: "let value = 2"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(
+      result.affectedPaths == [
+        workspace.rootURL.appending(path: "Sources/App.swift").path(percentEncoded: false)
+      ])
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"))
+        == "let value = 2")
+  }
+
+  @Test
+  func writeFileInvalidArgumentsFailBeforeApproval() async throws {
+    let workspace = try makeWorkspace()
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(WriteFileToolExecutor())
+    ])
+
+    let missingContent = await ToolOrchestrator(executorRegistry: registry).execute(
+      request: request(
+        .writeFile,
+        workspace: workspace,
+        arguments: ["path": .string("README.md")]
+      ),
+      workspace: workspace
+    )
+    let unknownArgument = await ToolOrchestrator(executorRegistry: registry).execute(
+      request: request(
+        .writeFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("README.md"),
+          "content": .string("new"),
+          "mode": .string("append"),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    #expect(missingContent.status == .failed)
+    #expect(unknownArgument.status == .failed)
+    #expect(unknownArgument.resultPreview?.text.contains("Unknown argument") == true)
   }
 
   @Test

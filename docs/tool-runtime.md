@@ -15,10 +15,11 @@ flowchart TD
   D --> E["AnyToolExecutor"]
   E --> F["Decode arguments into typed Input"]
   F --> G["Tool-specific permission evaluation"]
-  G --> H{"Allowed?"}
-  H -- "no" --> I["ToolCallRecord denied/failed"]
-  H -- "yes" --> J["TypedToolExecutor.run(input, context)"]
-  J --> K["ToolCallRecord + ToolResultModelMessage"]
+  G --> H{"Permission decision"}
+  H -- "allowed" --> I["TypedToolExecutor.run(input, context)"]
+  H -- "requires approval" --> J["ToolCallRecord awaitingApproval"]
+  H -- "denied" --> K["ToolCallRecord denied"]
+  I --> L["ToolCallRecord + ToolResultModelMessage"]
 ```
 
 ## Roles
@@ -32,7 +33,8 @@ flowchart TD
   and exposes their definitions for prompt rendering.
 - `AnyToolExecutor` is the type-erased runtime boundary. It validates argument
   names, decodes raw arguments into the tool's concrete input type, evaluates
-  permission, and runs the tool only when allowed.
+  permission, and runs the tool only when allowed. A `requiresApproval`
+  decision becomes an awaiting-approval record without executing the tool.
 - `TypedToolExecutor` is what every concrete tool implements. Its `run` method
   receives a concrete Swift input type, never raw argument dictionaries.
 - `ToolContext` carries runtime context such as the active workspace.
@@ -93,6 +95,11 @@ flowchart TD
 - Read-only tools may auto-run only after workspace/path validation.
 - Write, patch, and command tools must require explicit approval before
   execution.
+- A tool that returns `.requiresApproval` must move to
+  `ToolCallStatus.awaitingApproval`. It must not be marked as denied, failed,
+  completed, or executed automatically.
+- Runtime-only approval means the tool call is validated and audit-visible, but
+  there is no UI approval, resume flow, or file/process side effect yet.
 - Tool results must report affected paths where possible so the UI can show a
   useful audit trail.
 - Tool results from a cancelled chat turn may remain visible for auditability,

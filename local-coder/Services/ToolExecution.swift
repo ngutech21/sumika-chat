@@ -28,10 +28,20 @@ nonisolated struct AnyToolExecutor: Sendable {
         let evaluation = tool.evaluatePermission(input, context: context)
         record.evaluation = evaluation
 
-        // The current registry contains read-only tools only. If a future write, patch, or command
-        // tool returns `.requiresApproval`, this fail-closed branch must become an approval handoff
-        // instead of executing the tool.
-        guard evaluation.decision == .allowed else {
+        switch evaluation.decision {
+        case .allowed:
+          break
+        case .requiresApproval:
+          record.status = .awaitingApproval
+          record.events.append(
+            ToolCallEvent(
+              actor: .system,
+              kind: .awaitingApproval,
+              message: evaluation.reason
+            )
+          )
+          return record
+        case .denied:
           let preview = ToolResultPreview(
             status: .denied,
             text: evaluation.reason,
@@ -420,6 +430,64 @@ nonisolated struct ListFilesToolExecutor: TypedToolExecutor {
           truncated = true
         }
       }
+    }
+  }
+}
+
+nonisolated struct WriteFileInput: Decodable, Sendable {
+  let path: String
+  let content: String
+}
+
+nonisolated struct WriteFileToolExecutor: TypedToolExecutor {
+  static let definition = ToolDefinition.writeFile
+
+  func evaluatePermission(
+    _ input: WriteFileInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    do {
+      let resolvedPath = try context.workspace.resolveAllowedPath(input.path)
+      return ToolPermissionEvaluation(
+        decision: .requiresApproval,
+        reason: "Writing files inside the workspace requires approval.",
+        riskLevel: .high,
+        normalizedPaths: [resolvedPath.path(percentEncoded: false)]
+      )
+    } catch {
+      return ToolPermissionEvaluation(
+        decision: .denied,
+        reason: error.localizedDescription,
+        riskLevel: .high
+      )
+    }
+  }
+
+  func run(_ input: WriteFileInput, context: ToolContext) async -> ToolResultPreview {
+    let didStartSecurityScope = context.workspace.rootURL.startAccessingSecurityScopedResource()
+    defer {
+      if didStartSecurityScope {
+        context.workspace.rootURL.stopAccessingSecurityScopedResource()
+      }
+    }
+
+    do {
+      let resolvedURL = try context.workspace.resolveAllowedPath(input.path)
+      try FileManager.default.createDirectory(
+        at: resolvedURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try input.content.write(to: resolvedURL, atomically: true, encoding: .utf8)
+      return ToolResultPreview(
+        status: .success,
+        text: "Wrote \(input.content.utf8.count) bytes to \(input.path).",
+        affectedPaths: [resolvedURL.path(percentEncoded: false)]
+      )
+    } catch {
+      return ToolResultPreview(
+        status: .failed,
+        text: error.localizedDescription
+      )
     }
   }
 }

@@ -107,4 +107,33 @@ nonisolated extension ToolDefinition {
     capabilities: [.readWorkspace],
     riskLevel: .low
   )
+
+  static let writeFile = ToolDefinition(
+    name: .writeFile,
+    description: "Write UTF-8 text content to a file inside the active workspace.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "path",
+        description: "Relative file path inside the workspace.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "content",
+        description: "Complete UTF-8 text content to write to the file.",
+        isRequired: true,
+        supportsHeredocPayload: true
+      ),
+    ],
+    taggedExample: """
+      <action name="write_file">
+      <path>Sources/AppState.swift</path>
+      <content delimiter="__LOCAL_CODER_PAYLOAD__">
+      import Foundation
+      __LOCAL_CODER_PAYLOAD__
+      </content>
+      </action>
+      """,
+    capabilities: [.writeWorkspace],
+    riskLevel: .high
+  )
 }

@@ -11,8 +11,8 @@ finding is tied to concrete files and describes an incremental direction rather 
 The codebase is a SwiftUI/MVVM hybrid with service-oriented boundaries for runtime,
 model lifecycle, stores, attachment loading, and tools. The chat workflow now has an explicit
 turn lifecycle with cancellation state, model-context filtering, and consistent delivery status
-cleanup for cancelled or failed partial output. The main remaining risks are incomplete typed-tool
-approval support, duplicate permission policy paths, UI-adjacent session persistence, and the
+cleanup for cancelled or failed partial output. The main remaining risks are incomplete approval UI
+and resume support, duplicate permission policy paths, UI-adjacent session persistence, and the
 controller still applying some workflow transcript mutations directly.
 
 ## Findings
@@ -21,7 +21,7 @@ controller still applying some workflow transcript mutations directly.
 | --- | --- | --- | --- |
 | A-01 | Medium | `ChatSessionController` is still a broad UI-state adapter | `local-coder/Features/Chat/ChatSessionController.swift` |
 | A-02 | Medium | Tool permission logic exists in two paths | `local-coder/Services/ToolExecution.swift`, `local-coder/Services/ToolPermissionEvaluator.swift` |
-| A-03 | Medium | The approval flow is not implemented in the typed tool runtime path yet | `local-coder/Services/ToolExecution.swift` |
+| A-03 | Medium | Approval can be modeled in runtime but not yet approved or resumed from UI | `local-coder/Features/Chat/ToolLoopCoordinator.swift`, `local-coder/Features/Chat/ChatSessionController.swift` |
 | A-04 | Medium | `AppState` couples navigation, session lifecycle, and persistence | `local-coder/App/AppState.swift` |
 | A-05 | Low | Tool-loop transcript application remains controller-adjacent | `local-coder/Features/Chat/ChatSessionController.swift`, `local-coder/Features/Chat/ToolLoopCoordinator.swift` |
 
@@ -73,27 +73,30 @@ Concrete solution:
   `WorkspacePathPermissionPolicy`.
 - Focus tests on the active `ToolOrchestrator` path.
 
-### A-03: The approval flow is not implemented in the typed tool runtime path yet
+### A-03: Approval can be modeled in runtime but not yet approved or resumed from UI
 
 Severity: Medium
 
 Evidence:
 
-- `AnyToolExecutor` executes only `.allowed`.
-- `.requiresApproval` currently falls into the denied branch instead of an awaiting-approval
-  handoff.
+- `AnyToolExecutor` can map `.requiresApproval` to `ToolCallStatus.awaitingApproval`.
+- `write_file` can be registered explicitly for runtime tests, but the default chat registry
+  remains read-only.
+- There is no UI action, approval API, or resume path that executes an approved tool call and
+  continues the chat turn.
 
 Risk:
 
-- Write, patch, and command tools cannot enter a reviewable approval state through the active
-  typed runtime.
-- The system can lose the product distinction between denied and requires approval.
+- If write, patch, or command tools are exposed to chat before the UI flow exists, the transcript
+  can show an awaiting approval state that the user cannot complete.
+- Approval-specific transcript events can leak back into controller logic if the tool loop is not
+  event-driven first.
 
 Concrete solution:
 
-- Switch explicitly on `ToolPermissionDecision`.
-- Map `.requiresApproval` to `ToolCallStatus.awaitingApproval`.
 - Add a separate approval API for executing approved tool calls.
+- Teach the chat/tool loop to stop on awaiting approval instead of appending a normal tool result.
+- Add UI controls for approve/deny and resume the same turn after approved execution.
 
 ### A-04: `AppState` couples navigation, session lifecycle, and persistence
 
@@ -153,10 +156,12 @@ Concrete solution:
 - `ToolLoopCoordinator` and `ToolPromptPolicy` have been extracted from the controller.
 - The typed tool system has typed inputs, type erasure, a registry, and documentation in
   `docs/tool-runtime.md`.
+- `AnyToolExecutor` now distinguishes denied tools from tools awaiting approval, and `write_file`
+  exists as a runtime-only approval tool outside the default read-only chat registry.
 
 ## Recommended Order
 
-1. Model `.requiresApproval` in the typed runtime path as `awaitingApproval`.
-2. Consolidate or remove `ToolPermissionEvaluator` so only one active permission path exists.
-3. Move tool-loop transcript application to typed events.
+1. Consolidate or remove `ToolPermissionEvaluator` so only one active permission path exists.
+2. Move tool-loop transcript application to typed events, including awaiting-approval events.
+3. Add the UI approval/resume API for `write_file`.
 4. Split `AppState` into an observable facade plus a workspace/session coordinator.
