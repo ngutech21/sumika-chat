@@ -18,7 +18,9 @@ flowchart TD
   G --> H{"Assistant emitted a tool call?"}
   H -- "no" --> I["Mark turn completed"]
   H -- "yes" --> J["ToolLoopCoordinator parses + executes tool"]
-  J --> K{"Tool requires approval?"}
+  J --> V{"Invalid tool call?"}
+  V -- "yes" --> L
+  V -- "no" --> K{"Tool requires approval?"}
   K -- "no" --> L["Append ToolCallRecord + ToolResultModelMessage"]
   L --> Q["Stream direct follow-up with current turn included"]
   Q --> U{"Follow-up emitted another allowed tool call?"}
@@ -58,6 +60,9 @@ flowchart TD
 - `ToolLoopCoordinator` handles model-emitted tool actions. Read-only tools run
   immediately; tools that require approval can attach an approval preview and
   return an awaiting-approval outcome without appending a normal tool result.
+  Malformed tagged tool attempts and strong non-tagged tool intent are converted
+  into failed `invalid` tool observations so the model can recover in the next
+  step instead of exposing protocol drift as normal assistant prose.
 - `ContextUsageCoordinator` computes token usage from the same filtered model
   context used for generation.
 
@@ -72,8 +77,10 @@ flowchart TD
    `ToolCallRecord` and appends the tool result. Read-style tools append a
    second assistant placeholder and stream the direct follow-up response. Each
    follow-up is inspected for another tool call until the turn budget of six
-   tool calls is exhausted. Successful `write_file` and `edit_file` calls
-   complete the turn without a follow-up model response.
+   tool calls is exhausted. Failed tools, unknown tools, and invalid tool-call
+   observations also count against this budget and are returned to the model as
+   observations so it can choose the next step. Successful `write_file` and
+   `edit_file` calls complete the turn without a follow-up model response.
 6. If the tool call requires approval, the controller records the call, marks
    the turn `.awaitingApproval`, and ends active generation until the user
    approves or denies the call.

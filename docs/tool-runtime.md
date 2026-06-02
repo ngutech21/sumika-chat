@@ -10,7 +10,9 @@ or provider-specific payloads.
 ```mermaid
 flowchart TD
   A["Assistant output"] --> B["ToolCallParser"]
-  B --> C["ToolCallRequest(name, arguments)"]
+  B --> Z{"Malformed or non-tagged tool intent?"}
+  Z -- "yes" --> Y["Failed invalid tool observation"]
+  Z -- "no" --> C["ToolCallRequest(name, arguments)"]
   C --> D["ToolExecutorRegistry lookup"]
   D --> E["AnyToolExecutor"]
   E --> F["Decode arguments into typed Input"]
@@ -34,6 +36,11 @@ flowchart TD
   it also accepts a bounded closing-tag fallback so small local models that omit
   delimiter lines can still produce auditable `write_file` and `edit_file`
   calls instead of raw transcript text.
+- Malformed tagged tool attempts and strong non-tagged tool intent are not
+  executed or reparsed as alternate protocols. The tool loop records an internal
+  failed `invalid` tool observation containing the original tool name when it
+  can be inferred and the parse/protocol error, then asks the model to continue
+  within the normal tool-round budget.
 - `ToolCallRequest` is the neutral handoff model: tool name, workspace/session,
   and raw argument values.
 - `ToolExecutorRegistry` contains the executable tools for the active tool set
@@ -103,6 +110,9 @@ flowchart TD
 - Permission is evaluated after typed decoding and before execution.
 - Registry membership controls prompt visibility, but it is not a complete
   security boundary.
+- Tool-name repair is limited to deterministic canonicalization and exact
+  aliases such as `Read` to `read_file`. Unknown names are not guessed; they
+  become failed tool observations.
 - Read-only tools may auto-run only after workspace/path validation.
 - `glob_files` and `search_files` are read-only discovery tools. They validate
   the requested `path`, default it to `.`, skip project metadata/build

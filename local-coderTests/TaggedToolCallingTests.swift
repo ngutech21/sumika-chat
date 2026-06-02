@@ -9,6 +9,8 @@ struct TaggedToolCallingTests {
     let registry = ToolExecutorRegistry.readOnly.toolRegistry
 
     #expect(registry.tools.map(\.name) == [.readFile, .listFiles, .globFiles, .searchFiles])
+    #expect(registry.definition(canonicalizing: "Read")?.name == .readFile)
+    #expect(registry.definition(canonicalizing: "READ")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "READ-FILE")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "read-file")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "read file")?.name == .readFile)

@@ -39,6 +39,37 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func repairsExactReadAliasAndExecutesReadFile() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(
+            id: assistantMessageID,
+            kind: .assistant,
+            content: """
+              <action name="Read">
+              <path>README.md</path>
+              </action>
+              """
+          )
+        ]
+      )
+    )
+
+    #expect(result?.toolCall.toolName == .readFile)
+    #expect(result?.toolCallRecord.status == .completed)
+    #expect(completedToolResult(from: result)?.preview.text == "1: project notes")
+  }
+
+  @Test
   func parsesAndExecutesReadFilePaginationArguments() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -166,6 +197,109 @@ struct ToolLoopCoordinatorTests {
     )
 
     #expect(result == nil)
+  }
+
+  @Test
+  func unknownTaggedToolReturnsFailedObservationForFollowUp() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(
+            id: assistantMessageID,
+            kind: .assistant,
+            content: """
+              <action name="Deploy">
+              <path>.</path>
+              </action>
+              """
+          )
+        ]
+      )
+    )
+
+    #expect(result?.toolCall.toolName.rawValue == "deploy")
+    #expect(result?.toolCallRecord.status == .failed)
+    #expect(completedToolResult(from: result)?.toolName.rawValue == "deploy")
+    #expect(completedToolResult(from: result)?.preview.status == .failed)
+    #expect(completedToolResult(from: result)?.preview.text == "Unknown tool: deploy.")
+  }
+
+  @Test
+  func malformedTaggedToolCallReturnsInvalidObservationForFollowUp() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(
+            id: assistantMessageID,
+            kind: .assistant,
+            content: """
+              <action name="read_file">
+              <path>README.md
+              </action>
+              """
+          )
+        ]
+      )
+    )
+
+    #expect(result?.toolCall.toolName == .invalid)
+    #expect(result?.toolCall.arguments.first { $0.name == "tool" }?.value == "read_file")
+    #expect(result?.toolCallRecord.status == .failed)
+    #expect(completedToolResult(from: result)?.toolName == .invalid)
+    #expect(completedToolResult(from: result)?.preview.status == .failed)
+    #expect(completedToolResult(from: result)?.preview.text.contains("invalid") == true)
+  }
+
+  @Test
+  func naturalLanguageToolIntentReturnsInvalidObservationForFollowUp() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(
+            id: assistantMessageID,
+            kind: .assistant,
+            content: """
+              Tool call edit_file requested.
+              Path:
+              index.html
+              Old text:
+              <body>
+              New text:
+              <body style="background: blue">
+              """
+          )
+        ]
+      )
+    )
+
+    #expect(result?.toolCall.toolName == .invalid)
+    #expect(result?.toolCall.arguments.first { $0.name == "tool" }?.value == "edit_file")
+    #expect(result?.toolCallRecord.status == .failed)
+    #expect(completedToolResult(from: result)?.preview.text.contains("<action>") == true)
   }
 
   @Test

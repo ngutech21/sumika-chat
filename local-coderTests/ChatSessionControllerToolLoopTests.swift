@@ -47,6 +47,125 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func sendMessageSuppressesFurtherNonTaggedToolIntentAfterInvalidBudget() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let invalidToolIntent = """
+      Tool call edit_file requested.
+      Path:
+      index.html
+      Old text:
+      <body>
+      New text:
+      <body style="background: blue">
+      """
+    let runtime = ChatSessionFakeChatModelRuntime(
+      turns: Array(repeating: [invalidToolIntent], count: 7))
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "change the background color to blue"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.toolCalls.count == 6)
+    #expect(controller.chatSession.toolCalls.allSatisfy { $0.request.toolName == .invalid })
+    #expect(controller.chatSession.messages.last?.kind == .assistant)
+    #expect(
+      controller.chatSession.messages.last?.content
+        == "Tool limit reached for this request. Send another message to continue.")
+    #expect(!controller.chatSession.messages.contains { $0.content == invalidToolIntent })
+  }
+
+  @Test
+  func nonTaggedToolIntentIsHiddenAndReturnedToModelAsInvalidObservation() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let invalidToolIntent = """
+      Tool call edit_file requested.
+      Path:
+      index.html
+      Old text:
+      <body>
+      New text:
+      <body style="background: blue">
+      """
+    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+      [invalidToolIntent],
+      ["I need to use the tagged action format."],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "change the background color to blue"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.toolCalls.count == 1)
+    #expect(controller.chatSession.toolCalls[0].request.toolName == .invalid)
+    #expect(controller.chatSession.toolCalls[0].status == .failed)
+    #expect(controller.chatSession.messages[1].kind == .toolCall)
+    #expect(controller.chatSession.messages[1].content.isEmpty)
+    #expect(!controller.chatSession.messages.contains { $0.content == invalidToolIntent })
+    #expect(
+      controller.chatSession.messages.last?.content == "I need to use the tagged action format.")
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 2)
+    #expect(
+      capturedMessages[1].contains { message in
+        message.kind == .toolResult && message.toolResult?.toolName == .invalid
+      })
+  }
+
+  @Test
+  func failedEditFileResultLetsModelRecoverWithReadFile() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let editAction = """
+      <action name="edit_file">
+      <path>README.md</path>
+      <old_text delimiter="LC_PAYLOAD_V1">
+      missing text
+      LC_PAYLOAD_V1
+      </old_text>
+      <new_text delimiter="LC_PAYLOAD_V1">
+      replacement
+      LC_PAYLOAD_V1
+      </new_text>
+      </action>
+      """
+    let readAction = """
+      <action name="read_file">
+      <path>README.md</path>
+      </action>
+      """
+    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+      [editAction],
+      [readAction],
+      ["The file contains project notes."],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "replace missing text in README"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.toolCalls.count == 2)
+    #expect(controller.chatSession.toolCalls[0].request.toolName == .editFile)
+    #expect(controller.chatSession.toolCalls[0].status == .failed)
+    #expect(
+      controller.chatSession.toolCalls[0].resultPreview?.text.contains("not found") == true)
+    #expect(controller.chatSession.toolCalls[1].request.toolName == .readFile)
+    #expect(controller.chatSession.toolCalls[1].status == .completed)
+    #expect(controller.chatSession.messages.last?.content == "The file contains project notes.")
+  }
+
+  @Test
   func subsequentUserTurnsCanUseToolsAgainInSameSession() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

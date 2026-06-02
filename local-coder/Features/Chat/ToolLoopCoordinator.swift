@@ -28,6 +28,12 @@ nonisolated enum ToolLoopOutcome: Equatable, Sendable {
   case completedWithoutFollowUp(toolResult: ToolResultModelMessage)
 }
 
+nonisolated private enum ToolLoopParsedAction: Equatable, Sendable {
+  case none
+  case toolCall(ToolCallParseOutput)
+  case invalid(originalToolName: String, error: String)
+}
+
 nonisolated struct ToolLoopCoordinator: Sendable {
   private let toolCallParser: any ToolCallParsing
   private let toolOrchestrator: any ToolOrchestrating
@@ -47,88 +53,205 @@ nonisolated struct ToolLoopCoordinator: Sendable {
   func run(_ request: ToolLoopRequest) async throws -> ToolLoopResult? {
     try Task.checkCancellation()
     let assistantContent = messageContent(for: request.assistantMessageID, in: request.messages)
-    let parseResult = try parseToolCallResult(
+    let parsedAction = try parseToolAction(
       assistantContent,
       workspaceID: request.workspace.id,
       sessionID: request.sessionID
     )
 
-    guard case .toolCall(let output) = parseResult else {
+    switch parsedAction {
+    case .none:
       return nil
-    }
-
-    let record = await toolOrchestrator.execute(
-      request: output.request,
-      workspace: request.workspace
-    )
-    guard record.status != .awaitingApproval else {
+    case .invalid(let originalToolName, let error):
+      let output = invalidToolCallOutput(
+        originalToolName: originalToolName,
+        error: error,
+        workspaceID: request.workspace.id,
+        sessionID: request.sessionID
+      )
+      let record = invalidToolCallRecord(
+        request: output.request,
+        originalToolName: originalToolName,
+        error: error
+      )
       return ToolLoopResult(
         assistantMessageID: request.assistantMessageID,
         toolCall: output.modelMessage,
         toolCallRecord: record,
-        outcome: .awaitingApproval
+        outcome: .completed(
+          toolResult: ToolResultModelMessage(
+            callID: output.request.id,
+            toolName: output.request.toolName,
+            preview: record.resultPreview
+              ?? ToolResultPreview(status: .failed, text: invalidToolMessage(error: error))
+          ),
+          nextAssistantMessageID: UUID()
+        )
+      )
+    case .toolCall(let output):
+      let record = await toolOrchestrator.execute(
+        request: output.request,
+        workspace: request.workspace
+      )
+      guard record.status != .awaitingApproval else {
+        return ToolLoopResult(
+          assistantMessageID: request.assistantMessageID,
+          toolCall: output.modelMessage,
+          toolCallRecord: record,
+          outcome: .awaitingApproval
+        )
+      }
+
+      let resultPreview =
+        record.resultPreview
+        ?? ToolResultPreview(
+          status: .failed,
+          text: "Tool result unavailable for \(output.request.toolName.rawValue)."
+        )
+      let toolResult = ToolResultModelMessage(
+        callID: output.request.id,
+        toolName: output.request.toolName,
+        preview: resultPreview
+      )
+
+      let outcome: ToolLoopOutcome
+      if completesTurnWithoutFollowUp(output.request.toolName) && record.status == .completed {
+        outcome = .completedWithoutFollowUp(toolResult: toolResult)
+      } else {
+        outcome = .completed(toolResult: toolResult, nextAssistantMessageID: UUID())
+      }
+
+      return ToolLoopResult(
+        assistantMessageID: request.assistantMessageID,
+        toolCall: output.modelMessage,
+        toolCallRecord: record,
+        outcome: outcome
       )
     }
-
-    let resultPreview =
-      record.resultPreview
-      ?? ToolResultPreview(
-        status: .failed,
-        text: "Tool result unavailable for \(output.request.toolName.rawValue)."
-      )
-    let toolResult = ToolResultModelMessage(
-      callID: output.request.id,
-      toolName: output.request.toolName,
-      preview: resultPreview
-    )
-
-    let outcome: ToolLoopOutcome
-    if completesTurnWithoutFollowUp(output.request.toolName) && record.status == .completed {
-      outcome = .completedWithoutFollowUp(toolResult: toolResult)
-    } else {
-      outcome = .completed(toolResult: toolResult, nextAssistantMessageID: UUID())
-    }
-
-    return ToolLoopResult(
-      assistantMessageID: request.assistantMessageID,
-      toolCall: output.modelMessage,
-      toolCallRecord: record,
-      outcome: outcome
-    )
   }
 
-  private func parseToolCallResult(
+  private func parseToolAction(
     _ content: String,
     workspaceID: Workspace.ID,
     sessionID: CodingSession.ID
-  ) throws -> ToolCallParseResult {
+  ) throws -> ToolLoopParsedAction {
     do {
-      return try toolCallParser.parse(
+      let parseResult = try toolCallParser.parse(
         content,
         workspaceID: workspaceID,
         sessionID: sessionID,
         createdAt: Date()
       )
-    } catch is TaggedToolCallParseError {
+      switch parseResult {
+      case .none:
+        guard ToolIntentHeuristics.looksLikeNonTaggedToolIntent(content) else {
+          return .none
+        }
+        return .invalid(
+          originalToolName: ToolIntentHeuristics.inferredToolName(from: content),
+          error:
+            "Assistant described a tool call but did not emit the required tagged <action> block. "
+            + "Emit one complete <action> block and no explanatory text."
+        )
+      case .toolCall(let output):
+        return .toolCall(output)
+      }
+    } catch let parseError as TaggedToolCallParseError {
+      let initialError = errorDescription(from: parseError)
       guard let actionContent = recoverableToolActionContent(from: content) else {
-        return .none
+        return .invalid(
+          originalToolName: ToolIntentHeuristics.inferredToolName(from: content),
+          error: initialError
+        )
       }
 
       do {
-        return try toolCallParser.parse(
+        let parseResult = try toolCallParser.parse(
           actionContent,
           workspaceID: workspaceID,
           sessionID: sessionID,
           createdAt: Date()
         )
-      } catch is TaggedToolCallParseError {
-        return .none
+        switch parseResult {
+        case .none:
+          return .invalid(
+            originalToolName: ToolIntentHeuristics.inferredToolName(from: content),
+            error: initialError
+          )
+        case .toolCall(let output):
+          return .toolCall(output)
+        }
+      } catch let parseError as TaggedToolCallParseError {
+        return .invalid(
+          originalToolName: ToolIntentHeuristics.inferredToolName(from: content),
+          error: errorDescription(from: parseError)
+        )
       }
     }
   }
 
   private func completesTurnWithoutFollowUp(_ toolName: ToolName) -> Bool {
     toolName == .writeFile || toolName == .editFile
+  }
+
+  private func invalidToolCallOutput(
+    originalToolName: String,
+    error: String,
+    workspaceID: Workspace.ID,
+    sessionID: CodingSession.ID
+  ) -> ToolCallParseOutput {
+    let request = ToolCallRequest(
+      workspaceID: workspaceID,
+      sessionID: sessionID,
+      toolName: .invalid,
+      arguments: [
+        "tool": .string(originalToolName),
+        "error": .string(error),
+      ]
+    )
+    return ToolCallParseOutput(
+      request: request,
+      modelMessage: ToolCallModelMessage(request: request)
+    )
+  }
+
+  private func invalidToolCallRecord(
+    request: ToolCallRequest,
+    originalToolName: String,
+    error: String
+  ) -> ToolCallRecord {
+    let message = invalidToolMessage(error: error)
+    return ToolCallRecord(
+      request: request,
+      status: .failed,
+      evaluation: ToolPermissionEvaluation(
+        decision: .denied,
+        reason: message,
+        riskLevel: .low
+      ),
+      events: [
+        ToolCallEvent(
+          actor: .assistant,
+          kind: .requested,
+          message: "Requested invalid tool fallback for \(originalToolName)."
+        ),
+        ToolCallEvent(actor: .system, kind: .failed, message: message),
+      ],
+      resultPreview: ToolResultPreview(status: .failed, text: message)
+    )
+  }
+
+  private func invalidToolMessage(error: String) -> String {
+    "The tool call was invalid: \(error)"
+  }
+
+  private func errorDescription(from error: Error) -> String {
+    if let localizedError = error as? LocalizedError,
+      let description = localizedError.errorDescription
+    {
+      return description
+    }
+    return error.localizedDescription
   }
 
   private func recoverableToolActionContent(from content: String) -> String? {

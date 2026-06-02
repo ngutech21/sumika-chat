@@ -20,12 +20,31 @@ nonisolated struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresen
   static let editFile = ToolName(rawValue: "edit_file")
   static let writeFile = ToolName(rawValue: "write_file")
   static let runCommand = ToolName(rawValue: "run_command")
+  static let invalid = ToolName(rawValue: "invalid")
 
   private static func canonicalName(for name: String) -> String {
-    name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
       .replacingOccurrences(of: "-", with: "_")
       .replacingOccurrences(of: " ", with: "_")
       .lowercased()
+    switch normalized {
+    case "read":
+      return Self.readFile.rawValue
+    case "list":
+      return Self.listFiles.rawValue
+    case "glob":
+      return Self.globFiles.rawValue
+    case "search":
+      return Self.searchFiles.rawValue
+    case "edit":
+      return Self.editFile.rawValue
+    case "write":
+      return Self.writeFile.rawValue
+    case "run", "command":
+      return Self.runCommand.rawValue
+    default:
+      return normalized
+    }
   }
 
   init(from decoder: Decoder) throws {
@@ -36,6 +55,61 @@ nonisolated struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresen
   func encode(to encoder: Encoder) throws {
     var container = encoder.singleValueContainer()
     try container.encode(rawValue)
+  }
+}
+
+nonisolated enum ToolIntentHeuristics {
+  static func looksLikeNonTaggedToolIntent(_ content: String) -> Bool {
+    let lowered = content.lowercased()
+    let hasToolCallPhrase = lowered.contains("tool call")
+    let indicatorCount = [
+      "requested",
+      "path:",
+      "old text:",
+      "new text:",
+      "old_text",
+      "new_text",
+    ].filter { lowered.contains($0) }.count
+
+    return (hasToolCallPhrase && indicatorCount > 0)
+      || (lowered.contains("path:") && lowered.contains("old text:")
+        && lowered.contains("new text:"))
+  }
+
+  static func inferredToolName(from content: String) -> String {
+    let lowered = content.lowercased()
+    let knownToolNames = [
+      ToolName.readFile.rawValue,
+      ToolName.listFiles.rawValue,
+      ToolName.globFiles.rawValue,
+      ToolName.searchFiles.rawValue,
+      ToolName.editFile.rawValue,
+      ToolName.writeFile.rawValue,
+      ToolName.runCommand.rawValue,
+    ]
+
+    for toolName in knownToolNames {
+      if lowered.contains(toolName)
+        || lowered.contains(toolName.replacingOccurrences(of: "_", with: " "))
+      {
+        return toolName
+      }
+    }
+
+    guard let phraseRange = lowered.range(of: "tool call") else {
+      return "unknown"
+    }
+
+    let remainder = content[phraseRange.upperBound...].trimmingCharacters(
+      in: .whitespacesAndNewlines)
+    guard let token = remainder.split(whereSeparator: \.isWhitespace).first else {
+      return "unknown"
+    }
+
+    let candidate = token.trimmingCharacters(
+      in: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-")).inverted
+    )
+    return candidate.isEmpty ? "unknown" : ToolName(canonicalizing: candidate).rawValue
   }
 }
 

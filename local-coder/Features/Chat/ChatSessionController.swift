@@ -837,7 +837,7 @@ extension ChatSessionController {
     }
     guard
       chatSession.messages.contains(where: { message in
-        message.id == assistantMessageID && message.containsStreamingToolCallMarkup
+        message.id == assistantMessageID && containsOverBudgetToolAttempt(message)
       })
     else {
       return
@@ -849,6 +849,12 @@ extension ChatSessionController {
       in: &chatSession
     )
     notifySessionDidChange()
+  }
+
+  private func containsOverBudgetToolAttempt(_ message: ChatMessage) -> Bool {
+    message.containsStreamingToolCallMarkup
+      || (message.kind == .assistant
+        && ToolIntentHeuristics.looksLikeNonTaggedToolIntent(message.content))
   }
 
   private func appendToolResult(_ toolResult: ToolResultModelMessage, turnID: ChatTurnRecord.ID) {
