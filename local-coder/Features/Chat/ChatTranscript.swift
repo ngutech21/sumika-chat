@@ -4,8 +4,11 @@ import SwiftUI
 
 struct ChatTranscript: View {
   let messages: [ChatMessage]
+  let toolCalls: [ToolCallRecord]
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
+  let onApproveToolCall: (ToolCallRecord.ID) -> Void
+  let onDenyToolCall: (ToolCallRecord.ID) -> Void
 
   var body: some View {
     ScrollView {
@@ -19,7 +22,12 @@ struct ChatTranscript: View {
           .frame(maxWidth: .infinity, minHeight: 360)
         } else {
           ForEach(messages) { message in
-            ChatBubble(message: message)
+            ChatBubble(
+              message: message,
+              toolCallRecord: toolCallRecord(for: message),
+              onApproveToolCall: onApproveToolCall,
+              onDenyToolCall: onDenyToolCall
+            )
           }
         }
       }
@@ -53,10 +61,20 @@ struct ChatTranscript: View {
       "Select and load a Gemma model below before writing a prompt."
     }
   }
+
+  private func toolCallRecord(for message: ChatMessage) -> ToolCallRecord? {
+    guard let callID = message.toolCall?.callID else {
+      return nil
+    }
+    return toolCalls.first { $0.id == callID }
+  }
 }
 
 private struct ChatBubble: View {
   let message: ChatMessage
+  let toolCallRecord: ToolCallRecord?
+  let onApproveToolCall: (ToolCallRecord.ID) -> Void
+  let onDenyToolCall: (ToolCallRecord.ID) -> Void
   @State private var didCopy = false
 
   var body: some View {
@@ -80,11 +98,16 @@ private struct ChatBubble: View {
           .background(Color.secondary.opacity(0.12))
           .clipShape(RoundedRectangle(cornerRadius: 8))
         } else {
-          MessageContentText(message: message)
-            .textSelection(.enabled)
-            .padding(10)
-            .background(messageBubbleBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+          MessageContentText(
+            message: message,
+            toolCallRecord: toolCallRecord,
+            onApproveToolCall: onApproveToolCall,
+            onDenyToolCall: onDenyToolCall
+          )
+          .textSelection(.enabled)
+          .padding(10)
+          .background(messageBubbleBackground)
+          .clipShape(RoundedRectangle(cornerRadius: 8))
         }
 
         if message.isDisplayedAsUser && !message.attachments.isEmpty {
@@ -153,11 +176,19 @@ private struct SentAttachmentList: View {
 
 private struct MessageContentText: View {
   let message: ChatMessage
+  let toolCallRecord: ToolCallRecord?
+  let onApproveToolCall: (ToolCallRecord.ID) -> Void
+  let onDenyToolCall: (ToolCallRecord.ID) -> Void
 
   @ViewBuilder
   var body: some View {
     if let toolCall = message.toolCall {
-      ToolCallSummaryView(toolCall: toolCall)
+      ToolCallSummaryView(
+        toolCall: toolCall,
+        toolCallRecord: toolCallRecord,
+        onApprove: onApproveToolCall,
+        onDeny: onDenyToolCall
+      )
     } else if let toolResult = message.toolResult {
       ToolResultSummaryView(toolResult: toolResult)
     } else if message.kind == .assistant {

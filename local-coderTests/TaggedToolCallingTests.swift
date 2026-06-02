@@ -146,6 +146,45 @@ struct TaggedToolCallingTests {
   }
 
   @Test
+  func parserParsesContentPayloadWhenModelOmitsClosingDelimiterLine() throws {
+    let request = try parsedRequest(
+      """
+      <action name="write_file">
+      <path>movies.html</path>
+      <content delimiter="LC_PAYLOAD_TEST">
+      <!DOCTYPE html>
+      <html>
+      <body>
+      <table>
+        <tr><td>The Lion King</td><td>Roger Allers</td><td>1994</td></tr>
+      </table>
+      </body>
+      </html>
+      </content>
+      </action>
+      """
+    )
+
+    let expectedPayload = """
+      <!DOCTYPE html>
+      <html>
+      <body>
+      <table>
+        <tr><td>The Lion King</td><td>Roger Allers</td><td>1994</td></tr>
+      </table>
+      </body>
+      </html>
+      """
+
+    #expect(request.toolName == .writeFile)
+    #expect(
+      request.arguments == [
+        "path": .string("movies.html"),
+        "content": .string(expectedPayload),
+      ])
+  }
+
+  @Test
   func parserAcceptsCRLFDelimiterLines() throws {
     let content =
       "<action name=\"apply_patch\">\r\n<patch delimiter=\"LC_PAYLOAD_TEST\">\r\nline 1\r\nLC_PAYLOAD_TEST\r\n</patch>\r\n</action>"

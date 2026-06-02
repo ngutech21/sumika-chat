@@ -356,6 +356,7 @@ struct ChatSessionControllerTests {
     #expect(capturedSystemPrompts.count == 2)
     #expect(capturedSystemPrompts[0].contains("read_file"))
     #expect(capturedSystemPrompts[0].contains("list_files"))
+    #expect(capturedSystemPrompts[0].contains("write_file"))
     #expect(capturedSystemPrompts[1].contains("Do not emit another <action> tag"))
   }
 

@@ -16,94 +16,150 @@ nonisolated protocol TypedToolExecutor: Sendable {
 nonisolated struct AnyToolExecutor: Sendable {
   let definition: ToolDefinition
   private let runHandler: @Sendable (ToolCallRequest, ToolContext) async -> ToolCallRecord
+  private let approvedRunHandler: @Sendable (ToolCallRequest, ToolContext) async -> ToolCallRecord
 
   init<T: TypedToolExecutor>(_ tool: T) {
     definition = T.definition
     runHandler = { request, context in
-      var record = Self.makePendingRecord(request: request)
+      await Self.runTool(tool, request: request, context: context)
+    }
 
-      do {
-        try Self.validateKnownArguments(request.arguments, definition: T.definition)
-        let input = try ToolInputDecoder.decode(T.Input.self, from: request.arguments)
-        let evaluation = tool.evaluatePermission(input, context: context)
-        record.evaluation = evaluation
-
-        switch evaluation.decision {
-        case .allowed:
-          break
-        case .requiresApproval:
-          record.status = .awaitingApproval
-          record.events.append(
-            ToolCallEvent(
-              actor: .system,
-              kind: .awaitingApproval,
-              message: evaluation.reason
-            )
-          )
-          return record
-        case .denied:
-          let preview = ToolResultPreview(
-            status: .denied,
-            text: evaluation.reason,
-            affectedPaths: evaluation.normalizedPaths
-          )
-          record.status = .denied
-          record.resultPreview = preview
-          record.events.append(
-            ToolCallEvent(actor: .system, kind: .denied, message: evaluation.reason)
-          )
-          return record
-        }
-
-        record.status = .running
-        record.events.append(
-          ToolCallEvent(
-            actor: .tool,
-            kind: .started,
-            message: "Started \(request.toolName.rawValue)."
-          )
-        )
-
-        let preview = await tool.run(input, context: context)
-        record.resultPreview = preview
-
-        switch preview.status {
-        case .success:
-          record.status = .completed
-          record.events.append(
-            ToolCallEvent(
-              actor: .tool,
-              kind: .completed,
-              message: "Completed \(request.toolName.rawValue)."
-            )
-          )
-        case .failed:
-          record.status = .failed
-          record.events.append(ToolCallEvent(actor: .tool, kind: .failed, message: preview.text))
-        case .denied:
-          record.status = .denied
-          record.events.append(ToolCallEvent(actor: .tool, kind: .denied, message: preview.text))
-        }
-
-        return record
-      } catch {
-        let message =
-          "Invalid arguments for \(T.definition.name.rawValue): \(error.localizedDescription)"
-        record.status = .failed
-        record.evaluation = ToolPermissionEvaluation(
-          decision: .denied,
-          reason: message,
-          riskLevel: T.definition.riskLevel
-        )
-        record.resultPreview = ToolResultPreview(status: .failed, text: message)
-        record.events.append(ToolCallEvent(actor: .system, kind: .failed, message: message))
-        return record
-      }
+    approvedRunHandler = { request, context in
+      await Self.runApprovedTool(tool, request: request, context: context)
     }
   }
 
   func run(_ request: ToolCallRequest, context: ToolContext) async -> ToolCallRecord {
     await runHandler(request, context)
+  }
+
+  func runApproved(_ request: ToolCallRequest, context: ToolContext) async -> ToolCallRecord {
+    await approvedRunHandler(request, context)
+  }
+
+  private static func runTool<T: TypedToolExecutor>(
+    _ tool: T,
+    request: ToolCallRequest,
+    context: ToolContext
+  ) async -> ToolCallRecord {
+    await evaluateAndRun(tool, request: request, context: context, isApproved: false)
+  }
+
+  private static func runApprovedTool<T: TypedToolExecutor>(
+    _ tool: T,
+    request: ToolCallRequest,
+    context: ToolContext
+  ) async -> ToolCallRecord {
+    await evaluateAndRun(tool, request: request, context: context, isApproved: true)
+  }
+
+  private static func evaluateAndRun<T: TypedToolExecutor>(
+    _ tool: T,
+    request: ToolCallRequest,
+    context: ToolContext,
+    isApproved: Bool
+  ) async -> ToolCallRecord {
+    var record = makePendingRecord(request: request)
+
+    do {
+      try validateKnownArguments(request.arguments, definition: T.definition)
+      let input = try ToolInputDecoder.decode(T.Input.self, from: request.arguments)
+      let evaluation = tool.evaluatePermission(input, context: context)
+      record.evaluation = evaluation
+
+      guard shouldRun(evaluation: evaluation, isApproved: isApproved, record: &record) else {
+        return record
+      }
+
+      return await runEvaluatedTool(
+        tool, input: input, request: request, record: record, context: context)
+    } catch {
+      return failedRecord(request: request, definition: T.definition, error: error)
+    }
+  }
+
+  private static func shouldRun(
+    evaluation: ToolPermissionEvaluation,
+    isApproved: Bool,
+    record: inout ToolCallRecord
+  ) -> Bool {
+    switch evaluation.decision {
+    case .allowed:
+      return true
+    case .requiresApproval where isApproved:
+      record.status = .approved
+      record.events.append(
+        ToolCallEvent(actor: .user, kind: .approved, message: "Approved by user."))
+      return true
+    case .requiresApproval:
+      record.status = .awaitingApproval
+      record.events.append(
+        ToolCallEvent(actor: .system, kind: .awaitingApproval, message: evaluation.reason))
+      return false
+    case .denied:
+      let preview = ToolResultPreview(
+        status: .denied,
+        text: evaluation.reason,
+        affectedPaths: evaluation.normalizedPaths
+      )
+      record.status = .denied
+      record.resultPreview = preview
+      record.events.append(ToolCallEvent(actor: .system, kind: .denied, message: evaluation.reason))
+      return false
+    }
+  }
+
+  private static func runEvaluatedTool<T: TypedToolExecutor>(
+    _ tool: T,
+    input: T.Input,
+    request: ToolCallRequest,
+    record: ToolCallRecord,
+    context: ToolContext
+  ) async -> ToolCallRecord {
+    var record = record
+    record.status = .running
+    record.events.append(
+      ToolCallEvent(actor: .tool, kind: .started, message: "Started \(request.toolName.rawValue)."))
+
+    let preview = await tool.run(input, context: context)
+    record.resultPreview = preview
+
+    switch preview.status {
+    case .success:
+      record.status = .completed
+      record.events.append(
+        ToolCallEvent(
+          actor: .tool,
+          kind: .completed,
+          message: "Completed \(request.toolName.rawValue)."
+        ))
+    case .failed:
+      record.status = .failed
+      record.events.append(ToolCallEvent(actor: .tool, kind: .failed, message: preview.text))
+    case .denied:
+      record.status = .denied
+      record.events.append(ToolCallEvent(actor: .tool, kind: .denied, message: preview.text))
+    }
+
+    return record
+  }
+
+  private static func failedRecord(
+    request: ToolCallRequest,
+    definition: ToolDefinition,
+    error: Error
+  ) -> ToolCallRecord {
+    let message = "Invalid arguments for \(definition.name.rawValue): \(error.localizedDescription)"
+    var record = makePendingRecord(request: request)
+    record.status = .failed
+    record.evaluation = ToolPermissionEvaluation(
+      decision: .denied,
+      reason: message,
+      riskLevel: definition.riskLevel
+    )
+    record.resultPreview = ToolResultPreview(status: .failed, text: message)
+    record.events.append(ToolCallEvent(actor: .system, kind: .failed, message: message))
+    return record
   }
 
   private static func makePendingRecord(request: ToolCallRequest) -> ToolCallRecord {
@@ -141,6 +197,12 @@ nonisolated struct ToolExecutorRegistry: Sendable {
   static let readOnly = ToolExecutorRegistry([
     AnyToolExecutor(ReadFileToolExecutor()),
     AnyToolExecutor(ListFilesToolExecutor()),
+  ])
+
+  static let codingAgent = ToolExecutorRegistry([
+    AnyToolExecutor(ReadFileToolExecutor()),
+    AnyToolExecutor(ListFilesToolExecutor()),
+    AnyToolExecutor(WriteFileToolExecutor()),
   ])
 
   private let orderedExecutors: [AnyToolExecutor]
@@ -209,30 +271,25 @@ nonisolated struct ReadFileToolExecutor: TypedToolExecutor {
   }
 
   func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPreview {
-    let didStartSecurityScope = context.workspace.rootURL.startAccessingSecurityScopedResource()
-    defer {
-      if didStartSecurityScope {
-        context.workspace.rootURL.stopAccessingSecurityScopedResource()
-      }
-    }
-
     do {
-      let resolvedURL = try context.workspace.resolveAllowedPath(input.path)
-      let preview = try Self.readPreview(from: resolvedURL, maxBytes: maxBytes)
-      guard let content = preview.content else {
+      return try context.workspace.withSecurityScopedAccess {
+        let resolvedURL = try context.workspace.resolveAllowedPath(input.path)
+        let preview = try Self.readPreview(from: resolvedURL, maxBytes: maxBytes)
+        guard let content = preview.content else {
+          return ToolResultPreview(
+            status: .failed,
+            text: "File is not valid UTF-8 text.",
+            affectedPaths: [resolvedURL.path(percentEncoded: false)]
+          )
+        }
+
         return ToolResultPreview(
-          status: .failed,
-          text: "File is not valid UTF-8 text.",
+          status: .success,
+          text: content,
+          truncated: preview.truncated,
           affectedPaths: [resolvedURL.path(percentEncoded: false)]
         )
       }
-
-      return ToolResultPreview(
-        status: .success,
-        text: content,
-        truncated: preview.truncated,
-        affectedPaths: [resolvedURL.path(percentEncoded: false)]
-      )
     } catch {
       return ToolResultPreview(
         status: .failed,
@@ -338,31 +395,27 @@ nonisolated struct ListFilesToolExecutor: TypedToolExecutor {
 
   func run(_ input: ListFilesInput, context: ToolContext) async -> ToolResultPreview {
     let path = input.path ?? "."
-    let didStartSecurityScope = context.workspace.rootURL.startAccessingSecurityScopedResource()
-    defer {
-      if didStartSecurityScope {
-        context.workspace.rootURL.stopAccessingSecurityScopedResource()
-      }
-    }
 
     do {
-      let rootURL = try context.workspace.resolveAllowedPath(path)
-      var entries: [String] = []
-      var truncated = false
-      try appendEntries(
-        at: rootURL,
-        displayPrefix: "",
-        depth: 0,
-        entries: &entries,
-        truncated: &truncated
-      )
+      return try context.workspace.withSecurityScopedAccess {
+        let rootURL = try context.workspace.resolveAllowedPath(path)
+        var entries: [String] = []
+        var truncated = false
+        try appendEntries(
+          at: rootURL,
+          displayPrefix: "",
+          depth: 0,
+          entries: &entries,
+          truncated: &truncated
+        )
 
-      return ToolResultPreview(
-        status: .success,
-        text: entries.isEmpty ? "(empty)" : entries.joined(separator: "\n"),
-        truncated: truncated,
-        affectedPaths: [rootURL.path(percentEncoded: false)]
-      )
+        return ToolResultPreview(
+          status: .success,
+          text: entries.isEmpty ? "(empty)" : entries.joined(separator: "\n"),
+          truncated: truncated,
+          affectedPaths: [rootURL.path(percentEncoded: false)]
+        )
+      }
     } catch {
       return ToolResultPreview(
         status: .failed,
@@ -464,25 +517,20 @@ nonisolated struct WriteFileToolExecutor: TypedToolExecutor {
   }
 
   func run(_ input: WriteFileInput, context: ToolContext) async -> ToolResultPreview {
-    let didStartSecurityScope = context.workspace.rootURL.startAccessingSecurityScopedResource()
-    defer {
-      if didStartSecurityScope {
-        context.workspace.rootURL.stopAccessingSecurityScopedResource()
-      }
-    }
-
     do {
-      let resolvedURL = try context.workspace.resolveAllowedPath(input.path)
-      try FileManager.default.createDirectory(
-        at: resolvedURL.deletingLastPathComponent(),
-        withIntermediateDirectories: true
-      )
-      try input.content.write(to: resolvedURL, atomically: true, encoding: .utf8)
-      return ToolResultPreview(
-        status: .success,
-        text: "Wrote \(input.content.utf8.count) bytes to \(input.path).",
-        affectedPaths: [resolvedURL.path(percentEncoded: false)]
-      )
+      return try context.workspace.withSecurityScopedAccess {
+        let resolvedURL = try context.workspace.resolveAllowedPath(input.path)
+        try FileManager.default.createDirectory(
+          at: resolvedURL.deletingLastPathComponent(),
+          withIntermediateDirectories: true
+        )
+        try input.content.write(to: resolvedURL, atomically: true, encoding: .utf8)
+        return ToolResultPreview(
+          status: .success,
+          text: "Wrote \(input.content.utf8.count) bytes to \(input.path).",
+          affectedPaths: [resolvedURL.path(percentEncoded: false)]
+        )
+      }
     } catch {
       return ToolResultPreview(
         status: .failed,
@@ -572,6 +620,57 @@ nonisolated struct ToolOrchestrator: Sendable {
     }
 
     return await executor.run(
+      request,
+      context: ToolContext(workspace: workspace)
+    )
+  }
+
+  func executeApproved(request: ToolCallRequest, workspace: Workspace) async -> ToolCallRecord {
+    guard request.workspaceID == workspace.id else {
+      let message = "Tool call workspace does not match the active workspace."
+      return ToolCallRecord(
+        request: request,
+        status: .denied,
+        evaluation: ToolPermissionEvaluation(
+          decision: .denied,
+          reason: message,
+          riskLevel: .high
+        ),
+        events: [
+          ToolCallEvent(
+            actor: .assistant,
+            kind: .requested,
+            message: "Requested \(request.toolName.rawValue)."
+          ),
+          ToolCallEvent(actor: .system, kind: .denied, message: message),
+        ],
+        resultPreview: ToolResultPreview(status: .denied, text: message)
+      )
+    }
+
+    guard let executor = executorRegistry.executor(for: request.toolName) else {
+      let message = "Unknown tool: \(request.toolName.rawValue)."
+      return ToolCallRecord(
+        request: request,
+        status: .failed,
+        evaluation: ToolPermissionEvaluation(
+          decision: .denied,
+          reason: message,
+          riskLevel: .high
+        ),
+        events: [
+          ToolCallEvent(
+            actor: .assistant,
+            kind: .requested,
+            message: "Requested \(request.toolName.rawValue)."
+          ),
+          ToolCallEvent(actor: .system, kind: .failed, message: message),
+        ],
+        resultPreview: ToolResultPreview(status: .failed, text: message)
+      )
+    }
+
+    return await executor.runApproved(
       request,
       context: ToolContext(workspace: workspace)
     )

@@ -92,7 +92,9 @@ nonisolated struct TaggedToolPromptRenderer: ToolPromptRendering {
       Tool calling uses a tagged action format. It is XML-inspired, but it is not XML.
       Emit one complete <action> block and then stop. Do not include explanatory text before or after the action.
       For small parameters, use paired tags like <path>Sources/App.swift</path>.
-      For raw multiline payloads, use this exact app-provided delimiter on its own line with no spaces: \(payloadDelimiter)
+      For raw multiline payloads, use this exact app-provided delimiter on its own line with no spaces:
+      \(payloadDelimiter)
+      End every raw multiline payload with the delimiter line, then the closing parameter tag.
       Payload contents are raw text; do not escape HTML, XML, JSON, or code inside payloads.
       If a payload would contain the delimiter as its own line, do not call a tool. Ask for a new delimiter.
 
@@ -105,9 +107,14 @@ nonisolated struct TaggedToolPromptRenderer: ToolPromptRendering {
 
 nonisolated struct TaggedToolCallParser: ToolCallParsing {
   private let payloadParameterNames: Set<String>
+  private let closingTagFallbackPayloadNames: Set<String>
 
-  init(payloadParameterNames: Set<String> = ["content", "patch"]) {
+  init(
+    payloadParameterNames: Set<String> = ["content", "patch"],
+    closingTagFallbackPayloadNames: Set<String> = ["content"]
+  ) {
     self.payloadParameterNames = payloadParameterNames
+    self.closingTagFallbackPayloadNames = closingTagFallbackPayloadNames
   }
 
   func parse(
@@ -181,7 +188,8 @@ nonisolated struct TaggedToolCallParser: ToolCallParsing {
           in: text,
           from: cursor,
           parameterName: parameterName,
-          delimiter: delimiter
+          delimiter: delimiter,
+          allowsClosingTagFallback: closingTagFallbackPayloadNames.contains(parameterName)
         )
         arguments[parameterName] = .string(payload.content)
         cursor = payload.endIndex
@@ -302,7 +310,8 @@ nonisolated struct TaggedToolCallParser: ToolCallParsing {
     in text: String,
     from start: String.Index,
     parameterName: String,
-    delimiter: String
+    delimiter: String,
+    allowsClosingTagFallback: Bool
   ) throws -> (content: String, endIndex: String.Index) {
     var contentStart = start
     if let crlfRange = text[contentStart...].range(of: "\r\n"),
@@ -334,7 +343,30 @@ nonisolated struct TaggedToolCallParser: ToolCallParsing {
       lineStart = line.nextStart
     }
 
+    if allowsClosingTagFallback {
+      return try readClosingTagTerminatedPayload(
+        in: text,
+        from: contentStart,
+        parameterName: parameterName
+      )
+    }
+
     throw TaggedToolCallParseError.delimiterNotFound(delimiter)
+  }
+
+  private func readClosingTagTerminatedPayload(
+    in text: String,
+    from contentStart: String.Index,
+    parameterName: String
+  ) throws -> (content: String, endIndex: String.Index) {
+    let closingTag = "</\(parameterName)>"
+    guard let closingRange = text[contentStart...].range(of: closingTag) else {
+      throw TaggedToolCallParseError.malformedTag
+    }
+
+    let contentEnd = trimmedContentEndBeforeClosingTag(
+      in: text, closingStart: closingRange.lowerBound)
+    return (String(text[contentStart..<contentEnd]), closingRange.upperBound)
   }
 
   private func lineBounds(
@@ -373,19 +405,26 @@ nonisolated struct TaggedToolCallParser: ToolCallParsing {
     in text: String,
     lineStart: String.Index
   ) -> String.Index {
-    let prefix = text[..<lineStart]
+    trimmedContentEndBeforeClosingTag(in: text, closingStart: lineStart)
+  }
+
+  private func trimmedContentEndBeforeClosingTag(
+    in text: String,
+    closingStart: String.Index
+  ) -> String.Index {
+    let prefix = text[..<closingStart]
     if let crlfRange = prefix.range(of: "\r\n", options: .backwards),
-      crlfRange.upperBound == lineStart
+      crlfRange.upperBound == closingStart
     {
       return crlfRange.lowerBound
     }
     if let lfRange = prefix.range(of: "\n", options: .backwards),
-      lfRange.upperBound == lineStart
+      lfRange.upperBound == closingStart
     {
       return lfRange.lowerBound
     }
 
-    return lineStart
+    return closingStart
   }
 
   private func skipWhitespace(in text: String, from start: String.Index) -> String.Index {

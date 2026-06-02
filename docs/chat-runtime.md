@@ -18,9 +18,15 @@ flowchart TD
   G --> H{"Assistant emitted a tool call?"}
   H -- "no" --> I["Mark turn completed"]
   H -- "yes" --> J["ToolLoopCoordinator parses + executes tool"]
-  J --> K["Append ToolCallRecord + ToolResultModelMessage"]
-  K --> L["Stream direct follow-up with current turn included"]
-  L --> I
+  J --> K{"Tool requires approval?"}
+  K -- "no" --> L["Append ToolCallRecord + ToolResultModelMessage"]
+  L --> Q["Stream direct follow-up with current turn included"]
+  Q --> I
+  K -- "yes" --> R["Mark turn awaitingApproval"]
+  R --> S["User approves or denies"]
+  S -- "approve" --> T["Execute approved tool + append ToolResultModelMessage"]
+  T --> Q
+  S -- "deny" --> I
   E --> M{"User cancels active turn?"}
   M -- "yes" --> N["Mark turn cancelled + context excluded"]
   N --> O["Keep audit messages visible"]
@@ -47,9 +53,9 @@ flowchart TD
   generating its direct follow-up response.
 - `ChatGenerationCoordinator` streams model events into transcript chunks and
   metrics.
-- `ToolLoopCoordinator` handles the read-only tool loop after the model emits an
-  action. The typed tool runtime owns parsing handoff, permission evaluation,
-  and execution details described in `docs/tool-runtime.md`.
+- `ToolLoopCoordinator` handles model-emitted tool actions. Read-only tools run
+  immediately; tools that require approval return an awaiting-approval outcome
+  without appending a normal tool result.
 - `ContextUsageCoordinator` computes token usage from the same filtered model
   context used for generation.
 
@@ -60,12 +66,19 @@ flowchart TD
 2. The user message and assistant placeholder are appended with the new `turnID`.
 3. `ChatTurnCoordinator` starts the async operation for that turn.
 4. Initial generation streams into the assistant placeholder.
-5. If the assistant output is a tool call, the controller records the
+5. If the assistant output is an allowed tool call, the controller records the
    `ToolCallRecord`, appends the tool result, appends a second assistant
    placeholder, and streams the direct follow-up response.
-6. A successful turn is marked `.completed`.
-7. A failed turn is marked `.failed` and excluded from future model context.
-8. A cancelled turn is marked `.cancelled` and excluded from future model
+6. If the tool call requires approval, the controller records the call, marks
+   the turn `.awaitingApproval`, and ends active generation until the user
+   approves or denies the call.
+7. Approval executes the same validated tool request, appends a real tool
+   result, and resumes the turn with a direct follow-up response.
+8. Denial appends a denied tool result and completes the turn without a local
+   side effect.
+9. A successful turn is marked `.completed`.
+10. A failed turn is marked `.failed` and excluded from future model context.
+11. A cancelled turn is marked `.cancelled` and excluded from future model
    context.
 
 ## Cancellation Rules

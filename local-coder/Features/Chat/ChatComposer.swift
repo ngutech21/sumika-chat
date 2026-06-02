@@ -13,6 +13,7 @@ struct ChatComposer: View {
   let isSelectedModelDownloaded: Bool
   let canSend: Bool
   let isGenerating: Bool
+  let isInputBlocked: Bool
   let errorMessage: String?
   let onSelectModel: (ManagedModel) -> Void
   let onLoadModel: () -> Void
@@ -45,7 +46,7 @@ struct ChatComposer: View {
           .lineLimit(1...5)
           .frame(minHeight: 36, alignment: .topLeading)
           .accessibilityIdentifier("message-field")
-          .disabled(modelState != .ready || isGenerating)
+          .disabled(modelState != .ready || isGenerating || isInputBlocked)
           .onSubmit(onSend)
           .onDrop(
             of: [UTType.fileURL.identifier],
@@ -59,7 +60,7 @@ struct ChatComposer: View {
           }
           .buttonStyle(.borderless)
           .foregroundStyle(.secondary)
-          .disabled(isGenerating || modelState != .ready)
+          .disabled(isGenerating || isInputBlocked || modelState != .ready)
           .help("Add context files")
           .accessibilityLabel("Add context files")
 
@@ -156,7 +157,7 @@ struct ChatComposer: View {
   }
 
   private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-    guard !isGenerating, modelState == .ready else {
+    guard !isGenerating, !isInputBlocked, modelState == .ready else {
       return false
     }
 

@@ -319,6 +319,52 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func orchestratorRunsApprovedWriteFileAfterRevalidatingPermission() async throws {
+    let workspace = try makeWorkspace()
+    let registry = ToolExecutorRegistry.codingAgent
+
+    let result = await ToolOrchestrator(executorRegistry: registry).executeApproved(
+      request: request(
+        .writeFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("README.md"),
+          "content": .string("new"),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .completed)
+    #expect(result.evaluation.decision == .requiresApproval)
+    #expect(result.resultPreview?.status == .success)
+    #expect(result.events.map(\.kind).contains(.approved))
+    #expect(try String(contentsOf: workspace.rootURL.appending(path: "README.md")) == "new")
+  }
+
+  @Test
+  func approvedWriteFileStillDeniesWorkspaceEscapes() async throws {
+    let workspace = try makeWorkspace()
+    let registry = ToolExecutorRegistry.codingAgent
+
+    let result = await ToolOrchestrator(executorRegistry: registry).executeApproved(
+      request: request(
+        .writeFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("../README.md"),
+          "content": .string("new"),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .denied)
+    #expect(result.evaluation.decision == .denied)
+    #expect(result.resultPreview?.status == .denied)
+  }
+
+  @Test
   func writeFileRunWritesApprovedContent() async throws {
     let workspace = try makeWorkspace()
 
@@ -452,6 +498,7 @@ struct ToolExecutionTests {
 
     #expect(registry.definitions == [.readFile, .listFiles])
     #expect(registry.toolRegistry.tools == [.readFile, .listFiles])
+    #expect(ToolExecutorRegistry.codingAgent.definitions == [.readFile, .listFiles, .writeFile])
   }
 
   private func request(

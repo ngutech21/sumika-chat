@@ -20,13 +20,19 @@ flowchart TD
   H -- "requires approval" --> J["ToolCallRecord awaitingApproval"]
   H -- "denied" --> K["ToolCallRecord denied"]
   I --> L["ToolCallRecord + ToolResultModelMessage"]
+  J --> M["User approves"]
+  M --> N["Approved execution re-decodes + re-evaluates"]
+  N --> I
 ```
 
 ## Roles
 
 - `ToolCallParser` understands the model-facing format, currently tagged
   action text. A future JSON or provider-native parser should still emit the
-  same `ToolCallRequest`.
+  same `ToolCallRequest`. The tagged parser prefers explicit delimiter lines
+  for multiline payloads. For `content` payloads, it also accepts a bounded
+  closing-tag fallback so small local models that omit the final delimiter line
+  can still produce auditable `write_file` calls instead of raw transcript text.
 - `ToolCallRequest` is the neutral handoff model: tool name, workspace/session,
   and raw argument values.
 - `ToolExecutorRegistry` contains the executable tools for the active tool set
@@ -34,7 +40,9 @@ flowchart TD
 - `AnyToolExecutor` is the type-erased runtime boundary. It validates argument
   names, decodes raw arguments into the tool's concrete input type, evaluates
   permission, and runs the tool only when allowed. A `requiresApproval`
-  decision becomes an awaiting-approval record without executing the tool.
+  decision becomes an awaiting-approval record without executing the tool. An
+  approved execution path decodes and evaluates again immediately before the
+  side effect.
 - `TypedToolExecutor` is what every concrete tool implements. Its `run` method
   receives a concrete Swift input type, never raw argument dictionaries.
 - `ToolContext` carries runtime context such as the active workspace.
@@ -98,8 +106,10 @@ flowchart TD
 - A tool that returns `.requiresApproval` must move to
   `ToolCallStatus.awaitingApproval`. It must not be marked as denied, failed,
   completed, or executed automatically.
-- Runtime-only approval means the tool call is validated and audit-visible, but
-  there is no UI approval, resume flow, or file/process side effect yet.
+- Approved execution must re-decode arguments and re-run permission/path
+  evaluation immediately before the side effect.
+- `write_file` writes the model-provided `content` directly. The model should
+  not generate helper scripts to create files.
 - Tool results must report affected paths where possible so the UI can show a
   useful audit trail.
 - Tool results from a cancelled chat turn may remain visible for auditability,

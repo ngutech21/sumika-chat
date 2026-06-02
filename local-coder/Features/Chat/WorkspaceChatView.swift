@@ -20,8 +20,15 @@ struct WorkspaceChatView: View {
     VStack(spacing: 0) {
       ChatTranscript(
         messages: controller.chatSession.messages,
+        toolCalls: controller.chatSession.toolCalls,
         selectedModel: controller.modelRuntime.selectedModel,
-        modelState: controller.modelRuntime.modelState
+        modelState: controller.modelRuntime.modelState,
+        onApproveToolCall: { toolCallID in
+          controller.approveToolCall(id: toolCallID, in: workspace)
+        },
+        onDenyToolCall: { toolCallID in
+          controller.denyToolCall(id: toolCallID)
+        }
       )
 
       Divider()
@@ -39,6 +46,7 @@ struct WorkspaceChatView: View {
           controller.modelRuntime.selectedModel),
         canSend: controller.canSend,
         isGenerating: controller.isGenerating,
+        isInputBlocked: controller.hasPendingApproval,
         errorMessage: controller.errorMessage,
         onSelectModel: selectModel(_:),
         onLoadModel: loadSelectedModel,

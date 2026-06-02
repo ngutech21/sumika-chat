@@ -79,6 +79,10 @@ nonisolated struct ToolPromptPolicy: Sendable {
     case .enabled(true):
       return [
         basePrompt,
+        """
+        When the user asks you to create or modify a file, emit a write_file action with the full
+        desired file content. Do not generate Python, shell, or other helper scripts to write files.
+        """,
         toolPromptRenderer.renderToolInstructions(
           registry: toolRegistry,
           payloadDelimiter: payloadDelimiter

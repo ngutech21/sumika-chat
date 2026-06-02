@@ -127,9 +127,9 @@ nonisolated extension ToolDefinition {
     taggedExample: """
       <action name="write_file">
       <path>Sources/AppState.swift</path>
-      <content delimiter="__LOCAL_CODER_PAYLOAD__">
+      <content delimiter="LC_PAYLOAD_V1">
       import Foundation
-      __LOCAL_CODER_PAYLOAD__
+      LC_PAYLOAD_V1
       </content>
       </action>
       """,

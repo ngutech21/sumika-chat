@@ -19,8 +19,12 @@ nonisolated struct ToolLoopResult: Equatable, Sendable {
   let assistantMessageID: UUID
   let toolCall: ToolCallModelMessage
   let toolCallRecord: ToolCallRecord
-  let toolResult: ToolResultModelMessage
-  let nextAssistantMessageID: UUID
+  let outcome: ToolLoopOutcome
+}
+
+nonisolated enum ToolLoopOutcome: Equatable, Sendable {
+  case awaitingApproval
+  case completed(toolResult: ToolResultModelMessage, nextAssistantMessageID: UUID)
 }
 
 nonisolated struct ToolLoopCoordinator: Sendable {
@@ -63,6 +67,15 @@ nonisolated struct ToolLoopCoordinator: Sendable {
       request: output.request,
       workspace: request.workspace
     )
+    guard record.status != .awaitingApproval else {
+      return ToolLoopResult(
+        assistantMessageID: request.assistantMessageID,
+        toolCall: output.modelMessage,
+        toolCallRecord: record,
+        outcome: .awaitingApproval
+      )
+    }
+
     let resultPreview =
       record.resultPreview
       ?? ToolResultPreview(
@@ -79,8 +92,7 @@ nonisolated struct ToolLoopCoordinator: Sendable {
       assistantMessageID: request.assistantMessageID,
       toolCall: output.modelMessage,
       toolCallRecord: record,
-      toolResult: toolResult,
-      nextAssistantMessageID: UUID()
+      outcome: .completed(toolResult: toolResult, nextAssistantMessageID: UUID())
     )
   }
 

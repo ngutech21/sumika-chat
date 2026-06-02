@@ -33,8 +33,9 @@ struct ToolLoopCoordinatorTests {
     #expect(result?.assistantMessageID == assistantMessageID)
     #expect(result?.toolCall.toolName == .readFile)
     #expect(result?.toolCallRecord.status == .completed)
-    #expect(result?.toolResult.toolName == .readFile)
-    #expect(result?.toolResult.preview.text == "project notes")
+    let toolResult = completedToolResult(from: result)
+    #expect(toolResult?.toolName == .readFile)
+    #expect(toolResult?.preview.text == "project notes")
   }
 
   @Test
@@ -97,7 +98,7 @@ struct ToolLoopCoordinatorTests {
     )
 
     #expect(result?.toolCall.toolName == .listFiles)
-    #expect(result?.toolResult.preview.text.contains("README.md") == true)
+    #expect(completedToolResult(from: result)?.preview.text.contains("README.md") == true)
   }
 
   @Test
@@ -154,8 +155,49 @@ struct ToolLoopCoordinatorTests {
     )
 
     #expect(result?.toolCallRecord.resultPreview == nil)
-    #expect(result?.toolResult.preview.status == .failed)
-    #expect(result?.toolResult.preview.text == "Tool result unavailable for read_file.")
+    #expect(completedToolResult(from: result)?.preview.status == .failed)
+    #expect(
+      completedToolResult(from: result)?.preview.text == "Tool result unavailable for read_file.")
+  }
+
+  @Test
+  func returnsAwaitingApprovalOutcomeWithoutFallbackToolResult() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator(
+      toolOrchestrator: ToolOrchestrator(executorRegistry: .codingAgent)
+    )
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(
+            id: assistantMessageID,
+            kind: .assistant,
+            content: """
+              <action name="write_file">
+              <path>movies.html</path>
+              <content delimiter="LC_PAYLOAD_V1">
+              <html></html>
+              </content>
+              </action>
+              """
+          )
+        ]
+      )
+    )
+
+    #expect(result?.toolCall.toolName == .writeFile)
+    #expect(result?.toolCallRecord.status == .awaitingApproval)
+    #expect(result?.toolCallRecord.resultPreview == nil)
+    #expect(result?.outcome == .awaitingApproval)
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: workspace.rootURL.appending(path: "movies.html").path(percentEncoded: false)))
   }
 
   private func makeWorkspace(sessionID: CodingSession.ID) throws -> Workspace {
@@ -181,6 +223,13 @@ struct ToolLoopCoordinatorTests {
         )
       ]
     )
+  }
+
+  private func completedToolResult(from result: ToolLoopResult?) -> ToolResultModelMessage? {
+    guard case .completed(let toolResult, _) = result?.outcome else {
+      return nil
+    }
+    return toolResult
   }
 }
 

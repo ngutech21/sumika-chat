@@ -2,9 +2,12 @@ import SwiftUI
 
 struct ToolCallSummaryView: View {
   let toolCall: ToolCallModelMessage
+  let toolCallRecord: ToolCallRecord?
+  let onApprove: (ToolCallRecord.ID) -> Void
+  let onDeny: (ToolCallRecord.ID) -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: 8) {
       Label {
         HStack(spacing: 4) {
           Text("Tool call:")
@@ -25,8 +28,68 @@ struct ToolCallSummaryView: View {
       Text("Call ID \(toolCall.callID.uuidString)")
         .font(.caption2.monospaced())
         .foregroundStyle(.secondary)
+
+      if let toolCallRecord {
+        Divider()
+        LabeledContent("Status", value: toolCallRecord.status.displayName)
+        LabeledContent("Risk", value: toolCallRecord.evaluation.riskLevel.rawValue)
+
+        if !toolCallRecord.evaluation.reason.isEmpty {
+          Text(toolCallRecord.evaluation.reason)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+
+        if !toolCallRecord.evaluation.normalizedPaths.isEmpty {
+          Text(toolCallRecord.evaluation.normalizedPaths.joined(separator: "\n"))
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .lineLimit(3)
+        }
+
+        if toolCallRecord.status == .awaitingApproval {
+          HStack(spacing: 8) {
+            Button {
+              onApprove(toolCallRecord.id)
+            } label: {
+              Label("Approve", systemImage: "checkmark.circle")
+            }
+            .controlSize(.small)
+
+            Button(role: .destructive) {
+              onDeny(toolCallRecord.id)
+            } label: {
+              Label("Deny", systemImage: "xmark.circle")
+            }
+            .controlSize(.small)
+          }
+        }
+      }
     }
     .font(.callout)
+  }
+}
+
+extension ToolCallStatus {
+  fileprivate var displayName: String {
+    switch self {
+    case .pending:
+      "pending"
+    case .awaitingApproval:
+      "awaiting approval"
+    case .approved:
+      "approved"
+    case .denied:
+      "denied"
+    case .running:
+      "running"
+    case .completed:
+      "completed"
+    case .failed:
+      "failed"
+    case .cancelled:
+      "cancelled"
+    }
   }
 }
 

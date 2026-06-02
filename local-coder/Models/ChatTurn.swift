@@ -30,6 +30,7 @@ nonisolated struct ChatTurnRecord: Codable, Identifiable, Equatable, Sendable {
 
 nonisolated enum ChatTurnStatus: String, Codable, Equatable, Sendable {
   case running
+  case awaitingApproval
   case completed
   case cancelled
   case failed

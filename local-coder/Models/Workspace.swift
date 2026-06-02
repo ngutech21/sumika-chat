@@ -135,6 +135,18 @@ nonisolated struct Workspace: Codable, Identifiable, Equatable, Sendable {
     return URL(filePath: candidatePath)
   }
 
+  func withSecurityScopedAccess<Result>(_ body: () throws -> Result) rethrows -> Result {
+    let accessURL = securityScopedAccessURL()
+    let didStartSecurityScope = accessURL.startAccessingSecurityScopedResource()
+    defer {
+      if didStartSecurityScope {
+        accessURL.stopAccessingSecurityScopedResource()
+      }
+    }
+
+    return try body()
+  }
+
   private static func resolveSymlinksPreservingMissingPath(for url: URL) -> URL {
     let fileManager = FileManager.default
     var existingURL = url.standardizedFileURL
@@ -157,6 +169,24 @@ nonisolated struct Workspace: Codable, Identifiable, Equatable, Sendable {
     }
 
     return resolvedURL.standardizedFileURL
+  }
+
+  private func securityScopedAccessURL() -> URL {
+    guard let bookmarkData else {
+      return rootURL
+    }
+
+    do {
+      var isStale = false
+      return try URL(
+        resolvingBookmarkData: bookmarkData,
+        options: [.withSecurityScope],
+        relativeTo: nil,
+        bookmarkDataIsStale: &isStale
+      )
+    } catch {
+      return rootURL
+    }
   }
 
   private static func normalizedPathString(for url: URL) -> String {
