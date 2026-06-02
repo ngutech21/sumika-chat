@@ -138,15 +138,17 @@ nonisolated struct ToolExecutorRegistry: Sendable {
 
   init(_ executors: [AnyToolExecutor] = []) {
     orderedExecutors = executors
-    executorsByName = Dictionary(uniqueKeysWithValues: executors.map { executor in
-      (executor.definition.name, executor)
-    })
+    executorsByName = Dictionary(
+      uniqueKeysWithValues: executors.map { executor in
+        (executor.definition.name, executor)
+      })
   }
 
   init(executors: [ToolName: AnyToolExecutor]) {
-    self.init(executors.sorted { lhs, rhs in
-      lhs.key.rawValue.localizedStandardCompare(rhs.key.rawValue) == .orderedAscending
-    }.map(\.value))
+    self.init(
+      executors.sorted { lhs, rhs in
+        lhs.key.rawValue.localizedStandardCompare(rhs.key.rawValue) == .orderedAscending
+      }.map(\.value))
   }
 
   var toolRegistry: ToolRegistry {

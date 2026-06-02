@@ -26,9 +26,10 @@ nonisolated struct ModelLifecycleCoordinator: Sendable {
   }
 
   func modelAvailabilitySnapshot(for models: [ManagedModel]) -> [ManagedModel.ID: Bool] {
-    Dictionary(uniqueKeysWithValues: models.map { model in
-      (model.id, isModelDownloaded(model))
-    })
+    Dictionary(
+      uniqueKeysWithValues: models.map { model in
+        (model.id, isModelDownloaded(model))
+      })
   }
 
   func download(

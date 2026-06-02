@@ -40,7 +40,8 @@ struct ToolExecutionTests {
       context: ToolContext(workspace: workspace)
     )
     let outside = await ToolOrchestrator().execute(
-      request: request(.readFile, workspace: workspace, arguments: ["path": .string("../secret.txt")]),
+      request: request(
+        .readFile, workspace: workspace, arguments: ["path": .string("../secret.txt")]),
       workspace: workspace
     )
 

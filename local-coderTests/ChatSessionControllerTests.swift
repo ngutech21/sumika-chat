@@ -554,7 +554,9 @@ struct ChatSessionControllerTests {
     try await waitUntil { loader.startedCount == 1 }
 
     controller.addAttachments(from: [URL(filePath: "/tmp/second.swift")])
-    try await waitUntil { controller.chatSession.attachments.map(\.displayName) == ["second.swift"] }
+    try await waitUntil {
+      controller.chatSession.attachments.map(\.displayName) == ["second.swift"]
+    }
 
     loader.releaseFirstLoad()
     try await Task.sleep(for: .milliseconds(60))
