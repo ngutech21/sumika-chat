@@ -16,7 +16,7 @@ concurrency:
 jobs:
   lint:
     name: SwiftLint
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - name: Checkout
@@ -30,7 +30,7 @@ jobs:
 
   build-test-analyze:
     name: Build, Test, Analyze
-    runs-on: macos-15
+    runs-on: macos-26
 
     env:
       PROJECT: local-coder.xcodeproj
