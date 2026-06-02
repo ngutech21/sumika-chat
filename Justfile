@@ -35,6 +35,8 @@ lint:
     @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew install swiftlint"; exit 127; }
     swiftlint lint --no-cache --config .swiftlint.yml
 
+final-check: format lint test check-warnings
+
 format:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
     swift-format format --in-place --recursive --parallel local-coder local-coderTests

@@ -24,34 +24,49 @@ The app should make local coding agents practical even when the model is not as 
 - Keep shell execution explicit and auditable.
 - Do not assume network access is available or desirable.
 
+## Architecture Layout
+
+The app is organized around a small SwiftUI shell, feature-specific UI and orchestration, shared data models, and side-effecting services:
+
+- `local_coderApp.swift` is the application entry point. Keep launch wiring minimal and push app-wide state into `App/`.
+- `ContentView.swift` and `Views/` define the macOS shell: sidebar, empty states, and top-level layout. They should coordinate screens, not own model runtime or persistence behavior.
+- `App/` holds cross-feature app state and navigation selection. Add app-wide state here only when it truly spans multiple features.
+- `Features/` contains vertical product areas. `Features/Chat/` owns the main coding workflow, including transcript UI, composer UI, chat session coordination, model lifecycle coordination, and runtime operation coordination. `Features/ModelSettings/` owns model-management screens.
+- `Models/` contains plain domain types passed between views, services, and tests. Prefer structured model types for messages, tool calls, workspaces, runtime configuration, context usage, and resource metrics.
+- `Services/` contains side effects and integration boundaries: MLX/Gemma runtime access, model downloads and settings persistence, workspace persistence, attachment loading, process monitoring, tool parsing, tool permission checks, and command execution.
+- `Support/` contains small shared helpers that are not product features or service boundaries.
+- `local-coderTests/` mirrors behavior by domain. Add focused tests next to the responsibility being changed, especially for parsing, permission evaluation, persistence, runtime configuration, and command/tool execution.
+
+Keep dependencies flowing in one direction: views call coordinators or app state; coordinators use services; services exchange structured models. Avoid making SwiftUI views parse model output, touch the filesystem directly, run shell commands, or know MLX details.
+
+## Architecture Guardrails
+
+- Do not add more responsibilities to a single controller. Keep controllers moving toward SwiftUI state adapters while tool loops, prompt policy, model lifecycle, and runtime operations live in focused coordinators.
+- Follow `docs/tool-runtime.md` when adding or changing tools. Tools should be registered through the typed runtime, own their typed input, permission evaluation, and execution, and be tested for decoding, permission, execution, registry visibility, and security-sensitive failure modes.
+- Preserve the tool-runtime separation of concerns: parsers emit neutral `ToolCallRequest` values, registry membership controls tool availability, and concrete tools receive typed inputs instead of parsing tagged text, JSON, or provider-native payloads themselves.
+- Preserve the distinction between denied tools and tools that require approval. Write, patch, and command tools must move to an awaiting-approval state before execution, not fail closed silently or auto-run.
+- Avoid adding synchronous file IO or `@unchecked Sendable` stores. New persistence code should be async or actor-isolated, especially for read-modify-write flows.
+- Keep `AppState` as an observable facade. New workspace/session behavior should move toward dedicated coordinators instead of coupling navigation, persistence, and controller loading in one type.
+- Update `docs/tool-runtime.md` when the tool runtime contract changes.
+
 ## Suggested Structure
 
-For new code, prefer this shape unless the existing code clearly points elsewhere:
+For new code, follow the current layout unless the surrounding code clearly points elsewhere:
 
 ```text
 local-coder/
   local_coderApp.swift
+  ContentView.swift
   App/
-    AppState.swift
-    AppCommands.swift
-    AppEnvironment.swift
   Views/
-    ContentView.swift
   Features/
     Chat/
-    Workspace/
-    PatchReview/
     ModelSettings/
+    <NewFeature>/
   Models/
   Services/
-    ModelService.swift
-    PromptService.swift
-    RepositoryService.swift
-    PatchService.swift
-    CommandService.swift
   Support/
-    Extensions/
-    Logging/
+local-coderTests/
 ```
 
 Start small. Do not introduce all folders up front unless there is real code to put in them.
@@ -66,6 +81,18 @@ Start small. Do not introduce all folders up front unless there is real code to 
 - Preserve user changes in the working tree. Never overwrite or revert unrelated edits.
 - Prefer narrow patches over broad file rewrites.
 - Add logging around model loading, prompt construction, command execution, and patch application.
+
+## Code Style
+
+- Prefer small SwiftUI views composed from private subviews or helper methods when layout grows.
+- Keep `@State` local to view-only concerns; put shared workflow state in controllers, coordinators, stores, or `AppState`.
+- Prefer dependency injection through initializers for services and coordinators so tests can use fakes.
+- Keep service APIs async and structured. Return domain models or typed results instead of raw strings when possible.
+- Use `throws` for recoverable failures and surface user-facing error text at the UI boundary.
+- Avoid singletons for app services unless they wrap immutable platform facilities.
+- Keep model-runtime code behind `ChatModelRuntime`-style protocols so MLX/Gemma backends remain swappable.
+- Do not put parsing, permission decisions, filesystem writes, or process execution directly in SwiftUI views.
+- When adding tests, prefer behavior-focused test names and test through public/service boundaries instead of private implementation details.
 
 ## MLX and Gemma Guidance
 
@@ -107,15 +134,16 @@ just build
 just test
 just lint
 just format
+just final-check
 ```
 
-Run the unit test suite after every implementation task:
+Run the final check after every implementation task:
 
 ```sh
-just test
+just final-check
 ```
 
-If a task only changes docs or comments, explain why tests were not run. Otherwise, treat a passing test run as part of the task's definition of done.
+If a task only changes docs or comments, explain why final checks were not run. Otherwise, treat a passing final-check run as part of the task's definition of done.
 
 ## Git
 
