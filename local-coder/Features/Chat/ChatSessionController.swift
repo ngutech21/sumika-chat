@@ -18,12 +18,9 @@ final class ChatSessionController {
   @ObservationIgnored private let toolOrchestrator: ToolOrchestrator
   @ObservationIgnored private let toolPromptPolicy: ToolPromptPolicy
   @ObservationIgnored private let toolLoopCoordinator: ToolLoopCoordinator
-  @ObservationIgnored private let chatAttachmentLoader: any ChatAttachmentLoading
+  @ObservationIgnored private let attachmentCoordinator: ChatAttachmentCoordinator
   @ObservationIgnored private let transcriptMutator = ChatTranscriptMutator()
-  @ObservationIgnored private var isHandlingDroppedDraftPath = false
   @ObservationIgnored private var generationTask: Task<Void, Never>?
-  @ObservationIgnored private var attachmentLoadTask: Task<Void, Never>?
-  @ObservationIgnored private var attachmentLoadRequestID = UUID()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
@@ -150,14 +147,13 @@ final class ChatSessionController {
       toolCallParser: toolCallParser,
       toolOrchestrator: toolOrchestrator
     )
-    self.chatAttachmentLoader = chatAttachmentLoader
+    self.attachmentCoordinator = ChatAttachmentCoordinator(loader: chatAttachmentLoader)
     self.chatSession = chatSession
     configureModelRuntimeCallbacks()
   }
 
   deinit {
     generationTask?.cancel()
-    attachmentLoadTask?.cancel()
   }
 }
 
@@ -388,59 +384,38 @@ extension ChatSessionController {
   }
 
   func addAttachments(from urls: [URL]) {
-    let requestID = UUID()
-    attachmentLoadRequestID = requestID
-    attachmentLoadTask?.cancel()
-    let existingAttachments = chatSession.attachments
-    let loader = chatAttachmentLoader
-
-    attachmentLoadTask = Task {
-      do {
-        let attachments = try await Task.detached {
-          try loader.loadAttachments(
-            from: urls,
-            existingAttachments: existingAttachments
-          )
-        }.value
-        guard requestID == attachmentLoadRequestID else {
-          return
-        }
-        chatSession.attachments.append(contentsOf: attachments)
-        errorMessage = nil
-        refreshContextUsage()
-      } catch is CancellationError {
-      } catch {
-        guard requestID == attachmentLoadRequestID else {
-          return
-        }
-        errorMessage = error.localizedDescription
-      }
-
-      if requestID == attachmentLoadRequestID {
-        attachmentLoadTask = nil
-      }
-    }
+    attachmentCoordinator.addAttachments(
+      from: urls,
+      existingAttachments: chatSession.attachments,
+      onEvent: handleAttachmentEvent(_:))
   }
 
   func convertDroppedFilePathsInDraft() {
-    guard !isHandlingDroppedDraftPath, !isGenerating else {
-      return
-    }
-
-    let droppedFiles = chatAttachmentLoader.extractDroppedAttachments(from: draft)
-    guard !droppedFiles.urls.isEmpty else {
-      return
-    }
-
-    isHandlingDroppedDraftPath = true
-    draft = droppedFiles.cleanedDraft
-    addAttachments(from: droppedFiles.urls)
-    isHandlingDroppedDraftPath = false
+    attachmentCoordinator.convertDroppedFilePaths(
+      in: draft,
+      isGenerating: isGenerating,
+      existingAttachments: chatSession.attachments,
+      onEvent: handleAttachmentEvent(_:))
   }
 
   func removeAttachment(id: ChatAttachment.ID) {
-    chatSession.attachments.removeAll { $0.id == id }
-    refreshContextUsage()
+    attachmentCoordinator.removeAttachment(id: id, onEvent: handleAttachmentEvent(_:))
+  }
+
+  private func handleAttachmentEvent(_ event: ChatAttachmentEvent) {
+    switch event {
+    case .appendAttachments(let attachments):
+      chatSession.attachments.append(contentsOf: attachments)
+      errorMessage = nil
+      refreshContextUsage()
+    case .replaceDraft(let cleanedDraft):
+      draft = cleanedDraft
+    case .removeAttachment(let id):
+      chatSession.attachments.removeAll { $0.id == id }
+      refreshContextUsage()
+    case .error(let message):
+      errorMessage = message
+    }
   }
 
   private func notifySessionDidChange() {
