@@ -400,7 +400,8 @@ struct ChatSessionControllerTests {
       modelPath: modelDirectory.path(percentEncoded: false)
     )
 
-    controller.loadModel()
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
+    controller.modelRuntime.loadModel()
 
     try await waitUntil { controller.modelRuntime.modelState == .ready }
 
@@ -428,7 +429,8 @@ struct ChatSessionControllerTests {
       modelPath: modelDirectory.path(percentEncoded: false)
     )
 
-    controller.loadModel()
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
+    controller.modelRuntime.loadModel()
 
     try await waitUntil { controller.modelRuntime.modelState == .ready }
 
@@ -446,11 +448,13 @@ struct ChatSessionControllerTests {
       modelPath: firstModelDirectory.path(percentEncoded: false)
     )
 
-    controller.loadModel()
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
+    controller.modelRuntime.loadModel()
     try await waitUntilAsync { await runtime.loadCount == 1 }
 
     controller.modelRuntime.modelPath = secondModelDirectory.path(percentEncoded: false)
-    controller.loadModel()
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
+    controller.modelRuntime.loadModel()
 
     try await waitUntil { controller.modelRuntime.modelState == .ready }
     try await waitUntilAsync { await runtime.loadCount == 2 }
@@ -511,7 +515,8 @@ struct ChatSessionControllerTests {
     controller.clearChatHistory()
     try await waitUntilAsync { await runtime.didStartClearContext }
 
-    controller.loadModel()
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
+    controller.modelRuntime.loadModel()
     try await waitUntil { controller.modelRuntime.modelState == .ready }
     try await waitUntil { controller.contextUsage?.usedTokens == 42 }
 
@@ -532,10 +537,12 @@ struct ChatSessionControllerTests {
     )
     controller.modelRuntime.modelState = .ready
 
-    controller.unloadModel()
+    controller.prepareForModelRuntimeAction(cancelGeneration: true, invalidateContext: true)
+    controller.modelRuntime.unloadModel()
     try await waitUntilAsync { await runtime.didStartUnload }
 
-    controller.loadModel()
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
+    controller.modelRuntime.loadModel()
     try await Task.sleep(for: .milliseconds(60))
     #expect(await runtime.loadCount == 0)
 
@@ -577,7 +584,8 @@ struct ChatSessionControllerTests {
     controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
     controller.draft = "hello"
 
-    controller.unloadModel()
+    controller.prepareForModelRuntimeAction(cancelGeneration: true, invalidateContext: true)
+    controller.modelRuntime.unloadModel()
 
     try await waitUntil { controller.modelRuntime.modelState == .notLoaded }
     try await waitUntilAsync { await runtime.didUnload }

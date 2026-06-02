@@ -92,7 +92,8 @@ struct ModelManagementTests {
       modelDownloader: FakeModelDownloader()
     )
 
-    controller.selectModel(selectedModel)
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
+    controller.modelRuntime.selectModel(selectedModel)
 
     #expect(controller.modelRuntime.selectedModelID == selectedModel.id)
     #expect(controller.modelRuntime.modelPath == selectedModel.localPath)
@@ -112,7 +113,8 @@ struct ModelManagementTests {
       modelDownloader: downloader
     )
 
-    controller.downloadSelectedModel()
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: false)
+    controller.modelRuntime.downloadSelectedModel()
 
     try await waitUntil { controller.modelRuntime.downloadState == .downloaded }
     #expect(controller.modelRuntime.downloadProgress == 1)
@@ -130,7 +132,8 @@ struct ModelManagementTests {
       modelDownloader: downloader
     )
 
-    controller.downloadSelectedModel()
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: false)
+    controller.modelRuntime.downloadSelectedModel()
 
     try await waitUntil { controller.modelRuntime.downloadProgress == 0.25 }
     #expect(controller.modelRuntime.downloadState == .downloading(progress: 0.25))
@@ -149,7 +152,8 @@ struct ModelManagementTests {
       modelDownloader: downloader
     )
 
-    controller.downloadSelectedModel()
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: false)
+    controller.modelRuntime.downloadSelectedModel()
 
     try await waitUntil {
       controller.modelRuntime.downloadState

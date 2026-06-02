@@ -40,8 +40,8 @@ struct WorkspaceChatView: View {
         canSend: controller.canSend,
         isGenerating: controller.isGenerating,
         errorMessage: controller.errorMessage,
-        onSelectModel: controller.selectModel,
-        onLoadModel: controller.loadSelectedModel,
+        onSelectModel: selectModel(_:),
+        onLoadModel: loadSelectedModel,
         onAddAttachments: onAddAttachments,
         onDropAttachments: controller.addAttachments,
         onRemoveAttachment: controller.removeAttachment,
@@ -49,5 +49,19 @@ struct WorkspaceChatView: View {
         onCancel: controller.cancelGeneration
       )
     }
+  }
+
+  private func selectModel(_ model: ManagedModel) {
+    guard !controller.isGenerating, controller.modelRuntime.canChangeModel else {
+      return
+    }
+
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
+    controller.modelRuntime.selectModel(model)
+  }
+
+  private func loadSelectedModel() {
+    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
+    controller.modelRuntime.loadSelectedModel()
   }
 }

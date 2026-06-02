@@ -48,10 +48,12 @@ struct ContentView: View {
             contextUsage: controller.contextUsage,
             errorMessage: controller.errorMessage,
             canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
-            onSelectModel: controller.selectModel,
-            onLoadSelectedModel: controller.loadSelectedModel,
-            onUnloadModel: controller.unloadModel,
-            onDownloadSelectedModel: controller.downloadSelectedModel
+            onPrepareModelRuntimeAction: { cancelGeneration, invalidateContext in
+              controller.prepareForModelRuntimeAction(
+                cancelGeneration: cancelGeneration,
+                invalidateContext: invalidateContext
+              )
+            }
           )
           .navigationTitle("Models")
         case .session:
@@ -77,15 +79,24 @@ struct ContentView: View {
     .frame(minWidth: 880, minHeight: 560)
     .onChange(of: controller.chatSession.systemPrompt) {
       controller.refreshContextUsage()
-      controller.saveSelectedModelSettings()
+      controller.modelRuntime.saveSelectedModelSettings(
+        systemPrompt: controller.chatSession.systemPrompt,
+        generationSettings: controller.chatSession.generationSettings
+      )
       appState.persistActiveSession()
     }
     .onChange(of: controller.chatSession.generationSettings) {
-      controller.saveSelectedModelSettings()
+      controller.modelRuntime.saveSelectedModelSettings(
+        systemPrompt: controller.chatSession.systemPrompt,
+        generationSettings: controller.chatSession.generationSettings
+      )
       appState.persistActiveSession()
     }
     .onChange(of: controller.modelRuntime.modelContextTokenLimit) {
-      controller.saveSelectedModelSettings()
+      controller.modelRuntime.saveSelectedModelSettings(
+        systemPrompt: controller.chatSession.systemPrompt,
+        generationSettings: controller.chatSession.generationSettings
+      )
     }
     .onChange(of: controller.draft) {
       controller.convertDroppedFilePathsInDraft()

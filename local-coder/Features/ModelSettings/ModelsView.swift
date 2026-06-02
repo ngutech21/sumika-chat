@@ -7,10 +7,11 @@ struct ModelsView: View {
   let contextUsage: ChatContextUsage?
   let errorMessage: String?
   let canChangeModel: Bool
-  let onSelectModel: (ManagedModel) -> Void
-  let onLoadSelectedModel: () -> Void
-  let onUnloadModel: () -> Void
-  let onDownloadSelectedModel: () -> Void
+  let onPrepareModelRuntimeAction:
+    (
+      _ cancelGeneration: Bool,
+      _ invalidateContext: Bool
+    ) -> Void
 
   var body: some View {
     ScrollView {
@@ -37,7 +38,9 @@ struct ModelsView: View {
                 ? modelRuntime.downloadState : .idle,
               canSelect: canChangeModel,
               onSelect: {
-                onSelectModel(model)
+                let isChangingModel = modelRuntime.selectedModelID != model.id
+                onPrepareModelRuntimeAction(false, isChangingModel)
+                modelRuntime.selectModel(model)
               }
             )
           }
@@ -56,7 +59,8 @@ struct ModelsView: View {
             Spacer()
 
             Button {
-              onDownloadSelectedModel()
+              onPrepareModelRuntimeAction(false, false)
+              modelRuntime.downloadSelectedModel()
             } label: {
               Label("Download", systemImage: "square.and.arrow.down")
             }
@@ -66,8 +70,13 @@ struct ModelsView: View {
                 || modelRuntime.isModelDownloaded(modelRuntime.selectedModel))
 
             Button {
-              modelRuntime.modelState == .ready
-                ? onUnloadModel() : onLoadSelectedModel()
+              if modelRuntime.modelState == .ready {
+                onPrepareModelRuntimeAction(true, true)
+                modelRuntime.unloadModel()
+              } else {
+                onPrepareModelRuntimeAction(false, true)
+                modelRuntime.loadSelectedModel()
+              }
             } label: {
               Label(modelActionTitle, systemImage: modelActionSystemImage)
             }

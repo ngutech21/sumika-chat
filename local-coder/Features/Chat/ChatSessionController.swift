@@ -184,15 +184,6 @@ extension ChatSessionController {
     }
   }
 
-  func selectModel(_ model: ManagedModel) {
-    guard !isGenerating, modelRuntime.canChangeModel else {
-      return
-    }
-
-    errorMessage = nil
-    modelRuntime.selectModel(model)
-  }
-
   func setSessionChangeHandler(_ handler: (@MainActor @Sendable () -> Void)?) {
     onSessionDidChange = handler
   }
@@ -232,35 +223,17 @@ extension ChatSessionController {
     return snapshot
   }
 
-  func downloadSelectedModel() {
+  func prepareForModelRuntimeAction(
+    cancelGeneration shouldCancelGeneration: Bool,
+    invalidateContext shouldInvalidateContext: Bool
+  ) {
+    if shouldCancelGeneration {
+      cancelGeneration()
+    }
     errorMessage = nil
-    modelRuntime.downloadSelectedModel()
-  }
-
-  func saveSelectedModelSettings() {
-    modelRuntime.saveSelectedModelSettings(
-      systemPrompt: chatSession.systemPrompt,
-      generationSettings: chatSession.generationSettings
-    )
-  }
-
-  func loadSelectedModel() {
-    errorMessage = nil
-    invalidateContextUsage()
-    modelRuntime.loadSelectedModel()
-  }
-
-  func loadModel() {
-    errorMessage = nil
-    invalidateContextUsage()
-    modelRuntime.loadModel()
-  }
-
-  func unloadModel() {
-    cancelGeneration()
-    errorMessage = nil
-    invalidateContextUsage()
-    modelRuntime.unloadModel()
+    if shouldInvalidateContext {
+      invalidateContextUsage()
+    }
   }
 
   func sendMessage() {
