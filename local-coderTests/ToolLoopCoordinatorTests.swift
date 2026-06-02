@@ -35,7 +35,49 @@ struct ToolLoopCoordinatorTests {
     #expect(result?.toolCallRecord.status == .completed)
     let toolResult = completedToolResult(from: result)
     #expect(toolResult?.toolName == .readFile)
-    #expect(toolResult?.preview.text == "project notes")
+    #expect(toolResult?.preview.text == "1: project notes")
+  }
+
+  @Test
+  func parsesAndExecutesReadFilePaginationArguments() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try """
+    one
+    two
+    three
+    """.write(
+      to: workspace.rootURL.appending(path: "README.md"),
+      atomically: true,
+      encoding: .utf8
+    )
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(
+            id: assistantMessageID,
+            kind: .assistant,
+            content: """
+              <action name="read_file">
+              <path>README.md</path>
+              <offset>2</offset>
+              <limit>1</limit>
+              </action>
+              """
+          )
+        ]
+      )
+    )
+
+    #expect(result?.toolCall.toolName == .readFile)
+    #expect(result?.toolCallRecord.status == .completed)
+    #expect(completedToolResult(from: result)?.preview.text == "2: two")
   }
 
   @Test

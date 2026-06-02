@@ -238,6 +238,63 @@ nonisolated struct ToolExecutorRegistry: Sendable {
 
 nonisolated struct ReadFileInput: Decodable, Sendable {
   let path: String
+  let offset: Int?
+  let limit: Int?
+
+  private enum CodingKeys: String, CodingKey {
+    case path
+    case offset
+    case limit
+  }
+
+  init(path: String, offset: Int? = nil, limit: Int? = nil) {
+    self.path = path
+    self.offset = offset
+    self.limit = limit
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    path = try container.decode(String.self, forKey: .path)
+    offset = try Self.decodeOptionalInt(from: container, forKey: .offset)
+    limit = try Self.decodeOptionalInt(from: container, forKey: .limit)
+
+    if let offset, offset < 1 {
+      throw ReadFileInputValidationError.invalidOffset
+    }
+
+    if let limit, limit < 1 {
+      throw ReadFileInputValidationError.invalidLimit
+    }
+  }
+
+  private static func decodeOptionalInt(
+    from container: KeyedDecodingContainer<CodingKeys>,
+    forKey key: CodingKeys
+  ) throws -> Int? {
+    guard container.contains(key) else {
+      return nil
+    }
+
+    if let value = try? container.decodeIfPresent(Int.self, forKey: key) {
+      return value
+    }
+
+    if let stringValue = try? container.decodeIfPresent(String.self, forKey: key),
+      let value = Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
+    {
+      return value
+    }
+
+    switch key {
+    case .offset:
+      throw ReadFileInputValidationError.invalidOffset
+    case .limit:
+      throw ReadFileInputValidationError.invalidLimit
+    case .path:
+      return nil
+    }
+  }
 }
 
 nonisolated struct ReadFileToolExecutor: TypedToolExecutor {
@@ -274,7 +331,12 @@ nonisolated struct ReadFileToolExecutor: TypedToolExecutor {
     do {
       return try context.workspace.withSecurityScopedAccess {
         let resolvedURL = try context.workspace.resolveAllowedPath(input.path)
-        let preview = try Self.readPreview(from: resolvedURL, maxBytes: maxBytes)
+        let preview = try Self.readPreview(
+          from: resolvedURL,
+          startLine: input.offset ?? 1,
+          maxLines: input.limit,
+          maxBytes: maxBytes
+        )
         guard let content = preview.content else {
           return ToolResultPreview(
             status: .failed,
@@ -300,27 +362,187 @@ nonisolated struct ReadFileToolExecutor: TypedToolExecutor {
 
   private static func readPreview(
     from url: URL,
+    startLine: Int,
+    maxLines: Int?,
     maxBytes: Int
   ) throws -> (content: String?, truncated: Bool) {
     let previewByteLimit = max(maxBytes, 0)
-    let bytesToRead = previewByteLimit + 1
+    guard previewByteLimit > 0 else {
+      return ("", true)
+    }
+
     let fileHandle = try FileHandle(forReadingFrom: url)
     defer {
       try? fileHandle.close()
     }
 
-    let data = try fileHandle.read(upToCount: bytesToRead) ?? Data()
-    let truncated = data.count > previewByteLimit
-    let previewData = data.prefix(previewByteLimit)
+    var accumulator = ReadFilePreviewAccumulator(
+      startLine: startLine,
+      maxLines: maxLines,
+      previewByteLimit: previewByteLimit
+    )
+    var lineNumber = 1
 
-    guard truncated else {
-      return (String(data: previewData, encoding: .utf8), false)
+    while !accumulator.shouldStop {
+      let chunk = try fileHandle.read(upToCount: 8 * 1024) ?? Data()
+      guard !chunk.isEmpty else {
+        break
+      }
+
+      for byte in chunk {
+        if byte == 0x0A {
+          guard accumulator.processBufferedLine(lineNumber: lineNumber) else {
+            return (nil, false)
+          }
+          lineNumber += 1
+        } else {
+          guard accumulator.append(byte, lineNumber: lineNumber) else {
+            return (nil, false)
+          }
+        }
+
+        if accumulator.shouldStop {
+          break
+        }
+      }
     }
 
-    return (utf8StringDroppingPartialSuffix(from: previewData), true)
+    if !accumulator.shouldStop && accumulator.hasBufferedLine {
+      guard accumulator.processBufferedLine(lineNumber: lineNumber) else {
+        return (nil, false)
+      }
+    }
+
+    return accumulator.result
+  }
+}
+
+nonisolated private struct ReadFilePreviewAccumulator {
+  let startLine: Int
+  let maxLines: Int?
+  let previewByteLimit: Int
+
+  private var lineBuffer = Data()
+  private var outputLines: [String] = []
+  private var outputByteCount = 0
+  private var truncated = false
+  private(set) var shouldStop = false
+
+  init(startLine: Int, maxLines: Int?, previewByteLimit: Int) {
+    self.startLine = startLine
+    self.maxLines = maxLines
+    self.previewByteLimit = previewByteLimit
   }
 
-  private static func utf8StringDroppingPartialSuffix(from data: Data) -> String? {
+  var hasBufferedLine: Bool {
+    !lineBuffer.isEmpty
+  }
+
+  var result: (content: String?, truncated: Bool) {
+    (outputLines.joined(separator: "\n"), truncated)
+  }
+
+  mutating func append(_ byte: UInt8, lineNumber: Int) -> Bool {
+    guard lineNumber >= startLine else {
+      return true
+    }
+
+    guard outputLines.count < (maxLines ?? Int.max) else {
+      truncated = true
+      shouldStop = true
+      return true
+    }
+
+    guard lineBuffer.count < availableBytesForCurrentLine(lineNumber: lineNumber) else {
+      truncated = true
+      shouldStop = true
+      return processBufferedLine(lineNumber: lineNumber)
+    }
+
+    lineBuffer.append(byte)
+    return true
+  }
+
+  mutating func processBufferedLine(lineNumber: Int) -> Bool {
+    defer {
+      lineBuffer.removeAll(keepingCapacity: true)
+    }
+
+    if lineBuffer.last == 0x0D {
+      lineBuffer.removeLast()
+    }
+
+    guard lineNumber >= startLine else {
+      return true
+    }
+
+    if let maxLines, outputLines.count >= maxLines {
+      truncated = true
+      shouldStop = true
+      return true
+    }
+
+    let linePrefix = "\(lineNumber): "
+    let availableByteCount = availableBytesForCurrentLine(lineNumber: lineNumber)
+
+    guard availableByteCount >= 0 else {
+      truncated = true
+      shouldStop = true
+      return true
+    }
+
+    let line: String
+    if lineBuffer.count > availableByteCount {
+      let previewData = Data(lineBuffer.prefix(availableByteCount))
+      guard let previewLine = utf8StringDroppingPartialSuffix(from: previewData) else {
+        return false
+      }
+      line = previewLine
+      truncated = true
+      shouldStop = true
+    } else {
+      if let fullLine = String(data: lineBuffer, encoding: .utf8) {
+        line = fullLine
+      } else if truncated,
+        let previewLine = utf8StringDroppingPartialSuffix(from: lineBuffer)
+      {
+        line = previewLine
+      } else {
+        return false
+      }
+    }
+
+    let numberedLine = linePrefix + line
+    let numberedLineByteCount = numberedLine.utf8.count
+    let nextByteCount = outputByteCount + separatorByteCount + numberedLineByteCount
+
+    guard nextByteCount <= previewByteLimit else {
+      truncated = true
+      shouldStop = true
+
+      if outputLines.isEmpty {
+        let previewData = Data(numberedLine.utf8.prefix(previewByteLimit))
+        outputLines.append(utf8StringDroppingPartialSuffix(from: previewData) ?? "")
+      }
+
+      return true
+    }
+
+    outputLines.append(numberedLine)
+    outputByteCount = nextByteCount
+    return true
+  }
+
+  private func availableBytesForCurrentLine(lineNumber: Int) -> Int {
+    let linePrefix = "\(lineNumber): "
+    return previewByteLimit - outputByteCount - separatorByteCount - linePrefix.utf8.count
+  }
+
+  private var separatorByteCount: Int {
+    outputLines.isEmpty ? 0 : 1
+  }
+
+  private func utf8StringDroppingPartialSuffix(from data: Data) -> String? {
     if let string = String(data: data, encoding: .utf8) {
       return string
     }
@@ -338,7 +560,20 @@ nonisolated struct ReadFileToolExecutor: TypedToolExecutor {
 
     return nil
   }
+}
 
+nonisolated enum ReadFileInputValidationError: LocalizedError {
+  case invalidOffset
+  case invalidLimit
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidOffset:
+      "read_file offset must be greater than or equal to 1."
+    case .invalidLimit:
+      "read_file limit must be greater than or equal to 1."
+    }
+  }
 }
 
 nonisolated struct ListFilesInput: Decodable, Sendable {

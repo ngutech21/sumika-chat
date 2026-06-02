@@ -325,7 +325,7 @@ struct ChatSessionControllerTests {
 
     #expect(controller.chatSession.toolCalls.count == 1)
     #expect(controller.chatSession.toolCalls[0].status == .completed)
-    #expect(controller.chatSession.toolCalls[0].resultPreview?.text == "project notes")
+    #expect(controller.chatSession.toolCalls[0].resultPreview?.text == "1: project notes")
     let callID = controller.chatSession.toolCalls[0].request.id
     #expect(controller.chatSession.messages.count == 4)
     #expect(controller.chatSession.messages[1].kind == .toolCall)
@@ -342,7 +342,7 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.messages[2].toolResult?.callID == callID)
     #expect(controller.chatSession.messages[2].toolResult?.toolName == .readFile)
     #expect(controller.chatSession.messages[2].toolResult?.preview.status == .success)
-    #expect(controller.chatSession.messages[2].toolResult?.preview.text == "project notes")
+    #expect(controller.chatSession.messages[2].toolResult?.preview.text == "1: project notes")
     #expect(controller.chatSession.messages[3].content == "The README says project notes.")
 
     let capturedMessages = await runtime.capturedMessages
@@ -350,7 +350,7 @@ struct ChatSessionControllerTests {
     #expect(capturedMessages[1].last { $0.kind == .user }?.content == "Read the README")
     #expect(
       capturedMessages[1].contains { message in
-        message.kind == .toolResult && message.toolResult?.preview.text == "project notes"
+        message.kind == .toolResult && message.toolResult?.preview.text == "1: project notes"
       })
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 2)

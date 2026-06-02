@@ -20,7 +20,7 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.text == "let value = 1")
+    #expect(result.text == "1: let value = 1")
     #expect(result.truncated == false)
     #expect(result.affectedPaths == [fileURL.path(percentEncoded: false)])
   }
@@ -63,6 +63,7 @@ struct ToolExecutionTests {
 
     #expect(result.status == .success)
     #expect(result.text.count == 40)
+    #expect(result.text.hasPrefix("1: "))
     #expect(result.truncated)
   }
 
@@ -81,7 +82,25 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.text == validPreview)
+    #expect(result.text == "1: " + String(repeating: "a", count: 37))
+    #expect(result.truncated)
+  }
+
+  @Test
+  func readFileDoesNotBufferLongLinePastPreviewLimit() async throws {
+    let workspace = try makeWorkspace()
+    let fileURL = workspace.rootURL.appending(path: "minified.txt")
+    var data = Data(String(repeating: "a", count: 1_000_000).utf8)
+    data.append(0xff)
+    try data.write(to: fileURL)
+
+    let result = await ReadFileToolExecutor(maxBytes: 40).run(
+      ReadFileInput(path: "minified.txt"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text == "1: " + String(repeating: "a", count: 37))
     #expect(result.truncated)
   }
 
@@ -98,7 +117,7 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.text == "abc")
+    #expect(result.text == "1: ab")
     #expect(result.truncated)
   }
 
@@ -115,6 +134,27 @@ struct ToolExecutionTests {
 
     #expect(result.status == .success)
     #expect(result.text == "")
+    #expect(result.truncated)
+  }
+
+  @Test
+  func readFileReadsFocusedLineWindow() async throws {
+    let workspace = try makeWorkspace()
+    let fileURL = workspace.rootURL.appending(path: "notes.txt")
+    try """
+    one
+    two
+    three
+    four
+    """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let result = await ReadFileToolExecutor().run(
+      ReadFileInput(path: "notes.txt", offset: 2, limit: 2),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text == "2: two\n3: three")
     #expect(result.truncated)
   }
 
@@ -237,6 +277,17 @@ struct ToolExecutionTests {
     #expect(unregisteredWriteFile.status == .failed)
     #expect(unknownExecutor.status == .failed)
     #expect(unknownExecutor.resultPreview?.status == .failed)
+  }
+
+  @Test
+  func readFileDefinitionIncludesPaginationArguments() {
+    let definition = ToolDefinition.readFile
+
+    #expect(definition.name == .readFile)
+    #expect(definition.parameters.map(\.name) == ["path", "offset", "limit"])
+    #expect(definition.parameters.first(where: { $0.name == "path" })?.isRequired == true)
+    #expect(definition.parameters.first(where: { $0.name == "offset" })?.isRequired == false)
+    #expect(definition.parameters.first(where: { $0.name == "limit" })?.isRequired == false)
   }
 
   @Test
@@ -441,6 +492,51 @@ struct ToolExecutionTests {
       ),
       workspace: workspace
     )
+    let invalidOffset = await ToolOrchestrator().execute(
+      request: request(
+        .readFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("README.md"),
+          "offset": .number(0),
+        ]
+      ),
+      workspace: workspace
+    )
+    let invalidLimit = await ToolOrchestrator().execute(
+      request: request(
+        .readFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("README.md"),
+          "limit": .number(0),
+        ]
+      ),
+      workspace: workspace
+    )
+    let stringPagination = await ToolOrchestrator().execute(
+      request: request(
+        .readFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("README.md"),
+          "offset": .string("1"),
+          "limit": .string("1"),
+        ]
+      ),
+      workspace: workspace
+    )
+    let invalidStringLimit = await ToolOrchestrator().execute(
+      request: request(
+        .readFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("README.md"),
+          "limit": .string("many"),
+        ]
+      ),
+      workspace: workspace
+    )
 
     #expect(valid.status == .completed)
     #expect(missingPath.status == .failed)
@@ -449,6 +545,14 @@ struct ToolExecutionTests {
     #expect(wrongPathType.resultPreview?.text.contains("Invalid arguments for read_file") == true)
     #expect(unknownArgument.status == .failed)
     #expect(unknownArgument.resultPreview?.text.contains("Unknown argument") == true)
+    #expect(invalidOffset.status == .failed)
+    #expect(invalidOffset.resultPreview?.text.contains("offset must be greater") == true)
+    #expect(invalidLimit.status == .failed)
+    #expect(invalidLimit.resultPreview?.text.contains("limit must be greater") == true)
+    #expect(stringPagination.status == .completed)
+    #expect(stringPagination.resultPreview?.text == "1: hello")
+    #expect(invalidStringLimit.status == .failed)
+    #expect(invalidStringLimit.resultPreview?.text.contains("limit must be greater") == true)
   }
 
   @Test

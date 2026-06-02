@@ -78,11 +78,23 @@ nonisolated extension ToolDefinition {
         name: "path",
         description: "Relative file path inside the workspace.",
         isRequired: true
-      )
+      ),
+      ToolParameterDefinition(
+        name: "offset",
+        description: "Optional 1-based start line for reading a focused window.",
+        isRequired: false
+      ),
+      ToolParameterDefinition(
+        name: "limit",
+        description: "Optional maximum number of lines to return.",
+        isRequired: false
+      ),
     ],
     taggedExample: """
       <action name="read_file">
       <path>Sources/AppState.swift</path>
+      <offset>1</offset>
+      <limit>200</limit>
       </action>
       """,
     capabilities: [.readWorkspace],
