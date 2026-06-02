@@ -68,16 +68,6 @@ nonisolated struct ToolPermissionEvaluator: Sendable {
         riskLevel: .high,
         successReason: "Editing files inside the workspace requires approval."
       )
-    case .applyPatch:
-      return evaluatePathTool(
-        request,
-        in: workspace,
-        argumentKeys: ["affectedPaths", "affected_paths"],
-        decision: .requiresApproval,
-        riskLevel: .high,
-        successReason: "Applying a patch inside the workspace requires approval.",
-        missingPathReason: "apply_patch requires affectedPaths."
-      )
     case .runCommand:
       return evaluatePathTool(
         request,

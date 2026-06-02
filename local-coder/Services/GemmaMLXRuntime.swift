@@ -108,9 +108,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       topP: Float(settings.topP),
       topK: settings.topK
     )
-    let history = try Self.validatedTemplateMessages(
-      Self.normalizedChatMessages(messages[..<lastUserIndex].compactMap(Chat.Message.init))
-    )
+    let history = try Self.generationHistoryMessages(from: messages[..<lastUserIndex])
     let session = ChatSession(
       modelContainer,
       instructions: instructions,
@@ -244,6 +242,18 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     return messages
   }
 
+  nonisolated static func generationHistoryMessages(
+    from messages: ArraySlice<ChatMessage>
+  ) throws -> [Chat.Message] {
+    var history = normalizedChatMessages(messages.compactMap(Chat.Message.init))
+
+    while history.last?.role == .user {
+      history.removeLast()
+    }
+
+    return try validatedTemplateMessages(history)
+  }
+
   nonisolated private static func normalizedSystemPrompt(_ systemPrompt: String) -> String? {
     let effectiveSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
     return effectiveSystemPrompt.isEmpty ? nil : effectiveSystemPrompt
@@ -274,7 +284,11 @@ nonisolated extension Chat.Message {
       guard let toolResult = message.toolResult else {
         return nil
       }
-      self = .user(toolResult.modelContextMessage)
+      if toolResult.isTerminalWrite {
+        self = .assistant(toolResult.terminalModelContextMessage)
+      } else {
+        self = .user(toolResult.modelContextMessage)
+      }
     case .system:
       guard !message.content.isEmpty else {
         return nil
@@ -286,6 +300,10 @@ nonisolated extension Chat.Message {
 
 nonisolated extension ToolCallModelMessage {
   fileprivate var modelContextMessage: String {
+    if isTerminalWrite {
+      return terminalWriteModelContextMessage
+    }
+
     let argumentLines = arguments.map { argument in
       "<\(argument.name)>\(argument.value)</\(argument.name)>"
     }
@@ -303,9 +321,37 @@ nonisolated extension ToolCallModelMessage {
       </action>
       """
   }
+
+  private var isTerminalWrite: Bool {
+    toolName == .writeFile || toolName == .editFile
+  }
+
+  private var terminalWriteModelContextMessage: String {
+    let path = arguments.first { $0.name == "path" }?.value ?? "unknown"
+    return """
+      Tool call \(toolName.rawValue) requested.
+      Path:
+      \(path)
+      Payload omitted from history.
+      """
+  }
 }
 
 nonisolated extension ToolResultModelMessage {
+  fileprivate var isTerminalWrite: Bool {
+    toolName == .writeFile || toolName == .editFile
+  }
+
+  fileprivate var terminalModelContextMessage: String {
+    let paths =
+      preview.affectedPaths.isEmpty ? "none" : preview.affectedPaths.joined(separator: "\n")
+    return """
+      Tool \(toolName.rawValue) completed with status \(preview.status.rawValue).
+      Paths:
+      \(paths)
+      """
+  }
+
   fileprivate var modelContextMessage: String {
     let paths =
       preview.affectedPaths.isEmpty ? "none" : preview.affectedPaths.joined(separator: "\n")
@@ -346,7 +392,7 @@ nonisolated private func generationPrompt(
     Controller observations for this request:
     \(observations.joined(separator: "\n\n"))
 
-    Use the observations to answer the user directly. Do not call another tool for this response.
+    Use the observations to continue the user's request.
     """
 }
 

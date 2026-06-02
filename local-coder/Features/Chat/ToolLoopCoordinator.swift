@@ -31,16 +31,13 @@ nonisolated enum ToolLoopOutcome: Equatable, Sendable {
 nonisolated struct ToolLoopCoordinator: Sendable {
   private let toolCallParser: any ToolCallParsing
   private let toolOrchestrator: any ToolOrchestrating
-  private let maxToolIterations: Int
 
   init(
     toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
-    toolOrchestrator: any ToolOrchestrating = ToolOrchestrator(),
-    maxToolIterations: Int = 1
+    toolOrchestrator: any ToolOrchestrating = ToolOrchestrator()
   ) {
     self.toolCallParser = toolCallParser
     self.toolOrchestrator = toolOrchestrator
-    self.maxToolIterations = maxToolIterations
   }
 
   var toolRegistry: ToolRegistry {
@@ -48,10 +45,6 @@ nonisolated struct ToolLoopCoordinator: Sendable {
   }
 
   func run(_ request: ToolLoopRequest) async throws -> ToolLoopResult? {
-    guard maxToolIterations > 0 else {
-      return nil
-    }
-
     try Task.checkCancellation()
     let assistantContent = messageContent(for: request.assistantMessageID, in: request.messages)
     let parseResult = try parseToolCallResult(

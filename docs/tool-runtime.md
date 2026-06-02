@@ -30,9 +30,10 @@ flowchart TD
 - `ToolCallParser` understands the model-facing format, currently tagged
   action text. A future JSON or provider-native parser should still emit the
   same `ToolCallRequest`. The tagged parser prefers explicit delimiter lines
-  for multiline payloads. For `content` payloads, it also accepts a bounded
-  closing-tag fallback so small local models that omit the final delimiter line
-  can still produce auditable `write_file` calls instead of raw transcript text.
+  for multiline payloads. For `content`, `old_text`, and `new_text` payloads,
+  it also accepts a bounded closing-tag fallback so small local models that omit
+  delimiter lines can still produce auditable `write_file` and `edit_file`
+  calls instead of raw transcript text.
 - `ToolCallRequest` is the neutral handoff model: tool name, workspace/session,
   and raw argument values.
 - `ToolExecutorRegistry` contains the executable tools for the active tool set
@@ -108,8 +109,7 @@ flowchart TD
   directories, and cap returned results. `search_files` treats a valid pattern
   as a regular expression; invalid regular expressions fall back to literal
   substring matching.
-- Write, patch, and command tools must require explicit approval before
-  execution.
+- Write and command tools must require explicit approval before execution.
 - A tool that returns `.requiresApproval` must move to
   `ToolCallStatus.awaitingApproval`. It must not be marked as denied, failed,
   completed, or executed automatically.
@@ -125,6 +125,7 @@ flowchart TD
   replace-all semantics. Zero matches, multiple matches, non-UTF-8 files, and
   identical old/new text fail before approval; approved execution re-reads and
   revalidates the file before writing atomically.
+- `edit_file` is the only model-facing tool for changing existing files.
 - Successful `write_file` and `edit_file` results are terminal for the chat
   turn. The controller should show the auditable tool result but must not
   request a follow-up model response that can restate the written file content.

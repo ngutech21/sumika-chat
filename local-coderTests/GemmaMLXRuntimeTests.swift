@@ -94,6 +94,130 @@ struct GemmaMLXRuntimeTests {
   }
 
   @Test
+  func generationHistoryKeepsTerminalToolResultAsAssistantSummary() throws {
+    let callID = UUID()
+    let messages: [ChatMessage] = [
+      ChatMessage(kind: .user, content: "create index.html"),
+      ChatMessage(
+        kind: .toolCall,
+        content: "",
+        toolCall: ToolCallModelMessage(
+          callID: callID,
+          toolName: .writeFile,
+          arguments: [
+            ToolCallModelArgument(name: "path", value: "index.html"),
+            ToolCallModelArgument(name: "content", value: "<h1>foo bar</h1>"),
+          ]
+        )
+      ),
+      ChatMessage(
+        kind: .toolResult,
+        content: "",
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .writeFile,
+          preview: ToolResultPreview(
+            status: .success,
+            text: "/tmp/project/index.html · 1 lines, 30 bytes",
+            affectedPaths: ["/tmp/project/index.html"]
+          )
+        )
+      ),
+    ]
+
+    let history = try GemmaMLXRuntime.generationHistoryMessages(from: messages[...])
+
+    #expect(history.map(\.role) == [.user, .assistant])
+    #expect(history[0].content == "create index.html")
+    #expect(history[1].content.contains("Tool call write_file requested."))
+    #expect(history[1].content.contains("Path:\nindex.html"))
+    #expect(history[1].content.contains("Payload omitted from history."))
+    #expect(!history[1].content.contains("<h1>foo bar</h1>"))
+    #expect(!history[1].content.contains(#"<action name="write_file">"#))
+    #expect(history[1].content.contains("Tool write_file completed with status success."))
+    #expect(history[1].content.contains("/tmp/project/index.html"))
+  }
+
+  @Test
+  func generationHistoryOmitsEditFilePayloads() throws {
+    let callID = UUID()
+    let messages: [ChatMessage] = [
+      ChatMessage(kind: .user, content: "change title"),
+      ChatMessage(
+        kind: .toolCall,
+        content: "",
+        toolCall: ToolCallModelMessage(
+          callID: callID,
+          toolName: .editFile,
+          arguments: [
+            ToolCallModelArgument(name: "path", value: "index.html"),
+            ToolCallModelArgument(name: "old_text", value: "<title>Old</title>"),
+            ToolCallModelArgument(name: "new_text", value: "<title>New</title>"),
+          ]
+        )
+      ),
+      ChatMessage(
+        kind: .toolResult,
+        content: "",
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .editFile,
+          preview: ToolResultPreview(
+            status: .success,
+            text: "Edited index.html.",
+            affectedPaths: ["/tmp/project/index.html"]
+          )
+        )
+      ),
+    ]
+
+    let history = try GemmaMLXRuntime.generationHistoryMessages(from: messages[...])
+
+    #expect(history.map(\.role) == [.user, .assistant])
+    #expect(history[1].content.contains("Tool call edit_file requested."))
+    #expect(history[1].content.contains("Path:\nindex.html"))
+    #expect(history[1].content.contains("Payload omitted from history."))
+    #expect(!history[1].content.contains("<title>Old</title>"))
+    #expect(!history[1].content.contains("<title>New</title>"))
+    #expect(!history[1].content.contains("<old_text>"))
+    #expect(!history[1].content.contains("<new_text>"))
+    #expect(history[1].content.contains("Tool edit_file completed with status success."))
+  }
+
+  @Test
+  func generationHistoryKeepsToolObservationWhenAssistantAnswered() throws {
+    let callID = UUID()
+    let messages: [ChatMessage] = [
+      ChatMessage(kind: .user, content: "read Package.swift"),
+      ChatMessage(
+        kind: .toolCall,
+        content: "",
+        toolCall: ToolCallModelMessage(
+          callID: callID,
+          toolName: .readFile,
+          arguments: [ToolCallModelArgument(name: "path", value: "Package.swift")]
+        )
+      ),
+      ChatMessage(
+        kind: .toolResult,
+        content: "",
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .readFile,
+          preview: ToolResultPreview(text: "let package = Package(...)")
+        )
+      ),
+      ChatMessage(kind: .assistant, content: "Package.swift defines a Swift package."),
+    ]
+
+    let history = try GemmaMLXRuntime.generationHistoryMessages(from: messages[...])
+
+    #expect(history.map(\.role) == [.user, .assistant, .user, .assistant])
+    #expect(history[2].content.contains("let package = Package(...)"))
+    #expect(history[3].content == "Package.swift defines a Swift package.")
+  }
+
+  @Test
   func normalizedChatMessagesMergesAdjacentAssistantMessagesAsSafetyNet() {
     let messages: [Chat.Message] = [
       .user("Read README.md"),

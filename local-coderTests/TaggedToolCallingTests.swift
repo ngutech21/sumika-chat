@@ -35,6 +35,7 @@ struct TaggedToolCallingTests {
     #expect(prompt.contains("Emit one complete <action> block and then stop."))
     #expect(prompt.contains("XML-inspired, but it is not XML"))
     #expect(prompt.contains("on its own line with no spaces"))
+    #expect(!prompt.contains("apply_patch"))
   }
 
   @Test
@@ -155,15 +156,16 @@ struct TaggedToolCallingTests {
   func parserParsesHeredocPayloadWithoutInterpretingTags() throws {
     let request = try parsedRequest(
       """
-      <action name="apply_patch">
-      <patch delimiter="LC_PAYLOAD_TEST">
+      <action name="write_file">
+      <path>index.html</path>
+      <content delimiter="LC_PAYLOAD_TEST">
       <div class="example">
         <p>Hello</p>
       </div>
-      </patch>
-      {"literal": "</patch>"}
+      </content>
+      {"literal": "</content>"}
       LC_PAYLOAD_TEST
-      </patch>
+      </content>
       </action>
       """
     )
@@ -172,12 +174,16 @@ struct TaggedToolCallingTests {
       <div class="example">
         <p>Hello</p>
       </div>
-      </patch>
-      {"literal": "</patch>"}
+      </content>
+      {"literal": "</content>"}
       """
 
-    #expect(request.toolName == .applyPatch)
-    #expect(request.arguments == ["patch": .string(expectedPayload)])
+    #expect(request.toolName == .writeFile)
+    #expect(
+      request.arguments == [
+        "path": .string("index.html"),
+        "content": .string(expectedPayload),
+      ])
   }
 
   @Test
@@ -215,6 +221,42 @@ struct TaggedToolCallingTests {
     #expect(
       request.arguments == [
         "path": .string("movies.html"),
+        "content": .string(expectedPayload),
+      ])
+  }
+
+  @Test
+  func parserParsesContentPayloadWithIndentedClosingTagAfterDelimiter() throws {
+    let request = try parsedRequest(
+      """
+      <action name="write_file">
+        <path>index.html</path>
+        <content delimiter="LC_PAYLOAD_TEST">
+      <!DOCTYPE html>
+      <html>
+      <body>
+        <h1>Hello, world!</h1>
+      </body>
+      </html>
+      LC_PAYLOAD_TEST
+        </content>
+      </action>
+      """
+    )
+
+    let expectedPayload = """
+      <!DOCTYPE html>
+      <html>
+      <body>
+        <h1>Hello, world!</h1>
+      </body>
+      </html>
+      """
+
+    #expect(request.toolName == .writeFile)
+    #expect(
+      request.arguments == [
+        "path": .string("index.html"),
         "content": .string(expectedPayload),
       ])
   }
@@ -262,13 +304,88 @@ struct TaggedToolCallingTests {
   }
 
   @Test
+  func parserParsesEditFilePayloadsWhenModelOmitsClosingDelimiterLines() throws {
+    let request = try parsedRequest(
+      """
+      <action name="edit_file">
+      <path>Sources/index.html</path>
+      <old_text delimiter="LC_PAYLOAD_TEST">
+      <html>
+      <body>
+      <h1>foo bar</h1>
+      </body>
+      </html>
+      </old_text>
+      <new_text delimiter="LC_PAYLOAD_TEST">
+      <html>
+      <body>
+      <h1>foo bar</h1>
+      <table>
+      <tr><td>Column 1</td><td>Column 2</td><td>Column 3</td></tr>
+      </table>
+      </body>
+      </html>
+      </new_text>
+      </action>
+      """
+    )
+
+    let expectedOldText = """
+      <html>
+      <body>
+      <h1>foo bar</h1>
+      </body>
+      </html>
+      """
+    let expectedNewText = """
+      <html>
+      <body>
+      <h1>foo bar</h1>
+      <table>
+      <tr><td>Column 1</td><td>Column 2</td><td>Column 3</td></tr>
+      </table>
+      </body>
+      </html>
+      """
+
+    #expect(request.toolName == .editFile)
+    #expect(
+      request.arguments == [
+        "path": .string("Sources/index.html"),
+        "old_text": .string(expectedOldText),
+        "new_text": .string(expectedNewText),
+      ])
+  }
+
+  @Test
+  func parserParsesEditFilePairedPayloadsInAnyOrder() throws {
+    let request = try parsedRequest(
+      """
+      <action name="edit_file">
+      <new_text><html><title>Hello World</title></html></new_text>
+      <old_text><html><title>My Page</title></html></old_text>
+      <path>Sources/App.html</path>
+      </action>
+      """
+    )
+
+    #expect(request.toolName == .editFile)
+    #expect(
+      request.arguments == [
+        "path": .string("Sources/App.html"),
+        "old_text": .string("<html><title>My Page</title></html>"),
+        "new_text": .string("<html><title>Hello World</title></html>"),
+      ])
+  }
+
+  @Test
   func parserAcceptsCRLFDelimiterLines() throws {
     let content =
-      "<action name=\"apply_patch\">\r\n<patch delimiter=\"LC_PAYLOAD_TEST\">\r\nline 1\r\nLC_PAYLOAD_TEST\r\n</patch>\r\n</action>"
+      "<action name=\"write_file\">\r\n<path>notes.txt</path>\r\n<content delimiter=\"LC_PAYLOAD_TEST\">\r\nline 1\r\nLC_PAYLOAD_TEST\r\n</content>\r\n</action>"
 
     let request = try parsedRequest(content)
 
-    #expect(request.arguments == ["patch": .string("line 1")])
+    #expect(request.arguments == ["path": .string("notes.txt"), "content": .string("line 1")])
   }
 
   @Test
@@ -381,43 +498,15 @@ struct TaggedToolCallingTests {
   }
 
   @Test
-  func parserRejectsMissingEmptyAndNonExactDelimiters() {
-    #expect(throws: TaggedToolCallParseError.missingDelimiter("patch")) {
+  func parserRejectsEmptyDelimiters() {
+    #expect(throws: TaggedToolCallParseError.emptyDelimiter("content")) {
       _ = try TaggedToolCallParser().parse(
         """
-        <action name="apply_patch">
-        <patch>raw patch</patch>
-        </action>
-        """,
-        workspaceID: UUID(),
-        sessionID: UUID(),
-        createdAt: Date()
-      )
-    }
-
-    #expect(throws: TaggedToolCallParseError.emptyDelimiter("patch")) {
-      _ = try TaggedToolCallParser().parse(
-        """
-        <action name="apply_patch">
-        <patch delimiter="">
-        raw patch
-        </patch>
-        </action>
-        """,
-        workspaceID: UUID(),
-        sessionID: UUID(),
-        createdAt: Date()
-      )
-    }
-
-    #expect(throws: TaggedToolCallParseError.delimiterNotFound("LC_PAYLOAD_TEST")) {
-      _ = try TaggedToolCallParser().parse(
-        """
-        <action name="apply_patch">
-        <patch delimiter="LC_PAYLOAD_TEST">
-        raw patch
-         LC_PAYLOAD_TEST
-        </patch>
+        <action name="write_file">
+        <path>notes.txt</path>
+        <content delimiter="">
+        raw content
+        </content>
         </action>
         """,
         workspaceID: UUID(),

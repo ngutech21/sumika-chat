@@ -154,6 +154,52 @@ struct ChatSessionControllerWriteApprovalTests {
   }
 
   @Test
+  func readFileCanBeFollowedByEditFileAwaitingApproval() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+      [
+        """
+        <action name="read_file">
+        <path>README.md</path>
+        </action>
+        """
+      ],
+      [
+        editFileAction(
+          path: "README.md",
+          oldText: "project notes",
+          newText: "project notes\n\n| One | Two | Three |"
+        )
+      ],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "add a table with 3 columns to README.md"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
+
+    let readmeURL = workspace.rootURL.appending(path: "README.md")
+    #expect(!controller.isGenerating)
+    #expect(controller.hasPendingApproval)
+    #expect(controller.chatSession.toolCalls.count == 2)
+    #expect(controller.chatSession.toolCalls[0].status == .completed)
+    #expect(controller.chatSession.toolCalls[0].request.toolName == .readFile)
+    #expect(controller.chatSession.toolCalls[1].status == .awaitingApproval)
+    #expect(controller.chatSession.toolCalls[1].request.toolName == .editFile)
+    #expect(
+      controller.chatSession.toolCalls[1].resultPreview?.text.contains(
+        "+| One | Two | Three |") == true)
+    #expect(try String(contentsOf: readmeURL, encoding: .utf8) == "project notes")
+
+    let capturedSystemPrompts = await runtime.capturedSystemPrompts
+    #expect(capturedSystemPrompts.count == 2)
+    #expect(capturedSystemPrompts[1].contains("emit one edit_file"))
+  }
+
+  @Test
   func approvingEditFileWritesContentAndCompletesWithoutFollowUp() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

@@ -21,7 +21,9 @@ flowchart TD
   J --> K{"Tool requires approval?"}
   K -- "no" --> L["Append ToolCallRecord + ToolResultModelMessage"]
   L --> Q["Stream direct follow-up with current turn included"]
-  Q --> I
+  Q --> U{"Follow-up emitted another allowed tool call?"}
+  U -- "yes, within 6-call turn budget" --> J
+  U -- "no" --> I
   K -- "yes" --> R["Mark turn awaitingApproval"]
   R --> S["User approves or denies"]
   S -- "approve" --> T["Execute approved tool + append ToolResultModelMessage"]
@@ -68,9 +70,10 @@ flowchart TD
 4. Initial generation streams into the assistant placeholder.
 5. If the assistant output is an allowed tool call, the controller records the
    `ToolCallRecord` and appends the tool result. Read-style tools append a
-   second assistant placeholder and stream the direct follow-up response;
-   successful `write_file` and `edit_file` calls complete the turn without a
-   follow-up model response.
+   second assistant placeholder and stream the direct follow-up response. Each
+   follow-up is inspected for another tool call until the turn budget of six
+   tool calls is exhausted. Successful `write_file` and `edit_file` calls
+   complete the turn without a follow-up model response.
 6. If the tool call requires approval, the controller records the call, marks
    the turn `.awaitingApproval`, and ends active generation until the user
    approves or denies the call.
@@ -102,6 +105,10 @@ flowchart TD
   Future independent prompts exclude those messages from model context.
 - The currently active turn is allowed to include its own tool result while
   generating the direct follow-up response.
+- Direct follow-up responses may emit another tool call within the controller's
+  six-call turn budget. When the budget is exhausted, the final follow-up prompt
+  disables tools and any remaining raw action markup is replaced with a tool
+  limit message.
 - Cancel should schedule a normal context-usage refresh with the latest filtered
   snapshot. It must not block turn cancellation on synchronous token counting.
 

@@ -109,9 +109,15 @@ nonisolated struct TaggedToolCallParser: ToolCallParsing {
   private let payloadParameterNames: Set<String>
   private let closingTagFallbackPayloadNames: Set<String>
 
+  private struct ParsedParameter {
+    var name: String
+    var value: String
+    var endIndex: String.Index
+  }
+
   init(
-    payloadParameterNames: Set<String> = ["content", "old_text", "new_text", "patch"],
-    closingTagFallbackPayloadNames: Set<String> = ["content"]
+    payloadParameterNames: Set<String> = ["content", "old_text", "new_text"],
+    closingTagFallbackPayloadNames: Set<String> = ["content", "old_text", "new_text"]
   ) {
     self.payloadParameterNames = payloadParameterNames
     self.closingTagFallbackPayloadNames = closingTagFallbackPayloadNames
@@ -160,57 +166,12 @@ nonisolated struct TaggedToolCallParser: ToolCallParsing {
         break
       }
 
-      guard text[cursor] == "<" else {
-        throw TaggedToolCallParseError.malformedTag
+      let parameter = try parseParameter(in: text, from: cursor)
+      guard arguments[parameter.name] == nil else {
+        throw TaggedToolCallParseError.duplicateParameter(parameter.name)
       }
-
-      let parameterOpenEnd = try openingTagEnd(in: text, from: cursor)
-      let parameterTag = try parseOpeningTag(text[text.index(after: cursor)..<parameterOpenEnd])
-      let parameterName = parameterTag.name
-      guard !parameterName.isEmpty else {
-        throw TaggedToolCallParseError.malformedTag
-      }
-      guard arguments[parameterName] == nil else {
-        throw TaggedToolCallParseError.duplicateParameter(parameterName)
-      }
-
-      cursor = text.index(after: parameterOpenEnd)
-
-      if parameterTag.attributes.keys.contains("delimiter") {
-        guard let delimiter = parameterTag.attributes["delimiter"] else {
-          throw TaggedToolCallParseError.missingDelimiter(parameterName)
-        }
-        guard !delimiter.isEmpty else {
-          throw TaggedToolCallParseError.emptyDelimiter(parameterName)
-        }
-
-        let payload = try readHeredocPayload(
-          in: text,
-          from: cursor,
-          parameterName: parameterName,
-          delimiter: delimiter,
-          allowsClosingTagFallback: closingTagFallbackPayloadNames.contains(parameterName)
-        )
-        arguments[parameterName] = .string(payload.content)
-        cursor = payload.endIndex
-      } else {
-        guard !payloadParameterNames.contains(parameterName) else {
-          throw TaggedToolCallParseError.missingDelimiter(parameterName)
-        }
-        guard parameterTag.attributes.isEmpty else {
-          throw TaggedToolCallParseError.malformedTag
-        }
-
-        let closingTag = "</\(parameterName)>"
-        guard let closingRange = text[cursor...].range(of: closingTag) else {
-          throw TaggedToolCallParseError.malformedTag
-        }
-
-        let value = text[cursor..<closingRange.lowerBound]
-          .trimmingCharacters(in: .whitespacesAndNewlines)
-        arguments[parameterName] = .string(String(value))
-        cursor = closingRange.upperBound
-      }
+      arguments[parameter.name] = .string(parameter.value)
+      cursor = parameter.endIndex
     }
 
     guard didCloseAction else {
@@ -234,6 +195,103 @@ nonisolated struct TaggedToolCallParser: ToolCallParsing {
     )
     return .toolCall(
       ToolCallParseOutput(request: request, modelMessage: ToolCallModelMessage(request: request)))
+  }
+
+  private func parseParameter(in text: String, from cursor: String.Index) throws -> ParsedParameter
+  {
+    guard text[cursor] == "<" else {
+      throw TaggedToolCallParseError.malformedTag
+    }
+
+    let parameterOpenEnd = try openingTagEnd(in: text, from: cursor)
+    let parameterTag = try parseOpeningTag(text[text.index(after: cursor)..<parameterOpenEnd])
+    let parameterName = parameterTag.name
+    guard !parameterName.isEmpty else {
+      throw TaggedToolCallParseError.malformedTag
+    }
+
+    let contentStart = text.index(after: parameterOpenEnd)
+    let payload = try readParameterPayload(
+      in: text,
+      from: contentStart,
+      parameterName: parameterName,
+      attributes: parameterTag.attributes
+    )
+    return ParsedParameter(name: parameterName, value: payload.content, endIndex: payload.endIndex)
+  }
+
+  private func readParameterPayload(
+    in text: String,
+    from contentStart: String.Index,
+    parameterName: String,
+    attributes: [String: String]
+  ) throws -> (content: String, endIndex: String.Index) {
+    if attributes.keys.contains("delimiter") {
+      return try readDelimitedParameterPayload(
+        in: text,
+        from: contentStart,
+        parameterName: parameterName,
+        attributes: attributes
+      )
+    }
+
+    if payloadParameterNames.contains(parameterName),
+      closingTagFallbackPayloadNames.contains(parameterName)
+    {
+      guard attributes.isEmpty else {
+        throw TaggedToolCallParseError.malformedTag
+      }
+      return try readClosingTagTerminatedPayload(
+        in: text,
+        from: contentStart,
+        parameterName: parameterName
+      )
+    }
+
+    guard !payloadParameterNames.contains(parameterName) else {
+      throw TaggedToolCallParseError.missingDelimiter(parameterName)
+    }
+    guard attributes.isEmpty else {
+      throw TaggedToolCallParseError.malformedTag
+    }
+    return try readPlainParameterPayload(in: text, from: contentStart, parameterName: parameterName)
+  }
+
+  private func readDelimitedParameterPayload(
+    in text: String,
+    from contentStart: String.Index,
+    parameterName: String,
+    attributes: [String: String]
+  ) throws -> (content: String, endIndex: String.Index) {
+    guard let delimiter = attributes["delimiter"] else {
+      throw TaggedToolCallParseError.missingDelimiter(parameterName)
+    }
+    guard !delimiter.isEmpty else {
+      throw TaggedToolCallParseError.emptyDelimiter(parameterName)
+    }
+
+    return try readHeredocPayload(
+      in: text,
+      from: contentStart,
+      parameterName: parameterName,
+      delimiter: delimiter,
+      allowsClosingTagFallback: closingTagFallbackPayloadNames.contains(parameterName)
+    )
+  }
+
+  private func readPlainParameterPayload(
+    in text: String,
+    from contentStart: String.Index,
+    parameterName: String
+  ) throws -> (content: String, endIndex: String.Index) {
+    let closingTag = "</\(parameterName)>"
+    guard let closingRange = text[contentStart...].range(of: closingTag) else {
+      throw TaggedToolCallParseError.malformedTag
+    }
+
+    let value = text[contentStart..<closingRange.lowerBound]
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return (String(value), closingRange.upperBound)
   }
 
   private func openingTagEnd(in text: String, from start: String.Index) throws -> String.Index {
@@ -330,10 +388,11 @@ nonisolated struct TaggedToolCallParser: ToolCallParsing {
       if String(text[line.contentStart..<line.contentEnd]) == delimiter {
         let contentEnd = trimmedContentEndBeforeDelimiter(in: text, lineStart: lineStart)
         let closingTag = "</\(parameterName)>"
-        guard text[line.nextStart...].hasPrefix(closingTag) else {
+        let closingTagStart = skipWhitespace(in: text, from: line.nextStart)
+        guard text[closingTagStart...].hasPrefix(closingTag) else {
           throw TaggedToolCallParseError.malformedTag
         }
-        let endIndex = text.index(line.nextStart, offsetBy: closingTag.count)
+        let endIndex = text.index(closingTagStart, offsetBy: closingTag.count)
         return (String(text[contentStart..<contentEnd]), endIndex)
       }
 
@@ -359,6 +418,17 @@ nonisolated struct TaggedToolCallParser: ToolCallParsing {
     from contentStart: String.Index,
     parameterName: String
   ) throws -> (content: String, endIndex: String.Index) {
+    var contentStart = contentStart
+    if let crlfRange = text[contentStart...].range(of: "\r\n"),
+      crlfRange.lowerBound == contentStart
+    {
+      contentStart = crlfRange.upperBound
+    } else if let lfRange = text[contentStart...].range(of: "\n"),
+      lfRange.lowerBound == contentStart
+    {
+      contentStart = lfRange.upperBound
+    }
+
     let closingTag = "</\(parameterName)>"
     guard let closingRange = text[contentStart...].range(of: closingTag) else {
       throw TaggedToolCallParseError.malformedTag

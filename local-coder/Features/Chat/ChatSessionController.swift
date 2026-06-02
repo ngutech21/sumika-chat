@@ -25,6 +25,7 @@ final class ChatSessionController {
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
+  @ObservationIgnored private let maxToolLoopIterations = 6
 
   var canSend: Bool {
     modelRuntime.modelState == .ready
@@ -536,7 +537,7 @@ extension ChatSessionController {
       notifySessionDidChange()
       try await streamAssistantReply(
         to: nextAssistantMessageID,
-        toolPromptMode: .afterToolResult,
+        toolPromptMode: .afterToolResultCanContinue,
         turnID: turnID
       )
     } catch is CancellationError {
@@ -754,62 +755,100 @@ extension ChatSessionController {
       return
     }
 
-    guard
-      let result = try await toolLoopCoordinator.run(
-        ToolLoopRequest(
-          workspace: workspace,
-          sessionID: sessionID,
-          assistantMessageID: lastAssistantMessageID,
-          messages: chatSession.messages
+    var currentAssistantMessageID = lastAssistantMessageID
+    var remainingIterations = maxToolLoopIterations
+
+    while remainingIterations > 0 {
+      guard
+        let result = try await toolLoopCoordinator.run(
+          ToolLoopRequest(
+            workspace: workspace,
+            sessionID: sessionID,
+            assistantMessageID: currentAssistantMessageID,
+            messages: chatSession.messages
+          )
         )
+      else {
+        return
+      }
+      remainingIterations -= 1
+      try Task.checkCancellation()
+      guard isCurrentTurn(turnID) else {
+        return
+      }
+
+      transcriptMutator.annotateToolCall(
+        result.toolCall,
+        for: result.assistantMessageID,
+        in: &chatSession
       )
-    else {
-      return
+      chatSession.toolCalls.append(result.toolCallRecord)
+      transcriptMutator.appendToolCallID(result.toolCallRecord.id, toTurn: turnID, in: &chatSession)
+      notifySessionDidChange()
+
+      switch result.outcome {
+      case .awaitingApproval:
+        transcriptMutator.updateTurnStatus(.awaitingApproval, for: turnID, in: &chatSession)
+        isGenerating = false
+        chatTurnCoordinator.finishTurn(turnID)
+        refreshContextUsage()
+        notifySessionDidChange()
+        return
+      case .completed(let toolResult, let nextAssistantMessageID):
+        appendToolResult(toolResult, turnID: turnID)
+        transcriptMutator.appendAssistantPlaceholder(
+          id: nextAssistantMessageID,
+          turnID: turnID,
+          to: &chatSession
+        )
+        transcriptMutator.appendMessageID(
+          nextAssistantMessageID,
+          toTurn: turnID,
+          in: &chatSession
+        )
+        notifySessionDidChange()
+        try await streamAssistantReply(
+          to: nextAssistantMessageID,
+          toolPromptMode: remainingIterations > 0
+            ? .afterToolResultCanContinue
+            : .afterToolResultFinal,
+          turnID: turnID
+        )
+        currentAssistantMessageID = nextAssistantMessageID
+      case .completedWithoutFollowUp(let toolResult):
+        appendToolResult(toolResult, turnID: turnID)
+        notifySessionDidChange()
+        return
+      }
     }
-    try Task.checkCancellation()
+
+    replaceOverBudgetToolMarkup(
+      assistantMessageID: currentAssistantMessageID,
+      inTurn: turnID
+    )
+  }
+
+  private func replaceOverBudgetToolMarkup(
+    assistantMessageID: ChatMessage.ID,
+    inTurn turnID: ChatTurnRecord.ID
+  ) {
     guard isCurrentTurn(turnID) else {
       return
     }
+    guard
+      chatSession.messages.contains(where: { message in
+        message.id == assistantMessageID && message.containsStreamingToolCallMarkup
+      })
+    else {
+      return
+    }
 
-    transcriptMutator.annotateToolCall(
-      result.toolCall,
-      for: result.assistantMessageID,
+    transcriptMutator.replaceAssistantContent(
+      "Tool limit reached for this request. Send another message to continue.",
+      for: assistantMessageID,
       in: &chatSession
     )
-    chatSession.toolCalls.append(result.toolCallRecord)
-    transcriptMutator.appendToolCallID(result.toolCallRecord.id, toTurn: turnID, in: &chatSession)
     notifySessionDidChange()
-
-    switch result.outcome {
-    case .awaitingApproval:
-      transcriptMutator.updateTurnStatus(.awaitingApproval, for: turnID, in: &chatSession)
-      isGenerating = false
-      chatTurnCoordinator.finishTurn(turnID)
-      refreshContextUsage()
-      notifySessionDidChange()
-      return
-    case .completed(let toolResult, let nextAssistantMessageID):
-      appendToolResult(toolResult, turnID: turnID)
-      transcriptMutator.appendAssistantPlaceholder(
-        id: nextAssistantMessageID,
-        turnID: turnID,
-        to: &chatSession
-      )
-      transcriptMutator.appendMessageID(
-        nextAssistantMessageID,
-        toTurn: turnID,
-        in: &chatSession
-      )
-      notifySessionDidChange()
-      try await streamAssistantReply(
-        to: nextAssistantMessageID,
-        toolPromptMode: .afterToolResult,
-        turnID: turnID
-      )
-    case .completedWithoutFollowUp(let toolResult):
-      appendToolResult(toolResult, turnID: turnID)
-      notifySessionDidChange()
-    }
   }
 
   private func appendToolResult(_ toolResult: ToolResultModelMessage, turnID: ChatTurnRecord.ID) {

@@ -104,14 +104,6 @@ struct ToolPermissionTests {
       ),
       in: workspace
     )
-    let patchEvaluation = evaluator.evaluate(
-      request(
-        toolName: .applyPatch,
-        workspace: workspace,
-        arguments: ["affectedPaths": .array([.string("Sources/File.swift")])]
-      ),
-      in: workspace
-    )
     let editEvaluation = evaluator.evaluate(
       request(
         toolName: .editFile,
@@ -140,7 +132,6 @@ struct ToolPermissionTests {
       editEvaluation.normalizedPaths == [
         rootURL.appending(path: "Sources/File.swift").path(percentEncoded: false)
       ])
-    #expect(patchEvaluation.decision == .requiresApproval)
     #expect(commandEvaluation.decision == .requiresApproval)
     #expect(commandEvaluation.normalizedPaths == [rootURL.path(percentEncoded: false)])
   }
@@ -152,10 +143,6 @@ struct ToolPermissionTests {
     let workspace = Workspace(name: "Project", rootURL: rootURL)
     let evaluator = ToolPermissionEvaluator()
 
-    let missingPatchPaths = evaluator.evaluate(
-      request(toolName: .applyPatch, workspace: workspace, arguments: [:]),
-      in: workspace
-    )
     let outsideCommand = evaluator.evaluate(
       request(
         toolName: .runCommand,
@@ -173,8 +160,6 @@ struct ToolPermissionTests {
       in: workspace
     )
 
-    #expect(missingPatchPaths.decision == .denied)
-    #expect(missingPatchPaths.reason == "apply_patch requires affectedPaths.")
     #expect(outsideCommand.decision == .denied)
     #expect(outsideCommand.normalizedPaths.isEmpty)
     #expect(unknownTool.decision == .denied)

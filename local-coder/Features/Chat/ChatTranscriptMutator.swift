@@ -78,6 +78,26 @@ nonisolated struct ChatTranscriptMutator: Sendable {
     }
   }
 
+  func replaceAssistantContent(
+    _ content: String,
+    for messageID: ChatMessage.ID,
+    in state: inout ChatSessionState
+  ) {
+    updateMessage(messageID, in: &state) { message in
+      ChatMessage(
+        id: message.id,
+        kind: .assistant,
+        content: content,
+        attachments: message.attachments,
+        generationMetrics: message.generationMetrics,
+        toolCall: nil,
+        toolResult: nil,
+        turnID: message.turnID,
+        deliveryStatus: .complete
+      )
+    }
+  }
+
   func annotateToolCall(
     _ toolCall: ToolCallModelMessage,
     for messageID: UUID,

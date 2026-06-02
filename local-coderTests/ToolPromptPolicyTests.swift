@@ -51,6 +51,19 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
+  func enablesToolsForEditIntentWithoutFileKeyword() {
+    let policy = ToolPromptPolicy()
+
+    let allowsTools = policy.shouldAllowToolCalls(
+      workspace: makeWorkspace(),
+      prompt: "replace the h1 foo bar with a table with 3 columns",
+      attachments: []
+    )
+
+    #expect(allowsTools)
+  }
+
+  @Test
   func includesToolInstructionsOnlyWhenEnabled() {
     let policy = ToolPromptPolicy(payloadDelimiter: "LC_PAYLOAD_TEST")
     let registry = ToolExecutorRegistry.readOnly.toolRegistry
@@ -76,17 +89,35 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
-  func afterToolResultPromptDisablesFurtherToolActions() {
+  func afterToolResultCanContinuePromptIncludesEditToolInstructions() {
     let policy = ToolPromptPolicy()
 
     let prompt = policy.systemPrompt(
       basePrompt: "Base",
-      mode: .afterToolResult,
-      toolRegistry: ToolExecutorRegistry.readOnly.toolRegistry,
+      mode: .afterToolResultCanContinue,
+      toolRegistry: ToolExecutorRegistry.codingAgent.toolRegistry,
       toolPromptRenderer: TaggedToolPromptRenderer()
     )
 
     #expect(prompt.contains("Base"))
+    #expect(prompt.contains("emit one edit_file"))
+    #expect(prompt.contains("Available tools:"))
+    #expect(prompt.contains("edit_file"))
+  }
+
+  @Test
+  func finalToolResultPromptDisablesFurtherToolActions() {
+    let policy = ToolPromptPolicy()
+
+    let prompt = policy.systemPrompt(
+      basePrompt: "Base",
+      mode: .afterToolResultFinal,
+      toolRegistry: ToolExecutorRegistry.codingAgent.toolRegistry,
+      toolPromptRenderer: TaggedToolPromptRenderer()
+    )
+
+    #expect(prompt.contains("Base"))
+    #expect(prompt.contains("tool budget"))
     #expect(prompt.contains("Do not emit another <action> tag"))
     #expect(!prompt.contains("Available tools:"))
   }

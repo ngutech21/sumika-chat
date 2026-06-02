@@ -58,7 +58,7 @@ Severity: Medium
 Evidence:
 
 - The active typed runtime path evaluates permissions through each `TypedToolExecutor`.
-- `ToolPermissionEvaluator` still exists with its own rules for read, list, write, patch, and
+- `ToolPermissionEvaluator` still exists with its own rules for read, list, write, and
   command requests.
 
 Risk:
@@ -163,5 +163,5 @@ Concrete solution:
 
 1. Consolidate or remove `ToolPermissionEvaluator` so only one active permission path exists.
 2. Move tool-loop and approval transcript application to typed events.
-3. Extend the same approval shape to `apply_patch` once patch preview UI exists.
+3. Keep existing-file changes focused on `edit_file`.
 4. Split `AppState` into an observable facade plus a workspace/session coordinator.

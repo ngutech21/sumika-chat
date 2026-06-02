@@ -22,7 +22,6 @@ nonisolated struct ToolParameterDefinition: Equatable, Sendable {
 nonisolated enum ToolCapability: String, Codable, Equatable, Hashable, Sendable {
   case readWorkspace
   case writeWorkspace
-  case applyPatch
   case runCommand
 }
 

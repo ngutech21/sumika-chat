@@ -3,7 +3,8 @@ import Foundation
 nonisolated enum ToolPromptMode: Sendable {
   case disabled
   case enabled(Bool)
-  case afterToolResult
+  case afterToolResultCanContinue
+  case afterToolResultFinal
 }
 
 nonisolated struct ToolPromptPolicy: Sendable {
@@ -33,6 +34,11 @@ nonisolated struct ToolPromptPolicy: Sendable {
       "show ",
       "inspect",
       "look at",
+      "edit",
+      "modify",
+      "replace",
+      "change",
+      "update",
       "list files",
       "list the files",
       "what files",
@@ -68,12 +74,27 @@ nonisolated struct ToolPromptPolicy: Sendable {
     switch mode {
     case .disabled, .enabled(false):
       return basePrompt
-    case .afterToolResult:
+    case .afterToolResultCanContinue:
       return [
         basePrompt,
         """
-        You just received a tool result. Use it to answer the user's request directly.
-        Do not emit another <action> tag in this response.
+        You just received a tool result. If the result gives enough information to finish,
+        answer the user's request directly. If the user asked you to modify an existing file
+        and this result contains the file content needed for an exact edit, emit one edit_file
+        action with exact old_text and new_text.
+        """,
+        toolPromptRenderer.renderToolInstructions(
+          registry: toolRegistry,
+          payloadDelimiter: payloadDelimiter
+        ),
+      ].joined(separator: "\n\n")
+    case .afterToolResultFinal:
+      return [
+        basePrompt,
+        """
+        You just received a tool result and the tool budget for this request is exhausted.
+        Answer the user's request directly. Do not emit another <action> tag in this response.
+        If more work is needed, briefly say what remains and ask the user to send another message.
         """,
       ].joined(separator: "\n\n")
     case .enabled(true):

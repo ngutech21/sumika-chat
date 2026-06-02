@@ -19,7 +19,6 @@ nonisolated struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresen
   static let searchFiles = ToolName(rawValue: "search_files")
   static let editFile = ToolName(rawValue: "edit_file")
   static let writeFile = ToolName(rawValue: "write_file")
-  static let applyPatch = ToolName(rawValue: "apply_patch")
   static let runCommand = ToolName(rawValue: "run_command")
 
   private static func canonicalName(for name: String) -> String {
