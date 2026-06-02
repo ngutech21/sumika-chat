@@ -19,6 +19,13 @@ nonisolated struct ToolParameterDefinition: Equatable, Sendable {
   }
 }
 
+nonisolated enum ToolCapability: String, Codable, Equatable, Hashable, Sendable {
+  case readWorkspace
+  case writeWorkspace
+  case applyPatch
+  case runCommand
+}
+
 nonisolated struct ToolDefinition: Identifiable, Equatable, Sendable {
   var id: ToolName { name }
 
@@ -26,23 +33,27 @@ nonisolated struct ToolDefinition: Identifiable, Equatable, Sendable {
   var description: String
   var parameters: [ToolParameterDefinition]
   var taggedExample: String
+  var capabilities: Set<ToolCapability>
+  var riskLevel: ToolRiskLevel
 
   init(
     name: ToolName,
     description: String,
     parameters: [ToolParameterDefinition],
-    taggedExample: String
+    taggedExample: String,
+    capabilities: Set<ToolCapability> = [],
+    riskLevel: ToolRiskLevel = .low
   ) {
     self.name = name
     self.description = description
     self.parameters = parameters
     self.taggedExample = taggedExample
+    self.capabilities = capabilities
+    self.riskLevel = riskLevel
   }
 }
 
 nonisolated struct ToolRegistry: Equatable, Sendable {
-  static let promptTools = ToolRegistry(tools: [.readFile, .listFiles])
-
   var tools: [ToolDefinition]
 
   init(tools: [ToolDefinition]) {
@@ -73,7 +84,9 @@ nonisolated extension ToolDefinition {
       <action name="read_file">
       <path>Sources/AppState.swift</path>
       </action>
-      """
+      """,
+    capabilities: [.readWorkspace],
+    riskLevel: .low
   )
 
   static let listFiles = ToolDefinition(
@@ -90,6 +103,8 @@ nonisolated extension ToolDefinition {
       <action name="list_files">
       <path>.</path>
       </action>
-      """
+      """,
+    capabilities: [.readWorkspace],
+    riskLevel: .low
   )
 }

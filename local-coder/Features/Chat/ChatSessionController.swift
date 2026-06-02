@@ -890,7 +890,7 @@ extension ChatSessionController {
       return [
         chatSession.systemPrompt,
         toolPromptRenderer.renderToolInstructions(
-          registry: .promptTools,
+          registry: toolOrchestrator.toolRegistry,
           payloadDelimiter: "LC_PAYLOAD_V1"
         ),
       ].joined(separator: "\n\n")

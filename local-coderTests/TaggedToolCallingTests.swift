@@ -6,7 +6,7 @@ import Testing
 struct TaggedToolCallingTests {
   @Test
   func registryContainsPromptToolsAndCanonicalLookup() throws {
-    let registry = ToolRegistry.promptTools
+    let registry = ToolExecutorRegistry.readOnly.toolRegistry
 
     #expect(registry.tools.map(\.name) == [.readFile, .listFiles])
     #expect(registry.definition(canonicalizing: "READ-FILE")?.name == .readFile)
@@ -18,7 +18,7 @@ struct TaggedToolCallingTests {
   @Test
   func promptRendererIncludesToolsExamplesAndDelimiterRules() {
     let prompt = TaggedToolPromptRenderer().renderToolInstructions(
-      registry: .promptTools,
+      registry: ToolExecutorRegistry.readOnly.toolRegistry,
       payloadDelimiter: "LC_PAYLOAD_TEST"
     )
 

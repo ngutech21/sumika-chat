@@ -14,10 +14,9 @@ struct ToolExecutionTests {
     )
     try "let value = 1".write(to: fileURL, atomically: true, encoding: .utf8)
 
-    let result = await ReadFileToolExecutor().execute(
-      request: request(
-        .readFile, workspace: workspace, arguments: ["path": .string("Sources/App.swift")]),
-      workspace: workspace
+    let result = await ReadFileToolExecutor().run(
+      ReadFileInput(path: "Sources/App.swift"),
+      context: ToolContext(workspace: workspace)
     )
 
     #expect(result.status == .success)
@@ -32,23 +31,22 @@ struct ToolExecutionTests {
     let binaryURL = workspace.rootURL.appending(path: "binary.dat")
     try Data([0xff, 0xfe, 0xfd]).write(to: binaryURL)
 
-    let missingPath = await ReadFileToolExecutor().execute(
+    let missingPath = await ToolOrchestrator().execute(
       request: request(.readFile, workspace: workspace, arguments: [:]),
       workspace: workspace
     )
-    let nonUTF8 = await ReadFileToolExecutor().execute(
-      request: request(.readFile, workspace: workspace, arguments: ["path": .string("binary.dat")]),
-      workspace: workspace
+    let nonUTF8 = await ReadFileToolExecutor().run(
+      ReadFileInput(path: "binary.dat"),
+      context: ToolContext(workspace: workspace)
     )
-    let outside = await ReadFileToolExecutor().execute(
-      request: request(
-        .readFile, workspace: workspace, arguments: ["path": .string("../secret.txt")]),
+    let outside = await ToolOrchestrator().execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("../secret.txt")]),
       workspace: workspace
     )
 
     #expect(missingPath.status == .failed)
     #expect(nonUTF8.status == .failed)
-    #expect(outside.status == .failed)
+    #expect(outside.status == .denied)
   }
 
   @Test
@@ -57,9 +55,9 @@ struct ToolExecutionTests {
     let fileURL = workspace.rootURL.appending(path: "large.txt")
     try String(repeating: "a", count: 120).write(to: fileURL, atomically: true, encoding: .utf8)
 
-    let result = await ReadFileToolExecutor(maxBytes: 40).execute(
-      request: request(.readFile, workspace: workspace, arguments: ["path": .string("large.txt")]),
-      workspace: workspace
+    let result = await ReadFileToolExecutor(maxBytes: 40).run(
+      ReadFileInput(path: "large.txt"),
+      context: ToolContext(workspace: workspace)
     )
 
     #expect(result.status == .success)
@@ -76,9 +74,9 @@ struct ToolExecutionTests {
     data.append(0xff)
     try data.write(to: fileURL)
 
-    let result = await ReadFileToolExecutor(maxBytes: 40).execute(
-      request: request(.readFile, workspace: workspace, arguments: ["path": .string("mixed.txt")]),
-      workspace: workspace
+    let result = await ReadFileToolExecutor(maxBytes: 40).run(
+      ReadFileInput(path: "mixed.txt"),
+      context: ToolContext(workspace: workspace)
     )
 
     #expect(result.status == .success)
@@ -95,9 +93,9 @@ struct ToolExecutionTests {
     try write("skip", to: "node_modules/pkg/index.js", in: workspace)
     try write("nested", to: "Sources/App.swift", in: workspace)
 
-    let result = await ListFilesToolExecutor(maxDepth: 4, maxEntries: 3).execute(
-      request: request(.listFiles, workspace: workspace, arguments: [:]),
-      workspace: workspace
+    let result = await ListFilesToolExecutor(maxDepth: 4, maxEntries: 3).run(
+      ListFilesInput(path: nil),
+      context: ToolContext(workspace: workspace)
     )
 
     #expect(result.status == .success)
@@ -115,9 +113,9 @@ struct ToolExecutionTests {
     let workspace = try makeWorkspace()
     try write("deep", to: "a/b/c/file.txt", in: workspace)
 
-    let result = await ListFilesToolExecutor(maxDepth: 1, maxEntries: 300).execute(
-      request: request(.listFiles, workspace: workspace, arguments: ["path": .string(".")]),
-      workspace: workspace
+    let result = await ListFilesToolExecutor(maxDepth: 1, maxEntries: 300).run(
+      ListFilesInput(path: "."),
+      context: ToolContext(workspace: workspace)
     )
 
     #expect(result.status == .success)
@@ -156,9 +154,93 @@ struct ToolExecutionTests {
     #expect(completed.resultPreview?.status == .success)
     #expect(denied.status == .denied)
     #expect(denied.resultPreview?.status == .denied)
-    #expect(requiresApproval.status == .denied)
+    #expect(requiresApproval.status == .failed)
     #expect(unknownExecutor.status == .failed)
     #expect(unknownExecutor.resultPreview?.status == .failed)
+  }
+
+  @Test
+  func orchestratorDecodesTypedInputsBeforeExecution() async throws {
+    let workspace = try makeWorkspace()
+    try write("hello", to: "README.md", in: workspace)
+
+    let valid = await ToolOrchestrator().execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("README.md")]),
+      workspace: workspace
+    )
+    let missingPath = await ToolOrchestrator().execute(
+      request: request(.readFile, workspace: workspace, arguments: [:]),
+      workspace: workspace
+    )
+    let wrongPathType = await ToolOrchestrator().execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .number(1)]),
+      workspace: workspace
+    )
+    let unknownArgument = await ToolOrchestrator().execute(
+      request: request(
+        .readFile,
+        workspace: workspace,
+        arguments: ["path": .string("README.md"), "extra": .string("ignored")]
+      ),
+      workspace: workspace
+    )
+
+    #expect(valid.status == .completed)
+    #expect(missingPath.status == .failed)
+    #expect(missingPath.resultPreview?.text.contains("Invalid arguments for read_file") == true)
+    #expect(wrongPathType.status == .failed)
+    #expect(wrongPathType.resultPreview?.text.contains("Invalid arguments for read_file") == true)
+    #expect(unknownArgument.status == .failed)
+    #expect(unknownArgument.resultPreview?.text.contains("Unknown argument") == true)
+  }
+
+  @Test
+  func orchestratorDecodesOptionalListFilesPath() async throws {
+    let workspace = try makeWorkspace()
+    try write("hello", to: "README.md", in: workspace)
+
+    let withoutPath = await ToolOrchestrator().execute(
+      request: request(.listFiles, workspace: workspace, arguments: [:]),
+      workspace: workspace
+    )
+
+    #expect(withoutPath.status == .completed)
+    #expect(withoutPath.resultPreview?.text.contains("README.md") == true)
+  }
+
+  @Test
+  func orchestratorDeniesToolCallsFromDifferentWorkspace() async throws {
+    let activeWorkspace = try makeWorkspace()
+    let staleWorkspace = try makeWorkspace()
+    try write("active", to: "README.md", in: activeWorkspace)
+
+    let staleRequest = ToolCallRequest(
+      workspaceID: staleWorkspace.id,
+      sessionID: UUID(),
+      toolName: .readFile,
+      arguments: ["path": .string("README.md")]
+    )
+
+    let result = await ToolOrchestrator().execute(
+      request: staleRequest,
+      workspace: activeWorkspace
+    )
+
+    #expect(result.status == .denied)
+    #expect(result.evaluation.decision == .denied)
+    #expect(result.evaluation.riskLevel == .high)
+    #expect(result.resultPreview?.status == .denied)
+    #expect(
+      result.resultPreview?.text == "Tool call workspace does not match the active workspace."
+    )
+  }
+
+  @Test
+  func registryDefinitionsComeFromRegisteredExecutors() {
+    let registry = ToolExecutorRegistry.readOnly
+
+    #expect(registry.definitions == [.readFile, .listFiles])
+    #expect(registry.toolRegistry.tools == [.readFile, .listFiles])
   }
 
   private func request(

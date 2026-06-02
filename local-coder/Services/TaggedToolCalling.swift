@@ -66,7 +66,7 @@ nonisolated enum TaggedToolCallParseError: Error, Equatable, LocalizedError {
 
 nonisolated struct TaggedToolPromptRenderer: ToolPromptRendering {
   func renderToolInstructions(
-    registry: ToolRegistry = .promptTools,
+    registry: ToolRegistry,
     payloadDelimiter: String
   ) -> String {
     let renderedTools = registry.tools.map { definition in

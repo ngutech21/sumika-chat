@@ -1,5 +1,10 @@
 # local-coder
 
+## Architecture
+
+- [Tool Runtime](docs/tool-runtime.md): core flow for adding type-safe tools,
+  permissions, registries, and model-facing tool calls.
+
 ## Development
 
 Install the local task runner, linter, and formatter:
