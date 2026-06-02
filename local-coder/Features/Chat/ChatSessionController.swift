@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 import Foundation
 import Observation
 
@@ -25,9 +24,10 @@ final class ChatSessionController {
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
   @ObservationIgnored private let resourceMonitor: any ProcessResourceMonitoring
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
-  @ObservationIgnored private let toolCallParser: any ToolCallParsing
   @ObservationIgnored private let toolPromptRenderer: any ToolPromptRendering
   @ObservationIgnored private let toolOrchestrator: ToolOrchestrator
+  @ObservationIgnored private let toolPromptPolicy: ToolPromptPolicy
+  @ObservationIgnored private let toolLoopCoordinator: ToolLoopCoordinator
   @ObservationIgnored private let chatAttachmentLoader: any ChatAttachmentLoading
   @ObservationIgnored private var isHandlingDroppedDraftPath = false
   @ObservationIgnored private var loadTask: Task<Void, Never>?
@@ -40,7 +40,6 @@ final class ChatSessionController {
   @ObservationIgnored private var attachmentLoadRequestID = UUID()
   @ObservationIgnored private var resourceMonitorTask: Task<Void, Never>?
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
-  @ObservationIgnored private let maxToolIterations = 1
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
 
@@ -61,7 +60,7 @@ final class ChatSessionController {
     self.init(modelSettingsStore: ModelSettingsStore())
   }
 
-  init(
+  convenience init(
     modelSettingsStore settingsStore: any ModelSettingsStoring,
     modelDownloader downloader: any ModelDownloading = HuggingFaceModelDownloader(),
     runtime: any ChatModelRuntime = GemmaMLXRuntime(),
@@ -76,43 +75,29 @@ final class ChatSessionController {
     let selectedModel =
       ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
     let storedSettings = settingsStore.settings(for: selectedModel)
-    let modelOperationID = UUID()
-    let runtimeOperations = RuntimeOperationCoordinator(
-      runtime: runtime,
-      initialOperationID: modelOperationID
-    )
-
-    self.runtimeOperations = runtimeOperations
-    self.modelLifecycleCoordinator = ModelLifecycleCoordinator(
+    self.init(
+      selectedModelID: selectedModel.id,
+      modelPath: selectedModel.localPath,
+      modelContextTokenLimit: storedSettings.contextTokenLimit,
+      chatSession: ChatSessionState(
+        messages: [],
+        toolCalls: [],
+        attachments: [],
+        systemPrompt: storedSettings.systemPrompt,
+        generationSettings: storedSettings.generationSettings
+      ),
+      modelSettingsStore: settingsStore,
       modelDownloader: downloader,
-      runtimeOperations: runtimeOperations
-    )
-    self.chatGenerationCoordinator = ChatGenerationCoordinator(
       runtime: runtime,
-      streamingFlushInterval: streamingFlushInterval,
-      streamingFlushCharacterLimit: streamingFlushCharacterLimit
+      resourceMonitor: resourceMonitor,
+      toolCallParser: toolCallParser,
+      toolPromptRenderer: toolPromptRenderer,
+      toolOrchestrator: toolOrchestrator,
+      chatAttachmentLoader: chatAttachmentLoader
     )
-    self.resourceMonitor = resourceMonitor
-    self.modelSettingsStore = settingsStore
-    self.toolCallParser = toolCallParser
-    self.toolPromptRenderer = toolPromptRenderer
-    self.toolOrchestrator = toolOrchestrator
-    self.chatAttachmentLoader = chatAttachmentLoader
-    self.selectedModelID = selectedModel.id
-    self.modelPath = selectedModel.localPath
-    self.modelContextTokenLimit = storedSettings.contextTokenLimit
-    self.chatSession = ChatSessionState(
-      messages: [],
-      toolCalls: [],
-      attachments: [],
-      systemPrompt: storedSettings.systemPrompt,
-      generationSettings: storedSettings.generationSettings
-    )
-    self.modelOperationID = modelOperationID
-    refreshModelAvailability()
   }
 
-  init(
+  convenience init(
     runtime: any ChatModelRuntime,
     resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
     modelPath: String,
@@ -122,6 +107,36 @@ final class ChatSessionController {
     toolPromptRenderer: any ToolPromptRendering = TaggedToolPromptRenderer(),
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader()
+  ) {
+    self.init(
+      selectedModelID: ManagedModelCatalog.defaultModelID,
+      modelPath: modelPath,
+      modelContextTokenLimit: ManagedModelCatalog.defaultModel.defaultContextTokenLimit,
+      chatSession: .codingDefault,
+      modelSettingsStore: modelSettingsStore,
+      modelDownloader: modelDownloader,
+      runtime: runtime,
+      resourceMonitor: resourceMonitor,
+      toolCallParser: toolCallParser,
+      toolPromptRenderer: toolPromptRenderer,
+      toolOrchestrator: toolOrchestrator,
+      chatAttachmentLoader: chatAttachmentLoader
+    )
+  }
+
+  private init(
+    selectedModelID: ManagedModel.ID,
+    modelPath: String,
+    modelContextTokenLimit: Int,
+    chatSession: ChatSessionState,
+    modelSettingsStore: any ModelSettingsStoring,
+    modelDownloader: any ModelDownloading,
+    runtime: any ChatModelRuntime,
+    resourceMonitor: any ProcessResourceMonitoring,
+    toolCallParser: any ToolCallParsing,
+    toolPromptRenderer: any ToolPromptRendering,
+    toolOrchestrator: ToolOrchestrator,
+    chatAttachmentLoader: any ChatAttachmentLoading
   ) {
     let modelOperationID = UUID()
     let runtimeOperations = RuntimeOperationCoordinator(
@@ -140,13 +155,18 @@ final class ChatSessionController {
     )
     self.resourceMonitor = resourceMonitor
     self.modelSettingsStore = modelSettingsStore
-    self.toolCallParser = toolCallParser
     self.toolPromptRenderer = toolPromptRenderer
     self.toolOrchestrator = toolOrchestrator
+    self.toolPromptPolicy = ToolPromptPolicy()
+    self.toolLoopCoordinator = ToolLoopCoordinator(
+      toolCallParser: toolCallParser,
+      toolOrchestrator: toolOrchestrator
+    )
     self.chatAttachmentLoader = chatAttachmentLoader
-    self.selectedModelID = ManagedModelCatalog.defaultModelID
+    self.selectedModelID = selectedModelID
     self.modelPath = modelPath
-    self.modelContextTokenLimit = ManagedModelCatalog.defaultModel.defaultContextTokenLimit
+    self.modelContextTokenLimit = modelContextTokenLimit
+    self.chatSession = chatSession
     self.modelOperationID = modelOperationID
     refreshModelAvailability()
   }
@@ -159,7 +179,9 @@ final class ChatSessionController {
     attachmentLoadTask?.cancel()
     resourceMonitorTask?.cancel()
   }
+}
 
+extension ChatSessionController {
   func prepareDefaultModelDirectory() {
     let lifecycleCoordinator = modelLifecycleCoordinator
     Task {
@@ -468,7 +490,7 @@ final class ChatSessionController {
 
     generationTask = Task {
       do {
-        let allowsToolCalls = shouldAllowToolCalls(
+        let allowsToolCalls = toolPromptPolicy.shouldAllowToolCalls(
           workspace: workspace,
           prompt: prompt,
           attachments: sentAttachments
@@ -683,10 +705,6 @@ final class ChatSessionController {
     }
   }
 
-  private func messageContent(for id: UUID) -> String {
-    chatSession.messages.first(where: { $0.id == id })?.content ?? ""
-  }
-
   private static func normalizedDownloadProgress(_ progress: Progress) -> Double? {
     let fraction = progress.fractionCompleted
     guard fraction.isFinite else {
@@ -698,12 +716,6 @@ final class ChatSessionController {
 }
 
 extension ChatSessionController {
-  fileprivate enum ToolPromptMode {
-    case disabled
-    case enabled(Bool)
-    case afterToolResult
-  }
-
   fileprivate func streamAssistantReply(to assistantMessageID: UUID, toolPromptMode: ToolPromptMode)
     async throws
   {
@@ -732,129 +744,31 @@ extension ChatSessionController {
       return
     }
 
-    var assistantMessageID = lastAssistantMessageID
-
-    for _ in 0..<maxToolIterations {
-      try Task.checkCancellation()
-      let assistantContent = messageContent(for: assistantMessageID)
-      let parseResult = try parseToolCallResult(
-        assistantContent,
-        workspaceID: workspace.id,
-        sessionID: sessionID
-      )
-
-      guard case .toolCall(let output) = parseResult else {
-        return
-      }
-
-      let request = output.request
-      annotateToolCall(output.modelMessage, for: assistantMessageID)
-      let record = await toolOrchestrator.execute(request: request, workspace: workspace)
-      chatSession.toolCalls.append(record)
-      notifySessionDidChange()
-
-      let resultPreview =
-        record.resultPreview
-        ?? ToolResultPreview(
-          status: .failed,
-          text: "Tool result unavailable for \(request.toolName.rawValue)."
-        )
-      let toolResult = ToolResultModelMessage(
-        callID: request.id,
-        toolName: request.toolName,
-        preview: resultPreview
-      )
-      chatSession.messages.append(
-        ChatMessage(kind: .toolResult, content: "", toolResult: toolResult))
-
-      let nextAssistantMessageID = UUID()
-      chatSession.messages.append(
-        ChatMessage(id: nextAssistantMessageID, kind: .assistant, content: ""))
-      notifySessionDidChange()
-
-      try await streamAssistantReply(to: nextAssistantMessageID, toolPromptMode: .afterToolResult)
-      assistantMessageID = nextAssistantMessageID
-    }
-  }
-
-  fileprivate func parseToolCallResult(
-    _ content: String,
-    workspaceID: Workspace.ID,
-    sessionID: CodingSession.ID
-  ) throws -> ToolCallParseResult {
-    do {
-      return try toolCallParser.parse(
-        content,
-        workspaceID: workspaceID,
-        sessionID: sessionID,
-        createdAt: Date()
-      )
-    } catch is TaggedToolCallParseError {
-      guard let actionContent = recoverableToolActionContent(from: content) else {
-        return .none
-      }
-
-      do {
-        return try toolCallParser.parse(
-          actionContent,
-          workspaceID: workspaceID,
-          sessionID: sessionID,
-          createdAt: Date()
-        )
-      } catch is TaggedToolCallParseError {
-        return .none
-      }
-    }
-  }
-
-  fileprivate func recoverableToolActionContent(from content: String) -> String? {
-    let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else {
-      return nil
-    }
-
-    if let fencedContent = singleFencedCodeBlockContent(from: trimmed) {
-      return recoverableToolActionContent(from: fencedContent)
-    }
-
-    guard let actionStart = trimmed.range(of: "<action") else {
-      return nil
-    }
     guard
-      let actionEnd = trimmed.range(
-        of: "</action>", range: actionStart.upperBound..<trimmed.endIndex)
+      let result = try await toolLoopCoordinator.run(
+        ToolLoopRequest(
+          workspace: workspace,
+          sessionID: sessionID,
+          assistantMessageID: lastAssistantMessageID,
+          messages: chatSession.messages
+        )
+      )
     else {
-      return nil
+      return
     }
 
-    let blockEnd = actionEnd.upperBound
-    guard trimmed[blockEnd...].range(of: "<action") == nil else {
-      return nil
-    }
-
-    return String(trimmed[actionStart.lowerBound..<blockEnd])
-  }
-
-  fileprivate func singleFencedCodeBlockContent(from content: String) -> String? {
-    guard content.hasPrefix("```") else {
-      return nil
-    }
-
-    var lines = content.split(separator: "\n", omittingEmptySubsequences: false)
-    guard lines.count >= 2 else {
-      return nil
-    }
-    guard let first = lines.first, first.trimmingCharacters(in: .whitespaces).hasPrefix("```")
-    else {
-      return nil
-    }
-    guard let last = lines.last, last.trimmingCharacters(in: .whitespaces) == "```" else {
-      return nil
-    }
-
-    lines.removeFirst()
-    lines.removeLast()
-    return lines.joined(separator: "\n")
+    annotateToolCall(result.toolCall, for: result.assistantMessageID)
+    chatSession.toolCalls.append(result.toolCallRecord)
+    notifySessionDidChange()
+    chatSession.messages.append(
+      ChatMessage(kind: .toolResult, content: "", toolResult: result.toolResult))
+    chatSession.messages.append(
+      ChatMessage(id: result.nextAssistantMessageID, kind: .assistant, content: ""))
+    notifySessionDidChange()
+    try await streamAssistantReply(
+      to: result.nextAssistantMessageID,
+      toolPromptMode: .afterToolResult
+    )
   }
 
   fileprivate func annotateToolCall(_ toolCall: ToolCallModelMessage, for messageID: UUID) {
@@ -875,72 +789,12 @@ extension ChatSessionController {
   }
 
   fileprivate func systemPrompt(toolPromptMode: ToolPromptMode) -> String {
-    switch toolPromptMode {
-    case .disabled, .enabled(false):
-      return chatSession.systemPrompt
-    case .afterToolResult:
-      return [
-        chatSession.systemPrompt,
-        """
-        You just received a tool result. Use it to answer the user's request directly.
-        Do not emit another <action> tag in this response.
-        """,
-      ].joined(separator: "\n\n")
-    case .enabled(true):
-      return [
-        chatSession.systemPrompt,
-        toolPromptRenderer.renderToolInstructions(
-          registry: toolOrchestrator.toolRegistry,
-          payloadDelimiter: "LC_PAYLOAD_V1"
-        ),
-      ].joined(separator: "\n\n")
-    }
-  }
-
-  fileprivate func shouldAllowToolCalls(
-    workspace: Workspace?,
-    prompt: String,
-    attachments: [ChatAttachment]
-  ) -> Bool {
-    guard workspace != nil else {
-      return false
-    }
-
-    if !attachments.isEmpty {
-      return true
-    }
-
-    let normalizedPrompt = prompt.lowercased()
-    let explicitToolIntentPhrases = [
-      "read ",
-      "open ",
-      "show ",
-      "inspect",
-      "look at",
-      "list files",
-      "list the files",
-      "what files",
-      "which files",
-      "file",
-      "folder",
-      "directory",
-      "workspace",
-      "repo",
-      "repository",
-      "project",
-      "source",
-      "code",
-      "implementation",
-      "readme",
-    ]
-
-    if explicitToolIntentPhrases.contains(where: { normalizedPrompt.contains($0) }) {
-      return true
-    }
-
-    return ChatAttachmentLimits.supportedTextFileExtensions.contains { fileExtension in
-      normalizedPrompt.contains(".\(fileExtension)")
-    }
+    toolPromptPolicy.systemPrompt(
+      basePrompt: chatSession.systemPrompt,
+      mode: toolPromptMode,
+      toolRegistry: toolOrchestrator.toolRegistry,
+      toolPromptRenderer: toolPromptRenderer
+    )
   }
 }
 

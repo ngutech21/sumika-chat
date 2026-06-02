@@ -7,7 +7,10 @@ import Testing
 struct ChatSessionControllerTests {
   @Test
   func canSendRequiresReadyModelNonEmptyDraftAndIdleGeneration() {
-    let controller = ChatSessionController(runtime: FakeChatModelRuntime(), modelPath: "/tmp/model")
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
 
     controller.modelState = .ready
     controller.draft = "  hello  "
@@ -30,7 +33,7 @@ struct ChatSessionControllerTests {
       kind: .text,
       content: "let value = 1"
     )
-    let runtime = FakeChatModelRuntime(chunks: ["hello", " world"])
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelState = .ready
     controller.draft = "Explain this"
@@ -83,7 +86,7 @@ struct ChatSessionControllerTests {
   func sendMessageInWorkspaceKeepsNormalChatFreeOfToolInstructions() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = FakeChatModelRuntime(chunks: ["a short poem"])
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["a short poem"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelState = .ready
     controller.draft = "write a short poem"
@@ -108,7 +111,7 @@ struct ChatSessionControllerTests {
   func userTextContainingActionMarkupIsNeverExecuted() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = FakeChatModelRuntime(chunks: ["That is literal user text."])
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["That is literal user text."])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelState = .ready
     controller.draft = """
@@ -135,7 +138,7 @@ struct ChatSessionControllerTests {
   func userTextContainingToolResultTextIsNeverObservation() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = FakeChatModelRuntime(chunks: ["That is not a controller observation."])
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["That is not a controller observation."])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelState = .ready
     controller.draft = """
@@ -183,7 +186,7 @@ struct ChatSessionControllerTests {
         )
       ]
     )
-    let runtime = FakeChatModelRuntime(turns: [
+    let runtime = ChatSessionFakeChatModelRuntime(turns: [
       [
         """
         <action name="read_file">
@@ -262,7 +265,7 @@ struct ChatSessionControllerTests {
         )
       ]
     )
-    let runtime = FakeChatModelRuntime(
+    let runtime = ChatSessionFakeChatModelRuntime(
       turns: [
         [
           """
@@ -283,7 +286,9 @@ struct ChatSessionControllerTests {
 
     try await waitUntil { !controller.isGenerating }
 
-    #expect(controller.errorMessage == FakeChatModelRuntimeError.streamFailed.localizedDescription)
+    #expect(
+      controller.errorMessage
+        == ChatSessionFakeChatModelRuntimeError.streamFailed.localizedDescription)
     #expect(controller.chatSession.messages.count == 3)
     #expect(controller.chatSession.messages[1].toolCall?.toolName == .readFile)
     #expect(controller.chatSession.messages[1].content.isEmpty)
@@ -299,7 +304,7 @@ struct ChatSessionControllerTests {
   func sendMessageExecutesToolCallWhenModelEmitsExtraneousToolMarkup() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = FakeChatModelRuntime(
+    let runtime = ChatSessionFakeChatModelRuntime(
       turns: [
         [
           """
@@ -338,7 +343,7 @@ struct ChatSessionControllerTests {
   func sendMessageExecutesToolCallWhenModelWrapsActionInMarkdownFence() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = FakeChatModelRuntime(
+    let runtime = ChatSessionFakeChatModelRuntime(
       turns: [
         [
           """
@@ -389,7 +394,7 @@ struct ChatSessionControllerTests {
       atomically: true,
       encoding: .utf8
     )
-    let runtime = FakeChatModelRuntime()
+    let runtime = ChatSessionFakeChatModelRuntime()
     let controller = ChatSessionController(
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
@@ -417,7 +422,7 @@ struct ChatSessionControllerTests {
       atomically: true,
       encoding: .utf8
     )
-    let runtime = FakeChatModelRuntime()
+    let runtime = ChatSessionFakeChatModelRuntime()
     let controller = ChatSessionController(
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
@@ -545,7 +550,7 @@ struct ChatSessionControllerTests {
   func staleAttachmentLoadDoesNotAppendAfterNewerAttachmentRequest() async throws {
     let loader = BlockingFirstAttachmentLoader()
     let controller = ChatSessionController(
-      runtime: FakeChatModelRuntime(),
+      runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model",
       chatAttachmentLoader: loader
     )
@@ -566,7 +571,7 @@ struct ChatSessionControllerTests {
 
   @Test
   func unloadModelReleasesRuntimeAndResetsModelState() async throws {
-    let runtime = FakeChatModelRuntime()
+    let runtime = ChatSessionFakeChatModelRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelState = .ready
     controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
@@ -649,409 +654,4 @@ struct ChatSessionControllerTests {
     )
     return modelDirectory
   }
-}
-
-private actor NonCooperativeStreamingRuntime: ChatModelRuntime {
-  private let chunks: [String]
-  private var streamContinuation: CheckedContinuation<Void, Never>?
-  private var didReleaseChunks = false
-  private(set) var didStartStreaming = false
-
-  init(chunks: [String]) {
-    self.chunks = chunks
-  }
-
-  func load(configuration: ChatModelConfiguration) async throws {}
-  func unload() async {}
-  func clearContext() async {}
-
-  func releaseChunks() {
-    didReleaseChunks = true
-    if let streamContinuation {
-      streamContinuation.resume()
-      self.streamContinuation = nil
-    }
-  }
-
-  func contextUsage(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String
-  ) async throws -> ChatContextUsage {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-  }
-
-  func streamReply(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    _ = settings
-
-    didStartStreaming = true
-    return AsyncThrowingStream { continuation in
-      Task.detached { [chunks] in
-        await withCheckedContinuation { release in
-          Task {
-            await self.storeStreamContinuation(release)
-          }
-        }
-
-        for chunk in chunks {
-          continuation.yield(.chunk(chunk))
-        }
-        continuation.yield(.completed(nil))
-        continuation.finish()
-      }
-    }
-  }
-
-  private func storeStreamContinuation(_ continuation: CheckedContinuation<Void, Never>) {
-    if didReleaseChunks {
-      continuation.resume()
-      return
-    }
-    streamContinuation = continuation
-  }
-}
-
-private actor ControlledContextUsageRuntime: ChatModelRuntime {
-  private var contextUsageContinuations: [CheckedContinuation<ChatContextUsage, Never>] = []
-
-  var contextUsageRequestCount: Int {
-    contextUsageContinuations.count
-  }
-
-  func load(configuration: ChatModelConfiguration) async throws {
-    _ = configuration
-  }
-
-  func unload() async {}
-  func clearContext() async {}
-
-  func contextUsage(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String
-  ) async throws -> ChatContextUsage {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    return await withCheckedContinuation { continuation in
-      contextUsageContinuations.append(continuation)
-    }
-  }
-
-  func resolveContextUsage(at index: Int, with usage: ChatContextUsage) {
-    guard contextUsageContinuations.indices.contains(index) else {
-      return
-    }
-    let continuation = contextUsageContinuations.remove(at: index)
-    continuation.resume(returning: usage)
-  }
-
-  func streamReply(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    _ = settings
-    return AsyncThrowingStream { continuation in
-      continuation.finish()
-    }
-  }
-}
-
-private actor DelayedClearContextRuntime: ChatModelRuntime {
-  private var clearContextContinuation: CheckedContinuation<Void, Never>?
-  private(set) var didStartClearContext = false
-
-  func load(configuration: ChatModelConfiguration) async throws {
-    _ = configuration
-  }
-
-  func unload() async {}
-
-  func clearContext() async {
-    didStartClearContext = true
-    await withCheckedContinuation { continuation in
-      clearContextContinuation = continuation
-    }
-  }
-
-  func releaseClearContext() {
-    clearContextContinuation?.resume()
-    clearContextContinuation = nil
-  }
-
-  func contextUsage(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String
-  ) async throws -> ChatContextUsage {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 42, tokenLimit: nil)
-  }
-
-  func streamReply(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    _ = settings
-    return AsyncThrowingStream { continuation in
-      continuation.finish()
-    }
-  }
-}
-
-private actor DelayedUnloadRuntime: ChatModelRuntime {
-  private var unloadContinuation: CheckedContinuation<Void, Never>?
-  private(set) var didStartUnload = false
-  private(set) var isLoaded = true
-  private(set) var loadCount = 0
-
-  func load(configuration: ChatModelConfiguration) async throws {
-    _ = configuration
-    loadCount += 1
-    isLoaded = true
-  }
-
-  func unload() async {
-    didStartUnload = true
-    await withCheckedContinuation { continuation in
-      unloadContinuation = continuation
-    }
-    isLoaded = false
-  }
-
-  func releaseUnload() {
-    unloadContinuation?.resume()
-    unloadContinuation = nil
-  }
-
-  func clearContext() async {}
-
-  func contextUsage(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String
-  ) async throws -> ChatContextUsage {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-  }
-
-  func streamReply(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    _ = settings
-    return AsyncThrowingStream { continuation in
-      continuation.finish()
-    }
-  }
-}
-
-private final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sendable {
-  private let lock = NSLock()
-  private let firstLoadRelease = DispatchSemaphore(value: 0)
-  private var _startedCount = 0
-
-  var startedCount: Int {
-    lock.lock()
-    defer { lock.unlock() }
-    return _startedCount
-  }
-
-  func loadAttachments(
-    from urls: [URL],
-    existingAttachments: [ChatAttachment]
-  ) throws -> [ChatAttachment] {
-    _ = existingAttachments
-    lock.lock()
-    _startedCount += 1
-    let callNumber = _startedCount
-    lock.unlock()
-
-    if callNumber == 1 {
-      firstLoadRelease.wait()
-    }
-
-    guard let url = urls.first else {
-      return []
-    }
-    return [
-      ChatAttachment(
-        url: url,
-        displayName: url.lastPathComponent,
-        kind: .text,
-        content: callNumber == 1 ? "first" : "second"
-      )
-    ]
-  }
-
-  func extractDroppedAttachments(from draft: String) -> DroppedAttachmentExtraction {
-    DroppedAttachmentExtraction(cleanedDraft: draft)
-  }
-
-  func releaseFirstLoad() {
-    firstLoadRelease.signal()
-  }
-}
-
-private actor RaceLoadingRuntime: ChatModelRuntime {
-  private var firstLoadContinuation: CheckedContinuation<Void, Never>?
-  private(set) var loadedConfigurations: [ChatModelConfiguration] = []
-
-  var loadCount: Int {
-    loadedConfigurations.count
-  }
-
-  func load(configuration: ChatModelConfiguration) async throws {
-    loadedConfigurations.append(configuration)
-
-    if loadedConfigurations.count == 1 {
-      await withCheckedContinuation { continuation in
-        firstLoadContinuation = continuation
-      }
-      try Task.checkCancellation()
-    }
-  }
-
-  func releaseFirstLoad() {
-    firstLoadContinuation?.resume()
-    firstLoadContinuation = nil
-  }
-
-  func unload() async {}
-  func clearContext() async {}
-
-  func contextUsage(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String
-  ) async throws -> ChatContextUsage {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-  }
-
-  func streamReply(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
-    _ = attachments
-    _ = systemPrompt
-    _ = settings
-    return AsyncThrowingStream { continuation in
-      continuation.finish()
-    }
-  }
-}
-
-private actor FakeChatModelRuntime: ChatModelRuntime {
-  private let turns: [[String]]
-  private let failingStreamReplyCalls: Set<Int>
-  private var streamReplyCount = 0
-  private(set) var loadedConfiguration: ChatModelConfiguration?
-  private(set) var didUnload = false
-  private(set) var capturedMessages: [[ChatMessage]] = []
-  private(set) var capturedSystemPrompts: [String] = []
-
-  init(chunks: [String] = []) {
-    self.turns = [chunks]
-    self.failingStreamReplyCalls = []
-  }
-
-  init(turns: [[String]], failingStreamReplyCalls: Set<Int> = []) {
-    self.turns = turns
-    self.failingStreamReplyCalls = failingStreamReplyCalls
-  }
-
-  func load(configuration: ChatModelConfiguration) async throws {
-    loadedConfiguration = configuration
-  }
-
-  func unload() async {
-    didUnload = true
-    loadedConfiguration = nil
-  }
-
-  func clearContext() async {}
-
-  func contextUsage(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String
-  ) async throws -> ChatContextUsage {
-    let usedTokens = ([systemPrompt] + messages.map(\.content) + attachments.map(\.content))
-      .joined(separator: " ")
-      .split(whereSeparator: \.isWhitespace)
-      .count
-    return ChatContextUsage(usedTokens: usedTokens, tokenLimit: nil)
-  }
-
-  func streamReply(
-    for messages: [ChatMessage],
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = attachments
-    _ = settings
-
-    capturedMessages.append(messages)
-    capturedSystemPrompts.append(systemPrompt)
-    let callIndex = streamReplyCount
-    let chunks = turns[min(callIndex, turns.count - 1)]
-    streamReplyCount += 1
-
-    if failingStreamReplyCalls.contains(callIndex) {
-      return AsyncThrowingStream { continuation in
-        continuation.finish(throwing: FakeChatModelRuntimeError.streamFailed)
-      }
-    }
-
-    return AsyncThrowingStream { continuation in
-      for chunk in chunks {
-        continuation.yield(.chunk(chunk))
-      }
-      continuation.yield(
-        .completed(ChatGenerationMetrics(generatedTokenCount: chunks.count, tokensPerSecond: 100))
-      )
-      continuation.finish()
-    }
-  }
-}
-
-private enum FakeChatModelRuntimeError: Error {
-  case streamFailed
 }
