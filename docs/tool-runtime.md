@@ -17,7 +17,7 @@ flowchart TD
   F --> G["Tool-specific permission evaluation"]
   G --> H{"Permission decision"}
   H -- "allowed" --> I["TypedToolExecutor.run(input, context)"]
-  H -- "requires approval" --> J["ToolCallRecord awaitingApproval"]
+  H -- "requires approval" --> J["Optional approval preview + ToolCallRecord awaitingApproval"]
   H -- "denied" --> K["ToolCallRecord denied"]
   I --> L["ToolCallRecord + ToolResultModelMessage"]
   J --> M["User approves"]
@@ -40,9 +40,9 @@ flowchart TD
 - `AnyToolExecutor` is the type-erased runtime boundary. It validates argument
   names, decodes raw arguments into the tool's concrete input type, evaluates
   permission, and runs the tool only when allowed. A `requiresApproval`
-  decision becomes an awaiting-approval record without executing the tool. An
-  approved execution path decodes and evaluates again immediately before the
-  side effect.
+  decision can prepare a preview and becomes an awaiting-approval record
+  without executing the tool. An approved execution path decodes and evaluates
+  again immediately before the side effect.
 - `TypedToolExecutor` is what every concrete tool implements. Its `run` method
   receives a concrete Swift input type, never raw argument dictionaries.
 - `ToolContext` carries runtime context such as the active workspace.
@@ -113,13 +113,21 @@ flowchart TD
 - A tool that returns `.requiresApproval` must move to
   `ToolCallStatus.awaitingApproval`. It must not be marked as denied, failed,
   completed, or executed automatically.
+- Tools that can preview an approval-sensitive operation should attach that
+  preview before entering `awaitingApproval`. Preview generation must not
+  mutate the workspace.
 - Approved execution must re-decode arguments and re-run permission/path
   evaluation immediately before the side effect.
 - `write_file` writes the model-provided `content` directly. The model should
   not generate helper scripts to create files.
-- Successful `write_file` results are terminal for the chat turn. The
-  controller should show the auditable tool result but must not request a
-  follow-up model response that can restate the written file content.
+- `edit_file` replaces exactly one literal, case-sensitive `old_text` span in
+  a UTF-8 workspace file with `new_text`. It does not support regexes or
+  replace-all semantics. Zero matches, multiple matches, non-UTF-8 files, and
+  identical old/new text fail before approval; approved execution re-reads and
+  revalidates the file before writing atomically.
+- Successful `write_file` and `edit_file` results are terminal for the chat
+  turn. The controller should show the auditable tool result but must not
+  request a follow-up model response that can restate the written file content.
 - Tool results must report affected paths where possible so the UI can show a
   useful audit trail.
 - Tool results from a cancelled chat turn may remain visible for auditability,

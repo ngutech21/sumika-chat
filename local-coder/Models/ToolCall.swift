@@ -17,6 +17,7 @@ nonisolated struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresen
   static let globFiles = ToolName(rawValue: "glob_files")
   static let readFile = ToolName(rawValue: "read_file")
   static let searchFiles = ToolName(rawValue: "search_files")
+  static let editFile = ToolName(rawValue: "edit_file")
   static let writeFile = ToolName(rawValue: "write_file")
   static let applyPatch = ToolName(rawValue: "apply_patch")
   static let runCommand = ToolName(rawValue: "run_command")
@@ -141,11 +142,14 @@ nonisolated struct ToolCallModelArgument: Codable, Identifiable, Equatable, Send
 
 nonisolated extension ToolCallModelMessage {
   var transcriptArguments: [ToolCallModelArgument] {
-    guard toolName == .writeFile else {
+    switch toolName {
+    case .writeFile:
+      return arguments.filter { $0.name != "content" }
+    case .editFile:
+      return arguments.filter { $0.name != "old_text" && $0.name != "new_text" }
+    default:
       return arguments
     }
-
-    return arguments.filter { $0.name != "content" }
   }
 }
 

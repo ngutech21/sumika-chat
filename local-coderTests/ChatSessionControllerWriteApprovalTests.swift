@@ -119,6 +119,110 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(controller.canSend)
   }
 
+  @Test
+  func editFileToolCallWaitsForApprovalWithPreviewWithoutWriting() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+      [
+        editFileAction(
+          path: "README.md",
+          oldText: "project notes",
+          newText: "updated notes"
+        )
+      ]
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "update the readme"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
+
+    let readmeURL = workspace.rootURL.appending(path: "README.md")
+    #expect(!controller.isGenerating)
+    #expect(controller.hasPendingApproval)
+    #expect(controller.chatSession.toolCalls.count == 1)
+    #expect(controller.chatSession.toolCalls[0].status == .awaitingApproval)
+    #expect(controller.chatSession.toolCalls[0].request.toolName == .editFile)
+    #expect(
+      controller.chatSession.toolCalls[0].resultPreview?.text.contains("-project notes") == true)
+    #expect(
+      controller.chatSession.toolCalls[0].resultPreview?.text.contains("+updated notes") == true)
+    #expect(try String(contentsOf: readmeURL, encoding: .utf8) == "project notes")
+  }
+
+  @Test
+  func approvingEditFileWritesContentAndCompletesWithoutFollowUp() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+      [
+        editFileAction(
+          path: "README.md",
+          oldText: "project notes",
+          newText: "updated notes"
+        )
+      ]
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "update the readme"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
+    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
+
+    controller.approveToolCall(id: toolCallID, in: workspace)
+
+    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
+
+    let readmeURL = workspace.rootURL.appending(path: "README.md")
+    #expect(try String(contentsOf: readmeURL, encoding: .utf8) == "updated notes")
+    #expect(!controller.isGenerating)
+    #expect(!controller.hasPendingApproval)
+    #expect(controller.chatSession.toolCalls[0].status == .completed)
+    #expect(controller.chatSession.messages.count == 3)
+    #expect(controller.chatSession.messages[2].kind == .toolResult)
+    #expect(controller.chatSession.messages[2].toolResult?.toolName == .editFile)
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 1)
+  }
+
+  @Test
+  func denyingEditFileDoesNotWriteAndCompletesTurn() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+      [
+        editFileAction(
+          path: "README.md",
+          oldText: "project notes",
+          newText: "updated notes"
+        )
+      ]
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "update the readme"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
+    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
+
+    controller.denyToolCall(id: toolCallID)
+
+    let readmeURL = workspace.rootURL.appending(path: "README.md")
+    #expect(try String(contentsOf: readmeURL, encoding: .utf8) == "project notes")
+    #expect(!controller.hasPendingApproval)
+    #expect(controller.chatSession.turns.first?.status == .completed)
+    #expect(controller.chatSession.toolCalls[0].status == .denied)
+    #expect(controller.chatSession.messages.count == 3)
+    #expect(controller.chatSession.messages[2].toolResult?.preview.status == .denied)
+  }
+
   private func waitUntil(
     timeout: Duration = .seconds(1),
     condition: @escaping @MainActor () -> Bool
@@ -177,6 +281,22 @@ struct ChatSessionControllerWriteApprovalTests {
     <content delimiter="LC_PAYLOAD_V1">
     \(content)
     </content>
+    </action>
+    """
+  }
+
+  private func editFileAction(path: String, oldText: String, newText: String) -> String {
+    """
+    <action name="edit_file">
+    <path>\(path)</path>
+    <old_text delimiter="LC_PAYLOAD_V1">
+    \(oldText)
+    LC_PAYLOAD_V1
+    </old_text>
+    <new_text delimiter="LC_PAYLOAD_V1">
+    \(newText)
+    LC_PAYLOAD_V1
+    </new_text>
     </action>
     """
   }

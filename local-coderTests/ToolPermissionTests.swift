@@ -112,6 +112,14 @@ struct ToolPermissionTests {
       ),
       in: workspace
     )
+    let editEvaluation = evaluator.evaluate(
+      request(
+        toolName: .editFile,
+        workspace: workspace,
+        arguments: ["path": .string("Sources/File.swift")]
+      ),
+      in: workspace
+    )
     let commandEvaluation = evaluator.evaluate(
       request(
         toolName: .runCommand,
@@ -125,6 +133,11 @@ struct ToolPermissionTests {
     #expect(writeEvaluation.riskLevel == .high)
     #expect(
       writeEvaluation.normalizedPaths == [
+        rootURL.appending(path: "Sources/File.swift").path(percentEncoded: false)
+      ])
+    #expect(editEvaluation.decision == .requiresApproval)
+    #expect(
+      editEvaluation.normalizedPaths == [
         rootURL.appending(path: "Sources/File.swift").path(percentEncoded: false)
       ])
     #expect(patchEvaluation.decision == .requiresApproval)

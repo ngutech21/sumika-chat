@@ -54,8 +54,8 @@ flowchart TD
 - `ChatGenerationCoordinator` streams model events into transcript chunks and
   metrics.
 - `ToolLoopCoordinator` handles model-emitted tool actions. Read-only tools run
-  immediately; tools that require approval return an awaiting-approval outcome
-  without appending a normal tool result.
+  immediately; tools that require approval can attach an approval preview and
+  return an awaiting-approval outcome without appending a normal tool result.
 - `ContextUsageCoordinator` computes token usage from the same filtered model
   context used for generation.
 
@@ -69,15 +69,15 @@ flowchart TD
 5. If the assistant output is an allowed tool call, the controller records the
    `ToolCallRecord` and appends the tool result. Read-style tools append a
    second assistant placeholder and stream the direct follow-up response;
-   successful `write_file` calls complete the turn without a follow-up model
-   response.
+   successful `write_file` and `edit_file` calls complete the turn without a
+   follow-up model response.
 6. If the tool call requires approval, the controller records the call, marks
    the turn `.awaitingApproval`, and ends active generation until the user
    approves or denies the call.
 7. Approval executes the same validated tool request and appends a real tool
-   result. Successful `write_file` approvals complete the turn without a
-   follow-up model response; other successful tools resume the turn with a
-   direct follow-up response.
+   result. Successful `write_file` and `edit_file` approvals complete the turn
+   without a follow-up model response; other successful tools resume the turn
+   with a direct follow-up response.
 8. Denial appends a denied tool result and completes the turn without a local
    side effect.
 9. A successful turn is marked `.completed`.

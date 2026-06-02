@@ -527,7 +527,7 @@ extension ChatSessionController {
         return
       }
 
-      guard mergedRecord.request.toolName != .writeFile else {
+      guard !Self.completesApprovedTurnWithoutFollowUp(mergedRecord.request.toolName) else {
         finishCompletedApprovedToolTurn(turnID)
         return
       }
@@ -703,6 +703,10 @@ extension ChatSessionController {
     }
     merged.events = existing.events + appendedEvents
     return merged
+  }
+
+  private static func completesApprovedTurnWithoutFollowUp(_ toolName: ToolName) -> Bool {
+    toolName == .writeFile || toolName == .editFile
   }
 
 }

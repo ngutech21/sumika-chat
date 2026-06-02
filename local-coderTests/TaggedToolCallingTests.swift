@@ -220,6 +220,48 @@ struct TaggedToolCallingTests {
   }
 
   @Test
+  func parserParsesEditFileHeredocPayloads() throws {
+    let request = try parsedRequest(
+      """
+      <action name="edit_file">
+      <path>Sources/App.swift</path>
+      <old_text delimiter="LC_PAYLOAD_TEST">
+      func title() -> String {
+        "Old"
+      }
+      LC_PAYLOAD_TEST
+      </old_text>
+      <new_text delimiter="LC_PAYLOAD_TEST">
+      func title() -> String {
+        "New"
+      }
+      LC_PAYLOAD_TEST
+      </new_text>
+      </action>
+      """
+    )
+
+    let expectedOldText = """
+      func title() -> String {
+        "Old"
+      }
+      """
+    let expectedNewText = """
+      func title() -> String {
+        "New"
+      }
+      """
+
+    #expect(request.toolName == .editFile)
+    #expect(
+      request.arguments == [
+        "path": .string("Sources/App.swift"),
+        "old_text": .string(expectedOldText),
+        "new_text": .string(expectedNewText),
+      ])
+  }
+
+  @Test
   func parserAcceptsCRLFDelimiterLines() throws {
     let content =
       "<action name=\"apply_patch\">\r\n<patch delimiter=\"LC_PAYLOAD_TEST\">\r\nline 1\r\nLC_PAYLOAD_TEST\r\n</patch>\r\n</action>"

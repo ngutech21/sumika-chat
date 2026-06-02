@@ -47,6 +47,17 @@ struct ToolCallSummaryView: View {
             .lineLimit(3)
         }
 
+        if toolCallRecord.status == .awaitingApproval,
+          let preview = toolCallRecord.resultPreview,
+          !preview.text.isEmpty
+        {
+          Text(preview.text)
+            .font(.system(.caption, design: .monospaced))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        }
+
         if toolCallRecord.status == .awaitingApproval {
           HStack(spacing: 8) {
             Button {

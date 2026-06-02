@@ -110,7 +110,7 @@ nonisolated struct TaggedToolCallParser: ToolCallParsing {
   private let closingTagFallbackPayloadNames: Set<String>
 
   init(
-    payloadParameterNames: Set<String> = ["content", "patch"],
+    payloadParameterNames: Set<String> = ["content", "old_text", "new_text", "patch"],
     closingTagFallbackPayloadNames: Set<String> = ["content"]
   ) {
     self.payloadParameterNames = payloadParameterNames

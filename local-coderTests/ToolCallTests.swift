@@ -94,4 +94,24 @@ struct ToolCallTests {
     #expect(message.transcriptArguments.map(\.name) == ["path"])
     #expect(message.transcriptArguments.map(\.value) == ["index.html"])
   }
+
+  @Test
+  func editFileTranscriptArgumentsHideTextPayloads() {
+    let request = ToolCallRequest(
+      workspaceID: UUID(),
+      sessionID: UUID(),
+      toolName: .editFile,
+      arguments: [
+        "new_text": .string("new"),
+        "old_text": .string("old"),
+        "path": .string("Sources/App.swift"),
+      ]
+    )
+
+    let message = ToolCallModelMessage(request: request)
+
+    #expect(message.arguments.map(\.name) == ["new_text", "old_text", "path"])
+    #expect(message.transcriptArguments.map(\.name) == ["path"])
+    #expect(message.transcriptArguments.map(\.value) == ["Sources/App.swift"])
+  }
 }

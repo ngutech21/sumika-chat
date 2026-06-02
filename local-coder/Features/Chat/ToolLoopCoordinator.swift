@@ -90,7 +90,7 @@ nonisolated struct ToolLoopCoordinator: Sendable {
     )
 
     let outcome: ToolLoopOutcome
-    if output.request.toolName == .writeFile && record.status == .completed {
+    if completesTurnWithoutFollowUp(output.request.toolName) && record.status == .completed {
       outcome = .completedWithoutFollowUp(toolResult: toolResult)
     } else {
       outcome = .completed(toolResult: toolResult, nextAssistantMessageID: UUID())
@@ -132,6 +132,10 @@ nonisolated struct ToolLoopCoordinator: Sendable {
         return .none
       }
     }
+  }
+
+  private func completesTurnWithoutFollowUp(_ toolName: ToolName) -> Bool {
+    toolName == .writeFile || toolName == .editFile
   }
 
   private func recoverableToolActionContent(from content: String) -> String? {

@@ -614,6 +614,7 @@ struct ToolExecutionTests {
         .listFiles,
         .globFiles,
         .searchFiles,
+        .editFile,
         .writeFile,
       ])
   }

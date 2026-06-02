@@ -10,7 +10,14 @@ nonisolated protocol TypedToolExecutor: Sendable {
   static var definition: ToolDefinition { get }
 
   func evaluatePermission(_ input: Input, context: ToolContext) -> ToolPermissionEvaluation
+  func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview?
   func run(_ input: Input, context: ToolContext) async -> ToolResultPreview
+}
+
+extension TypedToolExecutor {
+  func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview? {
+    nil
+  }
 }
 
 nonisolated struct AnyToolExecutor: Sendable {
@@ -67,6 +74,20 @@ nonisolated struct AnyToolExecutor: Sendable {
       let evaluation = tool.evaluatePermission(input, context: context)
       record.evaluation = evaluation
 
+      if evaluation.decision == .requiresApproval && !isApproved {
+        guard
+          await prepareApprovalPreview(
+            tool,
+            input: input,
+            evaluation: evaluation,
+            record: &record,
+            context: context
+          )
+        else {
+          return record
+        }
+      }
+
       guard shouldRun(evaluation: evaluation, isApproved: isApproved, record: &record) else {
         return record
       }
@@ -75,6 +96,39 @@ nonisolated struct AnyToolExecutor: Sendable {
         tool, input: input, request: request, record: record, context: context)
     } catch {
       return failedRecord(request: request, definition: T.definition, error: error)
+    }
+  }
+
+  private static func prepareApprovalPreview<T: TypedToolExecutor>(
+    _ tool: T,
+    input: T.Input,
+    evaluation: ToolPermissionEvaluation,
+    record: inout ToolCallRecord,
+    context: ToolContext
+  ) async -> Bool {
+    guard let preview = await tool.previewApproval(input, context: context) else {
+      return true
+    }
+
+    record.resultPreview = preview
+
+    switch preview.status {
+    case .success:
+      return true
+    case .failed:
+      record.status = .failed
+      record.events.append(ToolCallEvent(actor: .tool, kind: .failed, message: preview.text))
+      return false
+    case .denied:
+      record.status = .denied
+      record.evaluation = ToolPermissionEvaluation(
+        decision: .denied,
+        reason: preview.text,
+        riskLevel: evaluation.riskLevel,
+        normalizedPaths: evaluation.normalizedPaths
+      )
+      record.events.append(ToolCallEvent(actor: .tool, kind: .denied, message: preview.text))
+      return false
     }
   }
 
@@ -206,6 +260,7 @@ nonisolated struct ToolExecutorRegistry: Sendable {
     AnyToolExecutor(ListFilesToolExecutor()),
     AnyToolExecutor(GlobFilesToolExecutor()),
     AnyToolExecutor(SearchFilesToolExecutor()),
+    AnyToolExecutor(EditFileToolExecutor()),
     AnyToolExecutor(WriteFileToolExecutor()),
   ])
 

@@ -206,4 +206,43 @@ nonisolated extension ToolDefinition {
     capabilities: [.writeWorkspace],
     riskLevel: .high
   )
+
+  static let editFile = ToolDefinition(
+    name: .editFile,
+    description: "Replace one exact text span in a UTF-8 workspace file.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "path",
+        description: "Relative file path inside the workspace.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "old_text",
+        description: "Exact UTF-8 text to replace. Must match exactly once.",
+        isRequired: true,
+        supportsHeredocPayload: true
+      ),
+      ToolParameterDefinition(
+        name: "new_text",
+        description: "Replacement UTF-8 text. Must be different from old_text.",
+        isRequired: true,
+        supportsHeredocPayload: true
+      ),
+    ],
+    taggedExample: """
+      <action name="edit_file">
+      <path>Sources/AppState.swift</path>
+      <old_text delimiter="LC_PAYLOAD_V1">
+      let title = "Old"
+      LC_PAYLOAD_V1
+      </old_text>
+      <new_text delimiter="LC_PAYLOAD_V1">
+      let title = "New"
+      LC_PAYLOAD_V1
+      </new_text>
+      </action>
+      """,
+    capabilities: [.writeWorkspace],
+    riskLevel: .high
+  )
 }

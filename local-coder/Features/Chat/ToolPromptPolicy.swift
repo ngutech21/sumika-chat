@@ -80,8 +80,10 @@ nonisolated struct ToolPromptPolicy: Sendable {
       return [
         basePrompt,
         """
-        When the user asks you to create or modify a file, emit a write_file action with the full
-        desired file content. Do not generate Python, shell, or other helper scripts to write files.
+        When the user asks you to create a file, emit a write_file action with the full desired
+        file content. When the user asks you to modify an existing file, prefer read_file followed
+        by edit_file with exact old_text and new_text. Do not generate Python, shell, or other
+        helper scripts to write files.
         """,
         toolPromptRenderer.renderToolInstructions(
           registry: toolRegistry,

@@ -59,6 +59,15 @@ nonisolated struct ToolPermissionEvaluator: Sendable {
         riskLevel: .high,
         successReason: "Writing files inside the workspace requires approval."
       )
+    case .editFile:
+      return evaluatePathTool(
+        request,
+        in: workspace,
+        argumentKeys: ["path"],
+        decision: .requiresApproval,
+        riskLevel: .high,
+        successReason: "Editing files inside the workspace requires approval."
+      )
     case .applyPatch:
       return evaluatePathTool(
         request,
