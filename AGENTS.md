@@ -134,8 +134,11 @@ just build
 just test
 just lint
 just format
+just coverage
 just final-check
 ```
+
+Use `just coverage` when you need an Xcode code coverage report. It runs the test suite with coverage enabled and prints the latest `.xcresult` report via `xcrun xccov`.
 
 Run the final check after every implementation task:
 

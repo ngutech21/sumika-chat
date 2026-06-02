@@ -12,6 +12,15 @@ build:
 test:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} test
 
+coverage:
+    xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -enableCodeCoverage YES test
+    @result=$(ls -td {{derived_data}}/Logs/Test/*.xcresult 2>/dev/null | head -n 1); \
+    if [ -z "$result" ]; then \
+        echo "No test result bundle found."; \
+        exit 1; \
+    fi; \
+    xcrun xccov view --report "$result"
+
 check-warnings:
     @log=$(mktemp); \
     status=0; \
