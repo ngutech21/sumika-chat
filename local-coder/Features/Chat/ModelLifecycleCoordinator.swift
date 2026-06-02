@@ -9,6 +9,17 @@ nonisolated struct DownloadModelResult: Sendable {
   let localPath: String
 }
 
+enum LocalModelDirectoryError: LocalizedError {
+  case notFound(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .notFound(let path):
+      "Model directory does not exist: \(path)"
+    }
+  }
+}
+
 nonisolated struct ModelLifecycleCoordinator: Sendable {
   private let modelDownloader: any ModelDownloading
   private let runtimeOperations: RuntimeOperationCoordinator
