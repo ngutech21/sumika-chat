@@ -12,6 +12,7 @@ final class ChatSessionController {
 
   let modelRuntime: ModelRuntimeController
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
+  @ObservationIgnored private let contextUsageCoordinator: ContextUsageCoordinator
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
   @ObservationIgnored private let toolPromptRenderer: any ToolPromptRendering
   @ObservationIgnored private let toolOrchestrator: ToolOrchestrator
@@ -20,8 +21,6 @@ final class ChatSessionController {
   @ObservationIgnored private let chatAttachmentLoader: any ChatAttachmentLoading
   @ObservationIgnored private var isHandlingDroppedDraftPath = false
   @ObservationIgnored private var generationTask: Task<Void, Never>?
-  @ObservationIgnored private var contextUsageTask: Task<Void, Never>?
-  @ObservationIgnored private var contextUsageRequestID = UUID()
   @ObservationIgnored private var attachmentLoadTask: Task<Void, Never>?
   @ObservationIgnored private var attachmentLoadRequestID = UUID()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
@@ -126,6 +125,8 @@ final class ChatSessionController {
       runtimeOperations: runtimeOperations
     )
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
+    self.contextUsageCoordinator = ContextUsageCoordinator(
+      modelLifecycleCoordinator: modelLifecycleCoordinator)
     self.chatGenerationCoordinator = ChatGenerationCoordinator(
       runtime: runtime,
       streamingFlushInterval: streamingFlushInterval,
@@ -155,7 +156,6 @@ final class ChatSessionController {
 
   deinit {
     generationTask?.cancel()
-    contextUsageTask?.cancel()
     attachmentLoadTask?.cancel()
   }
 }
@@ -177,8 +177,7 @@ extension ChatSessionController {
         return
       }
 
-      self.contextUsage = nil
-      self.contextUsageRequestID = UUID()
+      self.invalidateContextUsage()
     }
     modelRuntime.onContextUsageShouldRefresh = { [weak self] in
       await self?.updateContextUsage()
@@ -219,8 +218,7 @@ extension ChatSessionController {
     )
 
     if didResetRuntime {
-      contextUsageRequestID = UUID()
-      contextUsage = nil
+      invalidateContextUsage()
     } else {
       refreshContextUsage()
     }
@@ -251,21 +249,20 @@ extension ChatSessionController {
 
   func loadSelectedModel() {
     errorMessage = nil
-    contextUsageRequestID = UUID()
+    invalidateContextUsage()
     modelRuntime.loadSelectedModel()
   }
 
   func loadModel() {
     errorMessage = nil
-    contextUsageRequestID = UUID()
+    invalidateContextUsage()
     modelRuntime.loadModel()
   }
 
   func unloadModel() {
-    contextUsageRequestID = UUID()
     cancelGeneration()
     errorMessage = nil
-    contextUsage = nil
+    invalidateContextUsage()
     modelRuntime.unloadModel()
   }
 
@@ -345,68 +342,49 @@ extension ChatSessionController {
   func clearChatHistory() {
     chatSession.messages.removeAll()
     chatSession.attachments.removeAll()
-    contextUsage = nil
-    let requestID = UUID()
-    contextUsageRequestID = requestID
+    invalidateContextUsage()
     notifySessionDidChange()
 
-    let operationID = modelRuntime.currentOperationID()
-    let lifecycleCoordinator = modelLifecycleCoordinator
-    Task {
-      do {
-        try await lifecycleCoordinator.clearContext(operationID: operationID)
-      } catch is CancellationError {
-      } catch {
-        errorMessage = error.localizedDescription
-      }
-      guard requestID == contextUsageRequestID else {
-        return
-      }
-      await updateContextUsage()
-    }
+    contextUsageCoordinator.clearRuntimeContext(
+      operationID: modelRuntime.currentOperationID(),
+      snapshot: contextUsageSnapshot(),
+      onEvent: handleContextUsageEvent(_:))
   }
 
   func refreshContextUsage() {
-    let requestID = UUID()
-    contextUsageRequestID = requestID
-    contextUsageTask?.cancel()
-    contextUsageTask = Task {
-      await updateContextUsage()
-    }
+    contextUsageCoordinator.refresh(
+      snapshot: contextUsageSnapshot(),
+      onEvent: handleContextUsageEvent(_:))
   }
 
   func updateContextUsage() async {
-    guard modelRuntime.modelState == .ready else {
+    await contextUsageCoordinator.refreshNow(
+      snapshot: contextUsageSnapshot(),
+      onEvent: handleContextUsageEvent(_:))
+  }
+
+  private func invalidateContextUsage() {
+    contextUsageCoordinator.invalidate(onEvent: handleContextUsageEvent(_:))
+  }
+
+  private func contextUsageSnapshot() -> ContextUsageSnapshot {
+    ContextUsageSnapshot(
+      modelState: modelRuntime.modelState,
+      operationID: modelRuntime.currentOperationID(),
+      messages: chatSession.messages,
+      attachments: chatSession.attachments,
+      systemPrompt: systemPrompt(toolPromptMode: .disabled)
+    )
+  }
+
+  private func handleContextUsageEvent(_ event: ContextUsageEvent) {
+    switch event {
+    case .reset, .failed:
       contextUsage = nil
-      return
-    }
-
-    let requestID = contextUsageRequestID
-    let operationID = modelRuntime.currentOperationID()
-    let messages = chatSession.messages
-    let attachments = chatSession.attachments
-    let prompt = systemPrompt(toolPromptMode: .disabled)
-    let lifecycleCoordinator = modelLifecycleCoordinator
-
-    do {
-      let usage = try await lifecycleCoordinator.contextUsage(
-        for: messages,
-        attachments: attachments,
-        systemPrompt: prompt,
-        operationID: operationID
-      )
-      guard requestID == contextUsageRequestID, operationID == modelRuntime.currentOperationID()
-      else {
-        return
-      }
+    case .updated(let usage):
       contextUsage = usage
-    } catch is CancellationError {
-    } catch {
-      guard requestID == contextUsageRequestID, operationID == modelRuntime.currentOperationID()
-      else {
-        return
-      }
-      contextUsage = nil
+    case .error(let message):
+      errorMessage = message
     }
   }
 

@@ -1,6 +1,6 @@
 import Foundation
 
-enum ModelDownloadState: Equatable {
+enum ModelDownloadState: Equatable, Sendable {
   case idle
   case downloading(progress: Double?)
   case downloaded
@@ -32,7 +32,7 @@ enum ModelDownloadState: Equatable {
   }
 }
 
-enum ModelLoadState: Equatable {
+enum ModelLoadState: Equatable, Sendable {
   case notLoaded
   case loading
   case ready
