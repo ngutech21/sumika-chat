@@ -1,28 +1,25 @@
 import Foundation
 
 nonisolated protocol WorkspaceStoring: Sendable {
-  func loadLibrary() -> WorkspaceLibrary
-  func saveLibrary(_ library: WorkspaceLibrary) throws
+  func loadLibrary() async -> WorkspaceLibrary
+  func saveLibrary(_ library: WorkspaceLibrary) async throws
 }
 
-nonisolated final class WorkspaceStore: WorkspaceStoring, @unchecked Sendable {
-  private let libraryURL: URL
-  private let fileManager: FileManager
+actor WorkspaceStore: WorkspaceStoring {
+  nonisolated private let libraryURL: URL
 
   init(
     libraryURL: URL = LocalModelDirectory.defaultBaseURL
       .deletingLastPathComponent()
-      .appending(path: "workspaces.json", directoryHint: .notDirectory),
-    fileManager: FileManager = .default
+      .appending(path: "workspaces.json", directoryHint: .notDirectory)
   ) {
     self.libraryURL = libraryURL
-    self.fileManager = fileManager
   }
 
-  func loadLibrary() -> WorkspaceLibrary {
+  func loadLibrary() async -> WorkspaceLibrary {
     guard
       let data = try? Data(contentsOf: libraryURL),
-      let decoded = try? Self.decoder.decode(WorkspaceLibrary.self, from: data)
+      let decoded = try? Self.makeDecoder().decode(WorkspaceLibrary.self, from: data)
     else {
       return WorkspaceLibrary()
     }
@@ -30,23 +27,23 @@ nonisolated final class WorkspaceStore: WorkspaceStoring, @unchecked Sendable {
     return decoded
   }
 
-  func saveLibrary(_ library: WorkspaceLibrary) throws {
-    try fileManager.createDirectory(
+  func saveLibrary(_ library: WorkspaceLibrary) async throws {
+    try FileManager.default.createDirectory(
       at: libraryURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
     )
 
-    let data = try Self.encoder.encode(library)
+    let data = try Self.makeEncoder().encode(library)
     try data.write(to: libraryURL, options: .atomic)
   }
 
-  private static let encoder: JSONEncoder = {
+  nonisolated private static func makeEncoder() -> JSONEncoder {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     return encoder
-  }()
+  }
 
-  private static let decoder: JSONDecoder = {
+  nonisolated private static func makeDecoder() -> JSONDecoder {
     JSONDecoder()
-  }()
+  }
 }

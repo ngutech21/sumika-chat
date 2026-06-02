@@ -6,10 +6,10 @@ import Testing
 @MainActor
 struct WorkspaceStoreTests {
   @Test
-  func workspaceStoreReturnsEmptyLibraryForMissingOrCorruptFile() throws {
+  func workspaceStoreReturnsEmptyLibraryForMissingOrCorruptFile() async throws {
     let missingStore = WorkspaceStore(libraryURL: temporaryLibraryURL())
 
-    #expect(missingStore.loadLibrary() == WorkspaceLibrary())
+    #expect(await missingStore.loadLibrary() == WorkspaceLibrary())
 
     let corruptURL = temporaryLibraryURL()
     try FileManager.default.createDirectory(
@@ -19,11 +19,11 @@ struct WorkspaceStoreTests {
     try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
     let corruptStore = WorkspaceStore(libraryURL: corruptURL)
 
-    #expect(corruptStore.loadLibrary() == WorkspaceLibrary())
+    #expect(await corruptStore.loadLibrary() == WorkspaceLibrary())
   }
 
   @Test
-  func workspaceStorePersistsLibraryAndBookmarkData() throws {
+  func workspaceStorePersistsLibraryAndBookmarkData() async throws {
     let libraryURL = temporaryLibraryURL()
     let store = WorkspaceStore(libraryURL: libraryURL)
     let session = CodingSession(
@@ -48,15 +48,15 @@ struct WorkspaceStoreTests {
       activeSessionID: session.id
     )
 
-    try store.saveLibrary(library)
+    try await store.saveLibrary(library)
 
-    let reloaded = WorkspaceStore(libraryURL: libraryURL).loadLibrary()
+    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary()
     #expect(reloaded == library)
     #expect(reloaded.workspaces.first?.bookmarkData == Data([1, 2, 3]))
   }
 
   @Test
-  func workspaceStorePersistsToolCallRecords() throws {
+  func workspaceStorePersistsToolCallRecords() async throws {
     let libraryURL = temporaryLibraryURL()
     let store = WorkspaceStore(libraryURL: libraryURL)
     let workspaceID = UUID()
@@ -81,9 +81,9 @@ struct WorkspaceStoreTests {
       activeSessionID: sessionID
     )
 
-    try store.saveLibrary(library)
+    try await store.saveLibrary(library)
 
-    let reloaded = WorkspaceStore(libraryURL: libraryURL).loadLibrary()
+    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary()
     let reloadedToolCall = try #require(reloaded.workspaces.first?.sessions.first?.toolCalls.first)
     #expect(reloadedToolCall == toolCall)
     #expect(reloadedToolCall.events.first?.actor == .assistant)
@@ -112,7 +112,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateAddsWorkspaceWithDefaultSessionAndDeduplicatesByPath() throws {
+  func appStateAddsWorkspaceWithDefaultSessionAndDeduplicatesByPath() async throws {
     let workspaceURL = try makeTemporaryDirectory()
     let workspaceStore = FakeWorkspaceStore()
     let modelStore = FakeModelSettingsStore()
@@ -135,6 +135,7 @@ struct WorkspaceStoreTests {
         modelSettingsStore: modelStore
       )
     )
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
 
     let firstSessionID = appState.addWorkspace(from: workspaceURL)
     let duplicateSessionID = appState.addWorkspace(from: workspaceURL)
@@ -149,7 +150,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateCreateSessionInExplicitWorkspaceActivatesAndLoadsNewSession() throws {
+  func appStateCreateSessionInExplicitWorkspaceActivatesAndLoadsNewSession() async throws {
     let firstSession = CodingSession(
       title: "Existing",
       selectedModelID: "gemma3-1b",
@@ -171,8 +172,10 @@ struct WorkspaceStoreTests {
       library: WorkspaceLibrary(workspaces: [workspace])
     )
     let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
 
     let newSessionID = try #require(appState.createSession(in: workspace.id))
+    try await waitUntil { workspaceStore.savedLibrary?.activeSessionID == newSessionID }
 
     #expect(appState.workspaceLibrary.activeWorkspaceID == workspace.id)
     #expect(appState.workspaceLibrary.activeSessionID == newSessionID)
@@ -183,7 +186,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateCreateSessionReturnsNilWithoutActiveOrRequestedWorkspace() {
+  func appStateCreateSessionReturnsNilWithoutActiveOrRequestedWorkspace() async throws {
     let workspaceStore = FakeWorkspaceStore()
     let appState = AppState(
       workspaceStore: workspaceStore,
@@ -193,6 +196,7 @@ struct WorkspaceStoreTests {
         modelSettingsStore: FakeModelSettingsStore()
       )
     )
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
 
     let sessionID = appState.createSession()
 
@@ -201,7 +205,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateInitializationCreatesSessionForActiveWorkspaceWithoutSessions() {
+  func appStateInitializationCreatesSessionForActiveWorkspaceWithoutSessions() async throws {
     let workspace = Workspace(
       name: "Empty",
       rootURL: URL(filePath: "/tmp/empty", directoryHint: .isDirectory),
@@ -221,6 +225,10 @@ struct WorkspaceStoreTests {
     )
 
     let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
+    try await waitUntil {
+      workspaceStore.savedLibrary?.activeSessionID == appState.activeSession?.id
+    }
 
     let activeSession = appState.activeSession
     #expect(activeSession != nil)
@@ -231,7 +239,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateInitializationClearsMissingActiveWorkspaceAndSelectsFirstWorkspace() {
+  func appStateInitializationClearsMissingActiveWorkspaceAndSelectsFirstWorkspace() async throws {
     let firstSession = CodingSession(
       selectedModelID: "gemma3-1b",
       systemPrompt: "Prompt",
@@ -256,6 +264,7 @@ struct WorkspaceStoreTests {
     )
 
     let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
 
     #expect(appState.workspaceLibrary.activeWorkspaceID == workspace.id)
     #expect(appState.workspaceLibrary.activeSessionID == firstSession.id)
@@ -263,7 +272,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateSwitchesSessionsAndLoadsChatState() throws {
+  func appStateSwitchesSessionsAndLoadsChatState() async throws {
     let firstSession = CodingSession(
       title: "First",
       selectedModelID: "gemma3-1b",
@@ -300,6 +309,7 @@ struct WorkspaceStoreTests {
       modelSettingsStore: FakeModelSettingsStore()
     )
     let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
 
     appState.selectSession(secondSession.id)
 
@@ -310,7 +320,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateSwitchesSessionsAndLoadsToolCalls() throws {
+  func appStateSwitchesSessionsAndLoadsToolCalls() async throws {
     let firstSession = CodingSession(
       title: "First",
       selectedModelID: "gemma3-1b",
@@ -342,6 +352,7 @@ struct WorkspaceStoreTests {
       modelSettingsStore: FakeModelSettingsStore()
     )
     let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
 
     appState.selectSession(secondSession.id)
 
@@ -349,7 +360,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateRenamesSessionAndPersistsTitle() throws {
+  func appStateRenamesSessionAndPersistsTitle() async throws {
     let workspaceURL = try makeTemporaryDirectory()
     let workspaceStore = FakeWorkspaceStore()
     let appState = AppState(
@@ -360,9 +371,13 @@ struct WorkspaceStoreTests {
         modelSettingsStore: FakeModelSettingsStore()
       )
     )
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
     let sessionID = try #require(appState.addWorkspace(from: workspaceURL))
 
     appState.renameSession(sessionID, title: "  Refactor parser  ")
+    try await waitUntil {
+      workspaceStore.savedLibrary?.workspaces.first?.sessions.first?.title == "Refactor parser"
+    }
 
     #expect(appState.activeSession?.title == "Refactor parser")
     #expect(
@@ -370,7 +385,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateIgnoresEmptySessionRename() throws {
+  func appStateIgnoresEmptySessionRename() async throws {
     let workspaceURL = try makeTemporaryDirectory()
     let workspaceStore = FakeWorkspaceStore()
     let appState = AppState(
@@ -381,6 +396,7 @@ struct WorkspaceStoreTests {
         modelSettingsStore: FakeModelSettingsStore()
       )
     )
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
     let sessionID = try #require(appState.addWorkspace(from: workspaceURL))
 
     appState.renameSession(sessionID, title: "   ")
@@ -389,7 +405,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateDeletesInactiveSessionAndItsMessages() throws {
+  func appStateDeletesInactiveSessionAndItsMessages() async throws {
     let deletedSession = CodingSession(
       title: "Delete me",
       selectedModelID: "gemma3-1b",
@@ -417,8 +433,10 @@ struct WorkspaceStoreTests {
       )
     )
     let appState = AppState(workspaceStore: workspaceStore)
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
 
     appState.deleteSession(deletedSession.id)
+    try await waitUntil { workspaceStore.savedLibrary?.workspaces.first?.sessions.count == 1 }
 
     #expect(appState.activeSession?.id == activeSession.id)
     #expect(appState.workspaceLibrary.workspaces.first?.sessions.map(\.id) == [activeSession.id])
@@ -429,7 +447,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateDeletesActiveSessionAndSelectsRemainingSession() throws {
+  func appStateDeletesActiveSessionAndSelectsRemainingSession() async throws {
     let activeSession = CodingSession(
       title: "Active",
       selectedModelID: "gemma3-1b",
@@ -464,6 +482,7 @@ struct WorkspaceStoreTests {
       ),
       chatController: controller
     )
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
 
     appState.deleteSession(activeSession.id)
 
@@ -473,7 +492,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStateDeletingLastSessionCreatesEmptyReplacementSession() throws {
+  func appStateDeletingLastSessionCreatesEmptyReplacementSession() async throws {
     let onlySession = CodingSession(
       title: "Only",
       selectedModelID: "gemma3-1b",
@@ -501,6 +520,7 @@ struct WorkspaceStoreTests {
       ),
       chatController: controller
     )
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
 
     appState.deleteSession(onlySession.id)
 
@@ -521,6 +541,7 @@ struct WorkspaceStoreTests {
       modelSettingsStore: FakeModelSettingsStore()
     )
     let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
     _ = appState.addWorkspace(from: workspaceURL)
     controller.modelRuntime.modelState = .ready
     controller.draft = "Say hello"
@@ -536,7 +557,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func appStatePersistsToolCallsFromSessionSnapshot() throws {
+  func appStatePersistsToolCallsFromSessionSnapshot() async throws {
     let workspaceURL = try makeTemporaryDirectory()
     let workspaceStore = FakeWorkspaceStore()
     let controller = ChatSessionController(
@@ -545,6 +566,7 @@ struct WorkspaceStoreTests {
       modelSettingsStore: FakeModelSettingsStore()
     )
     let appState = AppState(workspaceStore: workspaceStore, chatController: controller)
+    try await waitUntil { !appState.isWorkspaceLibraryLoading }
     _ = appState.addWorkspace(from: workspaceURL)
     let workspaceID = try #require(appState.activeWorkspace?.id)
     let sessionID = try #require(appState.activeSession?.id)
@@ -552,6 +574,9 @@ struct WorkspaceStoreTests {
 
     controller.chatSession.toolCalls = [toolCall]
     appState.persistActiveSession()
+    try await waitUntil {
+      workspaceStore.savedLibrary?.workspaces.first?.sessions.first?.toolCalls == [toolCall]
+    }
 
     #expect(appState.activeSession?.toolCalls == [toolCall])
     #expect(workspaceStore.savedLibrary?.workspaces.first?.sessions.first?.toolCalls == [toolCall])
@@ -631,6 +656,43 @@ struct WorkspaceStoreTests {
   }
 }
 
+@MainActor
+private struct ChatSessionBootstrapTests {
+  @Test
+  func persistedModelBootstrapDoesNotClearLoadedSessionTranscript() async throws {
+    let modelStore = FakeModelSettingsStore()
+    let selectedModel = ManagedModelCatalog.model(id: "gemma3-1b")!
+    modelStore.selectedModelIDValue = selectedModel.id
+    modelStore.settingsByModelID[selectedModel.id] = StoredModelSettings(
+      systemPrompt: "Persisted model prompt",
+      generationSettings: ChatGenerationSettings(
+        temperature: 0.2,
+        topP: 0.8,
+        topK: 20,
+        maxTokens: 512
+      )
+    )
+    let session = CodingSession(
+      selectedModelID: selectedModel.id,
+      messages: [ChatMessage(kind: .user, content: "keep this transcript")],
+      systemPrompt: "Session prompt",
+      generationSettings: .codingDefault
+    )
+    let controller = ChatSessionController(
+      runtime: FakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      modelSettingsStore: modelStore
+    )
+
+    controller.loadSession(session)
+    controller.modelRuntime.loadPersistedModelSelection()
+    try await Task.sleep(for: .milliseconds(60))
+
+    #expect(controller.chatSession.messages == session.messages)
+    #expect(controller.chatSession.systemPrompt == "Session prompt")
+  }
+}
+
 private struct LegacyCodingSession: Codable {
   let id: UUID
   let title: String
@@ -650,11 +712,11 @@ private final class FakeWorkspaceStore: WorkspaceStoring, @unchecked Sendable {
     self.library = library
   }
 
-  func loadLibrary() -> WorkspaceLibrary {
+  func loadLibrary() async -> WorkspaceLibrary {
     library
   }
 
-  func saveLibrary(_ library: WorkspaceLibrary) throws {
+  func saveLibrary(_ library: WorkspaceLibrary) async throws {
     self.library = library
     savedLibrary = library
   }
@@ -664,16 +726,16 @@ private final class FakeModelSettingsStore: ModelSettingsStoring, @unchecked Sen
   var selectedModelIDValue = ManagedModelCatalog.defaultModelID
   var settingsByModelID: [String: StoredModelSettings] = [:]
 
-  func selectedModelID(availableModelIDs: Set<String>) -> String {
+  func selectedModelID(availableModelIDs: Set<String>) async -> String {
     availableModelIDs.contains(selectedModelIDValue)
       ? selectedModelIDValue : ManagedModelCatalog.defaultModelID
   }
 
-  func setSelectedModelID(_ modelID: String) {
+  func setSelectedModelID(_ modelID: String) async {
     selectedModelIDValue = modelID
   }
 
-  func settings(for model: ManagedModel) -> StoredModelSettings {
+  func settings(for model: ManagedModel) async -> StoredModelSettings {
     settingsByModelID[model.id]
       ?? StoredModelSettings(
         systemPrompt: model.defaultSystemPrompt,
@@ -682,7 +744,7 @@ private final class FakeModelSettingsStore: ModelSettingsStoring, @unchecked Sen
       )
   }
 
-  func save(settings: StoredModelSettings, for model: ManagedModel) throws {
+  func save(settings: StoredModelSettings, for model: ManagedModel) async throws {
     settingsByModelID[model.id] = settings
   }
 }

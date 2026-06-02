@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct ModelRuntimeControllerTests {
   @Test
-  func initializesSelectedModelFromStore() {
+  func initializesSelectedModelFromStore() async {
     let store = RuntimeFakeModelSettingsStore()
     let selectedModel = ManagedModelCatalog.model(id: "gemma3-1b")!
     let settings = StoredModelSettings(
@@ -17,7 +17,7 @@ struct ModelRuntimeControllerTests {
     )
     store.selectedModelIDValue = selectedModel.id
     store.settingsByModelID[selectedModel.id] = settings
-    let controller = makeController(modelSettingsStore: store)
+    let controller = await makeController(modelSettingsStore: store)
 
     #expect(controller.selectedModelID == selectedModel.id)
     #expect(controller.selectedModel.id == selectedModel.id)
@@ -26,7 +26,7 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
-  func selectingModelPersistsSelectionAndPublishesSettings() {
+  func selectingModelPersistsSelectionAndPublishesSettings() async throws {
     let store = RuntimeFakeModelSettingsStore()
     let selectedModel = ManagedModelCatalog.model(id: "gemma3-1b")!
     let settings = StoredModelSettings(
@@ -36,12 +36,13 @@ struct ModelRuntimeControllerTests {
       contextTokenLimit: 16_384
     )
     store.settingsByModelID[selectedModel.id] = settings
-    let controller = makeController(modelSettingsStore: store)
+    let controller = await makeController(modelSettingsStore: store)
     var publishedSettings: StoredModelSettings?
     controller.onModelDidChange = { publishedSettings = $0 }
 
     controller.selectModel(selectedModel)
 
+    try await waitUntil { publishedSettings == settings }
     #expect(controller.selectedModelID == selectedModel.id)
     #expect(controller.modelPath == selectedModel.localPath)
     #expect(controller.modelContextTokenLimit == settings.contextTokenLimit)
@@ -52,7 +53,7 @@ struct ModelRuntimeControllerTests {
   @Test
   func downloadSelectedModelUpdatesDownloadState() async throws {
     let downloader = RuntimeControllerFakeModelDownloader()
-    let controller = makeController(modelDownloader: downloader)
+    let controller = await makeController(modelDownloader: downloader)
 
     controller.downloadSelectedModel()
 
@@ -65,7 +66,7 @@ struct ModelRuntimeControllerTests {
   @Test
   func downloadSelectedModelPublishesIntermediateProgress() async throws {
     let downloader = RuntimeControllerFakeModelDownloader(progressFractions: [0.25, 1])
-    let controller = makeController(modelDownloader: downloader)
+    let controller = await makeController(modelDownloader: downloader)
 
     controller.downloadSelectedModel()
 
@@ -80,7 +81,7 @@ struct ModelRuntimeControllerTests {
   func downloadSelectedModelPublishesFailureAndClearsProgress() async throws {
     let downloader = RuntimeControllerFakeModelDownloader(
       error: RuntimeControllerFakeDownloadError.failed)
-    let controller = makeController(modelDownloader: downloader)
+    let controller = await makeController(modelDownloader: downloader)
     var errorMessage: String?
     controller.onError = { errorMessage = $0 }
 
@@ -95,8 +96,8 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
-  func setModelDirectoryUpdatesPathWhenRuntimeIsNotLoaded() throws {
-    let controller = makeController()
+  func setModelDirectoryUpdatesPathWhenRuntimeIsNotLoaded() async throws {
+    let controller = await makeController()
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
 
     controller.setModelDirectory(modelDirectory)
@@ -106,9 +107,9 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
-  func saveSelectedModelSettingsPersistsCurrentRuntimeSettings() {
+  func saveSelectedModelSettingsPersistsCurrentRuntimeSettings() async throws {
     let store = RuntimeFakeModelSettingsStore()
-    let controller = makeController(modelSettingsStore: store)
+    let controller = await makeController(modelSettingsStore: store)
     controller.modelContextTokenLimit = 12_288
     let generationSettings = ChatGenerationSettings(
       temperature: 0.3,
@@ -122,6 +123,7 @@ struct ModelRuntimeControllerTests {
       generationSettings: generationSettings
     )
 
+    try await waitUntil { store.savedSettingsByModelID[controller.selectedModel.id] != nil }
     let savedSettings = store.savedSettingsByModelID[controller.selectedModel.id]
     #expect(savedSettings?.systemPrompt == "Use concise code review notes.")
     #expect(savedSettings?.generationSettings == generationSettings)
@@ -131,7 +133,7 @@ struct ModelRuntimeControllerTests {
   @Test
   func loadSelectedModelResetsPathToSelectedModelDirectoryBeforeLoading() async throws {
     let runtime = RuntimeControllerRecordingRuntime()
-    let controller = makeController(runtime: runtime, modelPath: "/tmp/custom-model")
+    let controller = await makeController(runtime: runtime, modelPath: "/tmp/custom-model")
     controller.modelAvailabilitySnapshot[controller.selectedModel.id] = true
     let initialOperationID = controller.currentOperationID()
 
@@ -146,7 +148,7 @@ struct ModelRuntimeControllerTests {
   func loadModelUsesDirectoryConfigurationAndUpdatesReadyState() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = RuntimeControllerRecordingRuntime()
-    let controller = makeController(
+    let controller = await makeController(
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
     )
@@ -164,7 +166,7 @@ struct ModelRuntimeControllerTests {
   func loadModelCapsContextLimitAtUserRequestedSetting() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"max_position_embeddings":131072}"#)
     let runtime = RuntimeControllerRecordingRuntime()
-    let controller = makeController(
+    let controller = await makeController(
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
     )
@@ -182,7 +184,7 @@ struct ModelRuntimeControllerTests {
     let firstModelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let secondModelDirectory = try makeModelDirectory(config: #"{"n_ctx":4096}"#)
     let runtime = RuntimeControllerRaceLoadingRuntime()
-    let controller = makeController(
+    let controller = await makeController(
       runtime: runtime,
       modelPath: firstModelDirectory.path(percentEncoded: false)
     )
@@ -210,7 +212,7 @@ struct ModelRuntimeControllerTests {
   func staleUnloadDoesNotOverwriteRuntimeAfterSubsequentLoad() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = RuntimeControllerDelayedUnloadRuntime()
-    let controller = makeController(
+    let controller = await makeController(
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
     )
@@ -232,7 +234,7 @@ struct ModelRuntimeControllerTests {
   @Test
   func unloadModelReleasesRuntimeAndResetsModelState() async throws {
     let runtime = RuntimeControllerRecordingRuntime()
-    let controller = makeController(runtime: runtime)
+    let controller = await makeController(runtime: runtime)
     controller.modelState = .ready
 
     controller.unloadModel()
@@ -249,12 +251,13 @@ struct ModelRuntimeControllerTests {
     modelDownloader: RuntimeControllerFakeModelDownloader = RuntimeControllerFakeModelDownloader(),
     runtime: any ChatModelRuntime = RuntimeControllerRecordingRuntime(),
     modelPath: String? = nil
-  ) -> ModelRuntimeController {
+  ) async -> ModelRuntimeController {
     let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
-    let selectedModelID = modelSettingsStore.selectedModelID(availableModelIDs: availableModelIDs)
+    let selectedModelID = await modelSettingsStore.selectedModelID(
+      availableModelIDs: availableModelIDs)
     let selectedModel =
       ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
-    let settings = modelSettingsStore.settings(for: selectedModel)
+    let settings = await modelSettingsStore.settings(for: selectedModel)
     let runtimeOperations = RuntimeOperationCoordinator(runtime: runtime)
     let lifecycleCoordinator = ModelLifecycleCoordinator(
       modelDownloader: modelDownloader,
@@ -320,16 +323,16 @@ private final class RuntimeFakeModelSettingsStore: ModelSettingsStoring, @unchec
   var settingsByModelID: [String: StoredModelSettings] = [:]
   var savedSettingsByModelID: [String: StoredModelSettings] = [:]
 
-  func selectedModelID(availableModelIDs: Set<String>) -> String {
+  func selectedModelID(availableModelIDs: Set<String>) async -> String {
     availableModelIDs.contains(selectedModelIDValue)
       ? selectedModelIDValue : ManagedModelCatalog.defaultModelID
   }
 
-  func setSelectedModelID(_ modelID: String) {
+  func setSelectedModelID(_ modelID: String) async {
     selectedModelIDValue = modelID
   }
 
-  func settings(for model: ManagedModel) -> StoredModelSettings {
+  func settings(for model: ManagedModel) async -> StoredModelSettings {
     settingsByModelID[model.id]
       ?? StoredModelSettings(
         systemPrompt: model.defaultSystemPrompt,
@@ -338,7 +341,7 @@ private final class RuntimeFakeModelSettingsStore: ModelSettingsStoring, @unchec
       )
   }
 
-  func save(settings: StoredModelSettings, for model: ManagedModel) throws {
+  func save(settings: StoredModelSettings, for model: ManagedModel) async throws {
     savedSettingsByModelID[model.id] = settings
   }
 }

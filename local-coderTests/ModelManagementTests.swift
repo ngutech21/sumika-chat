@@ -21,21 +21,21 @@ struct ModelManagementTests {
   }
 
   @Test
-  func settingsStoreDefaultsSelectedModelTo4B() {
+  func settingsStoreDefaultsSelectedModelTo4B() async {
     let userDefaults = makeUserDefaults()
     let store = ModelSettingsStore(
       userDefaults: userDefaults,
       settingsURL: temporarySettingsURL()
     )
 
-    let selectedModelID = store.selectedModelID(
+    let selectedModelID = await store.selectedModelID(
       availableModelIDs: Set(ManagedModelCatalog.models.map(\.id)))
 
     #expect(selectedModelID == "gemma3-4b")
   }
 
   @Test
-  func settingsStorePersistsSelectedModelAndPerModelSettings() throws {
+  func settingsStorePersistsSelectedModelAndPerModelSettings() async throws {
     let userDefaults = makeUserDefaults()
     let settingsURL = temporarySettingsURL()
     let store = ModelSettingsStore(userDefaults: userDefaults, settingsURL: settingsURL)
@@ -47,18 +47,19 @@ struct ModelManagementTests {
       contextTokenLimit: 32_768
     )
 
-    store.setSelectedModelID(model.id)
-    try store.save(settings: settings, for: model)
+    await store.setSelectedModelID(model.id)
+    try await store.save(settings: settings, for: model)
 
     let reloadedStore = ModelSettingsStore(userDefaults: userDefaults, settingsURL: settingsURL)
     #expect(
-      reloadedStore.selectedModelID(availableModelIDs: Set(ManagedModelCatalog.models.map(\.id)))
+      await reloadedStore.selectedModelID(
+        availableModelIDs: Set(ManagedModelCatalog.models.map(\.id)))
         == model.id)
-    #expect(reloadedStore.settings(for: model) == settings)
+    #expect(await reloadedStore.settings(for: model) == settings)
   }
 
   @Test
-  func settingsStoreFallsBackToDefaultsForCorruptSettingsFile() throws {
+  func settingsStoreFallsBackToDefaultsForCorruptSettingsFile() async throws {
     let settingsURL = temporarySettingsURL()
     try FileManager.default.createDirectory(
       at: settingsURL.deletingLastPathComponent(),
@@ -67,11 +68,40 @@ struct ModelManagementTests {
     try "not json".write(to: settingsURL, atomically: true, encoding: .utf8)
     let store = ModelSettingsStore(userDefaults: makeUserDefaults(), settingsURL: settingsURL)
 
-    let settings = store.settings(for: ManagedModelCatalog.defaultModel)
+    let settings = await store.settings(for: ManagedModelCatalog.defaultModel)
 
     #expect(settings.systemPrompt == ChatPromptDefaults.codingSystemPrompt)
     #expect(settings.generationSettings == .codingDefault)
     #expect(settings.contextTokenLimit == ManagedModelCatalog.defaultModel.defaultContextTokenLimit)
+  }
+
+  @Test
+  func settingsStorePreservesConcurrentSavesForDifferentModels() async throws {
+    let settingsURL = temporarySettingsURL()
+    let store = ModelSettingsStore(userDefaults: makeUserDefaults(), settingsURL: settingsURL)
+    let firstModel = ManagedModelCatalog.model(id: "gemma3-1b")!
+    let secondModel = ManagedModelCatalog.model(id: "gemma3-27b")!
+    let firstSettings = StoredModelSettings(
+      systemPrompt: "Use tiny-model defaults.",
+      generationSettings: ChatGenerationSettings(
+        temperature: 0.1, topP: 0.7, topK: 10, maxTokens: 256),
+      contextTokenLimit: 16_384
+    )
+    let secondSettings = StoredModelSettings(
+      systemPrompt: "Use large-model defaults.",
+      generationSettings: ChatGenerationSettings(
+        temperature: 0.3, topP: 0.9, topK: 30, maxTokens: 1024),
+      contextTokenLimit: 131_072
+    )
+
+    async let firstSave: Void = store.save(settings: firstSettings, for: firstModel)
+    async let secondSave: Void = store.save(settings: secondSettings, for: secondModel)
+    _ = try await (firstSave, secondSave)
+
+    let reloadedStore = ModelSettingsStore(
+      userDefaults: makeUserDefaults(), settingsURL: settingsURL)
+    #expect(await reloadedStore.settings(for: firstModel) == firstSettings)
+    #expect(await reloadedStore.settings(for: secondModel) == secondSettings)
   }
 
   private func makeUserDefaults() -> UserDefaults {

@@ -45,11 +45,12 @@ final class ChatSessionController {
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader()
   ) {
-    let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
-    let selectedModelID = settingsStore.selectedModelID(availableModelIDs: availableModelIDs)
-    let selectedModel =
-      ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
-    let storedSettings = settingsStore.settings(for: selectedModel)
+    let selectedModel = ManagedModelCatalog.defaultModel
+    let storedSettings = StoredModelSettings(
+      systemPrompt: selectedModel.defaultSystemPrompt,
+      generationSettings: selectedModel.defaultGenerationSettings,
+      contextTokenLimit: selectedModel.defaultContextTokenLimit
+    )
     self.init(
       selectedModelID: selectedModel.id,
       modelPath: selectedModel.localPath,
@@ -70,6 +71,7 @@ final class ChatSessionController {
       toolOrchestrator: toolOrchestrator,
       chatAttachmentLoader: chatAttachmentLoader
     )
+    modelRuntime.loadPersistedModelSelection()
   }
 
   convenience init(

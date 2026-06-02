@@ -33,37 +33,38 @@ nonisolated struct StoredModelSettings: Codable, Equatable, Sendable {
 }
 
 nonisolated protocol ModelSettingsStoring: Sendable {
-  func selectedModelID(availableModelIDs: Set<String>) -> String
-  func setSelectedModelID(_ modelID: String)
-  func settings(for model: ManagedModel) -> StoredModelSettings
-  func save(settings: StoredModelSettings, for model: ManagedModel) throws
+  func selectedModelID(availableModelIDs: Set<String>) async -> String
+  func setSelectedModelID(_ modelID: String) async
+  func settings(for model: ManagedModel) async -> StoredModelSettings
+  func save(settings: StoredModelSettings, for model: ManagedModel) async throws
 }
 
-nonisolated final class ModelSettingsStore: ModelSettingsStoring, @unchecked Sendable {
+nonisolated private struct UserDefaultsBox: @unchecked Sendable {
+  let userDefaults: UserDefaults
+}
+
+actor ModelSettingsStore: ModelSettingsStoring {
   private struct SettingsFile: Codable {
     var modelSettings: [String: StoredModelSettings]
   }
 
-  private let userDefaults: UserDefaults
-  private let settingsURL: URL
-  private let selectedModelKey = "selectedModelID"
-  private let fileManager: FileManager
+  nonisolated private let userDefaultsBox: UserDefaultsBox
+  nonisolated private let settingsURL: URL
+  nonisolated private let selectedModelKey = "selectedModelID"
 
   init(
     userDefaults: UserDefaults = .standard,
     settingsURL: URL = LocalModelDirectory.defaultBaseURL
       .deletingLastPathComponent()
-      .appending(path: "model-settings.json", directoryHint: .notDirectory),
-    fileManager: FileManager = .default
+      .appending(path: "model-settings.json", directoryHint: .notDirectory)
   ) {
-    self.userDefaults = userDefaults
+    self.userDefaultsBox = UserDefaultsBox(userDefaults: userDefaults)
     self.settingsURL = settingsURL
-    self.fileManager = fileManager
   }
 
-  func selectedModelID(availableModelIDs: Set<String>) -> String {
+  func selectedModelID(availableModelIDs: Set<String>) async -> String {
     guard
-      let storedID = userDefaults.string(forKey: selectedModelKey),
+      let storedID = userDefaultsBox.userDefaults.string(forKey: selectedModelKey),
       availableModelIDs.contains(storedID)
     else {
       return ManagedModelCatalog.defaultModelID
@@ -72,11 +73,11 @@ nonisolated final class ModelSettingsStore: ModelSettingsStoring, @unchecked Sen
     return storedID
   }
 
-  func setSelectedModelID(_ modelID: String) {
-    userDefaults.set(modelID, forKey: selectedModelKey)
+  func setSelectedModelID(_ modelID: String) async {
+    userDefaultsBox.userDefaults.set(modelID, forKey: selectedModelKey)
   }
 
-  func settings(for model: ManagedModel) -> StoredModelSettings {
+  func settings(for model: ManagedModel) async -> StoredModelSettings {
     guard let stored = readSettingsFile().modelSettings[model.id] else {
       return StoredModelSettings(
         systemPrompt: model.defaultSystemPrompt,
@@ -88,11 +89,11 @@ nonisolated final class ModelSettingsStore: ModelSettingsStoring, @unchecked Sen
     return stored
   }
 
-  func save(settings: StoredModelSettings, for model: ManagedModel) throws {
+  func save(settings: StoredModelSettings, for model: ManagedModel) async throws {
     var file = readSettingsFile()
     file.modelSettings[model.id] = settings
 
-    try fileManager.createDirectory(
+    try FileManager.default.createDirectory(
       at: settingsURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
     )

@@ -6,10 +6,17 @@ import Observation
 final class AppState {
   var workspaceLibrary: WorkspaceLibrary
   var workspaceErrorMessage: String?
+  var isWorkspaceLibraryLoading = true
 
   @ObservationIgnored let chatController: ChatSessionController
   @ObservationIgnored private let workspaceStore: any WorkspaceStoring
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
+  @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
+  @ObservationIgnored private var defaultSessionSystemPrompt =
+    ManagedModelCatalog.defaultModel.defaultSystemPrompt
+  @ObservationIgnored private var defaultSessionGenerationSettings =
+    ManagedModelCatalog.defaultModel.defaultGenerationSettings
+  @ObservationIgnored private var saveLibraryTask: Task<Void, Never>?
 
   init(
     workspaceStore: any WorkspaceStoring = WorkspaceStore(),
@@ -18,7 +25,7 @@ final class AppState {
   ) {
     self.workspaceStore = workspaceStore
     self.modelSettingsStore = modelSettingsStore
-    self.workspaceLibrary = workspaceStore.loadLibrary()
+    self.workspaceLibrary = WorkspaceLibrary()
 
     if let chatController {
       self.chatController = chatController
@@ -28,11 +35,10 @@ final class AppState {
       )
     }
 
-    normalizeLoadedLibrary()
-    loadActiveSession()
     self.chatController.setSessionChangeHandler { [weak self] in
       self?.persistActiveSession()
     }
+    loadStoredLibrary()
   }
 
   var activeWorkspace: Workspace? {
@@ -288,26 +294,58 @@ final class AppState {
   }
 
   private func makeDefaultSession() -> CodingSession {
-    let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
-    let selectedModelID = modelSettingsStore.selectedModelID(availableModelIDs: availableModelIDs)
-    let selectedModel =
-      ManagedModelCatalog.model(id: selectedModelID)
-      ?? ManagedModelCatalog.defaultModel
-    let settings = modelSettingsStore.settings(for: selectedModel)
+    if chatController.modelRuntime.selectedModelID != ManagedModelCatalog.defaultModelID
+      || defaultSessionModelID == ManagedModelCatalog.defaultModelID
+    {
+      return CodingSession(
+        selectedModelID: chatController.modelRuntime.selectedModelID,
+        systemPrompt: chatController.chatSession.systemPrompt,
+        generationSettings: chatController.chatSession.generationSettings
+      )
+    }
 
     return CodingSession(
-      selectedModelID: selectedModel.id,
-      systemPrompt: settings.systemPrompt,
-      generationSettings: settings.generationSettings
+      selectedModelID: defaultSessionModelID,
+      systemPrompt: defaultSessionSystemPrompt,
+      generationSettings: defaultSessionGenerationSettings
     )
   }
 
   private func saveLibrary() {
-    do {
-      try workspaceStore.saveLibrary(workspaceLibrary)
-      workspaceErrorMessage = nil
-    } catch {
-      workspaceErrorMessage = error.localizedDescription
+    let library = workspaceLibrary
+    let previousSaveTask = saveLibraryTask
+    saveLibraryTask = Task { [workspaceStore] in
+      await previousSaveTask?.value
+      do {
+        try await workspaceStore.saveLibrary(library)
+        await MainActor.run {
+          workspaceErrorMessage = nil
+        }
+      } catch {
+        await MainActor.run {
+          workspaceErrorMessage = error.localizedDescription
+        }
+      }
+    }
+  }
+
+  private func loadStoredLibrary() {
+    Task { [modelSettingsStore, workspaceStore] in
+      let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
+      let selectedModelID = await modelSettingsStore.selectedModelID(
+        availableModelIDs: availableModelIDs)
+      let selectedModel =
+        ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
+      let settings = await modelSettingsStore.settings(for: selectedModel)
+      let library = await workspaceStore.loadLibrary()
+
+      defaultSessionModelID = selectedModel.id
+      defaultSessionSystemPrompt = settings.systemPrompt
+      defaultSessionGenerationSettings = settings.generationSettings
+      self.workspaceLibrary = library
+      self.normalizeLoadedLibrary()
+      self.loadActiveSession()
+      self.isWorkspaceLibraryLoading = false
     }
   }
 

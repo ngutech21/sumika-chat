@@ -44,21 +44,17 @@ final class ModelRuntimeController {
     resourceMonitor: any ProcessResourceMonitoring,
     initialOperationID: UUID
   ) {
-    let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
-    let selectedModelID = settingsStore.selectedModelID(availableModelIDs: availableModelIDs)
-    let selectedModel =
-      ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
-    let storedSettings = settingsStore.settings(for: selectedModel)
     self.init(
-      selectedModelID: selectedModel.id,
-      modelPath: selectedModel.localPath,
-      modelContextTokenLimit: storedSettings.contextTokenLimit,
+      selectedModelID: ManagedModelCatalog.defaultModel.id,
+      modelPath: ManagedModelCatalog.defaultModel.localPath,
+      modelContextTokenLimit: ManagedModelCatalog.defaultModel.defaultContextTokenLimit,
       modelSettingsStore: settingsStore,
       runtimeOperations: runtimeOperations,
       modelLifecycleCoordinator: modelLifecycleCoordinator,
       resourceMonitor: resourceMonitor,
       initialOperationID: initialOperationID
     )
+    loadPersistedModelSelection()
   }
 
   init(
@@ -136,14 +132,20 @@ final class ModelRuntimeController {
 
     unloadModel()
     selectedModelID = model.id
-    modelSettingsStore.setSelectedModelID(model.id)
     modelPath = model.localPath
     downloadState = .idle
     downloadProgress = nil
+    modelContextTokenLimit = model.defaultContextTokenLimit
 
-    let settings = modelSettingsStore.settings(for: model)
-    modelContextTokenLimit = settings.contextTokenLimit
-    onModelDidChange?(settings)
+    Task { [modelSettingsStore] in
+      await modelSettingsStore.setSelectedModelID(model.id)
+      let settings = await modelSettingsStore.settings(for: model)
+      guard selectedModelID == model.id else {
+        return
+      }
+      modelContextTokenLimit = settings.contextTokenLimit
+      onModelDidChange?(settings)
+    }
   }
 
   func applySessionModel(_ model: ManagedModel) -> Bool {
@@ -155,7 +157,15 @@ final class ModelRuntimeController {
     modelPath = model.localPath
     downloadState = .idle
     downloadProgress = nil
-    modelContextTokenLimit = modelSettingsStore.settings(for: model).contextTokenLimit
+    modelContextTokenLimit = model.defaultContextTokenLimit
+
+    Task { [modelSettingsStore] in
+      let settings = await modelSettingsStore.settings(for: model)
+      guard selectedModelID == model.id else {
+        return
+      }
+      modelContextTokenLimit = settings.contextTokenLimit
+    }
 
     if shouldUnloadRuntime {
       unloadRuntimeForModelSwitch()
@@ -225,10 +235,35 @@ final class ModelRuntimeController {
       contextTokenLimit: modelContextTokenLimit
     )
 
-    do {
-      try modelSettingsStore.save(settings: settings, for: selectedModel)
-    } catch {
-      onError?(error.localizedDescription)
+    let selectedModel = selectedModel
+    Task { [modelSettingsStore] in
+      do {
+        try await modelSettingsStore.save(settings: settings, for: selectedModel)
+      } catch {
+        onError?(error.localizedDescription)
+      }
+    }
+  }
+
+  func loadPersistedModelSelection(notifyModelDidChange: Bool = false) {
+    Task { [modelSettingsStore] in
+      let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
+      let selectedModelID = await modelSettingsStore.selectedModelID(
+        availableModelIDs: availableModelIDs)
+      let selectedModel =
+        ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
+      let settings = await modelSettingsStore.settings(for: selectedModel)
+
+      guard canChangeModel else {
+        return
+      }
+
+      self.selectedModelID = selectedModel.id
+      modelPath = selectedModel.localPath
+      modelContextTokenLimit = settings.contextTokenLimit
+      if notifyModelDidChange {
+        onModelDidChange?(settings)
+      }
     }
   }
 
