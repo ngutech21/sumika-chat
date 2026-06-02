@@ -200,6 +200,43 @@ struct ToolLoopCoordinatorTests {
         atPath: workspace.rootURL.appending(path: "movies.html").path(percentEncoded: false)))
   }
 
+  @Test
+  func completedWriteFileActionDoesNotRequestFollowUp() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator(
+      toolOrchestrator: CompletedWriteFileToolOrchestrator()
+    )
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(
+            id: assistantMessageID,
+            kind: .assistant,
+            content: """
+              <action name="write_file">
+              <path>movies.html</path>
+              <content delimiter="LC_PAYLOAD_V1">
+              <html></html>
+              </content>
+              </action>
+              """
+          )
+        ]
+      )
+    )
+
+    #expect(result?.toolCall.toolName == .writeFile)
+    #expect(result?.toolCallRecord.status == .completed)
+    #expect(completedWithoutFollowUpToolResult(from: result)?.toolName == .writeFile)
+    #expect(completedWithoutFollowUpToolResult(from: result)?.preview.status == .success)
+  }
+
   private func makeWorkspace(sessionID: CodingSession.ID) throws -> Workspace {
     let rootURL = FileManager.default.temporaryDirectory.appending(
       path: "local-coder-tests-\(UUID().uuidString)",
@@ -231,6 +268,15 @@ struct ToolLoopCoordinatorTests {
     }
     return toolResult
   }
+
+  private func completedWithoutFollowUpToolResult(
+    from result: ToolLoopResult?
+  ) -> ToolResultModelMessage? {
+    guard case .completedWithoutFollowUp(let toolResult) = result?.outcome else {
+      return nil
+    }
+    return toolResult
+  }
 }
 
 private struct NoPreviewToolOrchestrator: ToolOrchestrating {
@@ -248,6 +294,26 @@ private struct NoPreviewToolOrchestrator: ToolOrchestrating {
         reason: "Allowed for test.",
         riskLevel: .low
       )
+    )
+  }
+}
+
+private struct CompletedWriteFileToolOrchestrator: ToolOrchestrating {
+  var toolRegistry: ToolRegistry {
+    ToolExecutorRegistry.codingAgent.toolRegistry
+  }
+
+  func execute(request: ToolCallRequest, workspace: Workspace) async -> ToolCallRecord {
+    _ = workspace
+    return ToolCallRecord(
+      request: request,
+      status: .completed,
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Allowed for test.",
+        riskLevel: .high
+      ),
+      resultPreview: ToolResultPreview(status: .success, text: "Wrote test content.")
     )
   }
 }

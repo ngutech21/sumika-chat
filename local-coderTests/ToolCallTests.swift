@@ -75,4 +75,23 @@ struct ToolCallTests {
     #expect(message.arguments.map(\.name) == ["alpha", "zeta"])
     #expect(message.arguments.map(\.value) == ["first", "last"])
   }
+
+  @Test
+  func writeFileTranscriptArgumentsHideContentPayload() {
+    let request = ToolCallRequest(
+      workspaceID: UUID(),
+      sessionID: UUID(),
+      toolName: .writeFile,
+      arguments: [
+        "content": .string("<html></html>"),
+        "path": .string("index.html"),
+      ]
+    )
+
+    let message = ToolCallModelMessage(request: request)
+
+    #expect(message.arguments.map(\.name) == ["content", "path"])
+    #expect(message.transcriptArguments.map(\.name) == ["path"])
+    #expect(message.transcriptArguments.map(\.value) == ["index.html"])
+  }
 }

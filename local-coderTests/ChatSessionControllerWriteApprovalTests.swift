@@ -50,7 +50,7 @@ struct ChatSessionControllerWriteApprovalTests {
   }
 
   @Test
-  func approvingWriteFileWritesContentAndContinuesTurn() async throws {
+  func approvingWriteFileWritesContentAndCompletesWithoutFollowUp() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let htmlContent = """
@@ -62,8 +62,7 @@ struct ChatSessionControllerWriteApprovalTests {
       </html>
       """
     let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [writeFileAction(path: "movies.html", content: htmlContent)],
-      ["Created movies.html."],
+      [writeFileAction(path: "movies.html", content: htmlContent)]
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -83,14 +82,12 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(!controller.hasPendingApproval)
     #expect(controller.chatSession.toolCalls[0].status == .completed)
     #expect(controller.chatSession.toolCalls[0].resultPreview?.status == .success)
-    #expect(controller.chatSession.messages.count == 4)
+    #expect(controller.chatSession.messages.count == 3)
     #expect(controller.chatSession.messages[2].kind == .toolResult)
     #expect(controller.chatSession.messages[2].toolResult?.toolName == .writeFile)
-    #expect(controller.chatSession.messages[3].content == "Created movies.html.")
 
     let capturedMessages = await runtime.capturedMessages
-    #expect(capturedMessages.count == 2)
-    #expect(capturedMessages[1].contains { $0.toolResult?.toolName == .writeFile })
+    #expect(capturedMessages.count == 1)
   }
 
   @Test

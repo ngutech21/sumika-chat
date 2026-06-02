@@ -25,6 +25,7 @@ nonisolated struct ToolLoopResult: Equatable, Sendable {
 nonisolated enum ToolLoopOutcome: Equatable, Sendable {
   case awaitingApproval
   case completed(toolResult: ToolResultModelMessage, nextAssistantMessageID: UUID)
+  case completedWithoutFollowUp(toolResult: ToolResultModelMessage)
 }
 
 nonisolated struct ToolLoopCoordinator: Sendable {
@@ -88,11 +89,18 @@ nonisolated struct ToolLoopCoordinator: Sendable {
       preview: resultPreview
     )
 
+    let outcome: ToolLoopOutcome
+    if output.request.toolName == .writeFile && record.status == .completed {
+      outcome = .completedWithoutFollowUp(toolResult: toolResult)
+    } else {
+      outcome = .completed(toolResult: toolResult, nextAssistantMessageID: UUID())
+    }
+
     return ToolLoopResult(
       assistantMessageID: request.assistantMessageID,
       toolCall: output.modelMessage,
       toolCallRecord: record,
-      outcome: .completed(toolResult: toolResult, nextAssistantMessageID: UUID())
+      outcome: outcome
     )
   }
 

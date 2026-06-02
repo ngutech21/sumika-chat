@@ -110,6 +110,9 @@ flowchart TD
   evaluation immediately before the side effect.
 - `write_file` writes the model-provided `content` directly. The model should
   not generate helper scripts to create files.
+- Successful `write_file` results are terminal for the chat turn. The
+  controller should show the auditable tool result but must not request a
+  follow-up model response that can restate the written file content.
 - Tool results must report affected paths where possible so the UI can show a
   useful audit trail.
 - Tool results from a cancelled chat turn may remain visible for auditability,

@@ -527,6 +527,11 @@ extension ChatSessionController {
         return
       }
 
+      guard mergedRecord.request.toolName != .writeFile else {
+        finishCompletedApprovedToolTurn(turnID)
+        return
+      }
+
       let nextAssistantMessageID = appendFollowUpPlaceholder(turnID: turnID)
       notifySessionDidChange()
       try await streamAssistantReply(
@@ -771,15 +776,39 @@ extension ChatSessionController {
     transcriptMutator.appendToolCallID(result.toolCallRecord.id, toTurn: turnID, in: &chatSession)
     notifySessionDidChange()
 
-    guard case .completed(let toolResult, let nextAssistantMessageID) = result.outcome else {
+    switch result.outcome {
+    case .awaitingApproval:
       transcriptMutator.updateTurnStatus(.awaitingApproval, for: turnID, in: &chatSession)
       isGenerating = false
       chatTurnCoordinator.finishTurn(turnID)
       refreshContextUsage()
       notifySessionDidChange()
       return
+    case .completed(let toolResult, let nextAssistantMessageID):
+      appendToolResult(toolResult, turnID: turnID)
+      transcriptMutator.appendAssistantPlaceholder(
+        id: nextAssistantMessageID,
+        turnID: turnID,
+        to: &chatSession
+      )
+      transcriptMutator.appendMessageID(
+        nextAssistantMessageID,
+        toTurn: turnID,
+        in: &chatSession
+      )
+      notifySessionDidChange()
+      try await streamAssistantReply(
+        to: nextAssistantMessageID,
+        toolPromptMode: .afterToolResult,
+        turnID: turnID
+      )
+    case .completedWithoutFollowUp(let toolResult):
+      appendToolResult(toolResult, turnID: turnID)
+      notifySessionDidChange()
     }
+  }
 
+  private func appendToolResult(_ toolResult: ToolResultModelMessage, turnID: ChatTurnRecord.ID) {
     let toolResultMessageID = UUID()
     transcriptMutator.appendToolResult(
       toolResult,
@@ -788,22 +817,6 @@ extension ChatSessionController {
       to: &chatSession
     )
     transcriptMutator.appendMessageID(toolResultMessageID, toTurn: turnID, in: &chatSession)
-    transcriptMutator.appendAssistantPlaceholder(
-      id: nextAssistantMessageID,
-      turnID: turnID,
-      to: &chatSession
-    )
-    transcriptMutator.appendMessageID(
-      nextAssistantMessageID,
-      toTurn: turnID,
-      in: &chatSession
-    )
-    notifySessionDidChange()
-    try await streamAssistantReply(
-      to: nextAssistantMessageID,
-      toolPromptMode: .afterToolResult,
-      turnID: turnID
-    )
   }
 
   fileprivate func systemPrompt(toolPromptMode: ToolPromptMode) -> String {

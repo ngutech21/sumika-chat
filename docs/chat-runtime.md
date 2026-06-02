@@ -67,13 +67,17 @@ flowchart TD
 3. `ChatTurnCoordinator` starts the async operation for that turn.
 4. Initial generation streams into the assistant placeholder.
 5. If the assistant output is an allowed tool call, the controller records the
-   `ToolCallRecord`, appends the tool result, appends a second assistant
-   placeholder, and streams the direct follow-up response.
+   `ToolCallRecord` and appends the tool result. Read-style tools append a
+   second assistant placeholder and stream the direct follow-up response;
+   successful `write_file` calls complete the turn without a follow-up model
+   response.
 6. If the tool call requires approval, the controller records the call, marks
    the turn `.awaitingApproval`, and ends active generation until the user
    approves or denies the call.
-7. Approval executes the same validated tool request, appends a real tool
-   result, and resumes the turn with a direct follow-up response.
+7. Approval executes the same validated tool request and appends a real tool
+   result. Successful `write_file` approvals complete the turn without a
+   follow-up model response; other successful tools resume the turn with a
+   direct follow-up response.
 8. Denial appends a denied tool result and completes the turn without a local
    side effect.
 9. A successful turn is marked `.completed`.

@@ -19,8 +19,8 @@ struct ToolCallSummaryView: View {
       }
       .font(.headline)
 
-      if !toolCall.arguments.isEmpty {
-        ForEach(toolCall.arguments) { argument in
+      if !toolCall.transcriptArguments.isEmpty {
+        ForEach(toolCall.transcriptArguments) { argument in
           LabeledContent(argument.name, value: argument.value)
         }
       }

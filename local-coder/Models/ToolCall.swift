@@ -137,6 +137,16 @@ nonisolated struct ToolCallModelArgument: Codable, Identifiable, Equatable, Send
   var value: String
 }
 
+nonisolated extension ToolCallModelMessage {
+  var transcriptArguments: [ToolCallModelArgument] {
+    guard toolName == .writeFile else {
+      return arguments
+    }
+
+    return arguments.filter { $0.name != "content" }
+  }
+}
+
 nonisolated extension ToolArgumentValue {
   var displayValue: String {
     switch self {
