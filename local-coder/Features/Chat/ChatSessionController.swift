@@ -19,6 +19,7 @@ final class ChatSessionController {
   @ObservationIgnored private let toolPromptPolicy: ToolPromptPolicy
   @ObservationIgnored private let toolLoopCoordinator: ToolLoopCoordinator
   @ObservationIgnored private let chatAttachmentLoader: any ChatAttachmentLoading
+  @ObservationIgnored private let transcriptMutator = ChatTranscriptMutator()
   @ObservationIgnored private var isHandlingDroppedDraftPath = false
   @ObservationIgnored private var generationTask: Task<Void, Never>?
   @ObservationIgnored private var attachmentLoadTask: Task<Void, Never>?
@@ -286,10 +287,9 @@ extension ChatSessionController {
     draft = ""
     errorMessage = nil
     chatSession.attachments.removeAll()
-    chatSession.messages.append(
-      ChatMessage(kind: .user, content: prompt, attachments: sentAttachments))
+    transcriptMutator.appendUserMessage(prompt, attachments: sentAttachments, to: &chatSession)
     let assistantMessageID = UUID()
-    chatSession.messages.append(ChatMessage(id: assistantMessageID, kind: .assistant, content: ""))
+    transcriptMutator.appendAssistantPlaceholder(id: assistantMessageID, to: &chatSession)
     isGenerating = true
     notifySessionDidChange()
 
@@ -311,10 +311,10 @@ extension ChatSessionController {
           )
         }
       } catch is CancellationError {
-        removeTransientAssistantPlaceholders()
+        transcriptMutator.removeTransientAssistantPlaceholders(from: &chatSession)
         await updateContextUsage()
       } catch {
-        removeTransientAssistantPlaceholders()
+        transcriptMutator.removeTransientAssistantPlaceholders(from: &chatSession)
         errorMessage = error.localizedDescription
         await updateContextUsage()
       }
@@ -333,15 +333,14 @@ extension ChatSessionController {
     generationTask?.cancel()
     generationTask = nil
     isGenerating = false
-    removeTransientAssistantPlaceholders()
+    transcriptMutator.removeTransientAssistantPlaceholders(from: &chatSession)
     if notify {
       notifySessionDidChange()
     }
   }
 
   func clearChatHistory() {
-    chatSession.messages.removeAll()
-    chatSession.attachments.removeAll()
+    transcriptMutator.clearTranscript(in: &chatSession)
     invalidateContextUsage()
     notifySessionDidChange()
 
@@ -444,53 +443,8 @@ extension ChatSessionController {
     refreshContextUsage()
   }
 
-  private func appendChunk(_ chunk: String, to messageID: UUID) {
-    guard let index = chatSession.messages.firstIndex(where: { $0.id == messageID }) else {
-      return
-    }
-
-    let message = chatSession.messages[index]
-    chatSession.messages[index] = ChatMessage(
-      id: message.id,
-      kind: message.kind,
-      content: message.content + chunk,
-      attachments: message.attachments,
-      generationMetrics: message.generationMetrics,
-      toolCall: message.toolCall,
-      toolResult: message.toolResult
-    )
-  }
-
-  private func updateGenerationMetrics(_ metrics: ChatGenerationMetrics?, for messageID: UUID) {
-    guard let index = chatSession.messages.firstIndex(where: { $0.id == messageID }) else {
-      return
-    }
-
-    let message = chatSession.messages[index]
-    chatSession.messages[index] = ChatMessage(
-      id: message.id,
-      kind: message.kind,
-      content: message.content,
-      attachments: message.attachments,
-      generationMetrics: metrics,
-      toolCall: message.toolCall,
-      toolResult: message.toolResult
-    )
-  }
-
   private func notifySessionDidChange() {
     onSessionDidChange?()
-  }
-
-  private func removeMessage(id: UUID) {
-    chatSession.messages.removeAll { $0.id == id }
-  }
-
-  private func removeTransientAssistantPlaceholders() {
-    chatSession.messages.removeAll { message in
-      message.kind == .assistant
-        && message.content.isEmpty
-    }
   }
 
 }
@@ -504,10 +458,11 @@ extension ChatSessionController {
       systemPrompt: systemPrompt(toolPromptMode: toolPromptMode),
       settings: chatSession.generationSettings,
       appendChunk: { chunk in
-        appendChunk(chunk, to: assistantMessageID)
+        transcriptMutator.appendChunk(chunk, to: assistantMessageID, in: &chatSession)
       },
       updateGenerationMetrics: { metrics in
-        updateGenerationMetrics(metrics, for: assistantMessageID)
+        transcriptMutator.updateGenerationMetrics(
+          metrics, for: assistantMessageID, in: &chatSession)
       },
       updateContextUsage: {
         await updateContextUsage()
@@ -537,34 +492,20 @@ extension ChatSessionController {
       return
     }
 
-    annotateToolCall(result.toolCall, for: result.assistantMessageID)
+    transcriptMutator.annotateToolCall(
+      result.toolCall,
+      for: result.assistantMessageID,
+      in: &chatSession
+    )
     chatSession.toolCalls.append(result.toolCallRecord)
     notifySessionDidChange()
-    chatSession.messages.append(
-      ChatMessage(kind: .toolResult, content: "", toolResult: result.toolResult))
-    chatSession.messages.append(
-      ChatMessage(id: result.nextAssistantMessageID, kind: .assistant, content: ""))
+    transcriptMutator.appendToolResult(result.toolResult, to: &chatSession)
+    transcriptMutator.appendAssistantPlaceholder(
+      id: result.nextAssistantMessageID, to: &chatSession)
     notifySessionDidChange()
     try await streamAssistantReply(
       to: result.nextAssistantMessageID,
       toolPromptMode: .afterToolResult
-    )
-  }
-
-  fileprivate func annotateToolCall(_ toolCall: ToolCallModelMessage, for messageID: UUID) {
-    guard let index = chatSession.messages.firstIndex(where: { $0.id == messageID }) else {
-      return
-    }
-
-    let message = chatSession.messages[index]
-    chatSession.messages[index] = ChatMessage(
-      id: message.id,
-      kind: .toolCall,
-      content: "",
-      attachments: message.attachments,
-      generationMetrics: message.generationMetrics,
-      toolCall: toolCall,
-      toolResult: nil
     )
   }
 
