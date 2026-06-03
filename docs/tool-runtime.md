@@ -43,6 +43,13 @@ flowchart TD
   failed `invalid` tool observation containing the original tool name when it
   can be inferred and the parse/protocol error, then asks the model to continue
   within the normal tool-round budget.
+- Final no-tools responses are enforced by `FinalModeActionDetector`, not by
+  routing back through `ToolLoopCoordinator`. After terminal follow-up prompts,
+  such as approved write/edit follow-ups, denied-tool follow-ups, and budget
+  exhaustion, the detector parses the assistant text, blocks any further tool
+  attempt before execution, annotates the assistant message as a tool call, and
+  appends a structured failure observation. Final-mode failures use
+  `finalModeToolAttempt`; budget failures use `toolBudgetExceeded`.
 - `RawToolCallRequest` is the parser handoff model: tool name,
   workspace/session, raw argument values, and optional raw text for debugging.
 - `ToolCallRequest` is the validated execution-boundary model. It preserves the
@@ -176,9 +183,15 @@ flowchart TD
   file is missing, `edit_file` fails before approval or during approved
   revalidation and may include bounded workspace-relative path suggestions.
 - `edit_file` is the only model-facing tool for changing existing files.
-- Successful `write_file` and `edit_file` results are terminal for the chat
-  turn. The controller should show the auditable tool result but must not
-  request a follow-up model response that can restate the written file content.
+- Successful `write_file` and `edit_file` results are terminal for additional
+  tool execution in the current chat turn. The controller may request one final
+  no-tools assistant follow-up so the model can summarize the completed write,
+  but any emitted tool attempt in that final response must be converted into a
+  structured failure observation and must not execute.
+- Denied approval-sensitive tools may also receive one final no-tools assistant
+  follow-up. The denied tool result stays auditable, no side effect occurs, and
+  further tool attempts in the final response are recorded as structured
+  failures instead of executed.
 - Tool results must report affected paths where possible so the UI can show a
   useful audit trail. Domain result payloads use canonical workspace-relative
   paths; UI renderers may decide how to display them.

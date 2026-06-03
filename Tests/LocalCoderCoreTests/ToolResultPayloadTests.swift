@@ -41,6 +41,20 @@ struct ToolResultPayloadTests {
           ),
           recovery: .chooseOneOf(paths: [WorkspaceRelativePath(rawValue: "Sources/App.swift")])
         )),
+      .failure(
+        ToolFailure(
+          toolName: .editFile,
+          path: nil,
+          reason: .finalModeToolAttempt(requestedTool: .editFile),
+          recovery: .askUser(message: "Send another message to continue.")
+        )),
+      .failure(
+        ToolFailure(
+          toolName: .editFile,
+          path: nil,
+          reason: .toolBudgetExceeded(requestedTool: .editFile, iterationLimit: 6),
+          recovery: .askUser(message: "Send another message to continue.")
+        )),
     ]
 
     let decoded = try JSONDecoder().decode(
@@ -66,6 +80,40 @@ struct ToolResultPayloadTests {
     #expect(preview.text.contains("matched more than once"))
     #expect(preview.text.contains("Retry with a larger exact old_text block"))
     #expect(preview.affectedPaths == ["Sources/App.swift"])
+  }
+
+  @Test
+  func budgetExceededFailurePreviewExplainsLimit() {
+    let payload = ToolResultPayload.failure(
+      ToolFailure(
+        toolName: .editFile,
+        path: nil,
+        reason: .toolBudgetExceeded(requestedTool: .editFile, iterationLimit: 6)
+      ))
+
+    let preview = payload.preview
+
+    #expect(preview.status == .failed)
+    #expect(preview.text.contains("Tool budget exceeded for edit_file"))
+    #expect(preview.text.contains("6 tool iterations"))
+    #expect(preview.affectedPaths.isEmpty)
+  }
+
+  @Test
+  func finalModeToolAttemptFailurePreviewExplainsIgnoredAttempt() {
+    let payload = ToolResultPayload.failure(
+      ToolFailure(
+        toolName: .editFile,
+        path: nil,
+        reason: .finalModeToolAttempt(requestedTool: .editFile)
+      ))
+
+    let preview = payload.preview
+
+    #expect(preview.status == .failed)
+    #expect(preview.text.contains("Tool attempt ignored for edit_file"))
+    #expect(preview.text.contains("final for the current turn"))
+    #expect(preview.affectedPaths.isEmpty)
   }
 
   @Test

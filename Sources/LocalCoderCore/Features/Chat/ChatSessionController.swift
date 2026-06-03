@@ -18,6 +18,7 @@ public final class ChatSessionController {
   @ObservationIgnored private let toolOrchestrator: ToolOrchestrator
   @ObservationIgnored private let toolPromptPolicy: ToolPromptPolicy
   @ObservationIgnored private let toolLoopCoordinator: ToolLoopCoordinator
+  @ObservationIgnored private let finalModeActionDetector: FinalModeActionDetector
   @ObservationIgnored private let turnTracer: any TurnTracing
   @ObservationIgnored private let chatTurnCoordinator = ChatTurnCoordinator()
   @ObservationIgnored private let modelContextBuilder = ChatModelContextBuilder()
@@ -172,6 +173,10 @@ public final class ChatSessionController {
     self.toolLoopCoordinator = ToolLoopCoordinator(
       toolCallParser: toolCallParser,
       agentToolOrchestrator: toolOrchestrator,
+      turnTracer: turnTracer
+    )
+    self.finalModeActionDetector = FinalModeActionDetector(
+      toolCallParser: toolCallParser,
       turnTracer: turnTracer
     )
     self.attachmentCoordinator = ChatAttachmentCoordinator(loader: chatAttachmentLoader)
@@ -728,12 +733,6 @@ extension ChatSessionController {
         return
       }
 
-      guard !Self.completesApprovedTurnWithoutFollowUp(mergedRecord.request.toolName) else {
-        applyWorkflowEvents(events)
-        finishCompletedApprovedToolTurn(turnID)
-        return
-      }
-
       let nextAssistantMessageID = UUID()
       events.append(
         .assistantPlaceholderAppended(
@@ -746,17 +745,27 @@ extension ChatSessionController {
       try await streamAssistantReply(
         to: nextAssistantMessageID,
         interactionMode: chatSession.interactionMode,
-        toolPromptMode: .afterToolResultCanContinue,
+        toolPromptMode: followUpPromptMode(afterApprovedTool: mergedRecord.request.toolName),
         turnID: turnID
       )
-      try await runToolLoop(
-        workspace: workspace,
-        sessionID: existingRecord.request.sessionID,
-        lastAssistantMessageID: nextAssistantMessageID,
-        turnID: turnID,
-        interactionMode: chatSession.interactionMode,
-        remainingIterations: maxToolLoopIterations - 1
-      )
+      if isFinalApprovedToolFollowUp(mergedRecord.request.toolName) {
+        try await recordFinalModeToolAttemptIfNeeded(
+          workspaceID: workspace.id,
+          sessionID: existingRecord.request.sessionID,
+          assistantMessageID: nextAssistantMessageID,
+          turnID: turnID,
+          interactionMode: chatSession.interactionMode
+        )
+      } else {
+        try await runToolLoop(
+          workspace: workspace,
+          sessionID: existingRecord.request.sessionID,
+          lastAssistantMessageID: nextAssistantMessageID,
+          turnID: turnID,
+          interactionMode: chatSession.interactionMode,
+          remainingIterations: maxToolLoopIterations - 1
+        )
+      }
     } catch is CancellationError {
       finishCancelledApprovedToolTurn(turnID)
       return
@@ -896,6 +905,7 @@ extension ChatSessionController {
       affectedPaths: existingRecord.evaluation.modelFacingPaths
     )
     deniedRecord.events.append(ToolCallEvent(actor: .user, kind: .denied, message: message))
+    let nextAssistantMessageID = UUID()
     applyWorkflowEvents([
       .toolCallReplaced(deniedRecord),
       .toolResultAppended(
@@ -903,14 +913,46 @@ extension ChatSessionController {
         messageID: UUID(),
         turnID: turnID
       ),
+      .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
       .turnStatusChanged(
         turnID: turnID,
-        status: .completed,
+        status: .running,
         modelContextPolicy: nil
       ),
     ])
-    refreshContextUsage()
+    isGenerating = true
+    errorMessage = nil
+    refreshContextUsage(toolPromptMode: .afterToolResultFinal)
     notifySessionDidChange()
+
+    chatTurnCoordinator.startTurn(id: turnID) { [weak self] turnID in
+      guard let self else {
+        return
+      }
+      do {
+        try await streamAssistantReply(
+          to: nextAssistantMessageID,
+          interactionMode: chatSession.interactionMode,
+          toolPromptMode: .afterToolResultFinal,
+          turnID: turnID
+        )
+        try await recordFinalModeToolAttemptIfNeeded(
+          workspaceID: deniedRecord.request.workspaceID,
+          sessionID: deniedRecord.request.sessionID,
+          assistantMessageID: nextAssistantMessageID,
+          turnID: turnID,
+          interactionMode: chatSession.interactionMode
+        )
+      } catch is CancellationError {
+        finishCancelledApprovedToolTurn(turnID)
+        return
+      } catch {
+        finishFailedApprovedToolTurn(turnID, error: error)
+        return
+      }
+
+      finishCompletedApprovedToolTurn(turnID)
+    }
   }
 
   private func applyWorkflowEvents(_ events: [ChatWorkflowEvent]) {
@@ -975,7 +1017,11 @@ extension ChatSessionController {
     return merged
   }
 
-  private static func completesApprovedTurnWithoutFollowUp(_ toolName: ToolName) -> Bool {
+  private func followUpPromptMode(afterApprovedTool toolName: ToolName) -> ToolPromptMode {
+    isFinalApprovedToolFollowUp(toolName) ? .afterToolResultFinal : .afterToolResultCanContinue
+  }
+
+  private func isFinalApprovedToolFollowUp(_ toolName: ToolName) -> Bool {
     toolName == .writeFile || toolName == .editFile
   }
 
@@ -1096,45 +1142,70 @@ extension ChatSessionController {
           toolPromptMode: promptMode,
           turnID: turnID
         )
+        guard promptMode != .afterToolResultFinal else {
+          try await recordFinalModeToolAttemptIfNeeded(
+            workspaceID: workspace.id,
+            sessionID: sessionID,
+            assistantMessageID: nextAssistantMessageID,
+            turnID: turnID,
+            interactionMode: interactionMode,
+            reason: finalActionDetectionReason(remainingIterations: remainingIterations)
+          )
+          return
+        }
         currentAssistantMessageID = nextAssistantMessageID
       case .none, .stopTurn:
         return
       }
     }
 
-    replaceOverBudgetToolMarkup(
+    try await recordFinalModeToolAttemptIfNeeded(
+      workspaceID: workspace.id,
+      sessionID: sessionID,
       assistantMessageID: currentAssistantMessageID,
-      inTurn: turnID
+      turnID: turnID,
+      interactionMode: interactionMode,
+      reason: .toolBudgetExceeded(iterationLimit: maxToolLoopIterations)
     )
   }
 
-  private func replaceOverBudgetToolMarkup(
+  private func recordFinalModeToolAttemptIfNeeded(
+    workspaceID: Workspace.ID?,
+    sessionID: CodingSession.ID,
     assistantMessageID: ChatMessage.ID,
-    inTurn turnID: ChatTurnRecord.ID
-  ) {
+    turnID: ChatTurnRecord.ID,
+    interactionMode: WorkspaceInteractionMode,
+    reason: FinalModeActionDetectionReason = .finalMode
+  ) async throws {
     guard isCurrentTurn(turnID) else {
       return
     }
     guard
-      chatSession.messages.contains(where: { message in
-        message.id == assistantMessageID && containsOverBudgetToolAttempt(message)
-      })
+      let step = try await finalModeActionDetector.detect(
+        FinalModeActionDetectionRequest(
+          workspaceID: workspaceID,
+          sessionID: sessionID,
+          turnID: turnID,
+          assistantMessageID: assistantMessageID,
+          messages: chatSession.messages,
+          interactionMode: interactionMode,
+          reason: reason,
+          toolLoopIteration: maxToolLoopIterations + 1
+        )
+      )
     else {
       return
     }
-
-    transcriptMutator.replaceAssistantContent(
-      "Tool limit reached for this request. Send another message to continue.",
-      for: assistantMessageID,
-      in: &chatSession
-    )
+    applyWorkflowEvents(step.events)
     notifySessionDidChange()
   }
 
-  private func containsOverBudgetToolAttempt(_ message: ChatMessage) -> Bool {
-    message.containsStreamingToolCallMarkup
-      || (message.kind == .assistant
-        && ToolIntentHeuristics.looksLikeNonTaggedToolIntent(message.content))
+  private func finalActionDetectionReason(
+    remainingIterations: Int
+  ) -> FinalModeActionDetectionReason {
+    remainingIterations == 0
+      ? .toolBudgetExceeded(iterationLimit: maxToolLoopIterations)
+      : .finalMode
   }
 
   fileprivate func systemPrompt(toolPromptMode: ToolPromptMode) -> String {

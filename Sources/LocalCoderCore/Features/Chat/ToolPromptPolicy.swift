@@ -104,8 +104,8 @@ public struct ToolPromptPolicy: Sendable {
       return [
         basePrompt,
         """
-        You just received a tool result and the tool budget for this request is exhausted.
-        Answer the user's request directly. Do not emit another <action> tag in this response.
+        You just received a tool result. No more tools may run in this response.
+        Answer the user's request directly. Do not emit another <action> tag.
         If more work is needed, briefly say what remains and ask the user to send another message.
         """,
       ].joined(separator: "\n\n")

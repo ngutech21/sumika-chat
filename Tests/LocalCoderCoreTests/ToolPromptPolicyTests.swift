@@ -192,8 +192,9 @@ struct ToolPromptPolicyTests {
     )
 
     #expect(prompt.contains("Base"))
-    #expect(prompt.contains("tool budget"))
-    #expect(prompt.contains("Do not emit another <action> tag"))
+    #expect(prompt.contains("No more tools may run in this response."))
+    #expect(prompt.contains("Do not emit another <action> tag."))
+    #expect(!prompt.contains("tool budget"))
     #expect(!prompt.contains("Available tools:"))
   }
 

@@ -348,6 +348,31 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func agentModeInWorkspaceIncludesToolsForNonKeywordCodingPrompt() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["I will inspect the failure."])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.draft = "Fix the failing test"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.errorMessage == nil)
+    #expect(controller.chatSession.toolCalls.isEmpty)
+
+    let capturedSystemPrompts = await runtime.capturedSystemPrompts
+    #expect(capturedSystemPrompts.count == 1)
+    #expect(capturedSystemPrompts[0].contains("Available tools:"))
+    #expect(capturedSystemPrompts[0].contains("read_file"))
+    #expect(capturedSystemPrompts[0].contains("edit_file"))
+    #expect(capturedSystemPrompts[0].contains("write_file"))
+  }
+
+  @Test
   func sendMessageWithoutWorkspaceDoesNotExecuteAssistantAction() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: [
       """

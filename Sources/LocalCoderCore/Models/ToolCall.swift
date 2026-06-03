@@ -600,6 +600,8 @@ public enum ToolFailureReason: Codable, Equatable, Sendable {
   case emptyPath
   case unsupportedURLScheme(String)
   case permissionDenied
+  case finalModeToolAttempt(requestedTool: ToolName?)
+  case toolBudgetExceeded(requestedTool: ToolName?, iterationLimit: Int)
   case unsupportedFileType(String)
   case invalidArguments(InvalidToolCallReason)
   case executionError(String)
@@ -902,7 +904,8 @@ nonisolated extension ToolFailureReason {
     switch self {
     case .permissionDenied, .pathOutsideWorkspace:
       .denied
-    case .fileNotFound, .emptyPath, .unsupportedURLScheme, .unsupportedFileType,
+    case .fileNotFound, .emptyPath, .unsupportedURLScheme, .finalModeToolAttempt,
+      .toolBudgetExceeded, .unsupportedFileType,
       .invalidArguments, .executionError, .cancelled:
       .failed
     }
@@ -929,6 +932,14 @@ nonisolated extension ToolFailureReason {
       return "Unsupported URL scheme: \(scheme)."
     case .permissionDenied:
       return "Permission denied."
+    case .finalModeToolAttempt(let requestedTool):
+      let toolText = requestedTool.map { " for \($0.rawValue)" } ?? ""
+      return
+        "Tool attempt ignored\(toolText). This response is final for the current turn, so no further tools may run until the user sends another message."
+    case .toolBudgetExceeded(let requestedTool, let iterationLimit):
+      let toolText = requestedTool.map { " for \($0.rawValue)" } ?? ""
+      return
+        "Tool budget exceeded\(toolText). The limit for this request is \(iterationLimit) tool iterations. No further tools may run until the user sends another message."
     case .unsupportedFileType(let fileType):
       return "Unsupported file type: \(fileType)."
     case .invalidArguments(let reason):

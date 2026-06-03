@@ -66,6 +66,11 @@ flowchart TD
   result. Malformed tagged tool attempts and strong non-tagged tool intent are
   converted into failed `invalid` tool observations so the model can recover in
   the next step instead of exposing protocol drift as normal assistant prose.
+- `FinalModeActionDetector` handles assistant output from final no-tools
+  follow-ups. It is parser/transcript policy only: it does not execute tools or
+  require a workspace execution request. If the final answer still contains a
+  tool attempt, it records a structured blocked observation and removes the raw
+  action from normal assistant prose.
 - `ChatWorkflowEventApplier` applies typed workflow events to `ChatSessionState`
   using `ChatTranscriptMutator`. These events are not persisted; persistence
   stores only the resulting messages, tool-call records, and turns.
@@ -86,17 +91,18 @@ flowchart TD
    tool call until the turn budget of six tool calls is exhausted. Failed tools,
    unknown tools, and invalid tool-call observations also count against this
    budget and are returned to the model as observations so it can choose the
-   next step. Successful `write_file` and `edit_file` calls complete the turn
-   without a follow-up model response.
+   next step. Successful `write_file` and `edit_file` calls switch to a final
+   no-tools follow-up instead of continuing the normal tool loop.
 6. If the tool call requires approval, workflow events record the call and mark
    the turn `.awaitingApproval`; active generation ends until the user approves
    or denies the call.
 7. Approval executes the same validated tool request and appends a real tool
-   result. Successful `write_file` and `edit_file` approvals complete the turn
-   without a follow-up model response; other successful tools resume the turn
-   with a direct follow-up response.
-8. Denial appends a denied tool result and completes the turn without a local
-   side effect.
+   result. Successful `write_file` and `edit_file` approvals stream one final
+   no-tools assistant response; other successful tools resume the normal tool
+   loop with a direct follow-up response.
+8. Denial appends a denied tool result, performs no local side effect, and
+   streams one final no-tools assistant response so the model can acknowledge
+   the denial.
 9. A successful turn is marked `.completed`.
 10. A failed turn is marked `.failed` and excluded from future model context.
 11. A cancelled turn is marked `.cancelled` and excluded from future model
@@ -121,8 +127,11 @@ flowchart TD
   generating the direct follow-up response.
 - Direct follow-up responses may emit another tool call within the controller's
   six-call turn budget. When the budget is exhausted, the final follow-up prompt
-  disables tools and any remaining raw action markup is replaced with a tool
-  limit message.
+  disables tools and any remaining tool attempt is recorded as a structured
+  `toolBudgetExceeded` failure observation.
+- Final no-tools follow-ups after approved write/edit tools or denied tools also
+  disable tools. Any remaining tool attempt is recorded as a structured
+  `finalModeToolAttempt` failure observation.
 - Cancel should schedule a normal context-usage refresh with the latest filtered
   snapshot. It must not block turn cancellation on synchronous token counting.
 

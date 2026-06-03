@@ -450,7 +450,7 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
-  func completedWriteFileActionDoesNotRequestFollowUp() async throws {
+  func completedWriteFileActionRequestsFinalFollowUp() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let assistantMessageID = UUID()
@@ -482,8 +482,13 @@ struct ToolLoopCoordinatorTests {
 
     #expect(toolCall(from: result)?.toolName == .writeFile)
     #expect(toolCallRecord(from: result)?.status == .completed)
-    #expect(completedWithoutFollowUpToolResult(from: result)?.toolName == .writeFile)
-    #expect(completedWithoutFollowUpToolResult(from: result)?.preview.status == .success)
+    #expect(completedToolResult(from: result)?.toolName == .writeFile)
+    #expect(completedToolResult(from: result)?.preview.status == .success)
+    guard case .resumeGeneration(_, let promptMode) = result?.continuation else {
+      Issue.record("Expected completed write_file to request a final follow-up.")
+      return
+    }
+    #expect(promptMode == .afterToolResultFinal)
   }
 
   private func makeWorkspace(sessionID: CodingSession.ID) throws -> Workspace {
@@ -560,15 +565,6 @@ struct ToolLoopCoordinatorTests {
     return toolResult(from: step)
   }
 
-  private func completedWithoutFollowUpToolResult(
-    from step: ChatWorkflowStep?
-  ) -> ToolResultModelMessage? {
-    guard case .stopTurn = step?.continuation else {
-      return nil
-    }
-    return toolResult(from: step)
-  }
-
   private func toolResult(from step: ChatWorkflowStep?) -> ToolResultModelMessage? {
     for event in step?.events ?? [] {
       guard case .toolResultAppended(let toolResult, _, _) = event else {
@@ -625,6 +621,9 @@ private struct CompletedWriteFileToolOrchestrator: ToolOrchestrating {
         decision: .allowed,
         reason: "Allowed for test.",
         riskLevel: .high
+      ),
+      resultPayload: .writeFile(
+        .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 19)
       ),
       resultPreview: ToolResultPreview(status: .success, text: "Wrote test content.")
     )

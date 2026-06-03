@@ -184,17 +184,6 @@ public struct ToolLoopCoordinator: Sendable {
         preview: resultPreview
       )
 
-      if completesTurnWithoutFollowUp(output.request.toolName) && record.status == .completed {
-        return completedWithoutFollowUpStep(
-          assistantMessageID: request.assistantMessageID,
-          turnID: request.turnID,
-          toolCall: output.modelMessage,
-          record: record,
-          toolResult: toolResult,
-          focusedFileState: request.focusedFileState
-        )
-      }
-
       return completedStep(
         assistantMessageID: request.assistantMessageID,
         turnID: request.turnID,
@@ -202,7 +191,10 @@ public struct ToolLoopCoordinator: Sendable {
         record: record,
         toolResult: toolResult,
         focusedFileState: request.focusedFileState,
-        followUpPromptMode: request.followUpPromptMode
+        followUpPromptMode: followUpPromptMode(
+          after: record,
+          defaultMode: request.followUpPromptMode
+        )
       )
     }
   }
@@ -262,29 +254,6 @@ public struct ToolLoopCoordinator: Sendable {
         assistantMessageID: nextAssistantMessageID,
         promptMode: followUpPromptMode
       )
-    )
-  }
-
-  private func completedWithoutFollowUpStep(
-    assistantMessageID: ChatMessage.ID,
-    turnID: ChatTurnRecord.ID,
-    toolCall: ToolCallModelMessage,
-    record: ToolCallRecord,
-    toolResult: ToolResultModelMessage,
-    focusedFileState: FocusedFileState
-  ) -> ChatWorkflowStep {
-    var events: [ChatWorkflowEvent] = [
-      .assistantMessageAnnotatedAsToolCall(
-        assistantMessageID: assistantMessageID,
-        toolCall: toolCall
-      ),
-      .toolCallAppended(record, turnID: turnID),
-      .toolResultAppended(toolResult, messageID: UUID(), turnID: turnID),
-    ]
-    events.append(contentsOf: focusedFileEvents(record: record, from: focusedFileState))
-    return ChatWorkflowStep(
-      events: events,
-      continuation: .stopTurn
     )
   }
 
@@ -381,8 +350,19 @@ public struct ToolLoopCoordinator: Sendable {
       ))
   }
 
-  private func completesTurnWithoutFollowUp(_ toolName: ToolName) -> Bool {
-    toolName == .writeFile || toolName == .editFile
+  private func followUpPromptMode(
+    after record: ToolCallRecord,
+    defaultMode: ToolPromptMode
+  ) -> ToolPromptMode {
+    guard record.status == .completed else {
+      return defaultMode
+    }
+    switch record.request.toolName {
+    case .writeFile, .editFile:
+      return .afterToolResultFinal
+    default:
+      return defaultMode
+    }
   }
 
   private func invalidToolCallOutput(

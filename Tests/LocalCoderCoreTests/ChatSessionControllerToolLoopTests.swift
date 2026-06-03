@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct ChatSessionControllerToolLoopTests {
   @Test
-  func sendMessageRunsReadOnlyToolsUntilBudgetThenSuppressesFurtherToolMarkup() async throws {
+  func sendMessageRunsReadOnlyToolsUntilBudgetThenRecordsStructuredBudgetResult() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let readAction = """
@@ -32,23 +32,29 @@ struct ChatSessionControllerToolLoopTests {
 
     try await waitUntil { !controller.isGenerating }
 
-    #expect(controller.chatSession.toolCalls.count == 6)
-    #expect(controller.chatSession.toolCalls.allSatisfy { $0.status == .completed })
-    #expect(controller.chatSession.messages.last?.kind == .assistant)
-    #expect(
-      controller.chatSession.messages.last?.content
-        == "Tool limit reached for this request. Send another message to continue.")
+    #expect(controller.chatSession.toolCalls.count == 7)
+    #expect(controller.chatSession.toolCalls.dropLast().allSatisfy { $0.status == .completed })
+    #expect(controller.chatSession.toolCalls.last?.status == .failed)
+    #expect(controller.chatSession.messages.last?.kind == .toolResult)
+    guard
+      case .failure(let failure) = controller.chatSession.messages.last?.toolResult?.payload
+    else {
+      Issue.record("Expected final over-budget result to be structured as a tool failure.")
+      return
+    }
+    #expect(failure.reason == .toolBudgetExceeded(requestedTool: .readFile, iterationLimit: 6))
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 7)
     #expect(capturedSystemPrompts[1].contains("Available tools:"))
     #expect(capturedSystemPrompts[5].contains("Available tools:"))
-    #expect(capturedSystemPrompts[6].contains("tool budget"))
+    #expect(capturedSystemPrompts[6].contains("No more tools may run in this response."))
+    #expect(!capturedSystemPrompts[6].contains("tool budget"))
     #expect(!capturedSystemPrompts[6].contains("Available tools:"))
   }
 
   @Test
-  func sendMessageSuppressesFurtherNonTaggedToolIntentAfterInvalidBudget() async throws {
+  func sendMessageRecordsStructuredBudgetResultForFurtherNonTaggedToolIntent() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let invalidToolIntent = """
@@ -71,12 +77,17 @@ struct ChatSessionControllerToolLoopTests {
 
     try await waitUntil { !controller.isGenerating }
 
-    #expect(controller.chatSession.toolCalls.count == 6)
+    #expect(controller.chatSession.toolCalls.count == 7)
     #expect(controller.chatSession.toolCalls.allSatisfy { $0.request.toolName == .invalid })
-    #expect(controller.chatSession.messages.last?.kind == .assistant)
-    #expect(
-      controller.chatSession.messages.last?.content
-        == "Tool limit reached for this request. Send another message to continue.")
+    #expect(controller.chatSession.toolCalls.last?.status == .failed)
+    #expect(controller.chatSession.messages.last?.kind == .toolResult)
+    guard
+      case .failure(let failure) = controller.chatSession.messages.last?.toolResult?.payload
+    else {
+      Issue.record("Expected final over-budget result to be structured as a tool failure.")
+      return
+    }
+    #expect(failure.reason == .toolBudgetExceeded(requestedTool: .editFile, iterationLimit: 6))
     #expect(!controller.chatSession.messages.contains { $0.content == invalidToolIntent })
   }
 

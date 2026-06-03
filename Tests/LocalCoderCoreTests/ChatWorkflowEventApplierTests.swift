@@ -190,6 +190,70 @@ struct ChatWorkflowEventApplierTests {
     #expect(state.messages[0].deliveryStatus == .cancelled)
     #expect(state.turns[0].messageIDs == [cancelledID, keptID])
   }
+
+  @Test
+  func reportsMissingMessageTargetWithoutCrashingProductionApply() {
+    let missingMessageID = UUID()
+    let toolCall = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .readFile,
+      arguments: [ToolCallModelArgument(name: "path", value: "README.md")]
+    )
+    let event = ChatWorkflowEvent.assistantMessageAnnotatedAsToolCall(
+      assistantMessageID: missingMessageID,
+      toolCall: toolCall
+    )
+    var state = makeState()
+
+    let diagnostics = ChatWorkflowEventApplier().apply(event, to: &state)
+
+    #expect(state.messages.isEmpty)
+    #expect(diagnostics.count == 1)
+    #expect(diagnostics[0].event == event)
+    #expect(diagnostics[0].missingTargetKind == .message)
+    #expect(diagnostics[0].missingTargetID == missingMessageID)
+  }
+
+  @Test
+  func reportsMissingTurnTargetWhileStillAppendingAuditableToolResult() {
+    let missingTurnID = UUID()
+    let messageID = UUID()
+    let result = ToolResultModelMessage(
+      callID: UUID(),
+      toolName: .listFiles,
+      preview: ToolResultPreview(status: .success, text: "README.md")
+    )
+    let event = ChatWorkflowEvent.toolResultAppended(
+      result,
+      messageID: messageID,
+      turnID: missingTurnID
+    )
+    var state = makeState()
+
+    let diagnostics = ChatWorkflowEventApplier().apply(event, to: &state)
+
+    #expect(state.messages.map(\.id) == [messageID])
+    #expect(state.messages[0].toolResult == result)
+    #expect(diagnostics.count == 1)
+    #expect(diagnostics[0].event == event)
+    #expect(diagnostics[0].missingTargetKind == .turn)
+    #expect(diagnostics[0].missingTargetID == missingTurnID)
+  }
+
+  @Test
+  func reportsMissingToolCallReplacementTarget() {
+    let record = makeToolCallRecord(status: .completed)
+    let event = ChatWorkflowEvent.toolCallReplaced(record)
+    var state = makeState()
+
+    let diagnostics = ChatWorkflowEventApplier().apply(event, to: &state)
+
+    #expect(state.toolCalls.isEmpty)
+    #expect(diagnostics.count == 1)
+    #expect(diagnostics[0].event == event)
+    #expect(diagnostics[0].missingTargetKind == .toolCall)
+    #expect(diagnostics[0].missingTargetID == record.id)
+  }
 }
 
 private func makeState(
