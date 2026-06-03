@@ -39,6 +39,14 @@ public struct ToolPermissionEvaluator: Sendable {
         riskLevel: .low,
         successReason: "Reading files inside the workspace is allowed."
       )
+    case .showFile(let input):
+      return evaluatePathTool(
+        paths: [input.path],
+        in: workspace,
+        decision: .allowed,
+        riskLevel: .low,
+        successReason: "Displaying files inside the workspace is allowed."
+      )
     case .searchFiles(let input):
       return evaluatePathTool(
         paths: [input.path ?? "."],

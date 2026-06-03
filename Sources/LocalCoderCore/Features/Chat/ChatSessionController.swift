@@ -75,6 +75,7 @@ public final class ChatSessionController {
       modelContextTokenLimit: storedSettings.contextTokenLimit,
       chatSession: ChatSessionState(
         messages: [],
+        modelContextMessages: [],
         toolCalls: [],
         attachments: [],
         systemPrompt: storedSettings.systemPrompt,
@@ -227,6 +228,7 @@ extension ChatSessionController {
     contextUsage = nil
     chatSession = ChatSessionState(
       messages: session.messages,
+      modelContextMessages: session.modelContextMessages,
       toolCalls: session.toolCalls,
       turns: session.turns,
       attachments: [],
@@ -248,6 +250,7 @@ extension ChatSessionController {
     var snapshot = session
     snapshot.selectedModelID = modelRuntime.selectedModelID
     snapshot.messages = chatSession.messages
+    snapshot.modelContextMessages = chatSession.modelContextMessages
     snapshot.toolCalls = chatSession.toolCalls
     snapshot.turns = chatSession.turns
     snapshot.focusedFileState = chatSession.focusedFileState
@@ -322,6 +325,23 @@ extension ChatSessionController {
       attachments: sentAttachments,
       to: &chatSession
     )
+    var modelContextMessages: [ChatModelContextMessage] = []
+    if let focusedFileContext = modelContextBuilder.focusedFileContextMessage(
+      from: chatSession.focusedFileState,
+      turnID: turnID
+    ) {
+      modelContextMessages.append(focusedFileContext)
+    }
+    modelContextMessages.append(
+      ChatModelContextMessage(
+        turnID: turnID,
+        sourceMessageID: userMessageID,
+        role: .user,
+        content: prompt,
+        attachments: sentAttachments
+      )
+    )
+    transcriptMutator.appendModelContextMessages(modelContextMessages, to: &chatSession)
     transcriptMutator.appendAssistantPlaceholder(
       id: assistantMessageID,
       turnID: turnID,
@@ -1037,7 +1057,10 @@ extension ChatSessionController {
     async throws
   {
     let contextBuildStartedAt = Date()
-    let contextMessages = modelContextBuilder.messages(from: chatSession, includingTurnID: turnID)
+    let contextMessages = modelContextBuilder.messages(
+      from: chatSession,
+      includingTurnID: turnID
+    )
     traceTurnPhase(
       .contextBuild,
       startedAt: contextBuildStartedAt,
@@ -1057,7 +1080,7 @@ extension ChatSessionController {
       messageCount: contextMessages.count,
       interactionMode: interactionMode
     )
-    try await chatGenerationCoordinator.streamAssistantReply(
+    let assistantModelContent = try await chatGenerationCoordinator.streamAssistantReply(
       turnID: turnID,
       interactionMode: interactionMode,
       messages: contextMessages,
@@ -1079,9 +1102,22 @@ extension ChatSessionController {
         transcriptMutator.updateDeliveryStatus(.complete, for: assistantMessageID, in: &chatSession)
       },
       updateContextUsage: {
-        refreshContextUsage(toolPromptMode: toolPromptMode)
+        await MainActor.run {}
       }
     )
+    guard isCurrentTurn(turnID), !assistantModelContent.isEmpty else {
+      return
+    }
+    transcriptMutator.appendModelContextMessage(
+      ChatModelContextMessage(
+        turnID: turnID,
+        sourceMessageID: assistantMessageID,
+        role: .assistant,
+        content: assistantModelContent
+      ),
+      to: &chatSession
+    )
+    refreshContextUsage(toolPromptMode: toolPromptMode)
   }
 
   fileprivate func runToolLoop(
@@ -1247,7 +1283,7 @@ extension ChatSessionController {
     case .chat:
       return .disabled
     case .inspect:
-      return .afterInspectToolResultCanContinue
+      return .inspect
     case .agent:
       return .afterToolResultCanContinue
     }

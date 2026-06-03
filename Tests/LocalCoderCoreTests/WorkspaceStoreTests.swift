@@ -27,6 +27,10 @@ struct WorkspaceStoreTests {
     let store = WorkspaceStore(libraryURL: libraryURL)
     let session = CodingSession(
       selectedModelID: "gemma3-1b",
+      modelContextMessages: [
+        ChatModelContextMessage(role: .user, content: "hello"),
+        ChatModelContextMessage(role: .assistant, content: "hi"),
+      ],
       systemPrompt: "Use short answers.",
       generationSettings: ChatGenerationSettings(
         temperature: 0.2,
@@ -165,6 +169,9 @@ struct WorkspaceStoreTests {
 
     #expect(decoded.id == legacySession.id)
     #expect(decoded.messages == legacySession.messages)
+    #expect(decoded.modelContextMessages.count == 1)
+    #expect(decoded.modelContextMessages[0].role == .user)
+    #expect(decoded.modelContextMessages[0].content == "hello")
     #expect(decoded.toolCalls.isEmpty)
     #expect(decoded.turns.isEmpty)
     #expect(decoded.focusedFileState == .empty)

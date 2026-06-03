@@ -31,7 +31,7 @@ struct ChatGenerationCoordinatorTests {
     var updatedMetrics: ChatGenerationMetrics?
     var contextUsageUpdateCount = 0
 
-    try await coordinator.streamAssistantReply(
+    let assistantContent = try await coordinator.streamAssistantReply(
       turnID: turnID,
       messages: [],
       systemPrompt: "Use tools.",
@@ -47,6 +47,7 @@ struct ChatGenerationCoordinatorTests {
     )
 
     #expect(streamedContent == action)
+    #expect(assistantContent == action)
     #expect(updatedMetrics?.generatedTokenCount == 4)
     #expect((updatedMetrics?.durationMs ?? 0) > 0)
     #expect(contextUsageUpdateCount == 1)
@@ -78,7 +79,7 @@ struct ChatGenerationCoordinatorTests {
     var updatedMetrics: ChatGenerationMetrics?
     var contextUsageUpdateCount = 0
 
-    try await coordinator.streamAssistantReply(
+    let assistantContent = try await coordinator.streamAssistantReply(
       messages: [],
       systemPrompt: "Use tools.",
       settings: .codingDefault,
@@ -93,6 +94,7 @@ struct ChatGenerationCoordinatorTests {
     )
 
     #expect(streamedContent == combined)
+    #expect(assistantContent == combined)
     #expect(updatedMetrics?.generatedTokenCount == 1)
     #expect(updatedMetrics?.tokensPerSecond == 100)
     #expect((updatedMetrics?.durationMs ?? 0) > 0)
@@ -109,7 +111,7 @@ struct ChatGenerationCoordinatorTests {
     )
     var updatedMetrics: ChatGenerationMetrics?
 
-    try await coordinator.streamAssistantReply(
+    let assistantContent = try await coordinator.streamAssistantReply(
       messages: [],
       systemPrompt: "Answer normally.",
       settings: .codingDefault,
@@ -121,6 +123,7 @@ struct ChatGenerationCoordinatorTests {
       updateContextUsage: {}
     )
 
+    #expect(assistantContent == "hello world")
     #expect(updatedMetrics?.generatedTokenCount == 2)
     #expect(updatedMetrics?.tokensPerSecond == 100)
     #expect((updatedMetrics?.durationMs ?? 0) > 0)
@@ -161,7 +164,7 @@ struct ChatGenerationCoordinatorTests {
     )
     var chunks: [String] = []
 
-    try await coordinator.streamAssistantReply(
+    _ = try await coordinator.streamAssistantReply(
       messages: [],
       systemPrompt: "Answer normally.",
       settings: .codingDefault,
@@ -186,9 +189,9 @@ struct ChatGenerationCoordinatorTests {
       streamingFlushCharacterLimit: 1
     )
 
-    try await coordinator.streamAssistantReply(
+    _ = try await coordinator.streamAssistantReply(
       turnID: turnID,
-      messages: [ChatMessage(userContent: "hi")],
+      messages: [ChatModelContextMessage(role: .user, content: "hi")],
       systemPrompt: "Answer normally.",
       settings: .codingDefault,
       stopAfterCompleteToolAction: false,

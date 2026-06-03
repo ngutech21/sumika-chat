@@ -101,6 +101,35 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
+  func appendsDirectAssistantMessageAndModelContextSummary() {
+    let turnID = UUID()
+    let messageID = UUID()
+    var state = makeState(turns: [ChatTurnRecord(id: turnID, status: .running)])
+
+    ChatWorkflowEventApplier().apply(
+      [
+        .assistantMessageAppended(
+          content: "Here is `README.md`:\n\n    1: project notes",
+          modelContextContent: "Displayed show_file result for README.md directly to the user.",
+          messageID: messageID,
+          turnID: turnID
+        )
+      ],
+      to: &state
+    )
+
+    #expect(state.messages.map(\.id) == [messageID])
+    #expect(state.messages[0].kind == .assistant)
+    #expect(state.messages[0].content.contains("1: project notes"))
+    #expect(state.messages[0].deliveryStatus == .complete)
+    #expect(state.turns[0].messageIDs == [messageID])
+    #expect(state.modelContextMessages.map(\.role) == [.assistant])
+    #expect(
+      state.modelContextMessages[0].content
+        == "Displayed show_file result for README.md directly to the user.")
+  }
+
+  @Test
   func updatesTurnStatusAndModelContextPolicy() {
     let turnID = UUID()
     var state = makeState(turns: [ChatTurnRecord(id: turnID, status: .running)])

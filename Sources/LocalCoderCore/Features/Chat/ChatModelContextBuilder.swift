@@ -4,7 +4,7 @@ public struct ChatModelContextBuilder: Sendable {
   public func messages(
     from state: ChatSessionState,
     includingTurnID: ChatTurnRecord.ID? = nil
-  ) -> [ChatMessage] {
+  ) -> [ChatModelContextMessage] {
     let excludedTurnIDs = Set(
       state.turns.compactMap { turn -> ChatTurnRecord.ID? in
         guard turn.modelContextPolicy == .excluded, turn.id != includingTurnID else {
@@ -14,26 +14,22 @@ public struct ChatModelContextBuilder: Sendable {
       }
     )
 
-    let transcriptMessages: [ChatMessage]
-    if excludedTurnIDs.isEmpty {
-      transcriptMessages = state.messages
-    } else {
-      transcriptMessages = state.messages.filter { message in
-        guard let turnID = message.turnID else {
-          return true
-        }
-        return !excludedTurnIDs.contains(turnID)
+    guard !excludedTurnIDs.isEmpty else {
+      return state.modelContextMessages
+    }
+
+    return state.modelContextMessages.filter { message in
+      guard let turnID = message.turnID else {
+        return true
       }
+      return !excludedTurnIDs.contains(turnID)
     }
-
-    guard let focusedFileContext = focusedFileContextMessage(from: state.focusedFileState) else {
-      return transcriptMessages
-    }
-
-    return [focusedFileContext] + transcriptMessages
   }
 
-  private func focusedFileContextMessage(from state: FocusedFileState) -> ChatMessage? {
+  public func focusedFileContextMessage(
+    from state: FocusedFileState,
+    turnID: ChatTurnRecord.ID? = nil
+  ) -> ChatModelContextMessage? {
     if let activePath = state.activePath {
       let focusedPath = state.recentPaths.first { $0.path == activePath }
       var lines = [
@@ -47,7 +43,11 @@ public struct ChatModelContextBuilder: Sendable {
         lines.append(excerpt)
       }
       lines.append("Explicit file paths in the user request or tool call take precedence.")
-      return ChatMessage(systemContent: lines.joined(separator: "\n"))
+      return ChatModelContextMessage(
+        turnID: turnID,
+        role: .system,
+        content: lines.joined(separator: "\n")
+      )
     }
 
     let ambiguousPaths = state.recentPaths.filter { $0.confidence == .ambiguous }
@@ -61,7 +61,7 @@ public struct ChatModelContextBuilder: Sendable {
       \(paths.joined(separator: "\n"))
       Do not assume a single active file unless the user names one.
       """
-    return ChatMessage(systemContent: content)
+    return ChatModelContextMessage(turnID: turnID, role: .system, content: content)
   }
 }
 

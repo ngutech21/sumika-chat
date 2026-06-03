@@ -6,12 +6,12 @@ public protocol ChatModelRuntime: Sendable {
   func clearContext() async
   func generatedTokenCount(for text: String) async throws -> Int
   func contextUsage(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage
   func streamReply(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -46,7 +46,7 @@ public struct MockChatRuntime: ChatModelRuntime {
   }
 
   public func contextUsage(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -59,7 +59,7 @@ public struct MockChatRuntime: ChatModelRuntime {
   }
 
   public func streamReply(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -68,7 +68,7 @@ public struct MockChatRuntime: ChatModelRuntime {
     _ = systemPrompt
     _ = settings
 
-    let lastMessage = messages.last(where: { $0.kind == .user })
+    let lastMessage = messages.last(where: { $0.role == .user })
     let attachmentSummary =
       lastMessage?.attachments.map(\.displayName).joined(separator: ", ") ?? ""
     let lastPrompt = lastMessage?.content ?? ""

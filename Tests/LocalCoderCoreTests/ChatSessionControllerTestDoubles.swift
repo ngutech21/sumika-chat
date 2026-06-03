@@ -26,7 +26,7 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
   }
 
   func contextUsage(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -37,7 +37,7 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -95,7 +95,7 @@ actor ControlledContextUsageRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -118,7 +118,7 @@ actor ControlledContextUsageRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -147,7 +147,7 @@ actor CountingClearContextRuntime: ChatModelRuntime {
   }
 
   func contextUsage(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -158,7 +158,7 @@ actor CountingClearContextRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -190,7 +190,7 @@ actor InterruptedStreamingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -201,7 +201,7 @@ actor InterruptedStreamingRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -227,7 +227,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   private var streamReplyCount = 0
   private var contextUsageCount = 0
   private(set) var completedCallIndexes: Set<Int> = []
-  private(set) var capturedMessages: [[ChatMessage]] = []
+  private(set) var capturedMessages: [[ChatModelContextMessage]] = []
   private(set) var capturedSystemPrompts: [String] = []
 
   init(turns: [[String]], blockedCallIndexes: Set<Int>) {
@@ -251,7 +251,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -268,7 +268,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -346,7 +346,7 @@ actor PartialFailingStreamingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -357,7 +357,7 @@ actor PartialFailingStreamingRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -402,7 +402,7 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
   }
 
   func contextUsage(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -413,7 +413,7 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -492,7 +492,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private let turns: [[String]]
   private let failingStreamReplyCalls: Set<Int>
   private var streamReplyCount = 0
-  private(set) var capturedMessages: [[ChatMessage]] = []
+  private(set) var capturedMessages: [[ChatModelContextMessage]] = []
   private(set) var capturedSystemPrompts: [String] = []
   private(set) var capturedContextUsageSystemPrompts: [String] = []
 
@@ -515,7 +515,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -528,7 +528,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings

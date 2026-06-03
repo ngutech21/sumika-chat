@@ -10,18 +10,21 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func templateMessagesEmbedSystemPromptAndAlternateAfterTerminalWriteResult() throws {
     let callID = UUID()
-    let messages: [ChatMessage] = [
-      ChatMessage(userContent: "create index.htm"),
-      ChatMessage(
-        toolCall: writeFileToolCall(
+    let messages: [ChatModelContextMessage] = [
+      ChatModelContextMessage(role: .user, content: "create index.htm"),
+      ChatModelContextMessage(
+        role: .assistant,
+        content: writeFileToolCall(
           callID: callID,
           arguments: [
             "path": .string("index.htm"),
             "content": .string("<html></html>"),
-          ])
+          ]
+        ).modelContextContent
       ),
-      ChatMessage(
-        toolResult: ToolResultModelMessage(
+      ChatModelContextMessage(
+        role: .assistant,
+        content: ToolResultModelMessage(
           callID: callID,
           toolName: .writeFile,
           preview: ToolResultPreview(
@@ -29,9 +32,9 @@ struct GemmaMLXRuntimeTemplateTests {
             text: "index.htm · 1 lines, 13 bytes",
             affectedPaths: ["index.htm"]
           )
-        )
+        ).modelContextContent
       ),
-      ChatMessage(userContent: "change the background color to green"),
+      ChatModelContextMessage(role: .user, content: "change the background color to green"),
     ]
 
     let rendered = try GemmaMLXRuntime.templateMessages(
@@ -51,15 +54,18 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func generationHistoryEmbedsSystemPromptWithoutAddingSystemRole() throws {
     let callID = UUID()
-    let messages: [ChatMessage] = [
-      ChatMessage(userContent: "create index.htm"),
-      ChatMessage(
-        toolCall: writeFileToolCall(
+    let messages: [ChatModelContextMessage] = [
+      ChatModelContextMessage(role: .user, content: "create index.htm"),
+      ChatModelContextMessage(
+        role: .assistant,
+        content: writeFileToolCall(
           callID: callID,
-          arguments: ["path": .string("index.htm")])
+          arguments: ["path": .string("index.htm")]
+        ).modelContextContent
       ),
-      ChatMessage(
-        toolResult: ToolResultModelMessage(
+      ChatModelContextMessage(
+        role: .assistant,
+        content: ToolResultModelMessage(
           callID: callID,
           toolName: .writeFile,
           preview: ToolResultPreview(
@@ -67,7 +73,7 @@ struct GemmaMLXRuntimeTemplateTests {
             text: "index.htm · 1 lines, 13 bytes",
             affectedPaths: ["index.htm"]
           )
-        )
+        ).modelContextContent
       ),
     ]
 
@@ -83,16 +89,17 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func templateMessagesPreserveFocusedFileSystemContextInsideFirstUserMessage() throws {
-    let messages: [ChatMessage] = [
-      ChatMessage(
-        systemContent: """
+    let messages: [ChatModelContextMessage] = [
+      ChatModelContextMessage(
+        role: .system,
+        content: """
           Current focused file: index.htm
           Source: previous write_file
           Known content excerpt:
           <html><body><table><tr><td>Movie</td></tr></table></body></html>
           Explicit file paths in the user request or tool call take precedence.
           """),
-      ChatMessage(userContent: "change the background color to green"),
+      ChatModelContextMessage(role: .user, content: "change the background color to green"),
     ]
 
     let rendered = try GemmaMLXRuntime.templateMessages(
@@ -112,28 +119,11 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func templateMessagesDoNotTeachGemmaInternalInvalidToolActions() throws {
     let callID = UUID()
-    let messages: [ChatMessage] = [
-      ChatMessage(userContent: "change the table heading"),
-      ChatMessage(
-        toolCall: ToolCallModelMessage(
-          rawRequest: RawToolCallRequest(
-            id: callID,
-            workspaceID: UUID(),
-            sessionID: UUID(),
-            toolName: .invalid,
-            arguments: [
-              "tool": .string("edit_file"),
-              "error": .string("Assistant described a tool call without an action block."),
-            ],
-            rawText: """
-              <action name="invalid">
-              <tool>edit_file</tool>
-              </action>
-              """
-          ))
-      ),
-      ChatMessage(
-        toolResult: ToolResultModelMessage(
+    let messages: [ChatModelContextMessage] = [
+      ChatModelContextMessage(role: .user, content: "change the table heading"),
+      ChatModelContextMessage(
+        role: .user,
+        content: ToolResultModelMessage(
           callID: callID,
           toolName: .invalid,
           payload: .invalidTool(
@@ -145,7 +135,7 @@ struct GemmaMLXRuntimeTemplateTests {
             status: .failed,
             text: "The tool call was invalid: missing tagged action block."
           )
-        )
+        ).modelContextContent
       ),
     ]
 
@@ -208,6 +198,8 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(!decision.shouldReuse)
     #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
     #expect(!decision.trace.appendOnly)
+    #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
+    #expect(decision.trace.firstMismatchIndex == 1)
   }
 
   @Test
@@ -230,6 +222,107 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(!decision.shouldReuse)
     #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.mismatchReason == "settings_changed")
+    #expect(decision.trace.firstMismatchIndex == nil)
+  }
+
+  @Test
+  func cacheDecisionReportsFocusedContextMismatchSeparatelyFromBasePrompt() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = [
+      GemmaMessageSnapshot(
+        role: "user",
+        content: """
+          System instructions:
+          Base prompt.
+
+          Current focused file: robots.html
+          Source: previous read_file
+          Explicit file paths in the user request or tool call take precedence.
+
+          User request:
+          show the file
+          """
+      ),
+      GemmaMessageSnapshot(role: "assistant", content: "hi"),
+    ]
+    let changedFocusedContext = [
+      GemmaMessageSnapshot(
+        role: "user",
+        content: """
+          System instructions:
+          Base prompt.
+
+          Current focused file: index.html
+          Source: previous read_file
+          Explicit file paths in the user request or tool call take precedence.
+
+          User request:
+          show the file
+          """
+      ),
+      GemmaMessageSnapshot(role: "assistant", content: "hi"),
+    ]
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedReusable: true,
+      invalidationReason: nil,
+      currentHistory: changedFocusedContext,
+      currentSettings: settings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
+    #expect(decision.trace.firstMismatchIndex == 0)
+    #expect(decision.trace.systemPromptChanged == false)
+    #expect(decision.trace.focusedContextChanged == true)
+  }
+
+  @Test
+  func cacheDecisionReportsBasePromptMismatch() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = [
+      GemmaMessageSnapshot(
+        role: "user",
+        content: """
+          System instructions:
+          Base prompt.
+
+          User request:
+          hello
+          """
+      )
+    ]
+    let changedBasePrompt = [
+      GemmaMessageSnapshot(
+        role: "user",
+        content: """
+          System instructions:
+          Different base prompt.
+
+          User request:
+          hello
+          """
+      )
+    ]
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedReusable: true,
+      invalidationReason: nil,
+      currentHistory: changedBasePrompt,
+      currentSettings: settings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
+    #expect(decision.trace.firstMismatchIndex == 0)
+    #expect(decision.trace.systemPromptChanged == true)
+    #expect(decision.trace.focusedContextChanged == false)
   }
 
   @Test

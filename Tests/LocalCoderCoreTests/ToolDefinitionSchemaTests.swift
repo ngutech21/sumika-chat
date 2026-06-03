@@ -39,6 +39,22 @@ struct ToolDefinitionSchemaTests {
   }
 
   @Test
+  func showFileFunctionSchemaMatchesReadFileArguments() {
+    let schema = ToolDefinition.showFile.functionSchema
+
+    #expect(schema.type == "function")
+    #expect(schema.name == "show_file")
+    #expect(schema.parameters.type == "object")
+    #expect(schema.parameters.required == ["path"])
+    #expect(schema.parameters.additionalProperties == false)
+    #expect(schema.parameters.properties["path"]?.type == .string)
+    #expect(schema.parameters.properties["offset"]?.type == .integer)
+    #expect(schema.parameters.properties["offset"]?.minimum == 1)
+    #expect(schema.parameters.properties["limit"]?.type == .integer)
+    #expect(schema.parameters.properties["limit"]?.minimum == 1)
+  }
+
+  @Test
   func writeAndEditDefinitionsExposeSafetyConstraints() {
     let writeDefinition = ToolDefinition.writeFile
     let editDefinition = ToolDefinition.editFile

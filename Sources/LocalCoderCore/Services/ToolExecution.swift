@@ -409,6 +409,8 @@ public struct AnyToolExecutor: Sendable {
     switch payload {
     case .readFile(let input):
       return try cast(input, as: inputType, definition: definition, actualToolName: .readFile)
+    case .showFile(let input):
+      return try cast(input, as: inputType, definition: definition, actualToolName: .showFile)
     case .listFiles(let input):
       return try cast(input, as: inputType, definition: definition, actualToolName: .listFiles)
     case .globFiles(let input):
@@ -446,6 +448,7 @@ public struct AnyToolExecutor: Sendable {
 public struct ToolExecutorRegistry: Sendable {
   public static let readOnly = ToolExecutorRegistry([
     AnyToolExecutor(ReadFileToolExecutor()),
+    AnyToolExecutor(ShowFileToolExecutor()),
     AnyToolExecutor(ListFilesToolExecutor()),
     AnyToolExecutor(GlobFilesToolExecutor()),
     AnyToolExecutor(SearchFilesToolExecutor()),
@@ -453,6 +456,7 @@ public struct ToolExecutorRegistry: Sendable {
 
   public static let codingAgent = ToolExecutorRegistry([
     AnyToolExecutor(ReadFileToolExecutor()),
+    AnyToolExecutor(ShowFileToolExecutor()),
     AnyToolExecutor(ListFilesToolExecutor()),
     AnyToolExecutor(GlobFilesToolExecutor()),
     AnyToolExecutor(SearchFilesToolExecutor()),
@@ -714,6 +718,27 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
     }
 
     return accumulator.result
+  }
+}
+
+public struct ShowFileToolExecutor: TypedToolExecutor {
+  public static let definition = ToolDefinition.showFile
+
+  private let readFileExecutor: ReadFileToolExecutor
+
+  public init(maxBytes: Int = 40 * 1024) {
+    readFileExecutor = ReadFileToolExecutor(maxBytes: maxBytes)
+  }
+
+  public func evaluatePermission(
+    _ input: ReadFileInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    readFileExecutor.evaluatePermission(input, context: context)
+  }
+
+  public func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
+    await readFileExecutor.run(input, context: context)
   }
 }
 

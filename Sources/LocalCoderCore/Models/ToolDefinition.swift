@@ -207,7 +207,7 @@ nonisolated extension ToolDefinition {
   public static let readFile = ToolDefinition(
     name: .readFile,
     description:
-      "Read a workspace text file and return its current content with line numbers. Use this before edit_file when modifying an existing file. Use workspace-relative paths.",
+      "Read a workspace text file into model context and return its current content with line numbers. Use this when you need the file content to answer, analyze, or edit. Use workspace-relative paths.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
@@ -231,6 +231,42 @@ nonisolated extension ToolDefinition {
     ],
     taggedExample: """
       <action name="read_file">
+      <path>Sources/AppState.swift</path>
+      <offset>1</offset>
+      <limit>200</limit>
+      </action>
+      """,
+    capabilities: [.readWorkspace],
+    riskLevel: .low
+  )
+
+  public static let showFile = ToolDefinition(
+    name: .showFile,
+    description:
+      "Display a workspace text file directly to the user. Use this only when the user asks to show, open, print, or display file contents without asking for explanation or analysis. Use workspace-relative paths.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "path",
+        description: "Workspace-relative path to the text file to display, e.g. Sources/App.swift.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "offset",
+        description: "Optional 1-based start line for displaying a focused window.",
+        isRequired: false,
+        valueType: .integer,
+        minimum: 1
+      ),
+      ToolParameterDefinition(
+        name: "limit",
+        description: "Optional maximum number of lines to display.",
+        isRequired: false,
+        valueType: .integer,
+        minimum: 1
+      ),
+    ],
+    taggedExample: """
+      <action name="show_file">
       <path>Sources/AppState.swift</path>
       <offset>1</offset>
       <limit>200</limit>

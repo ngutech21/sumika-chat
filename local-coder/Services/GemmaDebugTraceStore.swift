@@ -141,6 +141,18 @@ actor GemmaDebugTraceStore: TurnTracing {
     if let appendedMessageCount = event.appendedMessageCount {
       trace["appendedMessageCount"] = appendedMessageCount
     }
+    if let mismatchReason = event.mismatchReason {
+      trace["mismatchReason"] = mismatchReason
+    }
+    if let firstMismatchIndex = event.firstMismatchIndex {
+      trace["firstMismatchIndex"] = firstMismatchIndex
+    }
+    if let systemPromptChanged = event.systemPromptChanged {
+      trace["systemPromptChanged"] = systemPromptChanged
+    }
+    if let focusedContextChanged = event.focusedContextChanged {
+      trace["focusedContextChanged"] = focusedContextChanged
+    }
     append(trace)
   }
 

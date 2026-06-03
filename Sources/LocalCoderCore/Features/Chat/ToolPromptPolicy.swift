@@ -59,7 +59,8 @@ public struct ToolPromptPolicy: Sendable {
         - Use workspace-relative paths.
 
         Read-only workflow:
-        - To inspect a file, use read_file.
+        - To display file contents directly to the user, use show_file.
+        - To inspect, explain, summarize, search within, or reason about a file, use read_file.
         - To find files by name, use glob_files or list_files.
         - To search code contents, use search_files.
         - If enough information is already visible in context, answer directly.
@@ -122,7 +123,8 @@ public struct ToolPromptPolicy: Sendable {
         - Use workspace-relative paths.
 
         File workflow:
-        - To inspect a file, use read_file.
+        - To display file contents directly to the user, use show_file.
+        - To inspect, explain, summarize, search within, reason about, or modify a file, use read_file.
         - To find files by name, use glob_files or list_files.
         - To search code contents, use search_files.
         - To create a new file, use write_file with the complete file content.

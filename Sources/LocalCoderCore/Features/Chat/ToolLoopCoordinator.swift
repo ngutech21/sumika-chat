@@ -194,7 +194,8 @@ public struct ToolLoopCoordinator: Sendable {
         followUpPromptMode: followUpPromptMode(
           after: record,
           defaultMode: request.followUpPromptMode
-        )
+        ),
+        directResponse: directResponse(after: record, toolResult: toolResult, request: request)
       )
     }
   }
@@ -235,7 +236,8 @@ public struct ToolLoopCoordinator: Sendable {
     record: ToolCallRecord,
     toolResult: ToolResultModelMessage,
     focusedFileState: FocusedFileState,
-    followUpPromptMode: ToolPromptMode
+    followUpPromptMode: ToolPromptMode,
+    directResponse: DirectToolResultResponse? = nil
   ) -> ChatWorkflowStep {
     let nextAssistantMessageID = UUID()
     var events: [ChatWorkflowEvent] = [
@@ -247,6 +249,17 @@ public struct ToolLoopCoordinator: Sendable {
       .toolResultAppended(toolResult, messageID: UUID(), turnID: turnID),
     ]
     events.append(contentsOf: focusedFileEvents(record: record, from: focusedFileState))
+    if let directResponse {
+      events.append(
+        .assistantMessageAppended(
+          content: directResponse.content,
+          modelContextContent: directResponse.modelContextContent,
+          messageID: nextAssistantMessageID,
+          turnID: turnID
+        )
+      )
+      return ChatWorkflowStep(events: events, continuation: .stopTurn)
+    }
     events.append(.assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID))
     return ChatWorkflowStep(
       events: events,
@@ -363,6 +376,44 @@ public struct ToolLoopCoordinator: Sendable {
     default:
       return defaultMode
     }
+  }
+
+  private func directResponse(
+    after record: ToolCallRecord,
+    toolResult: ToolResultModelMessage,
+    request: ToolLoopRequest
+  ) -> DirectToolResultResponse? {
+    guard record.status == .completed,
+      record.request.toolName == .showFile,
+      case .readFile(.success(let path, _)) = record.resultPayload
+    else {
+      return nil
+    }
+
+    return DirectToolResultResponse(
+      content: directReadFileResponse(path: path, preview: toolResult.preview),
+      modelContextContent:
+        "Displayed show_file result for \(path.rawValue) directly to the user."
+    )
+  }
+
+  private func directReadFileResponse(
+    path: WorkspaceRelativePath,
+    preview: ToolResultPreview
+  ) -> String {
+    var response = "Here is `\(path.rawValue)`:"
+    let body = preview.text.isEmpty ? "(empty)" : preview.text
+    response += "\n\n"
+    response += body.split(separator: "\n", omittingEmptySubsequences: false)
+      .map { "    \($0)" }
+      .joined(separator: "\n")
+    if preview.truncated {
+      response += "\n\nResult truncated."
+    }
+    if preview.redacted {
+      response += "\n\nSome content was redacted."
+    }
+    return response
   }
 
   private func invalidToolCallOutput(
@@ -505,4 +556,9 @@ extension ToolLoopParsedAction {
       output.request.toolName.rawValue
     }
   }
+}
+
+private struct DirectToolResultResponse: Equatable, Sendable {
+  var content: String
+  var modelContextContent: String
 }

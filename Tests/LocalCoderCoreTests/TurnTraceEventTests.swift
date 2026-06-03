@@ -42,7 +42,11 @@ struct TurnTraceEventTests {
       previousContextSignature: "ctx-old",
       appendOnly: true,
       reusedMessageCount: 4,
-      appendedMessageCount: 2
+      appendedMessageCount: 2,
+      mismatchReason: "history_prefix_mismatch",
+      firstMismatchIndex: 1,
+      systemPromptChanged: true,
+      focusedContextChanged: false
     )
 
     let data = try JSONEncoder().encode(event)
@@ -68,5 +72,9 @@ struct TurnTraceEventTests {
     #expect(object["appendOnly"] as? Bool == true)
     #expect(object["reusedMessageCount"] as? Int == 4)
     #expect(object["appendedMessageCount"] as? Int == 2)
+    #expect(object["mismatchReason"] as? String == "history_prefix_mismatch")
+    #expect(object["firstMismatchIndex"] as? Int == 1)
+    #expect(object["systemPromptChanged"] as? Bool == true)
+    #expect(object["focusedContextChanged"] as? Bool == false)
   }
 }

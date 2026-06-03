@@ -128,10 +128,10 @@ struct ChatSessionControllerToolLoopTests {
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
-    #expect(
-      capturedMessages[1].contains { message in
-        message.kind == .toolResult && message.toolResult?.toolName == .invalid
-      })
+    let hasInvalidObservation = capturedMessages[1].contains(where: { message in
+      message.role == .user && message.content.contains("tool=\"invalid\"")
+    })
+    #expect(hasInvalidObservation)
   }
 
   @Test

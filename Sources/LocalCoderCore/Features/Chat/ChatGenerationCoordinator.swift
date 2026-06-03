@@ -33,14 +33,14 @@ public struct ChatGenerationCoordinator {
   public func streamAssistantReply(
     turnID: ChatTurnRecord.ID? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
-    messages: [ChatMessage],
+    messages: [ChatModelContextMessage],
     systemPrompt: String,
     settings: ChatGenerationSettings,
     stopAfterCompleteToolAction: Bool = false,
     appendChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateContextUsage: () async -> Void
-  ) async throws {
+  ) async throws -> String {
     let generationID = UUID()
     let metadata = TurnTraceMetadata(
       turnID: turnID,
@@ -49,8 +49,8 @@ public struct ChatGenerationCoordinator {
       interactionMode: interactionMode
     )
 
-    try await TurnTraceContext.$current.withValue(metadata) {
-      try await streamAssistantReplyWithTraceContext(
+    return try await TurnTraceContext.$current.withValue(metadata) {
+      return try await streamAssistantReplyWithTraceContext(
         turnID: turnID,
         generationID: generationID,
         interactionMode: interactionMode,
@@ -69,14 +69,14 @@ public struct ChatGenerationCoordinator {
     turnID: ChatTurnRecord.ID?,
     generationID: UUID,
     interactionMode: WorkspaceInteractionMode?,
-    messages: [ChatMessage],
+    messages: [ChatModelContextMessage],
     systemPrompt: String,
     settings: ChatGenerationSettings,
     stopAfterCompleteToolAction: Bool,
     appendChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateContextUsage: () async -> Void
-  ) async throws {
+  ) async throws -> String {
     let generationStartedAt = Date()
     let stream = try await runtime.streamReply(
       for: messages,
@@ -197,9 +197,11 @@ public struct ChatGenerationCoordinator {
       )
       updateGenerationMetrics(partialMetrics)
       await updateContextUsage()
+      return displayedPartialToolAction
     } else if !didComplete {
       throw ChatGenerationError.streamInterrupted
     }
+    return generatedContent
   }
 
   private func generationMetrics(

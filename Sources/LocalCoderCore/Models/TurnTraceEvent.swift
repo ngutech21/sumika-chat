@@ -34,6 +34,10 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
   public let appendOnly: Bool?
   public let reusedMessageCount: Int?
   public let appendedMessageCount: Int?
+  public let mismatchReason: String?
+  public let firstMismatchIndex: Int?
+  public let systemPromptChanged: Bool?
+  public let focusedContextChanged: Bool?
 
   public init(
     turnID: UUID? = nil,
@@ -53,7 +57,11 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     previousContextSignature: String? = nil,
     appendOnly: Bool? = nil,
     reusedMessageCount: Int? = nil,
-    appendedMessageCount: Int? = nil
+    appendedMessageCount: Int? = nil,
+    mismatchReason: String? = nil,
+    firstMismatchIndex: Int? = nil,
+    systemPromptChanged: Bool? = nil,
+    focusedContextChanged: Bool? = nil
   ) {
     self.turnID = turnID
     self.generationID = generationID
@@ -73,6 +81,10 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.appendOnly = appendOnly
     self.reusedMessageCount = reusedMessageCount
     self.appendedMessageCount = appendedMessageCount
+    self.mismatchReason = mismatchReason
+    self.firstMismatchIndex = firstMismatchIndex
+    self.systemPromptChanged = systemPromptChanged
+    self.focusedContextChanged = focusedContextChanged
   }
 }
 

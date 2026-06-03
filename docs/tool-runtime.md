@@ -123,6 +123,7 @@ flowchart TD
    ```swift
    static let readOnly = ToolExecutorRegistry([
      AnyToolExecutor(ReadFileToolExecutor()),
+     AnyToolExecutor(ShowFileToolExecutor()),
      AnyToolExecutor(ListFilesToolExecutor()),
      AnyToolExecutor(GlobFilesToolExecutor()),
      AnyToolExecutor(SearchFilesToolExecutor()),
@@ -153,6 +154,11 @@ flowchart TD
   stateless. If the requested file is missing, `read_file` fails without
   redirecting the call and may include up to five canonical workspace-relative
   path suggestions.
+- `show_file` uses the same read-only path validation and file preview shape as
+  `read_file`, but it represents a different workflow state: display the file
+  directly to the user and stop the current tool turn without asking the model
+  to restate the file. Do not infer this behavior from raw user text; trigger
+  it only from an explicit `show_file` tool call.
 - `glob_files` and `search_files` are read-only discovery tools. They validate
   the requested `path`, default it to `.`, skip project metadata/build
   directories, and cap returned results. `search_files` treats a valid pattern

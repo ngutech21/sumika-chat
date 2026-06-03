@@ -159,9 +159,17 @@ struct ChatSessionControllerTests {
     #expect((generationMetrics.durationMs ?? 0) > 0)
     let capturedMessages = await runtime.capturedMessages
     #expect(
-      capturedMessages.first?.contains { message in
-        message.kind == .system && message.content.contains("Current focused file: source.swift")
-      } == true)
+      capturedMessages.first?.contains(where: { message in
+        message.role == .system && message.content.contains("Current focused file: source.swift")
+      }) == true)
+    #expect(
+      controller.chatSession.modelContextMessages.map(\.role) == [.system, .user, .assistant])
+    #expect(
+      controller.chatSession.modelContextMessages[0].content.contains(
+        "Current focused file: source.swift"))
+    #expect(controller.chatSession.modelContextMessages[1].content == "Explain this")
+    #expect(controller.chatSession.modelContextMessages[1].attachments == [attachment])
+    #expect(controller.chatSession.modelContextMessages[2].content == "hello world")
   }
 
   @Test
@@ -278,10 +286,8 @@ struct ChatSessionControllerTests {
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 3)
-    #expect(capturedMessages[2].contains { $0.kind == .toolCall } == false)
-    #expect(capturedMessages[2].contains { $0.kind == .toolResult } == false)
-    #expect(capturedMessages[2].contains { $0.content.contains("list the files") } == false)
-    #expect(capturedMessages[2].contains { $0.content == "are you there" })
+    #expect(capturedMessages[2].contains(where: { $0.content.contains("list the files") }) == false)
+    #expect(capturedMessages[2].contains(where: { $0.content == "are you there" }))
   }
 
   @Test
@@ -562,19 +568,33 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.messages[2].toolResult?.preview.status == .success)
     #expect(controller.chatSession.messages[2].toolResult?.preview.text == "1: project notes")
     #expect(controller.chatSession.messages[3].content == "The README says project notes.")
+    #expect(
+      controller.chatSession.modelContextMessages.map(\.role) == [
+        .user, .assistant, .user, .assistant,
+      ])
+    #expect(
+      controller.chatSession.modelContextMessages[0].content == "lies die projektbeschreibung")
+    #expect(
+      controller.chatSession.modelContextMessages[1].content.contains("<action name=\"read_file\">")
+    )
+    #expect(controller.chatSession.modelContextMessages[2].content.contains("1: project notes"))
+    #expect(
+      controller.chatSession.modelContextMessages[3].content == "The README says project notes.")
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
     #expect(
-      capturedMessages[1].last { $0.kind == .user }?.content == "lies die projektbeschreibung")
+      capturedMessages[1].last(where: { $0.role == .user })?.content.contains(
+        "1: project notes"
+      ) == true)
     #expect(
-      capturedMessages[1].contains { message in
-        message.kind == .toolResult && message.toolResult?.preview.text == "1: project notes"
-      })
+      capturedMessages[1].contains(where: { message in
+        message.role == .user && message.content.contains("1: project notes")
+      }))
     #expect(
-      capturedMessages[1].contains { message in
-        message.kind == .system && message.content.contains("Current focused file: README.md")
-      })
+      !capturedMessages[1].contains(where: { message in
+        message.role == .system && message.content.contains("Current focused file: README.md")
+      }))
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 2)
     #expect(capturedSystemPrompts[0].contains("read_file"))
@@ -583,9 +603,74 @@ struct ChatSessionControllerTests {
     #expect(capturedSystemPrompts[0].contains("search_files"))
     #expect(!capturedSystemPrompts[0].contains("Tool: write_file"))
     #expect(!capturedSystemPrompts[0].contains("Tool: edit_file"))
-    #expect(capturedSystemPrompts[1].contains("You just received a read-only tool result."))
+    #expect(capturedSystemPrompts[1] == capturedSystemPrompts[0])
+    #expect(!capturedSystemPrompts[1].contains("You just received a read-only tool result."))
     #expect(!capturedSystemPrompts[1].contains("emit at most one edit_file"))
     #expect(!capturedSystemPrompts[1].contains("Tool: edit_file"))
+  }
+
+  @Test
+  func sendMessageDisplaysShowFileResultDirectlyWithoutModelFollowUp() async throws {
+    let rootURL = FileManager.default.temporaryDirectory.appending(
+      path: "local-coder-tests-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+    try "project notes".write(
+      to: rootURL.appending(path: "README.md"),
+      atomically: true,
+      encoding: .utf8
+    )
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)),
+      sessions: [
+        CodingSession(
+          id: sessionID,
+          selectedModelID: ManagedModelCatalog.defaultModelID,
+          systemPrompt: ChatPromptDefaults.codingSystemPrompt,
+          generationSettings: .codingDefault
+        )
+      ]
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+      [
+        """
+        <action name="show_file">
+        <path>README.md</path>
+        </action>
+        """
+      ]
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.inspect)
+    controller.draft = "show the content of README.md"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.errorMessage == nil)
+    #expect(controller.chatSession.toolCalls.count == 1)
+    #expect(controller.chatSession.messages.count == 4)
+    #expect(controller.chatSession.messages[1].kind == .toolCall)
+    #expect(controller.chatSession.messages[2].kind == .toolResult)
+    #expect(controller.chatSession.messages[3].kind == .assistant)
+    #expect(controller.chatSession.messages[3].content.contains("Here is `README.md`:"))
+    #expect(controller.chatSession.messages[3].content.contains("1: project notes"))
+    #expect(
+      controller.chatSession.modelContextMessages.map(\.role) == [
+        .user, .assistant, .user, .assistant,
+      ])
+    #expect(controller.chatSession.modelContextMessages[2].content.contains("1: project notes"))
+    #expect(
+      controller.chatSession.modelContextMessages[3].content
+        == "Displayed show_file result for README.md directly to the user.")
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 1)
   }
 
   @Test

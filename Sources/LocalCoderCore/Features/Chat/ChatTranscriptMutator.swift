@@ -14,6 +14,20 @@ public struct ChatTranscriptMutator: Sendable {
       ChatMessage(id: id, userContent: content, attachments: attachments, turnID: turnID))
   }
 
+  public func appendModelContextMessage(
+    _ message: ChatModelContextMessage,
+    to state: inout ChatSessionState
+  ) {
+    state.modelContextMessages.append(message)
+  }
+
+  public func appendModelContextMessages(
+    _ messages: [ChatModelContextMessage],
+    to state: inout ChatSessionState
+  ) {
+    state.modelContextMessages.append(contentsOf: messages)
+  }
+
   public func appendAssistantPlaceholder(
     id: ChatMessage.ID,
     turnID: ChatTurnRecord.ID? = nil,
@@ -21,6 +35,17 @@ public struct ChatTranscriptMutator: Sendable {
   ) {
     state.messages.append(
       ChatMessage(id: id, assistantContent: "", deliveryStatus: .streaming, turnID: turnID)
+    )
+  }
+
+  public func appendAssistantMessage(
+    _ content: String,
+    id: ChatMessage.ID = UUID(),
+    turnID: ChatTurnRecord.ID? = nil,
+    to state: inout ChatSessionState
+  ) {
+    state.messages.append(
+      ChatMessage(id: id, assistantContent: content, deliveryStatus: .complete, turnID: turnID)
     )
   }
 
@@ -153,6 +178,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   public func clearTranscript(in state: inout ChatSessionState) {
     state.messages.removeAll()
+    state.modelContextMessages.removeAll()
     state.toolCalls.removeAll()
     state.turns.removeAll()
     state.attachments.removeAll()

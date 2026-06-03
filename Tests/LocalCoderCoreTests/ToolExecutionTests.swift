@@ -573,6 +573,7 @@ struct ToolExecutionTests {
     #expect(
       ToolExecutorRegistry.readOnly.definitions == [
         .readFile,
+        .showFile,
         .listFiles,
         .globFiles,
         .searchFiles,
@@ -899,11 +900,14 @@ struct ToolExecutionTests {
   func registryDefinitionsComeFromRegisteredExecutors() {
     let registry = ToolExecutorRegistry.readOnly
 
-    #expect(registry.definitions == [.readFile, .listFiles, .globFiles, .searchFiles])
-    #expect(registry.toolRegistry.tools == [.readFile, .listFiles, .globFiles, .searchFiles])
+    #expect(
+      registry.definitions == [.readFile, .showFile, .listFiles, .globFiles, .searchFiles])
+    #expect(
+      registry.toolRegistry.tools == [.readFile, .showFile, .listFiles, .globFiles, .searchFiles])
     #expect(
       ToolExecutorRegistry.codingAgent.definitions == [
         .readFile,
+        .showFile,
         .listFiles,
         .globFiles,
         .searchFiles,

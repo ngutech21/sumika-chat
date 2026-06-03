@@ -44,6 +44,10 @@ public struct ToolCallRequestValidator: Sendable {
       let input = try decode(ReadFileInput.self, from: rawRequest.arguments)
       try validatePath(input.path)
       return .readFile(input)
+    case .showFile:
+      let input = try decode(ReadFileInput.self, from: rawRequest.arguments)
+      try validatePath(input.path)
+      return .showFile(input)
     case .listFiles:
       let input = try decode(ListFilesInput.self, from: rawRequest.arguments)
       try input.path.map(validatePath)
@@ -172,6 +176,8 @@ nonisolated extension ToolDefinition {
     switch toolName {
     case .readFile:
       .readFile
+    case .showFile:
+      .showFile
     case .listFiles:
       .listFiles
     case .globFiles:

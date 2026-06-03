@@ -60,7 +60,7 @@ public actor RuntimeOperationCoordinator {
   }
 
   public func contextUsage(
-    for messages: [ChatMessage],
+    for messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
     systemPrompt: String,
     operationID: UUID

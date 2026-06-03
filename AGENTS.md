@@ -212,7 +212,7 @@ If a task only changes docs or comments, explain why final checks were not run. 
 The chat composer uses a manual `WorkspaceInteractionMode` for each coding session:
 
 - `chat`: default mode for normal conversation. Do not render tool schemas, do not run the tool loop, and keep the system prompt short.
-- `inspect`: read-only workspace help. Render only read-only tool instructions and execute only the `ToolExecutorRegistry.readOnly` registry (`read_file`, `list_files`, `glob_files`, `search_files`).
+- `inspect`: read-only workspace help. Render only read-only tool instructions and execute only the `ToolExecutorRegistry.readOnly` registry (`read_file`, `show_file`, `list_files`, `glob_files`, `search_files`).
 - `agent`: full coding-agent workflow. Render the full coding tool prompt and use `ToolExecutorRegistry.codingAgent`, including write/edit tools and the approval flow.
 
 Do not decide tool availability with keyword checks such as `prompt.contains("file")`. Mode is product/session state selected by the user, and V1 has no auto-router. If auto-routing is added later, keep it separate from the stable per-turn mode and avoid changing tool schemas unpredictably mid-turn.

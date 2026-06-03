@@ -5,19 +5,23 @@ import Testing
 
 struct ChatModelContextBuilderTests {
   @Test
-  func filtersMessagesFromExcludedTurnsButKeepsLegacyMessages() {
+  func filtersModelContextMessagesFromExcludedTurnsButKeepsLegacyMessages() {
     let includedTurnID = UUID()
     let excludedTurnID = UUID()
-    let legacyMessage = ChatMessage(userContent: "legacy")
-    let includedMessage = ChatMessage(assistantContent: "included", turnID: includedTurnID)
-    let excludedMessage = ChatMessage(
-      toolResult: ToolResultModelMessage(
-        callID: UUID(),
-        toolName: .listFiles,
-        preview: ToolResultPreview(text: "large listing")
-      ), turnID: excludedTurnID)
+    let legacyMessage = ChatModelContextMessage(role: .user, content: "legacy")
+    let includedMessage = ChatModelContextMessage(
+      turnID: includedTurnID,
+      role: .assistant,
+      content: "included"
+    )
+    let excludedMessage = ChatModelContextMessage(
+      turnID: excludedTurnID,
+      role: .user,
+      content: "large listing"
+    )
     let state = ChatSessionState(
-      messages: [legacyMessage, includedMessage, excludedMessage],
+      messages: [],
+      modelContextMessages: [legacyMessage, includedMessage, excludedMessage],
       turns: [
         ChatTurnRecord(id: includedTurnID, status: .completed),
         ChatTurnRecord(
@@ -39,14 +43,14 @@ struct ChatModelContextBuilderTests {
   @Test
   func includesExcludedTurnWhenItIsTheActiveTurn() {
     let turnID = UUID()
-    let toolResult = ChatMessage(
-      toolResult: ToolResultModelMessage(
-        callID: UUID(),
-        toolName: .listFiles,
-        preview: ToolResultPreview(text: "README.md")
-      ), turnID: turnID)
+    let toolResult = ChatModelContextMessage(
+      turnID: turnID,
+      role: .user,
+      content: "README.md"
+    )
     let state = ChatSessionState(
-      messages: [toolResult],
+      messages: [],
+      modelContextMessages: [toolResult],
       turns: [
         ChatTurnRecord(
           id: turnID,
@@ -65,76 +69,100 @@ struct ChatModelContextBuilderTests {
   }
 
   @Test
-  func prependsFocusedFileContextWhenActivePathIsKnown() {
+  func focusedFileContextMessageRendersActivePath() throws {
     let path = WorkspaceRelativePath(rawValue: "index.html")
-    let userMessage = ChatMessage(userContent: "make it nicer")
-    let state = ChatSessionState(
-      messages: [userMessage],
-      attachments: [],
-      focusedFileState: FocusedFileState(
-        activePath: path,
-        recentPaths: [
-          FocusedPath(
-            path: path,
-            source: .writeFile,
-            confidence: .active,
-            updatedAt: Date(timeIntervalSinceReferenceDate: 1)
-          )
-        ],
-        snapshots: [
-          path: FocusedFileSnapshot(
-            path: path,
-            contentHash: "hash",
-            excerpt: "<h1>Hello</h1>",
-            fullContentAvailable: true
-          )
-        ]
-      ),
-      systemPrompt: "System",
-      generationSettings: .codingDefault
+    let state = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(
+          path: path,
+          source: .writeFile,
+          confidence: .active,
+          updatedAt: Date(timeIntervalSinceReferenceDate: 1)
+        )
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          path: path,
+          contentHash: "hash",
+          excerpt: "<h1>Hello</h1>",
+          fullContentAvailable: true
+        )
+      ]
     )
 
-    let messages = ChatModelContextBuilder().messages(from: state)
+    let message = try #require(ChatModelContextBuilder().focusedFileContextMessage(from: state))
 
-    #expect(messages.count == 2)
-    #expect(messages[0].kind == .system)
-    #expect(messages[0].content.contains("Current focused file: index.html"))
-    #expect(messages[0].content.contains("Source: previous write_file"))
-    #expect(messages[0].content.contains("Known content excerpt:"))
-    #expect(messages[0].content.contains("<h1>Hello</h1>"))
-    #expect(messages[1] == userMessage)
+    #expect(message.role == .system)
+    #expect(message.content.contains("Current focused file: index.html"))
+    #expect(message.content.contains("Source: previous write_file"))
+    #expect(message.content.contains("Known content excerpt:"))
+    #expect(message.content.contains("<h1>Hello</h1>"))
   }
 
   @Test
-  func rendersAmbiguousRecentFilesWithoutActivePath() {
-    let state = ChatSessionState(
-      messages: [ChatMessage(userContent: "change the file again")],
+  func focusedFileContextMessageRendersAmbiguousRecentFilesWithoutActivePath() throws {
+    let state = FocusedFileState(
+      activePath: nil,
+      recentPaths: [
+        FocusedPath(
+          path: WorkspaceRelativePath(rawValue: "index.html"),
+          source: .attachment,
+          confidence: .ambiguous
+        ),
+        FocusedPath(
+          path: WorkspaceRelativePath(rawValue: "style.css"),
+          source: .attachment,
+          confidence: .ambiguous
+        ),
+      ]
+    )
+
+    let message = try #require(ChatModelContextBuilder().focusedFileContextMessage(from: state))
+
+    #expect(message.role == .system)
+    #expect(message.content.contains("Recent files are ambiguous:"))
+    #expect(message.content.contains("Current focused file:") == false)
+    #expect(message.content.contains("- index.html"))
+    #expect(message.content.contains("- style.css"))
+  }
+
+  @Test
+  func toolResultAppendIsPrefixStableWhenTranscriptMutates() {
+    let turnID = UUID()
+    let sourceMessageID = UUID()
+    var state = ChatSessionState(
+      messages: [
+        ChatMessage(id: sourceMessageID, assistantContent: "<action name=\"read_file\"></action>")
+      ],
+      modelContextMessages: [
+        ChatModelContextMessage(
+          turnID: turnID,
+          sourceMessageID: sourceMessageID,
+          role: .assistant,
+          content: "<action name=\"read_file\"></action>"
+        )
+      ],
+      turns: [ChatTurnRecord(id: turnID, status: .running)],
       attachments: [],
-      focusedFileState: FocusedFileState(
-        activePath: nil,
-        recentPaths: [
-          FocusedPath(
-            path: WorkspaceRelativePath(rawValue: "index.html"),
-            source: .attachment,
-            confidence: .ambiguous
-          ),
-          FocusedPath(
-            path: WorkspaceRelativePath(rawValue: "style.css"),
-            source: .attachment,
-            confidence: .ambiguous
-          ),
-        ]
-      ),
       systemPrompt: "System",
       generationSettings: .codingDefault
     )
+    let before = ChatModelContextBuilder().messages(from: state, includingTurnID: turnID)
 
-    let messages = ChatModelContextBuilder().messages(from: state)
+    ChatTranscriptMutator().annotateToolCall(
+      ToolCallModelMessage(callID: UUID(), toolName: .readFile, arguments: []),
+      for: sourceMessageID,
+      in: &state
+    )
+    ChatTranscriptMutator().appendModelContextMessage(
+      ChatModelContextMessage(turnID: turnID, role: .user, content: "observation"),
+      to: &state
+    )
+    let after = ChatModelContextBuilder().messages(from: state, includingTurnID: turnID)
 
-    #expect(messages.first?.kind == .system)
-    #expect(messages.first?.content.contains("Recent files are ambiguous:") == true)
-    #expect(messages.first?.content.contains("Current focused file:") == false)
-    #expect(messages.first?.content.contains("- index.html") == true)
-    #expect(messages.first?.content.contains("- style.css") == true)
+    #expect(Array(after.prefix(before.count)) == before)
+    #expect(state.messages[0].kind == .toolCall)
+    #expect(after.last?.content == "observation")
   }
 }

@@ -14,6 +14,10 @@ struct ToolCallRequestValidatorTests {
       raw(.readFile, arguments: ["path": .string("README.md"), "offset": .string("1")]),
       registry: registry
     )
+    let show = validator.validate(
+      raw(.showFile, arguments: ["path": .string("README.md"), "limit": .string("20")]),
+      registry: registry
+    )
     let list = validator.validate(raw(.listFiles, arguments: [:]), registry: registry)
     let glob = validator.validate(
       raw(.globFiles, arguments: ["pattern": .string("**/*.swift")]),
@@ -53,6 +57,7 @@ struct ToolCallRequestValidatorTests {
       return
     }
     #expect(readInput == ReadFileInput(path: "README.md", offset: 1))
+    #expect(show.payload == .showFile(ReadFileInput(path: "README.md", limit: 20)))
     #expect(list.payload == .listFiles(ListFilesInput(path: nil)))
     #expect(glob.payload == .globFiles(GlobFilesInput(pattern: "**/*.swift", path: nil)))
     #expect(
@@ -123,6 +128,7 @@ struct ToolCallRequestValidatorTests {
   @Test
   func payloadMatchingAllowsOnlyInvalidPayloadsToKeepOriginalToolName() {
     #expect(ToolCallPayload.readFile(ReadFileInput(path: "README.md")).matches(.readFile))
+    #expect(ToolCallPayload.showFile(ReadFileInput(path: "README.md")).matches(.showFile))
     #expect(!ToolCallPayload.readFile(ReadFileInput(path: "README.md")).matches(.writeFile))
     #expect(
       ToolCallPayload.invalid(

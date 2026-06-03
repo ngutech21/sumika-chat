@@ -43,7 +43,11 @@ struct GemmaDebugTraceStoreTests {
         previousContextSignature: "ctx-old",
         appendOnly: true,
         reusedMessageCount: 3,
-        appendedMessageCount: 1
+        appendedMessageCount: 1,
+        mismatchReason: "history_prefix_mismatch",
+        firstMismatchIndex: 2,
+        systemPromptChanged: false,
+        focusedContextChanged: true
       )
     )
 
@@ -66,6 +70,10 @@ struct GemmaDebugTraceStoreTests {
     #expect(object["appendOnly"] as? Bool == true)
     #expect(object["reusedMessageCount"] as? Int == 3)
     #expect(object["appendedMessageCount"] as? Int == 1)
+    #expect(object["mismatchReason"] as? String == "history_prefix_mismatch")
+    #expect(object["firstMismatchIndex"] as? Int == 2)
+    #expect(object["systemPromptChanged"] as? Bool == false)
+    #expect(object["focusedContextChanged"] as? Bool == true)
   }
 
   private func temporaryTraceFileURL() -> URL {

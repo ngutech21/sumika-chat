@@ -78,6 +78,7 @@ struct ToolPromptPolicyTests {
     #expect(disabledPrompt == "Base")
     #expect(enabledPrompt.contains("Base"))
     #expect(enabledPrompt.contains("read_file"))
+    #expect(enabledPrompt.contains("show_file"))
     #expect(enabledPrompt.contains("LC_PAYLOAD_TEST"))
   }
 
@@ -95,6 +96,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("Base"))
     #expect(prompt.contains("Available tools:"))
     #expect(prompt.contains("read_file"))
+    #expect(prompt.contains("show_file"))
     #expect(prompt.contains("list_files"))
     #expect(prompt.contains("glob_files"))
     #expect(prompt.contains("search_files"))
@@ -118,7 +120,8 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("Do not include explanatory text before or after an <action>."))
     #expect(prompt.contains("Do not wrap actions in Markdown fences."))
     #expect(prompt.contains("Use workspace-relative paths."))
-    #expect(prompt.contains("To inspect a file, use read_file."))
+    #expect(prompt.contains("To display file contents directly to the user, use show_file."))
+    #expect(prompt.contains("To inspect, explain, summarize, search within, reason about"))
     #expect(prompt.contains("To find files by name, use glob_files or list_files."))
     #expect(prompt.contains("To search code contents, use search_files."))
     #expect(prompt.contains("To create a new file, use write_file"))

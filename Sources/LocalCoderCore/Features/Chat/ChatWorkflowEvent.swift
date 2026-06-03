@@ -19,6 +19,12 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
     messageID: ChatMessage.ID,
     turnID: ChatTurnRecord.ID
   )
+  case assistantMessageAppended(
+    content: String,
+    modelContextContent: String,
+    messageID: ChatMessage.ID,
+    turnID: ChatTurnRecord.ID
+  )
   case turnStatusChanged(
     turnID: ChatTurnRecord.ID,
     status: ChatTurnStatus,
@@ -109,9 +115,35 @@ public struct ChatWorkflowEventApplier: Sendable {
       replaceToolCallRecord(record, in: &state)
     case .toolResultAppended(let toolResult, let messageID, let turnID):
       mutator.appendToolResult(toolResult, id: messageID, turnID: turnID, to: &state)
+      mutator.appendModelContextMessage(
+        ChatModelContextMessage(
+          turnID: turnID,
+          sourceMessageID: messageID,
+          role: toolResult.modelContextRole,
+          content: toolResult.modelContextContent
+        ),
+        to: &state
+      )
       mutator.appendMessageID(messageID, toTurn: turnID, in: &state)
     case .assistantPlaceholderAppended(let messageID, let turnID):
       mutator.appendAssistantPlaceholder(id: messageID, turnID: turnID, to: &state)
+      mutator.appendMessageID(messageID, toTurn: turnID, in: &state)
+    case .assistantMessageAppended(
+      let content,
+      let modelContextContent,
+      let messageID,
+      let turnID
+    ):
+      mutator.appendAssistantMessage(content, id: messageID, turnID: turnID, to: &state)
+      mutator.appendModelContextMessage(
+        ChatModelContextMessage(
+          turnID: turnID,
+          sourceMessageID: messageID,
+          role: .assistant,
+          content: modelContextContent
+        ),
+        to: &state
+      )
       mutator.appendMessageID(messageID, toTurn: turnID, in: &state)
     case .turnStatusChanged(let turnID, let status, let modelContextPolicy):
       mutator.updateTurnStatus(
@@ -152,6 +184,7 @@ public struct ChatWorkflowEventApplier: Sendable {
       return []
     case .toolResultAppended(_, _, let turnID),
       .assistantPlaceholderAppended(_, let turnID),
+      .assistantMessageAppended(_, _, _, let turnID),
       .turnStatusChanged(let turnID, _, _),
       .streamingAssistantMessagesCancelled(let turnID):
       return missingTurnDiagnostics([turnID], event: event, in: state)

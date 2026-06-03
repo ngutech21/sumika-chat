@@ -8,12 +8,15 @@ struct TaggedToolCallingTests {
   func registryContainsPromptToolsAndCanonicalLookup() throws {
     let registry = ToolExecutorRegistry.readOnly.toolRegistry
 
-    #expect(registry.tools.map(\.name) == [.readFile, .listFiles, .globFiles, .searchFiles])
+    #expect(
+      registry.tools.map(\.name) == [.readFile, .showFile, .listFiles, .globFiles, .searchFiles])
     #expect(registry.definition(canonicalizing: "Read")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "READ")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "READ-FILE")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "read-file")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "read file")?.name == .readFile)
+    #expect(registry.definition(canonicalizing: "show")?.name == .showFile)
+    #expect(registry.definition(canonicalizing: "show-file")?.name == .showFile)
     #expect(registry.definition(canonicalizing: "glob-files")?.name == .globFiles)
     #expect(registry.definition(canonicalizing: "search files")?.name == .searchFiles)
     #expect(registry.definition(canonicalizing: "run_command") == nil)
@@ -27,6 +30,7 @@ struct TaggedToolCallingTests {
     )
 
     #expect(prompt.contains("read_file"))
+    #expect(prompt.contains("show_file"))
     #expect(prompt.contains("list_files"))
     #expect(prompt.contains("glob_files"))
     #expect(prompt.contains("search_files"))

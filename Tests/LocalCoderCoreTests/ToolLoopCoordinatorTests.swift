@@ -40,6 +40,108 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func showFileDisplayStopsWithoutModelFollowUp() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: UUID(),
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(userContent: "show the content of README.md"),
+          ChatMessage(
+            id: assistantMessageID,
+            assistantContent: """
+              <action name="show_file">
+              <path>README.md</path>
+              </action>
+              """
+          ),
+        ],
+        interactionMode: .inspect
+      )
+    )
+
+    #expect(result?.continuation == .stopTurn)
+    #expect(toolResult(from: result)?.toolName == .showFile)
+    let assistant = directAssistantMessage(from: result)
+    #expect(assistant?.content.contains("Here is `README.md`:") == true)
+    #expect(assistant?.content.contains("1: project notes") == true)
+    #expect(
+      assistant?.modelContextContent
+        == "Displayed show_file result for README.md directly to the user.")
+  }
+
+  @Test
+  func showFileDisplayStopsWithoutModelFollowUpInAgentMode() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: UUID(),
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(
+            id: assistantMessageID,
+            assistantContent: """
+              <action name="show_file">
+              <path>README.md</path>
+              </action>
+              """
+          )
+        ],
+        interactionMode: .agent
+      )
+    )
+
+    #expect(result?.continuation == .stopTurn)
+    #expect(toolResult(from: result)?.toolName == .showFile)
+    #expect(directAssistantMessage(from: result)?.content.contains("1: project notes") == true)
+  }
+
+  @Test
+  func readFileKeepsModelFollowUpEvenForDisplayRequests() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: UUID(),
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(userContent: "show README.md"),
+          ChatMessage(
+            id: assistantMessageID,
+            assistantContent: """
+              <action name="read_file">
+              <path>README.md</path>
+              </action>
+              """
+          ),
+        ],
+        interactionMode: .inspect
+      )
+    )
+
+    #expect(completedToolResult(from: result)?.toolName == .readFile)
+    #expect(directAssistantMessage(from: result) == nil)
+  }
+
+  @Test
   func repairsExactReadAliasAndExecutesReadFile() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -571,6 +673,19 @@ struct ToolLoopCoordinatorTests {
         continue
       }
       return toolResult
+    }
+    return nil
+  }
+
+  private func directAssistantMessage(from step: ChatWorkflowStep?) -> (
+    content: String, modelContextContent: String
+  )? {
+    for event in step?.events ?? [] {
+      guard case .assistantMessageAppended(let content, let modelContextContent, _, _) = event
+      else {
+        continue
+      }
+      return (content, modelContextContent)
     }
     return nil
   }

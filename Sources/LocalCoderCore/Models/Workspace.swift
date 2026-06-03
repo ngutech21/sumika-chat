@@ -5,6 +5,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
   public var title: String
   public var selectedModelID: ManagedModel.ID
   public var messages: [ChatMessage]
+  public var modelContextMessages: [ChatModelContextMessage]
   public var toolCalls: [ToolCallRecord]
   public var turns: [ChatTurnRecord]
   public var focusedFileState: FocusedFileState
@@ -19,6 +20,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     title: String = "New Session",
     selectedModelID: ManagedModel.ID,
     messages: [ChatMessage] = [],
+    modelContextMessages: [ChatModelContextMessage] = [],
     toolCalls: [ToolCallRecord] = [],
     turns: [ChatTurnRecord] = [],
     focusedFileState: FocusedFileState = .empty,
@@ -32,6 +34,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     self.title = title
     self.selectedModelID = selectedModelID
     self.messages = messages
+    self.modelContextMessages = modelContextMessages
     self.toolCalls = toolCalls
     self.turns = turns
     self.focusedFileState = focusedFileState
@@ -47,6 +50,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     case title
     case selectedModelID
     case messages
+    case modelContextMessages
     case toolCalls
     case turns
     case focusedFileState
@@ -63,6 +67,9 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     title = try container.decode(String.self, forKey: .title)
     selectedModelID = try container.decode(ManagedModel.ID.self, forKey: .selectedModelID)
     messages = try container.decode([ChatMessage].self, forKey: .messages)
+    modelContextMessages =
+      try container.decodeIfPresent([ChatModelContextMessage].self, forKey: .modelContextMessages)
+      ?? ChatModelContextBackfill.messages(from: messages)
     toolCalls = try container.decodeIfPresent([ToolCallRecord].self, forKey: .toolCalls) ?? []
     turns = try container.decodeIfPresent([ChatTurnRecord].self, forKey: .turns) ?? []
     focusedFileState =
