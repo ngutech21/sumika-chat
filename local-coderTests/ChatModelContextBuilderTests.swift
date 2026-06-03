@@ -8,10 +8,9 @@ struct ChatModelContextBuilderTests {
   func filtersMessagesFromExcludedTurnsButKeepsLegacyMessages() {
     let includedTurnID = UUID()
     let excludedTurnID = UUID()
-    let legacyMessage = ChatMessage(kind: .user, content: "legacy")
-    let includedMessage = ChatMessage(kind: .assistant, content: "included", turnID: includedTurnID)
+    let legacyMessage = ChatMessage(userContent: "legacy")
+    let includedMessage = ChatMessage(assistantContent: "included", turnID: includedTurnID)
     let excludedMessage = ChatMessage(
-      kind: .toolResult, content: "",
       toolResult: ToolResultModelMessage(
         callID: UUID(),
         toolName: .listFiles,
@@ -41,7 +40,6 @@ struct ChatModelContextBuilderTests {
   func includesExcludedTurnWhenItIsTheActiveTurn() {
     let turnID = UUID()
     let toolResult = ChatMessage(
-      kind: .toolResult, content: "",
       toolResult: ToolResultModelMessage(
         callID: UUID(),
         toolName: .listFiles,

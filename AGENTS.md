@@ -88,6 +88,8 @@ Start small. Do not introduce all folders up front unless there is real code to 
 - Keep `@State` local to view-only concerns; put shared workflow state in controllers, coordinators, stores, or `AppState`.
 - Prefer dependency injection through initializers for services and coordinators so tests can use fakes.
 - Keep service APIs async and structured. Return domain models or typed results instead of raw strings when possible.
+- Prefer Swift's type system for variant data: use enums with associated values and small payload structs when they make invalid states unrepresentable. Avoid stringly typed APIs and ad hoc dictionaries for domain concepts, but do not introduce extra abstractions when a simple typed value is enough.
+- For persisted domain models, keep `Codable` schemas intentional and covered by tests. Use synthesized `Codable` only when the encoded shape is not part of the app's compatibility, migration, or debugging surface; otherwise define explicit coding keys or custom encoding.
 - Use `throws` for recoverable failures and surface user-facing error text at the UI boundary.
 - Avoid singletons for app services unless they wrap immutable platform facilities.
 - Keep model-runtime code behind `ChatModelRuntime`-style protocols so MLX/Gemma backends remain swappable.

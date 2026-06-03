@@ -157,7 +157,7 @@ struct ContextUsageCoordinatorTests {
     ContextUsageSnapshot(
       modelState: modelState,
       operationID: operationID,
-      messages: [ChatMessage(kind: .user, content: "hello")],
+      messages: [ChatMessage(userContent: "hello")],
       attachments: [],
       systemPrompt: "system"
     )

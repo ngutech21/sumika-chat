@@ -63,10 +63,10 @@ struct ChatTranscript: View {
   }
 
   private func toolCallRecord(for message: ChatMessage) -> ToolCallRecord? {
-    guard let callID = message.toolCall?.callID else {
+    guard case .toolCall(let payload) = message.payload else {
       return nil
     }
-    return toolCalls.first { $0.id == callID }
+    return toolCalls.first { $0.id == payload.toolCall.callID }
   }
 }
 
@@ -182,21 +182,24 @@ private struct MessageContentText: View {
 
   @ViewBuilder
   var body: some View {
-    if let toolCall = message.toolCall {
+    switch message.payload {
+    case .toolCall(let payload):
       ToolCallSummaryView(
-        toolCall: toolCall,
+        toolCall: payload.toolCall,
         toolCallRecord: toolCallRecord,
         onApprove: onApproveToolCall,
         onDeny: onDenyToolCall
       )
-    } else if let toolResult = message.toolResult {
+    case .toolResult(let toolResult):
       ToolResultSummaryView(toolResult: toolResult)
-    } else if message.kind == .assistant {
-      Markdown(AssistantMarkdownPreprocessor.renderableContent(for: message.content))
+    case .assistant(let payload):
+      Markdown(AssistantMarkdownPreprocessor.renderableContent(for: payload.content))
         .markdownTheme(.chatMessage)
         .markdownCodeSyntaxHighlighter(ChatCodeSyntaxHighlighter())
-    } else {
-      Text(message.content)
+    case .user(let payload):
+      Text(payload.content)
+    case .system(let payload):
+      Text(payload.content)
     }
   }
 }

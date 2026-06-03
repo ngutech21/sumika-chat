@@ -508,7 +508,7 @@ struct ChatSessionControllerTests {
     let runtime = ControlledContextUsageRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.chatSession.messages = [ChatMessage(kind: .user, content: "hello")]
+    controller.chatSession.messages = [ChatMessage(userContent: "hello")]
 
     controller.refreshContextUsage()
     try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
@@ -542,7 +542,7 @@ struct ChatSessionControllerTests {
     )
     controller.modelRuntime.modelState = .ready
     controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
-    controller.chatSession.messages = [ChatMessage(kind: .user, content: "old session")]
+    controller.chatSession.messages = [ChatMessage(userContent: "old session")]
 
     controller.clearChatHistory()
     try await waitUntilAsync { await runtime.didStartClearContext }

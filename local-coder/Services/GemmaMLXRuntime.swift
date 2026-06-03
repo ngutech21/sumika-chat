@@ -263,37 +263,31 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
 nonisolated extension Chat.Message {
   fileprivate init?(_ message: ChatMessage) {
-    switch message.kind {
-    case .user:
-      guard !message.content.isEmpty else {
+    switch message.payload {
+    case .user(let payload):
+      guard !payload.content.isEmpty else {
         return nil
       }
-      self = .user(promptWithAttachments(prompt: message.content, attachments: message.attachments))
-    case .assistant:
-      if !message.content.isEmpty {
-        self = .assistant(message.content)
+      self = .user(promptWithAttachments(prompt: payload.content, attachments: payload.attachments))
+    case .assistant(let payload):
+      if !payload.content.isEmpty {
+        self = .assistant(payload.content)
       } else {
         return nil
       }
-    case .toolCall:
-      guard let toolCall = message.toolCall else {
-        return nil
-      }
-      self = .assistant(toolCall.modelContextMessage)
-    case .toolResult:
-      guard let toolResult = message.toolResult else {
-        return nil
-      }
+    case .toolCall(let payload):
+      self = .assistant(payload.toolCall.modelContextMessage)
+    case .toolResult(let toolResult):
       if toolResult.isTerminalWrite {
         self = .assistant(toolResult.terminalModelContextMessage)
       } else {
         self = .user(toolResult.modelContextMessage)
       }
-    case .system:
-      guard !message.content.isEmpty else {
+    case .system(let payload):
+      guard !payload.content.isEmpty else {
         return nil
       }
-      self = .system(message.content)
+      self = .system(payload.content)
     }
   }
 }
@@ -374,7 +368,7 @@ nonisolated private func generationPrompt(
 ) -> String {
   let basePrompt = promptWithAttachments(prompt: prompt, attachments: attachments)
   let observations = remainingMessages.compactMap { message -> String? in
-    guard message.kind == .toolResult, let toolResult = message.toolResult else {
+    guard case .toolResult(let toolResult) = message.payload else {
       return nil
     }
 

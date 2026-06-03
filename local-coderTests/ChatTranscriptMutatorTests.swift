@@ -36,7 +36,7 @@ struct ChatTranscriptMutatorTests {
   @Test
   func appendChunkUpdatesExistingMessageAndIgnoresMissingID() {
     let assistantID = UUID()
-    var state = makeState(messages: [ChatMessage(id: assistantID, kind: .assistant, content: "Hel")]
+    var state = makeState(messages: [ChatMessage(id: assistantID, assistantContent: "Hel")]
     )
     let mutator = ChatTranscriptMutator()
 
@@ -55,8 +55,7 @@ struct ChatTranscriptMutatorTests {
     var state = makeState(messages: [
       ChatMessage(
         id: assistantID,
-        kind: .assistant,
-        content: "Answer",
+        assistantContent: "Answer",
         attachments: [attachment]
       )
     ])
@@ -86,8 +85,7 @@ struct ChatTranscriptMutatorTests {
     var state = makeState(messages: [
       ChatMessage(
         id: assistantID,
-        kind: .assistant,
-        content: "<action>",
+        assistantContent: "<action>",
         attachments: [attachment],
         generationMetrics: metrics
       )
@@ -126,14 +124,13 @@ struct ChatTranscriptMutatorTests {
   @Test
   func removeTransientAssistantPlaceholdersKeepsRealAssistantMessages() {
     let emptyAssistantID = UUID()
-    let filledAssistant = ChatMessage(kind: .assistant, content: "Done")
-    let userMessage = ChatMessage(kind: .user, content: "Prompt")
+    let filledAssistant = ChatMessage(assistantContent: "Done")
+    let userMessage = ChatMessage(userContent: "Prompt")
     var state = makeState(messages: [
       userMessage,
       ChatMessage(
         id: emptyAssistantID,
-        kind: .assistant,
-        content: "",
+        assistantContent: "",
         deliveryStatus: .streaming
       ),
       filledAssistant,
@@ -153,20 +150,18 @@ struct ChatTranscriptMutatorTests {
     let filledAssistantID = UUID()
     var state = makeState(
       messages: [
-        ChatMessage(id: userID, kind: .user, content: "Prompt", turnID: turnID),
+        ChatMessage(id: userID, userContent: "Prompt", turnID: turnID),
         ChatMessage(
           id: emptyAssistantID,
-          kind: .assistant,
-          content: "",
+          assistantContent: "",
+          deliveryStatus: .streaming,
           turnID: turnID,
-          deliveryStatus: .streaming
         ),
         ChatMessage(
           id: filledAssistantID,
-          kind: .assistant,
-          content: "Done",
-          turnID: turnID,
-          deliveryStatus: .complete
+          assistantContent: "Done",
+          deliveryStatus: .complete,
+          turnID: turnID
         ),
       ],
       turns: [
@@ -192,7 +187,7 @@ struct ChatTranscriptMutatorTests {
     let turn = ChatTurnRecord(status: .completed)
     let toolCall = makeToolCallRecord()
     var state = makeState(
-      messages: [ChatMessage(kind: .user, content: "Prompt")],
+      messages: [ChatMessage(userContent: "Prompt")],
       toolCalls: [toolCall],
       turns: [turn],
       attachments: [attachment],
@@ -214,9 +209,9 @@ struct ChatTranscriptMutatorTests {
   @Test
   func removeMessageDeletesMatchingMessageOnly() {
     let removedID = UUID()
-    let kept = ChatMessage(kind: .assistant, content: "Keep")
+    let kept = ChatMessage(assistantContent: "Keep")
     var state = makeState(messages: [
-      ChatMessage(id: removedID, kind: .user, content: "Remove"),
+      ChatMessage(id: removedID, userContent: "Remove"),
       kept,
     ])
     let mutator = ChatTranscriptMutator()

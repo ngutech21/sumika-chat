@@ -103,7 +103,7 @@ struct WorkspaceStoreTests {
       id: UUID(),
       title: "Legacy",
       selectedModelID: "gemma3-1b",
-      messages: [ChatMessage(kind: .user, content: "hello")],
+      messages: [ChatMessage(userContent: "hello")],
       systemPrompt: "Legacy prompt",
       generationSettings: .codingDefault,
       createdAt: Date(),
@@ -162,7 +162,7 @@ struct WorkspaceStoreTests {
     let firstSession = CodingSession(
       title: "Existing",
       selectedModelID: "gemma3-1b",
-      messages: [ChatMessage(kind: .user, content: "existing")],
+      messages: [ChatMessage(userContent: "existing")],
       systemPrompt: "Existing prompt",
       generationSettings: .codingDefault
     )
@@ -284,14 +284,14 @@ struct WorkspaceStoreTests {
     let firstSession = CodingSession(
       title: "First",
       selectedModelID: "gemma3-1b",
-      messages: [ChatMessage(kind: .user, content: "first")],
+      messages: [ChatMessage(userContent: "first")],
       systemPrompt: "First prompt",
       generationSettings: .codingDefault
     )
     let secondSession = CodingSession(
       title: "Second",
       selectedModelID: "gemma3-4b",
-      messages: [ChatMessage(kind: .user, content: "second")],
+      messages: [ChatMessage(userContent: "second")],
       systemPrompt: "Second prompt",
       generationSettings: ChatGenerationSettings(
         temperature: 0.4,
@@ -417,14 +417,14 @@ struct WorkspaceStoreTests {
     let deletedSession = CodingSession(
       title: "Delete me",
       selectedModelID: "gemma3-1b",
-      messages: [ChatMessage(kind: .user, content: "remove this chat")],
+      messages: [ChatMessage(userContent: "remove this chat")],
       systemPrompt: "Delete prompt",
       generationSettings: .codingDefault
     )
     let activeSession = CodingSession(
       title: "Keep me",
       selectedModelID: "gemma3-4b",
-      messages: [ChatMessage(kind: .user, content: "keep this chat")],
+      messages: [ChatMessage(userContent: "keep this chat")],
       systemPrompt: "Keep prompt",
       generationSettings: .codingDefault
     )
@@ -459,14 +459,14 @@ struct WorkspaceStoreTests {
     let activeSession = CodingSession(
       title: "Active",
       selectedModelID: "gemma3-1b",
-      messages: [ChatMessage(kind: .user, content: "active chat")],
+      messages: [ChatMessage(userContent: "active chat")],
       systemPrompt: "Active prompt",
       generationSettings: .codingDefault
     )
     let remainingSession = CodingSession(
       title: "Remaining",
       selectedModelID: "gemma3-4b",
-      messages: [ChatMessage(kind: .user, content: "remaining chat")],
+      messages: [ChatMessage(userContent: "remaining chat")],
       systemPrompt: "Remaining prompt",
       generationSettings: .codingDefault
     )
@@ -504,7 +504,7 @@ struct WorkspaceStoreTests {
     let onlySession = CodingSession(
       title: "Only",
       selectedModelID: "gemma3-1b",
-      messages: [ChatMessage(kind: .user, content: "deleted chat")],
+      messages: [ChatMessage(userContent: "deleted chat")],
       systemPrompt: "Only prompt",
       generationSettings: .codingDefault
     )
@@ -682,7 +682,7 @@ private struct ChatSessionBootstrapTests {
     )
     let session = CodingSession(
       selectedModelID: selectedModel.id,
-      messages: [ChatMessage(kind: .user, content: "keep this transcript")],
+      messages: [ChatMessage(userContent: "keep this transcript")],
       systemPrompt: "Session prompt",
       generationSettings: .codingDefault
     )

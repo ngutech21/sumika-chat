@@ -9,10 +9,8 @@ struct GemmaMLXRuntimeTests {
   func templateMessagesRenderToolRunAsAssistantActionUserObservationAssistantAnswer() throws {
     let callID = UUID()
     let messages: [ChatMessage] = [
-      ChatMessage(kind: .user, content: "lies Package.swift"),
+      ChatMessage(userContent: "lies Package.swift"),
       ChatMessage(
-        kind: .toolCall,
-        content: "",
         toolCall: ToolCallModelMessage(
           callID: callID,
           toolName: .readFile,
@@ -20,15 +18,13 @@ struct GemmaMLXRuntimeTests {
         )
       ),
       ChatMessage(
-        kind: .toolResult,
-        content: "",
         toolResult: ToolResultModelMessage(
           callID: callID,
           toolName: .readFile,
           preview: ToolResultPreview(text: "let package = Package(...)")
         )
       ),
-      ChatMessage(kind: .assistant, content: "Package.swift definiert ein Swift-Package."),
+      ChatMessage(assistantContent: "Package.swift definiert ein Swift-Package."),
     ]
 
     let templateMessages = try GemmaMLXRuntime.templateMessages(
@@ -60,10 +56,8 @@ struct GemmaMLXRuntimeTests {
   func templateMessagesKeepValidRolesForUserChatAfterToolRun() throws {
     let callID = UUID()
     let messages: [ChatMessage] = [
-      ChatMessage(kind: .user, content: "lies Package.swift"),
+      ChatMessage(userContent: "lies Package.swift"),
       ChatMessage(
-        kind: .toolCall,
-        content: "",
         toolCall: ToolCallModelMessage(
           callID: callID,
           toolName: .readFile,
@@ -71,16 +65,14 @@ struct GemmaMLXRuntimeTests {
         )
       ),
       ChatMessage(
-        kind: .toolResult,
-        content: "",
         toolResult: ToolResultModelMessage(
           callID: callID,
           toolName: .readFile,
           preview: ToolResultPreview(text: "let package = Package(...)")
         )
       ),
-      ChatMessage(kind: .assistant, content: "Package.swift definiert ein Swift-Package."),
-      ChatMessage(kind: .user, content: "ok, und was jetzt?"),
+      ChatMessage(assistantContent: "Package.swift definiert ein Swift-Package."),
+      ChatMessage(userContent: "ok, und was jetzt?"),
     ]
 
     let templateMessages = try GemmaMLXRuntime.templateMessages(
@@ -97,10 +89,8 @@ struct GemmaMLXRuntimeTests {
   func generationHistoryKeepsTerminalToolResultAsAssistantSummary() throws {
     let callID = UUID()
     let messages: [ChatMessage] = [
-      ChatMessage(kind: .user, content: "create index.html"),
+      ChatMessage(userContent: "create index.html"),
       ChatMessage(
-        kind: .toolCall,
-        content: "",
         toolCall: ToolCallModelMessage(
           callID: callID,
           toolName: .writeFile,
@@ -111,8 +101,6 @@ struct GemmaMLXRuntimeTests {
         )
       ),
       ChatMessage(
-        kind: .toolResult,
-        content: "",
         toolResult: ToolResultModelMessage(
           callID: callID,
           toolName: .writeFile,
@@ -142,10 +130,8 @@ struct GemmaMLXRuntimeTests {
   func generationHistoryOmitsEditFilePayloads() throws {
     let callID = UUID()
     let messages: [ChatMessage] = [
-      ChatMessage(kind: .user, content: "change title"),
+      ChatMessage(userContent: "change title"),
       ChatMessage(
-        kind: .toolCall,
-        content: "",
         toolCall: ToolCallModelMessage(
           callID: callID,
           toolName: .editFile,
@@ -157,8 +143,6 @@ struct GemmaMLXRuntimeTests {
         )
       ),
       ChatMessage(
-        kind: .toolResult,
-        content: "",
         toolResult: ToolResultModelMessage(
           callID: callID,
           toolName: .editFile,
@@ -188,10 +172,8 @@ struct GemmaMLXRuntimeTests {
   func generationHistoryKeepsToolObservationWhenAssistantAnswered() throws {
     let callID = UUID()
     let messages: [ChatMessage] = [
-      ChatMessage(kind: .user, content: "read Package.swift"),
+      ChatMessage(userContent: "read Package.swift"),
       ChatMessage(
-        kind: .toolCall,
-        content: "",
         toolCall: ToolCallModelMessage(
           callID: callID,
           toolName: .readFile,
@@ -199,15 +181,13 @@ struct GemmaMLXRuntimeTests {
         )
       ),
       ChatMessage(
-        kind: .toolResult,
-        content: "",
         toolResult: ToolResultModelMessage(
           callID: callID,
           toolName: .readFile,
           preview: ToolResultPreview(text: "let package = Package(...)")
         )
       ),
-      ChatMessage(kind: .assistant, content: "Package.swift defines a Swift package."),
+      ChatMessage(assistantContent: "Package.swift defines a Swift package."),
     ]
 
     let history = try GemmaMLXRuntime.generationHistoryMessages(from: messages[...])

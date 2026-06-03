@@ -19,8 +19,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: """
+            assistantContent: """
               <action name="read_file">
               <path>README.md</path>
               </action>
@@ -53,8 +52,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: """
+            assistantContent: """
               <action name="Read">
               <path>README.md</path>
               </action>
@@ -93,8 +91,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: """
+            assistantContent: """
               <action name="read_file">
               <path>README.md</path>
               <offset>2</offset>
@@ -126,8 +123,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: """
+            assistantContent: """
               I should inspect this.
               <action name="read_file">
               <path>README.md</path>
@@ -157,8 +153,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: """
+            assistantContent: """
               ```xml
               <action name="list_files">
               <path>.</path>
@@ -189,8 +184,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: "The answer does not need workspace context."
+            assistantContent: "The answer does not need workspace context."
           )
         ]
       )
@@ -214,8 +208,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: """
+            assistantContent: """
               <action name="Deploy">
               <path>.</path>
               </action>
@@ -247,8 +240,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: """
+            assistantContent: """
               <action name="read_file">
               <path>README.md
               </action>
@@ -281,8 +273,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: """
+            assistantContent: """
               Tool call edit_file requested.
               Path:
               index.html
@@ -319,8 +310,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: """
+            assistantContent: """
               <action name="read_file">
               <path>README.md</path>
               </action>
@@ -353,8 +343,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: """
+            assistantContent: """
               <action name="write_file">
               <path>movies.html</path>
               <content delimiter="LC_PAYLOAD_V1">
@@ -393,8 +382,7 @@ struct ToolLoopCoordinatorTests {
         messages: [
           ChatMessage(
             id: assistantMessageID,
-            kind: .assistant,
-            content: """
+            assistantContent: """
               <action name="write_file">
               <path>movies.html</path>
               <content delimiter="LC_PAYLOAD_V1">
