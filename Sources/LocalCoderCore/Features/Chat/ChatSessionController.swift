@@ -296,21 +296,21 @@ extension ChatSessionController {
       }
 
       do {
-        let allowsToolCalls = toolPromptPolicy.shouldAllowToolCalls(
+        let toolAvailability = toolPromptPolicy.toolAvailability(
           workspace: workspace,
-          prompt: prompt,
-          attachments: sentAttachments
+          sessionID: sessionID
         )
-        refreshContextUsage()
+        let toolsAvailable = toolAvailability == .availableForWorkspace
+        refreshContextUsage(toolPromptMode: .enabled(toolsAvailable))
         try await streamAssistantReply(
           to: assistantMessageID,
-          toolPromptMode: .enabled(allowsToolCalls),
+          toolPromptMode: .enabled(toolsAvailable),
           turnID: turnID
         )
         guard isCurrentTurn(turnID) else {
           return
         }
-        if allowsToolCalls {
+        if toolsAvailable {
           try await runToolLoop(
             workspace: workspace,
             sessionID: sessionID,
@@ -391,9 +391,9 @@ extension ChatSessionController {
       onEvent: handleContextUsageEvent(_:))
   }
 
-  public func refreshContextUsage() {
+  public func refreshContextUsage(toolPromptMode: ToolPromptMode = .disabled) {
     contextUsageCoordinator.refresh(
-      snapshot: contextUsageSnapshot(),
+      snapshot: contextUsageSnapshot(toolPromptMode: toolPromptMode),
       onEvent: handleContextUsageEvent(_:))
   }
 
@@ -407,7 +407,9 @@ extension ChatSessionController {
     contextUsageCoordinator.invalidate(onEvent: handleContextUsageEvent(_:))
   }
 
-  private func contextUsageSnapshot() -> ContextUsageSnapshot {
+  private func contextUsageSnapshot(toolPromptMode: ToolPromptMode = .disabled)
+    -> ContextUsageSnapshot
+  {
     ContextUsageSnapshot(
       modelState: modelRuntime.modelState,
       operationID: modelRuntime.currentOperationID(),
@@ -416,7 +418,7 @@ extension ChatSessionController {
         includingTurnID: chatTurnCoordinator.activeTurnID
       ),
       attachments: chatSession.attachments,
-      systemPrompt: systemPrompt(toolPromptMode: .disabled)
+      systemPrompt: systemPrompt(toolPromptMode: toolPromptMode)
     )
   }
 
@@ -786,7 +788,7 @@ extension ChatSessionController {
         transcriptMutator.updateDeliveryStatus(.complete, for: assistantMessageID, in: &chatSession)
       },
       updateContextUsage: {
-        refreshContextUsage()
+        refreshContextUsage(toolPromptMode: toolPromptMode)
       }
     )
   }

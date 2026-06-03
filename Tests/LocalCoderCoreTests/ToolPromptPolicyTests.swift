@@ -5,62 +5,55 @@ import Testing
 
 struct ToolPromptPolicyTests {
   @Test
-  func disablesToolsWithoutWorkspace() {
+  func toolAvailabilityIsUnavailableWithoutWorkspace() {
     let policy = ToolPromptPolicy()
+    let sessionID = UUID()
 
-    let allowsTools = policy.shouldAllowToolCalls(
+    let availability = policy.toolAvailability(
       workspace: nil,
-      prompt: "read README.md",
-      attachments: []
+      sessionID: sessionID
     )
 
-    #expect(!allowsTools)
+    #expect(availability == .unavailable)
   }
 
   @Test
-  func enablesToolsForAttachments() {
+  func toolAvailabilityIsUnavailableWithoutSession() {
     let policy = ToolPromptPolicy()
+    let sessionID = UUID()
 
-    let allowsTools = policy.shouldAllowToolCalls(
-      workspace: makeWorkspace(),
-      prompt: "summarize this",
-      attachments: [
-        ChatAttachment(
-          url: URL(filePath: "/tmp/README.md"),
-          displayName: "README.md",
-          kind: .text,
-          content: "notes"
-        )
-      ]
+    let availability = policy.toolAvailability(
+      workspace: makeWorkspace(sessionID: sessionID),
+      sessionID: nil
     )
 
-    #expect(allowsTools)
+    #expect(availability == .unavailable)
   }
 
   @Test
-  func enablesToolsForExplicitCodeIntent() {
+  func toolAvailabilityIsUnavailableForUnknownSession() {
     let policy = ToolPromptPolicy()
+    let sessionID = UUID()
 
-    let allowsTools = policy.shouldAllowToolCalls(
-      workspace: makeWorkspace(),
-      prompt: "inspect the repository implementation",
-      attachments: []
+    let availability = policy.toolAvailability(
+      workspace: makeWorkspace(sessionID: sessionID),
+      sessionID: UUID()
     )
 
-    #expect(allowsTools)
+    #expect(availability == .unavailable)
   }
 
   @Test
-  func enablesToolsForEditIntentWithoutFileKeyword() {
+  func toolAvailabilityIsAvailableForWorkspaceSession() {
     let policy = ToolPromptPolicy()
+    let sessionID = UUID()
 
-    let allowsTools = policy.shouldAllowToolCalls(
-      workspace: makeWorkspace(),
-      prompt: "replace the h1 foo bar with a table with 3 columns",
-      attachments: []
+    let availability = policy.toolAvailability(
+      workspace: makeWorkspace(sessionID: sessionID),
+      sessionID: sessionID
     )
 
-    #expect(allowsTools)
+    #expect(availability == .availableForWorkspace)
   }
 
   @Test
@@ -158,11 +151,18 @@ struct ToolPromptPolicyTests {
     #expect(!prompt.contains("Available tools:"))
   }
 
-  private func makeWorkspace() -> Workspace {
+  private func makeWorkspace(sessionID: CodingSession.ID) -> Workspace {
     Workspace(
       name: "Project",
       rootURL: URL(filePath: "/tmp/project"),
-      sessions: []
+      sessions: [
+        CodingSession(
+          id: sessionID,
+          selectedModelID: ManagedModelCatalog.defaultModelID,
+          systemPrompt: ChatPromptDefaults.codingSystemPrompt,
+          generationSettings: .codingDefault
+        )
+      ]
     )
   }
 }

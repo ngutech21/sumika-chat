@@ -7,6 +7,11 @@ public enum ToolPromptMode: Equatable, Sendable {
   case afterToolResultFinal
 }
 
+public enum ToolAvailability: Equatable, Sendable {
+  case unavailable
+  case availableForWorkspace
+}
+
 public struct ToolPromptPolicy: Sendable {
   private let payloadDelimiter: String
 
@@ -14,55 +19,19 @@ public struct ToolPromptPolicy: Sendable {
     self.payloadDelimiter = payloadDelimiter
   }
 
-  public func shouldAllowToolCalls(
+  public func toolAvailability(
     workspace: Workspace?,
-    prompt: String,
-    attachments: [ChatAttachment]
-  ) -> Bool {
-    guard workspace != nil else {
-      return false
+    sessionID: CodingSession.ID?
+  ) -> ToolAvailability {
+    guard
+      let workspace,
+      let sessionID,
+      workspace.sessions.contains(where: { $0.id == sessionID })
+    else {
+      return .unavailable
     }
 
-    if !attachments.isEmpty {
-      return true
-    }
-
-    let normalizedPrompt = prompt.lowercased()
-    let explicitToolIntentPhrases = [
-      "read ",
-      "open ",
-      "show ",
-      "inspect",
-      "look at",
-      "edit",
-      "modify",
-      "replace",
-      "change",
-      "update",
-      "list files",
-      "list the files",
-      "what files",
-      "which files",
-      "file",
-      "folder",
-      "directory",
-      "workspace",
-      "repo",
-      "repository",
-      "project",
-      "source",
-      "code",
-      "implementation",
-      "readme",
-    ]
-
-    if explicitToolIntentPhrases.contains(where: { normalizedPrompt.contains($0) }) {
-      return true
-    }
-
-    return ChatAttachmentLimits.supportedTextFileExtensions.contains { fileExtension in
-      normalizedPrompt.contains(".\(fileExtension)")
-    }
+    return .availableForWorkspace
   }
 
   public func systemPrompt(

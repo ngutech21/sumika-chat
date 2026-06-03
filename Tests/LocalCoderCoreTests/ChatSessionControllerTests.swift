@@ -203,7 +203,7 @@ struct ChatSessionControllerTests {
   }
 
   @Test
-  func sendMessageInWorkspaceKeepsNormalChatFreeOfToolInstructions() async throws {
+  func sendMessageInWorkspaceKeepsNormalChatFreeOfToolExecutionWithoutAction() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["a short poem"])
@@ -222,9 +222,42 @@ struct ChatSessionControllerTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 1)
+    #expect(capturedSystemPrompts[0].contains("read_file"))
+    #expect(capturedSystemPrompts[0].contains("list_files"))
+    #expect(capturedSystemPrompts[0].contains("Available tools:"))
+
+    let capturedContextUsageSystemPrompts = await runtime.capturedContextUsageSystemPrompts
+    #expect(capturedContextUsageSystemPrompts.contains { $0.contains("Available tools:") })
+    #expect(capturedContextUsageSystemPrompts.contains { $0.contains("read_file") })
+  }
+
+  @Test
+  func sendMessageWithoutWorkspaceDoesNotExecuteAssistantAction() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: [
+      """
+      <action name="read_file">
+      <path>README.md</path>
+      </action>
+      """
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "read README"
+
+    controller.sendMessage()
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.errorMessage == nil)
+    #expect(controller.chatSession.toolCalls.isEmpty)
+    #expect(controller.chatSession.messages.count == 2)
+    #expect(controller.chatSession.messages[1].kind == .assistant)
+    #expect(controller.chatSession.messages[1].content.contains("<action name=\"read_file\">"))
+
+    let capturedSystemPrompts = await runtime.capturedSystemPrompts
+    #expect(capturedSystemPrompts.count == 1)
+    #expect(!capturedSystemPrompts[0].contains("Available tools:"))
     #expect(!capturedSystemPrompts[0].contains("read_file"))
-    #expect(!capturedSystemPrompts[0].contains("list_files"))
-    #expect(!capturedSystemPrompts[0].contains("Tool calling uses"))
   }
 
   @Test
@@ -318,7 +351,7 @@ struct ChatSessionControllerTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.draft = "Read the README"
+    controller.draft = "lies die projektbeschreibung"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
 
@@ -348,7 +381,8 @@ struct ChatSessionControllerTests {
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
-    #expect(capturedMessages[1].last { $0.kind == .user }?.content == "Read the README")
+    #expect(
+      capturedMessages[1].last { $0.kind == .user }?.content == "lies die projektbeschreibung")
     #expect(
       capturedMessages[1].contains { message in
         message.kind == .toolResult && message.toolResult?.preview.text == "1: project notes"

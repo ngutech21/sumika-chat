@@ -399,6 +399,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private var streamReplyCount = 0
   private(set) var capturedMessages: [[ChatMessage]] = []
   private(set) var capturedSystemPrompts: [String] = []
+  private(set) var capturedContextUsageSystemPrompts: [String] = []
 
   init(chunks: [String] = []) {
     self.turns = [chunks]
@@ -423,6 +424,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
+    capturedContextUsageSystemPrompts.append(systemPrompt)
     let usedTokens = ([systemPrompt] + messages.map(\.content) + attachments.map(\.content))
       .joined(separator: " ")
       .split(whereSeparator: \.isWhitespace)
