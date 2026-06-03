@@ -66,6 +66,30 @@ public actor ReadFileReadTracker {
 }
 
 enum ToolResultFailureMapper {
+  static func isFileNotFound(_ error: Error) -> Bool {
+    let nsError = error as NSError
+    guard nsError.domain == NSCocoaErrorDomain else {
+      return false
+    }
+    return nsError.code == NSFileReadNoSuchFileError || nsError.code == NSFileNoSuchFileError
+  }
+
+  static func missingFileReason(
+    for inputPath: String,
+    resolvedURL: URL?,
+    workspace: Workspace
+  ) -> ToolFailureReason {
+    let path = relativePath(for: inputPath, resolvedURL: resolvedURL, workspace: workspace)
+    let suggestions = workspace.withSecurityScopedAccess {
+      WorkspacePathSuggestionResolver()
+        .suggestions(forMissingPath: inputPath, workspace: workspace)
+    }
+    return .fileNotFound(
+      path: path,
+      suggestions: suggestions
+    )
+  }
+
   static func reason(from error: Error) -> ToolFailureReason {
     if let pathError = error as? WorkspacePathResolutionError {
       switch pathError {
@@ -614,7 +638,10 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
         .failed(
           path: ToolResultFailureMapper.relativePath(
             for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
-          reason: ToolResultFailureMapper.reason(from: error)
+          reason: ToolResultFailureMapper.isFileNotFound(error)
+            ? ToolResultFailureMapper.missingFileReason(
+              for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+            : ToolResultFailureMapper.reason(from: error)
         )
       )
     }

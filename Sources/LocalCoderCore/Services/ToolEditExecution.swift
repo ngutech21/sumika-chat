@@ -40,9 +40,12 @@ public struct EditFileToolExecutor: TypedToolExecutor {
   public func previewApproval(_ input: EditFileInput, context: ToolContext) async
     -> ToolResultPreview?
   {
+    var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {
+        resolvedURL = try context.workspace.resolveAllowedPath(input.path)
         let edit = try validatedEdit(input, context: context)
+        resolvedURL = edit.resolvedURL
         return ToolResultPreview(
           status: .success,
           text: Self.diffPreview(for: edit),
@@ -50,7 +53,7 @@ public struct EditFileToolExecutor: TypedToolExecutor {
         )
       }
     } catch {
-      return ToolResultPreview(status: .failed, text: error.localizedDescription)
+      return failurePreview(for: input, context: context, resolvedURL: resolvedURL, error: error)
     }
   }
 
@@ -93,10 +96,33 @@ public struct EditFileToolExecutor: TypedToolExecutor {
         .failed(
           path: ToolResultFailureMapper.relativePath(
             for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
-          reason: ToolResultFailureMapper.reason(from: error)
+          reason: ToolResultFailureMapper.isFileNotFound(error)
+            ? ToolResultFailureMapper.missingFileReason(
+              for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+            : ToolResultFailureMapper.reason(from: error)
         )
       )
     }
+  }
+
+  private func failurePreview(
+    for input: EditFileInput,
+    context: ToolContext,
+    resolvedURL: URL?,
+    error: Error
+  ) -> ToolResultPreview {
+    guard ToolResultFailureMapper.isFileNotFound(error) else {
+      return ToolResultPreview(status: .failed, text: error.localizedDescription)
+    }
+
+    return ToolResultPayload.editFile(
+      .failed(
+        path: ToolResultFailureMapper.relativePath(
+          for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
+        reason: ToolResultFailureMapper.missingFileReason(
+          for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+      )
+    ).preview
   }
 
   private func oldTextNotFoundResult(

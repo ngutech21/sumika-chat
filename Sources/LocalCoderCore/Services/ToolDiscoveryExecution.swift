@@ -283,7 +283,7 @@ nonisolated private struct SearchFileScanLimits {
 
 public enum WorkspaceFileEnumeration {
   public static let skippedNames: Set<String> = [
-    ".git", "DerivedData", ".build", "build", ".swiftpm",
+    ".git", "DerivedData", ".build", "build", ".swiftpm", "node_modules",
   ]
 
   public static func enumerateFiles(

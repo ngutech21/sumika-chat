@@ -56,6 +56,41 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func readFileMissingPathIncludesWorkspaceRelativeSuggestions() async throws {
+    let workspace = try makeWorkspace()
+    try write("html", to: "index.html", in: workspace)
+    try write("swift", to: "Sources/ToolLoopCoordinator.swift", in: workspace)
+
+    let missingHTML = await ReadFileToolExecutor().run(
+      ReadFileInput(path: "landing.html"),
+      context: ToolContext(workspace: workspace)
+    )
+    let outside = await ToolOrchestrator().execute(
+      request: request(
+        .readFile,
+        workspace: workspace,
+        arguments: ["path": .string("../landing.html")]
+      ),
+      workspace: workspace
+    )
+
+    #expect(missingHTML.status == .failed)
+    #expect(missingHTML.text.contains("Did you mean one of these?"))
+    #expect(missingHTML.text.contains("index.html"))
+    #expect(missingHTML.affectedPaths == ["landing.html"])
+    guard
+      case .readFile(.failed(let path, .fileNotFound(_, let suggestions))) = missingHTML
+    else {
+      Issue.record("Expected read_file missing path payload with suggestions.")
+      return
+    }
+    #expect(path == WorkspaceRelativePath(rawValue: "landing.html"))
+    #expect(suggestions.first?.path == WorkspaceRelativePath(rawValue: "index.html"))
+    #expect(outside.status == .denied)
+    #expect(outside.resultPreview?.text.contains("Did you mean one of these?") == false)
+  }
+
+  @Test
   func readFileTruncatesLargeFilesForModelContext() async throws {
     let workspace = try makeWorkspace()
     let fileURL = workspace.rootURL.appending(path: "large.txt")

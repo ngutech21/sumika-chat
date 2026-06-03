@@ -143,7 +143,9 @@ flowchart TD
   on the second and third reads, then a repeated-read warning from the fourth
   read onward. Changed content or a different range returns fresh content and
   updates the tracker. Direct executor calls without a tracker remain
-  stateless.
+  stateless. If the requested file is missing, `read_file` fails without
+  redirecting the call and may include up to five canonical workspace-relative
+  path suggestions.
 - `glob_files` and `search_files` are read-only discovery tools. They validate
   the requested `path`, default it to `.`, skip project metadata/build
   directories, and cap returned results. `search_files` treats a valid pattern
@@ -160,7 +162,8 @@ flowchart TD
 - Approved execution must re-validate the raw request and re-run
   permission/path evaluation immediately before the side effect.
 - `write_file` writes the model-provided `content` directly. The model should
-  not generate helper scripts to create files.
+  not generate helper scripts to create files. Missing-path suggestions do not
+  apply to `write_file`, because creating a new file is a normal write case.
 - `edit_file` replaces exactly one safe `old_text` span in a UTF-8 workspace
   file with `new_text`. It tries an exact, case-sensitive match first, then a
   small deterministic fallback pipeline for normalized line endings, trailing
@@ -169,7 +172,9 @@ flowchart TD
   matches, multiple matches, non-UTF-8 files, and identical old/new text fail
   before approval; approved execution re-reads and revalidates the file before
   writing atomically. Successful non-exact edits report the match strategy for
-  auditability and preserve the matched file's line-ending style.
+  auditability and preserve the matched file's line-ending style. If the target
+  file is missing, `edit_file` fails before approval or during approved
+  revalidation and may include bounded workspace-relative path suggestions.
 - `edit_file` is the only model-facing tool for changing existing files.
 - Successful `write_file` and `edit_file` results are terminal for the chat
   turn. The controller should show the auditable tool result but must not
@@ -180,6 +185,9 @@ flowchart TD
 - Permission evaluation keeps absolute normalized paths for audit/debugging and
   also records canonical workspace-relative paths. Model-facing result previews
   should prefer the workspace-relative paths.
+- Missing-path suggestions are model-facing recovery hints only. They are
+  bounded, skip project metadata/build directories, and must not be applied
+  automatically by the runtime.
 - Tool result previews are projections. They must not be the source of truth for
   controller recovery decisions when a structured `ToolResultPayload` is
   available.

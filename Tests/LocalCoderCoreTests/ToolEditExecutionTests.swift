@@ -450,6 +450,59 @@ struct ToolEditExecutionTests {
   }
 
   @Test
+  func editFileMissingTargetIncludesSuggestionsBeforeApproval() async throws {
+    let workspace = try makeWorkspace()
+    try write("html", to: "index.html", in: workspace)
+
+    let missing = await executeEdit(
+      path: "landing.html",
+      oldText: "<h1>Old</h1>",
+      newText: "<h1>New</h1>",
+      workspace: workspace
+    )
+
+    #expect(missing.status == .failed)
+    #expect(missing.resultPreview?.text.contains("File not found: landing.html") == true)
+    #expect(missing.resultPreview?.text.contains("Did you mean one of these?") == true)
+    #expect(missing.resultPreview?.text.contains("index.html") == true)
+    #expect(missing.resultPreview?.affectedPaths == ["landing.html"])
+  }
+
+  @Test
+  func approvedEditFileMissingTargetRevalidatesWithSuggestions() async throws {
+    let workspace = try makeWorkspace()
+    try write("old", to: "notes.txt", in: workspace)
+    try write("fallback", to: "notes-backup.txt", in: workspace)
+
+    let pending = await executeEdit(
+      path: "notes.txt",
+      oldText: "old",
+      newText: "new",
+      workspace: workspace
+    )
+    try FileManager.default.removeItem(at: workspace.rootURL.appending(path: "notes.txt"))
+
+    let missing = await ToolOrchestrator(executorRegistry: .codingAgent).executeApproved(
+      request: pending.request,
+      workspace: workspace
+    )
+
+    #expect(pending.status == .awaitingApproval)
+    #expect(missing.status == .failed)
+    #expect(missing.resultPreview?.text.contains("File not found: notes.txt") == true)
+    #expect(missing.resultPreview?.text.contains("notes-backup.txt") == true)
+    guard
+      case .editFile(.failed(let path, .fileNotFound(_, let suggestions))) =
+        missing.resultPayload
+    else {
+      Issue.record("Expected edit_file missing target payload with suggestions.")
+      return
+    }
+    #expect(path == WorkspaceRelativePath(rawValue: "notes.txt"))
+    #expect(suggestions.first?.path == WorkspaceRelativePath(rawValue: "notes-backup.txt"))
+  }
+
+  @Test
   func editFileIsOnlyRegisteredForCodingAgent() {
     #expect(!ToolExecutorRegistry.readOnly.definitions.map(\.name).contains(.editFile))
     #expect(ToolExecutorRegistry.codingAgent.definitions.map(\.name).contains(.editFile))
