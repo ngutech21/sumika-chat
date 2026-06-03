@@ -277,7 +277,7 @@ struct ChatSessionControllerWriteApprovalTests {
     while !condition() {
       if start.duration(to: .now) > timeout {
         Issue.record("Timed out waiting for condition")
-        return
+        throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))
     }

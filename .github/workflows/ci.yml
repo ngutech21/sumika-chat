@@ -58,7 +58,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
       - name: Test
-        run: xcrun swift test
+        run: /usr/bin/time -p xcrun swift test
 
       - name: Analyze
         run: |

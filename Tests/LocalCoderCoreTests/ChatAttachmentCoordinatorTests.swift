@@ -64,7 +64,8 @@ struct ChatAttachmentCoordinatorTests {
     }
 
     loader.resolve(at: 0, with: [firstAttachment])
-    try await Task.sleep(for: .milliseconds(60))
+    try await waitUntil { loader.completedCount == 2 }
+    await Task.yield()
 
     #expect(events == [.appendAttachments([secondAttachment])])
   }
@@ -116,8 +117,6 @@ struct ChatAttachmentCoordinatorTests {
       existingAttachments: [],
       onEvent: { events.append($0) }
     )
-
-    try await Task.sleep(for: .milliseconds(60))
 
     #expect(events.isEmpty)
     #expect(loader.loadCallCount == 0)
@@ -179,11 +178,18 @@ private final class AttachmentFakeLoader: ChatAttachmentLoading, @unchecked Send
 private final class AttachmentControlledLoader: ChatAttachmentLoading, @unchecked Sendable {
   private let lock = NSLock()
   private var calls: [ControlledAttachmentLoad] = []
+  private var completedCalls = 0
 
   var startedCount: Int {
     lock.lock()
     defer { lock.unlock() }
     return calls.count
+  }
+
+  var completedCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return completedCalls
   }
 
   func loadAttachments(
@@ -198,6 +204,9 @@ private final class AttachmentControlledLoader: ChatAttachmentLoading, @unchecke
     lock.unlock()
 
     call.wait()
+    lock.lock()
+    completedCalls += 1
+    lock.unlock()
     return call.attachments
   }
 
@@ -265,7 +274,7 @@ private func waitUntil(
   while !(await condition()) {
     if ContinuousClock.now - start > timeout {
       Issue.record("Timed out waiting for condition")
-      return
+      throw TestWaitTimeoutError()
     }
     try await Task.sleep(for: .milliseconds(10))
   }

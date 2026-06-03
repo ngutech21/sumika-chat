@@ -15,7 +15,7 @@ release:
 test: test-core test-app
 
 test-core:
-    xcrun swift test
+    /usr/bin/time -p xcrun swift test
 
 test-app:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test

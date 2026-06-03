@@ -7,6 +7,7 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
   private var streamContinuation: CheckedContinuation<Void, Never>?
   private var didReleaseChunks = false
   private(set) var didStartStreaming = false
+  private(set) var didFinishStreaming = false
 
   init(chunks: [String]) {
     self.chunks = chunks
@@ -60,6 +61,7 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
         }
         continuation.yield(.completed(nil))
         continuation.finish()
+        await self.recordStreamFinished()
       }
     }
   }
@@ -71,10 +73,15 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
     }
     streamContinuation = continuation
   }
+
+  private func recordStreamFinished() {
+    didFinishStreaming = true
+  }
 }
 
 actor ControlledContextUsageRuntime: ChatModelRuntime {
   private var contextUsageContinuations: [CheckedContinuation<ChatContextUsage, Never>] = []
+  private(set) var completedContextUsageCount = 0
 
   var contextUsageRequestCount: Int {
     contextUsageContinuations.count
@@ -95,9 +102,11 @@ actor ControlledContextUsageRuntime: ChatModelRuntime {
     _ = messages
     _ = attachments
     _ = systemPrompt
-    return await withCheckedContinuation { continuation in
+    let usage = await withCheckedContinuation { continuation in
       contextUsageContinuations.append(continuation)
     }
+    completedContextUsageCount += 1
+    return usage
   }
 
   func resolveContextUsage(at index: Int, with usage: ChatContextUsage) {
@@ -130,6 +139,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   private var streamContinuations: [Int: CheckedContinuation<Void, Never>] = [:]
   private var releasedCallIndexes: Set<Int> = []
   private var streamReplyCount = 0
+  private(set) var completedCallIndexes: Set<Int> = []
   private(set) var capturedMessages: [[ChatMessage]] = []
   private(set) var capturedSystemPrompts: [String] = []
 
@@ -186,13 +196,14 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
         if shouldBlock {
           await withCheckedContinuation { release in
             Task {
-              await self.storeStreamContinuation(release, callIndex: callIndex)
+              self.storeStreamContinuation(release, callIndex: callIndex)
             }
           }
         }
 
         guard !Task.isCancelled else {
           continuation.finish(throwing: CancellationError())
+          self.recordStreamFinished(callIndex: callIndex)
           return
         }
 
@@ -203,6 +214,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
           .completed(ChatGenerationMetrics(generatedTokenCount: chunks.count, tokensPerSecond: 100))
         )
         continuation.finish()
+        self.recordStreamFinished(callIndex: callIndex)
       }
 
       continuation.onTermination = { _ in
@@ -220,6 +232,10 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
       return
     }
     streamContinuations[callIndex] = continuation
+  }
+
+  private func recordStreamFinished(callIndex: Int) {
+    completedCallIndexes.insert(callIndex)
   }
 }
 
@@ -271,6 +287,7 @@ actor PartialFailingStreamingRuntime: ChatModelRuntime {
 actor DelayedClearContextRuntime: ChatModelRuntime {
   private var clearContextContinuation: CheckedContinuation<Void, Never>?
   private(set) var didStartClearContext = false
+  private(set) var didFinishClearContext = false
 
   func load(configuration: ChatModelConfiguration) async throws {
     _ = configuration
@@ -283,6 +300,7 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
     await withCheckedContinuation { continuation in
       clearContextContinuation = continuation
     }
+    didFinishClearContext = true
   }
 
   func releaseClearContext() {
@@ -321,11 +339,18 @@ final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sen
   private let lock = NSLock()
   private let firstLoadRelease = DispatchSemaphore(value: 0)
   private var _startedCount = 0
+  private var _completedCount = 0
 
   var startedCount: Int {
     lock.lock()
     defer { lock.unlock() }
     return _startedCount
+  }
+
+  var completedCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return _completedCount
   }
 
   func loadAttachments(
@@ -341,6 +366,10 @@ final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sen
     if callNumber == 1 {
       firstLoadRelease.wait()
     }
+
+    lock.lock()
+    _completedCount += 1
+    lock.unlock()
 
     guard let url = urls.first else {
       return []

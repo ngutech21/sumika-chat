@@ -198,7 +198,8 @@ struct ModelRuntimeControllerTests {
     try await waitUntil { controller.modelState == .ready }
     try await waitUntilAsync { await runtime.loadCount == 2 }
     await runtime.releaseFirstLoad()
-    try await Task.sleep(for: .milliseconds(60))
+    try await waitUntilAsync { await runtime.didFinishFirstLoad }
+    await Task.yield()
 
     #expect(controller.modelState == .ready)
     let configurations = await runtime.loadedConfigurations
@@ -222,10 +223,11 @@ struct ModelRuntimeControllerTests {
     try await waitUntilAsync { await runtime.didStartUnload }
 
     controller.loadModel()
-    try await Task.sleep(for: .milliseconds(60))
+    await Task.yield()
     #expect(await runtime.loadCount == 0)
 
     await runtime.releaseUnload()
+    try await waitUntilAsync { await runtime.didFinishUnload }
     try await waitUntil { controller.modelState == .ready }
 
     #expect(await runtime.isLoaded)
@@ -283,7 +285,7 @@ struct ModelRuntimeControllerTests {
     while !condition() {
       if start.duration(to: .now) > timeout {
         Issue.record("Timed out waiting for condition")
-        return
+        throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))
     }
@@ -297,7 +299,7 @@ struct ModelRuntimeControllerTests {
     while !(await condition()) {
       if start.duration(to: .now) > timeout {
         Issue.record("Timed out waiting for async condition")
-        return
+        throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))
     }
@@ -420,6 +422,7 @@ private actor RuntimeControllerRecordingRuntime: ChatModelRuntime {
 private actor RuntimeControllerRaceLoadingRuntime: ChatModelRuntime {
   private var firstLoadContinuation: CheckedContinuation<Void, Never>?
   private(set) var loadedConfigurations: [ChatModelConfiguration] = []
+  private(set) var didFinishFirstLoad = false
 
   var loadCount: Int {
     loadedConfigurations.count
@@ -432,6 +435,7 @@ private actor RuntimeControllerRaceLoadingRuntime: ChatModelRuntime {
       await withCheckedContinuation { continuation in
         firstLoadContinuation = continuation
       }
+      didFinishFirstLoad = true
       try Task.checkCancellation()
     }
   }
@@ -474,6 +478,7 @@ private actor RuntimeControllerRaceLoadingRuntime: ChatModelRuntime {
 private actor RuntimeControllerDelayedUnloadRuntime: ChatModelRuntime {
   private var unloadContinuation: CheckedContinuation<Void, Never>?
   private(set) var didStartUnload = false
+  private(set) var didFinishUnload = false
   private(set) var isLoaded = true
   private(set) var loadCount = 0
 
@@ -489,6 +494,7 @@ private actor RuntimeControllerDelayedUnloadRuntime: ChatModelRuntime {
       unloadContinuation = continuation
     }
     isLoaded = false
+    didFinishUnload = true
   }
 
   func releaseUnload() {

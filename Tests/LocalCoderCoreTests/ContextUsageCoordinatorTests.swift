@@ -63,7 +63,8 @@ struct ContextUsageCoordinatorTests {
       at: 0,
       with: ChatContextUsage(usedTokens: 10, tokenLimit: 100)
     )
-    try await Task.sleep(for: .milliseconds(60))
+    try await waitUntilAsync { await runtime.completedContextUsageCount == 2 }
+    await Task.yield()
 
     #expect(events == [.updated(ChatContextUsage(usedTokens: 20, tokenLimit: 100))])
   }
@@ -116,7 +117,8 @@ struct ContextUsageCoordinatorTests {
       events.append($0)
     }
     await runtime.releaseClearContext()
-    try await Task.sleep(for: .milliseconds(60))
+    try await waitUntilAsync { await runtime.didFinishClearContext }
+    await Task.yield()
 
     #expect(events == [.updated(ChatContextUsage(usedTokens: 42, tokenLimit: nil))])
   }
@@ -171,7 +173,7 @@ struct ContextUsageCoordinatorTests {
     while !condition() {
       if start.duration(to: .now) > timeout {
         Issue.record("Timed out waiting for condition")
-        return
+        throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))
     }
@@ -185,7 +187,7 @@ struct ContextUsageCoordinatorTests {
     while !(await condition()) {
       if start.duration(to: .now) > timeout {
         Issue.record("Timed out waiting for async condition")
-        return
+        throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))
     }
@@ -239,6 +241,7 @@ private actor ContextUsageFakeRuntime: ChatModelRuntime {
 
 private actor ContextUsageControlledRuntime: ChatModelRuntime {
   private var contextUsageContinuations: [CheckedContinuation<ChatContextUsage, Never>] = []
+  private(set) var completedContextUsageCount = 0
 
   var contextUsageRequestCount: Int {
     contextUsageContinuations.count
@@ -259,9 +262,11 @@ private actor ContextUsageControlledRuntime: ChatModelRuntime {
     _ = messages
     _ = attachments
     _ = systemPrompt
-    return await withCheckedContinuation { continuation in
+    let usage = await withCheckedContinuation { continuation in
       contextUsageContinuations.append(continuation)
     }
+    completedContextUsageCount += 1
+    return usage
   }
 
   func resolveContextUsage(at index: Int, with usage: ChatContextUsage) {
@@ -291,6 +296,7 @@ private actor ContextUsageControlledRuntime: ChatModelRuntime {
 private actor ContextUsageDelayedClearRuntime: ChatModelRuntime {
   private var clearContextContinuation: CheckedContinuation<Void, Never>?
   private(set) var didStartClearContext = false
+  private(set) var didFinishClearContext = false
 
   func load(configuration: ChatModelConfiguration) async throws {
     _ = configuration
@@ -303,6 +309,7 @@ private actor ContextUsageDelayedClearRuntime: ChatModelRuntime {
     await withCheckedContinuation { continuation in
       clearContextContinuation = continuation
     }
+    didFinishClearContext = true
   }
 
   func releaseClearContext() {

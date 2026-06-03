@@ -81,7 +81,8 @@ struct ChatSessionControllerTests {
     controller.cancelGeneration()
     await runtime.releaseChunks()
 
-    try await Task.sleep(for: .milliseconds(60))
+    try await waitUntilAsync { await runtime.didFinishStreaming }
+    try await waitUntil { !controller.isGenerating }
 
     #expect(!controller.isGenerating)
     #expect(controller.chatSession.messages.count == 1)
@@ -189,7 +190,7 @@ struct ChatSessionControllerTests {
     try await waitUntilAsync { await runtime.startedStreamCount == 2 }
 
     await runtime.releaseStream(callIndex: 0)
-    try await Task.sleep(for: .milliseconds(80))
+    try await waitUntilAsync { await runtime.completedCallIndexes.contains(0) }
     #expect(controller.isGenerating)
     #expect(controller.chatSession.turns.count == 2)
     #expect(controller.chatSession.turns[0].status == .cancelled)
@@ -526,7 +527,8 @@ struct ChatSessionControllerTests {
       at: 0,
       with: ChatContextUsage(usedTokens: 10, tokenLimit: 100)
     )
-    try await Task.sleep(for: .milliseconds(60))
+    try await waitUntilAsync { await runtime.completedContextUsageCount == 2 }
+    await Task.yield()
 
     #expect(controller.contextUsage?.usedTokens == 20)
     #expect(controller.contextUsage?.tokenLimit == 100)
@@ -553,7 +555,8 @@ struct ChatSessionControllerTests {
     try await waitUntil { controller.contextUsage?.usedTokens == 42 }
 
     await runtime.releaseClearContext()
-    try await Task.sleep(for: .milliseconds(60))
+    try await waitUntilAsync { await runtime.didFinishClearContext }
+    await Task.yield()
 
     #expect(controller.modelRuntime.modelState == .ready)
     #expect(controller.contextUsage?.usedTokens == 42)
@@ -577,7 +580,8 @@ struct ChatSessionControllerTests {
     }
 
     loader.releaseFirstLoad()
-    try await Task.sleep(for: .milliseconds(60))
+    try await waitUntil { loader.completedCount == 2 }
+    await Task.yield()
 
     #expect(controller.chatSession.attachments.map(\.displayName) == ["second.swift"])
   }
@@ -590,7 +594,7 @@ struct ChatSessionControllerTests {
     while !condition() {
       if start.duration(to: .now) > timeout {
         Issue.record("Timed out waiting for condition")
-        return
+        throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))
     }
@@ -604,7 +608,7 @@ struct ChatSessionControllerTests {
     while !(await condition()) {
       if start.duration(to: .now) > timeout {
         Issue.record("Timed out waiting for async condition")
-        return
+        throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))
     }
