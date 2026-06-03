@@ -65,7 +65,7 @@ public struct EditFileToolExecutor: TypedToolExecutor {
           .success(
             path: context.workspace.relativePath(for: edit.resolvedURL),
             diff: nil,
-            matchStrategy: .exact
+            matchStrategy: edit.matchStrategy
           )
         )
       }
@@ -153,23 +153,243 @@ public struct EditFileToolExecutor: TypedToolExecutor {
       throw EditFileValidationError.nonUTF8
     }
 
-    let matches = Self.matchRanges(of: input.oldText, in: content, maxCount: 2)
-    guard let match = matches.first else {
-      throw EditFileValidationError.oldTextNotFound
-    }
-    guard matches.count == 1 else {
-      throw EditFileValidationError.ambiguousOldText
-    }
+    let match = try Self.validatedMatch(
+      oldText: input.oldText,
+      newText: input.newText,
+      content: content
+    )
 
     var updatedContent = content
-    updatedContent.replaceSubrange(match, with: input.newText)
+    updatedContent.replaceSubrange(match.range, with: match.replacementText)
     return ValidatedEdit(
       path: input.path,
       resolvedURL: resolvedURL,
-      oldText: input.oldText,
-      newText: input.newText,
+      oldText: String(content[match.range]),
+      newText: match.replacementText,
+      matchStrategy: match.strategy,
       updatedContent: updatedContent
     )
+  }
+
+  private static func validatedMatch(
+    oldText: String,
+    newText: String,
+    content: String
+  ) throws -> EditMatch {
+    let strategies: [EditMatchStrategy] = [
+      .exact,
+      .normalizedLineEndings,
+      .trimTrailingWhitespace,
+      .indentationFlexible,
+      .lineTrimmedBlock,
+    ]
+
+    for strategy in strategies {
+      let matches = matches(
+        oldText: oldText,
+        newText: newText,
+        content: content,
+        strategy: strategy,
+        maxCount: 2
+      )
+
+      if matches.count == 1 {
+        let match = matches[0]
+        guard String(content[match.range]) != match.replacementText else {
+          throw EditFileValidationError.identicalReplacement
+        }
+        return match
+      }
+
+      if matches.count > 1 {
+        throw EditFileValidationError.ambiguousOldText
+      }
+    }
+
+    throw EditFileValidationError.oldTextNotFound
+  }
+
+  private static func matches(
+    oldText: String,
+    newText: String,
+    content: String,
+    strategy: EditMatchStrategy,
+    maxCount: Int
+  ) -> [EditMatch] {
+    switch strategy {
+    case .exact:
+      return matchRanges(of: oldText, in: content, maxCount: maxCount).map { range in
+        EditMatch(range: range, replacementText: newText, strategy: .exact)
+      }
+    case .normalizedLineEndings:
+      return normalizedLineEndingMatches(
+        oldText: oldText,
+        newText: newText,
+        content: content,
+        maxCount: maxCount
+      )
+    case .trimTrailingWhitespace:
+      return lineWindowMatches(
+        oldText: oldText,
+        newText: newText,
+        content: content,
+        strategy: .trimTrailingWhitespace,
+        maxCount: maxCount
+      ) { candidate, old in
+        trimTrailingWhitespace(candidate.body) == trimTrailingWhitespace(old.body)
+      }
+    case .indentationFlexible:
+      return indentationFlexibleMatches(
+        oldText: oldText,
+        newText: newText,
+        content: content,
+        maxCount: maxCount
+      )
+    case .lineTrimmedBlock:
+      return lineWindowMatches(
+        oldText: oldText,
+        newText: newText,
+        content: content,
+        strategy: .lineTrimmedBlock,
+        maxCount: maxCount,
+        replacementTransform: { candidateLines, oldLines, replacementText in
+          reindentByLine(
+            replacementText,
+            from: oldLines,
+            to: candidateLines
+          )
+        },
+        linesMatch: { candidate, old in
+          candidate.body.trimmingCharacters(in: .whitespaces)
+            == old.body.trimmingCharacters(in: .whitespaces)
+        }
+      )
+    }
+  }
+
+  private static func normalizedLineEndingMatches(
+    oldText: String,
+    newText: String,
+    content: String,
+    maxCount: Int
+  ) -> [EditMatch] {
+    let normalizedContent = IndexedNormalizedText(lineEndingNormalizing: content)
+    let normalizedOldText = normalizeLineEndings(oldText)
+    let ranges = matchRanges(of: normalizedOldText, in: normalizedContent.text, maxCount: maxCount)
+
+    return ranges.compactMap { normalizedRange in
+      guard let range = normalizedContent.sourceRange(for: normalizedRange) else {
+        return nil
+      }
+      return EditMatch(
+        range: range,
+        replacementText: convertLineEndings(newText, toMatch: String(content[range])),
+        strategy: .normalizedLineEndings
+      )
+    }
+  }
+
+  private static func indentationFlexibleMatches(
+    oldText: String,
+    newText: String,
+    content: String,
+    maxCount: Int
+  ) -> [EditMatch] {
+    let oldLines = lineSegments(in: oldText)
+    guard oldLines.count > 1 else {
+      return []
+    }
+
+    return lineWindowMatches(
+      oldText: oldText,
+      newText: newText,
+      content: content,
+      strategy: .indentationFlexible,
+      maxCount: maxCount,
+      replacementTransform: { candidateLines, oldLines, replacementText in
+        reindent(
+          replacementText,
+          from: commonIndent(in: oldLines.map(\.body)),
+          to: commonIndent(in: candidateLines.map(\.body)),
+          matchingLineEndingsOf: candidateLines
+        )
+      },
+      linesMatch: { _, _ in
+        true
+      },
+      blocksMatch: { candidateLines, oldLines in
+        deindent(candidateLines.map(\.body)) == deindent(oldLines.map(\.body))
+      }
+    )
+  }
+
+  private static func lineWindowMatches(
+    oldText: String,
+    newText: String,
+    content: String,
+    strategy: EditMatchStrategy,
+    maxCount: Int,
+    linesMatch: (TextLine, TextLine) -> Bool
+  ) -> [EditMatch] {
+    lineWindowMatches(
+      oldText: oldText,
+      newText: newText,
+      content: content,
+      strategy: strategy,
+      maxCount: maxCount,
+      replacementTransform: { candidateLines, _, replacementText in
+        convertLineEndings(replacementText, toMatch: candidateLines.map(\.fullText).joined())
+      },
+      linesMatch: linesMatch,
+      blocksMatch: nil
+    )
+  }
+
+  private static func lineWindowMatches(
+    oldText: String,
+    newText: String,
+    content: String,
+    strategy: EditMatchStrategy,
+    maxCount: Int,
+    replacementTransform: ([TextLine], [TextLine], String) -> String,
+    linesMatch: (TextLine, TextLine) -> Bool,
+    blocksMatch: (([TextLine], [TextLine]) -> Bool)? = nil
+  ) -> [EditMatch] {
+    let oldLines = lineSegments(in: oldText)
+    let contentLines = lineSegments(in: content)
+    guard !oldLines.isEmpty, contentLines.count >= oldLines.count else {
+      return []
+    }
+
+    var matches: [EditMatch] = []
+    for startIndex in 0...(contentLines.count - oldLines.count) {
+      let candidateLines = Array(contentLines[startIndex..<(startIndex + oldLines.count)])
+      guard lineEndingShapeMatches(candidateLines: candidateLines, oldLines: oldLines) else {
+        continue
+      }
+
+      let lineMatches = zip(candidateLines, oldLines).allSatisfy(linesMatch)
+      let blockMatches = blocksMatch?(candidateLines, oldLines) ?? lineMatches
+      guard blockMatches else {
+        continue
+      }
+
+      let range = replacementRange(
+        for: candidateLines, oldTextEndsWithLineEnding: oldText.hasSuffix("\n"))
+      matches.append(
+        EditMatch(
+          range: range,
+          replacementText: replacementTransform(candidateLines, oldLines, newText),
+          strategy: strategy
+        )
+      )
+
+      if matches.count >= maxCount {
+        break
+      }
+    }
+
+    return matches
   }
 
   private static func matchRanges(
@@ -200,13 +420,203 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     let removed = removedLines.map { "-\($0)" }.joined(separator: "\n")
     let added = addedLines.map { "+\($0)" }.joined(separator: "\n")
 
+    let strategyText =
+      edit.matchStrategy == .exact ? "" : " (\(edit.matchStrategy.rawValue) match)"
+
     return """
       --- \(edit.path)
       +++ \(edit.path)
-      @@
+      @@\(strategyText)
       \(removed)
       \(added)
       """
+  }
+
+  private static func lineSegments(in text: String) -> [TextLine] {
+    var lines: [TextLine] = []
+    var lineStart = text.startIndex
+    var index = text.startIndex
+
+    while index < text.endIndex {
+      let character = String(text[index])
+      if character == "\n" || character == "\r\n" || character == "\r" {
+        var nextIndex = text.index(after: index)
+        if character == "\r", nextIndex < text.endIndex, String(text[nextIndex]) == "\n" {
+          nextIndex = text.index(after: nextIndex)
+        }
+
+        let bodyEnd: String.Index
+        let lineEndingStart: String.Index
+        if character == "\n", index > lineStart {
+          let previousIndex = text.index(before: index)
+          if text[previousIndex] == "\r" {
+            bodyEnd = previousIndex
+            lineEndingStart = previousIndex
+          } else {
+            bodyEnd = index
+            lineEndingStart = index
+          }
+        } else {
+          bodyEnd = index
+          lineEndingStart = index
+        }
+
+        lines.append(
+          TextLine(
+            body: String(text[lineStart..<bodyEnd]),
+            lineEnding: String(text[lineEndingStart..<nextIndex]),
+            bodyRange: lineStart..<bodyEnd,
+            fullRange: lineStart..<nextIndex,
+            fullText: String(text[lineStart..<nextIndex])
+          )
+        )
+        lineStart = nextIndex
+        index = nextIndex
+      } else {
+        index = text.index(after: index)
+      }
+    }
+
+    if lineStart < text.endIndex {
+      lines.append(
+        TextLine(
+          body: String(text[lineStart..<text.endIndex]),
+          lineEnding: "",
+          bodyRange: lineStart..<text.endIndex,
+          fullRange: lineStart..<text.endIndex,
+          fullText: String(text[lineStart..<text.endIndex])
+        )
+      )
+    }
+
+    return lines
+  }
+
+  private static func lineEndingShapeMatches(
+    candidateLines: [TextLine],
+    oldLines: [TextLine]
+  ) -> Bool {
+    zip(candidateLines, oldLines).allSatisfy { candidate, old in
+      old.lineEnding.isEmpty || !candidate.lineEnding.isEmpty
+    }
+  }
+
+  private static func replacementRange(
+    for candidateLines: [TextLine],
+    oldTextEndsWithLineEnding: Bool
+  ) -> Range<String.Index> {
+    let first = candidateLines[0]
+    let last = candidateLines[candidateLines.count - 1]
+    return first.fullRange
+      .lowerBound..<(oldTextEndsWithLineEnding
+      ? last.fullRange.upperBound : last.bodyRange.upperBound)
+  }
+
+  private static func trimTrailingWhitespace(_ text: String) -> String {
+    var result = text
+    while let last = result.last, last == " " || last == "\t" {
+      result.removeLast()
+    }
+    return result
+  }
+
+  private static func deindent(_ lines: [String]) -> [String] {
+    let indent = commonIndent(in: lines)
+    return lines.map { line in
+      guard !line.trimmingCharacters(in: .whitespaces).isEmpty,
+        line.hasPrefix(indent)
+      else {
+        return line
+      }
+      return String(line.dropFirst(indent.count))
+    }
+  }
+
+  private static func commonIndent(in lines: [String]) -> String {
+    let indents = lines.compactMap { line -> String? in
+      guard !line.trimmingCharacters(in: .whitespaces).isEmpty else {
+        return nil
+      }
+      return String(line.prefix { $0 == " " || $0 == "\t" })
+    }
+
+    guard var common = indents.first else {
+      return ""
+    }
+
+    for indent in indents.dropFirst() {
+      while !indent.hasPrefix(common), !common.isEmpty {
+        common.removeLast()
+      }
+    }
+
+    return common
+  }
+
+  private static func reindent(
+    _ text: String,
+    from oldIndent: String,
+    to newIndent: String,
+    matchingLineEndingsOf candidateLines: [TextLine]
+  ) -> String {
+    let lineEndingText = candidateLines.map(\.fullText).joined()
+    let normalizedText = normalizeLineEndings(text)
+    let lines = normalizedText.split(separator: "\n", omittingEmptySubsequences: false)
+      .map(String.init)
+    let reindented = lines.map { line in
+      guard !line.trimmingCharacters(in: .whitespaces).isEmpty else {
+        return line
+      }
+      if !oldIndent.isEmpty, line.hasPrefix(oldIndent) {
+        return newIndent + line.dropFirst(oldIndent.count)
+      }
+      return newIndent + line
+    }.joined(separator: "\n")
+    return convertLineEndings(reindented, toMatch: lineEndingText)
+  }
+
+  private static func reindentByLine(
+    _ text: String,
+    from oldLines: [TextLine],
+    to candidateLines: [TextLine]
+  ) -> String {
+    let lineEndingText = candidateLines.map(\.fullText).joined()
+    let normalizedText = normalizeLineEndings(text)
+    let lines = normalizedText.split(separator: "\n", omittingEmptySubsequences: false)
+      .map(String.init)
+    let reindented = lines.enumerated().map { index, line in
+      guard index < oldLines.count, index < candidateLines.count,
+        !line.trimmingCharacters(in: .whitespaces).isEmpty
+      else {
+        return line
+      }
+
+      let oldIndent = leadingWhitespace(in: oldLines[index].body)
+      let candidateIndent = leadingWhitespace(in: candidateLines[index].body)
+      if !oldIndent.isEmpty, line.hasPrefix(oldIndent) {
+        return candidateIndent + line.dropFirst(oldIndent.count)
+      }
+      return candidateIndent + line.drop { $0 == " " || $0 == "\t" }
+    }.joined(separator: "\n")
+    return convertLineEndings(reindented, toMatch: lineEndingText)
+  }
+
+  private static func leadingWhitespace(in text: String) -> String {
+    String(text.prefix { $0 == " " || $0 == "\t" })
+  }
+
+  private static func normalizeLineEndings(_ text: String) -> String {
+    text.replacingOccurrences(of: "\r\n", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n")
+  }
+
+  private static func convertLineEndings(_ text: String, toMatch referenceText: String) -> String {
+    let lineEnding = referenceText.contains("\r\n") ? "\r\n" : "\n"
+    let normalizedText = normalizeLineEndings(text)
+    guard lineEnding == "\r\n" else {
+      return normalizedText
+    }
+    return normalizedText.replacingOccurrences(of: "\n", with: "\r\n")
   }
 }
 
@@ -215,7 +625,78 @@ nonisolated private struct ValidatedEdit {
   public let resolvedURL: URL
   public let oldText: String
   public let newText: String
+  public let matchStrategy: EditMatchStrategy
   public let updatedContent: String
+}
+
+nonisolated private struct EditMatch {
+  public let range: Range<String.Index>
+  public let replacementText: String
+  public let strategy: EditMatchStrategy
+}
+
+nonisolated private struct TextLine {
+  public let body: String
+  public let lineEnding: String
+  public let bodyRange: Range<String.Index>
+  public let fullRange: Range<String.Index>
+  public let fullText: String
+}
+
+nonisolated private struct IndexedNormalizedText {
+  public let text: String
+  private let lowerBounds: [String.Index]
+  private let upperBounds: [String.Index]
+
+  public init(lineEndingNormalizing source: String) {
+    var text = ""
+    var lowerBounds: [String.Index] = []
+    var upperBounds: [String.Index] = []
+    var index = source.startIndex
+
+    while index < source.endIndex {
+      let nextIndex = source.index(after: index)
+      let character = String(source[index])
+      if character == "\r\n" {
+        text.append("\n")
+        lowerBounds.append(index)
+        upperBounds.append(nextIndex)
+        index = nextIndex
+      } else if character == "\r", nextIndex < source.endIndex, source[nextIndex] == "\n" {
+        let afterLineEnding = source.index(after: nextIndex)
+        text.append("\n")
+        lowerBounds.append(index)
+        upperBounds.append(afterLineEnding)
+        index = afterLineEnding
+      } else if source[index] == "\r" {
+        text.append("\n")
+        lowerBounds.append(index)
+        upperBounds.append(nextIndex)
+        index = nextIndex
+      } else {
+        text.append(source[index])
+        lowerBounds.append(index)
+        upperBounds.append(nextIndex)
+        index = nextIndex
+      }
+    }
+
+    self.text = text
+    self.lowerBounds = lowerBounds
+    self.upperBounds = upperBounds
+  }
+
+  public func sourceRange(for range: Range<String.Index>) -> Range<String.Index>? {
+    let lowerOffset = text.distance(from: text.startIndex, to: range.lowerBound)
+    let upperOffset = text.distance(from: text.startIndex, to: range.upperBound)
+    guard lowerOffset >= 0, upperOffset > lowerOffset,
+      lowerOffset < lowerBounds.count,
+      upperOffset - 1 < upperBounds.count
+    else {
+      return nil
+    }
+    return lowerBounds[lowerOffset]..<upperBounds[upperOffset - 1]
+  }
 }
 
 public enum EditFileValidationError: LocalizedError {

@@ -154,11 +154,15 @@ flowchart TD
   permission/path evaluation immediately before the side effect.
 - `write_file` writes the model-provided `content` directly. The model should
   not generate helper scripts to create files.
-- `edit_file` replaces exactly one literal, case-sensitive `old_text` span in
-  a UTF-8 workspace file with `new_text`. It does not support regexes or
-  replace-all semantics. Zero matches, multiple matches, non-UTF-8 files, and
-  identical old/new text fail before approval; approved execution re-reads and
-  revalidates the file before writing atomically.
+- `edit_file` replaces exactly one safe `old_text` span in a UTF-8 workspace
+  file with `new_text`. It tries an exact, case-sensitive match first, then a
+  small deterministic fallback pipeline for normalized line endings, trailing
+  whitespace, indentation, and line-trimmed blocks. It does not support regexes,
+  semantic matching, guessing between candidates, or replace-all semantics. Zero
+  matches, multiple matches, non-UTF-8 files, and identical old/new text fail
+  before approval; approved execution re-reads and revalidates the file before
+  writing atomically. Successful non-exact edits report the match strategy for
+  auditability and preserve the matched file's line-ending style.
 - `edit_file` is the only model-facing tool for changing existing files.
 - Successful `write_file` and `edit_file` results are terminal for the chat
   turn. The controller should show the auditable tool result but must not

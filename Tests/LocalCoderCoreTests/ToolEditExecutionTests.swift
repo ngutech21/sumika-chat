@@ -61,6 +61,244 @@ struct ToolEditExecutionTests {
   }
 
   @Test
+  func approvedEditFileMatchesNormalizedLineEndingsAndPreservesCRLF() async throws {
+    let workspace = try makeWorkspace()
+    try write("one\r\ntwo\r\nthree\r\n", to: "notes.txt", in: workspace)
+
+    let result = await ToolOrchestrator(executorRegistry: .codingAgent).executeApproved(
+      request: request(
+        .editFile,
+        workspace: workspace,
+        arguments: editArguments(path: "notes.txt", oldText: "two\n", newText: "TWO\n")
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .completed)
+    #expect(result.resultPreview?.text.contains("normalizedLineEndings match strategy") == true)
+    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+      Issue.record("Expected edit_file success payload.")
+      return
+    }
+    #expect(matchStrategy == .normalizedLineEndings)
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
+        == "one\r\nTWO\r\nthree\r\n")
+  }
+
+  @Test
+  func approvedEditFileMatchesTrailingWhitespaceDifference() async throws {
+    let workspace = try makeWorkspace()
+    try write("let value = 1   \nlet done = true\n", to: "Sources/App.swift", in: workspace)
+
+    let result = await ToolOrchestrator(executorRegistry: .codingAgent).executeApproved(
+      request: request(
+        .editFile,
+        workspace: workspace,
+        arguments: editArguments(
+          path: "Sources/App.swift",
+          oldText: "let value = 1\n",
+          newText: "let value = 2\n"
+        )
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .completed)
+    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+      Issue.record("Expected edit_file success payload.")
+      return
+    }
+    #expect(matchStrategy == .trimTrailingWhitespace)
+    #expect(
+      try String(
+        contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"), encoding: .utf8)
+        == "let value = 2\nlet done = true\n")
+  }
+
+  @Test
+  func approvedEditFileMatchesIndentationFlexibleBlock() async throws {
+    let workspace = try makeWorkspace()
+    try write(
+      """
+      func run() {
+          if ready {
+              print("old")
+          }
+      }
+      """,
+      to: "Sources/App.swift",
+      in: workspace
+    )
+
+    let result = await ToolOrchestrator(executorRegistry: .codingAgent).executeApproved(
+      request: request(
+        .editFile,
+        workspace: workspace,
+        arguments: editArguments(
+          path: "Sources/App.swift",
+          oldText:
+            """
+              if ready {
+                  print("old")
+              }
+            """,
+          newText:
+            """
+              if ready {
+                  print("new")
+              }
+            """
+        )
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .completed)
+    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+      Issue.record("Expected edit_file success payload.")
+      return
+    }
+    #expect(matchStrategy == .indentationFlexible)
+    #expect(
+      try String(
+        contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"), encoding: .utf8)
+          == """
+          func run() {
+              if ready {
+                  print("new")
+              }
+          }
+          """)
+  }
+
+  @Test
+  func approvedEditFileMatchesLineTrimmedBlock() async throws {
+    let workspace = try makeWorkspace()
+    try write(
+      """
+      func run() {
+          if ready {
+              print("old")
+          }
+      }
+      """,
+      to: "Sources/App.swift",
+      in: workspace
+    )
+
+    let result = await ToolOrchestrator(executorRegistry: .codingAgent).executeApproved(
+      request: request(
+        .editFile,
+        workspace: workspace,
+        arguments: editArguments(
+          path: "Sources/App.swift",
+          oldText:
+            """
+            if ready {
+            print("old")
+            }
+            """,
+          newText:
+            """
+            if ready {
+            print("new")
+            }
+            """
+        )
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .completed)
+    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+      Issue.record("Expected edit_file success payload.")
+      return
+    }
+    #expect(matchStrategy == .lineTrimmedBlock)
+    #expect(
+      try String(
+        contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"), encoding: .utf8)
+          == """
+          func run() {
+              if ready {
+                  print("new")
+              }
+          }
+          """)
+  }
+
+  @Test
+  func editFilePreviewUsesFallbackMatchWithoutWriting() async throws {
+    let workspace = try makeWorkspace()
+    try write("one\r\ntwo\r\nthree\r\n", to: "notes.txt", in: workspace)
+
+    let result = await ToolOrchestrator(executorRegistry: .codingAgent).execute(
+      request: request(
+        .editFile,
+        workspace: workspace,
+        arguments: editArguments(path: "notes.txt", oldText: "two\n", newText: "TWO\n")
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .awaitingApproval)
+    #expect(result.resultPreview?.status == .success)
+    #expect(result.resultPreview?.text.contains("normalizedLineEndings match") == true)
+    #expect(result.resultPreview?.text.contains("-two") == true)
+    #expect(result.resultPreview?.text.contains("+TWO") == true)
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
+        == "one\r\ntwo\r\nthree\r\n")
+  }
+
+  @Test
+  func editFileFallbackAmbiguityFailsBeforeApproval() async throws {
+    let workspace = try makeWorkspace()
+    try write("let value = 1   \nlet value = 1\t\n", to: "Sources/App.swift", in: workspace)
+
+    let result = await executeEdit(
+      path: "Sources/App.swift",
+      oldText: "let value = 1\n",
+      newText: "let value = 2\n",
+      workspace: workspace
+    )
+
+    #expect(result.status == .failed)
+    #expect(result.resultPreview?.text.contains("matched more than once") == true)
+  }
+
+  @Test
+  func approvedEditFileRevalidatesWithCurrentFallbackStrategy() async throws {
+    let workspace = try makeWorkspace()
+    try write("let value = 1\n", to: "Sources/App.swift", in: workspace)
+    let pending = await executeEdit(
+      path: "Sources/App.swift",
+      oldText: "let value = 1\n",
+      newText: "let value = 2\n",
+      workspace: workspace
+    )
+    try write("let value = 1   \n", to: "Sources/App.swift", in: workspace)
+
+    let result = await ToolOrchestrator(executorRegistry: .codingAgent).executeApproved(
+      request: pending.request,
+      workspace: workspace
+    )
+
+    #expect(pending.status == .awaitingApproval)
+    #expect(result.status == .completed)
+    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+      Issue.record("Expected edit_file success payload.")
+      return
+    }
+    #expect(matchStrategy == .trimTrailingWhitespace)
+    #expect(
+      try String(
+        contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"), encoding: .utf8)
+        == "let value = 2\n")
+  }
+
+  @Test
   func editFileDeniesWorkspaceEscapes() async throws {
     let workspace = try makeWorkspace()
 
