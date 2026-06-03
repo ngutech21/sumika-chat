@@ -1,20 +1,42 @@
 import Foundation
 
-public struct ToolParameterDefinition: Equatable, Sendable {
+public enum ToolParameterValueType: String, Codable, Equatable, Sendable {
+  case string
+  case integer
+  case number
+  case boolean
+}
+
+public struct ToolParameterDefinition: Codable, Equatable, Sendable {
   public var name: String
   public var description: String
   public var isRequired: Bool
+  public var valueType: ToolParameterValueType
+  public var enumValues: [String]?
+  public var defaultValue: ToolArgumentValue?
+  public var minimum: Double?
+  public var maximum: Double?
   public var supportsHeredocPayload: Bool
 
   public init(
     name: String,
     description: String,
     isRequired: Bool,
+    valueType: ToolParameterValueType = .string,
+    enumValues: [String]? = nil,
+    defaultValue: ToolArgumentValue? = nil,
+    minimum: Double? = nil,
+    maximum: Double? = nil,
     supportsHeredocPayload: Bool = false
   ) {
     self.name = name
     self.description = description
     self.isRequired = isRequired
+    self.valueType = valueType
+    self.enumValues = enumValues
+    self.defaultValue = defaultValue
+    self.minimum = minimum
+    self.maximum = maximum
     self.supportsHeredocPayload = supportsHeredocPayload
   }
 }
@@ -25,7 +47,7 @@ public enum ToolCapability: String, Codable, Equatable, Hashable, Sendable {
   case runCommand
 }
 
-public struct ToolDefinition: Identifiable, Equatable, Sendable {
+public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
   public var id: ToolName { name }
 
   public var name: ToolName
@@ -43,12 +65,117 @@ public struct ToolDefinition: Identifiable, Equatable, Sendable {
     capabilities: Set<ToolCapability> = [],
     riskLevel: ToolRiskLevel = .low
   ) {
+    precondition(
+      Set(parameters.map(\.name)).count == parameters.count,
+      "ToolDefinition parameter names must be unique."
+    )
     self.name = name
     self.description = description
     self.parameters = parameters
     self.taggedExample = taggedExample
     self.capabilities = capabilities
     self.riskLevel = riskLevel
+  }
+}
+
+public struct FunctionToolSchema: Codable, Equatable, Sendable {
+  public var type: String
+  public var name: String
+  public var description: String
+  public var parameters: ToolJSONSchemaObject
+  public var strict: Bool?
+
+  public init(
+    type: String = "function",
+    name: String,
+    description: String,
+    parameters: ToolJSONSchemaObject,
+    strict: Bool? = nil
+  ) {
+    self.type = type
+    self.name = name
+    self.description = description
+    self.parameters = parameters
+    self.strict = strict
+  }
+}
+
+public struct ToolJSONSchemaObject: Codable, Equatable, Sendable {
+  public var type: String
+  public var properties: [String: ToolJSONSchemaProperty]
+  public var required: [String]
+  public var additionalProperties: Bool
+
+  public init(
+    type: String = "object",
+    properties: [String: ToolJSONSchemaProperty],
+    required: [String],
+    additionalProperties: Bool = false
+  ) {
+    self.type = type
+    self.properties = properties
+    self.required = required
+    self.additionalProperties = additionalProperties
+  }
+
+  public init(parameters: [ToolParameterDefinition]) {
+    var properties: [String: ToolJSONSchemaProperty] = [:]
+    var required: [String] = []
+
+    for parameter in parameters {
+      guard properties[parameter.name] == nil else {
+        continue
+      }
+
+      properties[parameter.name] = ToolJSONSchemaProperty(
+        type: parameter.valueType,
+        description: parameter.description,
+        enumValues: parameter.enumValues,
+        defaultValue: parameter.defaultValue,
+        minimum: parameter.minimum,
+        maximum: parameter.maximum
+      )
+
+      if parameter.isRequired {
+        required.append(parameter.name)
+      }
+    }
+
+    self.init(properties: properties, required: required)
+  }
+}
+
+public struct ToolJSONSchemaProperty: Codable, Equatable, Sendable {
+  public var type: ToolParameterValueType
+  public var description: String
+  public var enumValues: [String]?
+  public var defaultValue: ToolArgumentValue?
+  public var minimum: Double?
+  public var maximum: Double?
+
+  private enum CodingKeys: String, CodingKey {
+    case type
+    case description
+    case enumValues = "enum"
+    case defaultValue = "default"
+    case minimum
+    case maximum
+  }
+
+  public init(
+    type: ToolParameterValueType,
+    description: String,
+    enumValues: [String]? = nil,
+    defaultValue: ToolArgumentValue? = nil,
+    minimum: Double? = nil,
+    maximum: Double? = nil
+  ) {
+    self.type = type
+    self.description = description
+    self.enumValues = enumValues
+    self.defaultValue = defaultValue
+    self.minimum = minimum
+    self.maximum = maximum
   }
 }
 
@@ -69,24 +196,37 @@ public struct ToolRegistry: Equatable, Sendable {
 }
 
 nonisolated extension ToolDefinition {
+  public var functionSchema: FunctionToolSchema {
+    FunctionToolSchema(
+      name: name.rawValue,
+      description: description,
+      parameters: ToolJSONSchemaObject(parameters: parameters)
+    )
+  }
+
   public static let readFile = ToolDefinition(
     name: .readFile,
-    description: "Read a text file inside the active workspace.",
+    description:
+      "Read a workspace text file and return its current content with line numbers. Use this before edit_file when modifying an existing file. Use workspace-relative paths.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
-        description: "Relative file path inside the workspace.",
+        description: "Workspace-relative path to the text file to read, e.g. Sources/App.swift.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "offset",
         description: "Optional 1-based start line for reading a focused window.",
-        isRequired: false
+        isRequired: false,
+        valueType: .integer,
+        minimum: 1
       ),
       ToolParameterDefinition(
         name: "limit",
         description: "Optional maximum number of lines to return.",
-        isRequired: false
+        isRequired: false,
+        valueType: .integer,
+        minimum: 1
       ),
     ],
     taggedExample: """
@@ -102,11 +242,12 @@ nonisolated extension ToolDefinition {
 
   public static let listFiles = ToolDefinition(
     name: .listFiles,
-    description: "List files inside a workspace directory.",
+    description:
+      "List files inside a workspace directory. Use this to inspect nearby files before choosing a path.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
-        description: "Relative directory path inside the workspace. Defaults to workspace root.",
+        description: "Workspace-relative directory path. Defaults to the workspace root.",
         isRequired: false
       )
     ],
@@ -121,17 +262,18 @@ nonisolated extension ToolDefinition {
 
   public static let globFiles = ToolDefinition(
     name: .globFiles,
-    description: "Find workspace files matching a glob pattern.",
+    description:
+      "Find workspace files matching a glob pattern. Use this when the file name or extension is known.",
     parameters: [
       ToolParameterDefinition(
         name: "pattern",
-        description: "Required glob pattern such as **/*.swift.",
+        description: "Glob pattern to match workspace-relative paths, such as **/*.swift.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "path",
         description:
-          "Optional relative directory path inside the workspace. Defaults to workspace root.",
+          "Optional workspace-relative directory path to search. Defaults to the workspace root.",
         isRequired: false
       ),
     ],
@@ -147,22 +289,24 @@ nonisolated extension ToolDefinition {
 
   public static let searchFiles = ToolDefinition(
     name: .searchFiles,
-    description: "Search workspace text files for a regex or literal pattern.",
+    description:
+      "Search workspace text files for a regex or literal pattern. Use this to find code content before reading or editing a file.",
     parameters: [
       ToolParameterDefinition(
         name: "pattern",
-        description: "Required regex pattern. Invalid regex values are treated as literal text.",
+        description:
+          "Regex pattern to search for. Invalid regex values are treated as literal text.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "path",
         description:
-          "Optional relative directory path inside the workspace. Defaults to workspace root.",
+          "Optional workspace-relative directory path to search. Defaults to the workspace root.",
         isRequired: false
       ),
       ToolParameterDefinition(
         name: "include",
-        description: "Optional glob filter such as *.swift.",
+        description: "Optional glob filter for file names, such as *.swift.",
         isRequired: false
       ),
     ],
@@ -179,16 +323,17 @@ nonisolated extension ToolDefinition {
 
   public static let writeFile = ToolDefinition(
     name: .writeFile,
-    description: "Write UTF-8 text content to a file inside the active workspace.",
+    description:
+      "Create or fully overwrite a workspace text file with complete UTF-8 content. Use this for new files or intentional full-file replacement, not for small targeted edits to existing files.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
-        description: "Relative file path inside the workspace.",
+        description: "Workspace-relative path to create or fully overwrite.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "content",
-        description: "Complete UTF-8 text content to write to the file.",
+        description: "Complete UTF-8 file content to write. This replaces the entire file.",
         isRequired: true,
         supportsHeredocPayload: true
       ),
@@ -208,16 +353,18 @@ nonisolated extension ToolDefinition {
 
   public static let editFile = ToolDefinition(
     name: .editFile,
-    description: "Replace one exact text span in a UTF-8 workspace file.",
+    description:
+      "Edit an existing workspace text file by replacing one exact old_text span with new_text. Use this for targeted changes after reading the current file content; old_text must be copied exactly and match once.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
-        description: "Relative file path inside the workspace.",
+        description: "Workspace-relative path to the existing file to edit.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "old_text",
-        description: "Exact UTF-8 text to replace. Must match exactly once.",
+        description:
+          "Exact UTF-8 text copied from the current file content. Include enough surrounding context so it matches exactly once.",
         isRequired: true,
         supportsHeredocPayload: true
       ),

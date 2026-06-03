@@ -73,8 +73,11 @@ flowchart TD
   recovery logic should use `ToolResultPayload` where available instead of
   parsing preview text.
 - `ToolContext` carries runtime context such as the active workspace.
-- `ToolDefinition` describes a tool for prompts and future provider schemas,
-  including capability and risk metadata.
+- `ToolDefinition` describes a tool for prompts and provider adapters,
+  including capability, risk, structured parameter metadata, and a
+  provider-neutral function-tool schema projection. Provider-specific wire
+  shapes should adapt from this model instead of becoming the core runtime
+  representation.
 
 ## Adding A Tool
 

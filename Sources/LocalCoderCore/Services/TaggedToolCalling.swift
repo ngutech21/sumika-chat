@@ -75,7 +75,15 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
       let parameters = definition.parameters.map { parameter in
         let required = parameter.isRequired ? "required" : "optional"
         let payload = parameter.supportsHeredocPayload ? " heredoc payload" : ""
-        return "- <\(parameter.name)> (\(required)\(payload)): \(parameter.description)"
+        let constraints = [
+          parameter.minimum.map { "minimum \($0.formatted())" },
+          parameter.maximum.map { "maximum \($0.formatted())" },
+        ]
+        .compactMap(\.self)
+        .joined(separator: ", ")
+        let suffix = constraints.isEmpty ? "" : " \(constraints)"
+        return
+          "- <\(parameter.name)> (\(parameter.valueType.rawValue), \(required)\(payload))\(suffix): \(parameter.description)"
       }
       .joined(separator: "\n")
 
