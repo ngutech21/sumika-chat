@@ -298,6 +298,8 @@ struct ToolLoopCoordinatorTests {
 
     #expect(toolCall(from: result)?.toolName == .invalid)
     #expect(toolCall(from: result)?.arguments.first { $0.name == "tool" }?.value == "edit_file")
+    #expect(
+      toolCallRecord(from: result)?.request.raw.rawText?.contains("Tool call edit_file") == true)
     #expect(toolCallRecord(from: result)?.status == .failed)
     #expect(completedToolResult(from: result)?.preview.text.contains("<action>") == true)
   }

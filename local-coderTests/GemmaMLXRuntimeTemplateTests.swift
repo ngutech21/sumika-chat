@@ -109,6 +109,57 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(rendered[0].content.contains("change the background color to green"))
   }
 
+  @Test
+  func templateMessagesDoNotTeachGemmaInternalInvalidToolActions() throws {
+    let callID = UUID()
+    let messages: [ChatMessage] = [
+      ChatMessage(userContent: "change the table heading"),
+      ChatMessage(
+        toolCall: ToolCallModelMessage(
+          rawRequest: RawToolCallRequest(
+            id: callID,
+            workspaceID: UUID(),
+            sessionID: UUID(),
+            toolName: .invalid,
+            arguments: [
+              "tool": .string("edit_file"),
+              "error": .string("Assistant described a tool call without an action block."),
+            ],
+            rawText: """
+              <action name="invalid">
+              <tool>edit_file</tool>
+              </action>
+              """
+          ))
+      ),
+      ChatMessage(
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .invalid,
+          payload: .invalidTool(
+            InvalidToolResult(
+              originalName: "edit_file",
+              reason: .parserError("Assistant described a tool call without an action block.")
+            )),
+          preview: ToolResultPreview(
+            status: .failed,
+            text: "The tool call was invalid: missing tagged action block."
+          )
+        )
+      ),
+    ]
+
+    let rendered = try GemmaMLXRuntime.templateMessages(
+      from: messages,
+      attachments: [],
+      systemPrompt: "Use concise coding steps."
+    )
+
+    #expect(rendered.map(\.role) == [.user])
+    #expect(!rendered.contains { $0.content.contains("<action name=\"invalid\">") })
+    #expect(rendered[0].content.contains("The tool call was invalid"))
+  }
+
   private func writeFileToolCall(
     callID: UUID,
     arguments: ToolCallArguments

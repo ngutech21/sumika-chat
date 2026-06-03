@@ -77,6 +77,7 @@ public struct ToolLoopCoordinator: Sendable {
       let output = invalidToolCallOutput(
         originalToolName: originalToolName,
         error: error,
+        rawText: assistantContent,
         workspaceID: request.workspace.id,
         sessionID: request.sessionID
       )
@@ -293,6 +294,7 @@ public struct ToolLoopCoordinator: Sendable {
   private func invalidToolCallOutput(
     originalToolName: String,
     error: String,
+    rawText: String,
     workspaceID: Workspace.ID,
     sessionID: CodingSession.ID
   ) -> ToolCallParseOutput {
@@ -303,7 +305,8 @@ public struct ToolLoopCoordinator: Sendable {
       arguments: [
         "tool": .string(originalToolName),
         "error": .string(error),
-      ]
+      ],
+      rawText: rawText
     )
     return ToolCallParseOutput(
       request: request,

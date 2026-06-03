@@ -129,8 +129,20 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
     self.session = session
 
+    let traceID = UUID()
+    let traceHistory = history.map { message in
+      (role: message.role.rawValue, content: message.content)
+    }
+    await GemmaDebugTraceStore.shared.traceRequest(
+      id: traceID,
+      history: traceHistory,
+      prompt: prompt,
+      settings: settings,
+      contextTokenLimit: contextTokenLimit
+    )
+
     let stream = session.streamDetails(to: prompt, images: [], videos: [])
-    return Self.modelStream(from: stream)
+    return Self.modelStream(from: stream, traceID: traceID)
   }
 
   private func configureMLXMemory() {
@@ -142,11 +154,14 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated private static let maxMLXCacheBytes = 512 * 1024 * 1024
 
   nonisolated private static func modelStream(
-    from stream: AsyncThrowingStream<Generation, Error>
+    from stream: AsyncThrowingStream<Generation, Error>,
+    traceID: UUID
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     return AsyncThrowingStream(ChatModelStreamEvent.self, bufferingPolicy: .unbounded) {
       continuation in
       let task = Task {
+        var output = ""
+        var completedMetrics: ChatGenerationMetrics?
         defer {
           Memory.clearCache()
         }
@@ -156,6 +171,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             try Task.checkCancellation()
 
             if let chunk = generation.chunk {
+              output += chunk
               continuation.yield(.chunk(chunk))
             }
 
@@ -164,12 +180,24 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                 generatedTokenCount: info.generationTokenCount,
                 tokensPerSecond: info.tokensPerSecond
               )
+              completedMetrics = metrics
               continuation.yield(.completed(metrics))
             }
           }
 
+          await GemmaDebugTraceStore.shared.traceResponse(
+            id: traceID,
+            output: output,
+            metrics: completedMetrics
+          )
           continuation.finish()
         } catch {
+          await GemmaDebugTraceStore.shared.traceResponse(
+            id: traceID,
+            output: output,
+            metrics: completedMetrics,
+            error: error.localizedDescription
+          )
           continuation.finish(throwing: error)
         }
       }
@@ -337,6 +365,9 @@ nonisolated extension Chat.Message {
         return nil
       }
     case .toolCall(let payload):
+      guard payload.toolCall.toolName != .invalid else {
+        return nil
+      }
       self = .assistant(payload.toolCall.modelContextMessage)
     case .toolResult(let toolResult):
       if toolResult.isTerminalWrite {
