@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ToolPromptMode: Sendable {
+public enum ToolPromptMode: Equatable, Sendable {
   case disabled
   case enabled(Bool)
   case afterToolResultCanContinue

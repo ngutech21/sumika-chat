@@ -22,6 +22,7 @@ public final class ChatSessionController {
   @ObservationIgnored private let modelContextBuilder = ChatModelContextBuilder()
   @ObservationIgnored private let attachmentCoordinator: ChatAttachmentCoordinator
   @ObservationIgnored private let transcriptMutator = ChatTranscriptMutator()
+  @ObservationIgnored private let workflowEventApplier = ChatWorkflowEventApplier()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
@@ -331,14 +332,15 @@ extension ChatSessionController {
         guard isCurrentTurn(turnID) else {
           return
         }
-        transcriptMutator.updateTurnStatus(
-          .failed,
-          modelContextPolicy: .excluded,
-          for: turnID,
-          in: &chatSession
-        )
-        transcriptMutator.markStreamingAssistantMessagesCancelled(inTurn: turnID, in: &chatSession)
-        transcriptMutator.removeTransientAssistantPlaceholders(from: &chatSession)
+        applyWorkflowEvents([
+          .turnStatusChanged(
+            turnID: turnID,
+            status: .failed,
+            modelContextPolicy: .excluded
+          ),
+          .streamingAssistantMessagesCancelled(turnID: turnID),
+          .transientAssistantPlaceholdersRemoved,
+        ])
         errorMessage = error.localizedDescription
         isGenerating = false
         chatTurnCoordinator.finishTurn(turnID)
@@ -350,7 +352,13 @@ extension ChatSessionController {
       guard isCurrentTurn(turnID) else {
         return
       }
-      transcriptMutator.updateTurnStatus(.completed, for: turnID, in: &chatSession)
+      applyWorkflowEvents([
+        .turnStatusChanged(
+          turnID: turnID,
+          status: .completed,
+          modelContextPolicy: nil
+        )
+      ])
       isGenerating = false
       chatTurnCoordinator.finishTurn(turnID)
       notifySessionDidChange()
@@ -467,14 +475,15 @@ extension ChatSessionController {
   }
 
   private func markTurnCancelled(_ turnID: ChatTurnRecord.ID) {
-    transcriptMutator.updateTurnStatus(
-      .cancelled,
-      modelContextPolicy: .excluded,
-      for: turnID,
-      in: &chatSession
-    )
-    transcriptMutator.markStreamingAssistantMessagesCancelled(inTurn: turnID, in: &chatSession)
-    transcriptMutator.removeTransientAssistantPlaceholders(from: &chatSession)
+    applyWorkflowEvents([
+      .turnStatusChanged(
+        turnID: turnID,
+        status: .cancelled,
+        modelContextPolicy: .excluded
+      ),
+      .streamingAssistantMessagesCancelled(turnID: turnID),
+      .transientAssistantPlaceholdersRemoved,
+    ])
   }
 
   public func approveToolCall(id toolCallID: ToolCallRecord.ID, in workspace: Workspace) {
@@ -494,7 +503,13 @@ extension ChatSessionController {
 
     isGenerating = true
     errorMessage = nil
-    transcriptMutator.updateTurnStatus(.running, for: turnID, in: &chatSession)
+    applyWorkflowEvents([
+      .turnStatusChanged(
+        turnID: turnID,
+        status: .running,
+        modelContextPolicy: nil
+      )
+    ])
     notifySessionDidChange()
 
     chatTurnCoordinator.startTurn(id: turnID) { [weak self] turnID in
@@ -520,20 +535,31 @@ extension ChatSessionController {
       }
 
       let mergedRecord = mergedToolCallRecord(existing: existingRecord, updated: approvedRecord)
-      replaceToolCallRecord(mergedRecord)
-      appendToolResult(for: mergedRecord, turnID: turnID)
+      var events = approvedToolCompletionEvents(
+        record: mergedRecord,
+        turnID: turnID
+      )
 
       guard mergedRecord.status == .completed else {
+        applyWorkflowEvents(events)
         finishApprovedToolFailure(turnID)
         return
       }
 
       guard !Self.completesApprovedTurnWithoutFollowUp(mergedRecord.request.toolName) else {
+        applyWorkflowEvents(events)
         finishCompletedApprovedToolTurn(turnID)
         return
       }
 
-      let nextAssistantMessageID = appendFollowUpPlaceholder(turnID: turnID)
+      let nextAssistantMessageID = UUID()
+      events.append(
+        .assistantPlaceholderAppended(
+          messageID: nextAssistantMessageID,
+          turnID: turnID
+        )
+      )
+      applyWorkflowEvents(events)
       notifySessionDidChange()
       try await streamAssistantReply(
         to: nextAssistantMessageID,
@@ -551,49 +577,46 @@ extension ChatSessionController {
     finishCompletedApprovedToolTurn(turnID)
   }
 
-  private func appendToolResult(for record: ToolCallRecord, turnID: ChatTurnRecord.ID) {
+  private func approvedToolCompletionEvents(
+    record: ToolCallRecord,
+    turnID: ChatTurnRecord.ID
+  ) -> [ChatWorkflowEvent] {
+    [
+      .toolCallReplaced(record),
+      .toolResultAppended(
+        toolResultMessage(for: record),
+        messageID: UUID(),
+        turnID: turnID
+      ),
+    ]
+  }
+
+  private func toolResultMessage(for record: ToolCallRecord) -> ToolResultModelMessage {
     let resultPreview =
       record.resultPreview
       ?? ToolResultPreview(
         status: .failed,
         text: "Tool result unavailable for \(record.request.toolName.rawValue)."
       )
-    let toolResultMessageID = UUID()
-    transcriptMutator.appendToolResult(
-      ToolResultModelMessage(
-        callID: record.id,
-        toolName: record.request.toolName,
-        payload: record.resultPayload,
-        preview: resultPreview
-      ),
-      id: toolResultMessageID,
-      turnID: turnID,
-      to: &chatSession
+    return ToolResultModelMessage(
+      callID: record.id,
+      toolName: record.request.toolName,
+      payload: record.resultPayload,
+      preview: resultPreview
     )
-    transcriptMutator.appendMessageID(toolResultMessageID, toTurn: turnID, in: &chatSession)
-  }
-
-  private func appendFollowUpPlaceholder(turnID: ChatTurnRecord.ID) -> ChatMessage.ID {
-    let nextAssistantMessageID = UUID()
-    transcriptMutator.appendAssistantPlaceholder(
-      id: nextAssistantMessageID,
-      turnID: turnID,
-      to: &chatSession
-    )
-    transcriptMutator.appendMessageID(nextAssistantMessageID, toTurn: turnID, in: &chatSession)
-    return nextAssistantMessageID
   }
 
   private func finishApprovedToolFailure(_ turnID: ChatTurnRecord.ID) {
     guard isCurrentTurn(turnID) else {
       return
     }
-    transcriptMutator.updateTurnStatus(
-      .failed,
-      modelContextPolicy: .excluded,
-      for: turnID,
-      in: &chatSession
-    )
+    applyWorkflowEvents([
+      .turnStatusChanged(
+        turnID: turnID,
+        status: .failed,
+        modelContextPolicy: .excluded
+      )
+    ])
     isGenerating = false
     chatTurnCoordinator.finishTurn(turnID)
     refreshContextUsage()
@@ -615,14 +638,15 @@ extension ChatSessionController {
     guard isCurrentTurn(turnID) else {
       return
     }
-    transcriptMutator.updateTurnStatus(
-      .failed,
-      modelContextPolicy: .excluded,
-      for: turnID,
-      in: &chatSession
-    )
-    transcriptMutator.markStreamingAssistantMessagesCancelled(inTurn: turnID, in: &chatSession)
-    transcriptMutator.removeTransientAssistantPlaceholders(from: &chatSession)
+    applyWorkflowEvents([
+      .turnStatusChanged(
+        turnID: turnID,
+        status: .failed,
+        modelContextPolicy: .excluded
+      ),
+      .streamingAssistantMessagesCancelled(turnID: turnID),
+      .transientAssistantPlaceholdersRemoved,
+    ])
     errorMessage = error.localizedDescription
     isGenerating = false
     chatTurnCoordinator.finishTurn(turnID)
@@ -634,7 +658,13 @@ extension ChatSessionController {
     guard isCurrentTurn(turnID) else {
       return
     }
-    transcriptMutator.updateTurnStatus(.completed, for: turnID, in: &chatSession)
+    applyWorkflowEvents([
+      .turnStatusChanged(
+        turnID: turnID,
+        status: .completed,
+        modelContextPolicy: nil
+      )
+    ])
     isGenerating = false
     chatTurnCoordinator.finishTurn(turnID)
     refreshContextUsage()
@@ -673,31 +703,37 @@ extension ChatSessionController {
       affectedPaths: existingRecord.evaluation.normalizedPaths
     )
     deniedRecord.events.append(ToolCallEvent(actor: .user, kind: .denied, message: message))
-    replaceToolCallRecord(deniedRecord)
-
-    let toolResultMessageID = UUID()
-    transcriptMutator.appendToolResult(
-      ToolResultModelMessage(
-        callID: deniedRecord.id,
-        toolName: deniedRecord.request.toolName,
-        payload: deniedRecord.resultPayload,
-        preview: deniedRecord.resultPreview ?? ToolResultPreview(status: .denied, text: message)
+    applyWorkflowEvents([
+      .toolCallReplaced(deniedRecord),
+      .toolResultAppended(
+        deniedToolResultMessage(for: deniedRecord, message: message),
+        messageID: UUID(),
+        turnID: turnID
       ),
-      id: toolResultMessageID,
-      turnID: turnID,
-      to: &chatSession
-    )
-    transcriptMutator.appendMessageID(toolResultMessageID, toTurn: turnID, in: &chatSession)
-    transcriptMutator.updateTurnStatus(.completed, for: turnID, in: &chatSession)
+      .turnStatusChanged(
+        turnID: turnID,
+        status: .completed,
+        modelContextPolicy: nil
+      ),
+    ])
     refreshContextUsage()
     notifySessionDidChange()
   }
 
-  private func replaceToolCallRecord(_ record: ToolCallRecord) {
-    guard let index = chatSession.toolCalls.firstIndex(where: { $0.id == record.id }) else {
-      return
-    }
-    chatSession.toolCalls[index] = record
+  private func applyWorkflowEvents(_ events: [ChatWorkflowEvent]) {
+    workflowEventApplier.apply(events, to: &chatSession)
+  }
+
+  private func deniedToolResultMessage(
+    for deniedRecord: ToolCallRecord,
+    message: String
+  ) -> ToolResultModelMessage {
+    ToolResultModelMessage(
+      callID: deniedRecord.id,
+      toolName: deniedRecord.request.toolName,
+      payload: deniedRecord.resultPayload,
+      preview: deniedRecord.resultPreview ?? ToolResultPreview(status: .denied, text: message)
+    )
   }
 
   private func mergedToolCallRecord(
@@ -769,13 +805,19 @@ extension ChatSessionController {
     var remainingIterations = maxToolLoopIterations
 
     while remainingIterations > 0 {
+      let followUpPromptMode: ToolPromptMode =
+        remainingIterations > 1
+        ? .afterToolResultCanContinue
+        : .afterToolResultFinal
       guard
-        let result = try await toolLoopCoordinator.run(
+        let step = try await toolLoopCoordinator.run(
           ToolLoopRequest(
             workspace: workspace,
             sessionID: sessionID,
+            turnID: turnID,
             assistantMessageID: currentAssistantMessageID,
-            messages: chatSession.messages
+            messages: chatSession.messages,
+            followUpPromptMode: followUpPromptMode
           )
         )
       else {
@@ -787,47 +829,24 @@ extension ChatSessionController {
         return
       }
 
-      transcriptMutator.annotateToolCall(
-        result.toolCall,
-        for: result.assistantMessageID,
-        in: &chatSession
-      )
-      chatSession.toolCalls.append(result.toolCallRecord)
-      transcriptMutator.appendToolCallID(result.toolCallRecord.id, toTurn: turnID, in: &chatSession)
+      applyWorkflowEvents(step.events)
       notifySessionDidChange()
 
-      switch result.outcome {
+      switch step.continuation {
       case .awaitingApproval:
-        transcriptMutator.updateTurnStatus(.awaitingApproval, for: turnID, in: &chatSession)
         isGenerating = false
         chatTurnCoordinator.finishTurn(turnID)
         refreshContextUsage()
         notifySessionDidChange()
         return
-      case .completed(let toolResult, let nextAssistantMessageID):
-        appendToolResult(toolResult, turnID: turnID)
-        transcriptMutator.appendAssistantPlaceholder(
-          id: nextAssistantMessageID,
-          turnID: turnID,
-          to: &chatSession
-        )
-        transcriptMutator.appendMessageID(
-          nextAssistantMessageID,
-          toTurn: turnID,
-          in: &chatSession
-        )
-        notifySessionDidChange()
+      case .resumeGeneration(let nextAssistantMessageID, let promptMode):
         try await streamAssistantReply(
           to: nextAssistantMessageID,
-          toolPromptMode: remainingIterations > 0
-            ? .afterToolResultCanContinue
-            : .afterToolResultFinal,
+          toolPromptMode: promptMode,
           turnID: turnID
         )
         currentAssistantMessageID = nextAssistantMessageID
-      case .completedWithoutFollowUp(let toolResult):
-        appendToolResult(toolResult, turnID: turnID)
-        notifySessionDidChange()
+      case .none, .stopTurn:
         return
       }
     }
@@ -865,17 +884,6 @@ extension ChatSessionController {
     message.containsStreamingToolCallMarkup
       || (message.kind == .assistant
         && ToolIntentHeuristics.looksLikeNonTaggedToolIntent(message.content))
-  }
-
-  private func appendToolResult(_ toolResult: ToolResultModelMessage, turnID: ChatTurnRecord.ID) {
-    let toolResultMessageID = UUID()
-    transcriptMutator.appendToolResult(
-      toolResult,
-      id: toolResultMessageID,
-      turnID: turnID,
-      to: &chatSession
-    )
-    transcriptMutator.appendMessageID(toolResultMessageID, toTurn: turnID, in: &chatSession)
   }
 
   fileprivate func systemPrompt(toolPromptMode: ToolPromptMode) -> String {

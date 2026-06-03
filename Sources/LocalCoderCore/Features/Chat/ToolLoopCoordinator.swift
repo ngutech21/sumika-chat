@@ -11,21 +11,26 @@ extension ToolOrchestrator: ToolOrchestrating {}
 public struct ToolLoopRequest: Sendable {
   public let workspace: Workspace
   public let sessionID: CodingSession.ID
+  public let turnID: ChatTurnRecord.ID
   public let assistantMessageID: UUID
   public let messages: [ChatMessage]
-}
+  public let followUpPromptMode: ToolPromptMode
 
-public struct ToolLoopResult: Equatable, Sendable {
-  public let assistantMessageID: UUID
-  public let toolCall: ToolCallModelMessage
-  public let toolCallRecord: ToolCallRecord
-  public let outcome: ToolLoopOutcome
-}
-
-public enum ToolLoopOutcome: Equatable, Sendable {
-  case awaitingApproval
-  case completed(toolResult: ToolResultModelMessage, nextAssistantMessageID: UUID)
-  case completedWithoutFollowUp(toolResult: ToolResultModelMessage)
+  public init(
+    workspace: Workspace,
+    sessionID: CodingSession.ID,
+    turnID: ChatTurnRecord.ID,
+    assistantMessageID: UUID,
+    messages: [ChatMessage],
+    followUpPromptMode: ToolPromptMode = .afterToolResultCanContinue
+  ) {
+    self.workspace = workspace
+    self.sessionID = sessionID
+    self.turnID = turnID
+    self.assistantMessageID = assistantMessageID
+    self.messages = messages
+    self.followUpPromptMode = followUpPromptMode
+  }
 }
 
 nonisolated private enum ToolLoopParsedAction: Equatable, Sendable {
@@ -50,7 +55,7 @@ public struct ToolLoopCoordinator: Sendable {
     toolOrchestrator.toolRegistry
   }
 
-  public func run(_ request: ToolLoopRequest) async throws -> ToolLoopResult? {
+  public func run(_ request: ToolLoopRequest) async throws -> ChatWorkflowStep? {
     try Task.checkCancellation()
     let assistantContent = messageContent(for: request.assistantMessageID, in: request.messages)
     let parsedAction = try parseToolAction(
@@ -74,20 +79,19 @@ public struct ToolLoopCoordinator: Sendable {
         originalToolName: originalToolName,
         error: error
       )
-      return ToolLoopResult(
+      return completedStep(
         assistantMessageID: request.assistantMessageID,
+        turnID: request.turnID,
         toolCall: output.modelMessage,
-        toolCallRecord: record,
-        outcome: .completed(
-          toolResult: ToolResultModelMessage(
-            callID: output.request.id,
-            toolName: output.request.toolName,
-            payload: record.resultPayload,
-            preview: record.resultPreview
-              ?? ToolResultPreview(status: .failed, text: invalidToolMessage(error: error))
-          ),
-          nextAssistantMessageID: UUID()
-        )
+        record: record,
+        toolResult: ToolResultModelMessage(
+          callID: output.request.id,
+          toolName: output.request.toolName,
+          payload: record.resultPayload,
+          preview: record.resultPreview
+            ?? ToolResultPreview(status: .failed, text: invalidToolMessage(error: error))
+        ),
+        followUpPromptMode: request.followUpPromptMode
       )
     case .toolCall(let output):
       let record = await toolOrchestrator.execute(
@@ -95,11 +99,20 @@ public struct ToolLoopCoordinator: Sendable {
         workspace: request.workspace
       )
       guard record.status != .awaitingApproval else {
-        return ToolLoopResult(
-          assistantMessageID: request.assistantMessageID,
-          toolCall: output.modelMessage,
-          toolCallRecord: record,
-          outcome: .awaitingApproval
+        return ChatWorkflowStep(
+          events: [
+            .assistantMessageAnnotatedAsToolCall(
+              assistantMessageID: request.assistantMessageID,
+              toolCall: output.modelMessage
+            ),
+            .toolCallAppended(record, turnID: request.turnID),
+            .turnStatusChanged(
+              turnID: request.turnID,
+              status: .awaitingApproval,
+              modelContextPolicy: nil
+            ),
+          ],
+          continuation: .awaitingApproval
         )
       }
 
@@ -116,20 +129,71 @@ public struct ToolLoopCoordinator: Sendable {
         preview: resultPreview
       )
 
-      let outcome: ToolLoopOutcome
       if completesTurnWithoutFollowUp(output.request.toolName) && record.status == .completed {
-        outcome = .completedWithoutFollowUp(toolResult: toolResult)
-      } else {
-        outcome = .completed(toolResult: toolResult, nextAssistantMessageID: UUID())
+        return completedWithoutFollowUpStep(
+          assistantMessageID: request.assistantMessageID,
+          turnID: request.turnID,
+          toolCall: output.modelMessage,
+          record: record,
+          toolResult: toolResult
+        )
       }
 
-      return ToolLoopResult(
+      return completedStep(
         assistantMessageID: request.assistantMessageID,
+        turnID: request.turnID,
         toolCall: output.modelMessage,
-        toolCallRecord: record,
-        outcome: outcome
+        record: record,
+        toolResult: toolResult,
+        followUpPromptMode: request.followUpPromptMode
       )
     }
+  }
+
+  private func completedStep(
+    assistantMessageID: ChatMessage.ID,
+    turnID: ChatTurnRecord.ID,
+    toolCall: ToolCallModelMessage,
+    record: ToolCallRecord,
+    toolResult: ToolResultModelMessage,
+    followUpPromptMode: ToolPromptMode
+  ) -> ChatWorkflowStep {
+    let nextAssistantMessageID = UUID()
+    return ChatWorkflowStep(
+      events: [
+        .assistantMessageAnnotatedAsToolCall(
+          assistantMessageID: assistantMessageID,
+          toolCall: toolCall
+        ),
+        .toolCallAppended(record, turnID: turnID),
+        .toolResultAppended(toolResult, messageID: UUID(), turnID: turnID),
+        .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
+      ],
+      continuation: .resumeGeneration(
+        assistantMessageID: nextAssistantMessageID,
+        promptMode: followUpPromptMode
+      )
+    )
+  }
+
+  private func completedWithoutFollowUpStep(
+    assistantMessageID: ChatMessage.ID,
+    turnID: ChatTurnRecord.ID,
+    toolCall: ToolCallModelMessage,
+    record: ToolCallRecord,
+    toolResult: ToolResultModelMessage
+  ) -> ChatWorkflowStep {
+    ChatWorkflowStep(
+      events: [
+        .assistantMessageAnnotatedAsToolCall(
+          assistantMessageID: assistantMessageID,
+          toolCall: toolCall
+        ),
+        .toolCallAppended(record, turnID: turnID),
+        .toolResultAppended(toolResult, messageID: UUID(), turnID: turnID),
+      ],
+      continuation: .stopTurn
+    )
   }
 
   private func parseToolAction(

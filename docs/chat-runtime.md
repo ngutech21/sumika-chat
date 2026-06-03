@@ -18,7 +18,9 @@ flowchart TD
   G --> H{"Assistant emitted a tool call?"}
   H -- "no" --> I["Mark turn completed"]
   H -- "yes" --> J["ToolLoopCoordinator parses + executes tool"]
-  J --> V{"Invalid tool call?"}
+  J --> W["ChatWorkflowStep(events + continuation)"]
+  W --> X["ChatWorkflowEventApplier"]
+  X --> V{"Invalid tool call?"}
   V -- "yes" --> L
   V -- "no" --> K{"Tool requires approval?"}
   K -- "no" --> L["Append ToolCallRecord + ToolResultModelMessage"]
@@ -40,8 +42,9 @@ flowchart TD
 ## Roles
 
 - `ChatSessionController` is the SwiftUI-facing state adapter. It owns observable
-  draft, transcript, context usage, and error state, and applies transcript
-  mutations through `ChatTranscriptMutator`.
+  draft, transcript, context usage, and error state. Tool-loop, approval, denial,
+  and turn-state transcript mutations flow through typed `ChatWorkflowEvent`
+  values instead of controller-specific mutation branches.
 - `ChatTurnCoordinator` owns the active chat-turn task and `turnID`. It gates
   completion so stale async work from a cancelled or replaced turn cannot reset
   current UI state.
@@ -59,10 +62,13 @@ flowchart TD
   metrics.
 - `ToolLoopCoordinator` handles model-emitted tool actions. Read-only tools run
   immediately; tools that require approval can attach an approval preview and
-  return an awaiting-approval outcome without appending a normal tool result.
-  Malformed tagged tool attempts and strong non-tagged tool intent are converted
-  into failed `invalid` tool observations so the model can recover in the next
-  step instead of exposing protocol drift as normal assistant prose.
+  return an awaiting-approval continuation without appending a normal tool
+  result. Malformed tagged tool attempts and strong non-tagged tool intent are
+  converted into failed `invalid` tool observations so the model can recover in
+  the next step instead of exposing protocol drift as normal assistant prose.
+- `ChatWorkflowEventApplier` applies typed workflow events to `ChatSessionState`
+  using `ChatTranscriptMutator`. These events are not persisted; persistence
+  stores only the resulting messages, tool-call records, and turns.
 - `ContextUsageCoordinator` computes token usage from the same filtered model
   context used for generation.
 
@@ -73,17 +79,18 @@ flowchart TD
 2. The user message and assistant placeholder are appended with the new `turnID`.
 3. `ChatTurnCoordinator` starts the async operation for that turn.
 4. Initial generation streams into the assistant placeholder.
-5. If the assistant output is an allowed tool call, the controller records the
-   `ToolCallRecord` and appends the tool result. Read-style tools append a
-   second assistant placeholder and stream the direct follow-up response. Each
-   follow-up is inspected for another tool call until the turn budget of six
-   tool calls is exhausted. Failed tools, unknown tools, and invalid tool-call
-   observations also count against this budget and are returned to the model as
-   observations so it can choose the next step. Successful `write_file` and
-   `edit_file` calls complete the turn without a follow-up model response.
-6. If the tool call requires approval, the controller records the call, marks
-   the turn `.awaitingApproval`, and ends active generation until the user
-   approves or denies the call.
+5. If the assistant output is an allowed tool call, `ToolLoopCoordinator` returns
+   a `ChatWorkflowStep`. The controller applies its events, then follows the
+   continuation. Read-style tools append a second assistant placeholder and
+   stream the direct follow-up response. Each follow-up is inspected for another
+   tool call until the turn budget of six tool calls is exhausted. Failed tools,
+   unknown tools, and invalid tool-call observations also count against this
+   budget and are returned to the model as observations so it can choose the
+   next step. Successful `write_file` and `edit_file` calls complete the turn
+   without a follow-up model response.
+6. If the tool call requires approval, workflow events record the call and mark
+   the turn `.awaitingApproval`; active generation ends until the user approves
+   or denies the call.
 7. Approval executes the same validated tool request and appends a real tool
    result. Successful `write_file` and `edit_file` approvals complete the turn
    without a follow-up model response; other successful tools resume the turn
@@ -147,7 +154,10 @@ flowchart TD
 
 1. Decide whether the behavior belongs to the visible transcript, model context,
    or both.
-2. Add transcript mutations through `ChatTranscriptMutator`.
+2. For tool-loop, approval, denial, or turn-state changes, emit
+   `ChatWorkflowEvent` values and apply them through `ChatWorkflowEventApplier`.
+   Use `ChatTranscriptMutator` directly only for primitive transcript operations
+   that are not part of a workflow transition.
 3. Gate async mutations with the active `turnID`.
 4. Use `ChatModelContextBuilder` for generation and context-usage snapshots.
 5. Add tests for cancelled turns, stale async results, persistence defaults, and

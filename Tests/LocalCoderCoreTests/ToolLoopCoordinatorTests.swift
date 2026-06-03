@@ -15,6 +15,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -29,9 +30,9 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(result?.assistantMessageID == assistantMessageID)
-    #expect(result?.toolCall.toolName == .readFile)
-    #expect(result?.toolCallRecord.status == .completed)
+    #expect(annotatedAssistantMessageID(from: result) == assistantMessageID)
+    #expect(toolCall(from: result)?.toolName == .readFile)
+    #expect(toolCallRecord(from: result)?.status == .completed)
     let toolResult = completedToolResult(from: result)
     #expect(toolResult?.toolName == .readFile)
     #expect(toolResult?.preview.text == "1: project notes")
@@ -48,6 +49,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -62,8 +64,8 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(result?.toolCall.toolName == .readFile)
-    #expect(result?.toolCallRecord.status == .completed)
+    #expect(toolCall(from: result)?.toolName == .readFile)
+    #expect(toolCallRecord(from: result)?.status == .completed)
     #expect(completedToolResult(from: result)?.preview.text == "1: project notes")
   }
 
@@ -87,6 +89,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -103,8 +106,8 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(result?.toolCall.toolName == .readFile)
-    #expect(result?.toolCallRecord.status == .completed)
+    #expect(toolCall(from: result)?.toolName == .readFile)
+    #expect(toolCallRecord(from: result)?.status == .completed)
     #expect(completedToolResult(from: result)?.preview.text == "2: two")
   }
 
@@ -119,6 +122,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -134,8 +138,8 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(result?.toolCall.toolName == .readFile)
-    #expect(result?.toolCallRecord.status == .completed)
+    #expect(toolCall(from: result)?.toolName == .readFile)
+    #expect(toolCallRecord(from: result)?.status == .completed)
   }
 
   @Test
@@ -149,6 +153,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -165,7 +170,7 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(result?.toolCall.toolName == .listFiles)
+    #expect(toolCall(from: result)?.toolName == .listFiles)
     #expect(completedToolResult(from: result)?.preview.text.contains("README.md") == true)
   }
 
@@ -180,6 +185,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -204,6 +210,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -218,8 +225,8 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(result?.toolCall.toolName.rawValue == "deploy")
-    #expect(result?.toolCallRecord.status == .failed)
+    #expect(toolCall(from: result)?.toolName.rawValue == "deploy")
+    #expect(toolCallRecord(from: result)?.status == .failed)
     #expect(completedToolResult(from: result)?.toolName.rawValue == "deploy")
     #expect(completedToolResult(from: result)?.preview.status == .failed)
     #expect(completedToolResult(from: result)?.preview.text == "Unknown tool: deploy.")
@@ -236,6 +243,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -250,9 +258,9 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(result?.toolCall.toolName == .invalid)
-    #expect(result?.toolCall.arguments.first { $0.name == "tool" }?.value == "read_file")
-    #expect(result?.toolCallRecord.status == .failed)
+    #expect(toolCall(from: result)?.toolName == .invalid)
+    #expect(toolCall(from: result)?.arguments.first { $0.name == "tool" }?.value == "read_file")
+    #expect(toolCallRecord(from: result)?.status == .failed)
     #expect(completedToolResult(from: result)?.toolName == .invalid)
     #expect(completedToolResult(from: result)?.preview.status == .failed)
     #expect(completedToolResult(from: result)?.preview.text.contains("invalid") == true)
@@ -269,6 +277,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -287,9 +296,9 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(result?.toolCall.toolName == .invalid)
-    #expect(result?.toolCall.arguments.first { $0.name == "tool" }?.value == "edit_file")
-    #expect(result?.toolCallRecord.status == .failed)
+    #expect(toolCall(from: result)?.toolName == .invalid)
+    #expect(toolCall(from: result)?.arguments.first { $0.name == "tool" }?.value == "edit_file")
+    #expect(toolCallRecord(from: result)?.status == .failed)
     #expect(completedToolResult(from: result)?.preview.text.contains("<action>") == true)
   }
 
@@ -306,6 +315,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -320,7 +330,7 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(result?.toolCallRecord.resultPreview == nil)
+    #expect(toolCallRecord(from: result)?.resultPreview == nil)
     #expect(completedToolResult(from: result)?.preview.status == .failed)
     #expect(
       completedToolResult(from: result)?.preview.text == "Tool result unavailable for read_file.")
@@ -339,6 +349,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -356,10 +367,10 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(result?.toolCall.toolName == .writeFile)
-    #expect(result?.toolCallRecord.status == .awaitingApproval)
-    #expect(result?.toolCallRecord.resultPreview == nil)
-    #expect(result?.outcome == .awaitingApproval)
+    #expect(toolCall(from: result)?.toolName == .writeFile)
+    #expect(toolCallRecord(from: result)?.status == .awaitingApproval)
+    #expect(toolCallRecord(from: result)?.resultPreview == nil)
+    #expect(result?.continuation == .awaitingApproval)
     #expect(
       !FileManager.default.fileExists(
         atPath: workspace.rootURL.appending(path: "movies.html").path(percentEncoded: false)))
@@ -378,6 +389,7 @@ struct ToolLoopCoordinatorTests {
       ToolLoopRequest(
         workspace: workspace,
         sessionID: sessionID,
+        turnID: UUID(),
         assistantMessageID: assistantMessageID,
         messages: [
           ChatMessage(
@@ -395,8 +407,8 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(result?.toolCall.toolName == .writeFile)
-    #expect(result?.toolCallRecord.status == .completed)
+    #expect(toolCall(from: result)?.toolName == .writeFile)
+    #expect(toolCallRecord(from: result)?.status == .completed)
     #expect(completedWithoutFollowUpToolResult(from: result)?.toolName == .writeFile)
     #expect(completedWithoutFollowUpToolResult(from: result)?.preview.status == .success)
   }
@@ -426,20 +438,64 @@ struct ToolLoopCoordinatorTests {
     )
   }
 
-  private func completedToolResult(from result: ToolLoopResult?) -> ToolResultModelMessage? {
-    guard case .completed(let toolResult, _) = result?.outcome else {
+  private func toolCall(from step: ChatWorkflowStep?) -> ToolCallModelMessage? {
+    for event in step?.events ?? [] {
+      guard
+        case .assistantMessageAnnotatedAsToolCall(_, let toolCall) = event
+      else {
+        continue
+      }
+      return toolCall
+    }
+    return nil
+  }
+
+  private func annotatedAssistantMessageID(from step: ChatWorkflowStep?) -> ChatMessage.ID? {
+    for event in step?.events ?? [] {
+      guard
+        case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, _) = event
+      else {
+        continue
+      }
+      return assistantMessageID
+    }
+    return nil
+  }
+
+  private func toolCallRecord(from step: ChatWorkflowStep?) -> ToolCallRecord? {
+    for event in step?.events ?? [] {
+      guard case .toolCallAppended(let record, _) = event else {
+        continue
+      }
+      return record
+    }
+    return nil
+  }
+
+  private func completedToolResult(from step: ChatWorkflowStep?) -> ToolResultModelMessage? {
+    guard case .resumeGeneration = step?.continuation else {
       return nil
     }
-    return toolResult
+    return toolResult(from: step)
   }
 
   private func completedWithoutFollowUpToolResult(
-    from result: ToolLoopResult?
+    from step: ChatWorkflowStep?
   ) -> ToolResultModelMessage? {
-    guard case .completedWithoutFollowUp(let toolResult) = result?.outcome else {
+    guard case .stopTurn = step?.continuation else {
       return nil
     }
-    return toolResult
+    return toolResult(from: step)
+  }
+
+  private func toolResult(from step: ChatWorkflowStep?) -> ToolResultModelMessage? {
+    for event in step?.events ?? [] {
+      guard case .toolResultAppended(let toolResult, _, _) = event else {
+        continue
+      }
+      return toolResult
+    }
+    return nil
   }
 }
 

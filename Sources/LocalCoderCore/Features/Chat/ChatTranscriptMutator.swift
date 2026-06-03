@@ -1,6 +1,8 @@
 import Foundation
 
 public struct ChatTranscriptMutator: Sendable {
+  public init() {}
+
   public func appendUserMessage(
     _ content: String,
     id: ChatMessage.ID = UUID(),
