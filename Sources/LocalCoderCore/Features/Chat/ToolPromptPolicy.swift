@@ -3,6 +3,8 @@ import Foundation
 public enum ToolPromptMode: Equatable, Sendable {
   case disabled
   case enabled(Bool)
+  case inspect
+  case afterInspectToolResultCanContinue
   case afterToolResultCanContinue
   case afterToolResultFinal
 }
@@ -43,6 +45,45 @@ public struct ToolPromptPolicy: Sendable {
     switch mode {
     case .disabled, .enabled(false):
       return basePrompt
+    case .inspect:
+      return [
+        basePrompt,
+        """
+        When read-only tools are available, use them to inspect workspace files and answer
+        questions about the project. Do not modify files.
+
+        Tool-use protocol:
+        - Emit exactly one complete <action> block, then stop.
+        - Do not include explanatory text before or after an <action>.
+        - Do not wrap actions in Markdown fences.
+        - Use workspace-relative paths.
+
+        Read-only workflow:
+        - To inspect a file, use read_file.
+        - To find files by name, use glob_files or list_files.
+        - To search code contents, use search_files.
+        - If enough information is already visible in context, answer directly.
+        - Never emit write_file or edit_file actions in Inspect mode.
+        """,
+        toolPromptRenderer.renderToolInstructions(
+          registry: toolRegistry,
+          payloadDelimiter: payloadDelimiter
+        ),
+      ].joined(separator: "\n\n")
+    case .afterInspectToolResultCanContinue:
+      return [
+        basePrompt,
+        """
+        You just received a read-only tool result. Use it to answer the user's request or
+        continue inspecting the workspace. If the result gives enough information to finish,
+        answer directly. If more read-only context is needed, emit at most one <action> block,
+        then stop. Do not modify files.
+        """,
+        toolPromptRenderer.renderToolInstructions(
+          registry: toolRegistry,
+          payloadDelimiter: payloadDelimiter
+        ),
+      ].joined(separator: "\n\n")
     case .afterToolResultCanContinue:
       return [
         basePrompt,

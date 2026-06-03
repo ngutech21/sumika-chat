@@ -3,9 +3,29 @@ import Foundation
 public struct ContextUsageSnapshot: Sendable {
   public let modelState: ModelLoadState
   public let operationID: UUID
+  public let turnID: ChatTurnRecord.ID?
   public let messages: [ChatMessage]
   public let attachments: [ChatAttachment]
   public let systemPrompt: String
+  public let interactionMode: WorkspaceInteractionMode?
+
+  public init(
+    modelState: ModelLoadState,
+    operationID: UUID,
+    turnID: ChatTurnRecord.ID? = nil,
+    messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    interactionMode: WorkspaceInteractionMode? = nil
+  ) {
+    self.modelState = modelState
+    self.operationID = operationID
+    self.turnID = turnID
+    self.messages = messages
+    self.attachments = attachments
+    self.systemPrompt = systemPrompt
+    self.interactionMode = interactionMode
+  }
 }
 
 public enum ContextUsageEvent: Sendable, Equatable {
@@ -18,11 +38,16 @@ public enum ContextUsageEvent: Sendable, Equatable {
 @MainActor
 public final class ContextUsageCoordinator {
   private let modelLifecycleCoordinator: ModelLifecycleCoordinator
+  private let turnTracer: any TurnTracing
   private var task: Task<Void, Never>?
   private var requestID = UUID()
 
-  public init(modelLifecycleCoordinator: ModelLifecycleCoordinator) {
+  public init(
+    modelLifecycleCoordinator: ModelLifecycleCoordinator,
+    turnTracer: any TurnTracing = NoopTurnTracer()
+  ) {
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
+    self.turnTracer = turnTracer
   }
 
   deinit {
@@ -106,11 +131,24 @@ public final class ContextUsageCoordinator {
     }
 
     do {
+      let startedAt = Date()
       let usage = try await modelLifecycleCoordinator.contextUsage(
         for: snapshot.messages,
         attachments: snapshot.attachments,
         systemPrompt: snapshot.systemPrompt,
         operationID: snapshot.operationID
+      )
+      await turnTracer.recordTurnTraceEvent(
+        TurnTraceEvent(
+          turnID: snapshot.turnID,
+          generationID: nil,
+          phase: .tokenizeContextUsage,
+          durationMs: Date().timeIntervalSince(startedAt) * 1000,
+          promptBytes: snapshot.systemPrompt.utf8.count,
+          promptTokens: usage.usedTokens,
+          messageCount: snapshot.messages.count,
+          interactionMode: snapshot.interactionMode
+        )
       )
       guard isCurrent(requestID) else {
         return

@@ -38,7 +38,8 @@ struct ChatSessionControllerTests {
       selectedModelID: ManagedModelCatalog.defaultModelID,
       focusedFileState: focusedFileState,
       systemPrompt: "System",
-      generationSettings: .codingDefault
+      generationSettings: .codingDefault,
+      interactionMode: .inspect
     )
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
@@ -49,7 +50,19 @@ struct ChatSessionControllerTests {
     let snapshot = controller.sessionSnapshot(updating: session)
 
     #expect(controller.chatSession.focusedFileState == focusedFileState)
+    #expect(controller.chatSession.interactionMode == .inspect)
     #expect(snapshot.focusedFileState == focusedFileState)
+    #expect(snapshot.interactionMode == .inspect)
+  }
+
+  @Test
+  func defaultsToChatInteractionMode() {
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+
+    #expect(controller.chatSession.interactionMode == .chat)
   }
 
   @Test
@@ -177,6 +190,7 @@ struct ChatSessionControllerTests {
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.inspect)
     controller.draft = "list the files in the current directory"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -261,13 +275,13 @@ struct ChatSessionControllerTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 1)
-    #expect(capturedSystemPrompts[0].contains("read_file"))
-    #expect(capturedSystemPrompts[0].contains("list_files"))
-    #expect(capturedSystemPrompts[0].contains("Available tools:"))
+    #expect(!capturedSystemPrompts[0].contains("read_file"))
+    #expect(!capturedSystemPrompts[0].contains("list_files"))
+    #expect(!capturedSystemPrompts[0].contains("Available tools:"))
 
     let capturedContextUsageSystemPrompts = await runtime.capturedContextUsageSystemPrompts
-    #expect(capturedContextUsageSystemPrompts.contains { $0.contains("Available tools:") })
-    #expect(capturedContextUsageSystemPrompts.contains { $0.contains("read_file") })
+    #expect(!capturedContextUsageSystemPrompts.contains { $0.contains("Available tools:") })
+    #expect(!capturedContextUsageSystemPrompts.contains { $0.contains("read_file") })
   }
 
   @Test
@@ -287,6 +301,38 @@ struct ChatSessionControllerTests {
 
     try await waitUntil { !controller.isGenerating }
 
+    #expect(controller.errorMessage == nil)
+    #expect(controller.chatSession.toolCalls.isEmpty)
+    #expect(controller.chatSession.messages.count == 2)
+    #expect(controller.chatSession.messages[1].kind == .assistant)
+    #expect(controller.chatSession.messages[1].content.contains("<action name=\"read_file\">"))
+
+    let capturedSystemPrompts = await runtime.capturedSystemPrompts
+    #expect(capturedSystemPrompts.count == 1)
+    #expect(!capturedSystemPrompts[0].contains("Available tools:"))
+    #expect(!capturedSystemPrompts[0].contains("read_file"))
+  }
+
+  @Test
+  func chatModeDoesNotExecuteAssistantActionInWorkspace() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: [
+      """
+      <action name="read_file">
+      <path>README.md</path>
+      </action>
+      """
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "read README"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.interactionMode == .chat)
     #expect(controller.errorMessage == nil)
     #expect(controller.chatSession.toolCalls.isEmpty)
     #expect(controller.chatSession.messages.count == 2)
@@ -390,6 +436,7 @@ struct ChatSessionControllerTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.inspect)
     controller.draft = "lies die projektbeschreibung"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -441,9 +488,13 @@ struct ChatSessionControllerTests {
     #expect(capturedSystemPrompts.count == 2)
     #expect(capturedSystemPrompts[0].contains("read_file"))
     #expect(capturedSystemPrompts[0].contains("list_files"))
-    #expect(capturedSystemPrompts[0].contains("write_file"))
-    #expect(capturedSystemPrompts[1].contains("emit at most one edit_file"))
-    #expect(capturedSystemPrompts[1].contains("edit_file"))
+    #expect(capturedSystemPrompts[0].contains("glob_files"))
+    #expect(capturedSystemPrompts[0].contains("search_files"))
+    #expect(!capturedSystemPrompts[0].contains("Tool: write_file"))
+    #expect(!capturedSystemPrompts[0].contains("Tool: edit_file"))
+    #expect(capturedSystemPrompts[1].contains("You just received a read-only tool result."))
+    #expect(!capturedSystemPrompts[1].contains("emit at most one edit_file"))
+    #expect(!capturedSystemPrompts[1].contains("Tool: edit_file"))
   }
 
   @Test
@@ -486,6 +537,7 @@ struct ChatSessionControllerTests {
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.inspect)
     controller.draft = "Read the README"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -524,6 +576,7 @@ struct ChatSessionControllerTests {
       ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.inspect)
     controller.draft = "Read the README"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -564,6 +617,7 @@ struct ChatSessionControllerTests {
       ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.inspect)
     controller.draft = "list the files in the current directory"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -616,6 +670,26 @@ struct ChatSessionControllerTests {
 
     #expect(controller.contextUsage?.usedTokens == 20)
     #expect(controller.contextUsage?.tokenLimit == 100)
+  }
+
+  @Test
+  func refreshContextUsageDefersWhileGeneratingAndRunsAfterCompletion() async throws {
+    let runtime = ControlledStreamingRuntime(turns: [["done"]], blockedCallIndexes: [0])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "Wait before answering"
+
+    controller.sendMessage()
+
+    try await waitUntilAsync { await runtime.startedStreamCount == 1 }
+    controller.refreshContextUsage()
+    await Task.yield()
+
+    #expect(await runtime.contextUsageRequestCount == 0)
+
+    await runtime.releaseStream(callIndex: 0)
+    try await waitUntil { !controller.isGenerating }
+    try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
   }
 
   @Test

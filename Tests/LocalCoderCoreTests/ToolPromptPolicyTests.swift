@@ -82,6 +82,28 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
+  func inspectPromptIncludesOnlyReadOnlyTools() {
+    let policy = ToolPromptPolicy()
+
+    let prompt = policy.systemPrompt(
+      basePrompt: "Base",
+      mode: .inspect,
+      toolRegistry: ToolExecutorRegistry.readOnly.toolRegistry,
+      toolPromptRenderer: TaggedToolPromptRenderer()
+    )
+
+    #expect(prompt.contains("Base"))
+    #expect(prompt.contains("Available tools:"))
+    #expect(prompt.contains("read_file"))
+    #expect(prompt.contains("list_files"))
+    #expect(prompt.contains("glob_files"))
+    #expect(prompt.contains("search_files"))
+    #expect(prompt.contains("Do not modify files"))
+    #expect(!prompt.contains("Tool: write_file"))
+    #expect(!prompt.contains("Tool: edit_file"))
+  }
+
+  @Test
   func enabledPromptIncludesStrictToolWorkflowRules() {
     let policy = ToolPromptPolicy()
 
@@ -132,6 +154,30 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("Emit at most one <action> block, then stop."))
     #expect(prompt.contains("Available tools:"))
     #expect(prompt.contains("edit_file"))
+  }
+
+  @Test
+  func afterInspectToolResultPromptKeepsToolsReadOnly() {
+    let policy = ToolPromptPolicy()
+
+    let prompt = policy.systemPrompt(
+      basePrompt: "Base",
+      mode: .afterInspectToolResultCanContinue,
+      toolRegistry: ToolExecutorRegistry.readOnly.toolRegistry,
+      toolPromptRenderer: TaggedToolPromptRenderer()
+    )
+
+    #expect(prompt.contains("Base"))
+    #expect(prompt.contains("You just received a read-only tool result."))
+    #expect(prompt.contains("Available tools:"))
+    #expect(prompt.contains("read_file"))
+    #expect(prompt.contains("list_files"))
+    #expect(prompt.contains("glob_files"))
+    #expect(prompt.contains("search_files"))
+    #expect(prompt.contains("Do not modify files"))
+    #expect(!prompt.contains("emit at most one edit_file"))
+    #expect(!prompt.contains("Tool: write_file"))
+    #expect(!prompt.contains("Tool: edit_file"))
   }
 
   @Test

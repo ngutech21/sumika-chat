@@ -93,6 +93,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    let streamStartStartedAt = Date()
     guard let modelContainer else {
       throw GemmaMLXRuntimeError.modelNotLoaded
     }
@@ -129,7 +130,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
     self.session = session
 
-    let traceID = UUID()
+    let traceMetadata = TurnTraceContext.current
+    let traceID = traceMetadata?.generationID ?? UUID()
     let traceHistory = history.map { message in
       (role: message.role.rawValue, content: message.content)
     }
@@ -142,7 +144,21 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
 
     let stream = session.streamDetails(to: prompt, images: [], videos: [])
-    return Self.modelStream(from: stream, traceID: traceID)
+    if let traceMetadata {
+      await traceMetadata.tracer.recordTurnTraceEvent(
+        TurnTraceEvent(
+          turnID: traceMetadata.turnID,
+          generationID: traceID,
+          phase: .runtimeStreamStart,
+          durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
+          promptBytes: prompt.utf8.count,
+          messageCount: messages.count,
+          cacheMode: "mlx_default",
+          interactionMode: traceMetadata.interactionMode
+        )
+      )
+    }
+    return Self.modelStream(from: stream, traceID: traceID, traceMetadata: traceMetadata)
   }
 
   private func configureMLXMemory() {
@@ -155,15 +171,34 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
   nonisolated private static func modelStream(
     from stream: AsyncThrowingStream<Generation, Error>,
-    traceID: UUID
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     return AsyncThrowingStream(ChatModelStreamEvent.self, bufferingPolicy: .unbounded) {
       continuation in
       let task = Task {
         var output = ""
         var completedMetrics: ChatGenerationMetrics?
+        let iterationStartedAt = Date()
+        var firstChunkAt: Date?
         defer {
+          let memoryClearStartedAt = Date()
           Memory.clearCache()
+          if let traceMetadata {
+            let durationMs = Date().timeIntervalSince(memoryClearStartedAt) * 1000
+            Task {
+              await traceMetadata.tracer.recordTurnTraceEvent(
+                TurnTraceEvent(
+                  turnID: traceMetadata.turnID,
+                  generationID: traceID,
+                  phase: .memoryClear,
+                  durationMs: durationMs,
+                  cacheMode: "cleared_after_generation",
+                  interactionMode: traceMetadata.interactionMode
+                )
+              )
+            }
+          }
         }
 
         do {
@@ -171,6 +206,24 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             try Task.checkCancellation()
 
             if let chunk = generation.chunk {
+              if firstChunkAt == nil {
+                let now = Date()
+                firstChunkAt = now
+                if let traceMetadata {
+                  let ttftMs = now.timeIntervalSince(iterationStartedAt) * 1000
+                  await traceMetadata.tracer.recordTurnTraceEvent(
+                    TurnTraceEvent(
+                      turnID: traceMetadata.turnID,
+                      generationID: traceID,
+                      phase: .runtimeTTFT,
+                      durationMs: ttftMs,
+                      ttftMs: ttftMs,
+                      cacheMode: "mlx_default",
+                      interactionMode: traceMetadata.interactionMode
+                    )
+                  )
+                }
+              }
               output += chunk
               continuation.yield(.chunk(chunk))
             }
@@ -181,6 +234,20 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                 tokensPerSecond: info.tokensPerSecond
               )
               completedMetrics = metrics
+              if let traceMetadata {
+                let decodeStartedAt = firstChunkAt ?? iterationStartedAt
+                await traceMetadata.tracer.recordTurnTraceEvent(
+                  TurnTraceEvent(
+                    turnID: traceMetadata.turnID,
+                    generationID: traceID,
+                    phase: .runtimeDecode,
+                    durationMs: Date().timeIntervalSince(decodeStartedAt) * 1000,
+                    tokensPerSecond: info.tokensPerSecond,
+                    cacheMode: "mlx_default",
+                    interactionMode: traceMetadata.interactionMode
+                  )
+                )
+              }
               continuation.yield(.completed(metrics))
             }
           }

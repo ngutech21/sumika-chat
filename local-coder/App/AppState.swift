@@ -34,7 +34,8 @@ final class AppState {
       self.chatController = ChatSessionController(
         modelSettingsStore: modelSettingsStore,
         modelDownloader: HuggingFaceModelDownloader(),
-        runtime: GemmaMLXRuntime()
+        runtime: GemmaMLXRuntime(),
+        turnTracer: GemmaDebugTraceStore.shared
       )
     }
 
@@ -303,14 +304,16 @@ final class AppState {
       return CodingSession(
         selectedModelID: chatController.modelRuntime.selectedModelID,
         systemPrompt: chatController.chatSession.systemPrompt,
-        generationSettings: chatController.chatSession.generationSettings
+        generationSettings: chatController.chatSession.generationSettings,
+        interactionMode: .chat
       )
     }
 
     return CodingSession(
       selectedModelID: defaultSessionModelID,
       systemPrompt: defaultSessionSystemPrompt,
-      generationSettings: defaultSessionGenerationSettings
+      generationSettings: defaultSessionGenerationSettings,
+      interactionMode: .chat
     )
   }
 
@@ -320,7 +323,14 @@ final class AppState {
     saveLibraryTask = Task { [workspaceStore] in
       await previousSaveTask?.value
       do {
+        let startedAt = Date()
         try await workspaceStore.saveLibrary(library)
+        await GemmaDebugTraceStore.shared.traceTurnEvent(
+          TurnTraceEvent(
+            phase: .persist,
+            durationMs: Date().timeIntervalSince(startedAt) * 1000
+          )
+        )
         await MainActor.run {
           workspaceErrorMessage = nil
         }

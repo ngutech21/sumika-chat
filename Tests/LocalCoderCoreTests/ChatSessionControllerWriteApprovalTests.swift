@@ -24,6 +24,7 @@ struct ChatSessionControllerWriteApprovalTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
     controller.draft = "create a html file in the current folder"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -66,6 +67,7 @@ struct ChatSessionControllerWriteApprovalTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
     controller.draft = "create a html file in the current folder"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -106,6 +108,7 @@ struct ChatSessionControllerWriteApprovalTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
     controller.draft = "create a html file in the current folder"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -148,6 +151,7 @@ struct ChatSessionControllerWriteApprovalTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
     controller.draft = "update the readme"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -189,6 +193,7 @@ struct ChatSessionControllerWriteApprovalTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
     controller.draft = "add a table with 3 columns to README.md"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -243,6 +248,7 @@ struct ChatSessionControllerWriteApprovalTests {
         ]))
     )
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
     controller.draft = "read README.md and then add a table"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -289,6 +295,7 @@ struct ChatSessionControllerWriteApprovalTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
     controller.draft = "update the readme"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -331,6 +338,7 @@ struct ChatSessionControllerWriteApprovalTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
     controller.draft = "update the readme"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)

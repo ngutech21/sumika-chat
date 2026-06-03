@@ -139,6 +139,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   private var streamContinuations: [Int: CheckedContinuation<Void, Never>] = [:]
   private var releasedCallIndexes: Set<Int> = []
   private var streamReplyCount = 0
+  private var contextUsageCount = 0
   private(set) var completedCallIndexes: Set<Int> = []
   private(set) var capturedMessages: [[ChatMessage]] = []
   private(set) var capturedSystemPrompts: [String] = []
@@ -150,6 +151,10 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
 
   var startedStreamCount: Int {
     streamReplyCount
+  }
+
+  var contextUsageRequestCount: Int {
+    contextUsageCount
   }
 
   func load(configuration: ChatModelConfiguration) async throws {
@@ -167,6 +172,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
     _ = messages
     _ = attachments
     _ = systemPrompt
+    contextUsageCount += 1
     return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
   }
 

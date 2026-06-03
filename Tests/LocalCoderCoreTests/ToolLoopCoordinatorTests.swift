@@ -381,7 +381,7 @@ struct ToolLoopCoordinatorTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let assistantMessageID = UUID()
     let coordinator = ToolLoopCoordinator(
-      toolOrchestrator: NoPreviewToolOrchestrator()
+      agentToolOrchestrator: NoPreviewToolOrchestrator()
     )
 
     let result = try await coordinator.run(
@@ -415,7 +415,7 @@ struct ToolLoopCoordinatorTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let assistantMessageID = UUID()
     let coordinator = ToolLoopCoordinator(
-      toolOrchestrator: ToolOrchestrator(executorRegistry: .codingAgent)
+      agentToolOrchestrator: ToolOrchestrator(executorRegistry: .codingAgent)
     )
 
     let result = try await coordinator.run(
@@ -455,7 +455,7 @@ struct ToolLoopCoordinatorTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let assistantMessageID = UUID()
     let coordinator = ToolLoopCoordinator(
-      toolOrchestrator: CompletedWriteFileToolOrchestrator()
+      agentToolOrchestrator: CompletedWriteFileToolOrchestrator()
     )
 
     let result = try await coordinator.run(

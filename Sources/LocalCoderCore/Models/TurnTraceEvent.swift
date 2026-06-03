@@ -1,0 +1,97 @@
+import Foundation
+
+public enum TurnTracePhase: String, Codable, CaseIterable, Equatable, Sendable {
+  case contextBuild = "context_build"
+  case tokenizeContextUsage = "tokenize_context_usage"
+  case renderSystemPrompt = "render_system_prompt"
+  case runtimeStreamStart = "runtime_stream_start"
+  case runtimeTTFT = "runtime_ttft"
+  case runtimeDecode = "runtime_decode"
+  case runtimePartialDecode = "runtime_partial_decode"
+  case toolParse = "tool_parse"
+  case toolExecute = "tool_execute"
+  case uiFlush = "ui_flush"
+  case persist
+  case memoryClear = "memory_clear"
+}
+
+public struct TurnTraceEvent: Codable, Equatable, Sendable {
+  public let turnID: UUID?
+  public let generationID: UUID?
+  public let phase: TurnTracePhase
+  public let durationMs: Double
+  public let promptBytes: Int?
+  public let promptTokens: Int?
+  public let messageCount: Int?
+  public let toolLoopIteration: Int?
+  public let toolName: String?
+  public let ttftMs: Double?
+  public let tokensPerSecond: Double?
+  public let cacheMode: String?
+  public let interactionMode: WorkspaceInteractionMode?
+
+  public init(
+    turnID: UUID? = nil,
+    generationID: UUID? = nil,
+    phase: TurnTracePhase,
+    durationMs: Double,
+    promptBytes: Int? = nil,
+    promptTokens: Int? = nil,
+    messageCount: Int? = nil,
+    toolLoopIteration: Int? = nil,
+    toolName: String? = nil,
+    ttftMs: Double? = nil,
+    tokensPerSecond: Double? = nil,
+    cacheMode: String? = nil,
+    interactionMode: WorkspaceInteractionMode? = nil
+  ) {
+    self.turnID = turnID
+    self.generationID = generationID
+    self.phase = phase
+    self.durationMs = durationMs
+    self.promptBytes = promptBytes
+    self.promptTokens = promptTokens
+    self.messageCount = messageCount
+    self.toolLoopIteration = toolLoopIteration
+    self.toolName = toolName
+    self.ttftMs = ttftMs
+    self.tokensPerSecond = tokensPerSecond
+    self.cacheMode = cacheMode
+    self.interactionMode = interactionMode
+  }
+}
+
+public protocol TurnTracing: Sendable {
+  func recordTurnTraceEvent(_ event: TurnTraceEvent) async
+}
+
+public struct NoopTurnTracer: TurnTracing {
+  public init() {}
+
+  public func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+    _ = event
+  }
+}
+
+public struct TurnTraceMetadata: Sendable {
+  public let turnID: UUID?
+  public let generationID: UUID
+  public let tracer: any TurnTracing
+  public let interactionMode: WorkspaceInteractionMode?
+
+  public init(
+    turnID: UUID?,
+    generationID: UUID,
+    tracer: any TurnTracing,
+    interactionMode: WorkspaceInteractionMode? = nil
+  ) {
+    self.turnID = turnID
+    self.generationID = generationID
+    self.tracer = tracer
+    self.interactionMode = interactionMode
+  }
+}
+
+public enum TurnTraceContext {
+  @TaskLocal public static var current: TurnTraceMetadata?
+}

@@ -8,14 +8,17 @@ struct ChatComposer: View {
   let availableModels: [ManagedModel]
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
+  let interactionMode: WorkspaceInteractionMode
   let contextUsage: ChatContextUsage?
   let processUsage: ProcessResourceUsage?
   let canChangeModel: Bool
+  let canChangeInteractionMode: Bool
   let isSelectedModelDownloaded: Bool
   let canSend: Bool
   let isGenerating: Bool
   let isInputBlocked: Bool
   let errorMessage: String?
+  let onSelectInteractionMode: (WorkspaceInteractionMode) -> Void
   let onSelectModel: (ManagedModel) -> Void
   let onLoadModel: () -> Void
   let onAddAttachments: () -> Void
@@ -86,6 +89,19 @@ struct ChatComposer: View {
             .help(modelLoadHelp)
           }
 
+          Picker("Mode", selection: interactionModeSelection) {
+            ForEach(WorkspaceInteractionMode.allCases, id: \.self) { mode in
+              Text(mode.displayName)
+                .tag(mode)
+            }
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          .frame(width: 190)
+          .controlSize(.small)
+          .disabled(!canChangeInteractionMode)
+          .help("Select interaction mode")
+
           ComposerResourceSummary(
             contextUsage: contextUsage,
             processUsage: processUsage
@@ -139,6 +155,15 @@ struct ChatComposer: View {
         }
 
         onSelectModel(model)
+      }
+    )
+  }
+
+  private var interactionModeSelection: Binding<WorkspaceInteractionMode> {
+    Binding(
+      get: { interactionMode },
+      set: { mode in
+        onSelectInteractionMode(mode)
       }
     )
   }

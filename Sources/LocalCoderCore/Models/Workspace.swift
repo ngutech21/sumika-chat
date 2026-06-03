@@ -10,6 +10,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
   public var focusedFileState: FocusedFileState
   public var systemPrompt: String
   public var generationSettings: ChatGenerationSettings
+  public var interactionMode: WorkspaceInteractionMode
   public var createdAt: Date
   public var updatedAt: Date
 
@@ -23,6 +24,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     focusedFileState: FocusedFileState = .empty,
     systemPrompt: String,
     generationSettings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode = .chat,
     createdAt: Date = Date(),
     updatedAt: Date = Date()
   ) {
@@ -35,6 +37,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     self.focusedFileState = focusedFileState
     self.systemPrompt = systemPrompt
     self.generationSettings = generationSettings
+    self.interactionMode = interactionMode
     self.createdAt = createdAt
     self.updatedAt = updatedAt
   }
@@ -49,6 +52,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     case focusedFileState
     case systemPrompt
     case generationSettings
+    case interactionMode
     case createdAt
     case updatedAt
   }
@@ -66,6 +70,9 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
     generationSettings = try container.decode(
       ChatGenerationSettings.self, forKey: .generationSettings)
+    interactionMode =
+      try container.decodeIfPresent(WorkspaceInteractionMode.self, forKey: .interactionMode)
+      ?? .chat
     createdAt = try container.decode(Date.self, forKey: .createdAt)
     updatedAt = try container.decode(Date.self, forKey: .updatedAt)
   }

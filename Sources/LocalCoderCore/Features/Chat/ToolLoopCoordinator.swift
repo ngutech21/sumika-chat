@@ -15,7 +15,9 @@ public struct ToolLoopRequest: Sendable {
   public let assistantMessageID: UUID
   public let messages: [ChatMessage]
   public let focusedFileState: FocusedFileState
+  public let interactionMode: WorkspaceInteractionMode
   public let followUpPromptMode: ToolPromptMode
+  public let toolLoopIteration: Int?
 
   public init(
     workspace: Workspace,
@@ -24,7 +26,9 @@ public struct ToolLoopRequest: Sendable {
     assistantMessageID: UUID,
     messages: [ChatMessage],
     focusedFileState: FocusedFileState = .empty,
-    followUpPromptMode: ToolPromptMode = .afterToolResultCanContinue
+    interactionMode: WorkspaceInteractionMode = .agent,
+    followUpPromptMode: ToolPromptMode = .afterToolResultCanContinue,
+    toolLoopIteration: Int? = nil
   ) {
     self.workspace = workspace
     self.sessionID = sessionID
@@ -32,7 +36,9 @@ public struct ToolLoopRequest: Sendable {
     self.assistantMessageID = assistantMessageID
     self.messages = messages
     self.focusedFileState = focusedFileState
+    self.interactionMode = interactionMode
     self.followUpPromptMode = followUpPromptMode
+    self.toolLoopIteration = toolLoopIteration
   }
 }
 
@@ -44,30 +50,60 @@ nonisolated private enum ToolLoopParsedAction: Equatable, Sendable {
 
 public struct ToolLoopCoordinator: Sendable {
   private let toolCallParser: any ToolCallParsing
-  private let toolOrchestrator: any ToolOrchestrating
+  private let readOnlyToolOrchestrator: any ToolOrchestrating
+  private let agentToolOrchestrator: any ToolOrchestrating
   private let focusedFileReducer: FocusedFileStateReducer
+  private let turnTracer: any TurnTracing
 
   public init(
     toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
-    toolOrchestrator: any ToolOrchestrating = ToolOrchestrator(),
-    focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer()
+    readOnlyToolOrchestrator: any ToolOrchestrating = ToolOrchestrator(
+      executorRegistry: .readOnly),
+    agentToolOrchestrator: any ToolOrchestrating = ToolOrchestrator(
+      executorRegistry: .codingAgent),
+    focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer(),
+    turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
     self.toolCallParser = toolCallParser
-    self.toolOrchestrator = toolOrchestrator
+    self.readOnlyToolOrchestrator = readOnlyToolOrchestrator
+    self.agentToolOrchestrator = agentToolOrchestrator
     self.focusedFileReducer = focusedFileReducer
+    self.turnTracer = turnTracer
   }
 
   public var toolRegistry: ToolRegistry {
-    toolOrchestrator.toolRegistry
+    agentToolOrchestrator.toolRegistry
   }
 
   public func run(_ request: ToolLoopRequest) async throws -> ChatWorkflowStep? {
     try Task.checkCancellation()
+    guard request.interactionMode != .chat else {
+      return nil
+    }
+
     let assistantContent = messageContent(for: request.assistantMessageID, in: request.messages)
-    let parsedAction = try parseToolAction(
-      assistantContent,
-      workspaceID: request.workspace.id,
-      sessionID: request.sessionID
+    let parseStartedAt = Date()
+    let parsedAction: ToolLoopParsedAction
+    do {
+      parsedAction = try parseToolAction(
+        assistantContent,
+        workspaceID: request.workspace.id,
+        sessionID: request.sessionID
+      )
+    } catch {
+      await traceToolPhase(
+        .toolParse,
+        startedAt: parseStartedAt,
+        request: request,
+        toolName: nil
+      )
+      throw error
+    }
+    await traceToolPhase(
+      .toolParse,
+      startedAt: parseStartedAt,
+      request: request,
+      toolName: parsedAction.toolName
     )
 
     switch parsedAction {
@@ -102,9 +138,16 @@ public struct ToolLoopCoordinator: Sendable {
         followUpPromptMode: request.followUpPromptMode
       )
     case .toolCall(let output, let recoveredFromMalformedContent):
-      var record = await toolOrchestrator.execute(
+      let executeStartedAt = Date()
+      var record = await toolOrchestrator(for: request.interactionMode).execute(
         request: output.request,
         workspace: request.workspace
+      )
+      await traceToolPhase(
+        .toolExecute,
+        startedAt: executeStartedAt,
+        request: request,
+        toolName: output.request.toolName.rawValue
       )
       appendRecoveryEventIfNeeded(
         to: &record,
@@ -161,6 +204,35 @@ public struct ToolLoopCoordinator: Sendable {
         focusedFileState: request.focusedFileState,
         followUpPromptMode: request.followUpPromptMode
       )
+    }
+  }
+
+  private func traceToolPhase(
+    _ phase: TurnTracePhase,
+    startedAt: Date,
+    request: ToolLoopRequest,
+    toolName: String?
+  ) async {
+    await turnTracer.recordTurnTraceEvent(
+      TurnTraceEvent(
+        turnID: request.turnID,
+        generationID: nil,
+        phase: phase,
+        durationMs: Date().timeIntervalSince(startedAt) * 1000,
+        messageCount: request.messages.count,
+        toolLoopIteration: request.toolLoopIteration,
+        toolName: toolName,
+        interactionMode: request.interactionMode
+      )
+    )
+  }
+
+  private func toolOrchestrator(for mode: WorkspaceInteractionMode) -> any ToolOrchestrating {
+    switch mode {
+    case .inspect:
+      readOnlyToolOrchestrator
+    case .chat, .agent:
+      agentToolOrchestrator
     }
   }
 
@@ -439,5 +511,18 @@ public struct ToolLoopCoordinator: Sendable {
 
   private func messageContent(for id: UUID, in messages: [ChatMessage]) -> String {
     messages.first(where: { $0.id == id })?.content ?? ""
+  }
+}
+
+extension ToolLoopParsedAction {
+  fileprivate var toolName: String? {
+    switch self {
+    case .none:
+      nil
+    case .invalid(let originalToolName, _):
+      originalToolName
+    case .toolCall(let output, _):
+      output.request.toolName.rawValue
+    }
   }
 }

@@ -168,6 +168,7 @@ struct WorkspaceStoreTests {
     #expect(decoded.toolCalls.isEmpty)
     #expect(decoded.turns.isEmpty)
     #expect(decoded.focusedFileState == .empty)
+    #expect(decoded.interactionMode == .chat)
   }
 
   private func temporaryLibraryURL() -> URL {

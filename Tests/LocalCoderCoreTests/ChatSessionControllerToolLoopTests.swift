@@ -25,6 +25,7 @@ struct ChatSessionControllerToolLoopTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.inspect)
     controller.draft = "read the README repeatedly"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -63,6 +64,7 @@ struct ChatSessionControllerToolLoopTests {
       turns: Array(repeating: [invalidToolIntent], count: 7))
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
     controller.draft = "change the background color to blue"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -97,6 +99,7 @@ struct ChatSessionControllerToolLoopTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
     controller.draft = "change the background color to blue"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -149,6 +152,7 @@ struct ChatSessionControllerToolLoopTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
     controller.draft = "replace missing text in README"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -189,6 +193,7 @@ struct ChatSessionControllerToolLoopTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.inspect)
 
     controller.draft = "read README.md"
     controller.sendMessage(in: workspace, sessionID: sessionID)

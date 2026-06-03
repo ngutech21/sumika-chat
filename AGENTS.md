@@ -207,6 +207,65 @@ just final-check
 
 If a task only changes docs or comments, explain why final checks were not run. Otherwise, treat a passing final-check run as part of the task's definition of done.
 
+## Workspace Interaction Modes
+
+The chat composer uses a manual `WorkspaceInteractionMode` for each coding session:
+
+- `chat`: default mode for normal conversation. Do not render tool schemas, do not run the tool loop, and keep the system prompt short.
+- `inspect`: read-only workspace help. Render only read-only tool instructions and execute only the `ToolExecutorRegistry.readOnly` registry (`read_file`, `list_files`, `glob_files`, `search_files`).
+- `agent`: full coding-agent workflow. Render the full coding tool prompt and use `ToolExecutorRegistry.codingAgent`, including write/edit tools and the approval flow.
+
+Do not decide tool availability with keyword checks such as `prompt.contains("file")`. Mode is product/session state selected by the user, and V1 has no auto-router. If auto-routing is added later, keep it separate from the stable per-turn mode and avoid changing tool schemas unpredictably mid-turn.
+
+Persist the mode on `CodingSession`, keep it in `ChatSessionState`, and default legacy sessions without a stored mode to `.chat`. Trace `turn_trace.interactionMode` so latency analysis can compare chat, inspect, and agent prompts.
+
+## Debugging and Tracing
+
+Use the project script for local app debugging before inventing new launch flows:
+
+```sh
+./script/build_and_run.sh --logs
+./script/build_and_run.sh --telemetry
+./script/build_and_run.sh --trace
+```
+
+- `--logs` launches the app and streams process logs for `local-coder`.
+- `--telemetry` launches the app and streams logs for subsystem `ngutech21.local-coder`.
+- `--trace` launches the app binary with `LOCAL_CODER_DEBUG_TRACE=1` and prints the Gemma trace path.
+
+The debug trace is a single JSONL file:
+
+```text
+~/Library/Containers/ngutech21.local-coder/Data/Library/Application Support/local-coder/debug/gemma-trace.jsonl
+```
+
+Do not create a second trace file for chat/model performance. Extend `GemmaDebugTraceStore` and keep all debug trace rows in `gemma-trace.jsonl`.
+
+Existing row kinds:
+
+- `gemma_request`: model request metadata, rendered prompt, history, generation settings, and context limit.
+- `gemma_response`: model output, generation metrics, and optional runtime error.
+- `turn_trace`: structured performance spans without prompt, output, or file contents.
+
+`turn_trace` rows are emitted only when `LOCAL_CODER_DEBUG_TRACE=1`. They should contain timing and size metadata such as `turnID`, `generationID`, `phase`, `durationMs`, `promptBytes`, `promptTokens`, `messageCount`, `toolLoopIteration`, `toolName`, `ttftMs`, `tokensPerSecond`, `cacheMode`, and `interactionMode`. Keep `promptTokens` limited to token counts already computed for normal app behavior; do not add extra tokenization only for tracing.
+
+Stable `turn_trace.phase` values:
+
+- `context_build`
+- `tokenize_context_usage`
+- `render_system_prompt`
+- `runtime_stream_start`
+- `runtime_ttft`
+- `runtime_decode`
+- `runtime_partial_decode`
+- `tool_parse`
+- `tool_execute`
+- `ui_flush`
+- `persist`
+- `memory_clear`
+
+When diagnosing latency, group rows by `turnID` and `generationID`. Compare `runtime_ttft`, `runtime_decode`, `runtime_partial_decode`, `tool_execute`, `tokenize_context_usage`, and `persist` before assuming the model decode path is the bottleneck. `runtime_partial_decode` is expected when the app stops consuming a generation after detecting one complete tool-action block before the runtime emits normal completion metrics.
+
 ## Git
 
 - Use intentional commits: each commit should describe one coherent change and avoid bundling unrelated work.

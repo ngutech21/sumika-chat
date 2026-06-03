@@ -1,7 +1,7 @@
 import Foundation
 import LocalCoderCore
 
-actor GemmaDebugTraceStore {
+actor GemmaDebugTraceStore: TurnTracing {
   static let shared = GemmaDebugTraceStore()
 
   nonisolated static var isEnabled: Bool {
@@ -76,6 +76,57 @@ actor GemmaDebugTraceStore {
       response["error"] = error
     }
     append(response)
+  }
+
+  func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+    traceTurnEvent(event)
+  }
+
+  func traceTurnEvent(_ event: TurnTraceEvent) {
+    guard Self.isEnabled else {
+      return
+    }
+
+    var trace: [String: Any] = [
+      "timestamp": timestamp(),
+      "kind": "turn_trace",
+      "phase": event.phase.rawValue,
+      "durationMs": event.durationMs,
+    ]
+    if let turnID = event.turnID {
+      trace["turnID"] = turnID.uuidString
+    }
+    if let generationID = event.generationID {
+      trace["generationID"] = generationID.uuidString
+    }
+    if let promptBytes = event.promptBytes {
+      trace["promptBytes"] = promptBytes
+    }
+    if let promptTokens = event.promptTokens {
+      trace["promptTokens"] = promptTokens
+    }
+    if let messageCount = event.messageCount {
+      trace["messageCount"] = messageCount
+    }
+    if let toolLoopIteration = event.toolLoopIteration {
+      trace["toolLoopIteration"] = toolLoopIteration
+    }
+    if let toolName = event.toolName {
+      trace["toolName"] = toolName
+    }
+    if let ttftMs = event.ttftMs {
+      trace["ttftMs"] = ttftMs
+    }
+    if let tokensPerSecond = event.tokensPerSecond {
+      trace["tokensPerSecond"] = tokensPerSecond
+    }
+    if let cacheMode = event.cacheMode {
+      trace["cacheMode"] = cacheMode
+    }
+    if let interactionMode = event.interactionMode {
+      trace["interactionMode"] = interactionMode.rawValue
+    }
+    append(trace)
   }
 
   private func traceMessage(from message: (role: String, content: String)) -> [String: Any] {

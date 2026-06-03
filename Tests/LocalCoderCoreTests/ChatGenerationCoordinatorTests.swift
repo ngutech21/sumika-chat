@@ -7,6 +7,8 @@ import Testing
 struct ChatGenerationCoordinatorTests {
   @Test
   func toolActionStreamingStopsAfterCompleteActionAndDropsSurroundingText() async throws {
+    let turnID = UUID()
+    let tracer = RecordingTurnTracer()
     let action = """
       <action name="read_file">
       <path>README.md</path>
@@ -21,6 +23,7 @@ struct ChatGenerationCoordinatorTests {
     )
     let coordinator = ChatGenerationCoordinator(
       runtime: runtime,
+      turnTracer: tracer,
       streamingFlushInterval: 0,
       streamingFlushCharacterLimit: 1
     )
@@ -29,6 +32,7 @@ struct ChatGenerationCoordinatorTests {
     var contextUsageUpdateCount = 0
 
     try await coordinator.streamAssistantReply(
+      turnID: turnID,
       messages: [],
       systemPrompt: "Use tools.",
       settings: .codingDefault,
@@ -46,6 +50,9 @@ struct ChatGenerationCoordinatorTests {
     #expect(streamedContent == action)
     #expect(didUpdateMetrics)
     #expect(contextUsageUpdateCount == 1)
+    let event = try #require(await tracer.events.first { $0.phase == .runtimePartialDecode })
+    #expect(event.turnID == turnID)
+    #expect(event.generationID != nil)
   }
 
   @Test
@@ -112,5 +119,58 @@ struct ChatGenerationCoordinatorTests {
     )
 
     #expect(chunks == ["hello", " world"])
+  }
+
+  @Test
+  func regularAssistantStreamingTracesUIFlushWithTurnAndGenerationID() async throws {
+    let turnID = UUID()
+    let tracer = RecordingTurnTracer()
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello"])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      turnTracer: tracer,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+
+    try await coordinator.streamAssistantReply(
+      turnID: turnID,
+      messages: [ChatMessage(userContent: "hi")],
+      systemPrompt: "Answer normally.",
+      settings: .codingDefault,
+      stopAfterCompleteToolAction: false,
+      appendChunk: { _ in },
+      updateGenerationMetrics: { _ in },
+      updateContextUsage: {}
+    )
+
+    try await waitUntilAsync {
+      await tracer.events.contains { $0.phase == .uiFlush }
+    }
+    let event = try #require(await tracer.events.first { $0.phase == .uiFlush })
+    #expect(event.turnID == turnID)
+    #expect(event.generationID != nil)
+    #expect(event.messageCount == 1)
+  }
+
+  private func waitUntilAsync(
+    timeout: Duration = .seconds(2),
+    _ condition: @escaping () async -> Bool
+  ) async throws {
+    let start = ContinuousClock.now
+    while !(await condition()) {
+      if start.duration(to: .now) > timeout {
+        throw TestWaitTimeoutError()
+      }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+  }
+}
+
+private actor RecordingTurnTracer: TurnTracing {
+  private(set) var events: [TurnTraceEvent] = []
+
+  func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+    events.append(event)
   }
 }

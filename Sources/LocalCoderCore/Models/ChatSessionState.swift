@@ -8,6 +8,7 @@ public struct ChatSessionState: Equatable, Sendable {
   public var focusedFileState: FocusedFileState
   public var systemPrompt: String
   public var generationSettings: ChatGenerationSettings
+  public var interactionMode: WorkspaceInteractionMode
 
   public init(
     messages: [ChatMessage],
@@ -16,7 +17,8 @@ public struct ChatSessionState: Equatable, Sendable {
     attachments: [ChatAttachment],
     focusedFileState: FocusedFileState = .empty,
     systemPrompt: String,
-    generationSettings: ChatGenerationSettings
+    generationSettings: ChatGenerationSettings,
+    interactionMode: WorkspaceInteractionMode = .chat
   ) {
     self.messages = messages
     self.toolCalls = toolCalls
@@ -25,6 +27,7 @@ public struct ChatSessionState: Equatable, Sendable {
     self.focusedFileState = focusedFileState
     self.systemPrompt = systemPrompt
     self.generationSettings = generationSettings
+    self.interactionMode = interactionMode
   }
 
   public static let codingDefault = ChatSessionState(
@@ -34,6 +37,7 @@ public struct ChatSessionState: Equatable, Sendable {
     attachments: [],
     focusedFileState: .empty,
     systemPrompt: ChatPromptDefaults.codingSystemPrompt,
-    generationSettings: .codingDefault
+    generationSettings: .codingDefault,
+    interactionMode: .chat
   )
 }
