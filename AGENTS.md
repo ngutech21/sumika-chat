@@ -50,6 +50,17 @@ Keep dependencies flowing in one direction: the app imports `LocalCoderCore`; `L
 ## Architecture Guardrails
 
 - Do not add more responsibilities to a single controller. Keep controllers moving toward SwiftUI state adapters while tool loops, prompt policy, model lifecycle, and runtime operations live in focused coordinators.
+
+### SwiftUI Controller Boundaries
+
+SwiftUI controllers should be observable UI facades: hold view state, expose small user-action methods, call coordinators/services, and map their events or results back into view state.
+
+SwiftUI controllers must not own domain rules, permission policy, path validation, prompt construction, provider parsing/rendering, persistence internals, model/runtime details, shell execution, file IO, security-scoped bookmark handling, complex invariants, or multi-step workflow logic.
+
+Workflow lifecycle belongs in coordinators. Typed execution, side effects, persistence, and platform integrations belong in services/executors. Consistency-sensitive mutation belongs in domain mutators/services. Context and prompt selection belong in builders/policies.
+
+If logic can be meaningfully tested without SwiftUI, it probably does not belong in a SwiftUI controller. Controllers may express user intent; they should not know the internal steps needed to enforce invariants, resume workflows, or repair state.
+
 - Prefer moving reusable behavior into `LocalCoderCore` before adding more app-target logic. Keep the app target focused on UI and platform adapters.
 - Do not add SwiftUI, AppKit, or MLX imports to `Sources/LocalCoderCore`. If core needs model inference, depend on `ChatModelRuntime`-style protocols and implement platform backends in `local-coder/Services/`.
 - Follow `docs/tool-runtime.md` when adding or changing tools. Tools should be registered through the typed runtime, own their typed input, permission evaluation, and execution, and be tested for decoding, permission, execution, registry visibility, and security-sensitive failure modes.
