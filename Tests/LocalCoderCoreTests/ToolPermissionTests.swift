@@ -91,7 +91,7 @@ struct ToolPermissionTests {
   }
 
   @Test
-  func evaluatorRequiresApprovalForWorkspaceMutationsAndCommands() throws {
+  func evaluatorRequiresApprovalForWorkspaceMutations() throws {
     let rootURL = try makeTemporaryDirectory()
     let workspace = Workspace(name: "Project", rootURL: rootURL)
     let evaluator = ToolPermissionEvaluator()
@@ -100,7 +100,10 @@ struct ToolPermissionTests {
       request(
         toolName: .writeFile,
         workspace: workspace,
-        arguments: ["path": .string("Sources/File.swift")]
+        arguments: [
+          "path": .string("Sources/File.swift"),
+          "content": .string("let value = 1"),
+        ]
       ),
       in: workspace
     )
@@ -108,15 +111,11 @@ struct ToolPermissionTests {
       request(
         toolName: .editFile,
         workspace: workspace,
-        arguments: ["path": .string("Sources/File.swift")]
-      ),
-      in: workspace
-    )
-    let commandEvaluation = evaluator.evaluate(
-      request(
-        toolName: .runCommand,
-        workspace: workspace,
-        arguments: ["workingDirectory": .string(".")]
+        arguments: [
+          "path": .string("Sources/File.swift"),
+          "old_text": .string("old"),
+          "new_text": .string("new"),
+        ]
       ),
       in: workspace
     )
@@ -132,8 +131,6 @@ struct ToolPermissionTests {
       editEvaluation.normalizedPaths == [
         rootURL.appending(path: "Sources/File.swift").path(percentEncoded: false)
       ])
-    #expect(commandEvaluation.decision == .requiresApproval)
-    #expect(commandEvaluation.normalizedPaths == [rootURL.path(percentEncoded: false)])
   }
 
   @Test
@@ -143,11 +140,14 @@ struct ToolPermissionTests {
     let workspace = Workspace(name: "Project", rootURL: rootURL)
     let evaluator = ToolPermissionEvaluator()
 
-    let outsideCommand = evaluator.evaluate(
+    let outsideWrite = evaluator.evaluate(
       request(
-        toolName: .runCommand,
+        toolName: .writeFile,
         workspace: workspace,
-        arguments: ["workingDirectory": .string(outsideURL.path(percentEncoded: false))]
+        arguments: [
+          "path": .string(outsideURL.appending(path: "secret.txt").path(percentEncoded: false)),
+          "content": .string("secret"),
+        ]
       ),
       in: workspace
     )
@@ -160,8 +160,8 @@ struct ToolPermissionTests {
       in: workspace
     )
 
-    #expect(outsideCommand.decision == .denied)
-    #expect(outsideCommand.normalizedPaths.isEmpty)
+    #expect(outsideWrite.decision == .denied)
+    #expect(outsideWrite.normalizedPaths.isEmpty)
     #expect(unknownTool.decision == .denied)
     #expect(unknownTool.riskLevel == .high)
   }
@@ -207,11 +207,15 @@ struct ToolPermissionTests {
     workspace: Workspace,
     arguments: ToolCallArguments
   ) -> ToolCallRequest {
-    ToolCallRequest(
+    let rawRequest = RawToolCallRequest(
       workspaceID: workspace.id,
       sessionID: UUID(),
       toolName: toolName,
       arguments: arguments
+    )
+    return ToolCallRequestValidator().validate(
+      rawRequest,
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
     )
   }
 

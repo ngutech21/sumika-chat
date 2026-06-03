@@ -546,9 +546,9 @@ struct ToolExecutionTests {
 
     #expect(valid.status == .completed)
     #expect(missingPath.status == .failed)
-    #expect(missingPath.resultPreview?.text.contains("Invalid arguments for read_file") == true)
+    #expect(missingPath.resultPreview?.text.contains("Missing required argument: path") == true)
     #expect(wrongPathType.status == .failed)
-    #expect(wrongPathType.resultPreview?.text.contains("Invalid arguments for read_file") == true)
+    #expect(wrongPathType.resultPreview?.text.contains("Invalid argument type for path") == true)
     #expect(unknownArgument.status == .failed)
     #expect(unknownArgument.resultPreview?.text.contains("Unknown argument") == true)
     #expect(invalidOffset.status == .failed)
@@ -581,7 +581,7 @@ struct ToolExecutionTests {
     let staleWorkspace = try makeWorkspace()
     try write("active", to: "README.md", in: activeWorkspace)
 
-    let staleRequest = ToolCallRequest(
+    let staleRequest = RawToolCallRequest(
       workspaceID: staleWorkspace.id,
       sessionID: UUID(),
       toolName: .readFile,
@@ -623,8 +623,8 @@ struct ToolExecutionTests {
     _ toolName: ToolName,
     workspace: Workspace,
     arguments: ToolCallArguments
-  ) -> ToolCallRequest {
-    ToolCallRequest(
+  ) -> RawToolCallRequest {
+    RawToolCallRequest(
       workspaceID: workspace.id,
       sessionID: UUID(),
       toolName: toolName,

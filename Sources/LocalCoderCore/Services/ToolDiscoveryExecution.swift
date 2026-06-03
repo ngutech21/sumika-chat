@@ -1,6 +1,6 @@
 import Foundation
 
-public struct GlobFilesInput: Decodable, Sendable {
+public struct GlobFilesInput: Codable, Equatable, Sendable {
   public let pattern: String
   public let path: String?
 }
@@ -82,7 +82,7 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
   }
 }
 
-public struct SearchFilesInput: Decodable, Sendable {
+public struct SearchFilesInput: Codable, Equatable, Sendable {
   public let pattern: String
   public let path: String?
   public let include: String?

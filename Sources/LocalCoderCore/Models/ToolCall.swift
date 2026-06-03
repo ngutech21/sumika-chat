@@ -159,12 +159,13 @@ public enum ToolArgumentValue: Codable, Equatable, Sendable {
   }
 }
 
-public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
+public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   public let id: UUID
   public let workspaceID: Workspace.ID
   public let sessionID: CodingSession.ID
   public var toolName: ToolName
   public var arguments: ToolCallArguments
+  public var rawText: String?
   public var createdAt: Date
 
   public init(
@@ -173,6 +174,7 @@ public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
     sessionID: CodingSession.ID,
     toolName: ToolName,
     arguments: ToolCallArguments = [:],
+    rawText: String? = nil,
     createdAt: Date = Date()
   ) {
     self.id = id
@@ -180,7 +182,136 @@ public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
     self.sessionID = sessionID
     self.toolName = toolName
     self.arguments = arguments
+    self.rawText = rawText
     self.createdAt = createdAt
+  }
+}
+
+public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
+  public var raw: RawToolCallRequest
+  public var payload: ToolCallPayload
+
+  public var id: UUID { raw.id }
+  public var workspaceID: Workspace.ID { raw.workspaceID }
+  public var sessionID: CodingSession.ID { raw.sessionID }
+  public var toolName: ToolName { raw.toolName }
+  public var createdAt: Date { raw.createdAt }
+  public var rawArguments: ToolCallArguments { raw.arguments }
+
+  private init(raw: RawToolCallRequest, payload: ToolCallPayload) {
+    self.raw = raw
+    self.payload = payload
+  }
+
+  public static func validated(
+    raw: RawToolCallRequest,
+    payload: ToolCallPayload
+  ) -> ToolCallRequest {
+    precondition(
+      payload.matches(raw.toolName),
+      "ToolCallRequest payload must match raw tool name."
+    )
+    return ToolCallRequest(raw: raw, payload: payload)
+  }
+
+  public static func invalid(
+    raw: RawToolCallRequest,
+    input: InvalidToolInput
+  ) -> ToolCallRequest {
+    ToolCallRequest(raw: raw, payload: .invalid(input))
+  }
+}
+
+public enum ToolCallPayload: Codable, Equatable, Sendable {
+  case readFile(ReadFileInput)
+  case listFiles(ListFilesInput)
+  case globFiles(GlobFilesInput)
+  case searchFiles(SearchFilesInput)
+  case writeFile(WriteFileInput)
+  case editFile(EditFileInput)
+  case invalid(InvalidToolInput)
+}
+
+nonisolated extension ToolCallPayload {
+  public var toolName: ToolName {
+    switch self {
+    case .readFile:
+      .readFile
+    case .listFiles:
+      .listFiles
+    case .globFiles:
+      .globFiles
+    case .searchFiles:
+      .searchFiles
+    case .writeFile:
+      .writeFile
+    case .editFile:
+      .editFile
+    case .invalid:
+      .invalid
+    }
+  }
+
+  public func matches(_ toolName: ToolName) -> Bool {
+    switch self {
+    case .invalid:
+      true
+    default:
+      self.toolName == toolName
+    }
+  }
+}
+
+public struct InvalidToolInput: Codable, Equatable, Sendable {
+  public var originalName: String?
+  public var rawArguments: ToolCallArguments
+  public var reason: InvalidToolCallReason
+
+  public init(
+    originalName: String?,
+    rawArguments: ToolCallArguments,
+    reason: InvalidToolCallReason
+  ) {
+    self.originalName = originalName
+    self.rawArguments = rawArguments
+    self.reason = reason
+  }
+}
+
+public enum InvalidToolCallReason: Error, Codable, Equatable, Sendable {
+  case unknownToolName(String)
+  case unavailableToolName(String)
+  case unknownArguments([String])
+  case missingRequiredArgument(String)
+  case invalidArgumentType(name: String, expected: String)
+  case emptyPath
+  case invalidPagination(String)
+  case emptyOldText
+  case parserError(String)
+}
+
+nonisolated extension InvalidToolCallReason {
+  public var message: String {
+    switch self {
+    case .unknownToolName(let name):
+      "Unknown tool: \(name)."
+    case .unavailableToolName(let name):
+      "Tool is not available in the active registry: \(name)."
+    case .unknownArguments(let arguments):
+      "Unknown argument(s): \(arguments.joined(separator: ", "))."
+    case .missingRequiredArgument(let name):
+      "Missing required argument: \(name)."
+    case .invalidArgumentType(let name, let expected):
+      "Invalid argument type for \(name). Expected \(expected)."
+    case .emptyPath:
+      "Tool path must not be empty."
+    case .invalidPagination(let name):
+      "\(name) must be greater than or equal to 1."
+    case .emptyOldText:
+      "edit_file old_text must not be empty."
+    case .parserError(let error):
+      error
+    }
   }
 }
 
@@ -195,13 +326,19 @@ public struct ToolCallModelMessage: Codable, Equatable, Sendable {
     self.arguments = arguments
   }
 
+  public init(rawRequest: RawToolCallRequest) {
+    self.init(
+      callID: rawRequest.id,
+      toolName: rawRequest.toolName,
+      arguments: rawRequest.arguments.keys.sorted().map { key in
+        ToolCallModelArgument(name: key, value: rawRequest.arguments[key]?.displayValue ?? "")
+      }
+    )
+  }
+
   public init(request: ToolCallRequest) {
     self.init(
-      callID: request.id,
-      toolName: request.toolName,
-      arguments: request.arguments.keys.sorted().map { key in
-        ToolCallModelArgument(name: key, value: request.arguments[key]?.displayValue ?? "")
-      }
+      rawRequest: request.raw
     )
   }
 }

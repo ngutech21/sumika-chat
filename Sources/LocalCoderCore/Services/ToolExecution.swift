@@ -70,8 +70,7 @@ public struct AnyToolExecutor: Sendable {
     var record = makePendingRecord(request: request)
 
     do {
-      try validateKnownArguments(request.arguments, definition: T.definition)
-      let input = try ToolInputDecoder.decode(T.Input.self, from: request.arguments)
+      let input = try typedInput(T.Input.self, from: request.payload, definition: T.definition)
       let evaluation = tool.evaluatePermission(input, context: context)
       record.evaluation = evaluation
 
@@ -236,15 +235,45 @@ public struct AnyToolExecutor: Sendable {
     )
   }
 
-  private static func validateKnownArguments(
-    _ arguments: ToolCallArguments,
+  private static func typedInput<Input>(
+    _ inputType: Input.Type,
+    from payload: ToolCallPayload,
     definition: ToolDefinition
-  ) throws {
-    let knownArguments = Set(definition.parameters.map(\.name))
-    let unknownArguments = Set(arguments.keys).subtracting(knownArguments)
-    guard unknownArguments.isEmpty else {
-      throw ToolInputDecodingError.unknownArguments(unknownArguments.sorted())
+  ) throws -> Input {
+    switch payload {
+    case .readFile(let input):
+      return try cast(input, as: inputType, definition: definition, actualToolName: .readFile)
+    case .listFiles(let input):
+      return try cast(input, as: inputType, definition: definition, actualToolName: .listFiles)
+    case .globFiles(let input):
+      return try cast(input, as: inputType, definition: definition, actualToolName: .globFiles)
+    case .searchFiles(let input):
+      return try cast(input, as: inputType, definition: definition, actualToolName: .searchFiles)
+    case .writeFile(let input):
+      return try cast(input, as: inputType, definition: definition, actualToolName: .writeFile)
+    case .editFile(let input):
+      return try cast(input, as: inputType, definition: definition, actualToolName: .editFile)
+    case .invalid:
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: ToolName.invalid.rawValue
+      )
     }
+  }
+
+  private static func cast<Input, PayloadInput>(
+    _ input: PayloadInput,
+    as inputType: Input.Type,
+    definition: ToolDefinition,
+    actualToolName: ToolName
+  ) throws -> Input {
+    guard let typedInput = input as? Input, definition.name == actualToolName else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: actualToolName.rawValue
+      )
+    }
+    return typedInput
   }
 }
 
@@ -296,7 +325,7 @@ public struct ToolExecutorRegistry: Sendable {
   }
 }
 
-public struct ReadFileInput: Decodable, Sendable {
+public struct ReadFileInput: Codable, Equatable, Sendable {
   public let path: String
   public let offset: Int?
   public let limit: Int?
@@ -636,7 +665,7 @@ public enum ReadFileInputValidationError: LocalizedError {
   }
 }
 
-public struct ListFilesInput: Decodable, Sendable {
+public struct ListFilesInput: Codable, Equatable, Sendable {
   public let path: String?
 }
 
@@ -782,7 +811,7 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
   }
 }
 
-public struct WriteFileInput: Decodable, Sendable {
+public struct WriteFileInput: Codable, Equatable, Sendable {
   public let path: String
   public let content: String
 }
@@ -837,11 +866,14 @@ public struct WriteFileToolExecutor: TypedToolExecutor {
 
 public enum ToolInputDecodingError: LocalizedError, Equatable {
   case unknownArguments([String])
+  case payloadMismatch(expected: String, actual: String)
 
   public var errorDescription: String? {
     switch self {
     case .unknownArguments(let arguments):
       "Unknown argument(s): \(arguments.joined(separator: ", "))."
+    case .payloadMismatch(let expected, let actual):
+      "Tool payload mismatch. Expected \(expected), got \(actual)."
     }
   }
 }
@@ -858,59 +890,64 @@ public enum ToolInputDecoder {
 
 public struct ToolOrchestrator: Sendable {
   private let executorRegistry: ToolExecutorRegistry
+  private let validator: ToolCallRequestValidator
 
   public init(
-    executorRegistry: ToolExecutorRegistry = .readOnly
+    executorRegistry: ToolExecutorRegistry = .readOnly,
+    validator: ToolCallRequestValidator = ToolCallRequestValidator()
   ) {
     self.executorRegistry = executorRegistry
+    self.validator = validator
   }
 
   public var toolRegistry: ToolRegistry {
     executorRegistry.toolRegistry
   }
 
-  public func execute(request: ToolCallRequest, workspace: Workspace) async -> ToolCallRecord {
+  public func execute(request rawRequest: RawToolCallRequest, workspace: Workspace) async
+    -> ToolCallRecord
+  {
+    let request = validator.validate(rawRequest, registry: executorRegistry.toolRegistry)
+    return await executeValidated(request: request, workspace: workspace, isApproved: false)
+  }
+
+  public func executeApproved(request: ToolCallRequest, workspace: Workspace) async
+    -> ToolCallRecord
+  {
+    let request = validator.validate(request.raw, registry: executorRegistry.toolRegistry)
+    return await executeValidated(request: request, workspace: workspace, isApproved: true)
+  }
+
+  public func executeApproved(request rawRequest: RawToolCallRequest, workspace: Workspace) async
+    -> ToolCallRecord
+  {
+    let request = validator.validate(rawRequest, registry: executorRegistry.toolRegistry)
+    return await executeValidated(request: request, workspace: workspace, isApproved: true)
+  }
+
+  private func executeValidated(
+    request: ToolCallRequest,
+    workspace: Workspace,
+    isApproved: Bool
+  ) async -> ToolCallRecord {
     guard request.workspaceID == workspace.id else {
       let message = "Tool call workspace does not match the active workspace."
-      return ToolCallRecord(
-        request: request,
-        status: .denied,
-        evaluation: ToolPermissionEvaluation(
-          decision: .denied,
-          reason: message,
-          riskLevel: .high
-        ),
-        events: [
-          ToolCallEvent(
-            actor: .assistant,
-            kind: .requested,
-            message: "Requested \(request.toolName.rawValue)."
-          ),
-          ToolCallEvent(actor: .system, kind: .denied, message: message),
-        ],
-        resultPreview: ToolResultPreview(status: .denied, text: message)
-      )
+      return deniedRecord(request: request, message: message)
+    }
+
+    if case .invalid(let invalidInput) = request.payload {
+      return invalidToolCallRecord(request: request, invalidInput: invalidInput)
     }
 
     guard let executor = executorRegistry.executor(for: request.toolName) else {
       let message = "Unknown tool: \(request.toolName.rawValue)."
-      return ToolCallRecord(
-        request: request,
-        status: .failed,
-        evaluation: ToolPermissionEvaluation(
-          decision: .denied,
-          reason: message,
-          riskLevel: .high
-        ),
-        events: [
-          ToolCallEvent(
-            actor: .assistant,
-            kind: .requested,
-            message: "Requested \(request.toolName.rawValue)."
-          ),
-          ToolCallEvent(actor: .system, kind: .failed, message: message),
-        ],
-        resultPreview: ToolResultPreview(status: .failed, text: message)
+      return failedRecord(request: request, message: message, riskLevel: .high)
+    }
+
+    if isApproved {
+      return await executor.runApproved(
+        request,
+        context: ToolContext(workspace: workspace)
       )
     }
 
@@ -920,56 +957,55 @@ public struct ToolOrchestrator: Sendable {
     )
   }
 
-  public func executeApproved(request: ToolCallRequest, workspace: Workspace) async
-    -> ToolCallRecord
-  {
-    guard request.workspaceID == workspace.id else {
-      let message = "Tool call workspace does not match the active workspace."
-      return ToolCallRecord(
-        request: request,
-        status: .denied,
-        evaluation: ToolPermissionEvaluation(
-          decision: .denied,
-          reason: message,
-          riskLevel: .high
-        ),
-        events: [
-          ToolCallEvent(
-            actor: .assistant,
-            kind: .requested,
-            message: "Requested \(request.toolName.rawValue)."
-          ),
-          ToolCallEvent(actor: .system, kind: .denied, message: message),
-        ],
-        resultPreview: ToolResultPreview(status: .denied, text: message)
-      )
-    }
+  private func invalidToolCallRecord(
+    request: ToolCallRequest,
+    invalidInput: InvalidToolInput
+  ) -> ToolCallRecord {
+    let message = invalidInput.reason.message
+    return failedRecord(request: request, message: message, riskLevel: .high)
+  }
 
-    guard let executor = executorRegistry.executor(for: request.toolName) else {
-      let message = "Unknown tool: \(request.toolName.rawValue)."
-      return ToolCallRecord(
-        request: request,
-        status: .failed,
-        evaluation: ToolPermissionEvaluation(
-          decision: .denied,
-          reason: message,
-          riskLevel: .high
-        ),
-        events: [
-          ToolCallEvent(
-            actor: .assistant,
-            kind: .requested,
-            message: "Requested \(request.toolName.rawValue)."
-          ),
-          ToolCallEvent(actor: .system, kind: .failed, message: message),
-        ],
-        resultPreview: ToolResultPreview(status: .failed, text: message)
-      )
-    }
-
-    return await executor.runApproved(
-      request,
-      context: ToolContext(workspace: workspace)
+  private func deniedRecord(request: ToolCallRequest, message: String) -> ToolCallRecord {
+    ToolCallRecord(
+      request: request,
+      status: .denied,
+      evaluation: ToolPermissionEvaluation(
+        decision: .denied,
+        reason: message,
+        riskLevel: .high
+      ),
+      events: requestedEvents(request: request)
+        + [ToolCallEvent(actor: .system, kind: .denied, message: message)],
+      resultPreview: ToolResultPreview(status: .denied, text: message)
     )
+  }
+
+  private func failedRecord(
+    request: ToolCallRequest,
+    message: String,
+    riskLevel: ToolRiskLevel
+  ) -> ToolCallRecord {
+    ToolCallRecord(
+      request: request,
+      status: .failed,
+      evaluation: ToolPermissionEvaluation(
+        decision: .denied,
+        reason: message,
+        riskLevel: riskLevel
+      ),
+      events: requestedEvents(request: request)
+        + [ToolCallEvent(actor: .system, kind: .failed, message: message)],
+      resultPreview: ToolResultPreview(status: .failed, text: message)
+    )
+  }
+
+  private func requestedEvents(request: ToolCallRequest) -> [ToolCallEvent] {
+    [
+      ToolCallEvent(
+        actor: .assistant,
+        kind: .requested,
+        message: "Requested \(request.toolName.rawValue)."
+      )
+    ]
   }
 }

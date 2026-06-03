@@ -250,10 +250,14 @@ private func makeAttachment(name: String) -> ChatAttachment {
 }
 
 private func makeToolCallRecord() -> ToolCallRecord {
-  let request = ToolCallRequest(
+  let rawRequest = RawToolCallRequest(
     workspaceID: UUID(),
     sessionID: UUID(),
     toolName: .listFiles
+  )
+  let request = ToolCallRequest.validated(
+    raw: rawRequest,
+    payload: .listFiles(ListFilesInput(path: nil))
   )
   return ToolCallRecord(
     request: request,

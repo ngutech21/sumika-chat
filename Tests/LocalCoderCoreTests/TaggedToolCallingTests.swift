@@ -76,6 +76,7 @@ struct TaggedToolCallingTests {
     #expect(request.createdAt == createdAt)
     #expect(request.toolName == .readFile)
     #expect(request.arguments == ["path": .string("Sources/AppState.swift")])
+    #expect(request.rawText?.contains(#"<action name="READ-FILE">"#) == true)
 
     let modelMessage = try parsedOutput(
       """
@@ -523,7 +524,7 @@ struct TaggedToolCallingTests {
     workspaceID: UUID = UUID(),
     sessionID: UUID = UUID(),
     createdAt: Date = Date(timeIntervalSince1970: 1)
-  ) throws -> ToolCallRequest {
+  ) throws -> RawToolCallRequest {
     try parsedOutput(
       text,
       workspaceID: workspaceID,

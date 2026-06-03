@@ -6,7 +6,7 @@ public enum ToolCallParseResult: Equatable, Sendable {
 }
 
 public struct ToolCallParseOutput: Equatable, Sendable {
-  public var request: ToolCallRequest
+  public var request: RawToolCallRequest
   public var modelMessage: ToolCallModelMessage
 }
 
@@ -188,15 +188,19 @@ public struct TaggedToolCallParser: ToolCallParsing {
       throw TaggedToolCallParseError.extraneousContent
     }
 
-    let request = ToolCallRequest(
+    let request = RawToolCallRequest(
       workspaceID: workspaceID,
       sessionID: sessionID,
       toolName: ToolName(canonicalizing: trimmedActionName),
       arguments: arguments,
+      rawText: String(text[actionStart..<cursor]),
       createdAt: createdAt
     )
     return .toolCall(
-      ToolCallParseOutput(request: request, modelMessage: ToolCallModelMessage(request: request)))
+      ToolCallParseOutput(
+        request: request,
+        modelMessage: ToolCallModelMessage(rawRequest: request)
+      ))
   }
 
   private func parseParameter(in text: String, from cursor: String.Index) throws -> ParsedParameter

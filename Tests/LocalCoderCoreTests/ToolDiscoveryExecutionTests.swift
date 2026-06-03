@@ -208,8 +208,8 @@ struct ToolDiscoveryExecutionTests {
     _ toolName: ToolName,
     workspace: Workspace,
     arguments: ToolCallArguments
-  ) -> ToolCallRequest {
-    ToolCallRequest(
+  ) -> RawToolCallRequest {
+    RawToolCallRequest(
       workspaceID: workspace.id,
       sessionID: UUID(),
       toolName: toolName,

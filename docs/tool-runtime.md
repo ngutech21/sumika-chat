@@ -12,26 +12,26 @@ flowchart TD
   A["Assistant output"] --> B["ToolCallParser"]
   B --> Z{"Malformed or non-tagged tool intent?"}
   Z -- "yes" --> Y["Failed invalid tool observation"]
-  Z -- "no" --> C["ToolCallRequest(name, arguments)"]
-  C --> D["ToolExecutorRegistry lookup"]
-  D --> E["AnyToolExecutor"]
-  E --> F["Decode arguments into typed Input"]
-  F --> G["Tool-specific permission evaluation"]
+  Z -- "no" --> C["RawToolCallRequest(name, arguments, rawText)"]
+  C --> D["ToolCallRequestValidator"]
+  D --> E["ToolCallRequest(payload: ToolCallPayload)"]
+  E --> F["ToolExecutorRegistry lookup"]
+  F --> G["AnyToolExecutor extracts typed input"]
   G --> H{"Permission decision"}
   H -- "allowed" --> I["TypedToolExecutor.run(input, context)"]
   H -- "requires approval" --> J["Optional approval preview + ToolCallRecord awaitingApproval"]
   H -- "denied" --> K["ToolCallRecord denied"]
   I --> L["ToolCallRecord + ToolResultModelMessage"]
   J --> M["User approves"]
-  M --> N["Approved execution re-decodes + re-evaluates"]
-  N --> I
+  M --> N["Approved execution re-validates raw request + re-evaluates"]
+  N --> G
 ```
 
 ## Roles
 
 - `ToolCallParser` understands the model-facing format, currently tagged
   action text. A future JSON or provider-native parser should still emit the
-  same `ToolCallRequest`. The tagged parser prefers explicit delimiter lines
+  same `RawToolCallRequest`. The tagged parser prefers explicit delimiter lines
   for multiline payloads. For `content`, `old_text`, and `new_text` payloads,
   it also accepts a bounded closing-tag fallback so small local models that omit
   delimiter lines can still produce auditable `write_file` and `edit_file`
@@ -41,15 +41,21 @@ flowchart TD
   failed `invalid` tool observation containing the original tool name when it
   can be inferred and the parse/protocol error, then asks the model to continue
   within the normal tool-round budget.
-- `ToolCallRequest` is the neutral handoff model: tool name, workspace/session,
-  and raw argument values.
+- `RawToolCallRequest` is the parser handoff model: tool name,
+  workspace/session, raw argument values, and optional raw text for debugging.
+- `ToolCallRequest` is the validated execution-boundary model. It preserves the
+  raw request and carries a typed `ToolCallPayload` for the built-in tool or an
+  `invalid` payload with a precise reason.
+- `ToolCallRequestValidator` is the only built-in boundary that decodes raw
+  argument dictionaries into typed payloads. Invalid or unavailable tools become
+  first-class invalid payloads before execution.
 - `ToolExecutorRegistry` contains the executable tools for the active tool set
   and exposes their definitions for prompt rendering.
-- `AnyToolExecutor` is the type-erased runtime boundary. It validates argument
-  names, decodes raw arguments into the tool's concrete input type, evaluates
-  permission, and runs the tool only when allowed. A `requiresApproval`
-  decision can prepare a preview and becomes an awaiting-approval record
-  without executing the tool. An approved execution path decodes and evaluates
+- `AnyToolExecutor` is the type-erased runtime boundary. It extracts the
+  already-validated typed input from `ToolCallPayload`, evaluates permission,
+  and runs the tool only when allowed. A `requiresApproval` decision can prepare
+  a preview and becomes an awaiting-approval record without executing the tool.
+  An approved execution path validates the raw request and evaluates permission
   again immediately before the side effect.
 - `TypedToolExecutor` is what every concrete tool implements. Its `run` method
   receives a concrete Swift input type, never raw argument dictionaries.
@@ -107,7 +113,8 @@ flowchart TD
 
 - Tools must not parse XML, tagged text, JSON, or provider-native tool-call
   payloads themselves.
-- Permission is evaluated after typed decoding and before execution.
+- Permission is evaluated after raw calls are validated into typed payloads and
+  before execution.
 - Registry membership controls prompt visibility, but it is not a complete
   security boundary.
 - Tool-name repair is limited to deterministic canonicalization and exact
@@ -119,15 +126,16 @@ flowchart TD
   directories, and cap returned results. `search_files` treats a valid pattern
   as a regular expression; invalid regular expressions fall back to literal
   substring matching.
-- Write and command tools must require explicit approval before execution.
+- Write tools, and future command tools, must require explicit approval before
+  execution.
 - A tool that returns `.requiresApproval` must move to
   `ToolCallStatus.awaitingApproval`. It must not be marked as denied, failed,
   completed, or executed automatically.
 - Tools that can preview an approval-sensitive operation should attach that
   preview before entering `awaitingApproval`. Preview generation must not
   mutate the workspace.
-- Approved execution must re-decode arguments and re-run permission/path
-  evaluation immediately before the side effect.
+- Approved execution must re-validate the raw request and re-run
+  permission/path evaluation immediately before the side effect.
 - `write_file` writes the model-provided `content` directly. The model should
   not generate helper scripts to create files.
 - `edit_file` replaces exactly one literal, case-sensitive `old_text` span in

@@ -1,6 +1,6 @@
 import Foundation
 
-public struct EditFileInput: Decodable, Sendable {
+public struct EditFileInput: Codable, Equatable, Sendable {
   public let path: String
   public let oldText: String
   public let newText: String

@@ -3,7 +3,7 @@ import Foundation
 public protocol ToolOrchestrating: Sendable {
   var toolRegistry: ToolRegistry { get }
 
-  func execute(request: ToolCallRequest, workspace: Workspace) async -> ToolCallRecord
+  func execute(request: RawToolCallRequest, workspace: Workspace) async -> ToolCallRecord
 }
 
 extension ToolOrchestrator: ToolOrchestrating {}
@@ -200,7 +200,7 @@ public struct ToolLoopCoordinator: Sendable {
     workspaceID: Workspace.ID,
     sessionID: CodingSession.ID
   ) -> ToolCallParseOutput {
-    let request = ToolCallRequest(
+    let request = RawToolCallRequest(
       workspaceID: workspaceID,
       sessionID: sessionID,
       toolName: .invalid,
@@ -211,16 +211,24 @@ public struct ToolLoopCoordinator: Sendable {
     )
     return ToolCallParseOutput(
       request: request,
-      modelMessage: ToolCallModelMessage(request: request)
+      modelMessage: ToolCallModelMessage(rawRequest: request)
     )
   }
 
   private func invalidToolCallRecord(
-    request: ToolCallRequest,
+    request rawRequest: RawToolCallRequest,
     originalToolName: String,
     error: String
   ) -> ToolCallRecord {
     let message = invalidToolMessage(error: error)
+    let request = ToolCallRequest.invalid(
+      raw: rawRequest,
+      input: InvalidToolInput(
+        originalName: originalToolName,
+        rawArguments: rawRequest.arguments,
+        reason: .parserError(error)
+      )
+    )
     return ToolCallRecord(
       request: request,
       status: .failed,

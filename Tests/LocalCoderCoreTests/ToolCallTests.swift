@@ -60,7 +60,7 @@ struct ToolCallTests {
 
   @Test
   func toolCallModelMessageSortsArgumentsForStableDisplay() {
-    let request = ToolCallRequest(
+    let request = RawToolCallRequest(
       workspaceID: UUID(),
       sessionID: UUID(),
       toolName: .readFile,
@@ -70,7 +70,7 @@ struct ToolCallTests {
       ]
     )
 
-    let message = ToolCallModelMessage(request: request)
+    let message = ToolCallModelMessage(rawRequest: request)
 
     #expect(message.arguments.map(\.name) == ["alpha", "zeta"])
     #expect(message.arguments.map(\.value) == ["first", "last"])
@@ -78,7 +78,7 @@ struct ToolCallTests {
 
   @Test
   func writeFileTranscriptArgumentsHideContentPayload() {
-    let request = ToolCallRequest(
+    let request = RawToolCallRequest(
       workspaceID: UUID(),
       sessionID: UUID(),
       toolName: .writeFile,
@@ -88,7 +88,7 @@ struct ToolCallTests {
       ]
     )
 
-    let message = ToolCallModelMessage(request: request)
+    let message = ToolCallModelMessage(rawRequest: request)
 
     #expect(message.arguments.map(\.name) == ["content", "path"])
     #expect(message.transcriptArguments.map(\.name) == ["path"])
@@ -97,7 +97,7 @@ struct ToolCallTests {
 
   @Test
   func editFileTranscriptArgumentsHideTextPayloads() {
-    let request = ToolCallRequest(
+    let request = RawToolCallRequest(
       workspaceID: UUID(),
       sessionID: UUID(),
       toolName: .editFile,
@@ -108,7 +108,7 @@ struct ToolCallTests {
       ]
     )
 
-    let message = ToolCallModelMessage(request: request)
+    let message = ToolCallModelMessage(rawRequest: request)
 
     #expect(message.arguments.map(\.name) == ["new_text", "old_text", "path"])
     #expect(message.transcriptArguments.map(\.name) == ["path"])

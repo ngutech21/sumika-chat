@@ -15,7 +15,7 @@ struct ToolRuntimeDocumentationTests {
     #expect(documentation.contains("## Adding A Tool"))
     #expect(documentation.contains("TypedToolExecutor"))
     #expect(documentation.contains("AnyToolExecutor"))
-    #expect(documentation.contains("Permission is evaluated after typed decoding"))
+    #expect(documentation.contains("validated into typed payloads"))
   }
 
   @Test

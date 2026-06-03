@@ -448,8 +448,14 @@ private struct NoPreviewToolOrchestrator: ToolOrchestrating {
     ToolExecutorRegistry.readOnly.toolRegistry
   }
 
-  func execute(request: ToolCallRequest, workspace: Workspace) async -> ToolCallRecord {
+  func execute(request rawRequest: RawToolCallRequest, workspace: Workspace) async
+    -> ToolCallRecord
+  {
     _ = workspace
+    let request = ToolCallRequestValidator().validate(
+      rawRequest,
+      registry: toolRegistry
+    )
     return ToolCallRecord(
       request: request,
       status: .failed,
@@ -467,8 +473,14 @@ private struct CompletedWriteFileToolOrchestrator: ToolOrchestrating {
     ToolExecutorRegistry.codingAgent.toolRegistry
   }
 
-  func execute(request: ToolCallRequest, workspace: Workspace) async -> ToolCallRecord {
+  func execute(request rawRequest: RawToolCallRequest, workspace: Workspace) async
+    -> ToolCallRecord
+  {
     _ = workspace
+    let request = ToolCallRequestValidator().validate(
+      rawRequest,
+      registry: toolRegistry
+    )
     return ToolCallRecord(
       request: request,
       status: .completed,

@@ -128,13 +128,17 @@ struct WorkspaceStoreTests {
     workspaceID: Workspace.ID,
     sessionID: CodingSession.ID
   ) -> ToolCallRecord {
-    let request = ToolCallRequest(
+    let rawRequest = RawToolCallRequest(
       id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
       workspaceID: workspaceID,
       sessionID: sessionID,
       toolName: .readFile,
       arguments: ["path": .string("README.md")],
       createdAt: Date(timeIntervalSinceReferenceDate: 1)
+    )
+    let request = ToolCallRequest.validated(
+      raw: rawRequest,
+      payload: .readFile(ReadFileInput(path: "README.md"))
     )
     return ToolCallRecord(
       request: request,
