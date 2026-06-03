@@ -190,6 +190,7 @@ just test-app
 just test
 just lint
 just format
+just typos
 just coverage
 just coverage-low
 just final-check
@@ -220,5 +221,6 @@ If a task only changes docs or comments, explain why final checks were not run. 
 - Use clear names over clever abstractions.
 - Use `just format` to format Swift sources with `swift-format`.
 - Use `just lint` to lint Swift sources with SwiftLint.
+- Use `just typos` to check spelling with project-specific allowlisted words.
 - Add tests or focused verification when touching shared logic, patch application, prompt construction, or command execution.
 - Keep generated files, build output, and DerivedData out of source control.

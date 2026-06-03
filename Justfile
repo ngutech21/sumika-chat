@@ -73,3 +73,6 @@ final-check: format lint test check-warnings
 format:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
     swift-format format --in-place --recursive --parallel local-coder local-coderTests Sources Tests Package.swift
+
+typos:
+    typos
