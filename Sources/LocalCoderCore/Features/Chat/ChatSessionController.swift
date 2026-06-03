@@ -810,6 +810,7 @@ extension ChatSessionController {
       messages: contextMessages,
       systemPrompt: systemPrompt(toolPromptMode: toolPromptMode),
       settings: chatSession.generationSettings,
+      stopAfterCompleteToolAction: toolPromptMode.shouldStopAfterCompleteToolAction,
       appendChunk: { chunk in
         guard isCurrentTurn(turnID) else {
           return
@@ -933,5 +934,16 @@ extension ChatSessionController {
       toolRegistry: toolOrchestrator.toolRegistry,
       toolPromptRenderer: toolPromptRenderer
     )
+  }
+}
+
+extension ToolPromptMode {
+  fileprivate var shouldStopAfterCompleteToolAction: Bool {
+    switch self {
+    case .enabled(true), .afterToolResultCanContinue:
+      true
+    case .disabled, .enabled(false), .afterToolResultFinal:
+      false
+    }
   }
 }

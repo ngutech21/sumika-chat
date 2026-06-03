@@ -20,6 +20,7 @@ public struct ChatGenerationCoordinator {
     messages: [ChatMessage],
     systemPrompt: String,
     settings: ChatGenerationSettings,
+    stopAfterCompleteToolAction: Bool = false,
     appendChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateContextUsage: () async -> Void
@@ -33,6 +34,8 @@ public struct ChatGenerationCoordinator {
 
     var bufferedChunk = ""
     var lastFlushDate = Date()
+    var didStopAfterCompleteToolAction = false
+    var didComplete = false
 
     func flushBufferedChunks() {
       guard !bufferedChunk.isEmpty else {
@@ -54,22 +57,64 @@ public struct ChatGenerationCoordinator {
     }
 
     defer {
-      flushBufferedChunks()
+      if !didStopAfterCompleteToolAction {
+        flushBufferedChunks()
+      }
     }
 
-    for try await event in stream {
+    generationLoop: for try await event in stream {
       try Task.checkCancellation()
       switch event {
       case .chunk(let chunk):
         bufferedChunk += chunk
+        if stopAfterCompleteToolAction,
+          let action = CompleteToolActionBoundary.firstCompleteAction(from: bufferedChunk)
+        {
+          appendChunk(action)
+          bufferedChunk = ""
+          didStopAfterCompleteToolAction = true
+          break generationLoop
+        }
         if shouldFlushBufferedChunks() {
-          flushBufferedChunks()
+          if !stopAfterCompleteToolAction {
+            flushBufferedChunks()
+          }
         }
       case .completed(let metrics):
         flushBufferedChunks()
         updateGenerationMetrics(metrics)
         await updateContextUsage()
+        didComplete = true
       }
     }
+
+    if didStopAfterCompleteToolAction && !didComplete {
+      updateGenerationMetrics(nil)
+      await updateContextUsage()
+    }
+  }
+}
+
+private enum CompleteToolActionBoundary {
+  static func firstCompleteAction(from text: String) -> String? {
+    guard let actionStart = text.range(of: "<action")?.lowerBound else {
+      return nil
+    }
+
+    guard
+      let actionEnd = text.range(
+        of: "</action>",
+        range: text.index(after: actionStart)..<text.endIndex
+      )
+    else {
+      return nil
+    }
+
+    let blockEnd = actionEnd.upperBound
+    guard text[blockEnd...].range(of: "<action") == nil else {
+      return nil
+    }
+
+    return String(text[actionStart..<blockEnd])
   }
 }
