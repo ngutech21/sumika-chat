@@ -1,12 +1,6 @@
 import Foundation
 import HuggingFace
-
-nonisolated protocol ModelDownloading: Sendable {
-  func download(
-    model: ManagedModel,
-    progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
-  ) async throws -> URL
-}
+import LocalCoderCore
 
 nonisolated enum ModelDownloadError: LocalizedError {
   case invalidRepositoryID(String)

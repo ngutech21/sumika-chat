@@ -12,7 +12,12 @@ build:
 release:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration Release build
 
-test:
+test: test-core test-app
+
+test-core:
+    xcrun swift test
+
+test-app:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} test
 
 coverage:
@@ -44,7 +49,7 @@ check-warnings:
     @log=$(mktemp); \
     status=0; \
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean build >"$log" 2>&1 || status=$?; \
-    warnings=$(grep -E "/local-coder/(local-coder|local-coderTests)/.*: warning:" "$log" || true); \
+    warnings=$(grep -E "/local-coder/(local-coder|local-coderTests|Sources|Tests)/.*: warning:" "$log" || true); \
     if [ -n "$warnings" ]; then \
         echo "Local source warnings found:"; \
         echo "$warnings"; \
@@ -67,4 +72,4 @@ final-check: format lint test check-warnings
 
 format:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
-    swift-format format --in-place --recursive --parallel local-coder local-coderTests
+    swift-format format --in-place --recursive --parallel local-coder local-coderTests Sources Tests Package.swift

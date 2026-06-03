@@ -1,4 +1,5 @@
 import Foundation
+import LocalCoderCore
 import Observation
 
 @MainActor
@@ -31,7 +32,9 @@ final class AppState {
       self.chatController = chatController
     } else {
       self.chatController = ChatSessionController(
-        modelSettingsStore: modelSettingsStore
+        modelSettingsStore: modelSettingsStore,
+        modelDownloader: HuggingFaceModelDownloader(),
+        runtime: GemmaMLXRuntime()
       )
     }
 

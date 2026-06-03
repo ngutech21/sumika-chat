@@ -1,4 +1,5 @@
 import Foundation
+import LocalCoderCore
 import MLX
 import MLXLLM
 import MLXLMCommon
@@ -132,7 +133,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated private static func modelStream(
     from stream: AsyncThrowingStream<Generation, Error>
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    return AsyncThrowingStream { continuation in
+    return AsyncThrowingStream(ChatModelStreamEvent.self, bufferingPolicy: .unbounded) {
+      continuation in
       let task = Task {
         defer {
           Memory.clearCache()

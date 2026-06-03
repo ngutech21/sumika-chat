@@ -1,4 +1,5 @@
 import AppKit
+import LocalCoderCore
 import MarkdownUI
 import SwiftUI
 
@@ -273,40 +274,5 @@ extension ChatGenerationMetrics {
 extension ChatBubble {
   var messageBubbleBackground: Color {
     message.isDisplayedAsUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
-  }
-}
-
-extension ChatMessage {
-  var shouldShowAssistantPlaceholder: Bool {
-    kind == .assistant
-      && deliveryStatus == .streaming
-      && (content.isEmpty || containsStreamingToolCallMarkup)
-  }
-
-  var canCopyAssistantContent: Bool {
-    kind == .assistant
-      && deliveryStatus != .streaming
-      && !containsStreamingToolCallMarkup
-      && !content.isEmpty
-  }
-
-  var assistantPlaceholderTitle: String {
-    containsStreamingToolCallMarkup ? "Preparing tool call" : "Generating"
-  }
-
-  var assistantPlaceholderSystemImage: String {
-    containsStreamingToolCallMarkup ? "wrench.and.screwdriver" : "sparkles"
-  }
-
-  var isDisplayedAsUser: Bool {
-    kind == .user
-  }
-
-  var displayTitle: String {
-    kind.title
-  }
-
-  var displaySystemImage: String {
-    kind.systemImage
   }
 }

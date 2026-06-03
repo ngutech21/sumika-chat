@@ -1,3 +1,4 @@
+import LocalCoderCore
 import SwiftUI
 
 struct DownloadProgressView: View {

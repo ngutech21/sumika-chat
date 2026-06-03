@@ -1,4 +1,5 @@
 import AppKit
+import LocalCoderCore
 import SwiftUI
 
 struct ContentView: View {
