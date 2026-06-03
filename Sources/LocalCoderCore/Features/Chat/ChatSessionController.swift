@@ -573,6 +573,13 @@ extension ChatSessionController {
         toolPromptMode: .afterToolResultCanContinue,
         turnID: turnID
       )
+      try await runToolLoop(
+        workspace: workspace,
+        sessionID: existingRecord.request.sessionID,
+        lastAssistantMessageID: nextAssistantMessageID,
+        turnID: turnID,
+        remainingIterations: maxToolLoopIterations - 1
+      )
     } catch is CancellationError {
       finishCancelledApprovedToolTurn(turnID)
       return
@@ -835,14 +842,15 @@ extension ChatSessionController {
     workspace: Workspace?,
     sessionID: CodingSession.ID?,
     lastAssistantMessageID: UUID,
-    turnID: ChatTurnRecord.ID
+    turnID: ChatTurnRecord.ID,
+    remainingIterations initialRemainingIterations: Int? = nil
   ) async throws {
     guard let workspace, let sessionID else {
       return
     }
 
     var currentAssistantMessageID = lastAssistantMessageID
-    var remainingIterations = maxToolLoopIterations
+    var remainingIterations = initialRemainingIterations ?? maxToolLoopIterations
 
     while remainingIterations > 0 {
       let followUpPromptMode: ToolPromptMode =
