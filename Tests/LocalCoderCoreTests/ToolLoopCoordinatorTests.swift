@@ -33,6 +33,7 @@ struct ToolLoopCoordinatorTests {
     #expect(annotatedAssistantMessageID(from: result) == assistantMessageID)
     #expect(toolCall(from: result)?.toolName == .readFile)
     #expect(toolCallRecord(from: result)?.status == .completed)
+    #expect(!hasRecoveredToolCallEvent(result))
     let toolResult = completedToolResult(from: result)
     #expect(toolResult?.toolName == .readFile)
     #expect(toolResult?.preview.text == "1: project notes")
@@ -140,10 +141,11 @@ struct ToolLoopCoordinatorTests {
 
     #expect(toolCall(from: result)?.toolName == .readFile)
     #expect(toolCallRecord(from: result)?.status == .completed)
+    #expect(hasRecoveredToolCallEvent(result))
   }
 
   @Test
-  func recoversSingleFencedActionBlock() async throws {
+  func recoversSingleFencedActionBlockAndRecordsDiagnosticEvent() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let assistantMessageID = UUID()
@@ -172,6 +174,75 @@ struct ToolLoopCoordinatorTests {
 
     #expect(toolCall(from: result)?.toolName == .listFiles)
     #expect(completedToolResult(from: result)?.preview.text.contains("README.md") == true)
+    #expect(hasRecoveredToolCallEvent(result))
+  }
+
+  @Test
+  func multipleTaggedActionsReturnInvalidObservationWithoutRecovery() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: UUID(),
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(
+            id: assistantMessageID,
+            assistantContent: """
+              <action name="read_file">
+              <path>README.md</path>
+              </action>
+              <action name="list_files">
+              <path>.</path>
+              </action>
+              """
+          )
+        ]
+      )
+    )
+
+    #expect(toolCall(from: result)?.toolName == .invalid)
+    #expect(toolCallRecord(from: result)?.status == .failed)
+    #expect(completedToolResult(from: result)?.toolName == .invalid)
+    #expect(completedToolResult(from: result)?.preview.text.contains("Only one action") == true)
+    #expect(!hasRecoveredToolCallEvent(result))
+  }
+
+  @Test
+  func incompleteTaggedActionReturnsInvalidObservationWithoutRecovery() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: UUID(),
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(
+            id: assistantMessageID,
+            assistantContent: """
+              <action name="read_file">
+              <path>README.md</path>
+              """
+          )
+        ]
+      )
+    )
+
+    #expect(toolCall(from: result)?.toolName == .invalid)
+    #expect(toolCallRecord(from: result)?.status == .failed)
+    #expect(completedToolResult(from: result)?.toolName == .invalid)
+    #expect(completedToolResult(from: result)?.preview.text.contains("closing </action>") == true)
+    #expect(!hasRecoveredToolCallEvent(result))
   }
 
   @Test
@@ -472,6 +543,14 @@ struct ToolLoopCoordinatorTests {
       return record
     }
     return nil
+  }
+
+  private func hasRecoveredToolCallEvent(_ step: ChatWorkflowStep?) -> Bool {
+    toolCallRecord(from: step)?.events.contains { event in
+      event.actor == .system
+        && event.kind == .requested
+        && event.message.contains("Recovered one complete tagged <action> block")
+    } == true
   }
 
   private func completedToolResult(from step: ChatWorkflowStep?) -> ToolResultModelMessage? {

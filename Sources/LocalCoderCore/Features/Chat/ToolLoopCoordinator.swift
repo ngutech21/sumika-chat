@@ -38,7 +38,7 @@ public struct ToolLoopRequest: Sendable {
 
 nonisolated private enum ToolLoopParsedAction: Equatable, Sendable {
   case none
-  case toolCall(ToolCallParseOutput)
+  case toolCall(ToolCallParseOutput, recoveredFromMalformedContent: Bool)
   case invalid(originalToolName: String, error: String)
 }
 
@@ -101,10 +101,14 @@ public struct ToolLoopCoordinator: Sendable {
         focusedFileState: request.focusedFileState,
         followUpPromptMode: request.followUpPromptMode
       )
-    case .toolCall(let output):
-      let record = await toolOrchestrator.execute(
+    case .toolCall(let output, let recoveredFromMalformedContent):
+      var record = await toolOrchestrator.execute(
         request: output.request,
         workspace: request.workspace
+      )
+      appendRecoveryEventIfNeeded(
+        to: &record,
+        recoveredFromMalformedContent: recoveredFromMalformedContent
       )
       guard record.status != .awaitingApproval else {
         return ChatWorkflowStep(
@@ -251,7 +255,7 @@ public struct ToolLoopCoordinator: Sendable {
             + "Emit one complete <action> block and no explanatory text."
         )
       case .toolCall(let output):
-        return .toolCall(output)
+        return .toolCall(output, recoveredFromMalformedContent: false)
       }
     } catch let parseError as TaggedToolCallParseError {
       let initialError = errorDescription(from: parseError)
@@ -276,7 +280,7 @@ public struct ToolLoopCoordinator: Sendable {
             error: initialError
           )
         case .toolCall(let output):
-          return .toolCall(output)
+          return .toolCall(output, recoveredFromMalformedContent: true)
         }
       } catch let parseError as TaggedToolCallParseError {
         return .invalid(
@@ -285,6 +289,24 @@ public struct ToolLoopCoordinator: Sendable {
         )
       }
     }
+  }
+
+  private func appendRecoveryEventIfNeeded(
+    to record: inout ToolCallRecord,
+    recoveredFromMalformedContent: Bool
+  ) {
+    guard recoveredFromMalformedContent else {
+      return
+    }
+
+    record.events.append(
+      ToolCallEvent(
+        actor: .system,
+        kind: .requested,
+        message:
+          "Recovered one complete tagged <action> block from malformed assistant content; "
+          + "ignored surrounding text or Markdown."
+      ))
   }
 
   private func completesTurnWithoutFollowUp(_ toolName: ToolName) -> Bool {
