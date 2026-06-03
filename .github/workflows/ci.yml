@@ -16,7 +16,7 @@ concurrency:
 jobs:
   lint:
     name: SwiftLint
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 30
 
     steps:
@@ -31,17 +31,23 @@ jobs:
 
   build-test-analyze:
     name: Build, Test, Analyze
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 60
 
     env:
       PROJECT: local-coder.xcodeproj
       SCHEME: local-coder
-      DESTINATION: platform=macOS
+      DESTINATION: platform=macOS,arch=arm64
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Print toolchain versions
+        run: |
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          xcrun swift --version
 
       - name: Resolve Swift packages
         run: |
