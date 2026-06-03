@@ -15,7 +15,7 @@ release:
 test: test-core test-app
 
 test-core:
-    /usr/bin/time -p xcrun swift test
+    /usr/bin/time -p xcrun swift test -Xswiftc -warnings-as-errors
 
 test-app:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
@@ -66,7 +66,7 @@ check-warnings:
 
 lint:
     @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew install swiftlint"; exit 127; }
-    swiftlint lint --no-cache --config .swiftlint.yml
+    swiftlint lint --strict --no-cache --config .swiftlint.yml
 
 final-check: format lint test check-warnings
 

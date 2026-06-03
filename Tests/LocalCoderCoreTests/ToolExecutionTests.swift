@@ -377,7 +377,9 @@ struct ToolExecutionTests {
     #expect(result.evaluation.decision == .requiresApproval)
     #expect(result.resultPreview == nil)
     #expect(result.events.map(\.kind).contains(.awaitingApproval))
-    #expect(try String(contentsOf: workspace.rootURL.appending(path: "README.md")) == "old")
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "README.md"), encoding: .utf8)
+        == "old")
   }
 
   @Test
@@ -401,7 +403,9 @@ struct ToolExecutionTests {
     #expect(result.evaluation.decision == .requiresApproval)
     #expect(result.resultPreview?.status == .success)
     #expect(result.events.map(\.kind).contains(.approved))
-    #expect(try String(contentsOf: workspace.rootURL.appending(path: "README.md")) == "new")
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "README.md"), encoding: .utf8)
+        == "new")
   }
 
   @Test
@@ -444,7 +448,8 @@ struct ToolExecutionTests {
     #expect(path.rawValue == "Sources/App.swift")
     #expect(bytesWritten == "let value = 2".utf8.count)
     #expect(
-      try String(contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"))
+      try String(
+        contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"), encoding: .utf8)
         == "let value = 2")
   }
 

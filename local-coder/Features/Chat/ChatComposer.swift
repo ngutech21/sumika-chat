@@ -183,7 +183,7 @@ struct ChatComposer: View {
     return true
   }
 
-  private static func fileURL(from item: NSSecureCoding?) -> URL? {
+  nonisolated private static func fileURL(from item: NSSecureCoding?) -> URL? {
     if let url = item as? URL {
       return url
     }

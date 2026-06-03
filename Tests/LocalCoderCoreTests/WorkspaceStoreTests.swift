@@ -136,7 +136,7 @@ struct WorkspaceStoreTests {
     sessionID: CodingSession.ID
   ) -> ToolCallRecord {
     let rawRequest = RawToolCallRequest(
-      id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+      id: fixedUUID("00000000-0000-0000-0000-000000000001"),
       workspaceID: workspaceID,
       sessionID: sessionID,
       toolName: .readFile,
@@ -158,14 +158,14 @@ struct WorkspaceStoreTests {
       ),
       events: [
         ToolCallEvent(
-          id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+          id: fixedUUID("00000000-0000-0000-0000-000000000002"),
           timestamp: Date(timeIntervalSinceReferenceDate: 2),
           actor: .assistant,
           kind: .requested,
           message: "Read README.md"
         ),
         ToolCallEvent(
-          id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+          id: fixedUUID("00000000-0000-0000-0000-000000000003"),
           timestamp: Date(timeIntervalSinceReferenceDate: 3),
           actor: .user,
           kind: .cancelled,
@@ -184,6 +184,13 @@ struct WorkspaceStoreTests {
         affectedPaths: ["/tmp/project/README.md"]
       )
     )
+  }
+
+  private func fixedUUID(_ value: String) -> UUID {
+    guard let uuid = UUID(uuidString: value) else {
+      preconditionFailure("Invalid test UUID: \(value)")
+    }
+    return uuid
   }
 }
 

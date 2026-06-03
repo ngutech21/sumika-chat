@@ -28,7 +28,8 @@ struct ToolEditExecutionTests {
     #expect(result.resultPreview?.text.contains("-let title = \"Old\"") == true)
     #expect(result.resultPreview?.text.contains("+let title = \"New\"") == true)
     #expect(
-      try String(contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"))
+      try String(
+        contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"), encoding: .utf8)
         == "let title = \"Old\"\n")
   }
 
@@ -55,7 +56,8 @@ struct ToolEditExecutionTests {
     #expect(path.rawValue == "notes.txt")
     #expect(matchStrategy == .exact)
     #expect(
-      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt")) == "one\nTWO\nthree\n")
+      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
+        == "one\nTWO\nthree\n")
   }
 
   @Test
@@ -100,19 +102,6 @@ struct ToolEditExecutionTests {
       newText: "b",
       workspace: workspace
     )
-    let emptyOldText = await executeEdit(
-      path: "hello.txt",
-      oldText: "",
-      newText: "new",
-      workspace: workspace
-    )
-    let nonUTF8 = await executeEdit(
-      path: "binary.txt",
-      oldText: "old",
-      newText: "new",
-      workspace: workspace
-    )
-
     #expect(missing.status == .failed)
     #expect(missing.resultPreview?.text.contains("old_text was not found") == true)
     #expect(ambiguous.status == .failed)

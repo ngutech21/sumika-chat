@@ -41,7 +41,7 @@ struct ModelManagementTests {
       userDefaults: makeUserDefaults(suiteName: userDefaultsSuiteName),
       settingsURL: settingsURL
     )
-    let model = ManagedModelCatalog.model(id: "gemma3-1b")!
+    let model = try #require(ManagedModelCatalog.model(id: "gemma3-1b"))
     let settings = StoredModelSettings(
       systemPrompt: "Use short answers.",
       generationSettings: ChatGenerationSettings(
@@ -84,8 +84,8 @@ struct ModelManagementTests {
   func settingsStorePreservesConcurrentSavesForDifferentModels() async throws {
     let settingsURL = temporarySettingsURL()
     let store = ModelSettingsStore(userDefaults: makeUserDefaults(), settingsURL: settingsURL)
-    let firstModel = ManagedModelCatalog.model(id: "gemma3-1b")!
-    let secondModel = ManagedModelCatalog.model(id: "gemma3-27b")!
+    let firstModel = try #require(ManagedModelCatalog.model(id: "gemma3-1b"))
+    let secondModel = try #require(ManagedModelCatalog.model(id: "gemma3-27b"))
     let firstSettings = StoredModelSettings(
       systemPrompt: "Use tiny-model defaults.",
       generationSettings: ChatGenerationSettings(
@@ -115,7 +115,11 @@ struct ModelManagementTests {
 
   private func makeUserDefaults(suiteName: String? = nil) -> UserDefaults {
     let suiteName = suiteName ?? makeUserDefaultsSuiteName()
-    return UserDefaults(suiteName: suiteName)!
+    guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+      Issue.record("Expected test UserDefaults suite to be available.")
+      return .standard
+    }
+    return userDefaults
   }
 
   private func temporarySettingsURL() -> URL {

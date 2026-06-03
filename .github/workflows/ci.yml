@@ -27,7 +27,7 @@ jobs:
         run: brew install swiftlint
 
       - name: Run SwiftLint
-        run: swiftlint lint --no-cache --config .swiftlint.yml
+        run: swiftlint lint --strict --no-cache --config .swiftlint.yml
 
   build-test-analyze:
     name: Build, Test, Analyze
@@ -58,7 +58,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
       - name: Test
-        run: /usr/bin/time -p xcrun swift test
+        run: /usr/bin/time -p xcrun swift test -Xswiftc -warnings-as-errors
 
       - name: Analyze
         run: |

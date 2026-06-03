@@ -6,9 +6,9 @@ import Testing
 @MainActor
 struct ModelRuntimeControllerTests {
   @Test
-  func initializesSelectedModelFromStore() async {
+  func initializesSelectedModelFromStore() async throws {
     let store = RuntimeFakeModelSettingsStore()
-    let selectedModel = ManagedModelCatalog.model(id: "gemma3-1b")!
+    let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma3-1b"))
     let settings = StoredModelSettings(
       systemPrompt: "Tiny model prompt",
       generationSettings: ChatGenerationSettings(
@@ -28,7 +28,7 @@ struct ModelRuntimeControllerTests {
   @Test
   func selectingModelPersistsSelectionAndPublishesSettings() async throws {
     let store = RuntimeFakeModelSettingsStore()
-    let selectedModel = ManagedModelCatalog.model(id: "gemma3-1b")!
+    let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma3-1b"))
     let settings = StoredModelSettings(
       systemPrompt: "Tiny model prompt",
       generationSettings: ChatGenerationSettings(

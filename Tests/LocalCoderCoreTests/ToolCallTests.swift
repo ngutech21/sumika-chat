@@ -6,7 +6,8 @@ import Testing
 struct ToolCallTests {
   @Test
   func toolArgumentValueDecodesJSONScalarsCollectionsAndNull() throws {
-    let data = """
+    let data = Data(
+      """
       {
         "path": "Sources/App.swift",
         "limit": 25,
@@ -17,7 +18,7 @@ struct ToolCallTests {
         },
         "missing": null
       }
-      """.data(using: .utf8)!
+      """.utf8)
 
     let arguments = try JSONDecoder().decode(ToolCallArguments.self, from: data)
 

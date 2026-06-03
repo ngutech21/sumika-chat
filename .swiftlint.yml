@@ -1,12 +1,32 @@
 included:
   - local-coder
   - local-coderTests
+  - Sources
+  - Tests
 
 excluded:
   - build
   - DerivedData
   - local-coder.xcodeproj
 
-type_body_length:
-  warning: 450
-  error: 600
+disabled_rules:
+  - closure_parameter_position
+  - cyclomatic_complexity
+  - file_length
+  - function_body_length
+  - function_parameter_count
+  - large_tuple
+  - line_length
+  - opening_brace
+  - trailing_comma
+  - type_body_length
+
+opt_in_rules:
+  - empty_xctest_method
+  - force_unwrapping
+  - implicitly_unwrapped_optional
+  - weak_delegate
+
+analyzer_rules:
+  - unused_declaration
+  - unused_import
