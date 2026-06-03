@@ -560,6 +560,10 @@ struct ToolExecutionTests {
       evaluation.normalizedPaths == [
         workspace.rootURL.appending(path: "Sources/App.swift").path(percentEncoded: false)
       ])
+    #expect(
+      evaluation.workspaceRelativePaths == [
+        WorkspaceRelativePath(rawValue: "Sources/App.swift")
+      ])
   }
 
   @Test
@@ -604,6 +608,12 @@ struct ToolExecutionTests {
 
     #expect(result.status == .awaitingApproval)
     #expect(result.evaluation.decision == .requiresApproval)
+    #expect(
+      result.evaluation.normalizedPaths == [
+        workspace.rootURL.appending(path: "README.md").path(percentEncoded: false)
+      ])
+    #expect(
+      result.evaluation.workspaceRelativePaths == [WorkspaceRelativePath(rawValue: "README.md")])
     #expect(result.resultPreview == nil)
     #expect(result.events.map(\.kind).contains(.awaitingApproval))
     #expect(
@@ -657,6 +667,12 @@ struct ToolExecutionTests {
     #expect(result.status == .denied)
     #expect(result.evaluation.decision == .denied)
     #expect(result.resultPreview?.status == .denied)
+    #expect(result.resultPreview?.affectedPaths.isEmpty == true)
+    guard case .failure(let failure) = result.resultPayload else {
+      Issue.record("Expected permission-denied failure payload.")
+      return
+    }
+    #expect(failure.path == nil)
   }
 
   @Test

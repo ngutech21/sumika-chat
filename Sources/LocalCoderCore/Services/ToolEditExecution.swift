@@ -25,7 +25,8 @@ public struct EditFileToolExecutor: TypedToolExecutor {
         decision: .requiresApproval,
         reason: "Editing files inside the workspace requires approval.",
         riskLevel: .high,
-        normalizedPaths: [resolvedPath.path(percentEncoded: false)]
+        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
+        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
       )
     } catch {
       return ToolPermissionEvaluation(
@@ -45,7 +46,7 @@ public struct EditFileToolExecutor: TypedToolExecutor {
         return ToolResultPreview(
           status: .success,
           text: Self.diffPreview(for: edit),
-          affectedPaths: [edit.resolvedURL.path(percentEncoded: false)]
+          affectedPaths: [context.workspace.relativePath(for: edit.resolvedURL).rawValue]
         )
       }
     } catch {

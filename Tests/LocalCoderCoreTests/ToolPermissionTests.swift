@@ -82,11 +82,13 @@ struct ToolPermissionTests {
     #expect(listEvaluation.decision == .allowed)
     #expect(listEvaluation.riskLevel == .low)
     #expect(listEvaluation.normalizedPaths == [rootURL.path(percentEncoded: false)])
+    #expect(listEvaluation.workspaceRelativePaths == [WorkspaceRelativePath(rawValue: ".")])
     #expect(readEvaluation.decision == .allowed)
     #expect(
       readEvaluation.normalizedPaths == [
         rootURL.appending(path: "README.md").path(percentEncoded: false)
       ])
+    #expect(readEvaluation.workspaceRelativePaths == [WorkspaceRelativePath(rawValue: "README.md")])
     #expect(!readEvaluation.reason.isEmpty)
   }
 
@@ -126,10 +128,18 @@ struct ToolPermissionTests {
       writeEvaluation.normalizedPaths == [
         rootURL.appending(path: "Sources/File.swift").path(percentEncoded: false)
       ])
+    #expect(
+      writeEvaluation.workspaceRelativePaths == [
+        WorkspaceRelativePath(rawValue: "Sources/File.swift")
+      ])
     #expect(editEvaluation.decision == .requiresApproval)
     #expect(
       editEvaluation.normalizedPaths == [
         rootURL.appending(path: "Sources/File.swift").path(percentEncoded: false)
+      ])
+    #expect(
+      editEvaluation.workspaceRelativePaths == [
+        WorkspaceRelativePath(rawValue: "Sources/File.swift")
       ])
   }
 
@@ -162,6 +172,7 @@ struct ToolPermissionTests {
 
     #expect(outsideWrite.decision == .denied)
     #expect(outsideWrite.normalizedPaths.isEmpty)
+    #expect(outsideWrite.workspaceRelativePaths.isEmpty)
     #expect(unknownTool.decision == .denied)
     #expect(unknownTool.riskLevel == .high)
   }
@@ -184,6 +195,7 @@ struct ToolPermissionTests {
     #expect(evaluation.decision == .denied)
     #expect(evaluation.riskLevel == .high)
     #expect(evaluation.normalizedPaths.isEmpty)
+    #expect(evaluation.workspaceRelativePaths.isEmpty)
   }
 
   @Test

@@ -112,8 +112,15 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(!controller.hasPendingApproval)
     #expect(controller.chatSession.turns.first?.status == .completed)
     #expect(controller.chatSession.toolCalls[0].status == .denied)
+    #expect(controller.chatSession.toolCalls[0].resultPreview?.affectedPaths == ["movies.html"])
+    guard case .failure(let writeFailure) = controller.chatSession.toolCalls[0].resultPayload else {
+      Issue.record("Expected denied write_file failure payload.")
+      return
+    }
+    #expect(writeFailure.path == WorkspaceRelativePath(rawValue: "movies.html"))
     #expect(controller.chatSession.messages.count == 3)
     #expect(controller.chatSession.messages[2].toolResult?.preview.status == .denied)
+    #expect(controller.chatSession.messages[2].toolResult?.preview.affectedPaths == ["movies.html"])
 
     controller.draft = "are you there"
     #expect(controller.canSend)
@@ -265,8 +272,15 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(!controller.hasPendingApproval)
     #expect(controller.chatSession.turns.first?.status == .completed)
     #expect(controller.chatSession.toolCalls[0].status == .denied)
+    #expect(controller.chatSession.toolCalls[0].resultPreview?.affectedPaths == ["README.md"])
+    guard case .failure(let editFailure) = controller.chatSession.toolCalls[0].resultPayload else {
+      Issue.record("Expected denied edit_file failure payload.")
+      return
+    }
+    #expect(editFailure.path == WorkspaceRelativePath(rawValue: "README.md"))
     #expect(controller.chatSession.messages.count == 3)
     #expect(controller.chatSession.messages[2].toolResult?.preview.status == .denied)
+    #expect(controller.chatSession.messages[2].toolResult?.preview.affectedPaths == ["README.md"])
   }
 
   private func waitUntil(

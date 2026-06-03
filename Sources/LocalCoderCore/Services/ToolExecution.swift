@@ -250,7 +250,8 @@ public struct AnyToolExecutor: Sendable {
         decision: .denied,
         reason: preview.text,
         riskLevel: evaluation.riskLevel,
-        normalizedPaths: evaluation.normalizedPaths
+        normalizedPaths: evaluation.normalizedPaths,
+        workspaceRelativePaths: evaluation.workspaceRelativePaths
       )
       record.events.append(ToolCallEvent(actor: .tool, kind: .denied, message: preview.text))
       return false
@@ -279,13 +280,13 @@ public struct AnyToolExecutor: Sendable {
       let preview = ToolResultPreview(
         status: .denied,
         text: evaluation.reason,
-        affectedPaths: evaluation.normalizedPaths
+        affectedPaths: evaluation.modelFacingPaths
       )
       record.status = .denied
       record.resultPayload = .failure(
         ToolFailure(
           toolName: record.request.toolName,
-          path: evaluation.normalizedPaths.first.map(WorkspaceRelativePath.init(rawValue:)),
+          path: evaluation.firstModelFacingPath,
           reason: .permissionDenied
         )
       )
@@ -546,7 +547,8 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
         decision: .allowed,
         reason: "Reading files inside the workspace is allowed.",
         riskLevel: .low,
-        normalizedPaths: [resolvedPath.path(percentEncoded: false)]
+        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
+        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
       )
     } catch {
       return ToolPermissionEvaluation(
@@ -888,7 +890,8 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
         decision: .allowed,
         reason: "Listing files inside the workspace is allowed.",
         riskLevel: .low,
-        normalizedPaths: [resolvedPath.path(percentEncoded: false)]
+        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
+        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
       )
     } catch {
       return ToolPermissionEvaluation(
@@ -1028,7 +1031,8 @@ public struct WriteFileToolExecutor: TypedToolExecutor {
         decision: .requiresApproval,
         reason: "Writing files inside the workspace requires approval.",
         riskLevel: .high,
-        normalizedPaths: [resolvedPath.path(percentEncoded: false)]
+        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
+        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
       )
     } catch {
       return ToolPermissionEvaluation(

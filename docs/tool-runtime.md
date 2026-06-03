@@ -177,6 +177,9 @@ flowchart TD
 - Tool results must report affected paths where possible so the UI can show a
   useful audit trail. Domain result payloads use canonical workspace-relative
   paths; UI renderers may decide how to display them.
+- Permission evaluation keeps absolute normalized paths for audit/debugging and
+  also records canonical workspace-relative paths. Model-facing result previews
+  should prefer the workspace-relative paths.
 - Tool result previews are projections. They must not be the source of truth for
   controller recovery decisions when a structured `ToolResultPayload` is
   available.

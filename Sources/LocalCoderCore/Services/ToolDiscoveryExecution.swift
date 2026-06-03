@@ -29,7 +29,8 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
         decision: .allowed,
         reason: "Finding files inside the workspace is allowed.",
         riskLevel: .low,
-        normalizedPaths: [resolvedPath.path(percentEncoded: false)]
+        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
+        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
       )
     } catch {
       return ToolPermissionEvaluation(
@@ -127,7 +128,8 @@ public struct SearchFilesToolExecutor: TypedToolExecutor {
         decision: .allowed,
         reason: "Searching files inside the workspace is allowed.",
         riskLevel: .low,
-        normalizedPaths: [resolvedPath.path(percentEncoded: false)]
+        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
+        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
       )
     } catch {
       return ToolPermissionEvaluation(

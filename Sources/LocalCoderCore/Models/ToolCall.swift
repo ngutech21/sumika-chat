@@ -984,17 +984,57 @@ public struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
   public var reason: String
   public var riskLevel: ToolRiskLevel
   public var normalizedPaths: [String]
+  public var workspaceRelativePaths: [WorkspaceRelativePath]
 
   public init(
     decision: ToolPermissionDecision,
     reason: String,
     riskLevel: ToolRiskLevel,
-    normalizedPaths: [String] = []
+    normalizedPaths: [String] = [],
+    workspaceRelativePaths: [WorkspaceRelativePath] = []
   ) {
     self.decision = decision
     self.reason = reason
     self.riskLevel = riskLevel
     self.normalizedPaths = normalizedPaths
+    self.workspaceRelativePaths = workspaceRelativePaths
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case decision
+    case reason
+    case riskLevel
+    case normalizedPaths
+    case workspaceRelativePaths
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    decision = try container.decode(ToolPermissionDecision.self, forKey: .decision)
+    reason = try container.decode(String.self, forKey: .reason)
+    riskLevel = try container.decode(ToolRiskLevel.self, forKey: .riskLevel)
+    normalizedPaths = try container.decodeIfPresent([String].self, forKey: .normalizedPaths) ?? []
+    workspaceRelativePaths =
+      try container.decodeIfPresent([WorkspaceRelativePath].self, forKey: .workspaceRelativePaths)
+      ?? []
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(decision, forKey: .decision)
+    try container.encode(reason, forKey: .reason)
+    try container.encode(riskLevel, forKey: .riskLevel)
+    try container.encode(normalizedPaths, forKey: .normalizedPaths)
+    try container.encode(workspaceRelativePaths, forKey: .workspaceRelativePaths)
+  }
+
+  public var modelFacingPaths: [String] {
+    let relativePaths = workspaceRelativePaths.map(\.rawValue)
+    return relativePaths.isEmpty ? normalizedPaths : relativePaths
+  }
+
+  public var firstModelFacingPath: WorkspaceRelativePath? {
+    workspaceRelativePaths.first ?? normalizedPaths.first.map(WorkspaceRelativePath.init(rawValue:))
   }
 }
 

@@ -694,15 +694,14 @@ extension ChatSessionController {
     deniedRecord.resultPayload = .failure(
       ToolFailure(
         toolName: deniedRecord.request.toolName,
-        path: deniedRecord.evaluation.normalizedPaths.first.map(
-          WorkspaceRelativePath.init(rawValue:)),
+        path: deniedRecord.evaluation.firstModelFacingPath,
         reason: .permissionDenied
       )
     )
     deniedRecord.resultPreview = ToolResultPreview(
       status: .denied,
       text: message,
-      affectedPaths: existingRecord.evaluation.normalizedPaths
+      affectedPaths: existingRecord.evaluation.modelFacingPaths
     )
     deniedRecord.events.append(ToolCallEvent(actor: .user, kind: .denied, message: message))
     applyWorkflowEvents([

@@ -80,15 +80,18 @@ public struct ToolPermissionEvaluator: Sendable {
     successReason: String
   ) -> ToolPermissionEvaluation {
     do {
-      let normalizedPaths = try paths.map {
-        try workspace.resolveAllowedPath($0).path(percentEncoded: false)
+      let resolvedPaths = try paths.map {
+        try workspace.resolveAllowedPath($0)
       }
+      let normalizedPaths = resolvedPaths.map { $0.path(percentEncoded: false) }
+      let workspaceRelativePaths = resolvedPaths.map { workspace.relativePath(for: $0) }
 
       return ToolPermissionEvaluation(
         decision: decision,
         reason: successReason,
         riskLevel: riskLevel,
-        normalizedPaths: normalizedPaths
+        normalizedPaths: normalizedPaths,
+        workspaceRelativePaths: workspaceRelativePaths
       )
     } catch {
       return ToolPermissionEvaluation(

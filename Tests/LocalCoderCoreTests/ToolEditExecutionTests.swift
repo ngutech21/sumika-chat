@@ -24,7 +24,16 @@ struct ToolEditExecutionTests {
 
     #expect(result.status == .awaitingApproval)
     #expect(result.evaluation.decision == .requiresApproval)
+    #expect(
+      result.evaluation.normalizedPaths == [
+        workspace.rootURL.appending(path: "Sources/App.swift").path(percentEncoded: false)
+      ])
+    #expect(
+      result.evaluation.workspaceRelativePaths == [
+        WorkspaceRelativePath(rawValue: "Sources/App.swift")
+      ])
     #expect(result.resultPreview?.status == .success)
+    #expect(result.resultPreview?.affectedPaths == ["Sources/App.swift"])
     #expect(result.resultPreview?.text.contains("-let title = \"Old\"") == true)
     #expect(result.resultPreview?.text.contains("+let title = \"New\"") == true)
     #expect(
