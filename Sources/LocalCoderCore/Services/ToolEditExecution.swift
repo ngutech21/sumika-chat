@@ -53,20 +53,86 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: EditFileInput, context: ToolContext) async -> ToolResultPreview {
+  public func run(_ input: EditFileInput, context: ToolContext) async -> ToolResultPayload {
+    var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {
+        resolvedURL = try context.workspace.resolveAllowedPath(input.path)
         let edit = try validatedEdit(input, context: context)
+        resolvedURL = edit.resolvedURL
         try edit.updatedContent.write(to: edit.resolvedURL, atomically: true, encoding: .utf8)
-        return ToolResultPreview(
-          status: .success,
-          text: "Edited \(input.path).",
-          affectedPaths: [edit.resolvedURL.path(percentEncoded: false)]
+        return .editFile(
+          .success(
+            path: context.workspace.relativePath(for: edit.resolvedURL),
+            diff: nil,
+            matchStrategy: .exact
+          )
         )
       }
+    } catch EditFileValidationError.oldTextNotFound {
+      return context.workspace.withSecurityScopedAccess {
+        oldTextNotFoundResult(input, context: context, resolvedURL: resolvedURL)
+      }
+    } catch EditFileValidationError.ambiguousOldText {
+      let path = ToolResultFailureMapper.relativePath(
+        for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+      return .editFile(
+        .multipleMatches(
+          path: path ?? WorkspaceRelativePath(rawValue: input.path),
+          matchCount: 2,
+          recovery: .retryWithMoreContext(path: path ?? WorkspaceRelativePath(rawValue: input.path))
+        )
+      )
+    } catch EditFileValidationError.identicalReplacement {
+      let path = ToolResultFailureMapper.relativePath(
+        for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+      return .editFile(.unchanged(path: path ?? WorkspaceRelativePath(rawValue: input.path)))
     } catch {
-      return ToolResultPreview(status: .failed, text: error.localizedDescription)
+      return .editFile(
+        .failed(
+          path: ToolResultFailureMapper.relativePath(
+            for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
+          reason: ToolResultFailureMapper.reason(from: error)
+        )
+      )
     }
+  }
+
+  private func oldTextNotFoundResult(
+    _ input: EditFileInput,
+    context: ToolContext,
+    resolvedURL: URL?
+  ) -> ToolResultPayload {
+    let path =
+      ToolResultFailureMapper.relativePath(
+        for: input.path, resolvedURL: resolvedURL, workspace: context.workspace)
+      ?? WorkspaceRelativePath(rawValue: input.path)
+    let content = currentContentExcerpt(from: resolvedURL)
+    return .editFile(
+      .oldTextNotFound(
+        path: path,
+        currentContent: content,
+        recovery: .readFile(path: path)
+      )
+    )
+  }
+
+  private func currentContentExcerpt(from url: URL?) -> ToolTextOutput? {
+    guard let url, let data = try? Data(contentsOf: url) else {
+      return nil
+    }
+    let maxBytes = 24 * 1024
+    guard data.count <= maxBytes else {
+      let excerptData = data.prefix(maxBytes)
+      guard let excerpt = String(data: excerptData, encoding: .utf8) else {
+        return nil
+      }
+      return ToolTextOutput(text: excerpt, truncated: true)
+    }
+    guard let content = String(data: data, encoding: .utf8) else {
+      return nil
+    }
+    return ToolTextOutput(text: content)
   }
 
   private func validatedEdit(

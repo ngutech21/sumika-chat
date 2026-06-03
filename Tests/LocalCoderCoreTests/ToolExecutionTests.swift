@@ -22,7 +22,12 @@ struct ToolExecutionTests {
     #expect(result.status == .success)
     #expect(result.text == "1: let value = 1")
     #expect(result.truncated == false)
-    #expect(result.affectedPaths == [fileURL.path(percentEncoded: false)])
+    #expect(result.affectedPaths == ["Sources/App.swift"])
+    guard case .readFile(.success(let path, _)) = result else {
+      Issue.record("Expected read_file success payload.")
+      return
+    }
+    #expect(path.rawValue == "Sources/App.swift")
   }
 
   @Test
@@ -431,10 +436,13 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(
-      result.affectedPaths == [
-        workspace.rootURL.appending(path: "Sources/App.swift").path(percentEncoded: false)
-      ])
+    #expect(result.affectedPaths == ["Sources/App.swift"])
+    guard case .writeFile(.success(let path, let bytesWritten)) = result else {
+      Issue.record("Expected write_file success payload.")
+      return
+    }
+    #expect(path.rawValue == "Sources/App.swift")
+    #expect(bytesWritten == "let value = 2".utf8.count)
     #expect(
       try String(contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"))
         == "let value = 2")

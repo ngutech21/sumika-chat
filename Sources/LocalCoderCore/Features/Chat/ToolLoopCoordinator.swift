@@ -82,6 +82,7 @@ public struct ToolLoopCoordinator: Sendable {
           toolResult: ToolResultModelMessage(
             callID: output.request.id,
             toolName: output.request.toolName,
+            payload: record.resultPayload,
             preview: record.resultPreview
               ?? ToolResultPreview(status: .failed, text: invalidToolMessage(error: error))
           ),
@@ -111,6 +112,7 @@ public struct ToolLoopCoordinator: Sendable {
       let toolResult = ToolResultModelMessage(
         callID: output.request.id,
         toolName: output.request.toolName,
+        payload: record.resultPayload,
         preview: resultPreview
       )
 
@@ -229,6 +231,9 @@ public struct ToolLoopCoordinator: Sendable {
         reason: .parserError(error)
       )
     )
+    let resultPayload = ToolResultPayload.invalidTool(
+      InvalidToolResult(originalName: originalToolName, reason: .parserError(error))
+    )
     return ToolCallRecord(
       request: request,
       status: .failed,
@@ -245,7 +250,8 @@ public struct ToolLoopCoordinator: Sendable {
         ),
         ToolCallEvent(actor: .system, kind: .failed, message: message),
       ],
-      resultPreview: ToolResultPreview(status: .failed, text: message)
+      resultPayload: resultPayload,
+      resultPreview: resultPayload.preview
     )
   }
 

@@ -4,6 +4,70 @@ public struct ToolContext: Sendable {
   public let workspace: Workspace
 }
 
+enum ToolResultFailureMapper {
+  static func reason(from error: Error) -> ToolFailureReason {
+    if let pathError = error as? WorkspacePathResolutionError {
+      switch pathError {
+      case .emptyPath:
+        return .emptyPath
+      case .unsupportedURLScheme(let scheme):
+        return .unsupportedURLScheme(scheme)
+      case .pathOutsideWorkspace:
+        return .pathOutsideWorkspace
+      }
+    }
+
+    if let editError = error as? EditFileValidationError {
+      switch editError {
+      case .emptyOldText:
+        return .invalidArguments(.emptyOldText)
+      case .identicalReplacement:
+        return .invalidArguments(.parserError(editError.localizedDescription))
+      case .nonUTF8:
+        return .unsupportedFileType("non-UTF-8 text")
+      case .oldTextNotFound:
+        return .executionError(editError.localizedDescription)
+      case .ambiguousOldText:
+        return .executionError(editError.localizedDescription)
+      }
+    }
+
+    let nsError = error as NSError
+    if nsError.domain == NSCocoaErrorDomain {
+      switch nsError.code {
+      case NSFileReadNoSuchFileError, NSFileNoSuchFileError:
+        return .fileNotFound(path: nil, suggestions: [])
+      case NSFileReadNoPermissionError, NSFileWriteNoPermissionError:
+        return .permissionDenied
+      default:
+        break
+      }
+    }
+
+    if let localizedError = error as? LocalizedError,
+      let description = localizedError.errorDescription
+    {
+      return .executionError(description)
+    }
+
+    return .executionError(error.localizedDescription)
+  }
+
+  static func relativePath(
+    for inputPath: String?,
+    resolvedURL: URL?,
+    workspace: Workspace
+  ) -> WorkspaceRelativePath? {
+    if let resolvedURL {
+      return workspace.relativePath(for: resolvedURL)
+    }
+    guard let inputPath, !inputPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      return nil
+    }
+    return WorkspaceRelativePath(rawValue: inputPath)
+  }
+}
+
 public protocol TypedToolExecutor: Sendable {
   associatedtype Input: Decodable & Sendable
 
@@ -11,7 +75,7 @@ public protocol TypedToolExecutor: Sendable {
 
   func evaluatePermission(_ input: Input, context: ToolContext) -> ToolPermissionEvaluation
   func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview?
-  func run(_ input: Input, context: ToolContext) async -> ToolResultPreview
+  func run(_ input: Input, context: ToolContext) async -> ToolResultPayload
 }
 
 extension TypedToolExecutor {
@@ -157,6 +221,13 @@ public struct AnyToolExecutor: Sendable {
         affectedPaths: evaluation.normalizedPaths
       )
       record.status = .denied
+      record.resultPayload = .failure(
+        ToolFailure(
+          toolName: record.request.toolName,
+          path: evaluation.normalizedPaths.first.map(WorkspaceRelativePath.init(rawValue:)),
+          reason: .permissionDenied
+        )
+      )
       record.resultPreview = preview
       record.events.append(ToolCallEvent(actor: .system, kind: .denied, message: evaluation.reason))
       return false
@@ -175,7 +246,9 @@ public struct AnyToolExecutor: Sendable {
     record.events.append(
       ToolCallEvent(actor: .tool, kind: .started, message: "Started \(request.toolName.rawValue)."))
 
-    let preview = await tool.run(input, context: context)
+    let payload = await tool.run(input, context: context)
+    let preview = payload.preview
+    record.resultPayload = payload
     record.resultPreview = preview
 
     switch preview.status {
@@ -210,6 +283,13 @@ public struct AnyToolExecutor: Sendable {
       decision: .denied,
       reason: message,
       riskLevel: definition.riskLevel
+    )
+    record.resultPayload = .failure(
+      ToolFailure(
+        toolName: definition.name,
+        path: nil,
+        reason: .invalidArguments(.parserError(error.localizedDescription))
+      )
     )
     record.resultPreview = ToolResultPreview(status: .failed, text: message)
     record.events.append(ToolCallEvent(actor: .system, kind: .failed, message: message))
@@ -416,35 +496,39 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPreview {
+  public func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
+    var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {
-        let resolvedURL = try context.workspace.resolveAllowedPath(input.path)
+        let resolvedPathURL = try context.workspace.resolveAllowedPath(input.path)
+        resolvedURL = resolvedPathURL
+        let relativePath = context.workspace.relativePath(for: resolvedPathURL)
         let preview = try Self.readPreview(
-          from: resolvedURL,
+          from: resolvedPathURL,
           startLine: input.offset ?? 1,
           maxLines: input.limit,
           maxBytes: maxBytes
         )
         guard let content = preview.content else {
-          return ToolResultPreview(
-            status: .failed,
-            text: "File is not valid UTF-8 text.",
-            affectedPaths: [resolvedURL.path(percentEncoded: false)]
+          return .readFile(
+            .failed(path: relativePath, reason: .unsupportedFileType("non-UTF-8 text"))
           )
         }
 
-        return ToolResultPreview(
-          status: .success,
-          text: content,
-          truncated: preview.truncated,
-          affectedPaths: [resolvedURL.path(percentEncoded: false)]
+        return .readFile(
+          .success(
+            path: relativePath,
+            content: ToolTextOutput(text: content, truncated: preview.truncated)
+          )
         )
       }
     } catch {
-      return ToolResultPreview(
-        status: .failed,
-        text: error.localizedDescription
+      return .readFile(
+        .failed(
+          path: ToolResultFailureMapper.relativePath(
+            for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
+          reason: ToolResultFailureMapper.reason(from: error)
+        )
       )
     }
   }
@@ -717,12 +801,15 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: ListFilesInput, context: ToolContext) async -> ToolResultPreview {
+  public func run(_ input: ListFilesInput, context: ToolContext) async -> ToolResultPayload {
     let path = input.path ?? "."
+    var resolvedURL: URL?
 
     do {
       return try context.workspace.withSecurityScopedAccess {
         let rootURL = try context.workspace.resolveAllowedPath(path)
+        resolvedURL = rootURL
+        let rootPath = context.workspace.relativePath(for: rootURL)
         var entries: [String] = []
         var truncated = false
         try appendEntries(
@@ -733,17 +820,31 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
           truncated: &truncated
         )
 
-        return ToolResultPreview(
-          status: .success,
-          text: entries.isEmpty ? "(empty)" : entries.joined(separator: "\n"),
-          truncated: truncated,
-          affectedPaths: [rootURL.path(percentEncoded: false)]
+        return .listFiles(
+          ListFilesResult(
+            root: rootPath,
+            entries: entries.map { entry in
+              let isDirectory = entry.hasSuffix("/")
+              let path = isDirectory ? String(entry.dropLast()) : entry
+              let workspacePath =
+                rootPath.rawValue == "." ? path : rootPath.rawValue + "/" + path
+              return WorkspaceFileEntry(
+                path: WorkspaceRelativePath(rawValue: workspacePath),
+                kind: isDirectory ? .directory : .file
+              )
+            },
+            truncated: truncated
+          )
         )
       }
     } catch {
-      return ToolResultPreview(
-        status: .failed,
-        text: error.localizedDescription
+      return .failure(
+        ToolFailure(
+          toolName: .listFiles,
+          path: ToolResultFailureMapper.relativePath(
+            for: path, resolvedURL: resolvedURL, workspace: context.workspace),
+          reason: ToolResultFailureMapper.reason(from: error)
+        )
       )
     }
   }
@@ -840,25 +941,29 @@ public struct WriteFileToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: WriteFileInput, context: ToolContext) async -> ToolResultPreview {
+  public func run(_ input: WriteFileInput, context: ToolContext) async -> ToolResultPayload {
+    var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {
-        let resolvedURL = try context.workspace.resolveAllowedPath(input.path)
+        let resolvedPathURL = try context.workspace.resolveAllowedPath(input.path)
+        resolvedURL = resolvedPathURL
+        let relativePath = context.workspace.relativePath(for: resolvedPathURL)
         try FileManager.default.createDirectory(
-          at: resolvedURL.deletingLastPathComponent(),
+          at: resolvedPathURL.deletingLastPathComponent(),
           withIntermediateDirectories: true
         )
-        try input.content.write(to: resolvedURL, atomically: true, encoding: .utf8)
-        return ToolResultPreview(
-          status: .success,
-          text: "Wrote \(input.content.utf8.count) bytes to \(input.path).",
-          affectedPaths: [resolvedURL.path(percentEncoded: false)]
+        try input.content.write(to: resolvedPathURL, atomically: true, encoding: .utf8)
+        return .writeFile(
+          .success(path: relativePath, bytesWritten: input.content.utf8.count)
         )
       }
     } catch {
-      return ToolResultPreview(
-        status: .failed,
-        text: error.localizedDescription
+      return .writeFile(
+        .failed(
+          path: ToolResultFailureMapper.relativePath(
+            for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
+          reason: ToolResultFailureMapper.reason(from: error)
+        )
       )
     }
   }
@@ -962,7 +1067,14 @@ public struct ToolOrchestrator: Sendable {
     invalidInput: InvalidToolInput
   ) -> ToolCallRecord {
     let message = invalidInput.reason.message
-    return failedRecord(request: request, message: message, riskLevel: .high)
+    return failedRecord(
+      request: request,
+      payload: .invalidTool(
+        InvalidToolResult(originalName: invalidInput.originalName, reason: invalidInput.reason)
+      ),
+      message: message,
+      riskLevel: .high
+    )
   }
 
   private func deniedRecord(request: ToolCallRequest, message: String) -> ToolCallRecord {
@@ -976,12 +1088,16 @@ public struct ToolOrchestrator: Sendable {
       ),
       events: requestedEvents(request: request)
         + [ToolCallEvent(actor: .system, kind: .denied, message: message)],
+      resultPayload: .failure(
+        ToolFailure(toolName: request.toolName, path: nil, reason: .permissionDenied)
+      ),
       resultPreview: ToolResultPreview(status: .denied, text: message)
     )
   }
 
   private func failedRecord(
     request: ToolCallRequest,
+    payload: ToolResultPayload? = nil,
     message: String,
     riskLevel: ToolRiskLevel
   ) -> ToolCallRecord {
@@ -995,6 +1111,9 @@ public struct ToolOrchestrator: Sendable {
       ),
       events: requestedEvents(request: request)
         + [ToolCallEvent(actor: .system, kind: .failed, message: message)],
+      resultPayload: payload
+        ?? .failure(
+          ToolFailure(toolName: request.toolName, path: nil, reason: .executionError(message))),
       resultPreview: ToolResultPreview(status: .failed, text: message)
     )
   }

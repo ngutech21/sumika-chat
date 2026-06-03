@@ -92,6 +92,13 @@ struct WorkspaceStoreTests {
     let reloadedToolCall = try #require(reloaded.workspaces.first?.sessions.first?.toolCalls.first)
     #expect(reloadedToolCall == toolCall)
     #expect(reloadedToolCall.events.first?.actor == .assistant)
+    #expect(
+      reloadedToolCall.resultPayload
+        == .readFile(
+          .success(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            content: ToolTextOutput(text: "Preview", truncated: true, redacted: true)
+          )))
     #expect(reloadedToolCall.resultPreview?.redacted == true)
     #expect(reloaded.workspaces.first?.sessions.first?.turns == [turn])
   }
@@ -165,6 +172,11 @@ struct WorkspaceStoreTests {
           message: "Cancelled by user"
         ),
       ],
+      resultPayload: .readFile(
+        .success(
+          path: WorkspaceRelativePath(rawValue: "README.md"),
+          content: ToolTextOutput(text: "Preview", truncated: true, redacted: true)
+        )),
       resultPreview: ToolResultPreview(
         text: "Preview",
         truncated: true,

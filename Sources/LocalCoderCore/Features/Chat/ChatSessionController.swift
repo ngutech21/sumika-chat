@@ -563,6 +563,7 @@ extension ChatSessionController {
       ToolResultModelMessage(
         callID: record.id,
         toolName: record.request.toolName,
+        payload: record.resultPayload,
         preview: resultPreview
       ),
       id: toolResultMessageID,
@@ -658,6 +659,14 @@ extension ChatSessionController {
     let message = "Tool call denied by user."
     var deniedRecord = existingRecord
     deniedRecord.status = .denied
+    deniedRecord.resultPayload = .failure(
+      ToolFailure(
+        toolName: deniedRecord.request.toolName,
+        path: deniedRecord.evaluation.normalizedPaths.first.map(
+          WorkspaceRelativePath.init(rawValue:)),
+        reason: .permissionDenied
+      )
+    )
     deniedRecord.resultPreview = ToolResultPreview(
       status: .denied,
       text: message,
@@ -671,6 +680,7 @@ extension ChatSessionController {
       ToolResultModelMessage(
         callID: deniedRecord.id,
         toolName: deniedRecord.request.toolName,
+        payload: deniedRecord.resultPayload,
         preview: deniedRecord.resultPreview ?? ToolResultPreview(status: .denied, text: message)
       ),
       id: toolResultMessageID,

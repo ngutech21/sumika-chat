@@ -48,6 +48,12 @@ struct ToolEditExecutionTests {
 
     #expect(result.status == .completed)
     #expect(result.resultPreview?.status == .success)
+    guard case .editFile(.success(let path, _, let matchStrategy)) = result.resultPayload else {
+      Issue.record("Expected edit_file success payload.")
+      return
+    }
+    #expect(path.rawValue == "notes.txt")
+    #expect(matchStrategy == .exact)
     #expect(
       try String(contentsOf: workspace.rootURL.appending(path: "notes.txt")) == "one\nTWO\nthree\n")
   }
@@ -183,9 +189,28 @@ struct ToolEditExecutionTests {
     #expect(pendingMissing.status == .awaitingApproval)
     #expect(missing.status == .failed)
     #expect(missing.resultPreview?.text.contains("old_text was not found") == true)
+    guard
+      case .editFile(.oldTextNotFound(let missingPath, let currentContent, let recovery)) =
+        missing.resultPayload
+    else {
+      Issue.record("Expected old_text not found payload.")
+      return
+    }
+    #expect(missingPath.rawValue == "notes.txt")
+    #expect(currentContent?.text == "changed")
+    #expect(recovery == .readFile(path: WorkspaceRelativePath(rawValue: "notes.txt")))
     #expect(pendingAmbiguous.status == .awaitingApproval)
     #expect(ambiguous.status == .failed)
     #expect(ambiguous.resultPreview?.text.contains("matched more than once") == true)
+    guard
+      case .editFile(.multipleMatches(let ambiguousPath, let matchCount, _)) =
+        ambiguous.resultPayload
+    else {
+      Issue.record("Expected multiple matches payload.")
+      return
+    }
+    #expect(ambiguousPath.rawValue == "notes.txt")
+    #expect(matchCount == 2)
   }
 
   @Test

@@ -21,7 +21,9 @@ flowchart TD
   H -- "allowed" --> I["TypedToolExecutor.run(input, context)"]
   H -- "requires approval" --> J["Optional approval preview + ToolCallRecord awaitingApproval"]
   H -- "denied" --> K["ToolCallRecord denied"]
-  I --> L["ToolCallRecord + ToolResultModelMessage"]
+  I --> L["ToolResultPayload"]
+  L --> O["ToolResultPreview projection"]
+  O --> P["ToolCallRecord + ToolResultModelMessage"]
   J --> M["User approves"]
   M --> N["Approved execution re-validates raw request + re-evaluates"]
   N --> G
@@ -56,9 +58,20 @@ flowchart TD
   and runs the tool only when allowed. A `requiresApproval` decision can prepare
   a preview and becomes an awaiting-approval record without executing the tool.
   An approved execution path validates the raw request and evaluates permission
-  again immediately before the side effect.
+  again immediately before the side effect. Executed tools return a structured
+  `ToolResultPayload`; the runtime stores that payload and derives
+  `ToolResultPreview` for UI and model-facing observations.
 - `TypedToolExecutor` is what every concrete tool implements. Its `run` method
-  receives a concrete Swift input type, never raw argument dictionaries.
+  receives a concrete Swift input type, never raw argument dictionaries, and
+  returns a typed result payload rather than UI text.
+- `ToolResultPayload` is the domain result boundary. Built-in tool results carry
+  typed success, failure, and recovery-relevant outcomes such as
+  `edit_file` old-text misses, multiple matches, invalid calls, and common path
+  failures.
+- `ToolResultPreview` remains the compact rendering shape for the transcript,
+  approval previews, UI summaries, and model observations. Controller and
+  recovery logic should use `ToolResultPayload` where available instead of
+  parsing preview text.
 - `ToolContext` carries runtime context such as the active workspace.
 - `ToolDefinition` describes a tool for prompts and future provider schemas,
   including capability and risk metadata.
@@ -89,8 +102,8 @@ flowchart TD
      func run(
        _ input: ReadFileInput,
        context: ToolContext
-     ) async -> ToolResultPreview {
-       // Execute using typed input only.
+     ) async -> ToolResultPayload {
+       // Execute using typed input only and return domain result semantics.
      }
    }
    ```
@@ -148,7 +161,11 @@ flowchart TD
   turn. The controller should show the auditable tool result but must not
   request a follow-up model response that can restate the written file content.
 - Tool results must report affected paths where possible so the UI can show a
-  useful audit trail.
+  useful audit trail. Domain result payloads use canonical workspace-relative
+  paths; UI renderers may decide how to display them.
+- Tool result previews are projections. They must not be the source of truth for
+  controller recovery decisions when a structured `ToolResultPayload` is
+  available.
 - Tool results from a cancelled chat turn may remain visible for auditability,
   but the chat model context must exclude them unless that same turn is still
   actively generating its direct follow-up response.

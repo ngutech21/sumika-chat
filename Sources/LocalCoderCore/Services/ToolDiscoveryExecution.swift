@@ -40,10 +40,13 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: GlobFilesInput, context: ToolContext) async -> ToolResultPreview {
+  public func run(_ input: GlobFilesInput, context: ToolContext) async -> ToolResultPayload {
+    var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {
         let rootURL = try context.workspace.resolveAllowedPath(input.path ?? ".")
+        resolvedURL = rootURL
+        let rootPath = context.workspace.relativePath(for: rootURL)
         let workspaceRootURL = try context.workspace.resolveAllowedPath(".")
         let matcher = try GlobPatternMatcher(pattern: input.pattern)
         var results: [String] = []
@@ -66,17 +69,23 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
           return true
         }
 
-        return ToolResultPreview(
-          status: .success,
-          text: results.isEmpty ? "(no matches)" : results.joined(separator: "\n"),
-          truncated: truncated,
-          affectedPaths: [rootURL.path(percentEncoded: false)]
+        return .globFiles(
+          GlobFilesResult(
+            root: rootPath,
+            pattern: input.pattern,
+            matches: results.map(WorkspaceRelativePath.init(rawValue:)),
+            truncated: truncated
+          )
         )
       }
     } catch {
-      return ToolResultPreview(
-        status: .failed,
-        text: error.localizedDescription
+      return .failure(
+        ToolFailure(
+          toolName: .globFiles,
+          path: ToolResultFailureMapper.relativePath(
+            for: input.path ?? ".", resolvedURL: resolvedURL, workspace: context.workspace),
+          reason: ToolResultFailureMapper.reason(from: error)
+        )
       )
     }
   }
@@ -129,14 +138,17 @@ public struct SearchFilesToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: SearchFilesInput, context: ToolContext) async -> ToolResultPreview {
+  public func run(_ input: SearchFilesInput, context: ToolContext) async -> ToolResultPayload {
+    var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {
         let rootURL = try context.workspace.resolveAllowedPath(input.path ?? ".")
+        resolvedURL = rootURL
+        let rootPath = context.workspace.relativePath(for: rootURL)
         let workspaceRootURL = try context.workspace.resolveAllowedPath(".")
         let searchPattern = SearchPattern(pattern: input.pattern)
         let includeMatcher = try input.include.map(GlobPatternMatcher.init(pattern:))
-        var results: [String] = []
+        var results: [SearchFileMatch] = []
         var truncated = false
 
         try WorkspaceFileEnumeration.enumerateFiles(
@@ -171,17 +183,23 @@ public struct SearchFilesToolExecutor: TypedToolExecutor {
           return results.count < maxMatches
         }
 
-        return ToolResultPreview(
-          status: .success,
-          text: results.isEmpty ? "(no matches)" : results.joined(separator: "\n"),
-          truncated: truncated,
-          affectedPaths: [rootURL.path(percentEncoded: false)]
+        return .searchFiles(
+          SearchFilesResult(
+            root: rootPath,
+            pattern: input.pattern,
+            matches: results,
+            truncated: truncated
+          )
         )
       }
     } catch {
-      return ToolResultPreview(
-        status: .failed,
-        text: error.localizedDescription
+      return .failure(
+        ToolFailure(
+          toolName: .searchFiles,
+          path: ToolResultFailureMapper.relativePath(
+            for: input.path ?? ".", resolvedURL: resolvedURL, workspace: context.workspace),
+          reason: ToolResultFailureMapper.reason(from: error)
+        )
       )
     }
   }
@@ -203,7 +221,7 @@ public struct SearchFilesToolExecutor: TypedToolExecutor {
     relativePath: String,
     pattern: SearchPattern,
     limits: SearchFileScanLimits
-  ) throws -> (matches: [String], truncated: Bool) {
+  ) throws -> (matches: [SearchFileMatch], truncated: Bool) {
     guard limits.remainingMatchCount > 0 else {
       return ([], true)
     }
@@ -217,7 +235,7 @@ public struct SearchFilesToolExecutor: TypedToolExecutor {
       return ([], false)
     }
 
-    var matches: [String] = []
+    var matches: [SearchFileMatch] = []
     var lineNumber = 1
     for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
       var normalizedLine = String(line)
@@ -227,7 +245,11 @@ public struct SearchFilesToolExecutor: TypedToolExecutor {
 
       if pattern.matches(normalizedLine) {
         matches.append(
-          "\(relativePath):\(lineNumber): \(snippet(from: normalizedLine, maxLength: limits.maxSnippetLength))"
+          SearchFileMatch(
+            path: WorkspaceRelativePath(rawValue: relativePath),
+            line: lineNumber,
+            snippet: snippet(from: normalizedLine, maxLength: limits.maxSnippetLength)
+          )
         )
       }
 

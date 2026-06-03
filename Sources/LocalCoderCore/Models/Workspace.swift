@@ -135,6 +135,18 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     return URL(filePath: candidatePath)
   }
 
+  public func relativePath(for resolvedURL: URL) -> WorkspaceRelativePath {
+    let rootPath = Self.normalizedPath(for: rootURL)
+    let candidatePath = Self.normalizedPath(for: resolvedURL)
+    if candidatePath == rootPath {
+      return WorkspaceRelativePath(rawValue: ".")
+    }
+    if candidatePath.hasPrefix(rootPath + "/") {
+      return WorkspaceRelativePath(rawValue: String(candidatePath.dropFirst(rootPath.count + 1)))
+    }
+    return WorkspaceRelativePath(rawValue: candidatePath)
+  }
+
   public func withSecurityScopedAccess<Result>(_ body: () throws -> Result) rethrows -> Result {
     let accessURL = securityScopedAccessURL()
     let didStartSecurityScope = accessURL.startAccessingSecurityScopedResource()

@@ -389,6 +389,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   public var status: ToolCallStatus
   public var evaluation: ToolPermissionEvaluation
   public var events: [ToolCallEvent]
+  public var resultPayload: ToolResultPayload?
   public var resultPreview: ToolResultPreview?
 
   public init(
@@ -396,12 +397,14 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
     status: ToolCallStatus,
     evaluation: ToolPermissionEvaluation,
     events: [ToolCallEvent] = [],
+    resultPayload: ToolResultPayload? = nil,
     resultPreview: ToolResultPreview? = nil
   ) {
     self.request = request
     self.status = status
     self.evaluation = evaluation
     self.events = events
+    self.resultPayload = resultPayload
     self.resultPreview = resultPreview
   }
 }
@@ -457,6 +460,221 @@ public enum ToolCallEventKind: String, Codable, Equatable, Sendable {
   case cancelled
 }
 
+public struct WorkspaceRelativePath: RawRepresentable, Codable, Equatable, Hashable, Sendable {
+  public var rawValue: String
+
+  public init(rawValue: String) {
+    self.rawValue = rawValue
+  }
+}
+
+public enum ToolResultPayload: Codable, Equatable, Sendable {
+  case readFile(ReadFileResult)
+  case listFiles(ListFilesResult)
+  case globFiles(GlobFilesResult)
+  case searchFiles(SearchFilesResult)
+  case writeFile(WriteFileResult)
+  case editFile(EditFileResult)
+  case invalidTool(InvalidToolResult)
+  case failure(ToolFailure)
+}
+
+public enum ReadFileResult: Codable, Equatable, Sendable {
+  case success(path: WorkspaceRelativePath, content: ToolTextOutput)
+  case unchanged(path: WorkspaceRelativePath, readKey: ReadKey)
+  case repeatedReadWarning(path: WorkspaceRelativePath, count: Int)
+  case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+}
+
+public struct ListFilesResult: Codable, Equatable, Sendable {
+  public var root: WorkspaceRelativePath
+  public var entries: [WorkspaceFileEntry]
+  public var truncated: Bool
+
+  public init(
+    root: WorkspaceRelativePath,
+    entries: [WorkspaceFileEntry],
+    truncated: Bool = false
+  ) {
+    self.root = root
+    self.entries = entries
+    self.truncated = truncated
+  }
+}
+
+public struct GlobFilesResult: Codable, Equatable, Sendable {
+  public var root: WorkspaceRelativePath
+  public var pattern: String
+  public var matches: [WorkspaceRelativePath]
+  public var truncated: Bool
+
+  public init(
+    root: WorkspaceRelativePath,
+    pattern: String,
+    matches: [WorkspaceRelativePath],
+    truncated: Bool = false
+  ) {
+    self.root = root
+    self.pattern = pattern
+    self.matches = matches
+    self.truncated = truncated
+  }
+}
+
+public struct SearchFilesResult: Codable, Equatable, Sendable {
+  public var root: WorkspaceRelativePath
+  public var pattern: String
+  public var matches: [SearchFileMatch]
+  public var truncated: Bool
+
+  public init(
+    root: WorkspaceRelativePath,
+    pattern: String,
+    matches: [SearchFileMatch],
+    truncated: Bool = false
+  ) {
+    self.root = root
+    self.pattern = pattern
+    self.matches = matches
+    self.truncated = truncated
+  }
+}
+
+public enum WriteFileResult: Codable, Equatable, Sendable {
+  case success(path: WorkspaceRelativePath, bytesWritten: Int)
+  case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+}
+
+public enum EditFileResult: Codable, Equatable, Sendable {
+  case success(path: WorkspaceRelativePath, diff: String?, matchStrategy: EditMatchStrategy)
+  case oldTextNotFound(
+    path: WorkspaceRelativePath,
+    currentContent: ToolTextOutput?,
+    recovery: RecoveryHint
+  )
+  case multipleMatches(path: WorkspaceRelativePath, matchCount: Int, recovery: RecoveryHint)
+  case unchanged(path: WorkspaceRelativePath)
+  case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+}
+
+public enum EditMatchStrategy: String, Codable, Equatable, Sendable {
+  case exact
+  case normalizedLineEndings
+  case trimTrailingWhitespace
+  case indentationFlexible
+  case lineTrimmedBlock
+}
+
+public struct InvalidToolResult: Codable, Equatable, Sendable {
+  public var originalName: String?
+  public var reason: InvalidToolCallReason
+
+  public init(originalName: String?, reason: InvalidToolCallReason) {
+    self.originalName = originalName
+    self.reason = reason
+  }
+}
+
+public struct ToolFailure: Codable, Equatable, Sendable {
+  public var toolName: ToolName
+  public var path: WorkspaceRelativePath?
+  public var reason: ToolFailureReason
+  public var recovery: RecoveryHint?
+
+  public init(
+    toolName: ToolName,
+    path: WorkspaceRelativePath?,
+    reason: ToolFailureReason,
+    recovery: RecoveryHint? = nil
+  ) {
+    self.toolName = toolName
+    self.path = path
+    self.reason = reason
+    self.recovery = recovery
+  }
+}
+
+public enum ToolFailureReason: Codable, Equatable, Sendable {
+  case fileNotFound(path: WorkspaceRelativePath?, suggestions: [MissingPathSuggestion])
+  case pathOutsideWorkspace
+  case emptyPath
+  case unsupportedURLScheme(String)
+  case permissionDenied
+  case unsupportedFileType(String)
+  case invalidArguments(InvalidToolCallReason)
+  case executionError(String)
+  case cancelled
+}
+
+public enum RecoveryHint: Codable, Equatable, Sendable {
+  case readFile(path: WorkspaceRelativePath)
+  case retryWithMoreContext(path: WorkspaceRelativePath)
+  case chooseOneOf(paths: [WorkspaceRelativePath])
+  case askUser(message: String)
+  case stop
+}
+
+public struct MissingPathSuggestion: Codable, Equatable, Sendable {
+  public var path: WorkspaceRelativePath
+  public var reason: String
+  public var confidence: Double
+
+  public init(path: WorkspaceRelativePath, reason: String, confidence: Double) {
+    self.path = path
+    self.reason = reason
+    self.confidence = confidence
+  }
+}
+
+public struct ToolTextOutput: Codable, Equatable, Sendable {
+  public var text: String
+  public var truncated: Bool
+  public var redacted: Bool
+
+  public init(text: String, truncated: Bool = false, redacted: Bool = false) {
+    self.text = text
+    self.truncated = truncated
+    self.redacted = redacted
+  }
+}
+
+public struct ReadKey: Codable, Equatable, Hashable, Sendable {
+  public var path: WorkspaceRelativePath
+  public var range: String?
+
+  public init(path: WorkspaceRelativePath, range: String? = nil) {
+    self.path = path
+    self.range = range
+  }
+}
+
+public struct WorkspaceFileEntry: Codable, Equatable, Sendable {
+  public var path: WorkspaceRelativePath
+  public var kind: WorkspaceFileKind
+
+  public init(path: WorkspaceRelativePath, kind: WorkspaceFileKind) {
+    self.path = path
+    self.kind = kind
+  }
+}
+
+public enum WorkspaceFileKind: String, Codable, Equatable, Sendable {
+  case file
+  case directory
+}
+
+public struct SearchFileMatch: Codable, Equatable, Sendable {
+  public var path: WorkspaceRelativePath
+  public var line: Int
+  public var snippet: String
+
+  public init(path: WorkspaceRelativePath, line: Int, snippet: String) {
+    self.path = path
+    self.line = line
+    self.snippet = snippet
+  }
+}
+
 public struct ToolResultPreview: Codable, Equatable, Sendable {
   public var status: ToolResultStatus
   public var text: String
@@ -502,10 +720,263 @@ public enum ToolResultStatus: String, Codable, Equatable, Sendable {
   case denied
 }
 
+nonisolated extension ToolResultPayload {
+  public var status: ToolResultStatus {
+    preview.status
+  }
+
+  public var text: String {
+    preview.text
+  }
+
+  public var truncated: Bool {
+    preview.truncated
+  }
+
+  public var redacted: Bool {
+    preview.redacted
+  }
+
+  public var affectedPaths: [String] {
+    preview.affectedPaths
+  }
+
+  public var preview: ToolResultPreview {
+    switch self {
+    case .readFile(let result):
+      return result.preview
+    case .listFiles(let result):
+      return ToolResultPreview(
+        text: result.entries.isEmpty
+          ? "(empty)"
+          : result.entries.map { entry in
+            entry.kind == .directory ? entry.path.rawValue + "/" : entry.path.rawValue
+          }.joined(separator: "\n"),
+        truncated: result.truncated,
+        affectedPaths: [result.root.rawValue]
+      )
+    case .globFiles(let result):
+      return ToolResultPreview(
+        text: result.matches.isEmpty
+          ? "(no matches)"
+          : result.matches.map(\.rawValue).joined(separator: "\n"),
+        truncated: result.truncated,
+        affectedPaths: [result.root.rawValue]
+      )
+    case .searchFiles(let result):
+      return ToolResultPreview(
+        text: result.matches.isEmpty
+          ? "(no matches)"
+          : result.matches.map { "\($0.path.rawValue):\($0.line): \($0.snippet)" }
+            .joined(separator: "\n"),
+        truncated: result.truncated,
+        affectedPaths: [result.root.rawValue]
+      )
+    case .writeFile(let result):
+      return result.preview
+    case .editFile(let result):
+      return result.preview
+    case .invalidTool(let result):
+      return ToolResultPreview(
+        status: .failed,
+        text: "The tool call was invalid: \(result.reason.message)"
+      )
+    case .failure(let failure):
+      return ToolResultPreview(
+        status: failure.reason.previewStatus,
+        text: failure.previewText,
+        affectedPaths: failure.path.map { [$0.rawValue] } ?? []
+      )
+    }
+  }
+}
+
+nonisolated extension ReadFileResult {
+  fileprivate var preview: ToolResultPreview {
+    switch self {
+    case .success(let path, let content):
+      return ToolResultPreview(
+        text: content.text,
+        truncated: content.truncated,
+        redacted: content.redacted,
+        affectedPaths: [path.rawValue]
+      )
+    case .unchanged(let path, let readKey):
+      let rangeText = readKey.range.map { " for \($0)" } ?? ""
+      return ToolResultPreview(
+        text:
+          "File unchanged since previous read: \(path.rawValue)\(rangeText). Use the existing context instead of reading it again.",
+        affectedPaths: [path.rawValue]
+      )
+    case .repeatedReadWarning(let path, let count):
+      return ToolResultPreview(
+        text:
+          "Repeated read_file loop detected for \(path.rawValue) after \(count) reads. Stop reading this file again unless it changed or you need a different range.",
+        affectedPaths: [path.rawValue]
+      )
+    case .failed(let path, let reason):
+      return ToolResultPreview(
+        status: reason.previewStatus,
+        text: reason.message,
+        affectedPaths: path.map { [$0.rawValue] } ?? []
+      )
+    }
+  }
+}
+
+nonisolated extension WriteFileResult {
+  fileprivate var preview: ToolResultPreview {
+    switch self {
+    case .success(let path, let bytesWritten):
+      return ToolResultPreview(
+        text: "Wrote \(bytesWritten) bytes to \(path.rawValue).",
+        affectedPaths: [path.rawValue]
+      )
+    case .failed(let path, let reason):
+      return ToolResultPreview(
+        status: reason.previewStatus,
+        text: reason.message,
+        affectedPaths: path.map { [$0.rawValue] } ?? []
+      )
+    }
+  }
+}
+
+nonisolated extension EditFileResult {
+  fileprivate var preview: ToolResultPreview {
+    switch self {
+    case .success(let path, let diff, let matchStrategy):
+      let strategyText =
+        matchStrategy == .exact ? "" : " using \(matchStrategy.rawValue) match strategy"
+      return ToolResultPreview(
+        text: diff ?? "Edited \(path.rawValue)\(strategyText).",
+        affectedPaths: [path.rawValue]
+      )
+    case .oldTextNotFound(let path, let currentContent, let recovery):
+      let contentText =
+        currentContent.map { output in
+          "\n\nCurrent file excerpt:\n\(output.text)"
+        } ?? ""
+      return ToolResultPreview(
+        status: .failed,
+        text:
+          "edit_file failed: old_text was not found in \(path.rawValue).\(contentText)\n\n\(recovery.message)",
+        truncated: currentContent?.truncated ?? false,
+        redacted: currentContent?.redacted ?? false,
+        affectedPaths: [path.rawValue]
+      )
+    case .multipleMatches(let path, let matchCount, let recovery):
+      return ToolResultPreview(
+        status: .failed,
+        text:
+          "edit_file failed: old_text matched more than once in \(path.rawValue) (\(matchCount) matches). \(recovery.message)",
+        affectedPaths: [path.rawValue]
+      )
+    case .unchanged(let path):
+      return ToolResultPreview(
+        text: "No changes were needed for \(path.rawValue).",
+        affectedPaths: [path.rawValue]
+      )
+    case .failed(let path, let reason):
+      return ToolResultPreview(
+        status: reason.previewStatus,
+        text: reason.message,
+        affectedPaths: path.map { [$0.rawValue] } ?? []
+      )
+    }
+  }
+}
+
+nonisolated extension ToolFailure {
+  fileprivate var previewText: String {
+    let prefix = "\(toolName.rawValue) failed"
+    guard let path else {
+      return "\(prefix): \(reason.message)"
+    }
+    return "\(prefix) for \(path.rawValue): \(reason.message)"
+  }
+}
+
+nonisolated extension ToolFailureReason {
+  fileprivate var previewStatus: ToolResultStatus {
+    switch self {
+    case .permissionDenied, .pathOutsideWorkspace:
+      .denied
+    case .fileNotFound, .emptyPath, .unsupportedURLScheme, .unsupportedFileType,
+      .invalidArguments, .executionError, .cancelled:
+      .failed
+    }
+  }
+
+  public var message: String {
+    switch self {
+    case .fileNotFound(let path, let suggestions):
+      var text = "File not found"
+      if let path {
+        text += ": \(path.rawValue)"
+      }
+      guard !suggestions.isEmpty else {
+        return text + "."
+      }
+      let suggestionText = suggestions.map { "- \($0.path.rawValue) (\($0.reason))" }
+        .joined(separator: "\n")
+      return "\(text).\n\nDid you mean one of these?\n\(suggestionText)"
+    case .pathOutsideWorkspace:
+      return "Path is outside the workspace."
+    case .emptyPath:
+      return "Path is empty."
+    case .unsupportedURLScheme(let scheme):
+      return "Unsupported URL scheme: \(scheme)."
+    case .permissionDenied:
+      return "Permission denied."
+    case .unsupportedFileType(let fileType):
+      return "Unsupported file type: \(fileType)."
+    case .invalidArguments(let reason):
+      return reason.message
+    case .executionError(let message):
+      return message
+    case .cancelled:
+      return "Tool execution was cancelled."
+    }
+  }
+}
+
+nonisolated extension RecoveryHint {
+  public var message: String {
+    switch self {
+    case .readFile(let path):
+      return
+        "Read \(path.rawValue), then retry using exact text from the current content as old_text."
+    case .retryWithMoreContext(let path):
+      return "Retry with a larger exact old_text block from \(path.rawValue)."
+    case .chooseOneOf(let paths):
+      return
+        "Choose one of these paths before retrying: \(paths.map(\.rawValue).joined(separator: ", "))."
+    case .askUser(let message):
+      return message
+    case .stop:
+      return "Stop and ask the user before trying another tool call."
+    }
+  }
+}
+
 public struct ToolResultModelMessage: Codable, Equatable, Sendable {
   public var callID: UUID
   public var toolName: ToolName
+  public var payload: ToolResultPayload?
   public var preview: ToolResultPreview
+
+  public init(
+    callID: UUID,
+    toolName: ToolName,
+    payload: ToolResultPayload? = nil,
+    preview: ToolResultPreview
+  ) {
+    self.callID = callID
+    self.toolName = toolName
+    self.payload = payload
+    self.preview = preview
+  }
 }
 
 public struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
