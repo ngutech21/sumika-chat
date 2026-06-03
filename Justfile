@@ -1,6 +1,6 @@
 project := "local-coder.xcodeproj"
 scheme := "local-coder"
-destination := "platform=macOS"
+destination := "platform=macOS,arch=arm64"
 derived_data := "build/DerivedData"
 
 default:
@@ -18,7 +18,7 @@ test-core:
     xcrun swift test
 
 test-app:
-    xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} test
+    xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
 
 coverage:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -enableCodeCoverage YES test

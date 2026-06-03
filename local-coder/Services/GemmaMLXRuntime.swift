@@ -9,6 +9,7 @@ nonisolated enum GemmaMLXRuntimeError: LocalizedError {
   case modelNotLoaded
   case missingUserMessage
   case invalidChatTemplateMessageSequence
+  case unsupportedArchitecture
 
   var errorDescription: String? {
     switch self {
@@ -18,6 +19,8 @@ nonisolated enum GemmaMLXRuntimeError: LocalizedError {
       "Enter a message before generating a reply."
     case .invalidChatTemplateMessageSequence:
       "The chat history contains adjacent assistant messages that cannot be rendered by the model template."
+    case .unsupportedArchitecture:
+      "Local Gemma inference through MLX requires an Apple Silicon Mac."
     }
   }
 }
@@ -28,6 +31,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   private var contextTokenLimit: Int?
 
   func load(configuration: ChatModelConfiguration) async throws {
+    #if !arch(arm64)
+      throw GemmaMLXRuntimeError.unsupportedArchitecture
+    #endif
+
     configureMLXMemory()
 
     let modelConfiguration = ModelConfiguration(

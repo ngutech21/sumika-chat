@@ -17,7 +17,7 @@ pkill -f "$APP_NAME.app/Contents/MacOS/$APP_NAME" >/dev/null 2>&1 || true
 xcodebuild \
   -project "$ROOT_DIR/$PROJECT_NAME" \
   -scheme "$SCHEME_NAME" \
-  -destination "platform=macOS" \
+  -destination "platform=macOS,arch=arm64" \
   -derivedDataPath "$DERIVED_DATA_DIR" \
   build
 
