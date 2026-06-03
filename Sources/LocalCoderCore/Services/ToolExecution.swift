@@ -2,6 +2,67 @@ import Foundation
 
 public struct ToolContext: Sendable {
   public let workspace: Workspace
+  public let readTracker: ReadFileReadTracker?
+
+  public init(workspace: Workspace, readTracker: ReadFileReadTracker? = nil) {
+    self.workspace = workspace
+    self.readTracker = readTracker
+  }
+}
+
+public enum ReadFileTrackedResult: Equatable, Sendable {
+  case success
+  case unchanged
+  case repeatedReadWarning(count: Int)
+}
+
+public actor ReadFileReadTracker {
+  private struct ReadSignature: Equatable, Sendable {
+    var text: String
+    var truncated: Bool
+    var redacted: Bool
+  }
+
+  private struct ReadStamp: Sendable {
+    var signature: ReadSignature
+    var consecutiveReadCount: Int
+  }
+
+  private var stamps: [ReadKey: ReadStamp] = [:]
+  private var lastReadKey: ReadKey?
+
+  public init() {}
+
+  public func record(readKey: ReadKey, content: ToolTextOutput) -> ReadFileTrackedResult {
+    let signature = ReadSignature(
+      text: content.text,
+      truncated: content.truncated,
+      redacted: content.redacted
+    )
+
+    defer {
+      lastReadKey = readKey
+    }
+
+    guard var stamp = stamps[readKey], stamp.signature == signature else {
+      stamps[readKey] = ReadStamp(signature: signature, consecutiveReadCount: 1)
+      return .success
+    }
+
+    guard lastReadKey == readKey else {
+      stamps[readKey] = ReadStamp(signature: signature, consecutiveReadCount: 1)
+      return .success
+    }
+
+    stamp.consecutiveReadCount += 1
+    stamps[readKey] = stamp
+
+    if stamp.consecutiveReadCount >= 4 {
+      return .repeatedReadWarning(count: stamp.consecutiveReadCount)
+    }
+
+    return .unchanged
+  }
 }
 
 enum ToolResultFailureMapper {
@@ -498,11 +559,15 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
 
   public func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
+    var relativePath: WorkspaceRelativePath?
+    var output: ToolTextOutput?
+
     do {
-      return try context.workspace.withSecurityScopedAccess {
+      let failure: ToolResultPayload? = try context.workspace.withSecurityScopedAccess {
         let resolvedPathURL = try context.workspace.resolveAllowedPath(input.path)
         resolvedURL = resolvedPathURL
-        let relativePath = context.workspace.relativePath(for: resolvedPathURL)
+        let path = context.workspace.relativePath(for: resolvedPathURL)
+        relativePath = path
         let preview = try Self.readPreview(
           from: resolvedPathURL,
           startLine: input.offset ?? 1,
@@ -511,16 +576,36 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
         )
         guard let content = preview.content else {
           return .readFile(
-            .failed(path: relativePath, reason: .unsupportedFileType("non-UTF-8 text"))
+            .failed(path: path, reason: .unsupportedFileType("non-UTF-8 text"))
           )
         }
 
+        output = ToolTextOutput(text: content, truncated: preview.truncated)
+        return nil
+      }
+
+      if let failure {
+        return failure
+      }
+
+      guard let relativePath, let output else {
         return .readFile(
-          .success(
-            path: relativePath,
-            content: ToolTextOutput(text: content, truncated: preview.truncated)
-          )
+          .failed(path: relativePath, reason: .executionError("read_file result unavailable."))
         )
+      }
+
+      let readKey = ReadKey(path: relativePath, range: Self.rangeKey(for: input))
+      guard let readTracker = context.readTracker else {
+        return .readFile(.success(path: relativePath, content: output))
+      }
+
+      switch await readTracker.record(readKey: readKey, content: output) {
+      case .success:
+        return .readFile(.success(path: relativePath, content: output))
+      case .unchanged:
+        return .readFile(.unchanged(path: relativePath, readKey: readKey))
+      case .repeatedReadWarning(let count):
+        return .readFile(.repeatedReadWarning(path: relativePath, count: count))
       }
     } catch {
       return .readFile(
@@ -531,6 +616,19 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
         )
       )
     }
+  }
+
+  private static func rangeKey(for input: ReadFileInput) -> String? {
+    let offset = input.offset ?? 1
+    guard offset != 1 || input.limit != nil else {
+      return nil
+    }
+
+    if let limit = input.limit {
+      return "offset=\(offset),limit=\(limit)"
+    }
+
+    return "offset=\(offset)"
   }
 
   private static func readPreview(
@@ -996,13 +1094,16 @@ public enum ToolInputDecoder {
 public struct ToolOrchestrator: Sendable {
   private let executorRegistry: ToolExecutorRegistry
   private let validator: ToolCallRequestValidator
+  private let readTracker: ReadFileReadTracker
 
   public init(
     executorRegistry: ToolExecutorRegistry = .readOnly,
-    validator: ToolCallRequestValidator = ToolCallRequestValidator()
+    validator: ToolCallRequestValidator = ToolCallRequestValidator(),
+    readTracker: ReadFileReadTracker = ReadFileReadTracker()
   ) {
     self.executorRegistry = executorRegistry
     self.validator = validator
+    self.readTracker = readTracker
   }
 
   public var toolRegistry: ToolRegistry {
@@ -1052,13 +1153,13 @@ public struct ToolOrchestrator: Sendable {
     if isApproved {
       return await executor.runApproved(
         request,
-        context: ToolContext(workspace: workspace)
+        context: ToolContext(workspace: workspace, readTracker: readTracker)
       )
     }
 
     return await executor.run(
       request,
-      context: ToolContext(workspace: workspace)
+      context: ToolContext(workspace: workspace, readTracker: readTracker)
     )
   }
 

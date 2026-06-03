@@ -164,6 +164,235 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func readFileDeduplicatesRepeatedUnchangedReadsThroughOrchestrator() async throws {
+    let workspace = try makeWorkspace()
+    try write("hello", to: "README.md", in: workspace)
+    let orchestrator = ToolOrchestrator()
+
+    let first = await orchestrator.execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("README.md")]),
+      workspace: workspace
+    )
+    let second = await orchestrator.execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("README.md")]),
+      workspace: workspace
+    )
+
+    guard case .readFile(.success(let firstPath, _)) = first.resultPayload else {
+      Issue.record("Expected first read_file to return content.")
+      return
+    }
+    guard case .readFile(.unchanged(let secondPath, let readKey)) = second.resultPayload else {
+      Issue.record("Expected second read_file to return unchanged.")
+      return
+    }
+
+    #expect(firstPath.rawValue == "README.md")
+    #expect(secondPath.rawValue == "README.md")
+    #expect(readKey == ReadKey(path: WorkspaceRelativePath(rawValue: "README.md")))
+    #expect(second.resultPreview?.text.contains("Use the existing context") == true)
+  }
+
+  @Test
+  func readFileWarnsAfterRepeatedUnchangedReadLoop() async throws {
+    let workspace = try makeWorkspace()
+    try write("hello", to: "README.md", in: workspace)
+    let orchestrator = ToolOrchestrator()
+
+    for _ in 0..<3 {
+      _ = await orchestrator.execute(
+        request: request(
+          .readFile, workspace: workspace, arguments: ["path": .string("README.md")]),
+        workspace: workspace
+      )
+    }
+
+    let fourth = await orchestrator.execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("README.md")]),
+      workspace: workspace
+    )
+
+    guard case .readFile(.repeatedReadWarning(let path, let count)) = fourth.resultPayload else {
+      Issue.record("Expected fourth read_file to return a repeated read warning.")
+      return
+    }
+
+    #expect(path.rawValue == "README.md")
+    #expect(count == 4)
+    #expect(fourth.resultPreview?.text.contains("Repeated read_file loop detected") == true)
+  }
+
+  @Test
+  func readFileDedupResetsAfterContentChanges() async throws {
+    let workspace = try makeWorkspace()
+    try write("hello", to: "README.md", in: workspace)
+    let orchestrator = ToolOrchestrator()
+
+    _ = await orchestrator.execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("README.md")]),
+      workspace: workspace
+    )
+    let repeated = await orchestrator.execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("README.md")]),
+      workspace: workspace
+    )
+
+    try write("changed", to: "README.md", in: workspace)
+    let changed = await orchestrator.execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("README.md")]),
+      workspace: workspace
+    )
+
+    guard case .readFile(.unchanged) = repeated.resultPayload else {
+      Issue.record("Expected second read_file to return unchanged.")
+      return
+    }
+    guard case .readFile(.success(_, let content)) = changed.resultPayload else {
+      Issue.record("Expected changed file to return fresh content.")
+      return
+    }
+
+    #expect(content.text == "1: changed")
+  }
+
+  @Test
+  func readFileDedupTracksLineRangesSeparately() async throws {
+    let workspace = try makeWorkspace()
+    try write(
+      """
+      one
+      two
+      three
+      """,
+      to: "notes.txt",
+      in: workspace
+    )
+    let orchestrator = ToolOrchestrator()
+
+    _ = await orchestrator.execute(
+      request: request(
+        .readFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("notes.txt"),
+          "offset": .number(1),
+          "limit": .number(1),
+        ]
+      ),
+      workspace: workspace
+    )
+    let differentRange = await orchestrator.execute(
+      request: request(
+        .readFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("notes.txt"),
+          "offset": .number(2),
+          "limit": .number(1),
+        ]
+      ),
+      workspace: workspace
+    )
+    let firstRangeAfterDifferentRange = await orchestrator.execute(
+      request: request(
+        .readFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("notes.txt"),
+          "offset": .number(1),
+          "limit": .number(1),
+        ]
+      ),
+      workspace: workspace
+    )
+    let repeatedFirstRange = await orchestrator.execute(
+      request: request(
+        .readFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("notes.txt"),
+          "offset": .number(1),
+          "limit": .number(1),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    guard case .readFile(.success(_, let content)) = differentRange.resultPayload else {
+      Issue.record("Expected different line range to return fresh content.")
+      return
+    }
+    guard
+      case .readFile(.success(_, let firstRangeContent)) =
+        firstRangeAfterDifferentRange.resultPayload
+    else {
+      Issue.record("Expected non-consecutive repeated line range to return fresh content.")
+      return
+    }
+    guard case .readFile(.unchanged(_, let readKey)) = repeatedFirstRange.resultPayload else {
+      Issue.record("Expected repeated line range to return unchanged.")
+      return
+    }
+
+    #expect(content.text == "2: two")
+    #expect(firstRangeContent.text == "1: one")
+    #expect(readKey.range == "offset=1,limit=1")
+  }
+
+  @Test
+  func readFileDedupResetsWhenDifferentPathIsReadBetweenRepeats() async throws {
+    let workspace = try makeWorkspace()
+    try write("a", to: "a.txt", in: workspace)
+    try write("b", to: "b.txt", in: workspace)
+    let orchestrator = ToolOrchestrator()
+
+    _ = await orchestrator.execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("a.txt")]),
+      workspace: workspace
+    )
+    _ = await orchestrator.execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("b.txt")]),
+      workspace: workspace
+    )
+    let repeatedAfterDifferentPath = await orchestrator.execute(
+      request: request(.readFile, workspace: workspace, arguments: ["path": .string("a.txt")]),
+      workspace: workspace
+    )
+
+    guard case .readFile(.success(_, let content)) = repeatedAfterDifferentPath.resultPayload else {
+      Issue.record("Expected non-consecutive repeated read_file to return fresh content.")
+      return
+    }
+
+    #expect(content.text == "1: a")
+  }
+
+  @Test
+  func directReadFileExecutorDoesNotDeduplicateWithoutTracker() async throws {
+    let workspace = try makeWorkspace()
+    try write("hello", to: "README.md", in: workspace)
+    let executor = ReadFileToolExecutor()
+
+    let first = await executor.run(
+      ReadFileInput(path: "README.md"),
+      context: ToolContext(workspace: workspace)
+    )
+    let second = await executor.run(
+      ReadFileInput(path: "README.md"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    guard case .readFile(.success) = first else {
+      Issue.record("Expected first direct read_file to return content.")
+      return
+    }
+    guard case .readFile(.success) = second else {
+      Issue.record("Expected second direct read_file to return content.")
+      return
+    }
+  }
+
+  @Test
   func listFilesPermissionAllowsDefaultAndNestedWorkspacePaths() async throws {
     let workspace = try makeWorkspace()
     let executor = ListFilesToolExecutor()

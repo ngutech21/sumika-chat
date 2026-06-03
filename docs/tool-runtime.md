@@ -137,6 +137,13 @@ flowchart TD
   aliases such as `Read` to `read_file`. Unknown names are not guessed; they
   become failed tool observations.
 - Read-only tools may auto-run only after workspace/path validation.
+- `read_file` returns the current UTF-8 preview on the first read of a
+  workspace-relative path/range. Re-reading the same unchanged path/range
+  through the same tool orchestrator returns a compact `unchanged` observation
+  on the second and third reads, then a repeated-read warning from the fourth
+  read onward. Changed content or a different range returns fresh content and
+  updates the tracker. Direct executor calls without a tracker remain
+  stateless.
 - `glob_files` and `search_files` are read-only discovery tools. They validate
   the requested `path`, default it to `.`, skip project metadata/build
   directories, and cap returned results. `search_files` treats a valid pattern
