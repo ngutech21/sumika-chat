@@ -14,6 +14,7 @@ public struct ToolLoopRequest: Sendable {
   public let turnID: ChatTurnRecord.ID
   public let assistantMessageID: UUID
   public let messages: [ChatMessage]
+  public let focusedFileState: FocusedFileState
   public let followUpPromptMode: ToolPromptMode
 
   public init(
@@ -22,6 +23,7 @@ public struct ToolLoopRequest: Sendable {
     turnID: ChatTurnRecord.ID,
     assistantMessageID: UUID,
     messages: [ChatMessage],
+    focusedFileState: FocusedFileState = .empty,
     followUpPromptMode: ToolPromptMode = .afterToolResultCanContinue
   ) {
     self.workspace = workspace
@@ -29,6 +31,7 @@ public struct ToolLoopRequest: Sendable {
     self.turnID = turnID
     self.assistantMessageID = assistantMessageID
     self.messages = messages
+    self.focusedFileState = focusedFileState
     self.followUpPromptMode = followUpPromptMode
   }
 }
@@ -42,13 +45,16 @@ nonisolated private enum ToolLoopParsedAction: Equatable, Sendable {
 public struct ToolLoopCoordinator: Sendable {
   private let toolCallParser: any ToolCallParsing
   private let toolOrchestrator: any ToolOrchestrating
+  private let focusedFileReducer: FocusedFileStateReducer
 
   public init(
     toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
-    toolOrchestrator: any ToolOrchestrating = ToolOrchestrator()
+    toolOrchestrator: any ToolOrchestrating = ToolOrchestrator(),
+    focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer()
   ) {
     self.toolCallParser = toolCallParser
     self.toolOrchestrator = toolOrchestrator
+    self.focusedFileReducer = focusedFileReducer
   }
 
   public var toolRegistry: ToolRegistry {
@@ -91,6 +97,7 @@ public struct ToolLoopCoordinator: Sendable {
           preview: record.resultPreview
             ?? ToolResultPreview(status: .failed, text: invalidToolMessage(error: error))
         ),
+        focusedFileState: request.focusedFileState,
         followUpPromptMode: request.followUpPromptMode
       )
     case .toolCall(let output):
@@ -135,7 +142,8 @@ public struct ToolLoopCoordinator: Sendable {
           turnID: request.turnID,
           toolCall: output.modelMessage,
           record: record,
-          toolResult: toolResult
+          toolResult: toolResult,
+          focusedFileState: request.focusedFileState
         )
       }
 
@@ -145,6 +153,7 @@ public struct ToolLoopCoordinator: Sendable {
         toolCall: output.modelMessage,
         record: record,
         toolResult: toolResult,
+        focusedFileState: request.focusedFileState,
         followUpPromptMode: request.followUpPromptMode
       )
     }
@@ -156,19 +165,22 @@ public struct ToolLoopCoordinator: Sendable {
     toolCall: ToolCallModelMessage,
     record: ToolCallRecord,
     toolResult: ToolResultModelMessage,
+    focusedFileState: FocusedFileState,
     followUpPromptMode: ToolPromptMode
   ) -> ChatWorkflowStep {
     let nextAssistantMessageID = UUID()
+    var events: [ChatWorkflowEvent] = [
+      .assistantMessageAnnotatedAsToolCall(
+        assistantMessageID: assistantMessageID,
+        toolCall: toolCall
+      ),
+      .toolCallAppended(record, turnID: turnID),
+      .toolResultAppended(toolResult, messageID: UUID(), turnID: turnID),
+    ]
+    events.append(contentsOf: focusedFileEvents(record: record, from: focusedFileState))
+    events.append(.assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID))
     return ChatWorkflowStep(
-      events: [
-        .assistantMessageAnnotatedAsToolCall(
-          assistantMessageID: assistantMessageID,
-          toolCall: toolCall
-        ),
-        .toolCallAppended(record, turnID: turnID),
-        .toolResultAppended(toolResult, messageID: UUID(), turnID: turnID),
-        .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
-      ],
+      events: events,
       continuation: .resumeGeneration(
         assistantMessageID: nextAssistantMessageID,
         promptMode: followUpPromptMode
@@ -181,19 +193,37 @@ public struct ToolLoopCoordinator: Sendable {
     turnID: ChatTurnRecord.ID,
     toolCall: ToolCallModelMessage,
     record: ToolCallRecord,
-    toolResult: ToolResultModelMessage
+    toolResult: ToolResultModelMessage,
+    focusedFileState: FocusedFileState
   ) -> ChatWorkflowStep {
-    ChatWorkflowStep(
-      events: [
-        .assistantMessageAnnotatedAsToolCall(
-          assistantMessageID: assistantMessageID,
-          toolCall: toolCall
-        ),
-        .toolCallAppended(record, turnID: turnID),
-        .toolResultAppended(toolResult, messageID: UUID(), turnID: turnID),
-      ],
+    var events: [ChatWorkflowEvent] = [
+      .assistantMessageAnnotatedAsToolCall(
+        assistantMessageID: assistantMessageID,
+        toolCall: toolCall
+      ),
+      .toolCallAppended(record, turnID: turnID),
+      .toolResultAppended(toolResult, messageID: UUID(), turnID: turnID),
+    ]
+    events.append(contentsOf: focusedFileEvents(record: record, from: focusedFileState))
+    return ChatWorkflowStep(
+      events: events,
       continuation: .stopTurn
     )
+  }
+
+  private func focusedFileEvents(
+    record: ToolCallRecord,
+    from focusedFileState: FocusedFileState
+  ) -> [ChatWorkflowEvent] {
+    let updatedState = focusedFileReducer.applyingToolResult(
+      record.resultPayload,
+      request: record.request,
+      to: focusedFileState
+    )
+    guard updatedState != focusedFileState else {
+      return []
+    }
+    return [.focusedFileStateChanged(updatedState)]
   }
 
   private func parseToolAction(

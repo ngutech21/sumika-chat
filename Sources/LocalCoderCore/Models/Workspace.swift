@@ -7,6 +7,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
   public var messages: [ChatMessage]
   public var toolCalls: [ToolCallRecord]
   public var turns: [ChatTurnRecord]
+  public var focusedFileState: FocusedFileState
   public var systemPrompt: String
   public var generationSettings: ChatGenerationSettings
   public var createdAt: Date
@@ -19,6 +20,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     messages: [ChatMessage] = [],
     toolCalls: [ToolCallRecord] = [],
     turns: [ChatTurnRecord] = [],
+    focusedFileState: FocusedFileState = .empty,
     systemPrompt: String,
     generationSettings: ChatGenerationSettings,
     createdAt: Date = Date(),
@@ -30,6 +32,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     self.messages = messages
     self.toolCalls = toolCalls
     self.turns = turns
+    self.focusedFileState = focusedFileState
     self.systemPrompt = systemPrompt
     self.generationSettings = generationSettings
     self.createdAt = createdAt
@@ -43,6 +46,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     case messages
     case toolCalls
     case turns
+    case focusedFileState
     case systemPrompt
     case generationSettings
     case createdAt
@@ -57,6 +61,8 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     messages = try container.decode([ChatMessage].self, forKey: .messages)
     toolCalls = try container.decodeIfPresent([ToolCallRecord].self, forKey: .toolCalls) ?? []
     turns = try container.decodeIfPresent([ChatTurnRecord].self, forKey: .turns) ?? []
+    focusedFileState =
+      try container.decodeIfPresent(FocusedFileState.self, forKey: .focusedFileState) ?? .empty
     systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
     generationSettings = try container.decode(
       ChatGenerationSettings.self, forKey: .generationSettings)

@@ -26,6 +26,33 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func loadSessionAndSnapshotPreserveFocusedFileState() {
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+    let focusedFileState = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(path: path, source: .readFile, confidence: .active)
+      ]
+    )
+    let session = CodingSession(
+      selectedModelID: ManagedModelCatalog.defaultModelID,
+      focusedFileState: focusedFileState,
+      systemPrompt: "System",
+      generationSettings: .codingDefault
+    )
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+
+    controller.loadSession(session)
+    let snapshot = controller.sessionSnapshot(updating: session)
+
+    #expect(controller.chatSession.focusedFileState == focusedFileState)
+    #expect(snapshot.focusedFileState == focusedFileState)
+  }
+
+  @Test
   func sendMessageStreamsAssistantReplyAndClearsDraftAndAttachments() async throws {
     let attachment = ChatAttachment(
       url: URL(filePath: "/tmp/source.swift"),
@@ -52,6 +79,13 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.messages[1].kind == .assistant)
     #expect(controller.chatSession.messages[1].content == "hello world")
     #expect(controller.chatSession.messages[1].deliveryStatus == .complete)
+    #expect(
+      controller.chatSession.focusedFileState.activePath
+        == WorkspaceRelativePath(rawValue: "source.swift"))
+    #expect(controller.chatSession.focusedFileState.recentPaths.first?.source == .attachment)
+    #expect(
+      controller.chatSession.focusedFileState.snapshots[
+        WorkspaceRelativePath(rawValue: "source.swift")]?.excerpt == "let value = 1")
     #expect(controller.chatSession.turns.count == 1)
     #expect(controller.chatSession.turns[0].status == .completed)
     #expect(controller.chatSession.turns[0].modelContextPolicy == .included)
@@ -66,6 +100,11 @@ struct ChatSessionControllerTests {
           tokensPerSecond: 100
         )
     )
+    let capturedMessages = await runtime.capturedMessages
+    #expect(
+      capturedMessages.first?.contains { message in
+        message.kind == .system && message.content.contains("Current focused file: source.swift")
+      } == true)
   }
 
   @Test
@@ -360,6 +399,13 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.toolCalls.count == 1)
     #expect(controller.chatSession.toolCalls[0].status == .completed)
     #expect(controller.chatSession.toolCalls[0].resultPreview?.text == "1: project notes")
+    #expect(
+      controller.chatSession.focusedFileState.activePath
+        == WorkspaceRelativePath(rawValue: "README.md"))
+    #expect(controller.chatSession.focusedFileState.recentPaths.first?.source == .readFile)
+    #expect(
+      controller.chatSession.focusedFileState.snapshots[
+        WorkspaceRelativePath(rawValue: "README.md")]?.excerpt == "1: project notes")
     let callID = controller.chatSession.toolCalls[0].request.id
     #expect(controller.chatSession.messages.count == 4)
     #expect(controller.chatSession.messages[1].kind == .toolCall)
@@ -386,6 +432,10 @@ struct ChatSessionControllerTests {
     #expect(
       capturedMessages[1].contains { message in
         message.kind == .toolResult && message.toolResult?.preview.text == "1: project notes"
+      })
+    #expect(
+      capturedMessages[1].contains { message in
+        message.kind == .system && message.content.contains("Current focused file: README.md")
       })
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 2)

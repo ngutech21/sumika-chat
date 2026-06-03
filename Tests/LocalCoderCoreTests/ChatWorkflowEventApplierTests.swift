@@ -121,6 +121,28 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
+  func updatesFocusedFileState() {
+    var state = makeState()
+    let focusedFileState = FocusedFileState(
+      activePath: WorkspaceRelativePath(rawValue: "README.md"),
+      recentPaths: [
+        FocusedPath(
+          path: WorkspaceRelativePath(rawValue: "README.md"),
+          source: .readFile,
+          confidence: .active
+        )
+      ]
+    )
+
+    ChatWorkflowEventApplier().apply(
+      .focusedFileStateChanged(focusedFileState),
+      to: &state
+    )
+
+    #expect(state.focusedFileState == focusedFileState)
+  }
+
+  @Test
   func appliesStreamingCancellationAndPlaceholderCleanup() {
     let turnID = UUID()
     let cancelledID = UUID()

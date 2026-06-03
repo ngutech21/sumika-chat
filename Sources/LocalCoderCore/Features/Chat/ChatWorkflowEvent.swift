@@ -24,6 +24,7 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
     status: ChatTurnStatus,
     modelContextPolicy: ChatTurnModelContextPolicy?
   )
+  case focusedFileStateChanged(FocusedFileState)
   case streamingAssistantMessagesCancelled(turnID: ChatTurnRecord.ID)
   case transientAssistantPlaceholdersRemoved
 }
@@ -92,6 +93,8 @@ public struct ChatWorkflowEventApplier: Sendable {
         for: turnID,
         in: &state
       )
+    case .focusedFileStateChanged(let focusedFileState):
+      state.focusedFileState = focusedFileState
     case .streamingAssistantMessagesCancelled(let turnID):
       mutator.markStreamingAssistantMessagesCancelled(inTurn: turnID, in: &state)
     case .transientAssistantPlaceholdersRemoved:

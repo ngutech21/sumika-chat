@@ -23,6 +23,7 @@ public final class ChatSessionController {
   @ObservationIgnored private let attachmentCoordinator: ChatAttachmentCoordinator
   @ObservationIgnored private let transcriptMutator = ChatTranscriptMutator()
   @ObservationIgnored private let workflowEventApplier = ChatWorkflowEventApplier()
+  @ObservationIgnored private let focusedFileReducer = FocusedFileStateReducer()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
@@ -208,6 +209,7 @@ extension ChatSessionController {
       toolCalls: session.toolCalls,
       turns: session.turns,
       attachments: [],
+      focusedFileState: session.focusedFileState,
       systemPrompt: session.systemPrompt,
       generationSettings: session.generationSettings
     )
@@ -225,6 +227,7 @@ extension ChatSessionController {
     snapshot.messages = chatSession.messages
     snapshot.toolCalls = chatSession.toolCalls
     snapshot.turns = chatSession.turns
+    snapshot.focusedFileState = chatSession.focusedFileState
     snapshot.systemPrompt = chatSession.systemPrompt
     snapshot.generationSettings = chatSession.generationSettings
     snapshot.updatedAt = Date()
@@ -267,6 +270,7 @@ extension ChatSessionController {
     draft = ""
     errorMessage = nil
     chatSession.attachments.removeAll()
+    applyWorkflowEvents(focusEventsForAttachments(sentAttachments, workspace: workspace))
     transcriptMutator.appendTurn(
       ChatTurnRecord(
         id: turnID,
@@ -539,6 +543,7 @@ extension ChatSessionController {
       let mergedRecord = mergedToolCallRecord(existing: existingRecord, updated: approvedRecord)
       var events = approvedToolCompletionEvents(
         record: mergedRecord,
+        focusedFileState: chatSession.focusedFileState,
         turnID: turnID
       )
 
@@ -581,9 +586,10 @@ extension ChatSessionController {
 
   private func approvedToolCompletionEvents(
     record: ToolCallRecord,
+    focusedFileState: FocusedFileState,
     turnID: ChatTurnRecord.ID
   ) -> [ChatWorkflowEvent] {
-    [
+    var events: [ChatWorkflowEvent] = [
       .toolCallReplaced(record),
       .toolResultAppended(
         toolResultMessage(for: record),
@@ -591,6 +597,8 @@ extension ChatSessionController {
         turnID: turnID
       ),
     ]
+    events.append(contentsOf: focusEventsForToolRecord(record, from: focusedFileState))
+    return events
   }
 
   private func toolResultMessage(for record: ToolCallRecord) -> ToolResultModelMessage {
@@ -725,6 +733,36 @@ extension ChatSessionController {
     workflowEventApplier.apply(events, to: &chatSession)
   }
 
+  private func focusEventsForToolRecord(
+    _ record: ToolCallRecord,
+    from focusedFileState: FocusedFileState
+  ) -> [ChatWorkflowEvent] {
+    let updatedState = focusedFileReducer.applyingToolResult(
+      record.resultPayload,
+      request: record.request,
+      to: focusedFileState
+    )
+    guard updatedState != focusedFileState else {
+      return []
+    }
+    return [.focusedFileStateChanged(updatedState)]
+  }
+
+  private func focusEventsForAttachments(
+    _ attachments: [ChatAttachment],
+    workspace: Workspace?
+  ) -> [ChatWorkflowEvent] {
+    let updatedState = focusedFileReducer.applyingAttachments(
+      attachments,
+      workspace: workspace,
+      to: chatSession.focusedFileState
+    )
+    guard updatedState != chatSession.focusedFileState else {
+      return []
+    }
+    return [.focusedFileStateChanged(updatedState)]
+  }
+
   private func deniedToolResultMessage(
     for deniedRecord: ToolCallRecord,
     message: String
@@ -818,6 +856,7 @@ extension ChatSessionController {
             turnID: turnID,
             assistantMessageID: currentAssistantMessageID,
             messages: chatSession.messages,
+            focusedFileState: chatSession.focusedFileState,
             followUpPromptMode: followUpPromptMode
           )
         )

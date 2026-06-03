@@ -104,6 +104,50 @@ struct WorkspaceStoreTests {
   }
 
   @Test
+  func workspaceStorePersistsFocusedFileState() async throws {
+    let libraryURL = temporaryLibraryURL()
+    let store = WorkspaceStore(libraryURL: libraryURL)
+    let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
+    let focusedFileState = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(
+          path: path,
+          source: .editFile,
+          confidence: .active,
+          updatedAt: Date(timeIntervalSinceReferenceDate: 2)
+        )
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          path: path,
+          contentHash: "abc",
+          excerpt: "struct App {}",
+          fullContentAvailable: true,
+          updatedAt: Date(timeIntervalSinceReferenceDate: 3)
+        )
+      ]
+    )
+    let session = CodingSession(
+      selectedModelID: "gemma3-1b",
+      focusedFileState: focusedFileState,
+      systemPrompt: "Use short answers.",
+      generationSettings: .codingDefault
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [session]
+    )
+    let library = WorkspaceLibrary(workspaces: [workspace])
+
+    try await store.saveLibrary(library)
+
+    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary()
+    #expect(reloaded.workspaces.first?.sessions.first?.focusedFileState == focusedFileState)
+  }
+
+  @Test
   func codingSessionDecodesLegacyJSONWithoutToolCallsOrTurns() throws {
     let legacySession = LegacyCodingSession(
       id: UUID(),
@@ -123,6 +167,7 @@ struct WorkspaceStoreTests {
     #expect(decoded.messages == legacySession.messages)
     #expect(decoded.toolCalls.isEmpty)
     #expect(decoded.turns.isEmpty)
+    #expect(decoded.focusedFileState == .empty)
   }
 
   private func temporaryLibraryURL() -> URL {

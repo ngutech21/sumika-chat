@@ -156,6 +156,7 @@ public struct ChatTranscriptMutator: Sendable {
     state.toolCalls.removeAll()
     state.turns.removeAll()
     state.attachments.removeAll()
+    state.focusedFileState = .empty
   }
 
   public func appendTurn(_ turn: ChatTurnRecord, to state: inout ChatSessionState) {

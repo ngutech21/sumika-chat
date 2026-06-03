@@ -1,0 +1,197 @@
+import CryptoKit
+import Foundation
+
+public struct FocusedFileStateReducer: Sendable {
+  public let maxRecentPaths: Int
+  public let maxSnapshotCharacters: Int
+
+  public init(
+    maxRecentPaths: Int = 8,
+    maxSnapshotCharacters: Int = 4_000
+  ) {
+    self.maxRecentPaths = maxRecentPaths
+    self.maxSnapshotCharacters = maxSnapshotCharacters
+  }
+
+  public func applyingToolResult(
+    _ payload: ToolResultPayload?,
+    request: ToolCallRequest,
+    to state: FocusedFileState,
+    updatedAt: Date = Date()
+  ) -> FocusedFileState {
+    guard let payload, payload.status == .success else {
+      return state
+    }
+
+    switch payload {
+    case .readFile(.success(let path, let content)):
+      return focusing(
+        path,
+        source: .readFile,
+        content: content.text,
+        fullContentAvailable: !content.truncated && !content.redacted,
+        in: state,
+        updatedAt: updatedAt
+      )
+    case .writeFile(.success(let path, _)):
+      let content: String?
+      if case .writeFile(let input) = request.payload {
+        content = input.content
+      } else {
+        content = nil
+      }
+      return focusing(
+        path,
+        source: .writeFile,
+        content: content,
+        fullContentAvailable: content != nil,
+        in: state,
+        updatedAt: updatedAt
+      )
+    case .editFile(.success(let path, _, _)):
+      return focusing(
+        path,
+        source: .editFile,
+        content: nil,
+        fullContentAvailable: false,
+        in: state,
+        updatedAt: updatedAt
+      )
+    default:
+      return state
+    }
+  }
+
+  public func applyingAttachments(
+    _ attachments: [ChatAttachment],
+    workspace: Workspace?,
+    to state: FocusedFileState,
+    updatedAt: Date = Date()
+  ) -> FocusedFileState {
+    guard !attachments.isEmpty else {
+      return state
+    }
+
+    let focusedAttachments = attachments.map { attachment in
+      let path = attachmentPath(for: attachment, workspace: workspace)
+      return (path, attachment.content)
+    }
+
+    if focusedAttachments.count == 1, let first = focusedAttachments.first {
+      return focusing(
+        first.0,
+        source: .attachment,
+        content: first.1,
+        fullContentAvailable: true,
+        in: state,
+        updatedAt: updatedAt
+      )
+    }
+
+    var updatedState = state
+    updatedState.activePath = nil
+    for attachment in focusedAttachments {
+      updatedState = recordingRecent(
+        attachment.0,
+        source: .attachment,
+        confidence: .ambiguous,
+        content: attachment.1,
+        fullContentAvailable: true,
+        in: updatedState,
+        updatedAt: updatedAt
+      )
+    }
+    return updatedState
+  }
+
+  private func focusing(
+    _ path: WorkspaceRelativePath,
+    source: FocusedPathSource,
+    content: String?,
+    fullContentAvailable: Bool,
+    in state: FocusedFileState,
+    updatedAt: Date
+  ) -> FocusedFileState {
+    var updatedState = recordingRecent(
+      path,
+      source: source,
+      confidence: .active,
+      content: content,
+      fullContentAvailable: fullContentAvailable,
+      in: state,
+      updatedAt: updatedAt
+    )
+    updatedState.activePath = path
+    return updatedState
+  }
+
+  private func recordingRecent(
+    _ path: WorkspaceRelativePath,
+    source: FocusedPathSource,
+    confidence: FocusConfidence,
+    content: String?,
+    fullContentAvailable: Bool,
+    in state: FocusedFileState,
+    updatedAt: Date
+  ) -> FocusedFileState {
+    var updatedState = state
+    updatedState.recentPaths.removeAll { $0.path == path }
+    updatedState.recentPaths.insert(
+      FocusedPath(
+        path: path,
+        source: source,
+        confidence: confidence,
+        updatedAt: updatedAt
+      ),
+      at: 0
+    )
+    if updatedState.recentPaths.count > maxRecentPaths {
+      updatedState.recentPaths = Array(updatedState.recentPaths.prefix(maxRecentPaths))
+    }
+
+    if let content {
+      updatedState.snapshots[path] = FocusedFileSnapshot(
+        path: path,
+        contentHash: Self.contentHash(for: content),
+        excerpt: Self.excerpt(from: content, limit: maxSnapshotCharacters),
+        fullContentAvailable: fullContentAvailable && content.count <= maxSnapshotCharacters,
+        updatedAt: updatedAt
+      )
+    }
+
+    let knownPaths = Set(updatedState.recentPaths.map(\.path))
+    updatedState.snapshots = updatedState.snapshots.filter { knownPaths.contains($0.key) }
+    return updatedState
+  }
+
+  private func attachmentPath(
+    for attachment: ChatAttachment,
+    workspace: Workspace?
+  ) -> WorkspaceRelativePath {
+    guard let workspace else {
+      return WorkspaceRelativePath(rawValue: attachment.displayName)
+    }
+
+    let resolvedURL = attachment.url.standardizedFileURL.resolvingSymlinksInPath()
+    let path = workspace.relativePath(for: resolvedURL)
+    if path.rawValue.hasPrefix("/") {
+      return WorkspaceRelativePath(rawValue: attachment.displayName)
+    }
+    return path
+  }
+
+  private static func contentHash(for content: String) -> String {
+    let digest = SHA256.hash(data: Data(content.utf8))
+    return digest.map { String(format: "%02x", $0) }.joined()
+  }
+
+  private static func excerpt(from content: String, limit: Int) -> String? {
+    guard !content.isEmpty else {
+      return nil
+    }
+    guard content.count > limit else {
+      return content
+    }
+    return String(content.prefix(limit))
+  }
+}

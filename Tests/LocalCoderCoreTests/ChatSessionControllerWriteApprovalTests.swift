@@ -82,6 +82,13 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(!controller.hasPendingApproval)
     #expect(controller.chatSession.toolCalls[0].status == .completed)
     #expect(controller.chatSession.toolCalls[0].resultPreview?.status == .success)
+    #expect(
+      controller.chatSession.focusedFileState.activePath
+        == WorkspaceRelativePath(rawValue: "movies.html"))
+    #expect(controller.chatSession.focusedFileState.recentPaths.first?.source == .writeFile)
+    #expect(
+      controller.chatSession.focusedFileState.snapshots[
+        WorkspaceRelativePath(rawValue: "movies.html")]?.excerpt == htmlContent)
     #expect(controller.chatSession.messages.count == 3)
     #expect(controller.chatSession.messages[2].kind == .toolResult)
     #expect(controller.chatSession.messages[2].toolResult?.toolName == .writeFile)
@@ -236,6 +243,10 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(!controller.isGenerating)
     #expect(!controller.hasPendingApproval)
     #expect(controller.chatSession.toolCalls[0].status == .completed)
+    #expect(
+      controller.chatSession.focusedFileState.activePath
+        == WorkspaceRelativePath(rawValue: "README.md"))
+    #expect(controller.chatSession.focusedFileState.recentPaths.first?.source == .editFile)
     #expect(controller.chatSession.messages.count == 3)
     #expect(controller.chatSession.messages[2].kind == .toolResult)
     #expect(controller.chatSession.messages[2].toolResult?.toolName == .editFile)

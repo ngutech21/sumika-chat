@@ -5,6 +5,7 @@ public struct ChatSessionState: Equatable, Sendable {
   public var toolCalls: [ToolCallRecord]
   public var turns: [ChatTurnRecord]
   public var attachments: [ChatAttachment]
+  public var focusedFileState: FocusedFileState
   public var systemPrompt: String
   public var generationSettings: ChatGenerationSettings
 
@@ -13,6 +14,7 @@ public struct ChatSessionState: Equatable, Sendable {
     toolCalls: [ToolCallRecord] = [],
     turns: [ChatTurnRecord] = [],
     attachments: [ChatAttachment],
+    focusedFileState: FocusedFileState = .empty,
     systemPrompt: String,
     generationSettings: ChatGenerationSettings
   ) {
@@ -20,6 +22,7 @@ public struct ChatSessionState: Equatable, Sendable {
     self.toolCalls = toolCalls
     self.turns = turns
     self.attachments = attachments
+    self.focusedFileState = focusedFileState
     self.systemPrompt = systemPrompt
     self.generationSettings = generationSettings
   }
@@ -29,6 +32,7 @@ public struct ChatSessionState: Equatable, Sendable {
     toolCalls: [],
     turns: [],
     attachments: [],
+    focusedFileState: .empty,
     systemPrompt: ChatPromptDefaults.codingSystemPrompt,
     generationSettings: .codingDefault
   )
