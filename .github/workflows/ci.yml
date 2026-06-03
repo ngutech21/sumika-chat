@@ -63,8 +63,9 @@ jobs:
             -destination "$DESTINATION" \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Test
-        run: /usr/bin/time -p xcrun swift test -Xswiftc -warnings-as-errors
+      - name: Run SwiftPM core tests
+        timeout-minutes: 10
+        run: /usr/bin/time -p xcrun swift test --no-parallel -Xswiftc -warnings-as-errors
 
       - name: Analyze
         run: |
