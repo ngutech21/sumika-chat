@@ -18,7 +18,7 @@ nonisolated enum GemmaMLXRuntimeError: LocalizedError {
     case .missingUserMessage:
       "Enter a message before generating a reply."
     case .invalidChatTemplateMessageSequence:
-      "The chat history contains adjacent assistant messages that cannot be rendered by the model template."
+      "The chat history contains a message role sequence that cannot be rendered by the model template."
     case .unsupportedArchitecture:
       "Local Gemma inference through MLX requires an Apple Silicon Mac."
     }
@@ -101,7 +101,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       throw GemmaMLXRuntimeError.missingUserMessage
     }
 
-    let prompt = generationPrompt(
+    var prompt = generationPrompt(
       prompt: messages[lastUserIndex].content,
       attachments: messages[lastUserIndex].attachments + attachments,
       remainingMessages: messages[messages.index(after: lastUserIndex)...]
@@ -114,10 +114,16 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       topP: Float(settings.topP),
       topK: settings.topK
     )
-    let history = try Self.generationHistoryMessages(from: messages[..<lastUserIndex])
+    let history = try Self.generationHistoryMessages(
+      from: messages[..<lastUserIndex],
+      systemPrompt: systemPrompt
+    )
+    if instructions != nil, history.isEmpty {
+      prompt = Self.embeddingSystemPromptIfNeeded(systemPrompt, into: [.user(prompt)])[0].content
+    }
     let session = ChatSession(
       modelContainer,
-      instructions: instructions,
+      instructions: nil,
       history: history,
       generateParameters: generateParameters
     )
@@ -197,10 +203,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   ) -> [Chat.Message] {
     var contextMessages: [Chat.Message] = []
 
-    if let instructions = normalizedSystemPrompt(systemPrompt) {
-      contextMessages.append(.system(instructions))
-    }
-
     if messages.isEmpty, !attachments.isEmpty {
       contextMessages.append(.user(attachmentContextBlock(attachments)))
     } else if let lastUserIndex = messages.lastIndex(where: { $0.kind == .user }) {
@@ -216,7 +218,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       contextMessages.append(contentsOf: messages.compactMap(Chat.Message.init))
     }
 
-    return contextMessages
+    return embeddingSystemPromptIfNeeded(systemPrompt, into: contextMessages)
   }
 
   nonisolated static func normalizedChatMessages(_ messages: [Chat.Message]) -> [Chat.Message] {
@@ -239,9 +241,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated static func validatedTemplateMessages(_ messages: [Chat.Message]) throws -> [Chat
     .Message]
   {
+    guard messages.allSatisfy({ $0.role == .user || $0.role == .assistant }) else {
+      throw GemmaMLXRuntimeError.invalidChatTemplateMessageSequence
+    }
+
     for index in messages.indices.dropFirst() {
       let previousIndex = messages.index(before: index)
-      if messages[previousIndex].role == .assistant && messages[index].role == .assistant {
+      if messages[previousIndex].role == messages[index].role {
         throw GemmaMLXRuntimeError.invalidChatTemplateMessageSequence
       }
     }
@@ -250,9 +256,12 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   nonisolated static func generationHistoryMessages(
-    from messages: ArraySlice<ChatMessage>
+    from messages: ArraySlice<ChatMessage>,
+    systemPrompt: String = ""
   ) throws -> [Chat.Message] {
-    var history = normalizedChatMessages(messages.compactMap(Chat.Message.init))
+    var history = normalizedChatMessages(
+      embeddingSystemPromptIfNeeded(systemPrompt, into: messages.compactMap(Chat.Message.init))
+    )
 
     while history.last?.role == .user {
       history.removeLast()
@@ -264,6 +273,51 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated private static func normalizedSystemPrompt(_ systemPrompt: String) -> String? {
     let effectiveSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
     return effectiveSystemPrompt.isEmpty ? nil : effectiveSystemPrompt
+  }
+
+  nonisolated static func embeddingSystemPromptIfNeeded(
+    _ systemPrompt: String,
+    into messages: [Chat.Message]
+  ) -> [Chat.Message] {
+    let systemMessages = messages.compactMap { message -> String? in
+      guard message.role == .system else {
+        return nil
+      }
+      return message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    .filter { !$0.isEmpty }
+
+    let systemContext = ([normalizedSystemPrompt(systemPrompt)] + systemMessages)
+      .compactMap(\.self)
+      .joined(separator: "\n\n")
+
+    guard !systemContext.isEmpty else {
+      return messages
+    }
+
+    let embeddedPrompt = """
+      System instructions:
+      \(systemContext)
+      """
+
+    var embeddedMessages = messages.filter { $0.role != .system }
+    guard let firstUserIndex = embeddedMessages.firstIndex(where: { $0.role == .user }) else {
+      return [.user(embeddedPrompt)] + embeddedMessages
+    }
+
+    let userMessage = embeddedMessages[firstUserIndex]
+    embeddedMessages[firstUserIndex] = Chat.Message(
+      role: .user,
+      content: """
+        \(embeddedPrompt)
+
+        User request:
+        \(userMessage.content)
+        """,
+      images: userMessage.images,
+      videos: userMessage.videos
+    )
+    return embeddedMessages
   }
 
 }
