@@ -196,7 +196,7 @@ struct ChatSessionControllerWriteApprovalTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 2)
-    #expect(capturedSystemPrompts[1].contains("emit one edit_file"))
+    #expect(capturedSystemPrompts[1].contains("emit at most one edit_file"))
   }
 
   @Test

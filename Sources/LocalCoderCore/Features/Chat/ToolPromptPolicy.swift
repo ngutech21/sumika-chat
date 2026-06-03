@@ -78,10 +78,12 @@ public struct ToolPromptPolicy: Sendable {
       return [
         basePrompt,
         """
-        You just received a tool result. If the result gives enough information to finish,
-        answer the user's request directly. If the user asked you to modify an existing file
-        and this result contains the file content needed for an exact edit, emit one edit_file
-        action with exact old_text and new_text.
+        You just received a tool result. Use it to continue the user's request.
+        If the result gives enough information to finish, answer directly.
+        If the user asked you to modify an existing file and the result contains current file
+        content, emit at most one edit_file action using old_text copied exactly from that content.
+        If a previous edit_file failed because old_text was not found or was ambiguous, retry with
+        exact current text and more surrounding context. Emit at most one <action> block, then stop.
         """,
         toolPromptRenderer.renderToolInstructions(
           registry: toolRegistry,
@@ -101,10 +103,33 @@ public struct ToolPromptPolicy: Sendable {
       return [
         basePrompt,
         """
-        When the user asks you to create a file, emit a write_file action with the full desired
-        file content. When the user asks you to modify an existing file, prefer read_file followed
-        by edit_file with exact old_text and new_text. Do not generate Python, shell, or other
-        helper scripts to write files.
+        When tools are available, use them for workspace file inspection and modification.
+
+        Tool-use protocol:
+        - Emit exactly one complete <action> block, then stop.
+        - Do not include explanatory text before or after an <action>.
+        - Do not wrap actions in Markdown fences.
+        - Use workspace-relative paths.
+
+        File workflow:
+        - To inspect a file, use read_file.
+        - To find files by name, use glob_files or list_files.
+        - To search code contents, use search_files.
+        - To create a new file, use write_file with the complete file content.
+        - To modify an existing file, use read_file first unless the exact current file content is
+          already visible in this request context.
+        - For targeted edits to existing files, use edit_file.
+        - Use write_file on an existing file only for intentional full-file replacement.
+        - Never edit existing files from memory.
+
+        edit_file rules:
+        - old_text must be copied exactly from current file content.
+        - Do not include line-number prefixes in old_text.
+        - Include enough surrounding context so old_text matches exactly once.
+        - If old_text is not found, read the file and retry with exact copied text.
+        - If old_text matches multiple locations, retry with more surrounding context.
+
+        Do not generate Python, shell, sed, awk, or helper scripts to write files.
         """,
         toolPromptRenderer.renderToolInstructions(
           registry: toolRegistry,
