@@ -49,14 +49,24 @@ public struct FocusedFileStateReducer: Sendable {
         updatedAt: updatedAt
       )
     case .editFile(.success(let path, _, _)):
-      return focusing(
+      let content: String?
+      if case .editFile(let input) = request.payload {
+        content = editedSnapshotContent(for: path, input: input, in: state)
+      } else {
+        content = nil
+      }
+      var updatedState = focusing(
         path,
         source: .editFile,
-        content: nil,
-        fullContentAvailable: false,
+        content: content,
+        fullContentAvailable: content != nil,
         in: state,
         updatedAt: updatedAt
       )
+      if content == nil {
+        updatedState.snapshots.removeValue(forKey: path)
+      }
+      return updatedState
     default:
       return state
     }
@@ -162,6 +172,25 @@ public struct FocusedFileStateReducer: Sendable {
     let knownPaths = Set(updatedState.recentPaths.map(\.path))
     updatedState.snapshots = updatedState.snapshots.filter { knownPaths.contains($0.key) }
     return updatedState
+  }
+
+  private func editedSnapshotContent(
+    for path: WorkspaceRelativePath,
+    input: EditFileInput,
+    in state: FocusedFileState
+  ) -> String? {
+    guard let snapshot = state.snapshots[path],
+      snapshot.fullContentAvailable,
+      let content = snapshot.excerpt
+    else {
+      return nil
+    }
+
+    guard content.components(separatedBy: input.oldText).count == 2 else {
+      return nil
+    }
+
+    return content.replacingOccurrences(of: input.oldText, with: input.newText)
   }
 
   private func attachmentPath(

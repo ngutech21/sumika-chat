@@ -48,7 +48,7 @@ struct FocusedFileStateReducerTests {
   }
 
   @Test
-  func editFileSuccessSetsActivePathWithoutReplacingExistingSnapshot() {
+  func editFileSuccessUpdatesExistingFullSnapshot() {
     let reducer = FocusedFileStateReducer()
     let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
     let initialState = FocusedFileState(
@@ -58,7 +58,7 @@ struct FocusedFileStateReducerTests {
         path: FocusedFileSnapshot(
           path: path,
           contentHash: "hash",
-          excerpt: "old snapshot",
+          excerpt: "let title = \"Old\"\n",
           fullContentAvailable: true
         )
       ]
@@ -69,7 +69,11 @@ struct FocusedFileStateReducerTests {
       request: makeRequest(
         toolName: .editFile,
         payload: .editFile(
-          EditFileInput(path: "Sources/App.swift", oldText: "old", newText: "new")
+          EditFileInput(
+            path: "Sources/App.swift",
+            oldText: "let title = \"Old\"",
+            newText: "let title = \"New\""
+          )
         )
       ),
       to: initialState,
@@ -78,7 +82,46 @@ struct FocusedFileStateReducerTests {
 
     #expect(state.activePath == path)
     #expect(state.recentPaths.first?.source == .editFile)
-    #expect(state.snapshots[path]?.excerpt == "old snapshot")
+    #expect(state.snapshots[path]?.excerpt == "let title = \"New\"\n")
+    #expect(state.snapshots[path]?.fullContentAvailable == true)
+  }
+
+  @Test
+  func editFileSuccessRemovesStaleSnapshotWhenItCannotBeUpdated() {
+    let reducer = FocusedFileStateReducer()
+    let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
+    let initialState = FocusedFileState(
+      activePath: nil,
+      recentPaths: [],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          path: path,
+          contentHash: "hash",
+          excerpt: "let title = \"Old\"\n",
+          fullContentAvailable: false
+        )
+      ]
+    )
+
+    let state = reducer.applyingToolResult(
+      .editFile(.success(path: path, diff: nil, matchStrategy: .exact)),
+      request: makeRequest(
+        toolName: .editFile,
+        payload: .editFile(
+          EditFileInput(
+            path: "Sources/App.swift",
+            oldText: "let title = \"Old\"",
+            newText: "let title = \"New\""
+          )
+        )
+      ),
+      to: initialState,
+      updatedAt: Date(timeIntervalSinceReferenceDate: 1)
+    )
+
+    #expect(state.activePath == path)
+    #expect(state.recentPaths.first?.source == .editFile)
+    #expect(state.snapshots[path] == nil)
   }
 
   @Test
