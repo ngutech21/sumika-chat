@@ -37,7 +37,12 @@ struct TurnTraceEventTests {
       ttftMs: 1234.5,
       tokensPerSecond: 21.5,
       cacheMode: "mlx_default",
-      interactionMode: .agent
+      interactionMode: .agent,
+      contextSignature: "ctx-new",
+      previousContextSignature: "ctx-old",
+      appendOnly: true,
+      reusedMessageCount: 4,
+      appendedMessageCount: 2
     )
 
     let data = try JSONEncoder().encode(event)
@@ -58,5 +63,10 @@ struct TurnTraceEventTests {
     #expect(object["tokensPerSecond"] as? Double == 21.5)
     #expect(object["cacheMode"] as? String == "mlx_default")
     #expect(object["interactionMode"] as? String == "agent")
+    #expect(object["contextSignature"] as? String == "ctx-new")
+    #expect(object["previousContextSignature"] as? String == "ctx-old")
+    #expect(object["appendOnly"] as? Bool == true)
+    #expect(object["reusedMessageCount"] as? Int == 4)
+    #expect(object["appendedMessageCount"] as? Int == 2)
   }
 }

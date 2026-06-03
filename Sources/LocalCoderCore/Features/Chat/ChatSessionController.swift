@@ -27,6 +27,7 @@ public final class ChatSessionController {
   @ObservationIgnored private let focusedFileReducer = FocusedFileStateReducer()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private var pendingContextUsageRefreshMode: ToolPromptMode?
+  @ObservationIgnored private var pendingRuntimeContextClear: PendingRuntimeContextClear?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
   @ObservationIgnored private let maxToolLoopIterations = 6
@@ -233,6 +234,7 @@ extension ChatSessionController {
     if didResetRuntime {
       invalidateContextUsage()
     } else {
+      clearRuntimeContextForReuse()
       refreshContextUsage()
     }
   }
@@ -258,6 +260,7 @@ extension ChatSessionController {
 
     chatSession.interactionMode = mode
     errorMessage = nil
+    clearRuntimeContextForReuse()
     refreshContextUsage(toolPromptMode: toolPromptMode(for: mode, toolsAvailable: true))
     notifySessionDidChange()
   }
@@ -328,6 +331,7 @@ extension ChatSessionController {
       }
 
       do {
+        try await awaitPendingRuntimeContextClear()
         let toolAvailability = toolPromptPolicy.toolAvailability(
           workspace: workspace,
           sessionID: sessionID
@@ -426,37 +430,89 @@ extension ChatSessionController {
     invalidateContextUsage()
     notifySessionDidChange()
 
-    contextUsageCoordinator.clearRuntimeContext(
-      operationID: modelRuntime.currentOperationID(),
-      snapshot: contextUsageSnapshot(),
-      onEvent: handleContextUsageEvent(_:))
+    clearRuntimeContextForReuse()
+    refreshContextUsage()
   }
 
   public func refreshContextUsage(toolPromptMode: ToolPromptMode = .disabled) {
-    guard !isGenerating else {
+    let snapshot = contextUsageSnapshot(toolPromptMode: toolPromptMode)
+    if snapshot.runtimeIsBusy {
       pendingContextUsageRefreshMode = toolPromptMode
-      return
     }
 
-    contextUsageCoordinator.refresh(
-      snapshot: contextUsageSnapshot(toolPromptMode: toolPromptMode),
+    contextUsageCoordinator.refreshDebounced(
+      snapshot: snapshot,
       onEvent: handleContextUsageEvent(_:))
   }
 
   public func updateContextUsage() async {
-    guard !isGenerating else {
+    let snapshot = contextUsageSnapshot()
+    if snapshot.runtimeIsBusy {
       pendingContextUsageRefreshMode = .disabled
-      return
     }
 
-    await contextUsageCoordinator.refreshNow(
-      snapshot: contextUsageSnapshot(),
+    contextUsageCoordinator.refreshDebounced(
+      snapshot: snapshot,
       onEvent: handleContextUsageEvent(_:))
   }
 
   private func invalidateContextUsage() {
     pendingContextUsageRefreshMode = nil
     contextUsageCoordinator.invalidate(onEvent: handleContextUsageEvent(_:))
+  }
+
+  private func clearRuntimeContextForReuse() {
+    let operationID = modelRuntime.currentOperationID()
+    let modelLifecycleCoordinator = modelLifecycleCoordinator
+    let previousTask = pendingRuntimeContextClear?.task
+    let clearID = UUID()
+    let clearTask = Task {
+      if let previousTask {
+        try await previousTask.value
+      }
+      try await modelLifecycleCoordinator.clearContext(operationID: operationID)
+    }
+    pendingRuntimeContextClear = PendingRuntimeContextClear(id: clearID, task: clearTask)
+
+    Task { [weak self, clearID, clearTask] in
+      do {
+        try await clearTask.value
+        self?.completeRuntimeContextClear(id: clearID, error: nil)
+      } catch is CancellationError {
+        self?.completeRuntimeContextClear(id: clearID, error: nil)
+      } catch {
+        self?.completeRuntimeContextClear(id: clearID, error: error)
+      }
+    }
+  }
+
+  private func awaitPendingRuntimeContextClear() async throws {
+    guard let pendingRuntimeContextClear else {
+      return
+    }
+
+    try await pendingRuntimeContextClear.task.value
+    if self.pendingRuntimeContextClear?.id == pendingRuntimeContextClear.id {
+      self.pendingRuntimeContextClear = nil
+    }
+  }
+
+  private func completeRuntimeContextClear(id: UUID, error: Error?) {
+    guard pendingRuntimeContextClear?.id == id else {
+      return
+    }
+
+    pendingRuntimeContextClear = nil
+    if let error {
+      errorMessage = error.localizedDescription
+    } else {
+      flushPendingContextUsageRefresh(defaultMode: .disabled)
+    }
+  }
+
+  private struct PendingRuntimeContextClear {
+    let id: UUID
+    let task: Task<Void, Error>
   }
 
   private func flushPendingContextUsageRefresh(defaultMode: ToolPromptMode) {
@@ -502,6 +558,8 @@ extension ChatSessionController {
       messages: messages,
       attachments: chatSession.attachments,
       systemPrompt: renderedSystemPrompt,
+      contextTokenLimit: modelRuntime.modelContextTokenLimit,
+      runtimeIsBusy: isGenerating || pendingRuntimeContextClear != nil,
       interactionMode: chatSession.interactionMode
     )
   }

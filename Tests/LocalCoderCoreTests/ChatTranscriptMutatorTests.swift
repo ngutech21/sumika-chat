@@ -76,7 +76,8 @@ struct ChatTranscriptMutatorTests {
   func annotateToolCallCreatesValidToolCallMessageAndKeepsContext() {
     let attachment = makeAttachment(name: "Package.swift")
     let assistantID = UUID()
-    let metrics = ChatGenerationMetrics(generatedTokenCount: 20, tokensPerSecond: 8)
+    let metrics = ChatGenerationMetrics(
+      generatedTokenCount: 20, tokensPerSecond: 8, durationMs: 250)
     let toolCall = ToolCallModelMessage(
       callID: UUID(),
       toolName: .readFile,

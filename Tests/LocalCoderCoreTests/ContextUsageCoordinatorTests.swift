@@ -21,6 +21,27 @@ struct ContextUsageCoordinatorTests {
   }
 
   @Test
+  func busyRefreshPublishesStaleEstimateWithoutRuntimeTokenization() async {
+    let runtime = ContextUsageFakeRuntime()
+    let operationID = UUID()
+    let coordinator = makeCoordinator(runtime: runtime, initialOperationID: operationID)
+    var events: [ContextUsageEvent] = []
+
+    await coordinator.refreshNow(
+      snapshot: readySnapshot(operationID: operationID, runtimeIsBusy: true)
+    ) {
+      events.append($0)
+    }
+
+    #expect(await runtime.contextUsageRequestCount == 0)
+    #expect(
+      events == [
+        .updated(
+          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: true))
+      ])
+  }
+
+  @Test
   func refreshResetsWhenModelIsNotReady() async {
     let runtime = ContextUsageFakeRuntime()
     let operationID = UUID()
@@ -37,7 +58,7 @@ struct ContextUsageCoordinatorTests {
   }
 
   @Test
-  func refreshPublishesOnlyLatestResult() async throws {
+  func debouncedRefreshesCollapseIntoOneRuntimeRequest() async throws {
     let runtime = ContextUsageControlledRuntime()
     let operationID = UUID()
     let coordinator = makeCoordinator(runtime: runtime, initialOperationID: operationID)
@@ -46,31 +67,110 @@ struct ContextUsageCoordinatorTests {
     coordinator.refresh(snapshot: readySnapshot(operationID: operationID)) {
       events.append($0)
     }
-    try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
 
     coordinator.refresh(snapshot: readySnapshot(operationID: operationID)) {
       events.append($0)
     }
-    try await waitUntilAsync { await runtime.contextUsageRequestCount == 2 }
+    try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
 
     await runtime.resolveContextUsage(
-      at: 1,
+      at: 0,
       with: ChatContextUsage(usedTokens: 20, tokenLimit: 100)
     )
     try await waitUntil { events == [.updated(ChatContextUsage(usedTokens: 20, tokenLimit: 100))] }
+
+    #expect(await runtime.completedContextUsageCount == 1)
+  }
+
+  @Test
+  func exactRefreshInFlightQueuesLatestRefreshWithoutStartingSecondRuntimeRequest() async throws {
+    let runtime = ContextUsageControlledRuntime()
+    let operationID = UUID()
+    let coordinator = makeCoordinator(runtime: runtime, initialOperationID: operationID)
+    var events: [ContextUsageEvent] = []
+
+    let firstRefresh = Task {
+      await coordinator.refreshNow(snapshot: readySnapshot(operationID: operationID)) {
+        events.append($0)
+      }
+    }
+    defer {
+      firstRefresh.cancel()
+    }
+    try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
+
+    coordinator.refresh(
+      snapshot: readySnapshot(operationID: operationID, systemPrompt: "new system")
+    ) {
+      events.append($0)
+    }
+    await Task.yield()
+    #expect(await runtime.contextUsageRequestCount == 1)
+    #expect(
+      events == [
+        .updated(
+          ChatContextUsage(usedTokens: 4, tokenLimit: 100, accuracy: .estimate, isStale: true))
+      ])
 
     await runtime.resolveContextUsage(
       at: 0,
       with: ChatContextUsage(usedTokens: 10, tokenLimit: 100)
     )
-    try await waitUntilAsync { await runtime.completedContextUsageCount == 2 }
-    await Task.yield()
+    await firstRefresh.value
+    try await waitUntilAsync { await runtime.completedContextUsageCount == 1 }
+    try await waitUntilAsync { await runtime.contextUsageRequestCount == 2 }
 
-    #expect(events == [.updated(ChatContextUsage(usedTokens: 20, tokenLimit: 100))])
+    await runtime.resolveContextUsage(
+      at: 0,
+      with: ChatContextUsage(usedTokens: 30, tokenLimit: 100)
+    )
+    try await waitUntil {
+      events.last == .updated(ChatContextUsage(usedTokens: 30, tokenLimit: 100))
+    }
   }
 
   @Test
-  func clearRuntimeContextClearsThenRefreshes() async throws {
+  func invalidateDropsQueuedRefreshBehindInFlightExactRefresh() async throws {
+    let runtime = ContextUsageControlledRuntime()
+    let operationID = UUID()
+    let coordinator = makeCoordinator(runtime: runtime, initialOperationID: operationID)
+    var events: [ContextUsageEvent] = []
+
+    let firstRefresh = Task {
+      await coordinator.refreshNow(snapshot: readySnapshot(operationID: operationID)) {
+        events.append($0)
+      }
+    }
+    defer {
+      firstRefresh.cancel()
+    }
+    try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
+
+    coordinator.refresh(
+      snapshot: readySnapshot(operationID: operationID, systemPrompt: "queued system")
+    ) {
+      events.append($0)
+    }
+    await Task.yield()
+    #expect(await runtime.contextUsageRequestCount == 1)
+
+    coordinator.invalidate {
+      events.append($0)
+    }
+
+    await runtime.resolveContextUsage(
+      at: 0,
+      with: ChatContextUsage(usedTokens: 10, tokenLimit: 100)
+    )
+    await firstRefresh.value
+    try await Task.sleep(for: .milliseconds(50))
+
+    #expect(await runtime.contextUsageRequestCount == 1)
+    #expect(events.last == .reset)
+  }
+
+  @Test
+  func clearRuntimeContextClearsWithoutExactRefresh() async throws {
     let runtime = ContextUsageFakeRuntime(
       usage: ChatContextUsage(usedTokens: 42, tokenLimit: nil))
     let operationID = UUID()
@@ -85,7 +185,12 @@ struct ContextUsageCoordinatorTests {
     }
 
     try await waitUntilAsync { await runtime.clearContextCount == 1 }
-    try await waitUntil { events == [.updated(ChatContextUsage(usedTokens: 42, tokenLimit: nil))] }
+    #expect(await runtime.contextUsageRequestCount == 0)
+    #expect(
+      events == [
+        .updated(
+          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: true))
+      ])
   }
 
   @Test
@@ -120,7 +225,37 @@ struct ContextUsageCoordinatorTests {
     try await waitUntilAsync { await runtime.didFinishClearContext }
     await Task.yield()
 
-    #expect(events == [.updated(ChatContextUsage(usedTokens: 42, tokenLimit: nil))])
+    #expect(
+      events == [
+        .updated(
+          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: true)),
+        .updated(ChatContextUsage(usedTokens: 42, tokenLimit: nil)),
+      ])
+  }
+
+  @Test
+  func exactRefreshTracesTokenizationButEstimateDoesNot() async throws {
+    let runtime = ContextUsageFakeRuntime(usage: ChatContextUsage(usedTokens: 12, tokenLimit: 128))
+    let operationID = UUID()
+    let tracer = RecordingContextUsageTracer()
+    let coordinator = makeCoordinator(
+      runtime: runtime, initialOperationID: operationID, tracer: tracer)
+    var events: [ContextUsageEvent] = []
+
+    await coordinator.refreshNow(
+      snapshot: readySnapshot(operationID: operationID, runtimeIsBusy: true)
+    ) {
+      events.append($0)
+    }
+    #expect(await tracer.events.isEmpty)
+
+    await coordinator.refreshNow(snapshot: readySnapshot(operationID: operationID)) {
+      events.append($0)
+    }
+
+    let event = try #require(await tracer.events.first)
+    #expect(event.phase == .tokenizeContextUsage)
+    #expect(event.promptTokens == 12)
   }
 
   @Test
@@ -139,7 +274,8 @@ struct ContextUsageCoordinatorTests {
 
   private func makeCoordinator(
     runtime: any ChatModelRuntime,
-    initialOperationID: UUID
+    initialOperationID: UUID,
+    tracer: any TurnTracing = NoopTurnTracer()
   ) -> ContextUsageCoordinator {
     let runtimeOperations = RuntimeOperationCoordinator(
       runtime: runtime,
@@ -149,19 +285,26 @@ struct ContextUsageCoordinatorTests {
       modelLifecycleCoordinator: ModelLifecycleCoordinator(
         modelDownloader: ContextUsageFakeModelDownloader(),
         runtimeOperations: runtimeOperations
-      ))
+      ),
+      turnTracer: tracer,
+      debounceDelay: .milliseconds(10)
+    )
   }
 
   private func readySnapshot(
     modelState: ModelLoadState = .ready,
-    operationID: UUID
+    operationID: UUID,
+    systemPrompt: String = "system",
+    runtimeIsBusy: Bool = false
   ) -> ContextUsageSnapshot {
     ContextUsageSnapshot(
       modelState: modelState,
       operationID: operationID,
       messages: [ChatMessage(userContent: "hello")],
       attachments: [],
-      systemPrompt: "system"
+      systemPrompt: systemPrompt,
+      contextTokenLimit: 100,
+      runtimeIsBusy: runtimeIsBusy
     )
   }
 
@@ -197,6 +340,7 @@ struct ContextUsageCoordinatorTests {
 private actor ContextUsageFakeRuntime: ChatModelRuntime {
   private let usage: ChatContextUsage
   private(set) var clearContextCount = 0
+  private(set) var contextUsageRequestCount = 0
 
   init(usage: ChatContextUsage = ChatContextUsage(usedTokens: 0, tokenLimit: nil)) {
     self.usage = usage
@@ -220,6 +364,7 @@ private actor ContextUsageFakeRuntime: ChatModelRuntime {
     _ = messages
     _ = attachments
     _ = systemPrompt
+    contextUsageRequestCount += 1
     return usage
   }
 
@@ -241,11 +386,8 @@ private actor ContextUsageFakeRuntime: ChatModelRuntime {
 
 private actor ContextUsageControlledRuntime: ChatModelRuntime {
   private var contextUsageContinuations: [CheckedContinuation<ChatContextUsage, Never>] = []
+  private(set) var contextUsageRequestCount = 0
   private(set) var completedContextUsageCount = 0
-
-  var contextUsageRequestCount: Int {
-    contextUsageContinuations.count
-  }
 
   func load(configuration: ChatModelConfiguration) async throws {
     _ = configuration
@@ -262,6 +404,7 @@ private actor ContextUsageControlledRuntime: ChatModelRuntime {
     _ = messages
     _ = attachments
     _ = systemPrompt
+    contextUsageRequestCount += 1
     let usage = await withCheckedContinuation { continuation in
       contextUsageContinuations.append(continuation)
     }
@@ -376,6 +519,14 @@ private actor ContextUsageFailingRuntime: ChatModelRuntime {
     return AsyncThrowingStream { continuation in
       continuation.finish()
     }
+  }
+}
+
+private actor RecordingContextUsageTracer: TurnTracing {
+  private(set) var events: [TurnTraceEvent] = []
+
+  func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+    events.append(event)
   }
 }
 

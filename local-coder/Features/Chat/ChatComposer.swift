@@ -247,7 +247,8 @@ private struct ComposerResourceSummary: View {
         ComposerMetric(
           title: "Tokens",
           systemImage: "rectangle.stack",
-          value: tokenValue
+          value: tokenValue,
+          help: tokenHelp
         )
       }
     }
@@ -260,12 +261,21 @@ private struct ComposerResourceSummary: View {
       return nil
     }
 
+    let prefix = contextUsage.accuracy == .estimate ? "~" : ""
     let usedTokens = contextUsage.usedTokens.formatted(.number)
     guard let availableTokens = contextUsage.availableTokens else {
-      return usedTokens
+      return "\(prefix)\(usedTokens)"
     }
 
-    return "\(usedTokens)/\(availableTokens.formatted(.number))"
+    return "\(prefix)\(usedTokens)/\(availableTokens.formatted(.number))"
+  }
+
+  private var tokenHelp: String? {
+    guard let contextUsage, contextUsage.accuracy == .estimate || contextUsage.isStale else {
+      return nil
+    }
+
+    return "Estimated tokens; exact count updates when idle."
   }
 }
 
@@ -273,6 +283,7 @@ private struct ComposerMetric: View {
   let title: String
   let systemImage: String
   let value: String
+  var help: String?
 
   var body: some View {
     Label {
@@ -285,6 +296,7 @@ private struct ComposerMetric: View {
       Image(systemName: systemImage)
     }
     .lineLimit(1)
+    .help(help ?? "")
   }
 }
 

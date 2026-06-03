@@ -160,6 +160,109 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(rendered[0].content.contains("The tool call was invalid"))
   }
 
+  @Test
+  func cacheDecisionReusesOnlyExactRenderedPrefix() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedReusable: true,
+      invalidationReason: nil,
+      currentHistory: prefix,
+      currentSettings: settings
+    )
+
+    #expect(decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.appendOnly)
+    #expect(decision.trace.reusedMessageCount == 2)
+    #expect(decision.trace.appendedMessageCount == 0)
+  }
+
+  @Test
+  func cacheDecisionInvalidatesWhenRenderedHistoryChanges() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let changedHistory = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("different"),
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedReusable: true,
+      invalidationReason: nil,
+      currentHistory: changedHistory,
+      currentSettings: settings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(!decision.trace.appendOnly)
+  }
+
+  @Test
+  func cacheDecisionInvalidatesWhenSettingsChange() {
+    var changedSettings = ChatGenerationSettings.codingDefault
+    changedSettings.maxTokens = 128
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: .codingDefault,
+      cachedReusable: true,
+      invalidationReason: nil,
+      currentHistory: prefix,
+      currentSettings: changedSettings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+  }
+
+  @Test
+  func cacheDecisionInvalidatesAfterCancelledOrInterruptedStream() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+
+    let cancelled = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedReusable: false,
+      invalidationReason: .cancelled,
+      currentHistory: prefix,
+      currentSettings: settings
+    )
+    let interrupted = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedReusable: false,
+      invalidationReason: .interrupted,
+      currentHistory: prefix,
+      currentSettings: settings
+    )
+
+    #expect(!cancelled.shouldReuse)
+    #expect(cancelled.trace.cacheMode == .invalidatedCancelled)
+    #expect(!interrupted.shouldReuse)
+    #expect(interrupted.trace.cacheMode == .invalidatedInterrupted)
+  }
+
   private func writeFileToolCall(
     callID: UUID,
     arguments: ToolCallArguments

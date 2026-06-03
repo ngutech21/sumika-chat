@@ -75,6 +75,23 @@ struct ChatMessageTests {
   }
 
   @Test
+  func decodesLegacyGenerationMetricsWithoutDuration() throws {
+    let json = Data(
+      """
+      {
+        "generatedTokenCount": 12,
+        "tokensPerSecond": 4.5
+      }
+      """.utf8)
+
+    let metrics = try JSONDecoder().decode(ChatGenerationMetrics.self, from: json)
+
+    #expect(metrics.generatedTokenCount == 12)
+    #expect(metrics.tokensPerSecond == 4.5)
+    #expect(metrics.durationMs == nil)
+  }
+
+  @Test
   func decodesMessagesThroughTypedPayload() throws {
     let message = ChatMessage(
       toolResult: ToolResultModelMessage(

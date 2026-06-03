@@ -10,6 +10,7 @@ nonisolated enum GemmaMLXRuntimeError: LocalizedError {
   case missingUserMessage
   case invalidChatTemplateMessageSequence
   case unsupportedArchitecture
+  case interruptedStream
 
   var errorDescription: String? {
     switch self {
@@ -21,13 +22,78 @@ nonisolated enum GemmaMLXRuntimeError: LocalizedError {
       "The chat history contains a message role sequence that cannot be rendered by the model template."
     case .unsupportedArchitecture:
       "Local Gemma inference through MLX requires an Apple Silicon Mac."
+    case .interruptedStream:
+      "Local Gemma generation ended before the model reported completion."
     }
   }
 }
 
+nonisolated enum GemmaSessionCacheMode: String, Equatable, Sendable {
+  case newSessionHistory = "new_session_history"
+  case sessionReused = "session_reused"
+  case invalidatedSignatureMismatch = "invalidated_signature_mismatch"
+  case invalidatedCancelled = "invalidated_cancelled"
+  case invalidatedInterrupted = "invalidated_interrupted"
+  case invalidatedModelChanged = "invalidated_model_changed"
+}
+
+nonisolated enum GemmaSessionInvalidationReason: Equatable, Sendable {
+  case signatureMismatch
+  case cancelled
+  case interrupted
+  case modelChanged
+
+  var cacheMode: GemmaSessionCacheMode {
+    switch self {
+    case .signatureMismatch:
+      .invalidatedSignatureMismatch
+    case .cancelled:
+      .invalidatedCancelled
+    case .interrupted:
+      .invalidatedInterrupted
+    case .modelChanged:
+      .invalidatedModelChanged
+    }
+  }
+}
+
+nonisolated struct GemmaMessageSnapshot: Equatable, Sendable {
+  let role: String
+  let content: String
+}
+
+nonisolated struct GemmaSessionCacheTrace: Equatable, Sendable {
+  let cacheMode: GemmaSessionCacheMode
+  let contextSignature: String
+  let previousContextSignature: String?
+  let appendOnly: Bool
+  let reusedMessageCount: Int
+  let appendedMessageCount: Int
+}
+
+nonisolated struct GemmaSessionCacheDecision: Equatable, Sendable {
+  let shouldReuse: Bool
+  let trace: GemmaSessionCacheTrace
+}
+
+nonisolated private struct CachedGemmaSession {
+  let session: ChatSession
+  let prefix: [GemmaMessageSnapshot]
+  let settings: ChatGenerationSettings
+  let contextSignature: String
+  let isReusable: Bool
+  let invalidationReason: GemmaSessionInvalidationReason?
+}
+
+nonisolated private struct GemmaSessionCachePlan {
+  let session: ChatSession
+  let trace: GemmaSessionCacheTrace
+}
+
 final actor GemmaMLXRuntime: ChatModelRuntime {
   private var modelContainer: ModelContainer?
-  private var session: ChatSession?
+  private var cachedSession: CachedGemmaSession?
+  private var pendingCacheInvalidationReason: GemmaSessionInvalidationReason?
   private var contextTokenLimit: Int?
 
   func load(configuration: ChatModelConfiguration) async throws {
@@ -50,19 +116,29 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
     modelContainer = container
     contextTokenLimit = configuration.contextTokenLimit
-    session = nil
+    invalidateCachedSession(reason: .modelChanged)
   }
 
   func unload() async {
-    session = nil
+    invalidateCachedSession(reason: .modelChanged)
     modelContainer = nil
     contextTokenLimit = nil
     Memory.clearCache()
   }
 
   func clearContext() async {
-    session = nil
+    invalidateCachedSession(reason: .signatureMismatch)
     Memory.clearCache()
+  }
+
+  func generatedTokenCount(for text: String) async throws -> Int {
+    guard let modelContainer else {
+      throw GemmaMLXRuntimeError.modelNotLoaded
+    }
+
+    return await modelContainer.perform { context in
+      context.tokenizer.encode(text: text, addSpecialTokens: false).count
+    }
   }
 
   func contextUsage(
@@ -122,13 +198,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     if instructions != nil, history.isEmpty {
       prompt = Self.embeddingSystemPromptIfNeeded(systemPrompt, into: [.user(prompt)])[0].content
     }
-    let session = ChatSession(
-      modelContainer,
-      instructions: nil,
+    let historySnapshot = Self.messageSnapshot(from: history)
+    let finalPrompt = prompt
+    let cachePlan = prepareSession(
+      modelContainer: modelContainer,
       history: history,
+      historySnapshot: historySnapshot,
+      settings: settings,
       generateParameters: generateParameters
     )
-    self.session = session
 
     let traceMetadata = TurnTraceContext.current
     let traceID = traceMetadata?.generationID ?? UUID()
@@ -143,7 +221,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       contextTokenLimit: contextTokenLimit
     )
 
-    let stream = session.streamDetails(to: prompt, images: [], videos: [])
+    let stream = cachePlan.session.streamDetails(to: prompt, images: [], videos: [])
     if let traceMetadata {
       await traceMetadata.tracer.recordTurnTraceEvent(
         TurnTraceEvent(
@@ -153,12 +231,123 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
           promptBytes: prompt.utf8.count,
           messageCount: messages.count,
-          cacheMode: "mlx_default",
-          interactionMode: traceMetadata.interactionMode
+          cacheMode: cachePlan.trace.cacheMode.rawValue,
+          interactionMode: traceMetadata.interactionMode,
+          contextSignature: cachePlan.trace.contextSignature,
+          previousContextSignature: cachePlan.trace.previousContextSignature,
+          appendOnly: cachePlan.trace.appendOnly,
+          reusedMessageCount: cachePlan.trace.reusedMessageCount,
+          appendedMessageCount: cachePlan.trace.appendedMessageCount
         )
       )
     }
-    return Self.modelStream(from: stream, traceID: traceID, traceMetadata: traceMetadata)
+    return Self.modelStream(
+      from: stream,
+      traceID: traceID,
+      traceMetadata: traceMetadata,
+      cacheTrace: cachePlan.trace,
+      markCompleted: { [weak self] output in
+        await self?.markSessionCompleted(
+          historyPrefix: historySnapshot,
+          prompt: finalPrompt,
+          output: output,
+          settings: settings
+        )
+      },
+      markCancelled: { [weak self] reason in
+        await self?.markCachedSessionInvalid(reason: reason)
+      }
+    )
+  }
+
+  private func prepareSession(
+    modelContainer: ModelContainer,
+    history: [Chat.Message],
+    historySnapshot: [GemmaMessageSnapshot],
+    settings: ChatGenerationSettings,
+    generateParameters: GenerateParameters
+  ) -> GemmaSessionCachePlan {
+    let contextSignature = Self.contextSignature(for: historySnapshot)
+    let cached = cachedSession
+    let decision = Self.cacheDecision(
+      cachedPrefix: cached?.prefix,
+      cachedSettings: cached?.settings,
+      cachedReusable: cached?.isReusable,
+      invalidationReason: cached?.invalidationReason ?? pendingCacheInvalidationReason,
+      currentHistory: historySnapshot,
+      currentSettings: settings
+    )
+    pendingCacheInvalidationReason = nil
+
+    if decision.shouldReuse, let cached {
+      cachedSession = CachedGemmaSession(
+        session: cached.session,
+        prefix: cached.prefix,
+        settings: cached.settings,
+        contextSignature: cached.contextSignature,
+        isReusable: false,
+        invalidationReason: .interrupted
+      )
+      return GemmaSessionCachePlan(session: cached.session, trace: decision.trace)
+    }
+
+    let session = ChatSession(
+      modelContainer,
+      instructions: nil,
+      history: history,
+      generateParameters: generateParameters
+    )
+    cachedSession = CachedGemmaSession(
+      session: session,
+      prefix: historySnapshot,
+      settings: settings,
+      contextSignature: contextSignature,
+      isReusable: false,
+      invalidationReason: .interrupted
+    )
+    return GemmaSessionCachePlan(session: session, trace: decision.trace)
+  }
+
+  private func markSessionCompleted(
+    historyPrefix: [GemmaMessageSnapshot],
+    prompt: String,
+    output: String,
+    settings: ChatGenerationSettings
+  ) {
+    let completedPrefix =
+      historyPrefix
+      + [
+        GemmaMessageSnapshot(role: Chat.Message.Role.user.rawValue, content: prompt),
+        GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: output),
+      ]
+    cachedSession = cachedSession.map { cached in
+      CachedGemmaSession(
+        session: cached.session,
+        prefix: completedPrefix,
+        settings: settings,
+        contextSignature: Self.contextSignature(for: completedPrefix),
+        isReusable: true,
+        invalidationReason: nil
+      )
+    }
+  }
+
+  private func markCachedSessionInvalid(reason: GemmaSessionInvalidationReason) {
+    cachedSession = cachedSession.map { cached in
+      CachedGemmaSession(
+        session: cached.session,
+        prefix: cached.prefix,
+        settings: cached.settings,
+        contextSignature: cached.contextSignature,
+        isReusable: false,
+        invalidationReason: reason
+      )
+    }
+  }
+
+  private func invalidateCachedSession(reason: GemmaSessionInvalidationReason) {
+    cachedSession = nil
+    pendingCacheInvalidationReason = reason
   }
 
   private func configureMLXMemory() {
@@ -169,10 +358,101 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
   nonisolated private static let maxMLXCacheBytes = 512 * 1024 * 1024
 
+  nonisolated static func messageSnapshot(from messages: [Chat.Message]) -> [GemmaMessageSnapshot] {
+    messages.map { message in
+      GemmaMessageSnapshot(role: message.role.rawValue, content: message.content)
+    }
+  }
+
+  nonisolated static func cacheDecision(
+    cachedPrefix: [GemmaMessageSnapshot]?,
+    cachedSettings: ChatGenerationSettings?,
+    cachedReusable: Bool?,
+    invalidationReason: GemmaSessionInvalidationReason?,
+    currentHistory: [GemmaMessageSnapshot],
+    currentSettings: ChatGenerationSettings
+  ) -> GemmaSessionCacheDecision {
+    let currentSignature = contextSignature(for: currentHistory)
+    let previousSignature = cachedPrefix.map(contextSignature(for:))
+    let appendOnly = cachedPrefix.map { isPrefix($0, of: currentHistory) } ?? false
+    let reusedMessageCount = appendOnly ? (cachedPrefix?.count ?? 0) : 0
+    let appendedMessageCount =
+      appendOnly ? max(0, currentHistory.count - (cachedPrefix?.count ?? 0)) : currentHistory.count
+
+    let cacheMode: GemmaSessionCacheMode
+    let shouldReuse: Bool
+    if cachedPrefix == nil, let invalidationReason {
+      cacheMode = invalidationReason.cacheMode
+      shouldReuse = false
+    } else if cachedPrefix == nil {
+      cacheMode = .newSessionHistory
+      shouldReuse = false
+    } else if let invalidationReason, cachedReusable != true {
+      cacheMode = invalidationReason.cacheMode
+      shouldReuse = false
+    } else if cachedSettings != currentSettings {
+      cacheMode = .invalidatedSignatureMismatch
+      shouldReuse = false
+    } else if cachedPrefix == currentHistory {
+      cacheMode = .sessionReused
+      shouldReuse = true
+    } else {
+      cacheMode = .invalidatedSignatureMismatch
+      shouldReuse = false
+    }
+
+    return GemmaSessionCacheDecision(
+      shouldReuse: shouldReuse,
+      trace: GemmaSessionCacheTrace(
+        cacheMode: cacheMode,
+        contextSignature: currentSignature,
+        previousContextSignature: previousSignature,
+        appendOnly: appendOnly,
+        reusedMessageCount: reusedMessageCount,
+        appendedMessageCount: appendedMessageCount
+      )
+    )
+  }
+
+  nonisolated static func contextSignature(for messages: [GemmaMessageSnapshot]) -> String {
+    var hash: UInt64 = 14_695_981_039_346_656_037
+    func update(_ byte: UInt8) {
+      hash ^= UInt64(byte)
+      hash &*= 1_099_511_628_211
+    }
+
+    for message in messages {
+      for byte in message.role.utf8 {
+        update(byte)
+      }
+      update(0)
+      for byte in message.content.utf8 {
+        update(byte)
+      }
+      update(0xFF)
+    }
+
+    return String(format: "%016llx", hash)
+  }
+
+  nonisolated private static func isPrefix(
+    _ prefix: [GemmaMessageSnapshot],
+    of messages: [GemmaMessageSnapshot]
+  ) -> Bool {
+    guard prefix.count <= messages.count else {
+      return false
+    }
+
+    return zip(prefix, messages).allSatisfy(==)
+  }
+
   nonisolated private static func modelStream(
     from stream: AsyncThrowingStream<Generation, Error>,
     traceID: UUID,
-    traceMetadata: TurnTraceMetadata?
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: GemmaSessionCacheTrace,
+    markCompleted: @escaping @Sendable (String) async -> Void,
+    markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     return AsyncThrowingStream(ChatModelStreamEvent.self, bufferingPolicy: .unbounded) {
       continuation in
@@ -181,6 +461,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         var completedMetrics: ChatGenerationMetrics?
         let iterationStartedAt = Date()
         var firstChunkAt: Date?
+        var didCompleteNaturally = false
+        var didTerminateDownstream = false
         defer {
           let memoryClearStartedAt = Date()
           Memory.clearCache()
@@ -193,8 +475,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                   generationID: traceID,
                   phase: .memoryClear,
                   durationMs: durationMs,
-                  cacheMode: "cleared_after_generation",
-                  interactionMode: traceMetadata.interactionMode
+                  cacheMode: cacheTrace.cacheMode.rawValue,
+                  interactionMode: traceMetadata.interactionMode,
+                  contextSignature: cacheTrace.contextSignature,
+                  previousContextSignature: cacheTrace.previousContextSignature,
+                  appendOnly: cacheTrace.appendOnly,
+                  reusedMessageCount: cacheTrace.reusedMessageCount,
+                  appendedMessageCount: cacheTrace.appendedMessageCount
                 )
               )
             }
@@ -202,7 +489,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         }
 
         do {
-          for try await generation in stream {
+          generationLoop: for try await generation in stream {
             try Task.checkCancellation()
 
             if let chunk = generation.chunk {
@@ -218,14 +505,22 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                       phase: .runtimeTTFT,
                       durationMs: ttftMs,
                       ttftMs: ttftMs,
-                      cacheMode: "mlx_default",
-                      interactionMode: traceMetadata.interactionMode
+                      cacheMode: cacheTrace.cacheMode.rawValue,
+                      interactionMode: traceMetadata.interactionMode,
+                      contextSignature: cacheTrace.contextSignature,
+                      previousContextSignature: cacheTrace.previousContextSignature,
+                      appendOnly: cacheTrace.appendOnly,
+                      reusedMessageCount: cacheTrace.reusedMessageCount,
+                      appendedMessageCount: cacheTrace.appendedMessageCount
                     )
                   )
                 }
               }
               output += chunk
-              continuation.yield(.chunk(chunk))
+              if case .terminated = continuation.yield(.chunk(chunk)) {
+                didTerminateDownstream = true
+                break generationLoop
+              }
             }
 
             if let info = generation.info {
@@ -243,22 +538,61 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                     phase: .runtimeDecode,
                     durationMs: Date().timeIntervalSince(decodeStartedAt) * 1000,
                     tokensPerSecond: info.tokensPerSecond,
-                    cacheMode: "mlx_default",
-                    interactionMode: traceMetadata.interactionMode
+                    cacheMode: cacheTrace.cacheMode.rawValue,
+                    interactionMode: traceMetadata.interactionMode,
+                    contextSignature: cacheTrace.contextSignature,
+                    previousContextSignature: cacheTrace.previousContextSignature,
+                    appendOnly: cacheTrace.appendOnly,
+                    reusedMessageCount: cacheTrace.reusedMessageCount,
+                    appendedMessageCount: cacheTrace.appendedMessageCount
                   )
                 )
               }
-              continuation.yield(.completed(metrics))
+              didCompleteNaturally = true
+              if case .terminated = continuation.yield(.completed(metrics)) {
+                didTerminateDownstream = true
+                break generationLoop
+              }
             }
           }
 
+          if didTerminateDownstream {
+            await markCancelled(.interrupted)
+            continuation.finish()
+            return
+          }
+
+          if !didCompleteNaturally {
+            let error = GemmaMLXRuntimeError.interruptedStream
+            await markCancelled(.interrupted)
+            await GemmaDebugTraceStore.shared.traceResponse(
+              id: traceID,
+              output: output,
+              metrics: completedMetrics,
+              error: error.localizedDescription
+            )
+            continuation.finish(throwing: error)
+            return
+          }
+
+          await markCompleted(output)
           await GemmaDebugTraceStore.shared.traceResponse(
             id: traceID,
             output: output,
             metrics: completedMetrics
           )
           continuation.finish()
+        } catch is CancellationError {
+          await markCancelled(.cancelled)
+          await GemmaDebugTraceStore.shared.traceResponse(
+            id: traceID,
+            output: output,
+            metrics: completedMetrics,
+            error: CancellationError().localizedDescription
+          )
+          continuation.finish(throwing: CancellationError())
         } catch {
+          await markCancelled(.interrupted)
           await GemmaDebugTraceStore.shared.traceResponse(
             id: traceID,
             output: output,

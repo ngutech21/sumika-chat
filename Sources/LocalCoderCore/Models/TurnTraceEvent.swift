@@ -29,6 +29,11 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
   public let tokensPerSecond: Double?
   public let cacheMode: String?
   public let interactionMode: WorkspaceInteractionMode?
+  public let contextSignature: String?
+  public let previousContextSignature: String?
+  public let appendOnly: Bool?
+  public let reusedMessageCount: Int?
+  public let appendedMessageCount: Int?
 
   public init(
     turnID: UUID? = nil,
@@ -43,7 +48,12 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     ttftMs: Double? = nil,
     tokensPerSecond: Double? = nil,
     cacheMode: String? = nil,
-    interactionMode: WorkspaceInteractionMode? = nil
+    interactionMode: WorkspaceInteractionMode? = nil,
+    contextSignature: String? = nil,
+    previousContextSignature: String? = nil,
+    appendOnly: Bool? = nil,
+    reusedMessageCount: Int? = nil,
+    appendedMessageCount: Int? = nil
   ) {
     self.turnID = turnID
     self.generationID = generationID
@@ -58,6 +68,11 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.tokensPerSecond = tokensPerSecond
     self.cacheMode = cacheMode
     self.interactionMode = interactionMode
+    self.contextSignature = contextSignature
+    self.previousContextSignature = previousContextSignature
+    self.appendOnly = appendOnly
+    self.reusedMessageCount = reusedMessageCount
+    self.appendedMessageCount = appendedMessageCount
   }
 }
 

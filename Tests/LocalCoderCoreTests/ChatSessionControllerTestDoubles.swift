@@ -133,6 +133,92 @@ actor ControlledContextUsageRuntime: ChatModelRuntime {
   }
 }
 
+actor CountingClearContextRuntime: ChatModelRuntime {
+  private(set) var clearContextCount = 0
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+  }
+
+  func unload() async {}
+
+  func clearContext() async {
+    clearContextCount += 1
+  }
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+    return AsyncThrowingStream { continuation in
+      continuation.yield(.completed(nil))
+      continuation.finish()
+    }
+  }
+}
+
+actor InterruptedStreamingRuntime: ChatModelRuntime {
+  private let chunks: [String]
+
+  init(chunks: [String] = []) {
+    self.chunks = chunks
+  }
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+  }
+
+  func unload() async {}
+
+  func clearContext() async {}
+
+  func contextUsage(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for messages: [ChatMessage],
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = messages
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+    return AsyncThrowingStream { continuation in
+      for chunk in chunks {
+        continuation.yield(.chunk(chunk))
+      }
+      continuation.finish()
+    }
+  }
+}
+
 actor ControlledStreamingRuntime: ChatModelRuntime {
   private let turns: [[String]]
   private let blockedCallIndexes: Set<Int>
@@ -294,6 +380,7 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
   private var clearContextContinuation: CheckedContinuation<Void, Never>?
   private(set) var didStartClearContext = false
   private(set) var didFinishClearContext = false
+  private(set) var streamReplyCount = 0
 
   func load(configuration: ChatModelConfiguration) async throws {
     _ = configuration
@@ -335,7 +422,9 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
     _ = attachments
     _ = systemPrompt
     _ = settings
+    streamReplyCount += 1
     return AsyncThrowingStream { continuation in
+      continuation.yield(.completed(nil))
       continuation.finish()
     }
   }

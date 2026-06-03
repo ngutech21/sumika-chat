@@ -38,7 +38,12 @@ struct GemmaDebugTraceStoreTests {
         durationMs: 123.5,
         messageCount: 2,
         ttftMs: 123.5,
-        cacheMode: "mlx_default"
+        cacheMode: "session_reused",
+        contextSignature: "ctx-new",
+        previousContextSignature: "ctx-old",
+        appendOnly: true,
+        reusedMessageCount: 3,
+        appendedMessageCount: 1
       )
     )
 
@@ -55,7 +60,12 @@ struct GemmaDebugTraceStoreTests {
     #expect(object["durationMs"] as? Double == 123.5)
     #expect(object["messageCount"] as? Int == 2)
     #expect(object["ttftMs"] as? Double == 123.5)
-    #expect(object["cacheMode"] as? String == "mlx_default")
+    #expect(object["cacheMode"] as? String == "session_reused")
+    #expect(object["contextSignature"] as? String == "ctx-new")
+    #expect(object["previousContextSignature"] as? String == "ctx-old")
+    #expect(object["appendOnly"] as? Bool == true)
+    #expect(object["reusedMessageCount"] as? Int == 3)
+    #expect(object["appendedMessageCount"] as? Int == 1)
   }
 
   private func temporaryTraceFileURL() -> URL {

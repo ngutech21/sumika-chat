@@ -99,13 +99,19 @@ private struct ChatBubble: View {
           .background(Color.secondary.opacity(0.12))
           .clipShape(RoundedRectangle(cornerRadius: 8))
         } else {
-          MessageContentText(
-            message: message,
-            toolCallRecord: toolCallRecord,
-            onApproveToolCall: onApproveToolCall,
-            onDenyToolCall: onDenyToolCall
-          )
-          .textSelection(.enabled)
+          VStack(alignment: message.isDisplayedAsUser ? .trailing : .leading, spacing: 8) {
+            MessageContentText(
+              message: message,
+              toolCallRecord: toolCallRecord,
+              onApproveToolCall: onApproveToolCall,
+              onDenyToolCall: onDenyToolCall
+            )
+            .textSelection(.enabled)
+
+            if let metrics = message.generationMetrics {
+              GenerationMetricsView(metrics: metrics)
+            }
+          }
           .padding(10)
           .background(messageBubbleBackground)
           .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -117,12 +123,6 @@ private struct ChatBubble: View {
 
         if message.canCopyAssistantContent {
           HStack(spacing: 8) {
-            if let metrics = message.generationMetrics {
-              Text(metrics.summary)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            }
-
             Button {
               copyMessageToClipboard()
             } label: {
@@ -153,6 +153,18 @@ private struct ChatBubble: View {
       try? await Task.sleep(for: .seconds(1.2))
       didCopy = false
     }
+  }
+}
+
+private struct GenerationMetricsView: View {
+  let metrics: ChatGenerationMetrics
+
+  var body: some View {
+    Text(metrics.visibleSummary)
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+      .help(metrics.detailSummary)
+      .accessibilityLabel(metrics.accessibilitySummary)
   }
 }
 
@@ -266,8 +278,32 @@ extension Theme {
 }
 
 extension ChatGenerationMetrics {
-  var summary: String {
-    "\(generatedTokenCount) tokens · \(tokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tokens/s"
+  var visibleSummary: String {
+    guard let durationMs else {
+      return "\(generatedTokenCount) tokens"
+    }
+
+    return "\(generatedTokenCount) tokens · \(formattedDuration(durationMs))"
+  }
+
+  var detailSummary: String {
+    "\(visibleSummary) · \(tokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tokens/s"
+  }
+
+  var accessibilitySummary: String {
+    guard let durationMs else {
+      return "\(generatedTokenCount) generated tokens"
+    }
+
+    return "\(generatedTokenCount) generated tokens in \(formattedDuration(durationMs))"
+  }
+
+  private func formattedDuration(_ durationMs: Double) -> String {
+    let durationSeconds = durationMs / 1000
+    if durationSeconds < 10 {
+      return "\(durationSeconds.formatted(.number.precision(.fractionLength(1)))) s"
+    }
+    return "\(durationSeconds.formatted(.number.precision(.fractionLength(0)))) s"
   }
 }
 

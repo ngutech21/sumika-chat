@@ -4,6 +4,7 @@ public protocol ChatModelRuntime: Sendable {
   func load(configuration: ChatModelConfiguration) async throws
   func unload() async
   func clearContext() async
+  func generatedTokenCount(for text: String) async throws -> Int
   func contextUsage(
     for messages: [ChatMessage],
     attachments: [ChatAttachment],
@@ -22,6 +23,12 @@ public enum ChatModelStreamEvent: Sendable {
   case completed(ChatGenerationMetrics?)
 }
 
+extension ChatModelRuntime {
+  public func generatedTokenCount(for text: String) async throws -> Int {
+    text.split(whereSeparator: \.isWhitespace).count
+  }
+}
+
 public struct MockChatRuntime: ChatModelRuntime {
   public init() {}
 
@@ -33,6 +40,10 @@ public struct MockChatRuntime: ChatModelRuntime {
   public func unload() async {}
 
   public func clearContext() async {}
+
+  public func generatedTokenCount(for text: String) async throws -> Int {
+    text.split(whereSeparator: \.isWhitespace).count
+  }
 
   public func contextUsage(
     for messages: [ChatMessage],

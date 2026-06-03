@@ -126,6 +126,21 @@ actor GemmaDebugTraceStore: TurnTracing {
     if let interactionMode = event.interactionMode {
       trace["interactionMode"] = interactionMode.rawValue
     }
+    if let contextSignature = event.contextSignature {
+      trace["contextSignature"] = contextSignature
+    }
+    if let previousContextSignature = event.previousContextSignature {
+      trace["previousContextSignature"] = previousContextSignature
+    }
+    if let appendOnly = event.appendOnly {
+      trace["appendOnly"] = appendOnly
+    }
+    if let reusedMessageCount = event.reusedMessageCount {
+      trace["reusedMessageCount"] = reusedMessageCount
+    }
+    if let appendedMessageCount = event.appendedMessageCount {
+      trace["appendedMessageCount"] = appendedMessageCount
+    }
     append(trace)
   }
 

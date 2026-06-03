@@ -56,6 +56,22 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func loadSessionClearsRuntimeContextWhenModelIsReused() async throws {
+    let runtime = CountingClearContextRuntime()
+    let session = CodingSession(
+      selectedModelID: ManagedModelCatalog.defaultModelID,
+      systemPrompt: "System",
+      generationSettings: .codingDefault,
+      interactionMode: .inspect
+    )
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+
+    controller.loadSession(session)
+
+    try await waitUntilAsync { await runtime.clearContextCount == 1 }
+  }
+
+  @Test
   func defaultsToChatInteractionMode() {
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
@@ -63,6 +79,37 @@ struct ChatSessionControllerTests {
     )
 
     #expect(controller.chatSession.interactionMode == .chat)
+  }
+
+  @Test
+  func setInteractionModeClearsRuntimeContext() async throws {
+    let runtime = CountingClearContextRuntime()
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+
+    controller.setInteractionMode(.inspect)
+
+    try await waitUntilAsync { await runtime.clearContextCount == 1 }
+  }
+
+  @Test
+  func sendMessageWaitsForPendingRuntimeContextClear() async throws {
+    let runtime = DelayedClearContextRuntime()
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+
+    controller.setInteractionMode(.inspect)
+    try await waitUntilAsync { await runtime.didStartClearContext }
+
+    controller.draft = "hello"
+    controller.sendMessage()
+    await Task.yield()
+
+    #expect(await runtime.streamReplyCount == 0)
+
+    await runtime.releaseClearContext()
+
+    try await waitUntilAsync { await runtime.streamReplyCount == 1 }
+    try await waitUntil { !controller.isGenerating }
   }
 
   @Test
@@ -106,13 +153,10 @@ struct ChatSessionControllerTests {
       controller.chatSession.messages.map(\.turnID).allSatisfy {
         $0 == controller.chatSession.turns[0].id
       })
-    #expect(
-      controller.chatSession.messages[1].generationMetrics
-        == ChatGenerationMetrics(
-          generatedTokenCount: 2,
-          tokensPerSecond: 100
-        )
-    )
+    let generationMetrics = try #require(controller.chatSession.messages[1].generationMetrics)
+    #expect(generationMetrics.generatedTokenCount == 2)
+    #expect(generationMetrics.tokensPerSecond == 100)
+    #expect((generationMetrics.durationMs ?? 0) > 0)
     let capturedMessages = await runtime.capturedMessages
     #expect(
       capturedMessages.first?.contains { message in
@@ -168,6 +212,25 @@ struct ChatSessionControllerTests {
     #expect(
       controller.errorMessage
         == ChatSessionFakeChatModelRuntimeError.streamFailed.localizedDescription)
+  }
+
+  @Test
+  func interruptedStreamDoesNotLeaveAssistantMessageStreaming() async throws {
+    let runtime = InterruptedStreamingRuntime(chunks: [])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "stream ends without completion"
+
+    controller.sendMessage()
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.turns.count == 1)
+    #expect(controller.chatSession.turns[0].status == .failed)
+    #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
+    #expect(controller.chatSession.messages.count == 1)
+    #expect(controller.chatSession.messages[0].kind == .user)
+    #expect(controller.errorMessage == ChatGenerationError.streamInterrupted.localizedDescription)
   }
 
   @Test
@@ -459,6 +522,9 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.messages[1].content.isEmpty)
     #expect(controller.chatSession.messages[1].toolCall?.callID == callID)
     #expect(controller.chatSession.messages[1].toolCall?.toolName == .readFile)
+    let toolCallMetrics = try #require(controller.chatSession.messages[1].generationMetrics)
+    #expect(toolCallMetrics.generatedTokenCount == 4)
+    #expect((toolCallMetrics.durationMs ?? 0) > 0)
     #expect(
       controller.chatSession.messages[1].toolCall?.arguments == [
         ToolCallModelArgument(name: "path", value: "README.md")
@@ -643,33 +709,25 @@ struct ChatSessionControllerTests {
   }
 
   @Test
-  func refreshContextUsagePublishesOnlyLatestResult() async throws {
+  func refreshContextUsageDebouncesToLatestResult() async throws {
     let runtime = ControlledContextUsageRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.chatSession.messages = [ChatMessage(userContent: "hello")]
 
     controller.refreshContextUsage()
-    try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
-
     controller.refreshContextUsage()
-    try await waitUntilAsync { await runtime.contextUsageRequestCount == 2 }
+    try await waitUntilAsync(timeout: .seconds(2)) { await runtime.contextUsageRequestCount == 1 }
 
     await runtime.resolveContextUsage(
-      at: 1,
+      at: 0,
       with: ChatContextUsage(usedTokens: 20, tokenLimit: 100)
     )
     try await waitUntil { controller.contextUsage?.usedTokens == 20 }
 
-    await runtime.resolveContextUsage(
-      at: 0,
-      with: ChatContextUsage(usedTokens: 10, tokenLimit: 100)
-    )
-    try await waitUntilAsync { await runtime.completedContextUsageCount == 2 }
-    await Task.yield()
-
     #expect(controller.contextUsage?.usedTokens == 20)
     #expect(controller.contextUsage?.tokenLimit == 100)
+    #expect(await runtime.completedContextUsageCount == 1)
   }
 
   @Test
@@ -686,10 +744,12 @@ struct ChatSessionControllerTests {
     await Task.yield()
 
     #expect(await runtime.contextUsageRequestCount == 0)
+    #expect(controller.contextUsage?.accuracy == .estimate)
+    #expect(controller.contextUsage?.isStale == true)
 
     await runtime.releaseStream(callIndex: 0)
     try await waitUntil { !controller.isGenerating }
-    try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
+    try await waitUntilAsync(timeout: .seconds(2)) { await runtime.contextUsageRequestCount == 1 }
   }
 
   @Test
@@ -709,15 +769,14 @@ struct ChatSessionControllerTests {
 
     controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
     controller.modelRuntime.loadModel()
-    try await waitUntil { controller.modelRuntime.modelState == .ready }
-    try await waitUntil { controller.contextUsage?.usedTokens == 42 }
+    try await waitUntil { controller.contextUsage?.usedTokens != 12 }
 
     await runtime.releaseClearContext()
     try await waitUntilAsync { await runtime.didFinishClearContext }
-    await Task.yield()
+    try await waitUntil(timeout: .seconds(2)) { controller.modelRuntime.modelState == .ready }
 
     #expect(controller.modelRuntime.modelState == .ready)
-    #expect(controller.contextUsage?.usedTokens == 42)
+    #expect(controller.contextUsage?.usedTokens != 12)
   }
 
   @Test

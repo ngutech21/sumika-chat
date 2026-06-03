@@ -28,7 +28,7 @@ struct ChatGenerationCoordinatorTests {
       streamingFlushCharacterLimit: 1
     )
     var streamedContent = ""
-    var didUpdateMetrics = false
+    var updatedMetrics: ChatGenerationMetrics?
     var contextUsageUpdateCount = 0
 
     try await coordinator.streamAssistantReply(
@@ -39,8 +39,7 @@ struct ChatGenerationCoordinatorTests {
       stopAfterCompleteToolAction: true,
       appendChunk: { streamedContent += $0 },
       updateGenerationMetrics: { metrics in
-        #expect(metrics == nil)
-        didUpdateMetrics = true
+        updatedMetrics = metrics
       },
       updateContextUsage: {
         contextUsageUpdateCount += 1
@@ -48,7 +47,8 @@ struct ChatGenerationCoordinatorTests {
     )
 
     #expect(streamedContent == action)
-    #expect(didUpdateMetrics)
+    #expect(updatedMetrics?.generatedTokenCount == 4)
+    #expect((updatedMetrics?.durationMs ?? 0) > 0)
     #expect(contextUsageUpdateCount == 1)
     let event = try #require(await tracer.events.first { $0.phase == .runtimePartialDecode })
     #expect(event.turnID == turnID)
@@ -75,7 +75,7 @@ struct ChatGenerationCoordinatorTests {
       streamingFlushCharacterLimit: 1
     )
     var streamedContent = ""
-    var didUpdateMetrics = false
+    var updatedMetrics: ChatGenerationMetrics?
     var contextUsageUpdateCount = 0
 
     try await coordinator.streamAssistantReply(
@@ -85,8 +85,7 @@ struct ChatGenerationCoordinatorTests {
       stopAfterCompleteToolAction: true,
       appendChunk: { streamedContent += $0 },
       updateGenerationMetrics: { metrics in
-        #expect(metrics == ChatGenerationMetrics(generatedTokenCount: 1, tokensPerSecond: 100))
-        didUpdateMetrics = true
+        updatedMetrics = metrics
       },
       updateContextUsage: {
         contextUsageUpdateCount += 1
@@ -94,8 +93,62 @@ struct ChatGenerationCoordinatorTests {
     )
 
     #expect(streamedContent == combined)
-    #expect(didUpdateMetrics)
+    #expect(updatedMetrics?.generatedTokenCount == 1)
+    #expect(updatedMetrics?.tokensPerSecond == 100)
+    #expect((updatedMetrics?.durationMs ?? 0) > 0)
     #expect(contextUsageUpdateCount == 1)
+  }
+
+  @Test
+  func regularAssistantStreamingAddsDurationToCompletedMetrics() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+    var updatedMetrics: ChatGenerationMetrics?
+
+    try await coordinator.streamAssistantReply(
+      messages: [],
+      systemPrompt: "Answer normally.",
+      settings: .codingDefault,
+      stopAfterCompleteToolAction: false,
+      appendChunk: { _ in },
+      updateGenerationMetrics: { metrics in
+        updatedMetrics = metrics
+      },
+      updateContextUsage: {}
+    )
+
+    #expect(updatedMetrics?.generatedTokenCount == 2)
+    #expect(updatedMetrics?.tokensPerSecond == 100)
+    #expect((updatedMetrics?.durationMs ?? 0) > 0)
+  }
+
+  @Test
+  func regularAssistantStreamingThrowsWhenRuntimeEndsWithoutCompletion() async throws {
+    let runtime = InterruptedStreamingRuntime(chunks: ["partial"])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+    var chunks: [String] = []
+
+    await #expect(throws: ChatGenerationError.streamInterrupted) {
+      try await coordinator.streamAssistantReply(
+        messages: [],
+        systemPrompt: "Answer normally.",
+        settings: .codingDefault,
+        stopAfterCompleteToolAction: false,
+        appendChunk: { chunks.append($0) },
+        updateGenerationMetrics: { _ in },
+        updateContextUsage: {}
+      )
+    }
+
+    #expect(chunks == ["partial"])
   }
 
   @Test
