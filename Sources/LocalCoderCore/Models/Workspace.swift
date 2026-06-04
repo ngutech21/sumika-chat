@@ -6,6 +6,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
   public var selectedModelID: ManagedModel.ID
   public var messages: [ChatMessage]
   public var modelContextMessages: [ChatModelContextMessage]
+  public var modelFacingTranscript: ModelFacingTranscript
   public var toolCalls: [ToolCallRecord]
   public var turns: [ChatTurnRecord]
   public var focusedFileState: FocusedFileState
@@ -21,6 +22,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     selectedModelID: ManagedModel.ID,
     messages: [ChatMessage] = [],
     modelContextMessages: [ChatModelContextMessage] = [],
+    modelFacingTranscript: ModelFacingTranscript? = nil,
     toolCalls: [ToolCallRecord] = [],
     turns: [ChatTurnRecord] = [],
     focusedFileState: FocusedFileState = .empty,
@@ -35,6 +37,12 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     self.selectedModelID = selectedModelID
     self.messages = messages
     self.modelContextMessages = modelContextMessages
+    self.modelFacingTranscript =
+      modelFacingTranscript
+      ?? ModelFacingTranscriptBackfill.transcript(
+        from: modelContextMessages,
+        fallbackSystemPrompt: systemPrompt
+      )
     self.toolCalls = toolCalls
     self.turns = turns
     self.focusedFileState = focusedFileState
@@ -51,6 +59,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     case selectedModelID
     case messages
     case modelContextMessages
+    case modelFacingTranscript
     case toolCalls
     case turns
     case focusedFileState
@@ -67,14 +76,20 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     title = try container.decode(String.self, forKey: .title)
     selectedModelID = try container.decode(ManagedModel.ID.self, forKey: .selectedModelID)
     messages = try container.decode([ChatMessage].self, forKey: .messages)
+    systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
     modelContextMessages =
       try container.decodeIfPresent([ChatModelContextMessage].self, forKey: .modelContextMessages)
       ?? ChatModelContextBackfill.messages(from: messages)
+    modelFacingTranscript =
+      try container.decodeIfPresent(ModelFacingTranscript.self, forKey: .modelFacingTranscript)
+      ?? ModelFacingTranscriptBackfill.transcript(
+        from: modelContextMessages,
+        fallbackSystemPrompt: systemPrompt
+      )
     toolCalls = try container.decodeIfPresent([ToolCallRecord].self, forKey: .toolCalls) ?? []
     turns = try container.decodeIfPresent([ChatTurnRecord].self, forKey: .turns) ?? []
     focusedFileState =
       try container.decodeIfPresent(FocusedFileState.self, forKey: .focusedFileState) ?? .empty
-    systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
     generationSettings = try container.decode(
       ChatGenerationSettings.self, forKey: .generationSettings)
     interactionMode =
@@ -168,19 +183,19 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
   }
 
   public func withSecurityScopedAccess<Result>(_ body: () throws -> Result) rethrows -> Result {
-#if canImport(Darwin)
-    let accessURL = securityScopedAccessURL()
-    let didStartSecurityScope = accessURL.startAccessingSecurityScopedResource()
-    defer {
-      if didStartSecurityScope {
-        accessURL.stopAccessingSecurityScopedResource()
+    #if canImport(Darwin)
+      let accessURL = securityScopedAccessURL()
+      let didStartSecurityScope = accessURL.startAccessingSecurityScopedResource()
+      defer {
+        if didStartSecurityScope {
+          accessURL.stopAccessingSecurityScopedResource()
+        }
       }
-    }
 
-    return try body()
-#else
-    return try body()
-#endif
+      return try body()
+    #else
+      return try body()
+    #endif
   }
 
   private static func resolveSymlinksPreservingMissingPath(for url: URL) -> URL {
@@ -208,25 +223,25 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
   }
 
   private func securityScopedAccessURL() -> URL {
-#if canImport(Darwin)
-    guard let bookmarkData else {
-      return rootURL
-    }
+    #if canImport(Darwin)
+      guard let bookmarkData else {
+        return rootURL
+      }
 
-    do {
-      var isStale = false
-      return try URL(
-        resolvingBookmarkData: bookmarkData,
-        options: [.withSecurityScope],
-        relativeTo: nil,
-        bookmarkDataIsStale: &isStale
-      )
-    } catch {
+      do {
+        var isStale = false
+        return try URL(
+          resolvingBookmarkData: bookmarkData,
+          options: [.withSecurityScope],
+          relativeTo: nil,
+          bookmarkDataIsStale: &isStale
+        )
+      } catch {
+        return rootURL
+      }
+    #else
       return rootURL
-    }
-#else
-    return rootURL
-#endif
+    #endif
   }
 
   private static func normalizedPathString(for url: URL) -> String {

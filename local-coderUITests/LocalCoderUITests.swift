@@ -201,6 +201,55 @@ final class LocalCoderUITests: XCTestCase {
     XCTAssertTrue(showFileRows.containsResponseOutput(containing: "<path>robots.html</path>"))
   }
 
+  @MainActor
+  func testInspectReadFileFollowUpReusesCachedPrefixInTrace() throws {
+    let fixture = try launchFixture(
+      readme: """
+        Issue 44 ledger fixture.
+        Second line.
+        """
+    )
+    let application = try launchApp(fixture: fixture)
+    defer {
+      application.terminate()
+    }
+
+    try loadSelectedModel(in: application)
+    try selectInspectMode(in: application)
+    let traceOffset = fileSize(at: fixture.traceURL)
+    try sendPrompt(
+      "Use the read_file tool with path README.md, offset 1, and limit 1. Then answer with that line only.",
+      in: application
+    )
+    let rows = try waitForCompletedTraceRows(
+      in: fixture.traceURL,
+      afterOffset: traceOffset,
+      application: application,
+      interactionMode: "inspect",
+      timeout: 420
+    )
+
+    XCTAssertGreaterThanOrEqual(rows.toolExecutionCount(named: "read_file"), 1)
+    XCTAssertTrue(rows.containsResponseOutput(containing: "<action name=\"read_file\">"))
+    XCTAssertFalse(rows.containsToolLoopRuntimeCacheReason("invalidated_history_appended"))
+    XCTAssertTrue(
+      rows.containsRuntimeEvent(
+        phase: "runtime_stream_start",
+        toolLoopIteration: 1,
+        cacheMode: "session_reused",
+        cacheReason: "session_reused"
+      )
+    )
+    XCTAssertTrue(
+      rows.containsRuntimeEvent(
+        phase: "runtime_ttft",
+        toolLoopIteration: 1,
+        cacheMode: "session_reused",
+        cacheReason: "session_reused"
+      )
+    )
+  }
+
   private func launchFixture(
     readme: String? = nil,
     files: [String: String] = [:]
@@ -472,7 +521,10 @@ final class LocalCoderUITests: XCTestCase {
         phase: object["phase"] as? String,
         toolName: object["toolName"] as? String,
         output: object["output"] as? String,
-        interactionMode: object["interactionMode"] as? String
+        interactionMode: object["interactionMode"] as? String,
+        toolLoopIteration: object["toolLoopIteration"] as? Int,
+        cacheMode: object["cacheMode"] as? String,
+        cacheReason: object["cacheReason"] as? String
       )
     }
   }
@@ -560,6 +612,9 @@ private struct TraceRow {
   let toolName: String?
   let output: String?
   let interactionMode: String?
+  let toolLoopIteration: Int?
+  let cacheMode: String?
+  let cacheReason: String?
 }
 
 private enum LocalCoderUITestError: Error {
@@ -589,6 +644,30 @@ extension Array where Element == TraceRow {
   fileprivate func containsResponseOutput(containing text: String) -> Bool {
     contains { row in
       row.kind == "gemma_response" && row.output?.contains(text) == true
+    }
+  }
+
+  fileprivate func containsRuntimeEvent(
+    phase: String,
+    toolLoopIteration: Int,
+    cacheMode: String,
+    cacheReason: String
+  ) -> Bool {
+    contains { row in
+      row.kind == "turn_trace"
+        && row.phase == phase
+        && row.toolLoopIteration == toolLoopIteration
+        && row.cacheMode == cacheMode
+        && row.cacheReason == cacheReason
+    }
+  }
+
+  fileprivate func containsToolLoopRuntimeCacheReason(_ cacheReason: String) -> Bool {
+    contains { row in
+      row.kind == "turn_trace"
+        && row.phase?.hasPrefix("runtime_") == true
+        && row.toolLoopIteration != nil
+        && row.cacheReason == cacheReason
     }
   }
 }

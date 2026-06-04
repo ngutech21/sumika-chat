@@ -76,6 +76,7 @@ public final class ChatSessionController {
       chatSession: ChatSessionState(
         messages: [],
         modelContextMessages: [],
+        modelFacingTranscript: ModelFacingTranscript(),
         toolCalls: [],
         attachments: [],
         systemPrompt: storedSettings.systemPrompt,
@@ -229,6 +230,7 @@ extension ChatSessionController {
     chatSession = ChatSessionState(
       messages: session.messages,
       modelContextMessages: session.modelContextMessages,
+      modelFacingTranscript: session.modelFacingTranscript,
       toolCalls: session.toolCalls,
       turns: session.turns,
       attachments: [],
@@ -251,6 +253,7 @@ extension ChatSessionController {
     snapshot.selectedModelID = modelRuntime.selectedModelID
     snapshot.messages = chatSession.messages
     snapshot.modelContextMessages = chatSession.modelContextMessages
+    snapshot.modelFacingTranscript = chatSession.modelFacingTranscript
     snapshot.toolCalls = chatSession.toolCalls
     snapshot.turns = chatSession.turns
     snapshot.focusedFileState = chatSession.focusedFileState
@@ -338,11 +341,13 @@ extension ChatSessionController {
       to: &chatSession
     )
     var modelContextMessages: [ChatModelContextMessage] = []
+    var focusedSystemContext: [String] = []
     if let focusedFileContext = modelContextBuilder.focusedFileContextMessage(
       from: chatSession.focusedFileState,
       turnID: turnID
     ) {
       modelContextMessages.append(focusedFileContext)
+      focusedSystemContext.append(focusedFileContext.content)
     }
     modelContextMessages.append(
       ChatModelContextMessage(
@@ -355,6 +360,15 @@ extension ChatSessionController {
       )
     )
     transcriptMutator.appendModelContextMessages(modelContextMessages, to: &chatSession)
+    if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
+      turnID: turnID,
+      sourceMessageID: userMessageID,
+      prompt: prompt,
+      attachments: sentAttachments,
+      systemContext: [initialSystemPromptSnapshot] + focusedSystemContext
+    ) {
+      transcriptMutator.appendModelFacingEntry(entry, to: &chatSession)
+    }
     transcriptMutator.appendAssistantPlaceholder(
       id: assistantMessageID,
       turnID: turnID,
@@ -553,7 +567,7 @@ extension ChatSessionController {
   {
     let turnID = chatTurnCoordinator.activeTurnID
     let contextBuildStartedAt = Date()
-    let messages = modelContextBuilder.messages(
+    let transcript = modelContextBuilder.transcript(
       from: chatSession,
       includingTurnID: turnID
     )
@@ -562,7 +576,7 @@ extension ChatSessionController {
       startedAt: contextBuildStartedAt,
       turnID: turnID,
       generationID: nil,
-      messageCount: messages.count,
+      messageCount: transcript.entries.count,
       interactionMode: chatSession.interactionMode
     )
 
@@ -574,7 +588,7 @@ extension ChatSessionController {
       turnID: turnID,
       generationID: nil,
       promptBytes: renderedSystemPrompt.utf8.count,
-      messageCount: messages.count,
+      messageCount: transcript.entries.count,
       interactionMode: chatSession.interactionMode
     )
 
@@ -582,7 +596,7 @@ extension ChatSessionController {
       modelState: modelRuntime.modelState,
       operationID: modelRuntime.currentOperationID(),
       turnID: turnID,
-      messages: messages,
+      transcript: transcript,
       attachments: chatSession.attachments,
       systemPrompt: renderedSystemPrompt,
       contextTokenLimit: modelRuntime.modelContextTokenLimit,
@@ -773,7 +787,8 @@ extension ChatSessionController {
         to: nextAssistantMessageID,
         interactionMode: chatSession.interactionMode,
         toolPromptMode: promptMode,
-        turnID: turnID
+        turnID: turnID,
+        toolLoopIteration: 1
       )
       if isFinalApprovedToolFollowUp(mergedRecord.request.toolName) {
         try await recordFinalModeToolAttemptIfNeeded(
@@ -965,7 +980,8 @@ extension ChatSessionController {
           to: nextAssistantMessageID,
           interactionMode: chatSession.interactionMode,
           toolPromptMode: .afterToolResultFinal,
-          turnID: turnID
+          turnID: turnID,
+          toolLoopIteration: 1
         )
         try await recordFinalModeToolAttemptIfNeeded(
           workspaceID: deniedRecord.request.workspaceID,
@@ -1064,7 +1080,7 @@ extension ChatSessionController {
       return
     }
 
-    transcriptMutator.appendModelContextUserBoundary(
+    transcriptMutator.appendFinalToolResultFollowUpBoundary(
       "Use the preceding tool result to answer the user's request.",
       turnID: turnID,
       systemPromptSnapshot: systemPrompt(toolPromptMode: toolPromptMode),
@@ -1079,7 +1095,8 @@ extension ChatSessionController {
     to assistantMessageID: UUID,
     interactionMode: WorkspaceInteractionMode,
     toolPromptMode: ToolPromptMode,
-    turnID: ChatTurnRecord.ID
+    turnID: ChatTurnRecord.ID,
+    toolLoopIteration: Int? = nil
   )
     async throws
   {
@@ -1097,10 +1114,11 @@ extension ChatSessionController {
       generationID: nil,
       promptBytes: renderedSystemPrompt.utf8.count,
       messageCount: chatSession.modelContextMessages.count,
+      toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
     let contextBuildStartedAt = Date()
-    let contextMessages = modelContextBuilder.messages(
+    let modelFacingTranscript = modelContextBuilder.transcript(
       from: chatSession,
       includingTurnID: turnID
     )
@@ -1109,13 +1127,15 @@ extension ChatSessionController {
       startedAt: contextBuildStartedAt,
       turnID: turnID,
       generationID: nil,
-      messageCount: contextMessages.count,
+      messageCount: modelFacingTranscript.entries.count,
+      toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
     let assistantModelContent = try await chatGenerationCoordinator.streamAssistantReply(
       turnID: turnID,
+      toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode,
-      messages: contextMessages,
+      transcript: modelFacingTranscript,
       systemPrompt: renderedSystemPrompt,
       settings: chatSession.generationSettings,
       stopAfterCompleteToolAction: toolPromptMode.shouldStopAfterCompleteToolAction,
@@ -1149,6 +1169,13 @@ extension ChatSessionController {
       ),
       to: &chatSession
     )
+    if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
+      turnID: turnID,
+      sourceMessageID: assistantMessageID,
+      content: assistantModelContent
+    ) {
+      transcriptMutator.appendModelFacingEntry(entry, to: &chatSession)
+    }
     refreshContextUsage(toolPromptMode: toolPromptMode)
   }
 
@@ -1168,6 +1195,7 @@ extension ChatSessionController {
     var remainingIterations = initialRemainingIterations ?? maxToolLoopIterations
 
     while remainingIterations > 0 {
+      let toolLoopIteration = (maxToolLoopIterations - remainingIterations) + 1
       let followUpPromptMode: ToolPromptMode =
         followUpPromptMode(for: interactionMode, remainingIterations: remainingIterations)
       guard
@@ -1181,7 +1209,7 @@ extension ChatSessionController {
             focusedFileState: chatSession.focusedFileState,
             interactionMode: interactionMode,
             followUpPromptMode: followUpPromptMode,
-            toolLoopIteration: (maxToolLoopIterations - remainingIterations) + 1
+            toolLoopIteration: toolLoopIteration
           )
         )
       else {
@@ -1208,7 +1236,8 @@ extension ChatSessionController {
           to: nextAssistantMessageID,
           interactionMode: interactionMode,
           toolPromptMode: promptMode,
-          turnID: turnID
+          turnID: turnID,
+          toolLoopIteration: toolLoopIteration
         )
         guard promptMode != .afterToolResultFinal else {
           try await recordFinalModeToolAttemptIfNeeded(

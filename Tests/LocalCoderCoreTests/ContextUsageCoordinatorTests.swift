@@ -37,7 +37,7 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: true))
+          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: true))
       ])
   }
 
@@ -109,7 +109,7 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 4, tokenLimit: 100, accuracy: .estimate, isStale: true))
+          ChatContextUsage(usedTokens: 16, tokenLimit: 100, accuracy: .estimate, isStale: true))
       ])
 
     await runtime.resolveContextUsage(
@@ -193,7 +193,7 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: true))
+          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: true))
       ])
   }
 
@@ -232,7 +232,7 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: true)),
+          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: true)),
         .updated(ChatContextUsage(usedTokens: 42, tokenLimit: nil)),
       ])
   }
@@ -304,7 +304,9 @@ struct ContextUsageCoordinatorTests {
     ContextUsageSnapshot(
       modelState: modelState,
       operationID: operationID,
-      messages: [ChatModelContextMessage(role: .user, content: "hello")],
+      transcript: ModelFacingTranscriptBackfill.transcript(
+        from: [ChatModelContextMessage(role: .user, content: "hello")],
+        fallbackSystemPrompt: systemPrompt),
       attachments: [],
       systemPrompt: systemPrompt,
       contextTokenLimit: 100,
@@ -361,11 +363,11 @@ private actor ContextUsageFakeRuntime: ChatModelRuntime {
   }
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     contextUsageRequestCount += 1
@@ -373,12 +375,12 @@ private actor ContextUsageFakeRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     _ = settings
@@ -401,11 +403,11 @@ private actor ContextUsageControlledRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     contextUsageRequestCount += 1
@@ -425,12 +427,12 @@ private actor ContextUsageControlledRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     _ = settings
@@ -465,23 +467,23 @@ private actor ContextUsageDelayedClearRuntime: ChatModelRuntime {
   }
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     return ChatContextUsage(usedTokens: 42, tokenLimit: nil)
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     _ = settings
@@ -500,23 +502,23 @@ private actor ContextUsageFailingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     throw ContextUsageTestError.failed
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     _ = settings

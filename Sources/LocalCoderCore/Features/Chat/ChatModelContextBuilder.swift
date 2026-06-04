@@ -26,6 +26,33 @@ public struct ChatModelContextBuilder: Sendable {
     }
   }
 
+  public func transcript(
+    from state: ChatSessionState,
+    includingTurnID: ChatTurnRecord.ID? = nil
+  ) -> ModelFacingTranscript {
+    let excludedTurnIDs = Set(
+      state.turns.compactMap { turn -> ChatTurnRecord.ID? in
+        guard turn.modelContextPolicy == .excluded, turn.id != includingTurnID else {
+          return nil
+        }
+        return turn.id
+      }
+    )
+
+    guard !excludedTurnIDs.isEmpty else {
+      return state.modelFacingTranscript
+    }
+
+    return ModelFacingTranscript(
+      entries: state.modelFacingTranscript.entries.filter { entry in
+        guard let turnID = entry.turnID else {
+          return true
+        }
+        return !excludedTurnIDs.contains(turnID)
+      }
+    )
+  }
+
   public func focusedFileContextMessage(
     from state: FocusedFileState,
     turnID: ChatTurnRecord.ID? = nil

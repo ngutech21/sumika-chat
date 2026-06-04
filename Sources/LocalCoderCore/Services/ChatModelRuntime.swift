@@ -6,12 +6,12 @@ public protocol ChatModelRuntime: Sendable {
   func clearContext() async
   func generatedTokenCount(for text: String) async throws -> Int
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -51,20 +51,20 @@ public struct MockChatRuntime: ChatModelRuntime {
   }
 
   public func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    let messageAttachments = messages.flatMap(\.attachments).map(\.content)
+    _ = systemPrompt
     let content =
-      ([systemPrompt] + attachments.map(\.content) + messageAttachments + messages.map(\.content))
+      (attachments.map(\.content) + transcript.entries.map(\.frozenContent.content))
       .joined(separator: "\n")
     let tokenEstimate = content.split(whereSeparator: \.isWhitespace).count
     return ChatContextUsage(usedTokens: tokenEstimate, tokenLimit: nil)
   }
 
   public func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -73,10 +73,9 @@ public struct MockChatRuntime: ChatModelRuntime {
     _ = systemPrompt
     _ = settings
 
-    let lastMessage = messages.last(where: { $0.role == .user })
-    let attachmentSummary =
-      lastMessage?.attachments.map(\.displayName).joined(separator: ", ") ?? ""
-    let lastPrompt = lastMessage?.content ?? ""
+    let lastMessage = transcript.entries.last(where: { $0.frozenContent.role == .user })
+    let attachmentSummary = attachments.map(\.displayName).joined(separator: ", ")
+    let lastPrompt = lastMessage?.frozenContent.content ?? ""
     let chunks = [
       "Mock runtime received:\n\n",
       lastPrompt,

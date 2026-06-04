@@ -160,7 +160,7 @@ struct ChatSessionControllerTests {
     let capturedMessages = await runtime.capturedMessages
     #expect(
       capturedMessages.first?.contains(where: { message in
-        message.role == .system && message.content.contains("Current focused file: source.swift")
+        message.role == .user && message.content.contains("Current focused file: source.swift")
       }) == true)
     #expect(
       controller.chatSession.modelContextMessages.map(\.role) == [.system, .user, .assistant])
@@ -287,7 +287,7 @@ struct ChatSessionControllerTests {
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 3)
     #expect(capturedMessages[2].contains(where: { $0.content.contains("read README") }) == false)
-    #expect(capturedMessages[2].contains(where: { $0.content == "are you there" }))
+    #expect(capturedMessages[2].contains(where: { $0.content.contains("are you there") }))
   }
 
   @Test
@@ -593,7 +593,7 @@ struct ChatSessionControllerTests {
       }))
     #expect(
       !capturedMessages[1].contains(where: { message in
-        message.role == .system && message.content.contains("Current focused file: README.md")
+        message.content.contains("Current focused file: README.md")
       }))
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 2)

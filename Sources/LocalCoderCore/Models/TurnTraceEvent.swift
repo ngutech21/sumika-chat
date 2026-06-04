@@ -107,17 +107,20 @@ public struct TurnTraceMetadata: Sendable {
   public let turnID: UUID?
   public let generationID: UUID
   public let tracer: any TurnTracing
+  public let toolLoopIteration: Int?
   public let interactionMode: WorkspaceInteractionMode?
 
   public init(
     turnID: UUID?,
     generationID: UUID,
     tracer: any TurnTracing,
+    toolLoopIteration: Int? = nil,
     interactionMode: WorkspaceInteractionMode? = nil
   ) {
     self.turnID = turnID
     self.generationID = generationID
     self.tracer = tracer
+    self.toolLoopIteration = toolLoopIteration
     self.interactionMode = interactionMode
   }
 }

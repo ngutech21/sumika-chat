@@ -124,6 +124,13 @@ public struct ChatWorkflowEventApplier: Sendable {
         ),
         to: &state
       )
+      if let entry = try? ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        sourceMessageID: messageID,
+        toolResult: toolResult
+      ) {
+        mutator.appendModelFacingEntry(entry, to: &state)
+      }
       mutator.appendMessageID(messageID, toTurn: turnID, in: &state)
     case .assistantPlaceholderAppended(let messageID, let turnID):
       mutator.appendAssistantPlaceholder(id: messageID, turnID: turnID, to: &state)
@@ -144,6 +151,13 @@ public struct ChatWorkflowEventApplier: Sendable {
         ),
         to: &state
       )
+      if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        sourceMessageID: messageID,
+        content: modelContextContent
+      ) {
+        mutator.appendModelFacingEntry(entry, to: &state)
+      }
       mutator.appendMessageID(messageID, toTurn: turnID, in: &state)
     case .turnStatusChanged(let turnID, let status, let modelContextPolicy):
       mutator.updateTurnStatus(

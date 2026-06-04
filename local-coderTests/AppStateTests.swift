@@ -121,23 +121,23 @@ private actor AppStateTestRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     _ = settings

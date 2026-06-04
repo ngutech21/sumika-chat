@@ -32,8 +32,9 @@ public struct ChatGenerationCoordinator {
 
   public func streamAssistantReply(
     turnID: ChatTurnRecord.ID? = nil,
+    toolLoopIteration: Int? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
-    messages: [ChatModelContextMessage],
+    transcript: ModelFacingTranscript,
     systemPrompt: String,
     settings: ChatGenerationSettings,
     stopAfterCompleteToolAction: Bool = false,
@@ -46,6 +47,7 @@ public struct ChatGenerationCoordinator {
       turnID: turnID,
       generationID: generationID,
       tracer: turnTracer,
+      toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
 
@@ -54,7 +56,7 @@ public struct ChatGenerationCoordinator {
         turnID: turnID,
         generationID: generationID,
         interactionMode: interactionMode,
-        messages: messages,
+        transcript: transcript,
         systemPrompt: systemPrompt,
         settings: settings,
         stopAfterCompleteToolAction: stopAfterCompleteToolAction,
@@ -69,7 +71,7 @@ public struct ChatGenerationCoordinator {
     turnID: ChatTurnRecord.ID?,
     generationID: UUID,
     interactionMode: WorkspaceInteractionMode?,
-    messages: [ChatModelContextMessage],
+    transcript: ModelFacingTranscript,
     systemPrompt: String,
     settings: ChatGenerationSettings,
     stopAfterCompleteToolAction: Bool,
@@ -79,7 +81,7 @@ public struct ChatGenerationCoordinator {
   ) async throws -> String {
     let generationStartedAt = Date()
     let stream = try await runtime.streamReply(
-      for: messages,
+      for: transcript,
       attachments: [],
       systemPrompt: systemPrompt,
       settings: settings
@@ -112,7 +114,8 @@ public struct ChatGenerationCoordinator {
             generationID: generationID,
             phase: .uiFlush,
             durationMs: durationMs,
-            messageCount: messages.count,
+            messageCount: transcript.entries.count,
+            toolLoopIteration: TurnTraceContext.current?.toolLoopIteration,
             interactionMode: interactionMode
           )
         )
@@ -152,7 +155,8 @@ public struct ChatGenerationCoordinator {
                 generationID: generationID,
                 phase: .uiFlush,
                 durationMs: durationMs,
-                messageCount: messages.count,
+                messageCount: transcript.entries.count,
+                toolLoopIteration: TurnTraceContext.current?.toolLoopIteration,
                 interactionMode: interactionMode
               )
             )
@@ -188,7 +192,8 @@ public struct ChatGenerationCoordinator {
           generationID: generationID,
           phase: .runtimePartialDecode,
           durationMs: Date().timeIntervalSince(streamConsumptionStartedAt) * 1000,
-          messageCount: messages.count,
+          messageCount: transcript.entries.count,
+          toolLoopIteration: TurnTraceContext.current?.toolLoopIteration,
           interactionMode: interactionMode
         )
       )

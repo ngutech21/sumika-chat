@@ -79,13 +79,13 @@ public struct ModelLifecycleCoordinator: Sendable {
   }
 
   public func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     operationID: UUID
   ) async throws -> ChatContextUsage {
     try await runtimeOperations.contextUsage(
-      for: messages,
+      for: transcript,
       attachments: attachments,
       systemPrompt: systemPrompt,
       operationID: operationID

@@ -21,6 +21,13 @@ public struct ChatTranscriptMutator: Sendable {
     state.modelContextMessages.append(message)
   }
 
+  public func appendModelFacingEntry(
+    _ entry: ModelContextEntry,
+    to state: inout ChatSessionState
+  ) {
+    state.modelFacingTranscript.entries.append(entry)
+  }
+
   public func appendModelContextMessages(
     _ messages: [ChatModelContextMessage],
     to state: inout ChatSessionState
@@ -43,6 +50,67 @@ public struct ChatTranscriptMutator: Sendable {
       ),
       to: &state
     )
+    if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
+      turnID: turnID,
+      prompt: content,
+      systemContext: [systemPromptSnapshot]
+    ) {
+      appendModelFacingEntry(entry, to: &state)
+    }
+  }
+
+  public func appendFinalToolResultFollowUpBoundary(
+    _ content: String,
+    turnID: ChatTurnRecord.ID,
+    systemPromptSnapshot: String,
+    to state: inout ChatSessionState
+  ) {
+    appendModelContextMessage(
+      ChatModelContextMessage(
+        turnID: turnID,
+        role: .user,
+        content: content,
+        systemPromptSnapshot: systemPromptSnapshot
+      ),
+      to: &state
+    )
+
+    guard
+      let terminalIndex = state.modelFacingTranscript.entries.lastIndex(where: { entry in
+        guard entry.turnID == turnID else {
+          return false
+        }
+        if case .terminalToolResult = entry.body {
+          return true
+        }
+        return false
+      })
+    else {
+      if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
+        prompt: content,
+        systemContext: [systemPromptSnapshot]
+      ) {
+        appendModelFacingEntry(entry, to: &state)
+      }
+      return
+    }
+
+    let terminalEntry = state.modelFacingTranscript.entries[terminalIndex]
+    guard case .terminalToolResult(let context) = terminalEntry.body,
+      let followUpEntry = try? ModelFacingPromptRenderer.finalToolResultPromptEntry(
+        id: terminalEntry.id,
+        turnID: terminalEntry.turnID,
+        sourceMessageID: terminalEntry.sourceMessageID,
+        terminalToolResult: context,
+        followUpInstruction: content,
+        systemContext: [systemPromptSnapshot]
+      )
+    else {
+      return
+    }
+
+    state.modelFacingTranscript.entries[terminalIndex] = followUpEntry
   }
 
   public func updateLastUserModelContextSystemPromptSnapshot(
@@ -64,6 +132,11 @@ public struct ChatTranscriptMutator: Sendable {
 
     state.modelContextMessages[index] =
       state.modelContextMessages[index].replacingSystemPromptSnapshot(systemPromptSnapshot)
+    updateLastUserModelFacingEntrySystemPromptSnapshot(
+      systemPromptSnapshot,
+      turnID: turnID,
+      in: &state
+    )
   }
 
   public func appendAssistantPlaceholder(
@@ -217,6 +290,7 @@ public struct ChatTranscriptMutator: Sendable {
   public func clearTranscript(in state: inout ChatSessionState) {
     state.messages.removeAll()
     state.modelContextMessages.removeAll()
+    state.modelFacingTranscript.entries.removeAll()
     state.toolCalls.removeAll()
     state.turns.removeAll()
     state.attachments.removeAll()
@@ -298,6 +372,56 @@ public struct ChatTranscriptMutator: Sendable {
     }
 
     state.turns[index] = transform(state.turns[index])
+  }
+
+  private func updateLastUserModelFacingEntrySystemPromptSnapshot(
+    _ systemPromptSnapshot: String,
+    turnID: ChatTurnRecord.ID,
+    in state: inout ChatSessionState
+  ) {
+    guard
+      let index = state.modelFacingTranscript.entries.lastIndex(where: { entry in
+        entry.turnID == turnID && entry.body.modelRole == .user
+      })
+    else {
+      return
+    }
+
+    let entry = state.modelFacingTranscript.entries[index]
+    let updatedEntry: ModelContextEntry?
+    switch entry.body {
+    case .userPrompt(let context):
+      guard context.systemContext.isEmpty else {
+        return
+      }
+      updatedEntry = try? ModelFacingPromptRenderer.userPromptEntry(
+        id: entry.id,
+        turnID: entry.turnID,
+        sourceMessageID: entry.sourceMessageID,
+        prompt: context.prompt,
+        systemContext: [systemPromptSnapshot]
+      )
+    case .toolObservation(let context):
+      updatedEntry = try? ModelContextEntry(
+        id: entry.id,
+        turnID: entry.turnID,
+        sourceMessageID: entry.sourceMessageID,
+        body: entry.body,
+        frozenContent: FrozenModelContent(
+          role: .user,
+          content: ModelFacingPromptRenderer.userContent(
+            context.content,
+            systemContext: [systemPromptSnapshot]
+          )
+        )
+      )
+    case .assistantOutput, .terminalToolResult, .legacy:
+      return
+    }
+
+    if let updatedEntry {
+      state.modelFacingTranscript.entries[index] = updatedEntry
+    }
   }
 }
 

@@ -60,14 +60,14 @@ public actor RuntimeOperationCoordinator {
   }
 
   public func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     operationID: UUID
   ) async throws -> ChatContextUsage {
     try checkCurrent(operationID)
     let usage = try await runtime.contextUsage(
-      for: messages,
+      for: transcript,
       attachments: attachments,
       systemPrompt: systemPrompt
     )

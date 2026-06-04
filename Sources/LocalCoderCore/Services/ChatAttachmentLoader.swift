@@ -87,14 +87,14 @@ public struct ChatAttachmentLoader: ChatAttachmentLoading {
   }
 
   private func readTextAttachment(from url: URL) throws -> ChatAttachment {
-#if canImport(Darwin)
-    let didStartSecurityScope = url.startAccessingSecurityScopedResource()
-    defer {
-      if didStartSecurityScope {
-        url.stopAccessingSecurityScopedResource()
+    #if canImport(Darwin)
+      let didStartSecurityScope = url.startAccessingSecurityScopedResource()
+      defer {
+        if didStartSecurityScope {
+          url.stopAccessingSecurityScopedResource()
+        }
       }
-    }
-#endif
+    #endif
 
     let fileName = url.lastPathComponent
     let fileExtension = url.pathExtension.lowercased()

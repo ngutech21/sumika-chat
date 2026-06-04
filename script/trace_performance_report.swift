@@ -6,6 +6,7 @@ struct GenerationReport: Codable {
   var generationID: String
   var turnID: String?
   var interactionMode: String?
+  var toolLoopIteration: Int?
   var cacheMode: String?
   var cacheReason: String?
   var contextSignature: String?
@@ -158,6 +159,7 @@ func gitValue(_ arguments: [String]) -> String? {
 func newGenerationReport(id: String, rowIndex: Int) -> GenerationReport {
   GenerationReport(
     generationID: id,
+    toolLoopIteration: nil,
     requestSeen: false,
     responseSeen: false,
     uiFlushCount: 0,
@@ -169,6 +171,7 @@ func newGenerationReport(id: String, rowIndex: Int) -> GenerationReport {
 func mergeTraceFields(_ object: [String: Any], into report: inout GenerationReport) {
   report.turnID = report.turnID ?? value(object, "turnID", as: String.self)
   report.interactionMode = report.interactionMode ?? value(object, "interactionMode", as: String.self)
+  report.toolLoopIteration = report.toolLoopIteration ?? intValue(object, "toolLoopIteration")
   report.cacheMode = report.cacheMode ?? value(object, "cacheMode", as: String.self)
   report.cacheReason =
     report.cacheReason
@@ -206,8 +209,8 @@ func markdown(_ report: PerformanceReport) -> String {
     "- Rows: \(report.rowCount)",
     "- Generations: \(report.generationCount)",
     "",
-    "| # | Mode | Cache | Reason | TTFT ms | Decode ms | tok/s | Prompt bytes | Error |",
-    "|---:|---|---|---|---:|---:|---:|---:|---|",
+    "| # | Mode | Iter | Cache | Reason | TTFT ms | Decode ms | tok/s | Prompt bytes | Error |",
+    "|---:|---|---:|---|---|---:|---:|---:|---:|---|",
   ]
 
   for (index, generation) in report.generations.enumerated() {
@@ -215,6 +218,7 @@ func markdown(_ report: PerformanceReport) -> String {
       [
         "\(index + 1)",
         generation.interactionMode ?? "-",
+        generation.toolLoopIteration.map(String.init) ?? "-",
         generation.cacheMode ?? "-",
         generation.cacheReason ?? "-",
         formatted(generation.ttftMs),
@@ -226,8 +230,63 @@ func markdown(_ report: PerformanceReport) -> String {
     )
   }
 
+  appendToolLoopTTFTComparison(to: &lines, generations: report.generations)
+
   lines.append("")
   return lines.joined(separator: "\n")
+}
+
+func appendToolLoopTTFTComparison(to lines: inout [String], generations: [GenerationReport]) {
+  let groupedByTurn = Dictionary(
+    grouping: generations.filter { $0.turnID != nil && $0.toolLoopIteration != nil },
+    by: { $0.turnID ?? "" }
+  )
+  let comparisons = groupedByTurn.compactMap { turnID, generations -> (
+    String, Double?, Double?, Double?
+  )? in
+    let firstToolTTFT = generations
+      .filter { $0.toolLoopIteration == 1 }
+      .compactMap(\.ttftMs)
+      .first
+    let followUpTTFTs = generations
+      .filter { ($0.toolLoopIteration ?? 0) > 1 }
+      .compactMap(\.ttftMs)
+
+    guard firstToolTTFT != nil || !followUpTTFTs.isEmpty else {
+      return nil
+    }
+
+    return (
+      turnID,
+      firstToolTTFT,
+      followUpTTFTs.min(),
+      followUpTTFTs.max()
+    )
+  }
+  .sorted { left, right in left.0 < right.0 }
+
+  guard !comparisons.isEmpty else {
+    return
+  }
+
+  lines.append(contentsOf: [
+    "",
+    "## Tool Loop TTFT",
+    "",
+    "| Turn | First tool TTFT ms | Follow-up min TTFT ms | Follow-up max TTFT ms |",
+    "|---|---:|---:|---:|",
+  ])
+
+  for comparison in comparisons {
+    lines.append(
+      [
+        comparison.0,
+        formatted(comparison.1),
+        formatted(comparison.2),
+        formatted(comparison.3),
+      ].joined(separator: " | ").wrappedTableRow()
+    )
+  }
 }
 
 func formatted(_ value: Double?) -> String {

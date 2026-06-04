@@ -324,18 +324,18 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
+    _ = attachments
+    _ = systemPrompt
     guard let modelContainer else {
       throw GemmaMLXRuntimeError.modelNotLoaded
     }
 
-    let rawMessages = try Self.templateMessages(
-      from: messages,
-      attachments: attachments,
-      systemPrompt: systemPrompt
+    let rawMessages = try Self.validatedTemplateMessages(
+      transcript.entries.map(Self.chatMessage(from:))
     )
     .map { ["role": $0.role.rawValue, "content": $0.content] as [String: any Sendable] }
     let usedTokens = try await modelContainer.perform { context in
@@ -346,26 +346,24 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = attachments
+    _ = systemPrompt
     let streamStartStartedAt = Date()
     guard let modelContainer else {
       throw GemmaMLXRuntimeError.modelNotLoaded
     }
 
-    guard let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) else {
+    let entries = transcript.entries
+    guard let lastUserIndex = entries.lastIndex(where: { $0.frozenContent.role == .user }) else {
       throw GemmaMLXRuntimeError.missingUserMessage
     }
 
-    let promptMessage = Self.generationPromptMessage(
-      from: messages,
-      lastUserIndex: lastUserIndex,
-      attachments: attachments,
-      systemPrompt: systemPrompt
-    )
+    let promptMessage = Self.chatMessage(from: entries[lastUserIndex])
     let generateParameters = GenerateParameters(
       maxTokens: settings.maxTokens,
       maxKVSize: settings.maxKVSize,
@@ -374,7 +372,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       topK: settings.topK
     )
     let history = try Self.generationHistoryMessages(
-      from: messages[..<lastUserIndex]
+      from: entries[..<lastUserIndex]
     )
     let historySnapshot = Self.messageSnapshot(from: history)
     let finalPrompt = promptMessage.content
@@ -411,7 +409,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           phase: .runtimeStreamStart,
           durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
           promptBytes: finalPrompt.utf8.count,
-          messageCount: messages.count,
+          messageCount: entries.count,
+          toolLoopIteration: traceMetadata.toolLoopIteration,
           cacheMode: cachePlan.trace.cacheMode.rawValue,
           cacheReason: cachePlan.trace.cacheReason.rawValue,
           interactionMode: traceMetadata.interactionMode,
@@ -622,6 +621,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated static func messageSnapshot(from messages: [Chat.Message]) -> [GemmaMessageSnapshot] {
     messages.map { message in
       GemmaMessageSnapshot(role: message.role.rawValue, content: message.content)
+    }
+  }
+
+  nonisolated static func chatMessage(from entry: ModelContextEntry) -> Chat.Message {
+    switch entry.frozenContent.role {
+    case .user:
+      return .user(entry.frozenContent.content)
+    case .assistant:
+      return .assistant(entry.frozenContent.content)
     }
   }
 
@@ -944,6 +952,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                 generationID: traceID,
                 phase: .memoryClear,
                 durationMs: durationMs,
+                toolLoopIteration: traceMetadata.toolLoopIteration,
                 cacheMode: cacheTrace.cacheMode.rawValue,
                 cacheReason: cacheTrace.cacheReason.rawValue,
                 interactionMode: traceMetadata.interactionMode,
@@ -978,6 +987,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                     generationID: traceID,
                     phase: .runtimeTTFT,
                     durationMs: ttftMs,
+                    toolLoopIteration: traceMetadata.toolLoopIteration,
                     ttftMs: ttftMs,
                     cacheMode: cacheTrace.cacheMode.rawValue,
                     cacheReason: cacheTrace.cacheReason.rawValue,
@@ -1016,6 +1026,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                   generationID: traceID,
                   phase: .runtimeDecode,
                   durationMs: Date().timeIntervalSince(decodeStartedAt) * 1000,
+                  toolLoopIteration: traceMetadata.toolLoopIteration,
                   tokensPerSecond: info.tokensPerSecond,
                   cacheMode: cacheTrace.cacheMode.rawValue,
                   cacheReason: cacheTrace.cacheReason.rawValue,
@@ -1246,6 +1257,18 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
 
     return messages
+  }
+
+  nonisolated static func generationHistoryMessages(
+    from entries: ArraySlice<ModelContextEntry>
+  ) throws -> [Chat.Message] {
+    var history = normalizedChatMessages(entries.map(Self.chatMessage(from:)))
+
+    while history.last?.role == .user {
+      history.removeLast()
+    }
+
+    return try validatedTemplateMessages(history)
   }
 
   nonisolated static func generationHistoryMessages(

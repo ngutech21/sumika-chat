@@ -1,7 +1,8 @@
-#if canImport(Darwin)
-import Darwin
-#endif
 import Foundation
+
+#if canImport(Darwin)
+  import Darwin
+#endif
 
 public protocol ProcessResourceMonitoring: Sendable {
   func currentUsage() async -> ProcessResourceUsage?
@@ -32,52 +33,52 @@ public actor ProcessResourceMonitor: ProcessResourceMonitoring {
   }
 
   private static func currentMemoryBytes() -> UInt64? {
-#if canImport(Darwin)
-    var info = task_vm_info_data_t()
-    var count = mach_msg_type_number_t(
-      MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size
-    )
+    #if canImport(Darwin)
+      var info = task_vm_info_data_t()
+      var count = mach_msg_type_number_t(
+        MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size
+      )
 
-    let result = withUnsafeMutablePointer(to: &info) { pointer in
-      pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { reboundPointer in
-        task_info(
-          mach_task_self_,
-          task_flavor_t(TASK_VM_INFO),
-          reboundPointer,
-          &count
-        )
+      let result = withUnsafeMutablePointer(to: &info) { pointer in
+        pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { reboundPointer in
+          task_info(
+            mach_task_self_,
+            task_flavor_t(TASK_VM_INFO),
+            reboundPointer,
+            &count
+          )
+        }
       }
-    }
 
-    guard result == KERN_SUCCESS else {
+      guard result == KERN_SUCCESS else {
+        return nil
+      }
+
+      return UInt64(info.phys_footprint)
+    #else
       return nil
-    }
-
-    return UInt64(info.phys_footprint)
-#else
-    return nil
-#endif
+    #endif
   }
 
   private static func currentSample() -> ProcessResourceSample? {
-#if canImport(Darwin)
-    var usage = rusage()
-    guard getrusage(RUSAGE_SELF, &usage) == 0 else {
+    #if canImport(Darwin)
+      var usage = rusage()
+      guard getrusage(RUSAGE_SELF, &usage) == 0 else {
+        return nil
+      }
+
+      return ProcessResourceSample(
+        cpuTime: seconds(from: usage.ru_utime) + seconds(from: usage.ru_stime),
+        wallTime: Date().timeIntervalSinceReferenceDate
+      )
+    #else
       return nil
+    #endif
+  }
+
+  #if canImport(Darwin)
+    private static func seconds(from time: timeval) -> TimeInterval {
+      Double(time.tv_sec) + Double(time.tv_usec) / 1_000_000
     }
-
-    return ProcessResourceSample(
-      cpuTime: seconds(from: usage.ru_utime) + seconds(from: usage.ru_stime),
-      wallTime: Date().timeIntervalSinceReferenceDate
-    )
-#else
-    return nil
-#endif
-  }
-
-#if canImport(Darwin)
-  private static func seconds(from time: timeval) -> TimeInterval {
-    Double(time.tv_sec) + Double(time.tv_usec) / 1_000_000
-  }
-#endif
+  #endif
 }

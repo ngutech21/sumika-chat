@@ -4,7 +4,7 @@ public struct ContextUsageSnapshot: Sendable {
   public let modelState: ModelLoadState
   public let operationID: UUID
   public let turnID: ChatTurnRecord.ID?
-  public let messages: [ChatModelContextMessage]
+  public let transcript: ModelFacingTranscript
   public let attachments: [ChatAttachment]
   public let systemPrompt: String
   public let contextTokenLimit: Int?
@@ -15,7 +15,7 @@ public struct ContextUsageSnapshot: Sendable {
     modelState: ModelLoadState,
     operationID: UUID,
     turnID: ChatTurnRecord.ID? = nil,
-    messages: [ChatModelContextMessage],
+    transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     contextTokenLimit: Int? = nil,
@@ -25,7 +25,7 @@ public struct ContextUsageSnapshot: Sendable {
     self.modelState = modelState
     self.operationID = operationID
     self.turnID = turnID
-    self.messages = messages
+    self.transcript = transcript
     self.attachments = attachments
     self.systemPrompt = systemPrompt
     self.contextTokenLimit = contextTokenLimit
@@ -35,11 +35,8 @@ public struct ContextUsageSnapshot: Sendable {
 
   public func estimatedUsage(isStale: Bool = true) -> ChatContextUsage {
     var byteCount = systemPrompt.utf8.count
-    for message in messages {
-      byteCount += message.content.utf8.count
-      for attachment in message.attachments {
-        byteCount += attachment.content.utf8.count
-      }
+    for entry in transcript.entries {
+      byteCount += entry.frozenContent.content.utf8.count
     }
     for attachment in attachments {
       byteCount += attachment.content.utf8.count
@@ -223,7 +220,7 @@ public final class ContextUsageCoordinator {
     do {
       let startedAt = Date()
       let usage = try await modelLifecycleCoordinator.contextUsage(
-        for: snapshot.messages,
+        for: snapshot.transcript,
         attachments: snapshot.attachments,
         systemPrompt: snapshot.systemPrompt,
         operationID: snapshot.operationID
@@ -236,7 +233,7 @@ public final class ContextUsageCoordinator {
           durationMs: Date().timeIntervalSince(startedAt) * 1000,
           promptBytes: snapshot.systemPrompt.utf8.count,
           promptTokens: usage.usedTokens,
-          messageCount: snapshot.messages.count,
+          messageCount: snapshot.transcript.entries.count,
           interactionMode: snapshot.interactionMode
         )
       )

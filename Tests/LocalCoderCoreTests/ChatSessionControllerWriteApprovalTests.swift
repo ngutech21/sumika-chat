@@ -103,13 +103,12 @@ struct ChatSessionControllerWriteApprovalTests {
     let finalFollowUpContext = try #require(capturedMessages.last)
     #expect(finalFollowUpContext.last?.role == .user)
     #expect(
-      finalFollowUpContext.last?.content
-        == "Use the preceding tool result to answer the user's request.")
+      finalFollowUpContext.last?.content.contains(
+        "Use the preceding tool result to answer the user's request.") == true)
+    #expect(finalFollowUpContext.last?.content.contains("No more tools may run") == true)
     #expect(
-      finalFollowUpContext.last?.systemPromptSnapshot?.contains("No more tools may run") == true)
-    #expect(
-      finalFollowUpContext.first(where: { $0.role == .user })?.systemPromptSnapshot?
-        .contains("write_file") == true)
+      finalFollowUpContext.first(where: { $0.role == .user })?.content.contains("write_file")
+        == true)
   }
 
   @Test
@@ -197,8 +196,7 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(capturedMessages.count == 2)
     let finalFollowUpContext = try #require(capturedMessages.last)
     #expect(finalFollowUpContext.last?.role == .user)
-    #expect(
-      finalFollowUpContext.last?.systemPromptSnapshot?.contains("No more tools may run") == true)
+    #expect(finalFollowUpContext.last?.content.contains("No more tools may run") == true)
   }
 
   @Test

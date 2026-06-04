@@ -33,7 +33,7 @@ struct ChatGenerationCoordinatorTests {
 
     let assistantContent = try await coordinator.streamAssistantReply(
       turnID: turnID,
-      messages: [],
+      transcript: ModelFacingTranscript(),
       systemPrompt: "Use tools.",
       settings: .codingDefault,
       stopAfterCompleteToolAction: true,
@@ -81,7 +81,7 @@ struct ChatGenerationCoordinatorTests {
     var contextUsageUpdateCount = 0
 
     let assistantContent = try await coordinator.streamAssistantReply(
-      messages: [],
+      transcript: ModelFacingTranscript(),
       systemPrompt: "Use tools.",
       settings: .codingDefault,
       stopAfterCompleteToolAction: true,
@@ -113,7 +113,7 @@ struct ChatGenerationCoordinatorTests {
     var updatedMetrics: ChatGenerationMetrics?
 
     let assistantContent = try await coordinator.streamAssistantReply(
-      messages: [],
+      transcript: ModelFacingTranscript(),
       systemPrompt: "Answer normally.",
       settings: .codingDefault,
       stopAfterCompleteToolAction: false,
@@ -142,7 +142,7 @@ struct ChatGenerationCoordinatorTests {
 
     await #expect(throws: ChatGenerationError.streamInterrupted) {
       try await coordinator.streamAssistantReply(
-        messages: [],
+        transcript: ModelFacingTranscript(),
         systemPrompt: "Answer normally.",
         settings: .codingDefault,
         stopAfterCompleteToolAction: false,
@@ -166,7 +166,7 @@ struct ChatGenerationCoordinatorTests {
     var chunks: [String] = []
 
     _ = try await coordinator.streamAssistantReply(
-      messages: [],
+      transcript: ModelFacingTranscript(),
       systemPrompt: "Answer normally.",
       settings: .codingDefault,
       stopAfterCompleteToolAction: false,
@@ -192,7 +192,10 @@ struct ChatGenerationCoordinatorTests {
 
     _ = try await coordinator.streamAssistantReply(
       turnID: turnID,
-      messages: [ChatModelContextMessage(role: .user, content: "hi")],
+      toolLoopIteration: 2,
+      transcript: ModelFacingTranscript(entries: [
+        try ModelFacingPromptRenderer.userPromptEntry(prompt: "hi")
+      ]),
       systemPrompt: "Answer normally.",
       settings: .codingDefault,
       stopAfterCompleteToolAction: false,
@@ -208,6 +211,7 @@ struct ChatGenerationCoordinatorTests {
     #expect(event.turnID == turnID)
     #expect(event.generationID != nil)
     #expect(event.messageCount == 1)
+    #expect(event.toolLoopIteration == 2)
   }
 
   private func waitUntilAsync(

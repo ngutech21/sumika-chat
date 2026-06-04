@@ -26,23 +26,23 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
   }
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     _ = settings
@@ -95,11 +95,11 @@ actor ControlledContextUsageRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     let usage = await withCheckedContinuation { continuation in
@@ -118,12 +118,12 @@ actor ControlledContextUsageRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     _ = settings
@@ -147,23 +147,23 @@ actor CountingClearContextRuntime: ChatModelRuntime {
   }
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     _ = settings
@@ -190,23 +190,23 @@ actor InterruptedStreamingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     _ = settings
@@ -227,7 +227,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   private var streamReplyCount = 0
   private var contextUsageCount = 0
   private(set) var completedCallIndexes: Set<Int> = []
-  private(set) var capturedMessages: [[ChatModelContextMessage]] = []
+  private(set) var capturedMessages: [[FrozenModelContent]] = []
   private(set) var capturedSystemPrompts: [String] = []
 
   init(turns: [[String]], blockedCallIndexes: Set<Int>) {
@@ -251,11 +251,11 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     contextUsageCount += 1
@@ -268,7 +268,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -276,7 +276,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
     _ = attachments
     _ = settings
 
-    capturedMessages.append(messages)
+    capturedMessages.append(transcript.entries.map(\.frozenContent))
     capturedSystemPrompts.append(systemPrompt)
     let callIndex = streamReplyCount
     streamReplyCount += 1
@@ -346,23 +346,23 @@ actor PartialFailingStreamingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     _ = settings
@@ -402,23 +402,23 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
   }
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     return ChatContextUsage(usedTokens: 42, tokenLimit: nil)
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = messages
+    _ = transcript
     _ = attachments
     _ = systemPrompt
     _ = settings
@@ -492,7 +492,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private let turns: [[String]]
   private let failingStreamReplyCalls: Set<Int>
   private var streamReplyCount = 0
-  private(set) var capturedMessages: [[ChatModelContextMessage]] = []
+  private(set) var capturedMessages: [[FrozenModelContent]] = []
   private(set) var capturedSystemPrompts: [String] = []
   private(set) var capturedContextUsageSystemPrompts: [String] = []
   private(set) var completedPartialReplies: [String] = []
@@ -516,12 +516,13 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
     capturedContextUsageSystemPrompts.append(systemPrompt)
-    let usedTokens = ([systemPrompt] + messages.map(\.content) + attachments.map(\.content))
+    let usedTokens =
+      ([systemPrompt] + transcript.entries.map(\.frozenContent.content) + attachments.map(\.content))
       .joined(separator: " ")
       .split(whereSeparator: \.isWhitespace)
       .count
@@ -529,7 +530,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for messages: [ChatModelContextMessage],
+    for transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -537,7 +538,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
     _ = attachments
     _ = settings
 
-    capturedMessages.append(messages)
+    capturedMessages.append(transcript.entries.map(\.frozenContent))
     capturedSystemPrompts.append(systemPrompt)
     let callIndex = streamReplyCount
     let chunks = turns[min(callIndex, turns.count - 1)]

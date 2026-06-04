@@ -657,6 +657,120 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func toolObservationFollowUpUsesCachedPrefixAsHistoryAndObservationAsPrompt() throws {
+    let callID = UUID()
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        prompt: "read README.md",
+        systemContext: ["Read-only tools are available."]
+      ),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        content: """
+          <action name="read_file">
+          <path>README.md</path>
+          </action>
+          """
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .readFile,
+          preview: ToolResultPreview(
+            status: .success,
+            text: "Project overview",
+            affectedPaths: ["README.md"]
+          )
+        ),
+        systemContext: ["Read-only tools are available."]
+      ),
+    ]
+    let lastUserIndex = try #require(entries.lastIndex { $0.frozenContent.role == .user })
+
+    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[..<lastUserIndex])
+    let prompt = GemmaMLXRuntime.chatMessage(from: entries[lastUserIndex])
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: history)
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: .codingDefault,
+      cachedState: .clean,
+      currentHistory: prefix,
+      currentSettings: .codingDefault
+    )
+
+    #expect(history.map(\.role) == [.user, .assistant])
+    #expect(prompt.role == .user)
+    #expect(prompt.content.contains("<observation"))
+    #expect(prompt.content.contains("Project overview"))
+    #expect(decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .sessionReused)
+    #expect(decision.trace.appendedMessageCount == 0)
+    #expect(decision.trace.mismatchReason == nil)
+  }
+
+  @Test
+  func terminalToolResultFollowUpUsesCachedPrefixAsHistoryAndResultAsPrompt() throws {
+    let callID = UUID()
+    let terminalResult = ToolResultModelMessage(
+      callID: callID,
+      toolName: .writeFile,
+      preview: ToolResultPreview(
+        status: .success,
+        text: "movies.html written",
+        affectedPaths: ["movies.html"]
+      )
+    )
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        prompt: "create movies.html",
+        systemContext: ["Tools are available."]
+      ),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        content: writeFileToolCall(
+          callID: callID,
+          arguments: [
+            "path": .string("movies.html"),
+            "content": .string("<html></html>"),
+          ]
+        ).modelContextContent
+      ),
+      try ModelFacingPromptRenderer.finalToolResultPromptEntry(
+        terminalToolResult: TerminalToolResultContext(
+          callID: callID,
+          toolName: terminalResult.toolName,
+          status: terminalResult.preview.status,
+          content: terminalResult.modelContextContent
+        ),
+        followUpInstruction: "Use the preceding tool result to answer the user's request.",
+        systemContext: ["No more tools may run in this response."]
+      ),
+    ]
+    let lastUserIndex = try #require(entries.lastIndex { $0.frozenContent.role == .user })
+
+    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[..<lastUserIndex])
+    let prompt = GemmaMLXRuntime.chatMessage(from: entries[lastUserIndex])
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: history)
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: .codingDefault,
+      cachedState: .clean,
+      currentHistory: prefix,
+      currentSettings: .codingDefault
+    )
+
+    #expect(history.map(\.role) == [.user, .assistant])
+    #expect(prompt.role == .user)
+    #expect(prompt.content.contains("Tool write_file completed with status success."))
+    #expect(prompt.content.contains("Use the preceding tool result to answer"))
+    #expect(prompt.content.contains("No more tools may run in this response."))
+    #expect(decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .sessionReused)
+    #expect(decision.trace.appendedMessageCount == 0)
+    #expect(decision.trace.mismatchReason == nil)
+  }
+
+  @Test
   func cacheDecisionInvalidatesCleanAppendOnlyHistory() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [

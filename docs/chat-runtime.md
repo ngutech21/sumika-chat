@@ -55,7 +55,7 @@ flowchart TD
 - `ChatMessage.deliveryStatus` distinguishes complete assistant messages from
   streaming or cancelled partial output.
 - `ChatModelContextBuilder` turns `ChatSessionState` into the model-facing
-  message list. It excludes messages belonging to turns whose
+  `ModelFacingTranscript`. It excludes entries belonging to turns whose
   `modelContextPolicy` is `.excluded`, except while that same turn is actively
   generating its direct follow-up response.
 - `ChatGenerationCoordinator` streams model events into transcript chunks and
@@ -76,8 +76,8 @@ flowchart TD
 - `ChatWorkflowEventApplier` applies typed workflow events to `ChatSessionState`
   using `ChatTranscriptMutator`. These events are not persisted; persistence
   stores only the resulting messages, tool-call records, and turns.
-- `ContextUsageCoordinator` computes token usage from the same filtered model
-  context used for generation.
+- `ContextUsageCoordinator` computes token usage from the same filtered frozen
+  model-facing transcript used for generation.
 
 ## Turn Lifecycle
 
@@ -141,13 +141,26 @@ flowchart TD
 
 - Always build model input through `ChatModelContextBuilder`; do not pass the
   raw transcript directly to the model runtime from new code.
+- `ModelFacingTranscript` is the source for runtime generation and context
+  usage. Each `ModelContextEntry` stores typed intent in `body` and the
+  byte-stable rendered role/content in `frozenContent`.
+- Derive model role from the ADT body. Persisted entries whose body role and
+  frozen rendered role disagree are invalid and must be rejected or explicitly
+  repaired by a migration.
+- Freeze rendered content when appending user prompts, assistant outputs, tool
+  observations, and terminal tool results. Do not reconstruct old model-facing
+  history from mutable UI state, focused context, current tool prompt mode, or
+  attachments.
+- `ChatModelContextMessage` is legacy/backfill input. It remains persisted for
+  compatibility and diagnostics, but new runtime calls consume the frozen
+  ledger.
 - Legacy messages without `turnID` are included so old saved sessions continue
   to work.
 - Completed turns are included by default.
 - Cancelled and failed turns with `modelContextPolicy == .excluded` are omitted
   from future prompts and context-usage calculations.
-- The transcript remains the audit source. The filtered model context is the
-  prompt source.
+- The UI transcript remains the audit source. The frozen ledger is the
+  model-facing prompt and cache-correctness source.
 
 ## Gemma/MLX Cache Rules
 
@@ -158,6 +171,10 @@ the Swift-side prefix and the MLX session state describe the same bytes.
 - Exact history reuse is safe when the cached prefix, rendered context
   signature, generation settings, and clean session state all match the current
   model-facing history.
+- Tool-loop follow-ups should keep the previously consumed frozen entries as
+  exact history and render the new observation or final tool result as the
+  current prompt. That path should trace `session_reused` instead of
+  `invalidated_history_appended` when the cached prefix is clean.
 - Append-only history is not automatically reusable. If current history is the
   cached prefix plus new model-facing messages, the runtime must either rebuild
   the `ChatSession` or use a real MLX append/prefill path that advances the KV
@@ -170,9 +187,9 @@ the Swift-side prefix and the MLX session state describe the same bytes.
 - Dirty states stay conservative. Cancelled turns, interrupted streams, runtime
   errors, and non-tool downstream termination invalidate reuse.
 - Trace fields such as `cacheMode`, `cacheReason`, `appendOnly`,
-  `reusedMessageCount`, `appendedMessageCount`, `mismatchReason`, and
-  `firstMismatchIndex` are the source of truth for diagnosing cache behavior.
-  UI generation time alone cannot prove a cache hit.
+  `reusedMessageCount`, `appendedMessageCount`, `mismatchReason`,
+  `firstMismatchIndex`, and `toolLoopIteration` are the source of truth for
+  diagnosing cache behavior. UI generation time alone cannot prove a cache hit.
 
 The intended long-term fast path for tool loops is either:
 
@@ -183,7 +200,10 @@ The intended long-term fast path for tool loops is either:
 
 ## Persistence Rules
 
-- `CodingSession` persists `messages`, `toolCalls`, and `turns`.
+- `CodingSession` persists `messages`, `modelFacingTranscript`, `toolCalls`,
+  and `turns`.
+- Sessions without a stored `modelFacingTranscript` are migrated from legacy
+  `modelContextMessages` during decode.
 - New Codable fields use defaults so sessions saved before turn metadata decode
   successfully.
 - `ChatTurnRecord.messageIDs` and `toolCallIDs` are audit links. They should be
