@@ -139,6 +139,85 @@ struct ToolLoopCoordinatorTests {
 
     #expect(completedToolResult(from: result)?.toolName == .readFile)
     #expect(directAssistantMessage(from: result) == nil)
+    #expect(resumePromptMode(from: result) == .afterInspectToolResultCanContinue)
+  }
+
+  @Test
+  func directListFilesRequestStopsWithoutModelFollowUpInInspectMode() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let turnID = UUID()
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: turnID,
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(userContent: "list the files in this directory", turnID: turnID),
+          ChatMessage(
+            id: assistantMessageID,
+            assistantContent: """
+              <action name="list_files">
+              <path>.</path>
+              </action>
+              """,
+            turnID: turnID
+          ),
+        ],
+        interactionMode: .inspect
+      )
+    )
+
+    #expect(result?.continuation == .stopTurn)
+    #expect(toolResult(from: result)?.toolName == .listFiles)
+    let assistant = directAssistantMessage(from: result)
+    #expect(assistant?.content.contains("Files in `.`:") == true)
+    #expect(assistant?.content.contains("README.md") == true)
+    #expect(
+      assistant?.modelContextContent
+        == "Displayed list_files result for . directly to the user.")
+  }
+
+  @Test
+  func listFilesWithFollowUpQuestionKeepsModelFollowUpInInspectMode() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let turnID = UUID()
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: turnID,
+        assistantMessageID: assistantMessageID,
+        messages: [
+          ChatMessage(
+            userContent: "list the files and tell me which one looks like the entry point",
+            turnID: turnID
+          ),
+          ChatMessage(
+            id: assistantMessageID,
+            assistantContent: """
+              <action name="list_files">
+              <path>.</path>
+              </action>
+              """,
+            turnID: turnID
+          ),
+        ],
+        interactionMode: .inspect
+      )
+    )
+
+    #expect(completedToolResult(from: result)?.toolName == .listFiles)
+    #expect(directAssistantMessage(from: result) == nil)
+    #expect(resumePromptMode(from: result) == .afterInspectToolResultCanContinue)
   }
 
   @Test
@@ -665,6 +744,13 @@ struct ToolLoopCoordinatorTests {
       return nil
     }
     return toolResult(from: step)
+  }
+
+  private func resumePromptMode(from step: ChatWorkflowStep?) -> ToolPromptMode? {
+    guard case .resumeGeneration(_, let promptMode) = step?.continuation else {
+      return nil
+    }
+    return promptMode
   }
 
   private func toolResult(from step: ChatWorkflowStep?) -> ToolResultModelMessage? {

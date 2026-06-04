@@ -193,7 +193,8 @@ public struct ToolLoopCoordinator: Sendable {
         focusedFileState: request.focusedFileState,
         followUpPromptMode: followUpPromptMode(
           after: record,
-          defaultMode: request.followUpPromptMode
+          defaultMode: request.followUpPromptMode,
+          interactionMode: request.interactionMode
         ),
         directResponse: directResponse(after: record, toolResult: toolResult, request: request)
       )
@@ -365,10 +366,14 @@ public struct ToolLoopCoordinator: Sendable {
 
   private func followUpPromptMode(
     after record: ToolCallRecord,
-    defaultMode: ToolPromptMode
+    defaultMode: ToolPromptMode,
+    interactionMode: WorkspaceInteractionMode
   ) -> ToolPromptMode {
     guard record.status == .completed else {
       return defaultMode
+    }
+    if interactionMode == .inspect, defaultMode != .afterToolResultFinal {
+      return .afterInspectToolResultCanContinue
     }
     switch record.request.toolName {
     case .writeFile, .editFile:
@@ -383,18 +388,26 @@ public struct ToolLoopCoordinator: Sendable {
     toolResult: ToolResultModelMessage,
     request: ToolLoopRequest
   ) -> DirectToolResultResponse? {
-    guard record.status == .completed,
-      record.request.toolName == .showFile,
-      case .readFile(.success(let path, _)) = record.resultPayload
-    else {
+    guard record.status == .completed else {
       return nil
     }
 
-    return DirectToolResultResponse(
-      content: directReadFileResponse(path: path, preview: toolResult.preview),
-      modelContextContent:
-        "Displayed show_file result for \(path.rawValue) directly to the user."
-    )
+    switch record.resultPayload {
+    case .readFile(.success(let path, _)) where record.request.toolName == .showFile:
+      return DirectToolResultResponse(
+        content: directReadFileResponse(path: path, preview: toolResult.preview),
+        modelContextContent:
+          "Displayed show_file result for \(path.rawValue) directly to the user."
+      )
+    case .listFiles(let result) where shouldRespondDirectlyToListFiles(request):
+      return DirectToolResultResponse(
+        content: directListFilesResponse(result: result, preview: toolResult.preview),
+        modelContextContent:
+          "Displayed list_files result for \(result.root.rawValue) directly to the user."
+      )
+    default:
+      return nil
+    }
   }
 
   private func directReadFileResponse(
@@ -414,6 +427,112 @@ public struct ToolLoopCoordinator: Sendable {
       response += "\n\nSome content was redacted."
     }
     return response
+  }
+
+  private func directListFilesResponse(
+    result: ListFilesResult,
+    preview: ToolResultPreview
+  ) -> String {
+    var response = "Files in `\(result.root.rawValue)`:"
+    let body = preview.text.isEmpty ? "(empty)" : preview.text
+    response += "\n\n"
+    response += body.split(separator: "\n", omittingEmptySubsequences: false)
+      .map { "    \($0)" }
+      .joined(separator: "\n")
+    if preview.truncated {
+      response += "\n\nResult truncated."
+    }
+    return response
+  }
+
+  private func shouldRespondDirectlyToListFiles(_ request: ToolLoopRequest) -> Bool {
+    guard request.interactionMode == .inspect,
+      let userContent = latestUserRequestContent(for: request)
+    else {
+      return false
+    }
+    return isDirectListFilesRequest(userContent)
+  }
+
+  private func latestUserRequestContent(for request: ToolLoopRequest) -> String? {
+    if let sameTurnUser = request.messages.last(where: { message in
+      message.turnID == request.turnID && message.kind == .user
+    }) {
+      return sameTurnUser.content
+    }
+
+    guard
+      let assistantIndex = request.messages.firstIndex(where: {
+        $0.id == request.assistantMessageID
+      }
+      )
+    else {
+      return request.messages.last(where: { $0.kind == .user })?.content
+    }
+
+    return request.messages[..<assistantIndex].last(where: { $0.kind == .user })?.content
+  }
+
+  private func isDirectListFilesRequest(_ content: String) -> Bool {
+    let lowered = content.lowercased()
+    guard
+      !containsAny(
+        [
+          " and ",
+          " then ",
+          "tell me",
+          "summar",
+          "explain",
+          "analy",
+          "inspect",
+          "read",
+          "search",
+          "find",
+          "choose",
+          "entry point",
+          "structure",
+          "which one",
+          "which file should",
+          "which file looks",
+          "which file is",
+          " und ",
+          " dann ",
+          "erklär",
+          "analys",
+          "lies ",
+          "suche",
+          "finde",
+        ],
+        in: lowered
+      )
+    else {
+      return false
+    }
+
+    let mentionsFile =
+      containsAny(["file", "files", "datei", "dateien"], in: lowered)
+    let hasListVerb = containsAny(["list", "liste", "auflist"], in: lowered)
+    let asksWhichFiles = containsAny(
+      ["what files", "which files", "welche datei", "welche files"],
+      in: lowered
+    )
+    let hasDisplayVerb = containsAny(
+      ["show", "display", "print", "ausgeben", "zeig", "zeigen"],
+      in: lowered
+    )
+    let mentionsDirectory = containsAny(
+      ["directory", "current dir", "dir", "folder", "verzeichnis", "ordner"],
+      in: lowered
+    )
+    let mentionsPluralFiles = containsAny(["files", "dateien"], in: lowered)
+
+    return (hasListVerb && mentionsFile)
+      || asksWhichFiles
+      || (hasDisplayVerb && mentionsPluralFiles && mentionsDirectory)
+  }
+
+  private func containsAny(_ needles: [String], in haystack: String) -> Bool {
+    needles.contains { haystack.contains($0) }
   }
 
   private func invalidToolCallOutput(

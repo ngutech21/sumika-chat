@@ -110,8 +110,99 @@ final class LocalCoderUITests: XCTestCase {
     XCTAssertTrue(inspectRows.containsInteractionMode("inspect"))
   }
 
+  @MainActor
+  func testChatThenInspectListsFilesOnceAndShowsRequestedFile() throws {
+    let robotsHTML = """
+      <!DOCTYPE html>
+      <html>
+      <head>
+      <title>Robots</title>
+      <style>
+      body {
+        background-color: red;
+      }
+      </style>
+      </head>
+      <body>
+
+      <h2>Robots</h2>
+
+      <table border="1">
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Power Source</th>
+          <th>Speed</th>
+          <th>Purpose</th>
+        </tr>
+        <tr>
+          <td>Robot 1</td>
+          <td>Humanoid</td>
+          <td>Battery</td>
+          <td>10 km/h</td>
+          <td>Exploration</td>
+        </tr>
+      </table>
+
+      </body>
+      </html>
+      """
+    let fixture = try launchFixture(
+      files: [
+        "index.html": "<!doctype html>\n<title>Index</title>\n",
+        "robots.html": robotsHTML,
+      ]
+    )
+    let application = try launchApp(fixture: fixture)
+    defer {
+      application.terminate()
+    }
+
+    try loadSelectedModel(in: application)
+    try selectChatMode(in: application)
+    let chatTraceOffset = fileSize(at: fixture.traceURL)
+    try sendPrompt("hey", in: application)
+    _ = try waitForCompletedTraceRows(
+      in: fixture.traceURL,
+      afterOffset: chatTraceOffset,
+      application: application,
+      interactionMode: "chat",
+      timeout: 120
+    )
+
+    try selectInspectMode(in: application)
+    let listTraceOffset = fileSize(at: fixture.traceURL)
+    try sendPrompt("list all files in the directory", in: application)
+    let listRows = try waitForCompletedTraceRows(
+      in: fixture.traceURL,
+      afterOffset: listTraceOffset,
+      application: application,
+      interactionMode: "inspect",
+      timeout: 420
+    )
+
+    XCTAssertEqual(listRows.toolExecutionCount(named: "list_files"), 1)
+    XCTAssertEqual(listRows.toolExecutionCount(named: "show_file"), 0)
+    XCTAssertTrue(listRows.containsResponseOutput(containing: "<action name=\"list_files\">"))
+
+    let showFileTraceOffset = fileSize(at: fixture.traceURL)
+    try sendPrompt("show the contents of robots.html", in: application)
+    let showFileRows = try waitForCompletedTraceRows(
+      in: fixture.traceURL,
+      afterOffset: showFileTraceOffset,
+      application: application,
+      interactionMode: "inspect",
+      timeout: 420
+    )
+
+    XCTAssertEqual(showFileRows.toolExecutionCount(named: "show_file"), 1)
+    XCTAssertEqual(showFileRows.toolExecutionCount(named: "list_files"), 0)
+    XCTAssertTrue(showFileRows.containsResponseOutput(containing: "<action name=\"show_file\">"))
+    XCTAssertTrue(showFileRows.containsResponseOutput(containing: "<path>robots.html</path>"))
+  }
+
   private func launchFixture(
-    readme: String,
+    readme: String? = nil,
     files: [String: String] = [:]
   ) throws -> LaunchFixture {
     let modelDirectory = modelCacheDirectory(modelID: modelID)
@@ -126,11 +217,13 @@ final class LocalCoderUITests: XCTestCase {
     )
     let workspaceURL = storageRoot.appending(path: "workspace", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
-    try readme.write(
-      to: workspaceURL.appending(path: "README.md", directoryHint: .notDirectory),
-      atomically: true,
-      encoding: .utf8
-    )
+    if let readme {
+      try readme.write(
+        to: workspaceURL.appending(path: "README.md", directoryHint: .notDirectory),
+        atomically: true,
+        encoding: .utf8
+      )
+    }
     for (path, contents) in files {
       let url = workspaceURL.appending(path: path, directoryHint: .notDirectory)
       try FileManager.default.createDirectory(
@@ -278,6 +371,39 @@ final class LocalCoderUITests: XCTestCase {
   }
 
   @MainActor
+  private func waitForCompletedTraceRows(
+    in traceURL: URL,
+    afterOffset offset: UInt64,
+    application: XCUIApplication,
+    interactionMode: String?,
+    timeout: TimeInterval
+  ) throws -> [TraceRow] {
+    _ = try waitForTraceRows(
+      in: traceURL,
+      afterOffset: offset,
+      interactionMode: interactionMode,
+      timeout: timeout
+    )
+    waitForGenerationIdle(in: application, timeout: timeout)
+    return try traceRows(in: traceURL, afterOffset: offset)
+  }
+
+  @MainActor
+  private func waitForGenerationIdle(
+    in application: XCUIApplication,
+    timeout: TimeInterval = 300
+  ) {
+    let messageField = application.textFields["message-field"]
+    let cancelButton = application.buttons["cancel-generation-button"]
+    XCTAssertTrue(
+      waitUntil(timeout: timeout) {
+        messageField.exists && messageField.isEnabled && !cancelButton.exists
+      },
+      "Generation did not become idle before the UI-test timeout."
+    )
+  }
+
+  @MainActor
   private func waitUntil(timeout: TimeInterval, predicate: () -> Bool) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
@@ -341,7 +467,13 @@ final class LocalCoderUITests: XCTestCase {
       else {
         return nil
       }
-      return TraceRow(kind: kind, interactionMode: object["interactionMode"] as? String)
+      return TraceRow(
+        kind: kind,
+        phase: object["phase"] as? String,
+        toolName: object["toolName"] as? String,
+        output: object["output"] as? String,
+        interactionMode: object["interactionMode"] as? String
+      )
     }
   }
 
@@ -424,6 +556,9 @@ private struct LaunchFixture {
 
 private struct TraceRow {
   let kind: String
+  let phase: String?
+  let toolName: String?
+  let output: String?
   let interactionMode: String?
 }
 
@@ -443,5 +578,17 @@ extension Array where Element == TraceRow {
 
   fileprivate func containsInteractionMode(_ interactionMode: String) -> Bool {
     contains { $0.interactionMode == interactionMode }
+  }
+
+  fileprivate func toolExecutionCount(named toolName: String) -> Int {
+    filter { row in
+      row.kind == "turn_trace" && row.phase == "tool_execute" && row.toolName == toolName
+    }.count
+  }
+
+  fileprivate func containsResponseOutput(containing text: String) -> Bool {
+    contains { row in
+      row.kind == "gemma_response" && row.output?.contains(text) == true
+    }
   }
 }

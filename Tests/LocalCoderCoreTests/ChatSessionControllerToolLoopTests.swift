@@ -217,10 +217,11 @@ struct ChatSessionControllerToolLoopTests {
     #expect(controller.chatSession.turns.count == 2)
     #expect(controller.chatSession.turns.allSatisfy { $0.status == .completed })
     #expect(controller.chatSession.toolCalls.map(\.request.toolName) == [.readFile, .listFiles])
-    #expect(controller.chatSession.messages.last?.content == "Second answer.")
+    #expect(controller.chatSession.messages.last?.content.contains("Files in `.`:") == true)
+    #expect(controller.chatSession.messages.last?.content.contains("README.md") == true)
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
-    #expect(capturedSystemPrompts.count == 4)
+    #expect(capturedSystemPrompts.count == 3)
     #expect(capturedSystemPrompts[2].contains("list_files"))
   }
 

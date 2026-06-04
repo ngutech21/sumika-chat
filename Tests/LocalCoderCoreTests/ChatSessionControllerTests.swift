@@ -249,8 +249,8 @@ struct ChatSessionControllerTests {
       turns: [
         [
           """
-          <action name="list_files">
-          <path>.</path>
+          <action name="read_file">
+          <path>README.md</path>
           </action>
           """
         ],
@@ -262,7 +262,7 @@ struct ChatSessionControllerTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.inspect)
-    controller.draft = "list the files in the current directory"
+    controller.draft = "read README.md before answering"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
     try await waitUntilAsync { await runtime.startedStreamCount == 2 }
@@ -286,7 +286,7 @@ struct ChatSessionControllerTests {
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 3)
-    #expect(capturedMessages[2].contains(where: { $0.content.contains("list the files") }) == false)
+    #expect(capturedMessages[2].contains(where: { $0.content.contains("read README") }) == false)
     #expect(capturedMessages[2].contains(where: { $0.content == "are you there" }))
   }
 
@@ -603,8 +603,7 @@ struct ChatSessionControllerTests {
     #expect(capturedSystemPrompts[0].contains("search_files"))
     #expect(!capturedSystemPrompts[0].contains("Tool: write_file"))
     #expect(!capturedSystemPrompts[0].contains("Tool: edit_file"))
-    #expect(capturedSystemPrompts[1] == capturedSystemPrompts[0])
-    #expect(!capturedSystemPrompts[1].contains("You just received a read-only tool result."))
+    #expect(capturedSystemPrompts[1].contains("You just received a read-only tool result."))
     #expect(!capturedSystemPrompts[1].contains("emit at most one edit_file"))
     #expect(!capturedSystemPrompts[1].contains("Tool: edit_file"))
   }
@@ -815,7 +814,11 @@ struct ChatSessionControllerTests {
         == controller.chatSession.messages[2].toolResult?.callID
     )
     #expect(
-      controller.chatSession.messages[3].content == "The current directory contains README.md.")
+      controller.chatSession.messages[3].content.contains("Files in `.`:"))
+    #expect(controller.chatSession.messages[3].content.contains("README.md"))
+
+    let capturedSystemPrompts = await runtime.capturedSystemPrompts
+    #expect(capturedSystemPrompts.count == 1)
   }
 
   @Test
