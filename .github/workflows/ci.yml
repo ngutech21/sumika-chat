@@ -39,4 +39,4 @@ jobs:
 
       - name: Test LocalCoderCore only
         timeout-minutes: 10
-        run: swift test --filter LocalCoderCoreTests
+        run: swift test --filter LocalCoderCoreTests --no-parallel
