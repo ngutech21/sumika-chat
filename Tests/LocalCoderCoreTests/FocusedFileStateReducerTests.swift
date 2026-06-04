@@ -29,6 +29,26 @@ struct FocusedFileStateReducerTests {
   }
 
   @Test
+  func writeFileSnapshotUsesStableSHA256ContentHash() {
+    let reducer = FocusedFileStateReducer()
+    let path = WorkspaceRelativePath(rawValue: "notes.txt")
+
+    let state = reducer.applyingToolResult(
+      .writeFile(.success(path: path, bytesWritten: 13)),
+      request: makeRequest(
+        toolName: .writeFile,
+        payload: .writeFile(WriteFileInput(path: path.rawValue, content: "Project notes"))
+      ),
+      to: .empty,
+      updatedAt: Date(timeIntervalSinceReferenceDate: 1)
+    )
+
+    #expect(
+      state.snapshots[path]?.contentHash
+        == "6bffbde03eca5b2cc9c85375b2ac251abcd83e6e53058b49365c04c0ede8b2fb")
+  }
+
+  @Test
   func readFileSuccessRecordsRecentPathAndSnapshot() {
     let reducer = FocusedFileStateReducer()
     let path = WorkspaceRelativePath(rawValue: "README.md")

@@ -13,9 +13,15 @@ let package = Package(
       targets: ["LocalCoderCore"]
     )
   ],
+  dependencies: [
+    .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0")
+  ],
   targets: [
     .target(
-      name: "LocalCoderCore"
+      name: "LocalCoderCore",
+      dependencies: [
+        .product(name: "Crypto", package: "swift-crypto")
+      ]
     ),
     .testTarget(
       name: "LocalCoderCoreTests",
