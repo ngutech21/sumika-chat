@@ -5,6 +5,7 @@ import Observation
 @Observable
 public final class ChatSessionController {
   public var chatSession = ChatSessionState.codingDefault
+  public private(set) var workspaceDisplayState = WorkspaceDisplayState.empty
   public var contextUsage: ChatContextUsage?
   public var draft = ""
   public var isGenerating = false
@@ -217,6 +218,14 @@ extension ChatSessionController {
     onSessionDidChange = handler
   }
 
+  public func setWorkspaceDisplayState(_ state: WorkspaceDisplayState) {
+    workspaceDisplayState = state
+  }
+
+  public func clearWorkspaceDisplayState() {
+    workspaceDisplayState = .empty
+  }
+
   public func loadSession(_ session: CodingSession) {
     let model =
       ManagedModelCatalog.model(id: session.selectedModelID)
@@ -226,6 +235,7 @@ extension ChatSessionController {
     let didResetRuntime = modelRuntime.applySessionModel(model)
     errorMessage = nil
     contextUsage = nil
+    workspaceDisplayState = .empty
     chatSession = ChatSessionState(
       messages: session.messages,
       modelFacingTranscript: session.modelFacingTranscript,
@@ -341,7 +351,7 @@ extension ChatSessionController {
       userInput: prompt,
       mode: interactionMode,
       focusedFileState: chatSession.focusedFileState,
-      workspaceDisplayState: .empty
+      workspaceDisplayState: workspaceDisplayState
     )
     if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
       turnID: turnID,
@@ -451,6 +461,7 @@ extension ChatSessionController {
 
   public func clearChatHistory() {
     transcriptMutator.clearTranscript(in: &chatSession)
+    clearWorkspaceDisplayState()
     invalidateContextUsage()
     notifySessionDidChange()
 

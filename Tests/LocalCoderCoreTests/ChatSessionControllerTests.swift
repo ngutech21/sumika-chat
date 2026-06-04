@@ -184,6 +184,82 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func sendMessageFreezesWorkspaceDisplayRangeIntoUserPrompt() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let displayState = try #require(
+      WorkspaceDisplayState.withSelectedRange(
+        path: WorkspaceRelativePath(rawValue: "Sources/Foo.swift"),
+        startLine: 4,
+        endLine: 6,
+        text: "func selected() {}"
+      ))
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.inspect)
+    controller.setWorkspaceDisplayState(displayState)
+    controller.draft = "explain this selection"
+
+    controller.sendMessage()
+
+    try await waitUntil { !controller.isGenerating }
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(
+      capturedMessages.first?.contains(where: { message in
+        message.role == .user
+          && message.content.contains("Selected file range: Sources/Foo.swift")
+          && message.content.contains("Lines: 4-6")
+          && message.content.contains("func selected() {}")
+      }) == true)
+    #expect(
+      controller.chatSession.modelFacingTranscript.entries[0].frozenContent.content.contains(
+        "Selected file range: Sources/Foo.swift"))
+  }
+
+  @Test
+  func clearWorkspaceDisplayStateFallsBackToFocusedFileContext() async throws {
+    let focusedPath = WorkspaceRelativePath(rawValue: "Sources/Fallback.swift")
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let displayState = try #require(
+      WorkspaceDisplayState.withSelectedRange(
+        path: WorkspaceRelativePath(rawValue: "Sources/Selected.swift"),
+        startLine: 1,
+        endLine: 1,
+        text: "let selected = true"
+      ))
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.inspect)
+    controller.chatSession.focusedFileState = FocusedFileState(
+      activePath: focusedPath,
+      recentPaths: [
+        FocusedPath(path: focusedPath, source: .readFile, confidence: .active)
+      ],
+      snapshots: [
+        focusedPath: FocusedFileSnapshot(
+          path: focusedPath,
+          contentHash: "hash",
+          excerpt: "let fallback = true",
+          fullContentAvailable: true
+        )
+      ]
+    )
+    controller.setWorkspaceDisplayState(displayState)
+    controller.clearWorkspaceDisplayState()
+    controller.draft = "explain fallback"
+
+    controller.sendMessage()
+
+    try await waitUntil { !controller.isGenerating }
+
+    let content = try #require(
+      controller.chatSession.modelFacingTranscript.entries.first?.frozenContent.content)
+    #expect(content.contains("Selected file range:") == false)
+    #expect(content.contains("Current focused file: Sources/Fallback.swift"))
+    #expect(content.contains("let fallback = true"))
+  }
+
+  @Test
   func cancelGenerationStopsControllerAndDropsTransientAssistantPlaceholder() async throws {
     let runtime = NonCooperativeStreamingRuntime(chunks: ["late reply"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")

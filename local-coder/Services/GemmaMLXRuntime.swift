@@ -814,21 +814,22 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     guard let block = systemInstructionBlock(from: messages) else {
       return nil
     }
-    guard let focusedRange = focusedContextRange(in: block) else {
+    guard let currentPromptContextRange = currentPromptContextRange(in: block) else {
       return block
     }
-    return String(block[..<focusedRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    return String(block[..<currentPromptContextRange.lowerBound])
+      .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   nonisolated private static func focusedContextBlock(
     from messages: [GemmaMessageSnapshot]
   ) -> String? {
     guard let block = systemInstructionBlock(from: messages),
-      let focusedRange = focusedContextRange(in: block)
+      let currentPromptContextRange = currentPromptContextRange(in: block)
     else {
       return nil
     }
-    return String(block[focusedRange.lowerBound...])
+    return String(block[currentPromptContextRange.lowerBound...])
   }
 
   nonisolated private static func systemInstructionBlock(
@@ -845,10 +846,12 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     return String(firstUser.content[..<userRequestRange.lowerBound])
   }
 
-  nonisolated private static func focusedContextRange(
+  nonisolated private static func currentPromptContextRange(
     in systemInstructionBlock: String
   ) -> Range<String.Index>? {
     let markers = [
+      "Selected file range:",
+      "Visible file range:",
       "Current focused file:",
       "Recent files are ambiguous:",
     ]
