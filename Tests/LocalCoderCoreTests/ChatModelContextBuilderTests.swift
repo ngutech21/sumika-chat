@@ -68,7 +68,7 @@ struct ChatModelContextBuilderTests {
   }
 
   @Test
-  func focusedFileSystemContextRendersActivePath() throws {
+  func currentPromptSystemContextFreezesRenderedFocusedFileContextIntoUserPrompt() throws {
     let path = WorkspaceRelativePath(rawValue: "index.html")
     let state = FocusedFileState(
       activePath: path,
@@ -90,38 +90,28 @@ struct ChatModelContextBuilderTests {
       ]
     )
 
-    let context = try #require(ChatModelContextBuilder().focusedFileSystemContext(from: state))
-
-    #expect(context.contains("Current focused file: index.html"))
-    #expect(context.contains("Source: previous write_file"))
-    #expect(context.contains("Known content excerpt:"))
-    #expect(context.contains("<h1>Hello</h1>"))
-  }
-
-  @Test
-  func focusedFileSystemContextRendersAmbiguousRecentFilesWithoutActivePath() throws {
-    let state = FocusedFileState(
-      activePath: nil,
-      recentPaths: [
-        FocusedPath(
-          path: WorkspaceRelativePath(rawValue: "index.html"),
-          source: .attachment,
-          confidence: .ambiguous
-        ),
-        FocusedPath(
-          path: WorkspaceRelativePath(rawValue: "style.css"),
-          source: .attachment,
-          confidence: .ambiguous
-        ),
-      ]
+    let systemContext = ChatModelContextBuilder().currentPromptSystemContext(
+      userInput: "summarize this",
+      mode: .chat,
+      focusedFileState: state
+    )
+    let entry = try ModelFacingPromptRenderer.userPromptEntry(
+      prompt: "summarize this",
+      systemContext: ["System"] + systemContext
     )
 
-    let context = try #require(ChatModelContextBuilder().focusedFileSystemContext(from: state))
-
-    #expect(context.contains("Recent files are ambiguous:"))
-    #expect(context.contains("Current focused file:") == false)
-    #expect(context.contains("- index.html"))
-    #expect(context.contains("- style.css"))
+    #expect(
+      entry.body
+        == .userPrompt(
+          UserPromptContext(
+            prompt: "summarize this",
+            systemContext: ["System"] + systemContext
+          )
+        ))
+    #expect(entry.frozenContent.content.contains("Current focused file: index.html"))
+    #expect(entry.frozenContent.content.contains("Source: previous write_file"))
+    #expect(entry.frozenContent.content.contains("Known content excerpt:"))
+    #expect(entry.frozenContent.content.contains("<h1>Hello</h1>"))
   }
 
   @Test

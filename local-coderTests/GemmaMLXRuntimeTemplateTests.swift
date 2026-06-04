@@ -197,7 +197,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func focusedFileSystemContextDoesNotRewriteHistoricalUserMessage() throws {
+  func currentPromptContextDoesNotRewriteHistoricalUserMessage() throws {
     let initialUser = try ModelFacingPromptRenderer.userPromptEntry(
       prompt: "summarize the current page",
       systemContext: ["Use concise coding steps."]

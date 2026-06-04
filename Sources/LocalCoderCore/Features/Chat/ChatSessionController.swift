@@ -337,18 +337,17 @@ extension ChatSessionController {
       attachments: sentAttachments,
       to: &chatSession
     )
-    var focusedSystemContext: [String] = []
-    if let focusedFileContext = modelContextBuilder.focusedFileSystemContext(
-      from: chatSession.focusedFileState
-    ) {
-      focusedSystemContext.append(focusedFileContext)
-    }
+    let currentPromptSystemContext = modelContextBuilder.currentPromptSystemContext(
+      userInput: prompt,
+      mode: interactionMode,
+      focusedFileState: chatSession.focusedFileState
+    )
     if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
       turnID: turnID,
       sourceMessageID: userMessageID,
       prompt: prompt,
       attachments: sentAttachments,
-      systemContext: [initialSystemPromptSnapshot] + focusedSystemContext
+      systemContext: [initialSystemPromptSnapshot] + currentPromptSystemContext
     ) {
       transcriptMutator.appendModelFacingEntry(entry, to: &chatSession)
     }
