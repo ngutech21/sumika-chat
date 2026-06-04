@@ -34,6 +34,8 @@ nonisolated enum GemmaSessionCacheMode: String, Equatable, Sendable {
   case invalidatedSignatureMismatch = "invalidated_signature_mismatch"
   case invalidatedCancelled = "invalidated_cancelled"
   case invalidatedInterrupted = "invalidated_interrupted"
+  case invalidatedDownstreamTerminated = "invalidated_downstream_terminated"
+  case invalidatedRuntimeError = "invalidated_runtime_error"
   case invalidatedModelChanged = "invalidated_model_changed"
 }
 
@@ -41,6 +43,8 @@ nonisolated enum GemmaSessionInvalidationReason: Equatable, Sendable {
   case signatureMismatch
   case cancelled
   case interrupted
+  case downstreamTerminated
+  case runtimeError
   case modelChanged
 
   var cacheMode: GemmaSessionCacheMode {
@@ -51,6 +55,10 @@ nonisolated enum GemmaSessionInvalidationReason: Equatable, Sendable {
       .invalidatedCancelled
     case .interrupted:
       .invalidatedInterrupted
+    case .downstreamTerminated:
+      .invalidatedDownstreamTerminated
+    case .runtimeError:
+      .invalidatedRuntimeError
     case .modelChanged:
       .invalidatedModelChanged
     }
@@ -108,6 +116,44 @@ nonisolated struct GemmaGenerationOwnership: Equatable, Sendable {
   }
 }
 
+nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
+  case clean
+  case inFlight(generationID: GemmaGenerationID)
+  case dirty(reason: GemmaSessionInvalidationReason)
+
+  var isReusable: Bool {
+    self == .clean
+  }
+
+  var invalidationReason: GemmaSessionInvalidationReason? {
+    switch self {
+    case .clean:
+      nil
+    case .inFlight:
+      .interrupted
+    case .dirty(let reason):
+      reason
+    }
+  }
+
+  func completing(generationID: GemmaGenerationID) -> GemmaCachedSessionState? {
+    guard self == .inFlight(generationID: generationID) else {
+      return nil
+    }
+    return .clean
+  }
+
+  func invalidating(
+    generationID: GemmaGenerationID,
+    reason: GemmaSessionInvalidationReason
+  ) -> GemmaCachedSessionState? {
+    guard self == .inFlight(generationID: generationID) else {
+      return nil
+    }
+    return .dirty(reason: reason)
+  }
+}
+
 nonisolated struct GemmaSessionCacheTrace: Equatable, Sendable {
   let cacheMode: GemmaSessionCacheMode
   let contextSignature: String
@@ -131,8 +177,7 @@ nonisolated private struct CachedGemmaSession {
   let prefix: [GemmaMessageSnapshot]
   let settings: ChatGenerationSettings
   let contextSignature: GemmaRenderedContextSignature
-  let isReusable: Bool
-  let invalidationReason: GemmaSessionInvalidationReason?
+  let state: GemmaCachedSessionState
 }
 
 nonisolated private struct GemmaSessionCachePlan {
@@ -253,7 +298,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       history: history,
       historySnapshot: historySnapshot,
       settings: settings,
-      generateParameters: generateParameters
+      generateParameters: generateParameters,
+      generationID: generationID
     )
 
     let traceMetadata = TurnTraceContext.current
@@ -318,7 +364,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     history: [Chat.Message],
     historySnapshot: [GemmaMessageSnapshot],
     settings: ChatGenerationSettings,
-    generateParameters: GenerateParameters
+    generateParameters: GenerateParameters,
+    generationID: GemmaGenerationID
   ) -> GemmaSessionCachePlan {
     let contextSignature = Self.renderedContextSignature(
       for: historySnapshot,
@@ -329,8 +376,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       cachedPrefix: cached?.prefix,
       cachedSettings: cached?.settings,
       cachedContextSignature: cached?.contextSignature,
-      cachedReusable: cached?.isReusable,
-      invalidationReason: cached?.invalidationReason ?? pendingCacheInvalidationReason,
+      cachedState: cached?.state ?? pendingCacheInvalidationReason.map { .dirty(reason: $0) },
       currentHistory: historySnapshot,
       currentSettings: settings
     )
@@ -342,8 +388,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         prefix: cached.prefix,
         settings: cached.settings,
         contextSignature: cached.contextSignature,
-        isReusable: false,
-        invalidationReason: .interrupted
+        state: .inFlight(generationID: generationID)
       )
       return GemmaSessionCachePlan(session: cached.session, trace: decision.trace)
     }
@@ -359,8 +404,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       prefix: historySnapshot,
       settings: settings,
       contextSignature: contextSignature,
-      isReusable: false,
-      invalidationReason: .interrupted
+      state: .inFlight(generationID: generationID)
     )
     return GemmaSessionCachePlan(session: session, trace: decision.trace)
   }
@@ -376,25 +420,28 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       return
     }
 
+    guard let cached = cachedSession,
+      let completedState = cached.state.completing(generationID: generationID)
+    else {
+      return
+    }
+
     let completedPrefix =
       historyPrefix
       + [
         GemmaMessageSnapshot(role: Chat.Message.Role.user.rawValue, content: prompt),
         GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: output),
       ]
-    cachedSession = cachedSession.map { cached in
-      CachedGemmaSession(
-        session: cached.session,
-        prefix: completedPrefix,
-        settings: settings,
-        contextSignature: Self.renderedContextSignature(
-          for: completedPrefix,
-          settings: settings
-        ),
-        isReusable: true,
-        invalidationReason: nil
-      )
-    }
+    cachedSession = CachedGemmaSession(
+      session: cached.session,
+      prefix: completedPrefix,
+      settings: settings,
+      contextSignature: Self.renderedContextSignature(
+        for: completedPrefix,
+        settings: settings
+      ),
+      state: completedState
+    )
   }
 
   private func markCachedSessionInvalid(
@@ -405,16 +452,19 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       return
     }
 
-    cachedSession = cachedSession.map { cached in
-      CachedGemmaSession(
-        session: cached.session,
-        prefix: cached.prefix,
-        settings: cached.settings,
-        contextSignature: cached.contextSignature,
-        isReusable: false,
-        invalidationReason: reason
-      )
+    guard let cached = cachedSession,
+      let dirtyState = cached.state.invalidating(generationID: generationID, reason: reason)
+    else {
+      return
     }
+
+    cachedSession = CachedGemmaSession(
+      session: cached.session,
+      prefix: cached.prefix,
+      settings: cached.settings,
+      contextSignature: cached.contextSignature,
+      state: dirtyState
+    )
   }
 
   private func invalidateCachedSession(reason: GemmaSessionInvalidationReason) {
@@ -442,8 +492,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     cachedPrefix: [GemmaMessageSnapshot]?,
     cachedSettings: ChatGenerationSettings?,
     cachedContextSignature: GemmaRenderedContextSignature? = nil,
-    cachedReusable: Bool?,
-    invalidationReason: GemmaSessionInvalidationReason?,
+    cachedState: GemmaCachedSessionState?,
     currentHistory: [GemmaMessageSnapshot],
     currentSettings: ChatGenerationSettings,
     currentRendererVersion: Int = gemmaRendererVersion
@@ -483,7 +532,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let cacheMode: GemmaSessionCacheMode
     let shouldReuse: Bool
     let mismatchReason: String?
-    if cachedPrefix == nil, let invalidationReason {
+    if cachedPrefix == nil, let invalidationReason = cachedState?.invalidationReason {
       cacheMode = invalidationReason.cacheMode
       shouldReuse = false
       mismatchReason = nil
@@ -491,7 +540,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       cacheMode = .newSessionHistory
       shouldReuse = false
       mismatchReason = nil
-    } else if let invalidationReason, cachedReusable != true {
+    } else if cachedState?.isReusable != true {
+      let invalidationReason = cachedState?.invalidationReason ?? .interrupted
       cacheMode = invalidationReason.cacheMode
       shouldReuse = false
       mismatchReason = nil
@@ -667,7 +717,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     return zip(prefix, messages).allSatisfy(==)
   }
 
-  nonisolated private static func modelStream(
+  nonisolated static func modelStream(
     from stream: AsyncThrowingStream<Generation, Error>,
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
@@ -790,7 +840,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           }
 
           if didTerminateDownstream {
-            await markCancelled(.interrupted)
+            await markCancelled(.downstreamTerminated)
             continuation.finish()
             return
           }
@@ -825,7 +875,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           )
           continuation.finish(throwing: CancellationError())
         } catch {
-          await markCancelled(.interrupted)
+          await markCancelled(.runtimeError)
           await GemmaDebugTraceStore.shared.traceResponse(
             id: traceID,
             output: output,
@@ -836,8 +886,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         }
       }
 
-      continuation.onTermination = { _ in
-        task.cancel()
+      continuation.onTermination = { termination in
+        guard case .cancelled = termination else {
+          return
+        }
+
+        Task {
+          await markCancelled(.downstreamTerminated)
+          task.cancel()
+        }
       }
     }
   }

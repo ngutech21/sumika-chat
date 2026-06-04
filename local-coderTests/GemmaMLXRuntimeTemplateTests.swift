@@ -415,8 +415,7 @@ struct GemmaMLXRuntimeTemplateTests {
       cachedPrefix: prefix,
       cachedSettings: settings,
       cachedContextSignature: cachedSignature,
-      cachedReusable: true,
-      invalidationReason: nil,
+      cachedState: .clean,
       currentHistory: prefix,
       currentSettings: settings
     )
@@ -489,6 +488,35 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func cachedSessionStateIsReusableOnlyWhenClean() {
+    let generationID = GemmaGenerationID(rawValue: 1)
+
+    #expect(GemmaCachedSessionState.clean.isReusable)
+    #expect(!GemmaCachedSessionState.inFlight(generationID: generationID).isReusable)
+    #expect(!GemmaCachedSessionState.dirty(reason: .cancelled).isReusable)
+    #expect(GemmaCachedSessionState.clean.invalidationReason == nil)
+    #expect(
+      GemmaCachedSessionState.inFlight(generationID: generationID).invalidationReason
+        == .interrupted)
+    #expect(
+      GemmaCachedSessionState.dirty(reason: .runtimeError).invalidationReason == .runtimeError)
+  }
+
+  @Test
+  func cachedSessionStateTransitionsOnlyForOwningGeneration() {
+    let first = GemmaGenerationID(rawValue: 1)
+    let second = GemmaGenerationID(rawValue: 2)
+    let inFlight = GemmaCachedSessionState.inFlight(generationID: second)
+
+    #expect(inFlight.completing(generationID: first) == nil)
+    #expect(inFlight.invalidating(generationID: first, reason: .cancelled) == nil)
+    #expect(inFlight.completing(generationID: second) == .clean)
+    #expect(
+      inFlight.invalidating(generationID: second, reason: .downstreamTerminated)
+        == .dirty(reason: .downstreamTerminated))
+  }
+
+  @Test
   func cacheDecisionReusesOnlyExactRenderedPrefix() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [
@@ -499,8 +527,7 @@ struct GemmaMLXRuntimeTemplateTests {
     let decision = GemmaMLXRuntime.cacheDecision(
       cachedPrefix: prefix,
       cachedSettings: settings,
-      cachedReusable: true,
-      invalidationReason: nil,
+      cachedState: .clean,
       currentHistory: prefix,
       currentSettings: settings
     )
@@ -527,8 +554,7 @@ struct GemmaMLXRuntimeTemplateTests {
     let decision = GemmaMLXRuntime.cacheDecision(
       cachedPrefix: prefix,
       cachedSettings: settings,
-      cachedReusable: true,
-      invalidationReason: nil,
+      cachedState: .clean,
       currentHistory: changedHistory,
       currentSettings: settings
     )
@@ -552,8 +578,7 @@ struct GemmaMLXRuntimeTemplateTests {
     let decision = GemmaMLXRuntime.cacheDecision(
       cachedPrefix: prefix,
       cachedSettings: .codingDefault,
-      cachedReusable: true,
-      invalidationReason: nil,
+      cachedState: .clean,
       currentHistory: prefix,
       currentSettings: changedSettings
     )
@@ -605,8 +630,7 @@ struct GemmaMLXRuntimeTemplateTests {
     let decision = GemmaMLXRuntime.cacheDecision(
       cachedPrefix: prefix,
       cachedSettings: settings,
-      cachedReusable: true,
-      invalidationReason: nil,
+      cachedState: .clean,
       currentHistory: changedFocusedContext,
       currentSettings: settings
     )
@@ -650,8 +674,7 @@ struct GemmaMLXRuntimeTemplateTests {
     let decision = GemmaMLXRuntime.cacheDecision(
       cachedPrefix: prefix,
       cachedSettings: settings,
-      cachedReusable: true,
-      invalidationReason: nil,
+      cachedState: .clean,
       currentHistory: changedBasePrompt,
       currentSettings: settings
     )
@@ -664,7 +687,27 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func cacheDecisionInvalidatesAfterCancelledOrInterruptedStream() {
+  func cacheDecisionInvalidatesInFlightSessionAsInterrupted() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedState: .inFlight(generationID: GemmaGenerationID(rawValue: 1)),
+      currentHistory: prefix,
+      currentSettings: settings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedInterrupted)
+  }
+
+  @Test
+  func cacheDecisionInvalidatesAfterDirtyStreamLifecycle() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [
       .user("hello"),
@@ -674,16 +717,28 @@ struct GemmaMLXRuntimeTemplateTests {
     let cancelled = GemmaMLXRuntime.cacheDecision(
       cachedPrefix: prefix,
       cachedSettings: settings,
-      cachedReusable: false,
-      invalidationReason: .cancelled,
+      cachedState: .dirty(reason: .cancelled),
       currentHistory: prefix,
       currentSettings: settings
     )
     let interrupted = GemmaMLXRuntime.cacheDecision(
       cachedPrefix: prefix,
       cachedSettings: settings,
-      cachedReusable: false,
-      invalidationReason: .interrupted,
+      cachedState: .dirty(reason: .interrupted),
+      currentHistory: prefix,
+      currentSettings: settings
+    )
+    let downstreamTerminated = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedState: .dirty(reason: .downstreamTerminated),
+      currentHistory: prefix,
+      currentSettings: settings
+    )
+    let runtimeError = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedState: .dirty(reason: .runtimeError),
       currentHistory: prefix,
       currentSettings: settings
     )
@@ -692,6 +747,65 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(cancelled.trace.cacheMode == .invalidatedCancelled)
     #expect(!interrupted.shouldReuse)
     #expect(interrupted.trace.cacheMode == .invalidatedInterrupted)
+    #expect(!downstreamTerminated.shouldReuse)
+    #expect(downstreamTerminated.trace.cacheMode == .invalidatedDownstreamTerminated)
+    #expect(!runtimeError.shouldReuse)
+    #expect(runtimeError.trace.cacheMode == .invalidatedRuntimeError)
+  }
+
+  @Test
+  func modelStreamMarksConsumerTerminationAsDownstreamTerminated() async throws {
+    let recorder = GemmaStreamInvalidationRecorder()
+    try await consumeFirstModelStreamEvent(recorder: recorder)
+
+    try await waitUntilAsync {
+      await recorder.firstReason != nil
+    }
+    #expect(await recorder.firstReason == .downstreamTerminated)
+  }
+
+  private func consumeFirstModelStreamEvent(recorder: GemmaStreamInvalidationRecorder) async throws
+  {
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      let task = Task {
+        continuation.yield(.chunk("tool"))
+        try? await Task.sleep(for: .seconds(5))
+        continuation.yield(.chunk("late"))
+      }
+      continuation.onTermination = { _ in
+        task.cancel()
+      }
+    }
+    let stream = GemmaMLXRuntime.modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: GemmaSessionCacheTrace(
+        cacheMode: .newSessionHistory,
+        contextSignature: "context",
+        previousContextSignature: nil,
+        appendOnly: false,
+        reusedMessageCount: 0,
+        appendedMessageCount: 0,
+        mismatchReason: nil,
+        firstMismatchIndex: nil,
+        systemPromptChanged: nil,
+        focusedContextChanged: nil
+      ),
+      markCompleted: { _ in },
+      markCancelled: { reason in
+        await recorder.record(reason)
+      }
+    )
+
+    do {
+      var iterator = stream.makeAsyncIterator()
+      let firstEvent = try await iterator.next()
+      guard case .chunk("tool") = firstEvent else {
+        Issue.record("Expected first model stream event to be the initial chunk.")
+        return
+      }
+    }
   }
 
   private func writeFileToolCall(
@@ -706,5 +820,32 @@ struct GemmaMLXRuntimeTemplateTests {
         toolName: .writeFile,
         arguments: arguments
       ))
+  }
+}
+
+private actor GemmaStreamInvalidationRecorder {
+  private var reasons: [GemmaSessionInvalidationReason] = []
+
+  var firstReason: GemmaSessionInvalidationReason? {
+    reasons.first
+  }
+
+  func record(_ reason: GemmaSessionInvalidationReason) {
+    reasons.append(reason)
+  }
+}
+
+private struct GemmaStreamWaitTimeoutError: Error {}
+
+private func waitUntilAsync(
+  timeout: Duration = .seconds(2),
+  condition: () async -> Bool
+) async throws {
+  let start = ContinuousClock.now
+  while await condition() == false {
+    if ContinuousClock.now - start > timeout {
+      throw GemmaStreamWaitTimeoutError()
+    }
+    try await Task.sleep(for: .milliseconds(10))
   }
 }
