@@ -320,7 +320,9 @@ struct ChatSessionControllerWriteApprovalTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 2)
-    #expect(capturedSystemPrompts[1].contains("emit at most one edit_file"))
+    #expect(capturedSystemPrompts[1].contains("call edit_file with exact old_text copied from"))
+    #expect(capturedSystemPrompts[1].contains("Available tools: read_file"))
+    #expect(!capturedSystemPrompts[1].contains("Tool calling:"))
   }
 
   @Test
@@ -382,7 +384,9 @@ struct ChatSessionControllerWriteApprovalTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 2)
-    #expect(capturedSystemPrompts[1].contains("emit at most one edit_file"))
+    #expect(capturedSystemPrompts[1].contains("call edit_file with exact old_text copied from"))
+    #expect(capturedSystemPrompts[1].contains("Available tools: read_file"))
+    #expect(!capturedSystemPrompts[1].contains("Tool calling:"))
   }
 
   @Test

@@ -71,47 +71,67 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
     registry: ToolRegistry,
     payloadDelimiter: String
   ) -> String {
-    let renderedTools = registry.tools.map { definition in
-      let parameters = definition.parameters.map { parameter in
-        let required = parameter.isRequired ? "required" : "optional"
-        let payload = parameter.supportsHeredocPayload ? " heredoc payload" : ""
-        let constraints = [
-          parameter.minimum.map { "minimum \($0.formatted())" },
-          parameter.maximum.map { "maximum \($0.formatted())" },
-        ]
-        .compactMap(\.self)
-        .joined(separator: ", ")
-        let suffix = constraints.isEmpty ? "" : " \(constraints)"
-        return
-          "- <\(parameter.name)> (\(parameter.valueType.rawValue), \(required)\(payload))\(suffix): \(parameter.description)"
-      }
-      .joined(separator: "\n")
-
-      return """
-        Tool: \(definition.name.rawValue)
-        Description: \(definition.description)
-        Parameters:
-        \(parameters)
-        Example:
-        \(definition.taggedExample)
-        """
-    }
-    .joined(separator: "\n\n")
+    let renderedTools = registry.tools.map(renderedSignature(for:)).joined(separator: "\n")
 
     return """
-      Tool calling uses a tagged action format. It is XML-inspired, but it is not XML.
-      Emit one complete <action> block and then stop. Do not include explanatory text before or after the action.
-      For small parameters, use paired tags like <path>Sources/App.swift</path>.
-      For raw multiline payloads, use this exact app-provided delimiter on its own line with no spaces:
-      \(payloadDelimiter)
-      End every raw multiline payload with the delimiter line, then the closing parameter tag.
-      Payload contents are raw text; do not escape HTML, XML, JSON, or code inside payloads.
-      If a payload would contain the delimiter as its own line, do not call a tool. Ask for a new delimiter.
+      Tool calling:
+      - Emit exactly one <action name="tool_name">...</action>, then stop.
+      - Do not include text before or after an <action>.
+      - Do not wrap actions in Markdown fences.
+      - Use workspace-relative paths.
+      - For content, old_text, and new_text, use delimiter="\(payloadDelimiter)" with the delimiter on its own line.
+      - Payload contents are raw text; do not escape HTML, XML, JSON, or code inside payloads.
+      - If a payload would contain the delimiter as its own line, do not call a tool. Ask for a new delimiter.
 
-      Available tools:
-
+      Tools:
       \(renderedTools)
+
+      Example:
+      <action name="read_file">
+      <path>Sources/App.swift</path>
+      <offset>1</offset>
+      <limit>100</limit>
+      </action>
+
+      Multiline payload example:
+      <content delimiter="\(payloadDelimiter)">
+      raw text
+      \(payloadDelimiter)
+      </content>
       """
+  }
+
+  private func renderedSignature(for definition: ToolDefinition) -> String {
+    let parameters = definition.parameters
+      .map { parameter in
+        parameter.name + (parameter.isRequired ? "" : "?")
+      }
+      .joined(separator: ", ")
+    return
+      "- \(definition.name.rawValue)(\(parameters)): \(compactDescription(for: definition.name))"
+  }
+
+  private func compactDescription(for name: ToolName) -> String {
+    switch name {
+    case .readFile:
+      "Read workspace file lines into context."
+    case .showFile:
+      "Display workspace file lines directly to the user."
+    case .listFiles:
+      "List files in a workspace directory."
+    case .globFiles:
+      "Find workspace files by glob."
+    case .searchFiles:
+      "Search workspace text files."
+    case .writeFile:
+      "Create or fully overwrite a workspace text file."
+    case .editFile:
+      "Replace one exact old_text span in an existing workspace file."
+    case .invalid:
+      "Invalid tool-call observation."
+    default:
+      "Use this workspace tool."
+    }
   }
 }
 

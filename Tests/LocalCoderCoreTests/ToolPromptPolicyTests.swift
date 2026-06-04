@@ -94,15 +94,15 @@ struct ToolPromptPolicyTests {
     )
 
     #expect(prompt.contains("Base"))
-    #expect(prompt.contains("Available tools:"))
+    #expect(prompt.contains("Tools:"))
     #expect(prompt.contains("read_file"))
     #expect(prompt.contains("show_file"))
     #expect(prompt.contains("list_files"))
     #expect(prompt.contains("glob_files"))
     #expect(prompt.contains("search_files"))
     #expect(prompt.contains("Do not modify files"))
-    #expect(!prompt.contains("Tool: write_file"))
-    #expect(!prompt.contains("Tool: edit_file"))
+    #expect(!prompt.contains("- write_file("))
+    #expect(!prompt.contains("- edit_file("))
   }
 
   @Test
@@ -137,7 +137,7 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
-  func afterToolResultCanContinuePromptIncludesEditToolInstructions() {
+  func afterToolResultCanContinuePromptUsesCompactContinuation() {
     let policy = ToolPromptPolicy()
 
     let prompt = policy.systemPrompt(
@@ -148,19 +148,25 @@ struct ToolPromptPolicyTests {
     )
 
     #expect(prompt.contains("Base"))
-    #expect(prompt.contains("Use it to continue the user's request."))
-    #expect(prompt.contains("If the result gives enough information to finish, answer directly."))
-    #expect(prompt.contains("emit at most one edit_file"))
-    #expect(prompt.contains("old_text copied exactly from that content"))
-    #expect(prompt.contains("old_text was not found or was ambiguous"))
-    #expect(prompt.contains("exact current text and more surrounding context"))
-    #expect(prompt.contains("Emit at most one <action> block, then stop."))
-    #expect(prompt.contains("Available tools:"))
+    #expect(prompt.contains("You received a tool result."))
+    #expect(prompt.contains("Answer now if sufficient"))
+    #expect(prompt.contains("call one more tool using"))
+    #expect(prompt.contains("same action format"))
+    #expect(prompt.contains("call edit_file with exact old_text copied from"))
+    #expect(prompt.contains("current file content"))
+    #expect(
+      prompt.contains(
+        "Available tools: read_file, show_file, list_files, glob_files, search_files, edit_file, write_file."
+      ))
     #expect(prompt.contains("edit_file"))
+    #expect(!prompt.contains("Tool calling:"))
+    #expect(!prompt.contains("Tools:"))
+    #expect(!prompt.contains(#"<action name="read_file">"#))
+    #expect(!prompt.contains("Multiline payload example:"))
   }
 
   @Test
-  func afterInspectToolResultPromptKeepsToolsReadOnly() {
+  func afterInspectToolResultPromptUsesReadOnlyCompactContinuation() {
     let policy = ToolPromptPolicy()
 
     let prompt = policy.systemPrompt(
@@ -171,16 +177,24 @@ struct ToolPromptPolicyTests {
     )
 
     #expect(prompt.contains("Base"))
-    #expect(prompt.contains("You just received a read-only tool result."))
-    #expect(prompt.contains("Available tools:"))
+    #expect(prompt.contains("You received a read-only tool result."))
+    #expect(prompt.contains("Answer now if sufficient"))
+    #expect(prompt.contains("call one more"))
+    #expect(prompt.contains("same action format"))
+    #expect(
+      prompt.contains(
+        "Available tools: read_file, show_file, list_files, glob_files, search_files."))
     #expect(prompt.contains("read_file"))
     #expect(prompt.contains("list_files"))
     #expect(prompt.contains("glob_files"))
     #expect(prompt.contains("search_files"))
     #expect(prompt.contains("Do not modify files"))
-    #expect(!prompt.contains("emit at most one edit_file"))
-    #expect(!prompt.contains("Tool: write_file"))
-    #expect(!prompt.contains("Tool: edit_file"))
+    #expect(!prompt.contains("edit_file"))
+    #expect(!prompt.contains("write_file"))
+    #expect(!prompt.contains("Tool calling:"))
+    #expect(!prompt.contains("Tools:"))
+    #expect(!prompt.contains(#"<action name="read_file">"#))
+    #expect(!prompt.contains("Multiline payload example:"))
   }
 
   @Test

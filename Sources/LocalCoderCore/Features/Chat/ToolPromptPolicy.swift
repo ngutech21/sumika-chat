@@ -75,31 +75,20 @@ public struct ToolPromptPolicy: Sendable {
       return [
         basePrompt,
         """
-        You just received a read-only tool result. Use it to answer the user's request or
-        continue inspecting the workspace. If the result gives enough information to finish,
-        answer directly. If more read-only context is needed, emit at most one <action> block,
-        then stop. Do not modify files.
+        You received a read-only tool result. Answer now if sufficient, or call one more
+        read-only tool using the same action format. Do not modify files.
+        Available tools: \(availableToolNames(in: toolRegistry)).
         """,
-        toolPromptRenderer.renderToolInstructions(
-          registry: toolRegistry,
-          payloadDelimiter: payloadDelimiter
-        ),
       ].joined(separator: "\n\n")
     case .afterToolResultCanContinue:
       return [
         basePrompt,
         """
-        You just received a tool result. Use it to continue the user's request.
-        If the result gives enough information to finish, answer directly.
-        If the user asked you to modify an existing file and the result contains current file
-        content, emit at most one edit_file action using old_text copied exactly from that content.
-        If a previous edit_file failed because old_text was not found or was ambiguous, retry with
-        exact current text and more surrounding context. Emit at most one <action> block, then stop.
+        You received a tool result. Answer now if sufficient, or call one more tool using
+        the same action format. If editing, call edit_file with exact old_text copied from
+        current file content.
+        Available tools: \(availableToolNames(in: toolRegistry)).
         """,
-        toolPromptRenderer.renderToolInstructions(
-          registry: toolRegistry,
-          payloadDelimiter: payloadDelimiter
-        ),
       ].joined(separator: "\n\n")
     case .afterToolResultFinal:
       return [
@@ -149,5 +138,9 @@ public struct ToolPromptPolicy: Sendable {
         ),
       ].joined(separator: "\n\n")
     }
+  }
+
+  private func availableToolNames(in registry: ToolRegistry) -> String {
+    registry.tools.map(\.name.rawValue).joined(separator: ", ")
   }
 }

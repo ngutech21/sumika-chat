@@ -372,7 +372,7 @@ struct ChatSessionControllerTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 1)
-    #expect(capturedSystemPrompts[0].contains("Available tools:"))
+    #expect(capturedSystemPrompts[0].contains("Tools:"))
     #expect(capturedSystemPrompts[0].contains("read_file"))
     #expect(capturedSystemPrompts[0].contains("edit_file"))
     #expect(capturedSystemPrompts[0].contains("write_file"))
@@ -601,11 +601,12 @@ struct ChatSessionControllerTests {
     #expect(capturedSystemPrompts[0].contains("list_files"))
     #expect(capturedSystemPrompts[0].contains("glob_files"))
     #expect(capturedSystemPrompts[0].contains("search_files"))
-    #expect(!capturedSystemPrompts[0].contains("Tool: write_file"))
-    #expect(!capturedSystemPrompts[0].contains("Tool: edit_file"))
-    #expect(capturedSystemPrompts[1].contains("You just received a read-only tool result."))
-    #expect(!capturedSystemPrompts[1].contains("emit at most one edit_file"))
-    #expect(!capturedSystemPrompts[1].contains("Tool: edit_file"))
+    #expect(!capturedSystemPrompts[0].contains("- write_file("))
+    #expect(!capturedSystemPrompts[0].contains("- edit_file("))
+    #expect(capturedSystemPrompts[1].contains("You received a read-only tool result."))
+    #expect(capturedSystemPrompts[1].contains("Available tools: read_file"))
+    #expect(!capturedSystemPrompts[1].contains("edit_file"))
+    #expect(!capturedSystemPrompts[1].contains("Tool calling:"))
   }
 
   @Test

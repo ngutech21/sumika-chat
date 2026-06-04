@@ -23,25 +23,37 @@ struct TaggedToolCallingTests {
   }
 
   @Test
-  func promptRendererIncludesToolsExamplesAndDelimiterRules() {
+  func promptRendererUsesCompactToolSignaturesAndGlobalExamples() {
     let prompt = TaggedToolPromptRenderer().renderToolInstructions(
       registry: ToolExecutorRegistry.readOnly.toolRegistry,
       payloadDelimiter: "LC_PAYLOAD_TEST"
     )
 
-    #expect(prompt.contains("read_file"))
-    #expect(prompt.contains("show_file"))
-    #expect(prompt.contains("list_files"))
-    #expect(prompt.contains("glob_files"))
-    #expect(prompt.contains("search_files"))
-    #expect(prompt.contains("Read a workspace text file"))
-    #expect(prompt.contains("<offset> (integer, optional) minimum 1"))
-    #expect(prompt.contains("<path>Sources/AppState.swift</path>"))
-    #expect(prompt.contains("<pattern>**/*.swift</pattern>"))
+    #expect(prompt.contains(#"Emit exactly one <action name="tool_name">...</action>, then stop."#))
+    #expect(prompt.contains("Use workspace-relative paths."))
+    #expect(
+      prompt.contains("- read_file(path, offset?, limit?): Read workspace file lines into context.")
+    )
+    #expect(
+      prompt.contains(
+        "- show_file(path, offset?, limit?): Display workspace file lines directly to the user."))
+    #expect(prompt.contains("- list_files(path?): List files in a workspace directory."))
+    #expect(prompt.contains("- glob_files(pattern, path?): Find workspace files by glob."))
+    #expect(
+      prompt.contains("- search_files(pattern, path?, include?): Search workspace text files."))
+    #expect(
+      prompt.contains(
+        #"For content, old_text, and new_text, use delimiter="LC_PAYLOAD_TEST""#))
     #expect(prompt.contains("LC_PAYLOAD_TEST"))
-    #expect(prompt.contains("Emit one complete <action> block and then stop."))
-    #expect(prompt.contains("XML-inspired, but it is not XML"))
-    #expect(prompt.contains("on its own line with no spaces"))
+    #expect(prompt.contains(#"<action name="read_file">"#))
+    #expect(prompt.contains("<path>Sources/App.swift</path>"))
+    #expect(prompt.contains("<content delimiter=\"LC_PAYLOAD_TEST\">"))
+    #expect(prompt.contains("raw text"))
+    #expect(!prompt.contains("Tool: read_file"))
+    #expect(!prompt.contains("Description:"))
+    #expect(!prompt.contains("Parameters:"))
+    #expect(!prompt.contains("Sources/AppState.swift"))
+    #expect(!prompt.contains("<pattern>**/*.swift</pattern>"))
     #expect(!prompt.contains("apply_patch"))
   }
 
