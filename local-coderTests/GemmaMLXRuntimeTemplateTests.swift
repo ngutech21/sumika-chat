@@ -848,7 +848,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func cacheDecisionReportsFocusedContextMismatchSeparatelyFromBasePrompt() {
+  func cacheDecisionReportsCurrentPromptContextMismatchSeparatelyFromBasePrompt() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = [
       GemmaMessageSnapshot(
@@ -867,7 +867,7 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
       GemmaMessageSnapshot(role: "assistant", content: "hi"),
     ]
-    let changedFocusedContext = [
+    let changedCurrentPromptContext = [
       GemmaMessageSnapshot(
         role: "user",
         content: """
@@ -889,17 +889,17 @@ struct GemmaMLXRuntimeTemplateTests {
       cachedPrefix: prefix,
       cachedSettings: settings,
       cachedState: .clean,
-      currentHistory: changedFocusedContext,
+      currentHistory: changedCurrentPromptContext,
       currentSettings: settings
     )
 
     #expect(!decision.shouldReuse)
     #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedFocusedContextBoundary)
+    #expect(decision.trace.cacheReason == .invalidatedCurrentPromptContextBoundary)
     #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
     #expect(decision.trace.firstMismatchIndex == 0)
     #expect(decision.trace.systemPromptChanged == false)
-    #expect(decision.trace.focusedContextChanged == true)
+    #expect(decision.trace.currentPromptContextChanged == true)
   }
 
   @Test
@@ -975,12 +975,12 @@ struct GemmaMLXRuntimeTemplateTests {
       currentSettings: settings
     )
 
-    #expect(selectedDecision.trace.cacheReason == .invalidatedFocusedContextBoundary)
+    #expect(selectedDecision.trace.cacheReason == .invalidatedCurrentPromptContextBoundary)
     #expect(selectedDecision.trace.systemPromptChanged == false)
-    #expect(selectedDecision.trace.focusedContextChanged == true)
-    #expect(visibleDecision.trace.cacheReason == .invalidatedFocusedContextBoundary)
+    #expect(selectedDecision.trace.currentPromptContextChanged == true)
+    #expect(visibleDecision.trace.cacheReason == .invalidatedCurrentPromptContextBoundary)
     #expect(visibleDecision.trace.systemPromptChanged == false)
-    #expect(visibleDecision.trace.focusedContextChanged == true)
+    #expect(visibleDecision.trace.currentPromptContextChanged == true)
   }
 
   @Test
@@ -1024,7 +1024,7 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
     #expect(decision.trace.firstMismatchIndex == 0)
     #expect(decision.trace.systemPromptChanged == true)
-    #expect(decision.trace.focusedContextChanged == false)
+    #expect(decision.trace.currentPromptContextChanged == false)
   }
 
   @Test
@@ -1264,7 +1264,7 @@ struct GemmaMLXRuntimeTemplateTests {
       mismatchReason: nil,
       firstMismatchIndex: nil,
       systemPromptChanged: nil,
-      focusedContextChanged: nil
+      currentPromptContextChanged: nil
     )
   }
 }

@@ -3,7 +3,7 @@ import Testing
 
 @testable import LocalCoderCore
 
-struct FocusedPromptContextSelectorTests {
+struct CurrentPromptContextSelectorTests {
   @Test
   func activeFileProducesFocusedFileBlock() throws {
     let path = WorkspaceRelativePath(rawValue: "index.html")
@@ -27,7 +27,7 @@ struct FocusedPromptContextSelectorTests {
       ]
     )
 
-    let context = FocusedPromptContextSelector().selectContext(
+    let context = CurrentPromptContextSelector().selectContext(
       userInput: "what changed?",
       mode: .chat,
       focusedFileState: state,
@@ -267,7 +267,7 @@ struct FocusedPromptContextSelectorTests {
       ]
     )
 
-    let context = FocusedPromptContextSelector().selectContext(
+    let context = CurrentPromptContextSelector().selectContext(
       userInput: "summarize",
       mode: .inspect,
       focusedFileState: state,
@@ -297,7 +297,7 @@ struct FocusedPromptContextSelectorTests {
       ]
     )
 
-    let context = FocusedPromptContextSelector().selectContext(
+    let context = CurrentPromptContextSelector().selectContext(
       userInput: "which file?",
       mode: .chat,
       focusedFileState: state,
@@ -316,7 +316,7 @@ struct FocusedPromptContextSelectorTests {
 
   @Test
   func emptyFocusedStateProducesEmptyContext() {
-    let context = FocusedPromptContextSelector().selectContext(
+    let context = CurrentPromptContextSelector().selectContext(
       userInput: "hello",
       mode: .chat,
       focusedFileState: .empty,
@@ -395,7 +395,7 @@ struct CurrentPromptContextRendererTests {
         )
       ]
     )
-    let context = FocusedPromptContextSelector().selectContext(
+    let context = CurrentPromptContextSelector().selectContext(
       userInput: "what is this?",
       mode: .chat,
       focusedFileState: state,
@@ -432,7 +432,7 @@ struct CurrentPromptContextRendererTests {
         ),
       ]
     )
-    let context = FocusedPromptContextSelector().selectContext(
+    let context = CurrentPromptContextSelector().selectContext(
       userInput: "help",
       mode: .chat,
       focusedFileState: state,

@@ -48,7 +48,7 @@ struct GemmaDebugTraceStoreTests {
         mismatchReason: "history_prefix_mismatch",
         firstMismatchIndex: 2,
         systemPromptChanged: false,
-        focusedContextChanged: true
+        currentPromptContextChanged: true
       )
     )
 
@@ -75,7 +75,7 @@ struct GemmaDebugTraceStoreTests {
     #expect(object["mismatchReason"] as? String == "history_prefix_mismatch")
     #expect(object["firstMismatchIndex"] as? Int == 2)
     #expect(object["systemPromptChanged"] as? Bool == false)
-    #expect(object["focusedContextChanged"] as? Bool == true)
+    #expect(object["currentPromptContextChanged"] as? Bool == true)
   }
 
   @Test

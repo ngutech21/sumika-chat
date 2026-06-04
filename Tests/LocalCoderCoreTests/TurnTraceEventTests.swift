@@ -47,7 +47,7 @@ struct TurnTraceEventTests {
       mismatchReason: "history_prefix_mismatch",
       firstMismatchIndex: 1,
       systemPromptChanged: true,
-      focusedContextChanged: false
+      currentPromptContextChanged: false
     )
 
     let data = try JSONEncoder().encode(event)
@@ -77,6 +77,6 @@ struct TurnTraceEventTests {
     #expect(object["mismatchReason"] as? String == "history_prefix_mismatch")
     #expect(object["firstMismatchIndex"] as? Int == 1)
     #expect(object["systemPromptChanged"] as? Bool == true)
-    #expect(object["focusedContextChanged"] as? Bool == false)
+    #expect(object["currentPromptContextChanged"] as? Bool == false)
   }
 }

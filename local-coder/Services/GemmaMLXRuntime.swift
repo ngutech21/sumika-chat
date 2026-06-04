@@ -77,7 +77,7 @@ nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
   case invalidatedRenderedContextChanged = "invalidated_rendered_context_signature_changed"
   case invalidatedHistoryAppended = "invalidated_history_appended"
   case invalidatedHistoryPrefixMismatch = "invalidated_history_prefix_mismatch"
-  case invalidatedFocusedContextBoundary = "invalidated_focused_context_boundary"
+  case invalidatedCurrentPromptContextBoundary = "invalidated_current_prompt_context_boundary"
   case invalidatedToolPromptChanged = "invalidated_tool_prompt_changed"
   case invalidatedModelChanged = "invalidated_model_changed"
 
@@ -243,7 +243,7 @@ nonisolated struct GemmaSessionCacheTrace: Equatable, Sendable {
   let mismatchReason: String?
   let firstMismatchIndex: Int?
   let systemPromptChanged: Bool?
-  let focusedContextChanged: Bool?
+  let currentPromptContextChanged: Bool?
 }
 
 nonisolated struct GemmaSessionCacheDecision: Equatable, Sendable {
@@ -422,7 +422,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           mismatchReason: cachePlan.trace.mismatchReason,
           firstMismatchIndex: cachePlan.trace.firstMismatchIndex,
           systemPromptChanged: cachePlan.trace.systemPromptChanged,
-          focusedContextChanged: cachePlan.trace.focusedContextChanged
+          currentPromptContextChanged: cachePlan.trace.currentPromptContextChanged
         )
       )
     }
@@ -660,18 +660,19 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       appendOnly ? max(0, currentHistory.count - (cachedPrefix?.count ?? 0)) : currentHistory.count
     let mismatchIndex: Int?
     let systemPromptChanged: Bool?
-    let focusedContextChanged: Bool?
+    let currentPromptContextChanged: Bool?
     if let cachedPrefix {
       mismatchIndex = firstMismatchIndex(cachedPrefix: cachedPrefix, currentHistory: currentHistory)
       systemPromptChanged =
         baseSystemInstructionBlock(from: cachedPrefix)
         != baseSystemInstructionBlock(from: currentHistory)
-      focusedContextChanged =
-        focusedContextBlock(from: cachedPrefix) != focusedContextBlock(from: currentHistory)
+      currentPromptContextChanged =
+        currentPromptContextBlock(from: cachedPrefix)
+        != currentPromptContextBlock(from: currentHistory)
     } else {
       mismatchIndex = nil
       systemPromptChanged = nil
-      focusedContextChanged = nil
+      currentPromptContextChanged = nil
     }
 
     let cacheMode: GemmaSessionCacheMode
@@ -723,7 +724,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       cacheMode = .invalidatedSignatureMismatch
       cacheReason = Self.historyMismatchReason(
         systemPromptChanged: systemPromptChanged,
-        focusedContextChanged: focusedContextChanged
+        currentPromptContextChanged: currentPromptContextChanged
       )
       shouldReuse = false
       mismatchReason = "history_prefix_mismatch"
@@ -742,7 +743,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         mismatchReason: mismatchReason,
         firstMismatchIndex: mismatchReason == nil ? nil : mismatchIndex,
         systemPromptChanged: mismatchReason == nil ? nil : systemPromptChanged,
-        focusedContextChanged: mismatchReason == nil ? nil : focusedContextChanged
+        currentPromptContextChanged: mismatchReason == nil ? nil : currentPromptContextChanged
       )
     )
   }
@@ -774,10 +775,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
   nonisolated private static func historyMismatchReason(
     systemPromptChanged: Bool?,
-    focusedContextChanged: Bool?
+    currentPromptContextChanged: Bool?
   ) -> GemmaSessionCacheReason {
-    if focusedContextChanged == true {
-      return .invalidatedFocusedContextBoundary
+    if currentPromptContextChanged == true {
+      return .invalidatedCurrentPromptContextBoundary
     }
     if systemPromptChanged == true {
       return .invalidatedToolPromptChanged
@@ -821,7 +822,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  nonisolated private static func focusedContextBlock(
+  nonisolated private static func currentPromptContextBlock(
     from messages: [GemmaMessageSnapshot]
   ) -> String? {
     guard let block = systemInstructionBlock(from: messages),
@@ -967,7 +968,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                 mismatchReason: cacheTrace.mismatchReason,
                 firstMismatchIndex: cacheTrace.firstMismatchIndex,
                 systemPromptChanged: cacheTrace.systemPromptChanged,
-                focusedContextChanged: cacheTrace.focusedContextChanged
+                currentPromptContextChanged: cacheTrace.currentPromptContextChanged
               )
             )
           }
@@ -1003,7 +1004,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                     mismatchReason: cacheTrace.mismatchReason,
                     firstMismatchIndex: cacheTrace.firstMismatchIndex,
                     systemPromptChanged: cacheTrace.systemPromptChanged,
-                    focusedContextChanged: cacheTrace.focusedContextChanged
+                    currentPromptContextChanged: cacheTrace.currentPromptContextChanged
                   )
                 )
               }
@@ -1042,7 +1043,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                   mismatchReason: cacheTrace.mismatchReason,
                   firstMismatchIndex: cacheTrace.firstMismatchIndex,
                   systemPromptChanged: cacheTrace.systemPromptChanged,
-                  focusedContextChanged: cacheTrace.focusedContextChanged
+                  currentPromptContextChanged: cacheTrace.currentPromptContextChanged
                 )
               )
             }

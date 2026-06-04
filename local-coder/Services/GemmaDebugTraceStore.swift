@@ -157,8 +157,8 @@ actor GemmaDebugTraceStore: TurnTracing {
     if let systemPromptChanged = event.systemPromptChanged {
       trace["systemPromptChanged"] = systemPromptChanged
     }
-    if let focusedContextChanged = event.focusedContextChanged {
-      trace["focusedContextChanged"] = focusedContextChanged
+    if let currentPromptContextChanged = event.currentPromptContextChanged {
+      trace["currentPromptContextChanged"] = currentPromptContextChanged
     }
     append(trace)
   }

@@ -38,7 +38,7 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
   public let mismatchReason: String?
   public let firstMismatchIndex: Int?
   public let systemPromptChanged: Bool?
-  public let focusedContextChanged: Bool?
+  public let currentPromptContextChanged: Bool?
 
   public init(
     turnID: UUID? = nil,
@@ -63,7 +63,7 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     mismatchReason: String? = nil,
     firstMismatchIndex: Int? = nil,
     systemPromptChanged: Bool? = nil,
-    focusedContextChanged: Bool? = nil
+    currentPromptContextChanged: Bool? = nil
   ) {
     self.turnID = turnID
     self.generationID = generationID
@@ -87,7 +87,7 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.mismatchReason = mismatchReason
     self.firstMismatchIndex = firstMismatchIndex
     self.systemPromptChanged = systemPromptChanged
-    self.focusedContextChanged = focusedContextChanged
+    self.currentPromptContextChanged = currentPromptContextChanged
   }
 }
 
