@@ -168,6 +168,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
   }
 
   public func withSecurityScopedAccess<Result>(_ body: () throws -> Result) rethrows -> Result {
+#if canImport(Darwin)
     let accessURL = securityScopedAccessURL()
     let didStartSecurityScope = accessURL.startAccessingSecurityScopedResource()
     defer {
@@ -177,6 +178,9 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     }
 
     return try body()
+#else
+    return try body()
+#endif
   }
 
   private static func resolveSymlinksPreservingMissingPath(for url: URL) -> URL {
@@ -204,6 +208,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
   }
 
   private func securityScopedAccessURL() -> URL {
+#if canImport(Darwin)
     guard let bookmarkData else {
       return rootURL
     }
@@ -219,6 +224,9 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     } catch {
       return rootURL
     }
+#else
+    return rootURL
+#endif
   }
 
   private static func normalizedPathString(for url: URL) -> String {
