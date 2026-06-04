@@ -7,6 +7,7 @@ public struct ChatModelContextMessage: Codable, Identifiable, Equatable, Sendabl
   public let role: ChatModelContextRole
   public let content: String
   public let attachments: [ChatAttachment]
+  public let systemPromptSnapshot: String?
 
   public init(
     id: UUID = UUID(),
@@ -14,7 +15,8 @@ public struct ChatModelContextMessage: Codable, Identifiable, Equatable, Sendabl
     sourceMessageID: ChatMessage.ID? = nil,
     role: ChatModelContextRole,
     content: String,
-    attachments: [ChatAttachment] = []
+    attachments: [ChatAttachment] = [],
+    systemPromptSnapshot: String? = nil
   ) {
     self.id = id
     self.turnID = turnID
@@ -22,6 +24,19 @@ public struct ChatModelContextMessage: Codable, Identifiable, Equatable, Sendabl
     self.role = role
     self.content = content
     self.attachments = attachments
+    self.systemPromptSnapshot = systemPromptSnapshot
+  }
+
+  public func replacingSystemPromptSnapshot(_ systemPromptSnapshot: String?) -> Self {
+    ChatModelContextMessage(
+      id: id,
+      turnID: turnID,
+      sourceMessageID: sourceMessageID,
+      role: role,
+      content: content,
+      attachments: attachments,
+      systemPromptSnapshot: systemPromptSnapshot
+    )
   }
 }
 

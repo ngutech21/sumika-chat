@@ -302,6 +302,18 @@ extension ChatSessionController {
     let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard canSend else { return }
 
+    let toolAvailability = toolPromptPolicy.toolAvailability(
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    let toolsAvailable =
+      toolAvailability == .availableForWorkspace && chatSession.interactionMode != .chat
+    let interactionMode = chatSession.interactionMode
+    let initialToolPromptMode = toolPromptMode(
+      for: interactionMode,
+      toolsAvailable: toolsAvailable
+    )
+    let initialSystemPromptSnapshot = systemPrompt(toolPromptMode: initialToolPromptMode)
     let sentAttachments = chatSession.attachments
     let turnID = UUID()
     let userMessageID = UUID()
@@ -338,7 +350,8 @@ extension ChatSessionController {
         sourceMessageID: userMessageID,
         role: .user,
         content: prompt,
-        attachments: sentAttachments
+        attachments: sentAttachments,
+        systemPromptSnapshot: initialSystemPromptSnapshot
       )
     )
     transcriptMutator.appendModelContextMessages(modelContextMessages, to: &chatSession)
@@ -357,22 +370,11 @@ extension ChatSessionController {
 
       do {
         try await awaitPendingRuntimeContextClear()
-        let toolAvailability = toolPromptPolicy.toolAvailability(
-          workspace: workspace,
-          sessionID: sessionID
-        )
-        let toolsAvailable =
-          toolAvailability == .availableForWorkspace && chatSession.interactionMode != .chat
-        let interactionMode = chatSession.interactionMode
-        let toolPromptMode = toolPromptMode(
-          for: interactionMode,
-          toolsAvailable: toolsAvailable
-        )
-        refreshContextUsage(toolPromptMode: toolPromptMode)
+        refreshContextUsage(toolPromptMode: initialToolPromptMode)
         try await streamAssistantReply(
           to: assistantMessageID,
           interactionMode: interactionMode,
-          toolPromptMode: toolPromptMode,
+          toolPromptMode: initialToolPromptMode,
           turnID: turnID
         )
         guard isCurrentTurn(turnID) else {
@@ -762,10 +764,15 @@ extension ChatSessionController {
       )
       applyWorkflowEvents(events)
       notifySessionDidChange()
+      let promptMode = followUpPromptMode(afterApprovedTool: mergedRecord.request.toolName)
+      appendFinalToolFollowUpBoundaryIfNeeded(
+        toolPromptMode: promptMode,
+        turnID: turnID
+      )
       try await streamAssistantReply(
         to: nextAssistantMessageID,
         interactionMode: chatSession.interactionMode,
-        toolPromptMode: followUpPromptMode(afterApprovedTool: mergedRecord.request.toolName),
+        toolPromptMode: promptMode,
         turnID: turnID
       )
       if isFinalApprovedToolFollowUp(mergedRecord.request.toolName) {
@@ -942,6 +949,10 @@ extension ChatSessionController {
     ])
     isGenerating = true
     errorMessage = nil
+    appendFinalToolFollowUpBoundaryIfNeeded(
+      toolPromptMode: .afterToolResultFinal,
+      turnID: turnID
+    )
     refreshContextUsage(toolPromptMode: .afterToolResultFinal)
     notifySessionDidChange()
 
@@ -1045,6 +1056,22 @@ extension ChatSessionController {
     toolName == .writeFile || toolName == .editFile
   }
 
+  private func appendFinalToolFollowUpBoundaryIfNeeded(
+    toolPromptMode: ToolPromptMode,
+    turnID: ChatTurnRecord.ID
+  ) {
+    guard toolPromptMode == .afterToolResultFinal else {
+      return
+    }
+
+    transcriptMutator.appendModelContextUserBoundary(
+      "Use the preceding tool result to answer the user's request.",
+      turnID: turnID,
+      systemPromptSnapshot: systemPrompt(toolPromptMode: toolPromptMode),
+      to: &chatSession
+    )
+  }
+
 }
 
 extension ChatSessionController {
@@ -1056,6 +1083,22 @@ extension ChatSessionController {
   )
     async throws
   {
+    let systemPromptStartedAt = Date()
+    let renderedSystemPrompt = systemPrompt(toolPromptMode: toolPromptMode)
+    transcriptMutator.updateLastUserModelContextSystemPromptSnapshot(
+      renderedSystemPrompt,
+      turnID: turnID,
+      in: &chatSession
+    )
+    traceTurnPhase(
+      .renderSystemPrompt,
+      startedAt: systemPromptStartedAt,
+      turnID: turnID,
+      generationID: nil,
+      promptBytes: renderedSystemPrompt.utf8.count,
+      messageCount: chatSession.modelContextMessages.count,
+      interactionMode: interactionMode
+    )
     let contextBuildStartedAt = Date()
     let contextMessages = modelContextBuilder.messages(
       from: chatSession,
@@ -1066,17 +1109,6 @@ extension ChatSessionController {
       startedAt: contextBuildStartedAt,
       turnID: turnID,
       generationID: nil,
-      messageCount: contextMessages.count,
-      interactionMode: interactionMode
-    )
-    let systemPromptStartedAt = Date()
-    let renderedSystemPrompt = systemPrompt(toolPromptMode: toolPromptMode)
-    traceTurnPhase(
-      .renderSystemPrompt,
-      startedAt: systemPromptStartedAt,
-      turnID: turnID,
-      generationID: nil,
-      promptBytes: renderedSystemPrompt.utf8.count,
       messageCount: contextMessages.count,
       interactionMode: interactionMode
     )

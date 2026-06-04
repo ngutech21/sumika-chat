@@ -100,6 +100,16 @@ struct ChatSessionControllerWriteApprovalTests {
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
+    let finalFollowUpContext = try #require(capturedMessages.last)
+    #expect(finalFollowUpContext.last?.role == .user)
+    #expect(
+      finalFollowUpContext.last?.content
+        == "Use the preceding tool result to answer the user's request.")
+    #expect(
+      finalFollowUpContext.last?.systemPromptSnapshot?.contains("No more tools may run") == true)
+    #expect(
+      finalFollowUpContext.first(where: { $0.role == .user })?.systemPromptSnapshot?
+        .contains("write_file") == true)
   }
 
   @Test
@@ -182,6 +192,13 @@ struct ChatSessionControllerWriteApprovalTests {
 
     controller.draft = "are you there"
     #expect(controller.canSend)
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 2)
+    let finalFollowUpContext = try #require(capturedMessages.last)
+    #expect(finalFollowUpContext.last?.role == .user)
+    #expect(
+      finalFollowUpContext.last?.systemPromptSnapshot?.contains("No more tools may run") == true)
   }
 
   @Test

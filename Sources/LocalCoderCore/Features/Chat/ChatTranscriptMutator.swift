@@ -28,6 +28,44 @@ public struct ChatTranscriptMutator: Sendable {
     state.modelContextMessages.append(contentsOf: messages)
   }
 
+  public func appendModelContextUserBoundary(
+    _ content: String,
+    turnID: ChatTurnRecord.ID,
+    systemPromptSnapshot: String,
+    to state: inout ChatSessionState
+  ) {
+    appendModelContextMessage(
+      ChatModelContextMessage(
+        turnID: turnID,
+        role: .user,
+        content: content,
+        systemPromptSnapshot: systemPromptSnapshot
+      ),
+      to: &state
+    )
+  }
+
+  public func updateLastUserModelContextSystemPromptSnapshot(
+    _ systemPromptSnapshot: String,
+    turnID: ChatTurnRecord.ID,
+    in state: inout ChatSessionState
+  ) {
+    guard
+      let index = state.modelContextMessages.lastIndex(where: { message in
+        message.turnID == turnID && message.role == .user
+      })
+    else {
+      return
+    }
+
+    guard state.modelContextMessages[index].systemPromptSnapshot == nil else {
+      return
+    }
+
+    state.modelContextMessages[index] =
+      state.modelContextMessages[index].replacingSystemPromptSnapshot(systemPromptSnapshot)
+  }
+
   public func appendAssistantPlaceholder(
     id: ChatMessage.ID,
     turnID: ChatTurnRecord.ID? = nil,

@@ -44,18 +44,23 @@ struct GemmaMLXRuntimeTemplateTests {
     )
 
     #expect(rendered.map(\.role) == [.user, .assistant, .user])
-    #expect(rendered[0].content.contains("System instructions:"))
-    #expect(rendered[0].content.contains("Use concise coding steps."))
+    #expect(!rendered[0].content.contains("System instructions:"))
+    #expect(rendered[2].content.contains("System instructions:"))
+    #expect(rendered[2].content.contains("Use concise coding steps."))
     #expect(rendered[1].content.contains("Tool call write_file requested."))
     #expect(rendered[1].content.contains("Tool write_file completed with status success."))
     #expect(!rendered.contains { $0.role == .system })
   }
 
   @Test
-  func generationHistoryEmbedsSystemPromptWithoutAddingSystemRole() throws {
+  func generationHistoryUsesFrozenSystemPromptSnapshot() throws {
     let callID = UUID()
     let messages: [ChatModelContextMessage] = [
-      ChatModelContextMessage(role: .user, content: "create index.htm"),
+      ChatModelContextMessage(
+        role: .user,
+        content: "create index.htm",
+        systemPromptSnapshot: "Use concise coding steps."
+      ),
       ChatModelContextMessage(
         role: .assistant,
         content: writeFileToolCall(
@@ -79,12 +84,69 @@ struct GemmaMLXRuntimeTemplateTests {
 
     let history = try GemmaMLXRuntime.generationHistoryMessages(
       from: messages[...],
-      systemPrompt: "Use concise coding steps."
+      systemPrompt: "No tools may run now."
     )
 
     #expect(history.map(\.role) == [.user, .assistant])
     #expect(history[0].content.contains("System instructions:"))
+    #expect(history[0].content.contains("Use concise coding steps."))
+    #expect(!history[0].content.contains("No tools may run now."))
     #expect(!history.contains { $0.role == .system })
+  }
+
+  @Test
+  func renderedHistoryDoesNotRewriteFirstUserWhenToolPromptModeChanges() throws {
+    let initialUser = ChatModelContextMessage(
+      role: .user,
+      content: "create index.htm",
+      systemPromptSnapshot: "When tools are available, use them."
+    )
+    let initialRendered = try GemmaMLXRuntime.templateMessages(
+      from: [initialUser],
+      attachments: [],
+      systemPrompt: "When tools are available, use them."
+    )
+
+    let messages: [ChatModelContextMessage] = [
+      initialUser,
+      ChatModelContextMessage(role: .assistant, content: "Tool call write_file requested."),
+      ChatModelContextMessage(
+        role: .user,
+        content: "Tool write_file completed with status success.",
+        systemPromptSnapshot: "No more tools may run in this response."
+      ),
+      ChatModelContextMessage(role: .assistant, content: "Done."),
+    ]
+
+    let history = try GemmaMLXRuntime.generationHistoryMessages(
+      from: messages[...],
+      systemPrompt: "A later prompt mode should not rewrite history."
+    )
+
+    #expect(history.map(\.role) == [.user, .assistant, .user, .assistant])
+    #expect(history[0].content == initialRendered[0].content)
+    #expect(history[2].content.contains("No more tools may run in this response."))
+    #expect(!history[0].content.contains("No more tools may run in this response."))
+    #expect(!history[0].content.contains("A later prompt mode should not rewrite history."))
+  }
+
+  @Test
+  func templateMessagesApplyFallbackSystemPromptOnlyToLegacyLastUser() throws {
+    let messages: [ChatModelContextMessage] = [
+      ChatModelContextMessage(role: .user, content: "first request"),
+      ChatModelContextMessage(role: .assistant, content: "first response"),
+      ChatModelContextMessage(role: .user, content: "follow-up request"),
+    ]
+
+    let rendered = try GemmaMLXRuntime.templateMessages(
+      from: messages,
+      attachments: [],
+      systemPrompt: "Current prompt fallback."
+    )
+
+    #expect(rendered.map(\.role) == [.user, .assistant, .user])
+    #expect(!rendered[0].content.contains("Current prompt fallback."))
+    #expect(rendered[2].content.contains("Current prompt fallback."))
   }
 
   @Test

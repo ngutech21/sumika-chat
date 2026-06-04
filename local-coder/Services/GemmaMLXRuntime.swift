@@ -186,7 +186,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       prompt: messages[lastUserIndex].content,
       attachments: messages[lastUserIndex].attachments + attachments
     )
-    let instructions = Self.normalizedSystemPrompt(systemPrompt)
+    let promptSystemPrompt = messages[lastUserIndex].systemPromptSnapshot ?? systemPrompt
+    let instructions = Self.normalizedSystemPrompt(promptSystemPrompt)
     let generateParameters = GenerateParameters(
       maxTokens: settings.maxTokens,
       maxKVSize: contextTokenLimit,
@@ -195,11 +196,12 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       topK: settings.topK
     )
     let history = try Self.generationHistoryMessages(
-      from: messages[..<lastUserIndex],
-      systemPrompt: systemPrompt
+      from: messages[..<lastUserIndex]
     )
-    if instructions != nil, history.isEmpty {
-      prompt = Self.embeddingSystemPromptIfNeeded(systemPrompt, into: [.user(prompt)])[0].content
+    if instructions != nil {
+      prompt =
+        Self.embeddingSystemPromptIfNeeded(promptSystemPrompt, into: [.user(prompt)])[0]
+        .content
     }
     let historySnapshot = Self.messageSnapshot(from: history)
     let finalPrompt = prompt
@@ -724,38 +726,112 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   ) throws -> [Chat.Message] {
     try validatedTemplateMessages(
       normalizedChatMessages(
-        contextMessages(
+        renderedTemplateMessages(
           from: messages,
           attachments: attachments,
-          systemPrompt: systemPrompt
+          fallbackSystemPrompt: systemPrompt
         )
       )
     )
   }
 
-  nonisolated private static func contextMessages(
+  nonisolated private static func renderedTemplateMessages(
     from messages: [ChatModelContextMessage],
     attachments: [ChatAttachment],
-    systemPrompt: String
+    fallbackSystemPrompt: String
   ) -> [Chat.Message] {
-    var contextMessages: [Chat.Message] = []
+    renderedTemplateMessages(
+      from: preparedContextMessages(from: messages, attachments: attachments),
+      fallbackSystemPrompt: fallbackSystemPrompt
+    )
+  }
+
+  nonisolated private static func preparedContextMessages(
+    from messages: [ChatModelContextMessage],
+    attachments: [ChatAttachment]
+  ) -> [ChatModelContextMessage] {
+    var contextMessages: [ChatModelContextMessage] = []
 
     if messages.isEmpty, !attachments.isEmpty {
-      contextMessages.append(.user(attachmentContextBlock(attachments)))
+      contextMessages.append(
+        ChatModelContextMessage(role: .user, content: attachmentContextBlock(attachments)))
     } else if let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) {
-      contextMessages.append(contentsOf: messages[..<lastUserIndex].compactMap(Chat.Message.init))
+      contextMessages.append(contentsOf: messages[..<lastUserIndex])
+      let lastUserMessage = messages[lastUserIndex]
       let prompt = promptWithAttachments(
-        prompt: messages[lastUserIndex].content,
-        attachments: messages[lastUserIndex].attachments + attachments
+        prompt: lastUserMessage.content,
+        attachments: lastUserMessage.attachments + attachments
       )
-      contextMessages.append(.user(prompt))
+      contextMessages.append(
+        ChatModelContextMessage(
+          id: lastUserMessage.id,
+          turnID: lastUserMessage.turnID,
+          sourceMessageID: lastUserMessage.sourceMessageID,
+          role: .user,
+          content: prompt,
+          systemPromptSnapshot: lastUserMessage.systemPromptSnapshot
+        )
+      )
       let remainingMessages = messages[messages.index(after: lastUserIndex)...]
-      contextMessages.append(contentsOf: remainingMessages.compactMap(Chat.Message.init))
+      contextMessages.append(contentsOf: remainingMessages)
     } else {
-      contextMessages.append(contentsOf: messages.compactMap(Chat.Message.init))
+      contextMessages.append(contentsOf: messages)
     }
 
-    return embeddingSystemPromptIfNeeded(systemPrompt, into: contextMessages)
+    return contextMessages
+  }
+
+  nonisolated private static func renderedTemplateMessages(
+    from messages: [ChatModelContextMessage],
+    fallbackSystemPrompt: String
+  ) -> [Chat.Message] {
+    let systemMessages = messages.compactMap { message -> String? in
+      guard message.role == .system else {
+        return nil
+      }
+      return message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    .filter { !$0.isEmpty }
+    let lastUserIndex = messages.lastIndex(where: { $0.role == .user })
+    var didEmbedSystemMessages = false
+    var renderedMessages: [Chat.Message] = []
+
+    for index in messages.indices {
+      let message = messages[index]
+      guard !message.content.isEmpty else {
+        continue
+      }
+
+      switch message.role {
+      case .system:
+        continue
+      case .assistant:
+        renderedMessages.append(.assistant(message.content))
+      case .user:
+        var systemContext: [String] = []
+        if let snapshot = normalizedSystemPrompt(message.systemPromptSnapshot) {
+          systemContext.append(snapshot)
+        } else if index == lastUserIndex,
+          let fallback = normalizedSystemPrompt(fallbackSystemPrompt)
+        {
+          systemContext.append(fallback)
+        }
+
+        if !didEmbedSystemMessages {
+          systemContext.append(contentsOf: systemMessages)
+          didEmbedSystemMessages = true
+        }
+
+        renderedMessages.append(.user(userContent(message.content, systemContext: systemContext)))
+      }
+    }
+
+    guard !didEmbedSystemMessages, !systemMessages.isEmpty else {
+      return renderedMessages
+    }
+
+    return [.user(systemInstructionContent(systemMessages.joined(separator: "\n\n")))]
+      + renderedMessages
   }
 
   nonisolated static func normalizedChatMessages(_ messages: [Chat.Message]) -> [Chat.Message] {
@@ -796,8 +872,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     from messages: ArraySlice<ChatModelContextMessage>,
     systemPrompt: String = ""
   ) throws -> [Chat.Message] {
+    _ = systemPrompt
     var history = normalizedChatMessages(
-      embeddingSystemPromptIfNeeded(systemPrompt, into: messages.compactMap(Chat.Message.init))
+      renderedTemplateMessages(from: Array(messages), fallbackSystemPrompt: "")
     )
 
     while history.last?.role == .user {
@@ -810,6 +887,42 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated private static func normalizedSystemPrompt(_ systemPrompt: String) -> String? {
     let effectiveSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
     return effectiveSystemPrompt.isEmpty ? nil : effectiveSystemPrompt
+  }
+
+  nonisolated private static func normalizedSystemPrompt(_ systemPrompt: String?) -> String? {
+    guard let systemPrompt else {
+      return nil
+    }
+    return normalizedSystemPrompt(systemPrompt)
+  }
+
+  nonisolated private static func userContent(
+    _ content: String,
+    systemContext: [String]
+  ) -> String {
+    let systemContext =
+      systemContext
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n\n")
+
+    guard !systemContext.isEmpty else {
+      return content
+    }
+
+    return """
+      \(systemInstructionContent(systemContext))
+
+      User request:
+      \(content)
+      """
+  }
+
+  nonisolated private static func systemInstructionContent(_ systemContext: String) -> String {
+    """
+    System instructions:
+    \(systemContext)
+    """
   }
 
   nonisolated static func embeddingSystemPromptIfNeeded(
