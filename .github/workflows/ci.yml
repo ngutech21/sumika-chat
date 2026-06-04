@@ -37,6 +37,6 @@ jobs:
       - name: Build LocalCoderCore only
         run: swift build --target LocalCoderCore
 
-      - name: Test LocalCoderCore only
+      - name: Test LocalCoderCore package
         timeout-minutes: 10
-        run: swift test --filter LocalCoderCoreTests --no-parallel
+        run: swift test
