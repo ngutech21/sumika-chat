@@ -97,7 +97,13 @@ struct ChatMessageTests {
       toolResult: ToolResultModelMessage(
         callID: UUID(),
         toolName: .listFiles,
-        preview: ToolResultPreview(text: "README.md")
+        payload: .listFiles(
+          ListFilesResult(
+            root: WorkspaceRelativePath(rawValue: "."),
+            entries: [
+              WorkspaceFileEntry(path: WorkspaceRelativePath(rawValue: "README.md"), kind: .file)
+            ]
+          ))
       ))
     let decoded = try JSONDecoder().decode(ChatMessage.self, from: JSONEncoder().encode(message))
 

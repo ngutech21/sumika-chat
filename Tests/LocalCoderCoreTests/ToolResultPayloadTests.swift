@@ -117,31 +117,6 @@ struct ToolResultPayloadTests {
   }
 
   @Test
-  func toolResultModelMessageDecodesLegacyPreviewOnlyShape() throws {
-    struct LegacyToolResultModelMessage: Codable {
-      var callID: UUID
-      var toolName: ToolName
-      var preview: ToolResultPreview
-    }
-
-    let legacy = LegacyToolResultModelMessage(
-      callID: UUID(),
-      toolName: .readFile,
-      preview: ToolResultPreview(text: "1: hello")
-    )
-
-    let decoded = try JSONDecoder().decode(
-      ToolResultModelMessage.self,
-      from: JSONEncoder().encode(legacy)
-    )
-
-    #expect(decoded.callID == legacy.callID)
-    #expect(decoded.toolName == .readFile)
-    #expect(decoded.payload == nil)
-    #expect(decoded.preview == legacy.preview)
-  }
-
-  @Test
   func toolPermissionEvaluationDecodesLegacyShapeWithoutWorkspaceRelativePaths() throws {
     struct LegacyToolPermissionEvaluation: Codable {
       var decision: ToolPermissionDecision

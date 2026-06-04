@@ -820,17 +820,18 @@ extension ChatSessionController {
   }
 
   private func toolResultMessage(for record: ToolCallRecord) -> ToolResultModelMessage {
-    let resultPreview =
-      record.resultPreview
-      ?? ToolResultPreview(
-        status: .failed,
-        text: "Tool result unavailable for \(record.request.toolName.rawValue)."
-      )
     return ToolResultModelMessage(
       callID: record.id,
       toolName: record.request.toolName,
-      payload: record.resultPayload,
-      preview: resultPreview
+      payload: record.resultPayload
+        ?? .failure(
+          ToolFailure(
+            toolName: record.request.toolName,
+            path: nil,
+            reason: .executionError(
+              "Tool result unavailable for \(record.request.toolName.rawValue)."
+            )
+          ))
     )
   }
 
@@ -921,7 +922,8 @@ extension ChatSessionController {
       ToolFailure(
         toolName: deniedRecord.request.toolName,
         path: deniedRecord.evaluation.firstModelFacingPath,
-        reason: .permissionDenied
+        reason: .permissionDenied,
+        recovery: .askUser(message: message)
       )
     )
     deniedRecord.resultPreview = ToolResultPreview(
@@ -1026,8 +1028,14 @@ extension ChatSessionController {
     ToolResultModelMessage(
       callID: deniedRecord.id,
       toolName: deniedRecord.request.toolName,
-      payload: deniedRecord.resultPayload,
-      preview: deniedRecord.resultPreview ?? ToolResultPreview(status: .denied, text: message)
+      payload: deniedRecord.resultPayload
+        ?? .failure(
+          ToolFailure(
+            toolName: deniedRecord.request.toolName,
+            path: deniedRecord.evaluation.firstModelFacingPath,
+            reason: .permissionDenied,
+            recovery: .askUser(message: message)
+          ))
     )
   }
 

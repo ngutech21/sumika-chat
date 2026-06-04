@@ -115,12 +115,15 @@ public struct ChatWorkflowEventApplier: Sendable {
       replaceToolCallRecord(record, in: &state)
     case .toolResultAppended(let toolResult, let messageID, let turnID):
       mutator.appendToolResult(toolResult, id: messageID, turnID: turnID, to: &state)
-      if let entry = try? ModelFacingPromptRenderer.toolResultEntry(
-        turnID: turnID,
-        sourceMessageID: messageID,
-        toolResult: toolResult
-      ) {
-        mutator.appendModelFacingEntry(entry, to: &state)
+      if let request = state.toolCalls.first(where: { $0.id == toolResult.callID })?.request {
+        if let entry = try? ModelFacingPromptRenderer.toolResultEntry(
+          turnID: turnID,
+          sourceMessageID: messageID,
+          toolResult: toolResult,
+          request: request
+        ) {
+          mutator.appendModelFacingEntry(entry, to: &state)
+        }
       }
       mutator.appendMessageID(messageID, toTurn: turnID, in: &state)
     case .assistantPlaceholderAppended(let messageID, let turnID):

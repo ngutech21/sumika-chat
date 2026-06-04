@@ -69,7 +69,13 @@ struct ChatWorkflowEventApplierTests {
     let result = ToolResultModelMessage(
       callID: UUID(),
       toolName: .listFiles,
-      preview: ToolResultPreview(status: .success, text: "README.md")
+      payload: .listFiles(
+        ListFilesResult(
+          root: WorkspaceRelativePath(rawValue: "."),
+          entries: [
+            WorkspaceFileEntry(path: WorkspaceRelativePath(rawValue: "README.md"), kind: .file)
+          ]
+        ))
     )
     var state = makeState(turns: [ChatTurnRecord(id: turnID, status: .running)])
 
@@ -250,7 +256,13 @@ struct ChatWorkflowEventApplierTests {
     let result = ToolResultModelMessage(
       callID: UUID(),
       toolName: .listFiles,
-      preview: ToolResultPreview(status: .success, text: "README.md")
+      payload: .listFiles(
+        ListFilesResult(
+          root: WorkspaceRelativePath(rawValue: "."),
+          entries: [
+            WorkspaceFileEntry(path: WorkspaceRelativePath(rawValue: "README.md"), kind: .file)
+          ]
+        ))
     )
     let event = ChatWorkflowEvent.toolResultAppended(
       result,

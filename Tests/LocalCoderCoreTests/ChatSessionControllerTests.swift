@@ -682,6 +682,9 @@ struct ChatSessionControllerTests {
       ])
     #expect(
       controller.chatSession.modelFacingTranscript.entries[2].frozenContent.content.contains(
+        "Displayed file to user: README.md"))
+    #expect(
+      !controller.chatSession.modelFacingTranscript.entries[2].frozenContent.content.contains(
         "1: project notes"))
     #expect(
       controller.chatSession.modelFacingTranscript.entries[3].frozenContent.content

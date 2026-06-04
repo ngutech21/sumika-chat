@@ -22,8 +22,9 @@ flowchart TD
   H -- "requires approval" --> J["Optional approval preview + ToolCallRecord awaitingApproval"]
   H -- "denied" --> K["ToolCallRecord denied"]
   I --> L["ToolResultPayload"]
-  L --> O["ToolResultPreview projection"]
-  O --> P["ToolCallRecord + ToolResultModelMessage"]
+  L --> O["ToolResultProjector derives display + observation"]
+  O --> P["ToolResultModelMessage stores payload only"]
+  O --> Q["Render ToolModelObservation into FrozenModelContent"]
   J --> M["User approves"]
   M --> N["Approved execution re-validates raw request + re-evaluates"]
   N --> G
@@ -70,19 +71,28 @@ flowchart TD
   a preview and becomes an awaiting-approval record without executing the tool.
   An approved execution path validates the raw request and evaluates permission
   again immediately before the side effect. Executed tools return a structured
-  `ToolResultPayload`; the runtime stores that payload and derives
-  `ToolResultPreview` for UI and model-facing observations.
+  `ToolResultPayload`.
 - `TypedToolExecutor` is what every concrete tool implements. Its `run` method
   receives a concrete Swift input type, never raw argument dictionaries, and
   returns a typed result payload rather than UI text.
 - `ToolResultPayload` is the domain result boundary. Built-in tool results carry
   typed success, failure, and recovery-relevant outcomes such as
   `edit_file` old-text misses, multiple matches, invalid calls, and common path
-  failures.
-- `ToolResultPreview` remains the compact rendering shape for the transcript,
-  approval previews, UI summaries, and model observations. Controller and
-  recovery logic should use `ToolResultPayload` where available instead of
-  parsing preview text.
+  failures. It is the only stored truth for an executed tool result.
+- `ToolResultModelMessage` stores only `callID`, `toolName`, and
+  `ToolResultPayload`. It does not persist UI display output or model
+  observations.
+- `ToolResultProjector` derives transient projections from
+  `payload + ToolCallRequest + ToolResultProjectionPolicy`: `ToolDisplayPayload`
+  for transcript UI and `ToolModelObservation` for model-facing context.
+- `ToolDisplayPayload` may be large and rich because it is UI-only. It is never
+  written to the model-facing ledger.
+- `ToolModelObservation` is compact, capped, and purpose-specific. The prompt
+  renderer renders it once into `FrozenModelContent`; that frozen content is the
+  stable model-facing ledger artifact.
+- `ToolResultPreview` is limited to approval previews and derived compatibility
+  summaries. It must not be persisted as the result body or used as the source
+  of truth when `ToolResultPayload` is available.
 - `ToolContext` carries runtime context such as the active workspace.
 - `ToolDefinition` describes a tool for prompts and provider adapters,
   including capability, risk, structured parameter metadata, and a
@@ -161,8 +171,11 @@ flowchart TD
 - `show_file` uses the same read-only path validation and file preview shape as
   `read_file`, but it represents a different workflow state: display the file
   directly to the user and stop the current tool turn without asking the model
-  to restate the file. Do not infer this behavior from raw user text; trigger
-  it only from an explicit `show_file` tool call.
+  to restate the file. Its UI display projection includes file content; its
+  default model observation records only that the file was displayed, with
+  path/range/count/truncation metadata and no body text. Do not infer this
+  behavior from raw user text; trigger it only from an explicit `show_file`
+  tool call.
 - `glob_files` and `search_files` are read-only discovery tools. They validate
   the requested `path`, default it to `.`, skip project metadata/build
   directories, and cap returned results. `search_files` treats a valid pattern
@@ -206,13 +219,13 @@ flowchart TD
   useful audit trail. Domain result payloads use canonical workspace-relative
   paths; UI renderers may decide how to display them.
 - Permission evaluation keeps absolute normalized paths for audit/debugging and
-  also records canonical workspace-relative paths. Model-facing result previews
+  also records canonical workspace-relative paths. Model-facing observations
   should prefer the workspace-relative paths.
 - Missing-path suggestions are model-facing recovery hints only. They are
   bounded, skip project metadata/build directories, and must not be applied
   automatically by the runtime.
-- Tool result previews are projections. They must not be the source of truth for
-  controller recovery decisions when a structured `ToolResultPayload` is
+- Tool result projections are derived. They must not be persisted or used as the
+  source of truth for controller recovery decisions when `ToolResultPayload` is
   available.
 - Tool results from a cancelled chat turn may remain visible for auditability,
   but the chat model context must exclude them unless that same turn is still

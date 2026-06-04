@@ -209,7 +209,7 @@ private struct MessageContentText: View {
         onDeny: onDenyToolCall
       )
     case .toolResult(let toolResult):
-      ToolResultSummaryView(toolResult: toolResult)
+      ToolResultSummaryView(toolResult: toolResult, toolCallRecord: toolCallRecord)
     case .assistant(let payload):
       Markdown(AssistantMarkdownPreprocessor.renderableContent(for: payload.content))
         .markdownTheme(.chatMessage)

@@ -130,9 +130,13 @@ public struct ToolLoopCoordinator: Sendable {
         toolResult: ToolResultModelMessage(
           callID: output.request.id,
           toolName: output.request.toolName,
-          payload: record.resultPayload,
-          preview: record.resultPreview
-            ?? ToolResultPreview(status: .failed, text: invalidToolMessage(error: error))
+          payload: record.resultPayload
+            ?? .failure(
+              ToolFailure(
+                toolName: output.request.toolName,
+                path: nil,
+                reason: .executionError(invalidToolMessage(error: error))
+              ))
         ),
         focusedFileState: request.focusedFileState,
         followUpPromptMode: request.followUpPromptMode
@@ -171,17 +175,18 @@ public struct ToolLoopCoordinator: Sendable {
         )
       }
 
-      let resultPreview =
-        record.resultPreview
-        ?? ToolResultPreview(
-          status: .failed,
-          text: "Tool result unavailable for \(output.request.toolName.rawValue)."
-        )
       let toolResult = ToolResultModelMessage(
         callID: output.request.id,
         toolName: output.request.toolName,
-        payload: record.resultPayload,
-        preview: resultPreview
+        payload: record.resultPayload
+          ?? .failure(
+            ToolFailure(
+              toolName: output.request.toolName,
+              path: nil,
+              reason: .executionError(
+                "Tool result unavailable for \(output.request.toolName.rawValue)."
+              )
+            ))
       )
 
       return completedStep(
@@ -394,14 +399,18 @@ public struct ToolLoopCoordinator: Sendable {
 
     switch record.resultPayload {
     case .readFile(.success(let path, _)) where record.request.toolName == .showFile:
+      let projection = ToolResultProjector.project(
+        payload: toolResult.payload, request: record.request)
       return DirectToolResultResponse(
-        content: directReadFileResponse(path: path, preview: toolResult.preview),
+        content: directReadFileResponse(path: path, display: projection.display),
         modelContextContent:
           "Displayed show_file result for \(path.rawValue) directly to the user."
       )
     case .listFiles(let result) where shouldRespondDirectlyToListFiles(request):
+      let projection = ToolResultProjector.project(
+        payload: toolResult.payload, request: record.request)
       return DirectToolResultResponse(
-        content: directListFilesResponse(result: result, preview: toolResult.preview),
+        content: directListFilesResponse(result: result, display: projection.display),
         modelContextContent:
           "Displayed list_files result for \(result.root.rawValue) directly to the user."
       )
@@ -412,18 +421,21 @@ public struct ToolLoopCoordinator: Sendable {
 
   private func directReadFileResponse(
     path: WorkspaceRelativePath,
-    preview: ToolResultPreview
+    display: ToolDisplayPayload
   ) -> String {
     var response = "Here is `\(path.rawValue)`:"
-    let body = preview.text.isEmpty ? "(empty)" : preview.text
+    guard case .fileContent(_, let content) = display else {
+      return response
+    }
+    let body = content.text.isEmpty ? "(empty)" : content.text
     response += "\n\n"
     response += body.split(separator: "\n", omittingEmptySubsequences: false)
       .map { "    \($0)" }
       .joined(separator: "\n")
-    if preview.truncated {
+    if content.truncated {
       response += "\n\nResult truncated."
     }
-    if preview.redacted {
+    if content.redacted {
       response += "\n\nSome content was redacted."
     }
     return response
@@ -431,15 +443,23 @@ public struct ToolLoopCoordinator: Sendable {
 
   private func directListFilesResponse(
     result: ListFilesResult,
-    preview: ToolResultPreview
+    display: ToolDisplayPayload
   ) -> String {
     var response = "Files in `\(result.root.rawValue)`:"
-    let body = preview.text.isEmpty ? "(empty)" : preview.text
+    guard case .fileList(_, let entries, let truncated) = display else {
+      return response
+    }
+    let body =
+      entries.isEmpty
+      ? "(empty)"
+      : entries.map { entry in
+        entry.kind == .directory ? entry.path.rawValue + "/" : entry.path.rawValue
+      }.joined(separator: "\n")
     response += "\n\n"
     response += body.split(separator: "\n", omittingEmptySubsequences: false)
       .map { "    \($0)" }
       .joined(separator: "\n")
-    if preview.truncated {
+    if truncated {
       response += "\n\nResult truncated."
     }
     return response

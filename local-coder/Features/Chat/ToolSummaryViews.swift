@@ -107,9 +107,11 @@ extension ToolCallStatus {
 
 struct ToolResultSummaryView: View {
   let toolResult: ToolResultModelMessage
+  let toolCallRecord: ToolCallRecord?
   @State private var isResultExpanded = false
 
   var body: some View {
+    let display = displayPayload
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 8) {
         Label("Tool result", systemImage: toolResult.systemImage)
@@ -117,9 +119,9 @@ struct ToolResultSummaryView: View {
 
         Spacer(minLength: 8)
 
-        Text(toolResult.preview.status.rawValue)
+        Text(display.status.rawValue)
           .font(.caption.weight(.medium))
-          .foregroundStyle(toolResult.statusColor)
+          .foregroundStyle(display.statusColor)
       }
 
       LabeledContent("Tool", value: toolResult.toolName.rawValue)
@@ -127,17 +129,17 @@ struct ToolResultSummaryView: View {
         .font(.caption2.monospaced())
         .foregroundStyle(.secondary)
 
-      if !toolResult.metaSummary.isEmpty {
-        Text(toolResult.metaSummary)
+      if !display.metaSummary.isEmpty {
+        Text(display.metaSummary)
           .font(.caption)
           .foregroundStyle(.secondary)
           .lineLimit(2)
       }
 
-      if !toolResult.preview.text.isEmpty {
+      if !display.text.isEmpty {
         DisclosureGroup(isExpanded: $isResultExpanded) {
           Divider()
-          Text(toolResult.preview.text)
+          Text(display.text)
             .font(.system(.callout, design: .monospaced))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 2)
@@ -150,30 +152,40 @@ struct ToolResultSummaryView: View {
     }
     .font(.callout)
   }
+
+  private var displayPayload: ToolDisplayPayload {
+    guard let request = toolCallRecord?.request else {
+      let preview = toolResult.payload.preview
+      return .summary(
+        status: preview.status,
+        text: preview.text,
+        affectedPaths: preview.affectedPaths.map(WorkspaceRelativePath.init(rawValue:))
+      )
+    }
+
+    return ToolResultProjector.project(
+      payload: toolResult.payload,
+      request: request,
+      policy: .default
+    ).display
+  }
 }
 
 extension ToolResultModelMessage {
   var systemImage: String {
-    preview.status == .success ? "checkmark.circle" : "exclamationmark.triangle"
+    payload.status == .success ? "checkmark.circle" : "exclamationmark.triangle"
   }
+}
 
-  var statusColor: Color {
-    switch preview.status {
-    case .success:
-      .green
-    case .failed, .denied:
-      .orange
-    }
-  }
-
+extension ToolDisplayPayload {
   var metaSummary: String {
     var parts: [String] = []
 
-    if !preview.affectedPaths.isEmpty {
+    if !affectedPaths.isEmpty {
       parts.append(pathSummary)
     }
 
-    if preview.truncated {
+    if truncated {
       parts.append("truncated")
     }
 
@@ -182,24 +194,92 @@ extension ToolResultModelMessage {
   }
 
   private var pathSummary: String {
-    guard let firstPath = preview.affectedPaths.first else {
+    guard let firstPath = affectedPaths.first else {
       return ""
     }
 
-    if preview.affectedPaths.count == 1 {
-      return firstPath
+    if affectedPaths.count == 1 {
+      return firstPath.rawValue
     }
 
-    return "\(firstPath) +\(preview.affectedPaths.count - 1) paths"
+    return "\(firstPath.rawValue) +\(affectedPaths.count - 1) paths"
   }
 
   private var resultSizeSummary: String {
-    let lineCount = preview.text.isEmpty ? 0 : preview.text.components(separatedBy: .newlines).count
-    let byteCount = preview.text.utf8.count
+    let lineCount = text.isEmpty ? 0 : text.components(separatedBy: .newlines).count
+    let byteCount = text.utf8.count
     let formattedBytes = ByteCountFormatter.string(
       fromByteCount: Int64(byteCount),
       countStyle: .file
     )
     return "\(lineCount) lines, \(formattedBytes)"
+  }
+
+  fileprivate var status: ToolResultStatus {
+    switch self {
+    case .fileContent:
+      .success
+    case .fileList:
+      .success
+    case .searchResults:
+      .success
+    case .summary(let status, _, _):
+      status
+    }
+  }
+
+  fileprivate var statusColor: Color {
+    switch status {
+    case .success:
+      .green
+    case .failed, .denied:
+      .orange
+    }
+  }
+
+  fileprivate var affectedPaths: [WorkspaceRelativePath] {
+    switch self {
+    case .fileContent(let path, _):
+      [path]
+    case .fileList(let root, _, _):
+      [root]
+    case .searchResults(let root, _, _, _):
+      [root]
+    case .summary(_, _, let affectedPaths):
+      affectedPaths
+    }
+  }
+
+  fileprivate var truncated: Bool {
+    switch self {
+    case .fileContent(_, let content):
+      content.truncated
+    case .fileList(_, _, let truncated):
+      truncated
+    case .searchResults(_, _, _, let truncated):
+      truncated
+    case .summary:
+      false
+    }
+  }
+
+  fileprivate var text: String {
+    switch self {
+    case .fileContent(_, let content):
+      return content.text
+    case .fileList(_, let entries, _):
+      return entries.isEmpty
+        ? "(empty)"
+        : entries.map { entry in
+          entry.kind == .directory ? entry.path.rawValue + "/" : entry.path.rawValue
+        }.joined(separator: "\n")
+    case .searchResults(_, _, let matches, _):
+      return matches.isEmpty
+        ? "(no matches)"
+        : matches.map { "\($0.path.rawValue):\($0.line): \($0.snippet)" }
+          .joined(separator: "\n")
+    case .summary(_, let text, _):
+      return text
+    }
   }
 }

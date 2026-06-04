@@ -188,17 +188,16 @@ public struct FinalModeActionDetector: Sendable {
     toolCall: ToolCallModelMessage,
     record: ToolCallRecord
   ) -> ChatWorkflowStep {
-    let resultPreview =
-      record.resultPreview
-      ?? ToolResultPreview(
-        status: .failed,
-        text: "Tool attempt blocked."
-      )
     let toolResult = ToolResultModelMessage(
       callID: record.id,
       toolName: record.request.toolName,
-      payload: record.resultPayload,
-      preview: resultPreview
+      payload: record.resultPayload
+        ?? .failure(
+          ToolFailure(
+            toolName: record.request.toolName,
+            path: nil,
+            reason: .executionError("Tool attempt blocked.")
+          ))
     )
     return ChatWorkflowStep(
       events: [

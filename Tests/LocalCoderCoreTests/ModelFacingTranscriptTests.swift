@@ -78,11 +78,18 @@ struct ModelFacingTranscriptTests {
         toolResult: ToolResultModelMessage(
           callID: callID,
           toolName: .writeFile,
-          preview: ToolResultPreview(
-            status: .success,
-            text: "movies.html written",
-            affectedPaths: ["movies.html"]
+          payload: .writeFile(
+            .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 18)
           )
+        ),
+        request: ToolCallRequest.validated(
+          raw: RawToolCallRequest(
+            id: callID,
+            workspaceID: UUID(),
+            sessionID: UUID(),
+            toolName: .writeFile
+          ),
+          payload: .writeFile(WriteFileInput(path: "movies.html", content: "movies.html written"))
         )
       ),
       to: &state
@@ -113,7 +120,7 @@ struct ModelFacingTranscriptTests {
     }
     #expect(context.toolName == .writeFile)
     #expect(
-      finalEntry.frozenContent.content.contains("Tool write_file completed with status success."))
+      finalEntry.frozenContent.content.contains("Summary: Wrote 18 bytes to movies.html."))
     #expect(
       finalEntry.frozenContent.content.contains(
         "Use the preceding tool result to answer the user's request."))

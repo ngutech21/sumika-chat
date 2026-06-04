@@ -26,11 +26,16 @@ struct GemmaMLXRuntimeTemplateTests {
           toolResult: ToolResultModelMessage(
             callID: callID,
             toolName: .writeFile,
-            preview: ToolResultPreview(
-              status: .success,
-              text: "index.htm · 1 lines, 13 bytes",
-              affectedPaths: ["index.htm"]
-            )
+            payload: .writeFile(
+              .success(path: WorkspaceRelativePath(rawValue: "index.htm"), bytesWritten: 13))
+          ),
+          request: toolRequest(
+            callID: callID,
+            toolName: .writeFile,
+            arguments: [
+              "path": .string("index.htm"),
+              "content": .string("<html></html>"),
+            ]
           )
         ),
         try ModelFacingPromptRenderer.userPromptEntry(
@@ -52,7 +57,7 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(rendered[2].content.contains("Use concise coding steps."))
     #expect(!rendered[2].content.contains("This runtime argument must not rewrite"))
     #expect(rendered[1].content.contains("Tool call write_file requested."))
-    #expect(rendered[1].content.contains("Tool write_file completed with status success."))
+    #expect(rendered[1].content.contains("Summary: Wrote 13 bytes to index.htm."))
     #expect(!rendered.contains { $0.role == .system })
   }
 
@@ -74,11 +79,16 @@ struct GemmaMLXRuntimeTemplateTests {
         toolResult: ToolResultModelMessage(
           callID: callID,
           toolName: .writeFile,
-          preview: ToolResultPreview(
-            status: .success,
-            text: "index.htm · 1 lines, 13 bytes",
-            affectedPaths: ["index.htm"]
-          )
+          payload: .writeFile(
+            .success(path: WorkspaceRelativePath(rawValue: "index.htm"), bytesWritten: 13))
+        ),
+        request: toolRequest(
+          callID: callID,
+          toolName: .writeFile,
+          arguments: [
+            "path": .string("index.htm"),
+            "content": .string("<html></html>"),
+          ]
         )
       ),
     ]
@@ -243,10 +253,19 @@ struct GemmaMLXRuntimeTemplateTests {
               InvalidToolResult(
                 originalName: "edit_file",
                 reason: .parserError("Assistant described a tool call without an action block.")
-              )),
-            preview: ToolResultPreview(
-              status: .failed,
-              text: "The tool call was invalid: missing tagged action block."
+              ))
+          ),
+          request: ToolCallRequest.invalid(
+            raw: RawToolCallRequest(
+              id: callID,
+              workspaceID: UUID(),
+              sessionID: UUID(),
+              toolName: .invalid
+            ),
+            input: InvalidToolInput(
+              originalName: "edit_file",
+              rawArguments: [:],
+              reason: .parserError("Assistant described a tool call without an action block.")
             )
           )
         ),
@@ -603,11 +622,16 @@ struct GemmaMLXRuntimeTemplateTests {
         toolResult: ToolResultModelMessage(
           callID: callID,
           toolName: .readFile,
-          preview: ToolResultPreview(
-            status: .success,
-            text: "Project overview",
-            affectedPaths: ["README.md"]
-          )
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            ))
+        ),
+        request: toolRequest(
+          callID: callID,
+          toolName: .readFile,
+          arguments: ["path": .string("README.md")]
         ),
         systemContext: ["Read-only tools are available."]
       ),
@@ -642,12 +666,21 @@ struct GemmaMLXRuntimeTemplateTests {
     let terminalResult = ToolResultModelMessage(
       callID: callID,
       toolName: .writeFile,
-      preview: ToolResultPreview(
-        status: .success,
-        text: "movies.html written",
-        affectedPaths: ["movies.html"]
-      )
+      payload: .writeFile(
+        .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 13))
     )
+    let terminalRequest = toolRequest(
+      callID: callID,
+      toolName: .writeFile,
+      arguments: [
+        "path": .string("movies.html"),
+        "content": .string("<html></html>"),
+      ]
+    )
+    let terminalObservation = ToolResultProjector.project(
+      payload: terminalResult.payload,
+      request: terminalRequest
+    ).observation
     let entries = [
       try ModelFacingPromptRenderer.userPromptEntry(
         prompt: "create movies.html",
@@ -667,7 +700,10 @@ struct GemmaMLXRuntimeTemplateTests {
           callID: callID,
           toolName: terminalResult.toolName,
           status: terminalResult.preview.status,
-          content: terminalResult.modelContextContent
+          content: ToolModelObservationRenderer.render(
+            terminalObservation,
+            callID: terminalResult.callID
+          )
         ),
         followUpInstruction: "Use the preceding tool result to answer the user's request.",
         systemContext: ["No more tools may run in this response."]
@@ -688,7 +724,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(history.map(\.role) == [.user, .assistant])
     #expect(prompt.role == .user)
-    #expect(prompt.content.contains("Tool write_file completed with status success."))
+    #expect(prompt.content.contains("Summary: Wrote 13 bytes to movies.html."))
     #expect(prompt.content.contains("Use the preceding tool result to answer"))
     #expect(prompt.content.contains("No more tools may run in this response."))
     #expect(decision.shouldReuse)
@@ -1115,6 +1151,24 @@ struct GemmaMLXRuntimeTemplateTests {
         toolName: .writeFile,
         arguments: arguments
       ))
+  }
+
+  private func toolRequest(
+    callID: UUID,
+    toolName: ToolName,
+    arguments: ToolCallArguments
+  ) -> ToolCallRequest {
+    let rawRequest = RawToolCallRequest(
+      id: callID,
+      workspaceID: UUID(),
+      sessionID: UUID(),
+      toolName: toolName,
+      arguments: arguments
+    )
+    return ToolCallRequestValidator().validate(
+      rawRequest,
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
   }
 
   private func defaultCacheTrace() -> GemmaSessionCacheTrace {

@@ -311,7 +311,8 @@ public struct AnyToolExecutor: Sendable {
         ToolFailure(
           toolName: record.request.toolName,
           path: evaluation.firstModelFacingPath,
-          reason: .permissionDenied
+          reason: .permissionDenied,
+          recovery: .askUser(message: evaluation.reason)
         )
       )
       record.resultPreview = preview
@@ -1246,7 +1247,12 @@ public struct ToolOrchestrator: Sendable {
       events: requestedEvents(request: request)
         + [ToolCallEvent(actor: .system, kind: .denied, message: message)],
       resultPayload: .failure(
-        ToolFailure(toolName: request.toolName, path: nil, reason: .permissionDenied)
+        ToolFailure(
+          toolName: request.toolName,
+          path: nil,
+          reason: .permissionDenied,
+          recovery: .askUser(message: message)
+        )
       ),
       resultPreview: ToolResultPreview(status: .denied, text: message)
     )

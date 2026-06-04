@@ -51,6 +51,12 @@ Keep dependencies flowing in one direction: the app imports `LocalCoderCore`; `L
 
 - Do not add more responsibilities to a single controller. Keep controllers moving toward SwiftUI state adapters while tool loops, prompt policy, model lifecycle, and runtime operations live in focused coordinators.
 
+## Data Model Policy
+
+Local Coder is an unreleased prototype. Do not add backwards compatibility, migrations, legacy decode paths, or fallback fields for old persisted sessions unless explicitly requested.
+
+Prefer clean ADTs, single sources of truth, and derived projections over duplicated stored state.
+
 ### SwiftUI Controller Boundaries
 
 SwiftUI controllers should be observable UI facades: hold view state, expose small user-action methods, call coordinators/services, and map their events or results back into view state.

@@ -481,7 +481,9 @@ struct ToolLoopCoordinatorTests {
     #expect(toolCallRecord(from: result)?.status == .failed)
     #expect(completedToolResult(from: result)?.toolName.rawValue == "deploy")
     #expect(completedToolResult(from: result)?.preview.status == .failed)
-    #expect(completedToolResult(from: result)?.preview.text == "Unknown tool: deploy.")
+    #expect(
+      completedToolResult(from: result)?.preview.text
+        == "The tool call was invalid: Unknown tool: deploy.")
   }
 
   @Test
@@ -587,7 +589,8 @@ struct ToolLoopCoordinatorTests {
     #expect(toolCallRecord(from: result)?.resultPreview == nil)
     #expect(completedToolResult(from: result)?.preview.status == .failed)
     #expect(
-      completedToolResult(from: result)?.preview.text == "Tool result unavailable for read_file.")
+      completedToolResult(from: result)?.preview.text
+        == "read_file failed: Tool result unavailable for read_file.")
   }
 
   @Test
