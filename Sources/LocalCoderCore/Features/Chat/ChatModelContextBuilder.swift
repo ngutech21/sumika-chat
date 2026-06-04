@@ -40,12 +40,16 @@ public struct ChatModelContextBuilder: Sendable {
     userInput: String,
     mode: WorkspaceInteractionMode,
     focusedFileState: FocusedFileState,
+    attachments: [ChatAttachment] = [],
+    workspace: Workspace? = nil,
     budget: ContextBudget = .focusedFileDefault
   ) -> [String] {
     let context = promptContextSelector.selectContext(
       userInput: userInput,
       mode: mode,
       focusedFileState: focusedFileState,
+      attachments: attachments,
+      workspace: workspace,
       budget: budget
     )
     return CurrentPromptContextRenderer.render(context)

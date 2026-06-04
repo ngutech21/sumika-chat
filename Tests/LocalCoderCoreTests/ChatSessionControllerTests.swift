@@ -160,7 +160,7 @@ struct ChatSessionControllerTests {
     let capturedMessages = await runtime.capturedMessages
     #expect(
       capturedMessages.first?.contains(where: { message in
-        message.role == .user && message.content.contains("Current focused file: source.swift")
+        message.role == .user && message.content.contains("Attached file: source.swift")
       }) == true)
     #expect(
       controller.chatSession.modelFacingTranscript.entries.map(\.frozenContent.role) == [
@@ -168,7 +168,13 @@ struct ChatSessionControllerTests {
       ])
     #expect(
       controller.chatSession.modelFacingTranscript.entries[0].frozenContent.content.contains(
-        "Current focused file: source.swift"))
+        "Attached file: source.swift"))
+    #expect(
+      controller.chatSession.modelFacingTranscript.entries[0].frozenContent.content.contains(
+        "Attached content excerpt:"))
+    #expect(
+      controller.chatSession.modelFacingTranscript.entries[0].frozenContent.content.contains(
+        "Attached context:") == false)
     #expect(
       controller.chatSession.modelFacingTranscript.entries[0].frozenContent.content.contains(
         "Explain this"))

@@ -9,8 +9,7 @@ public enum ModelFacingPromptRenderer {
     attachments: [ChatAttachment] = [],
     systemContext: [String] = []
   ) throws -> ModelContextEntry {
-    let renderedPrompt = promptWithAttachments(prompt: prompt, attachments: attachments)
-    let content = userContent(renderedPrompt, systemContext: systemContext)
+    let content = userContent(prompt, systemContext: systemContext)
     return try ModelContextEntry(
       id: id,
       turnID: turnID,
@@ -161,33 +160,6 @@ public enum ModelFacingPromptRenderer {
 
       User request:
       \(content)
-      """
-  }
-
-  public static func promptWithAttachments(
-    prompt: String,
-    attachments: [ChatAttachment]
-  ) -> String {
-    guard !attachments.isEmpty else {
-      return prompt
-    }
-
-    let context =
-      attachments
-      .map { attachment in
-        """
-        File: \(attachment.displayName)
-        \(attachment.content)
-        """
-      }
-      .joined(separator: "\n\n")
-
-    return """
-      User request:
-      \(prompt)
-
-      Attached context:
-      \(context)
       """
   }
 

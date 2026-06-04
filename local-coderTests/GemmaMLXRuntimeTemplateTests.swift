@@ -903,6 +903,63 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func cacheDecisionReportsAttachedFileContextMismatchSeparatelyFromBasePrompt() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = [
+      GemmaMessageSnapshot(
+        role: "user",
+        content: """
+          System instructions:
+          Base prompt.
+
+          Attached file: Sources/Foo.swift
+          Content hash: hash-1
+          Attached content excerpt:
+          let value = 1
+          Explicit file paths in the user request or tool call take precedence.
+
+          User request:
+          explain the attachment
+          """
+      )
+    ]
+    let changedAttachedFile = [
+      GemmaMessageSnapshot(
+        role: "user",
+        content: """
+          System instructions:
+          Base prompt.
+
+          Attached file: Sources/Bar.swift
+          Content hash: hash-2
+          Attached content excerpt:
+          let value = 2
+          Explicit file paths in the user request or tool call take precedence.
+
+          User request:
+          explain the attachment
+          """
+      )
+    ]
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedState: .clean,
+      currentHistory: changedAttachedFile,
+      currentSettings: settings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.cacheReason == .invalidatedCurrentPromptContextBoundary)
+    #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
+    #expect(decision.trace.firstMismatchIndex == 0)
+    #expect(decision.trace.systemPromptChanged == false)
+    #expect(decision.trace.currentPromptContextChanged == true)
+  }
+
+  @Test
   func cacheDecisionReportsBasePromptMismatch() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = [

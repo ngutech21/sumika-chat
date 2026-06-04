@@ -115,6 +115,48 @@ struct ChatModelContextBuilderTests {
   }
 
   @Test
+  func currentPromptSystemContextFreezesRenderedAttachedFileContextIntoUserPrompt() throws {
+    let attachment = ChatAttachment(
+      url: URL(filePath: "/tmp/project/Sources/Foo.swift"),
+      displayName: "Foo.swift",
+      kind: .text,
+      content: "func attached() {}"
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory)
+    )
+
+    let systemContext = ChatModelContextBuilder().currentPromptSystemContext(
+      userInput: "explain attached",
+      mode: .inspect,
+      focusedFileState: .empty,
+      attachments: [attachment],
+      workspace: workspace
+    )
+    let entry = try ModelFacingPromptRenderer.userPromptEntry(
+      prompt: "explain attached",
+      attachments: [attachment],
+      systemContext: ["System"] + systemContext
+    )
+
+    #expect(
+      entry.body
+        == .userPrompt(
+          UserPromptContext(
+            prompt: "explain attached",
+            attachmentNames: ["Foo.swift"],
+            systemContext: ["System"] + systemContext
+          )
+        ))
+    #expect(entry.frozenContent.content.contains("Attached file: Sources/Foo.swift"))
+    #expect(entry.frozenContent.content.contains("Attached content excerpt:"))
+    #expect(entry.frozenContent.content.contains("func attached() {}"))
+    #expect(entry.frozenContent.content.contains("Attached context:") == false)
+    #expect(entry.frozenContent.content.contains("File: Foo.swift") == false)
+  }
+
+  @Test
   func toolResultAppendIsPrefixStableWhenTranscriptMutates() throws {
     let turnID = UUID()
     let sourceMessageID = UUID()
