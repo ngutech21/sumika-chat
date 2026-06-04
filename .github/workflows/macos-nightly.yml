@@ -1,0 +1,72 @@
+name: macOS Nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-build-test-analyze:
+    name: macOS App Lint, Build, Test, Analyze
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    env:
+      PROJECT: local-coder.xcodeproj
+      SCHEME: local-coder
+      DESTINATION: platform=macOS,arch=arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Print toolchain versions
+        run: |
+          uname -m
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          xcrun swift --version
+
+      - name: Install SwiftLint
+        timeout-minutes: 10
+        run: brew install swiftlint
+
+      - name: Run SwiftLint
+        timeout-minutes: 10
+        run: swiftlint lint --strict --no-cache --config .swiftlint.yml
+
+      - name: Resolve Swift packages
+        timeout-minutes: 10
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project "$PROJECT" \
+            -scheme "$SCHEME"
+
+      - name: Build
+        timeout-minutes: 20
+        run: |
+          xcodebuild build \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run SwiftPM core tests on macOS
+        timeout-minutes: 10
+        run: xcrun swift test --no-parallel -Xswiftc -warnings-as-errors
+
+      - name: Analyze
+        timeout-minutes: 15
+        run: |
+          xcodebuild analyze \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            CODE_SIGNING_ALLOWED=NO

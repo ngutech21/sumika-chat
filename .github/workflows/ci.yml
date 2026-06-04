@@ -14,63 +14,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: SwiftLint
-    runs-on: macos-26
-    timeout-minutes: 30
+  core-tests:
+    name: Linux LocalCoderCore
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install SwiftLint
-        run: brew install swiftlint
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v3
+        with:
+          swift-version: "6.3.2"
+          skip-verify-signature: true
 
-      - name: Run SwiftLint
-        run: swiftlint lint --strict --no-cache --config .swiftlint.yml
-
-  build-test-analyze:
-    name: Build, Test, Analyze
-    runs-on: macos-26
-    timeout-minutes: 60
-
-    env:
-      PROJECT: local-coder.xcodeproj
-      SCHEME: local-coder
-      DESTINATION: platform=macOS,arch=arm64
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Print toolchain versions
+      - name: Print toolchain
         run: |
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-version
-          xcrun swift --version
+          uname -a
+          swift --version
 
-      - name: Resolve Swift packages
-        run: |
-          xcodebuild -resolvePackageDependencies \
-            -project "$PROJECT" \
-            -scheme "$SCHEME"
+      - name: Build LocalCoderCore only
+        run: swift build --target LocalCoderCore
 
-      - name: Build
-        run: |
-          xcodebuild build \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -destination "$DESTINATION" \
-            CODE_SIGNING_ALLOWED=NO
-
-      - name: Run SwiftPM core tests
+      - name: Test LocalCoderCore only
         timeout-minutes: 10
-        run: /usr/bin/time -p xcrun swift test --no-parallel -Xswiftc -warnings-as-errors
-
-      - name: Analyze
-        run: |
-          xcodebuild analyze \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -destination "$DESTINATION" \
-            CODE_SIGNING_ALLOWED=NO
+        run: swift test --filter LocalCoderCoreTests --no-parallel
