@@ -196,8 +196,15 @@ struct ChatComposer: View {
       return
     }
 
+    let submittedDraft = draft
+    messageFieldFocused = false
     onSend()
-    messageFieldFocused = true
+    Task { @MainActor in
+      if draft.isEmpty || draft == submittedDraft {
+        draft = ""
+      }
+      messageFieldFocused = true
+    }
   }
 
   private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
