@@ -14,25 +14,11 @@ public struct ChatTranscriptMutator: Sendable {
       ChatMessage(id: id, userContent: content, attachments: attachments, turnID: turnID))
   }
 
-  public func appendModelContextMessage(
-    _ message: ChatModelContextMessage,
-    to state: inout ChatSessionState
-  ) {
-    state.modelContextMessages.append(message)
-  }
-
   public func appendModelFacingEntry(
     _ entry: ModelContextEntry,
     to state: inout ChatSessionState
   ) {
     state.modelFacingTranscript.entries.append(entry)
-  }
-
-  public func appendModelContextMessages(
-    _ messages: [ChatModelContextMessage],
-    to state: inout ChatSessionState
-  ) {
-    state.modelContextMessages.append(contentsOf: messages)
   }
 
   public func appendModelContextUserBoundary(
@@ -41,15 +27,6 @@ public struct ChatTranscriptMutator: Sendable {
     systemPromptSnapshot: String,
     to state: inout ChatSessionState
   ) {
-    appendModelContextMessage(
-      ChatModelContextMessage(
-        turnID: turnID,
-        role: .user,
-        content: content,
-        systemPromptSnapshot: systemPromptSnapshot
-      ),
-      to: &state
-    )
     if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
       turnID: turnID,
       prompt: content,
@@ -65,16 +42,6 @@ public struct ChatTranscriptMutator: Sendable {
     systemPromptSnapshot: String,
     to state: inout ChatSessionState
   ) {
-    appendModelContextMessage(
-      ChatModelContextMessage(
-        turnID: turnID,
-        role: .user,
-        content: content,
-        systemPromptSnapshot: systemPromptSnapshot
-      ),
-      to: &state
-    )
-
     guard
       let terminalIndex = state.modelFacingTranscript.entries.lastIndex(where: { entry in
         guard entry.turnID == turnID else {
@@ -118,20 +85,6 @@ public struct ChatTranscriptMutator: Sendable {
     turnID: ChatTurnRecord.ID,
     in state: inout ChatSessionState
   ) {
-    guard
-      let index = state.modelContextMessages.lastIndex(where: { message in
-        message.turnID == turnID && message.role == .user
-      })
-    else {
-      return
-    }
-
-    guard state.modelContextMessages[index].systemPromptSnapshot == nil else {
-      return
-    }
-
-    state.modelContextMessages[index] =
-      state.modelContextMessages[index].replacingSystemPromptSnapshot(systemPromptSnapshot)
     updateLastUserModelFacingEntrySystemPromptSnapshot(
       systemPromptSnapshot,
       turnID: turnID,
@@ -289,7 +242,6 @@ public struct ChatTranscriptMutator: Sendable {
 
   public func clearTranscript(in state: inout ChatSessionState) {
     state.messages.removeAll()
-    state.modelContextMessages.removeAll()
     state.modelFacingTranscript.entries.removeAll()
     state.toolCalls.removeAll()
     state.turns.removeAll()

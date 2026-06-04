@@ -115,15 +115,6 @@ public struct ChatWorkflowEventApplier: Sendable {
       replaceToolCallRecord(record, in: &state)
     case .toolResultAppended(let toolResult, let messageID, let turnID):
       mutator.appendToolResult(toolResult, id: messageID, turnID: turnID, to: &state)
-      mutator.appendModelContextMessage(
-        ChatModelContextMessage(
-          turnID: turnID,
-          sourceMessageID: messageID,
-          role: toolResult.modelContextRole,
-          content: toolResult.modelContextContent
-        ),
-        to: &state
-      )
       if let entry = try? ModelFacingPromptRenderer.toolResultEntry(
         turnID: turnID,
         sourceMessageID: messageID,
@@ -142,15 +133,6 @@ public struct ChatWorkflowEventApplier: Sendable {
       let turnID
     ):
       mutator.appendAssistantMessage(content, id: messageID, turnID: turnID, to: &state)
-      mutator.appendModelContextMessage(
-        ChatModelContextMessage(
-          turnID: turnID,
-          sourceMessageID: messageID,
-          role: .assistant,
-          content: modelContextContent
-        ),
-        to: &state
-      )
       if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
         sourceMessageID: messageID,

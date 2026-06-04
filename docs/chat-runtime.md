@@ -151,11 +151,9 @@ flowchart TD
   observations, and terminal tool results. Do not reconstruct old model-facing
   history from mutable UI state, focused context, current tool prompt mode, or
   attachments.
-- `ChatModelContextMessage` is legacy/backfill input. It remains persisted for
-  compatibility and diagnostics, but new runtime calls consume the frozen
-  ledger.
-- Legacy messages without `turnID` are included so old saved sessions continue
-  to work.
+- `ModelFacingTranscript` is the only persisted model-facing prompt ledger.
+  Runtime calls consume `ModelContextEntry.frozenContent` directly.
+- Legacy model-context messages are not stored or backfilled.
 - Completed turns are included by default.
 - Cancelled and failed turns with `modelContextPolicy == .excluded` are omitted
   from future prompts and context-usage calculations.
@@ -202,8 +200,7 @@ The intended long-term fast path for tool loops is either:
 
 - `CodingSession` persists `messages`, `modelFacingTranscript`, `toolCalls`,
   and `turns`.
-- Sessions without a stored `modelFacingTranscript` are migrated from legacy
-  `modelContextMessages` during decode.
+- Sessions without a stored `modelFacingTranscript` do not decode.
 - New Codable fields use defaults so sessions saved before turn metadata decode
   successfully.
 - `ChatTurnRecord.messageIDs` and `toolCallIDs` are audit links. They should be

@@ -123,9 +123,9 @@ struct ChatWorkflowEventApplierTests {
     #expect(state.messages[0].content.contains("1: project notes"))
     #expect(state.messages[0].deliveryStatus == .complete)
     #expect(state.turns[0].messageIDs == [messageID])
-    #expect(state.modelContextMessages.map(\.role) == [.assistant])
+    #expect(state.modelFacingTranscript.entries.map(\.frozenContent.role) == [.assistant])
     #expect(
-      state.modelContextMessages[0].content
+      state.modelFacingTranscript.entries[0].frozenContent.content
         == "Displayed show_file result for README.md directly to the user.")
   }
 

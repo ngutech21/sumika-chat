@@ -5,7 +5,6 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
   public var title: String
   public var selectedModelID: ManagedModel.ID
   public var messages: [ChatMessage]
-  public var modelContextMessages: [ChatModelContextMessage]
   public var modelFacingTranscript: ModelFacingTranscript
   public var toolCalls: [ToolCallRecord]
   public var turns: [ChatTurnRecord]
@@ -21,8 +20,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     title: String = "New Session",
     selectedModelID: ManagedModel.ID,
     messages: [ChatMessage] = [],
-    modelContextMessages: [ChatModelContextMessage] = [],
-    modelFacingTranscript: ModelFacingTranscript? = nil,
+    modelFacingTranscript: ModelFacingTranscript = ModelFacingTranscript(),
     toolCalls: [ToolCallRecord] = [],
     turns: [ChatTurnRecord] = [],
     focusedFileState: FocusedFileState = .empty,
@@ -36,13 +34,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     self.title = title
     self.selectedModelID = selectedModelID
     self.messages = messages
-    self.modelContextMessages = modelContextMessages
-    self.modelFacingTranscript =
-      modelFacingTranscript
-      ?? ModelFacingTranscriptBackfill.transcript(
-        from: modelContextMessages,
-        fallbackSystemPrompt: systemPrompt
-      )
+    self.modelFacingTranscript = modelFacingTranscript
     self.toolCalls = toolCalls
     self.turns = turns
     self.focusedFileState = focusedFileState
@@ -58,7 +50,6 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     case title
     case selectedModelID
     case messages
-    case modelContextMessages
     case modelFacingTranscript
     case toolCalls
     case turns
@@ -77,15 +68,10 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     selectedModelID = try container.decode(ManagedModel.ID.self, forKey: .selectedModelID)
     messages = try container.decode([ChatMessage].self, forKey: .messages)
     systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
-    modelContextMessages =
-      try container.decodeIfPresent([ChatModelContextMessage].self, forKey: .modelContextMessages)
-      ?? ChatModelContextBackfill.messages(from: messages)
-    modelFacingTranscript =
-      try container.decodeIfPresent(ModelFacingTranscript.self, forKey: .modelFacingTranscript)
-      ?? ModelFacingTranscriptBackfill.transcript(
-        from: modelContextMessages,
-        fallbackSystemPrompt: systemPrompt
-      )
+    modelFacingTranscript = try container.decode(
+      ModelFacingTranscript.self,
+      forKey: .modelFacingTranscript
+    )
     toolCalls = try container.decodeIfPresent([ToolCallRecord].self, forKey: .toolCalls) ?? []
     turns = try container.decodeIfPresent([ChatTurnRecord].self, forKey: .turns) ?? []
     focusedFileState =

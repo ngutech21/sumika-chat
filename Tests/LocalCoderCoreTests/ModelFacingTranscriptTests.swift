@@ -30,17 +30,14 @@ struct ModelFacingTranscriptTests {
   }
 
   @Test
-  func codingSessionDecodeBackfillsLedgerFromLegacyModelContextMessages() throws {
+  func codingSessionDecodeRequiresModelFacingTranscript() throws {
     let session = CodingSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
-      modelContextMessages: [
-        ChatModelContextMessage(
-          role: .user,
-          content: "summarize the file",
-          systemPromptSnapshot: "Use short answers."
-        ),
-        ChatModelContextMessage(role: .assistant, content: "The file defines one view."),
-      ],
+      modelFacingTranscript: ModelFacingTranscript(
+        entries: [
+          try ModelFacingPromptRenderer.userPromptEntry(prompt: "summarize the file")
+        ]
+      ),
       systemPrompt: "Fallback prompt should not rewrite frozen history.",
       generationSettings: .codingDefault
     )
@@ -49,16 +46,9 @@ struct ModelFacingTranscriptTests {
     object.removeValue(forKey: "modelFacingTranscript")
     let legacyData = try JSONSerialization.data(withJSONObject: object)
 
-    let decoded = try JSONDecoder().decode(CodingSession.self, from: legacyData)
-
-    #expect(decoded.modelFacingTranscript.entries.count == 2)
-    let firstEntry = try #require(decoded.modelFacingTranscript.entries.first)
-    let secondEntry = try #require(decoded.modelFacingTranscript.entries.last)
-    #expect(firstEntry.frozenContent.role == .user)
-    #expect(firstEntry.frozenContent.content.contains("Use short answers."))
-    #expect(!firstEntry.frozenContent.content.contains("Fallback prompt should not rewrite"))
-    #expect(secondEntry.frozenContent.role == .assistant)
-    #expect(secondEntry.frozenContent.content == "The file defines one view.")
+    #expect(throws: DecodingError.self) {
+      _ = try JSONDecoder().decode(CodingSession.self, from: legacyData)
+    }
   }
 
   @Test
@@ -128,6 +118,5 @@ struct ModelFacingTranscriptTests {
       finalEntry.frozenContent.content.contains(
         "Use the preceding tool result to answer the user's request."))
     #expect(finalEntry.frozenContent.content.contains("No more tools may run in this response."))
-    #expect(state.modelContextMessages.last?.role == .user)
   }
 }

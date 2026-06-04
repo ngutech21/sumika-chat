@@ -301,12 +301,20 @@ struct ContextUsageCoordinatorTests {
     systemPrompt: String = "system",
     runtimeIsBusy: Bool = false
   ) -> ContextUsageSnapshot {
-    ContextUsageSnapshot(
+    let entry: ModelContextEntry
+    do {
+      entry = try ModelFacingPromptRenderer.userPromptEntry(
+        prompt: "hello",
+        systemContext: [systemPrompt]
+      )
+    } catch {
+      preconditionFailure("Failed to build context usage test transcript: \(error)")
+    }
+
+    return ContextUsageSnapshot(
       modelState: modelState,
       operationID: operationID,
-      transcript: ModelFacingTranscriptBackfill.transcript(
-        from: [ChatModelContextMessage(role: .user, content: "hello")],
-        fallbackSystemPrompt: systemPrompt),
+      transcript: ModelFacingTranscript(entries: [entry]),
       attachments: [],
       systemPrompt: systemPrompt,
       contextTokenLimit: 100,

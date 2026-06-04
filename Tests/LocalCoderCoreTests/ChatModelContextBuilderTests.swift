@@ -5,23 +5,23 @@ import Testing
 
 struct ChatModelContextBuilderTests {
   @Test
-  func filtersModelContextMessagesFromExcludedTurnsButKeepsLegacyMessages() {
+  func filtersTranscriptEntriesFromExcludedTurnsButKeepsLegacyEntries() throws {
     let includedTurnID = UUID()
     let excludedTurnID = UUID()
-    let legacyMessage = ChatModelContextMessage(role: .user, content: "legacy")
-    let includedMessage = ChatModelContextMessage(
+    let legacyEntry = try ModelFacingPromptRenderer.legacyEntry(role: .user, content: "legacy")
+    let includedEntry = try ModelFacingPromptRenderer.assistantOutputEntry(
       turnID: includedTurnID,
-      role: .assistant,
       content: "included"
     )
-    let excludedMessage = ChatModelContextMessage(
+    let excludedEntry = try ModelFacingPromptRenderer.userPromptEntry(
       turnID: excludedTurnID,
-      role: .user,
-      content: "large listing"
+      prompt: "large listing"
     )
     let state = ChatSessionState(
       messages: [],
-      modelContextMessages: [legacyMessage, includedMessage, excludedMessage],
+      modelFacingTranscript: ModelFacingTranscript(
+        entries: [legacyEntry, includedEntry, excludedEntry]
+      ),
       turns: [
         ChatTurnRecord(id: includedTurnID, status: .completed),
         ChatTurnRecord(
@@ -35,22 +35,21 @@ struct ChatModelContextBuilderTests {
       generationSettings: .codingDefault
     )
 
-    let messages = ChatModelContextBuilder().messages(from: state)
+    let transcript = ChatModelContextBuilder().transcript(from: state)
 
-    #expect(messages == [legacyMessage, includedMessage])
+    #expect(transcript.entries == [legacyEntry, includedEntry])
   }
 
   @Test
-  func includesExcludedTurnWhenItIsTheActiveTurn() {
+  func includesExcludedTurnWhenItIsTheActiveTurn() throws {
     let turnID = UUID()
-    let toolResult = ChatModelContextMessage(
+    let toolResult = try ModelFacingPromptRenderer.userPromptEntry(
       turnID: turnID,
-      role: .user,
-      content: "README.md"
+      prompt: "README.md"
     )
     let state = ChatSessionState(
       messages: [],
-      modelContextMessages: [toolResult],
+      modelFacingTranscript: ModelFacingTranscript(entries: [toolResult]),
       turns: [
         ChatTurnRecord(
           id: turnID,
@@ -63,13 +62,13 @@ struct ChatModelContextBuilderTests {
       generationSettings: .codingDefault
     )
 
-    let messages = ChatModelContextBuilder().messages(from: state, includingTurnID: turnID)
+    let transcript = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
 
-    #expect(messages == [toolResult])
+    #expect(transcript.entries == [toolResult])
   }
 
   @Test
-  func focusedFileContextMessageRendersActivePath() throws {
+  func focusedFileSystemContextRendersActivePath() throws {
     let path = WorkspaceRelativePath(rawValue: "index.html")
     let state = FocusedFileState(
       activePath: path,
@@ -91,17 +90,16 @@ struct ChatModelContextBuilderTests {
       ]
     )
 
-    let message = try #require(ChatModelContextBuilder().focusedFileContextMessage(from: state))
+    let context = try #require(ChatModelContextBuilder().focusedFileSystemContext(from: state))
 
-    #expect(message.role == .system)
-    #expect(message.content.contains("Current focused file: index.html"))
-    #expect(message.content.contains("Source: previous write_file"))
-    #expect(message.content.contains("Known content excerpt:"))
-    #expect(message.content.contains("<h1>Hello</h1>"))
+    #expect(context.contains("Current focused file: index.html"))
+    #expect(context.contains("Source: previous write_file"))
+    #expect(context.contains("Known content excerpt:"))
+    #expect(context.contains("<h1>Hello</h1>"))
   }
 
   @Test
-  func focusedFileContextMessageRendersAmbiguousRecentFilesWithoutActivePath() throws {
+  func focusedFileSystemContextRendersAmbiguousRecentFilesWithoutActivePath() throws {
     let state = FocusedFileState(
       activePath: nil,
       recentPaths: [
@@ -118,51 +116,48 @@ struct ChatModelContextBuilderTests {
       ]
     )
 
-    let message = try #require(ChatModelContextBuilder().focusedFileContextMessage(from: state))
+    let context = try #require(ChatModelContextBuilder().focusedFileSystemContext(from: state))
 
-    #expect(message.role == .system)
-    #expect(message.content.contains("Recent files are ambiguous:"))
-    #expect(message.content.contains("Current focused file:") == false)
-    #expect(message.content.contains("- index.html"))
-    #expect(message.content.contains("- style.css"))
+    #expect(context.contains("Recent files are ambiguous:"))
+    #expect(context.contains("Current focused file:") == false)
+    #expect(context.contains("- index.html"))
+    #expect(context.contains("- style.css"))
   }
 
   @Test
-  func toolResultAppendIsPrefixStableWhenTranscriptMutates() {
+  func toolResultAppendIsPrefixStableWhenTranscriptMutates() throws {
     let turnID = UUID()
     let sourceMessageID = UUID()
+    let firstEntry = try ModelFacingPromptRenderer.assistantOutputEntry(
+      turnID: turnID,
+      sourceMessageID: sourceMessageID,
+      content: "<action name=\"read_file\"></action>"
+    )
     var state = ChatSessionState(
       messages: [
         ChatMessage(id: sourceMessageID, assistantContent: "<action name=\"read_file\"></action>")
       ],
-      modelContextMessages: [
-        ChatModelContextMessage(
-          turnID: turnID,
-          sourceMessageID: sourceMessageID,
-          role: .assistant,
-          content: "<action name=\"read_file\"></action>"
-        )
-      ],
+      modelFacingTranscript: ModelFacingTranscript(entries: [firstEntry]),
       turns: [ChatTurnRecord(id: turnID, status: .running)],
       attachments: [],
       systemPrompt: "System",
       generationSettings: .codingDefault
     )
-    let before = ChatModelContextBuilder().messages(from: state, includingTurnID: turnID)
+    let before = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
 
     ChatTranscriptMutator().annotateToolCall(
       ToolCallModelMessage(callID: UUID(), toolName: .readFile, arguments: []),
       for: sourceMessageID,
       in: &state
     )
-    ChatTranscriptMutator().appendModelContextMessage(
-      ChatModelContextMessage(turnID: turnID, role: .user, content: "observation"),
+    ChatTranscriptMutator().appendModelFacingEntry(
+      try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: "observation"),
       to: &state
     )
-    let after = ChatModelContextBuilder().messages(from: state, includingTurnID: turnID)
+    let after = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
 
-    #expect(Array(after.prefix(before.count)) == before)
+    #expect(Array(after.entries.prefix(before.entries.count)) == before.entries)
     #expect(state.messages[0].kind == .toolCall)
-    #expect(after.last?.content == "observation")
+    #expect(after.entries.last?.frozenContent.content == "observation")
   }
 }

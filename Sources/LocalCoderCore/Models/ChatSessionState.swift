@@ -2,7 +2,6 @@ import Foundation
 
 public struct ChatSessionState: Equatable, Sendable {
   public var messages: [ChatMessage]
-  public var modelContextMessages: [ChatModelContextMessage]
   public var modelFacingTranscript: ModelFacingTranscript
   public var toolCalls: [ToolCallRecord]
   public var turns: [ChatTurnRecord]
@@ -14,8 +13,7 @@ public struct ChatSessionState: Equatable, Sendable {
 
   public init(
     messages: [ChatMessage],
-    modelContextMessages: [ChatModelContextMessage] = [],
-    modelFacingTranscript: ModelFacingTranscript? = nil,
+    modelFacingTranscript: ModelFacingTranscript = ModelFacingTranscript(),
     toolCalls: [ToolCallRecord] = [],
     turns: [ChatTurnRecord] = [],
     attachments: [ChatAttachment],
@@ -25,13 +23,7 @@ public struct ChatSessionState: Equatable, Sendable {
     interactionMode: WorkspaceInteractionMode = .chat
   ) {
     self.messages = messages
-    self.modelContextMessages = modelContextMessages
-    self.modelFacingTranscript =
-      modelFacingTranscript
-      ?? ModelFacingTranscriptBackfill.transcript(
-        from: modelContextMessages,
-        fallbackSystemPrompt: systemPrompt
-      )
+    self.modelFacingTranscript = modelFacingTranscript
     self.toolCalls = toolCalls
     self.turns = turns
     self.attachments = attachments
@@ -43,7 +35,6 @@ public struct ChatSessionState: Equatable, Sendable {
 
   public static let codingDefault = ChatSessionState(
     messages: [],
-    modelContextMessages: [],
     modelFacingTranscript: ModelFacingTranscript(),
     toolCalls: [],
     turns: [],

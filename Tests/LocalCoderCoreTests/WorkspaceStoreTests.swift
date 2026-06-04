@@ -27,10 +27,12 @@ struct WorkspaceStoreTests {
     let store = WorkspaceStore(libraryURL: libraryURL)
     let session = CodingSession(
       selectedModelID: "gemma3-1b",
-      modelContextMessages: [
-        ChatModelContextMessage(role: .user, content: "hello"),
-        ChatModelContextMessage(role: .assistant, content: "hi"),
-      ],
+      modelFacingTranscript: ModelFacingTranscript(
+        entries: [
+          try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello"),
+          try ModelFacingPromptRenderer.assistantOutputEntry(content: "hi"),
+        ]
+      ),
       systemPrompt: "Use short answers.",
       generationSettings: ChatGenerationSettings(
         temperature: 0.2,
@@ -152,7 +154,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func codingSessionDecodesLegacyJSONWithoutToolCallsOrTurns() throws {
+  func codingSessionDecodeRequiresModelFacingTranscript() throws {
     let legacySession = LegacyCodingSession(
       id: UUID(),
       title: "Legacy",
@@ -165,17 +167,9 @@ struct WorkspaceStoreTests {
     )
     let data = try JSONEncoder().encode(legacySession)
 
-    let decoded = try JSONDecoder().decode(CodingSession.self, from: data)
-
-    #expect(decoded.id == legacySession.id)
-    #expect(decoded.messages == legacySession.messages)
-    #expect(decoded.modelContextMessages.count == 1)
-    #expect(decoded.modelContextMessages[0].role == .user)
-    #expect(decoded.modelContextMessages[0].content == "hello")
-    #expect(decoded.toolCalls.isEmpty)
-    #expect(decoded.turns.isEmpty)
-    #expect(decoded.focusedFileState == .empty)
-    #expect(decoded.interactionMode == .chat)
+    #expect(throws: DecodingError.self) {
+      _ = try JSONDecoder().decode(CodingSession.self, from: data)
+    }
   }
 
   private func temporaryLibraryURL() -> URL {

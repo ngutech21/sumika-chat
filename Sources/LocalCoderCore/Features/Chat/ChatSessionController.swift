@@ -75,7 +75,6 @@ public final class ChatSessionController {
       modelContextTokenLimit: storedSettings.contextTokenLimit,
       chatSession: ChatSessionState(
         messages: [],
-        modelContextMessages: [],
         modelFacingTranscript: ModelFacingTranscript(),
         toolCalls: [],
         attachments: [],
@@ -229,7 +228,6 @@ extension ChatSessionController {
     contextUsage = nil
     chatSession = ChatSessionState(
       messages: session.messages,
-      modelContextMessages: session.modelContextMessages,
       modelFacingTranscript: session.modelFacingTranscript,
       toolCalls: session.toolCalls,
       turns: session.turns,
@@ -252,7 +250,6 @@ extension ChatSessionController {
     var snapshot = session
     snapshot.selectedModelID = modelRuntime.selectedModelID
     snapshot.messages = chatSession.messages
-    snapshot.modelContextMessages = chatSession.modelContextMessages
     snapshot.modelFacingTranscript = chatSession.modelFacingTranscript
     snapshot.toolCalls = chatSession.toolCalls
     snapshot.turns = chatSession.turns
@@ -340,26 +337,12 @@ extension ChatSessionController {
       attachments: sentAttachments,
       to: &chatSession
     )
-    var modelContextMessages: [ChatModelContextMessage] = []
     var focusedSystemContext: [String] = []
-    if let focusedFileContext = modelContextBuilder.focusedFileContextMessage(
-      from: chatSession.focusedFileState,
-      turnID: turnID
+    if let focusedFileContext = modelContextBuilder.focusedFileSystemContext(
+      from: chatSession.focusedFileState
     ) {
-      modelContextMessages.append(focusedFileContext)
-      focusedSystemContext.append(focusedFileContext.content)
+      focusedSystemContext.append(focusedFileContext)
     }
-    modelContextMessages.append(
-      ChatModelContextMessage(
-        turnID: turnID,
-        sourceMessageID: userMessageID,
-        role: .user,
-        content: prompt,
-        attachments: sentAttachments,
-        systemPromptSnapshot: initialSystemPromptSnapshot
-      )
-    )
-    transcriptMutator.appendModelContextMessages(modelContextMessages, to: &chatSession)
     if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
       turnID: turnID,
       sourceMessageID: userMessageID,
@@ -1113,7 +1096,7 @@ extension ChatSessionController {
       turnID: turnID,
       generationID: nil,
       promptBytes: renderedSystemPrompt.utf8.count,
-      messageCount: chatSession.modelContextMessages.count,
+      messageCount: chatSession.modelFacingTranscript.entries.count,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
@@ -1160,15 +1143,6 @@ extension ChatSessionController {
     guard isCurrentTurn(turnID), !assistantModelContent.isEmpty else {
       return
     }
-    transcriptMutator.appendModelContextMessage(
-      ChatModelContextMessage(
-        turnID: turnID,
-        sourceMessageID: assistantMessageID,
-        role: .assistant,
-        content: assistantModelContent
-      ),
-      to: &chatSession
-    )
     if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
       turnID: turnID,
       sourceMessageID: assistantMessageID,

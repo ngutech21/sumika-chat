@@ -106,25 +106,4 @@ struct ChatMessageTests {
     #expect(decoded.content.isEmpty)
     #expect(decoded.toolResult?.preview.text == "README.md")
   }
-
-  @Test
-  func decodesModelContextMessageWithoutSystemPromptSnapshot() throws {
-    let id = UUID()
-    let json = Data(
-      """
-      {
-        "id": "\(id.uuidString)",
-        "role": "user",
-        "content": "hello",
-        "attachments": []
-      }
-      """.utf8)
-
-    let message = try JSONDecoder().decode(ChatModelContextMessage.self, from: json)
-
-    #expect(message.id == id)
-    #expect(message.role == .user)
-    #expect(message.content == "hello")
-    #expect(message.systemPromptSnapshot == nil)
-  }
 }

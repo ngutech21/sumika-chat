@@ -8,45 +8,49 @@ import Testing
 @Suite
 struct GemmaMLXRuntimeTemplateTests {
   @Test
-  func templateMessagesEmbedSystemPromptAndAlternateAfterTerminalWriteResult() throws {
+  func templateMessagesUseFrozenTranscriptContent() throws {
     let callID = UUID()
-    let messages: [ChatModelContextMessage] = [
-      ChatModelContextMessage(role: .user, content: "create index.htm"),
-      ChatModelContextMessage(
-        role: .assistant,
-        content: writeFileToolCall(
-          callID: callID,
-          arguments: [
-            "path": .string("index.htm"),
-            "content": .string("<html></html>"),
-          ]
-        ).modelContextContent
-      ),
-      ChatModelContextMessage(
-        role: .assistant,
-        content: ToolResultModelMessage(
-          callID: callID,
-          toolName: .writeFile,
-          preview: ToolResultPreview(
-            status: .success,
-            text: "index.htm · 1 lines, 13 bytes",
-            affectedPaths: ["index.htm"]
+    let transcript = ModelFacingTranscript(
+      entries: [
+        try ModelFacingPromptRenderer.userPromptEntry(prompt: "create index.htm"),
+        try ModelFacingPromptRenderer.assistantOutputEntry(
+          content: writeFileToolCall(
+            callID: callID,
+            arguments: [
+              "path": .string("index.htm"),
+              "content": .string("<html></html>"),
+            ]
+          ).modelContextContent
+        ),
+        try ModelFacingPromptRenderer.toolResultEntry(
+          toolResult: ToolResultModelMessage(
+            callID: callID,
+            toolName: .writeFile,
+            preview: ToolResultPreview(
+              status: .success,
+              text: "index.htm · 1 lines, 13 bytes",
+              affectedPaths: ["index.htm"]
+            )
           )
-        ).modelContextContent
-      ),
-      ChatModelContextMessage(role: .user, content: "change the background color to green"),
-    ]
+        ),
+        try ModelFacingPromptRenderer.userPromptEntry(
+          prompt: "change the background color to green",
+          systemContext: ["Use concise coding steps."]
+        ),
+      ]
+    )
 
     let rendered = try GemmaMLXRuntime.templateMessages(
-      from: messages,
+      from: transcript,
       attachments: [],
-      systemPrompt: "Use concise coding steps."
+      systemPrompt: "This runtime argument must not rewrite frozen content."
     )
 
     #expect(rendered.map(\.role) == [.user, .assistant, .user])
     #expect(!rendered[0].content.contains("System instructions:"))
     #expect(rendered[2].content.contains("System instructions:"))
     #expect(rendered[2].content.contains("Use concise coding steps."))
+    #expect(!rendered[2].content.contains("This runtime argument must not rewrite"))
     #expect(rendered[1].content.contains("Tool call write_file requested."))
     #expect(rendered[1].content.contains("Tool write_file completed with status success."))
     #expect(!rendered.contains { $0.role == .system })
@@ -55,22 +59,19 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func generationHistoryUsesFrozenSystemPromptSnapshot() throws {
     let callID = UUID()
-    let messages: [ChatModelContextMessage] = [
-      ChatModelContextMessage(
-        role: .user,
-        content: "create index.htm",
-        systemPromptSnapshot: "Use concise coding steps."
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        prompt: "create index.htm",
+        systemContext: ["Use concise coding steps."]
       ),
-      ChatModelContextMessage(
-        role: .assistant,
+      try ModelFacingPromptRenderer.assistantOutputEntry(
         content: writeFileToolCall(
           callID: callID,
           arguments: ["path": .string("index.htm")]
         ).modelContextContent
       ),
-      ChatModelContextMessage(
-        role: .assistant,
-        content: ToolResultModelMessage(
+      try ModelFacingPromptRenderer.toolResultEntry(
+        toolResult: ToolResultModelMessage(
           callID: callID,
           toolName: .writeFile,
           preview: ToolResultPreview(
@@ -78,14 +79,11 @@ struct GemmaMLXRuntimeTemplateTests {
             text: "index.htm · 1 lines, 13 bytes",
             affectedPaths: ["index.htm"]
           )
-        ).modelContextContent
+        )
       ),
     ]
 
-    let history = try GemmaMLXRuntime.generationHistoryMessages(
-      from: messages[...],
-      systemPrompt: "No tools may run now."
-    )
+    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[...])
 
     #expect(history.map(\.role) == [.user, .assistant])
     #expect(history[0].content.contains("System instructions:"))
@@ -96,78 +94,58 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func renderedHistoryDoesNotRewriteFirstUserWhenToolPromptModeChanges() throws {
-    let initialUser = ChatModelContextMessage(
-      role: .user,
-      content: "create index.htm",
-      systemPromptSnapshot: "When tools are available, use them."
+    let initialUser = try ModelFacingPromptRenderer.userPromptEntry(
+      prompt: "create index.htm",
+      systemContext: ["When tools are available, use them."]
     )
     let initialRendered = try GemmaMLXRuntime.templateMessages(
-      from: [initialUser],
+      from: ModelFacingTranscript(entries: [initialUser]),
       attachments: [],
       systemPrompt: "When tools are available, use them."
     )
-
-    let messages: [ChatModelContextMessage] = [
+    let entries = [
       initialUser,
-      ChatModelContextMessage(role: .assistant, content: "Tool call write_file requested."),
-      ChatModelContextMessage(
-        role: .user,
-        content: "Tool write_file completed with status success.",
-        systemPromptSnapshot: "No more tools may run in this response."
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        content: "Tool call write_file requested."),
+      try ModelFacingPromptRenderer.userPromptEntry(
+        prompt: "Tool write_file completed with status success.",
+        systemContext: ["No more tools may run in this response."]
       ),
-      ChatModelContextMessage(role: .assistant, content: "Done."),
+      try ModelFacingPromptRenderer.assistantOutputEntry(content: "Done."),
     ]
 
-    let history = try GemmaMLXRuntime.generationHistoryMessages(
-      from: messages[...],
-      systemPrompt: "A later prompt mode should not rewrite history."
-    )
+    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[...])
 
     #expect(history.map(\.role) == [.user, .assistant, .user, .assistant])
     #expect(history[0].content == initialRendered[0].content)
     #expect(history[2].content.contains("No more tools may run in this response."))
     #expect(!history[0].content.contains("No more tools may run in this response."))
-    #expect(!history[0].content.contains("A later prompt mode should not rewrite history."))
   }
 
   @Test
-  func templateMessagesApplyFallbackSystemPromptOnlyToLegacyLastUser() throws {
-    let messages: [ChatModelContextMessage] = [
-      ChatModelContextMessage(role: .user, content: "first request"),
-      ChatModelContextMessage(role: .assistant, content: "first response"),
-      ChatModelContextMessage(role: .user, content: "follow-up request"),
-    ]
-
-    let rendered = try GemmaMLXRuntime.templateMessages(
-      from: messages,
-      attachments: [],
-      systemPrompt: "Current prompt fallback."
+  func templateMessagesPreserveFocusedFileSystemContextInsideUserMessage() throws {
+    let transcript = ModelFacingTranscript(
+      entries: [
+        try ModelFacingPromptRenderer.userPromptEntry(
+          prompt: "change the background color to green",
+          systemContext: [
+            "Use concise coding steps.",
+            """
+            Current focused file: index.htm
+            Source: previous write_file
+            Known content excerpt:
+            <html><body><table><tr><td>Movie</td></tr></table></body></html>
+            Explicit file paths in the user request or tool call take precedence.
+            """,
+          ]
+        )
+      ]
     )
 
-    #expect(rendered.map(\.role) == [.user, .assistant, .user])
-    #expect(!rendered[0].content.contains("Current prompt fallback."))
-    #expect(rendered[2].content.contains("Current prompt fallback."))
-  }
-
-  @Test
-  func templateMessagesPreserveFocusedFileSystemContextInsideFirstUserMessage() throws {
-    let messages: [ChatModelContextMessage] = [
-      ChatModelContextMessage(
-        role: .system,
-        content: """
-          Current focused file: index.htm
-          Source: previous write_file
-          Known content excerpt:
-          <html><body><table><tr><td>Movie</td></tr></table></body></html>
-          Explicit file paths in the user request or tool call take precedence.
-          """),
-      ChatModelContextMessage(role: .user, content: "change the background color to green"),
-    ]
-
     let rendered = try GemmaMLXRuntime.templateMessages(
-      from: messages,
+      from: transcript,
       attachments: [],
-      systemPrompt: "Use concise coding steps."
+      systemPrompt: "A later runtime argument must not rewrite frozen content."
     )
 
     #expect(rendered.map(\.role) == [.user])
@@ -180,33 +158,25 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func generationPromptPreservesFocusedFileSystemContextOnFirstTurn() throws {
-    let messages: [ChatModelContextMessage] = [
-      ChatModelContextMessage(
-        role: .system,
-        content: """
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        prompt: "explain this",
+        systemContext: [
+          "Use concise coding steps.",
+          """
           Current focused file: index.htm
           Source: previous read_file
           Known content excerpt:
           <h1>Dashboard</h1>
           Explicit file paths in the user request or tool call take precedence.
-          """),
-      ChatModelContextMessage(
-        role: .user,
-        content: "explain this",
-        systemPromptSnapshot: "Use concise coding steps."
-      ),
+          """,
+        ]
+      )
     ]
-    let lastUserIndex = try #require(messages.lastIndex(where: { $0.role == .user }))
+    let lastUserIndex = try #require(entries.lastIndex { $0.frozenContent.role == .user })
 
-    let history = try GemmaMLXRuntime.generationHistoryMessages(
-      from: messages[..<lastUserIndex]
-    )
-    let prompt = GemmaMLXRuntime.generationPromptMessage(
-      from: messages,
-      lastUserIndex: lastUserIndex,
-      attachments: [],
-      systemPrompt: "A later fallback should not be needed."
-    )
+    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[..<lastUserIndex])
+    let prompt = GemmaMLXRuntime.chatMessage(from: entries[lastUserIndex])
 
     #expect(history.isEmpty)
     #expect(prompt.content.contains("Use concise coding steps."))
@@ -218,46 +188,36 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func focusedFileSystemContextDoesNotRewriteHistoricalUserMessage() throws {
-    let initialUser = ChatModelContextMessage(
-      role: .user,
-      content: "summarize the current page",
-      systemPromptSnapshot: "Use concise coding steps."
+    let initialUser = try ModelFacingPromptRenderer.userPromptEntry(
+      prompt: "summarize the current page",
+      systemContext: ["Use concise coding steps."]
     )
     let initialRendered = try GemmaMLXRuntime.templateMessages(
-      from: [initialUser],
+      from: ModelFacingTranscript(entries: [initialUser]),
       attachments: [],
       systemPrompt: "Use concise coding steps."
     )
-    let messages: [ChatModelContextMessage] = [
+    let entries = [
       initialUser,
-      ChatModelContextMessage(role: .assistant, content: "The page has a small table."),
-      ChatModelContextMessage(
-        role: .system,
-        content: """
+      try ModelFacingPromptRenderer.assistantOutputEntry(content: "The page has a small table."),
+      try ModelFacingPromptRenderer.userPromptEntry(
+        prompt: "change the heading",
+        systemContext: [
+          "No more tools may run in this response.",
+          """
           Current focused file: robots.html
           Source: previous read_file
           Known content excerpt:
           <table><tr><td>Robot</td></tr></table>
           Explicit file paths in the user request or tool call take precedence.
-          """),
-      ChatModelContextMessage(
-        role: .user,
-        content: "change the heading",
-        systemPromptSnapshot: "No more tools may run in this response."
+          """,
+        ]
       ),
     ]
-    let lastUserIndex = try #require(messages.lastIndex(where: { $0.role == .user }))
+    let lastUserIndex = try #require(entries.lastIndex { $0.frozenContent.role == .user })
 
-    let history = try GemmaMLXRuntime.generationHistoryMessages(
-      from: messages[..<lastUserIndex],
-      systemPrompt: "A later prompt should not rewrite history."
-    )
-    let prompt = GemmaMLXRuntime.generationPromptMessage(
-      from: messages,
-      lastUserIndex: lastUserIndex,
-      attachments: [],
-      systemPrompt: "A later prompt should not rewrite history."
-    )
+    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[..<lastUserIndex])
+    let prompt = GemmaMLXRuntime.chatMessage(from: entries[lastUserIndex])
 
     #expect(history.map(\.role) == [.user, .assistant])
     #expect(history[0].content == initialRendered[0].content)
@@ -270,63 +230,31 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func legacyCurrentPromptUsesFallbackWithFocusedFileSystemContext() throws {
-    let messages: [ChatModelContextMessage] = [
-      ChatModelContextMessage(role: .user, content: "first request"),
-      ChatModelContextMessage(role: .assistant, content: "first response"),
-      ChatModelContextMessage(
-        role: .system,
-        content: """
-          Current focused file: index.swift
-          Source: previous read_file
-          Explicit file paths in the user request or tool call take precedence.
-          """),
-      ChatModelContextMessage(role: .user, content: "explain the focused file"),
-    ]
-    let lastUserIndex = try #require(messages.lastIndex(where: { $0.role == .user }))
-
-    let history = try GemmaMLXRuntime.generationHistoryMessages(
-      from: messages[..<lastUserIndex]
-    )
-    let prompt = GemmaMLXRuntime.generationPromptMessage(
-      from: messages,
-      lastUserIndex: lastUserIndex,
-      attachments: [],
-      systemPrompt: "Current prompt fallback."
-    )
-
-    #expect(history.map(\.role) == [.user, .assistant])
-    #expect(!history[0].content.contains("Current prompt fallback."))
-    #expect(!history[0].content.contains("Current focused file: index.swift"))
-    #expect(prompt.content.contains("Current prompt fallback."))
-    #expect(prompt.content.contains("Current focused file: index.swift"))
-  }
-
-  @Test
   func templateMessagesDoNotTeachGemmaInternalInvalidToolActions() throws {
     let callID = UUID()
-    let messages: [ChatModelContextMessage] = [
-      ChatModelContextMessage(role: .user, content: "change the table heading"),
-      ChatModelContextMessage(
-        role: .user,
-        content: ToolResultModelMessage(
-          callID: callID,
-          toolName: .invalid,
-          payload: .invalidTool(
-            InvalidToolResult(
-              originalName: "edit_file",
-              reason: .parserError("Assistant described a tool call without an action block.")
-            )),
-          preview: ToolResultPreview(
-            status: .failed,
-            text: "The tool call was invalid: missing tagged action block."
+    let transcript = ModelFacingTranscript(
+      entries: [
+        try ModelFacingPromptRenderer.userPromptEntry(prompt: "change the table heading"),
+        try ModelFacingPromptRenderer.toolResultEntry(
+          toolResult: ToolResultModelMessage(
+            callID: callID,
+            toolName: .invalid,
+            payload: .invalidTool(
+              InvalidToolResult(
+                originalName: "edit_file",
+                reason: .parserError("Assistant described a tool call without an action block.")
+              )),
+            preview: ToolResultPreview(
+              status: .failed,
+              text: "The tool call was invalid: missing tagged action block."
+            )
           )
-        ).modelContextContent
-      ),
-    ]
+        ),
+      ]
+    )
 
     let rendered = try GemmaMLXRuntime.templateMessages(
-      from: messages,
+      from: transcript,
       attachments: [],
       systemPrompt: "Use concise coding steps."
     )

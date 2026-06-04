@@ -163,13 +163,24 @@ struct ChatSessionControllerTests {
         message.role == .user && message.content.contains("Current focused file: source.swift")
       }) == true)
     #expect(
-      controller.chatSession.modelContextMessages.map(\.role) == [.system, .user, .assistant])
+      controller.chatSession.modelFacingTranscript.entries.map(\.frozenContent.role) == [
+        .user, .assistant,
+      ])
     #expect(
-      controller.chatSession.modelContextMessages[0].content.contains(
+      controller.chatSession.modelFacingTranscript.entries[0].frozenContent.content.contains(
         "Current focused file: source.swift"))
-    #expect(controller.chatSession.modelContextMessages[1].content == "Explain this")
-    #expect(controller.chatSession.modelContextMessages[1].attachments == [attachment])
-    #expect(controller.chatSession.modelContextMessages[2].content == "hello world")
+    #expect(
+      controller.chatSession.modelFacingTranscript.entries[0].frozenContent.content.contains(
+        "Explain this"))
+    if case .userPrompt(let context) = controller.chatSession.modelFacingTranscript.entries[0].body
+    {
+      #expect(context.attachmentNames == [attachment.displayName])
+    } else {
+      Issue.record("Expected first model-facing entry to be a user prompt.")
+    }
+    #expect(
+      controller.chatSession.modelFacingTranscript.entries[1].frozenContent.content == "hello world"
+    )
   }
 
   @Test
@@ -569,17 +580,22 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.messages[2].toolResult?.preview.text == "1: project notes")
     #expect(controller.chatSession.messages[3].content == "The README says project notes.")
     #expect(
-      controller.chatSession.modelContextMessages.map(\.role) == [
+      controller.chatSession.modelFacingTranscript.entries.map(\.frozenContent.role) == [
         .user, .assistant, .user, .assistant,
       ])
     #expect(
-      controller.chatSession.modelContextMessages[0].content == "lies die projektbeschreibung")
+      controller.chatSession.modelFacingTranscript.entries[0].frozenContent.content
+        .contains("lies die projektbeschreibung"))
     #expect(
-      controller.chatSession.modelContextMessages[1].content.contains("<action name=\"read_file\">")
+      controller.chatSession.modelFacingTranscript.entries[1].frozenContent.content.contains(
+        "<action name=\"read_file\">")
     )
-    #expect(controller.chatSession.modelContextMessages[2].content.contains("1: project notes"))
     #expect(
-      controller.chatSession.modelContextMessages[3].content == "The README says project notes.")
+      controller.chatSession.modelFacingTranscript.entries[2].frozenContent.content.contains(
+        "1: project notes"))
+    #expect(
+      controller.chatSession.modelFacingTranscript.entries[3].frozenContent.content
+        == "The README says project notes.")
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
@@ -661,12 +677,14 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.messages[3].content.contains("Here is `README.md`:"))
     #expect(controller.chatSession.messages[3].content.contains("1: project notes"))
     #expect(
-      controller.chatSession.modelContextMessages.map(\.role) == [
+      controller.chatSession.modelFacingTranscript.entries.map(\.frozenContent.role) == [
         .user, .assistant, .user, .assistant,
       ])
-    #expect(controller.chatSession.modelContextMessages[2].content.contains("1: project notes"))
     #expect(
-      controller.chatSession.modelContextMessages[3].content
+      controller.chatSession.modelFacingTranscript.entries[2].frozenContent.content.contains(
+        "1: project notes"))
+    #expect(
+      controller.chatSession.modelFacingTranscript.entries[3].frozenContent.content
         == "Displayed show_file result for README.md directly to the user.")
 
     let capturedMessages = await runtime.capturedMessages

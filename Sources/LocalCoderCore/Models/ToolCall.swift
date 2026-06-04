@@ -386,7 +386,7 @@ nonisolated extension ToolCallModelMessage {
       """
   }
 
-  public var modelContextRole: ChatModelContextRole {
+  public var modelContextRole: ModelContextRole {
     .assistant
   }
 
@@ -1053,7 +1053,7 @@ public struct ToolResultModelMessage: Codable, Equatable, Sendable {
 }
 
 nonisolated extension ToolResultModelMessage {
-  public var modelContextRole: ChatModelContextRole {
+  public var modelContextRole: ModelContextRole {
     isTerminalWrite ? .assistant : .user
   }
 
