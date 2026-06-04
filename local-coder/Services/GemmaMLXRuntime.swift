@@ -182,12 +182,12 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       throw GemmaMLXRuntimeError.missingUserMessage
     }
 
-    var prompt = promptWithAttachments(
-      prompt: messages[lastUserIndex].content,
-      attachments: messages[lastUserIndex].attachments + attachments
+    let promptMessage = Self.generationPromptMessage(
+      from: messages,
+      lastUserIndex: lastUserIndex,
+      attachments: attachments,
+      systemPrompt: systemPrompt
     )
-    let promptSystemPrompt = messages[lastUserIndex].systemPromptSnapshot ?? systemPrompt
-    let instructions = Self.normalizedSystemPrompt(promptSystemPrompt)
     let generateParameters = GenerateParameters(
       maxTokens: settings.maxTokens,
       maxKVSize: contextTokenLimit,
@@ -198,13 +198,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let history = try Self.generationHistoryMessages(
       from: messages[..<lastUserIndex]
     )
-    if instructions != nil {
-      prompt =
-        Self.embeddingSystemPromptIfNeeded(promptSystemPrompt, into: [.user(prompt)])[0]
-        .content
-    }
     let historySnapshot = Self.messageSnapshot(from: history)
-    let finalPrompt = prompt
+    let finalPrompt = promptMessage.content
     let cachePlan = prepareSession(
       modelContainer: modelContainer,
       history: history,
@@ -221,12 +216,12 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     await GemmaDebugTraceStore.shared.traceRequest(
       id: traceID,
       history: traceHistory,
-      prompt: prompt,
+      prompt: finalPrompt,
       settings: settings,
       contextTokenLimit: contextTokenLimit
     )
 
-    let stream = cachePlan.session.streamDetails(to: prompt, images: [], videos: [])
+    let stream = cachePlan.session.streamDetails(to: finalPrompt, images: [], videos: [])
     if let traceMetadata {
       await traceMetadata.tracer.recordTurnTraceEvent(
         TurnTraceEvent(
@@ -234,7 +229,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           generationID: traceID,
           phase: .runtimeStreamStart,
           durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
-          promptBytes: prompt.utf8.count,
+          promptBytes: finalPrompt.utf8.count,
           messageCount: messages.count,
           cacheMode: cachePlan.trace.cacheMode.rawValue,
           interactionMode: traceMetadata.interactionMode,
@@ -785,15 +780,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     from messages: [ChatModelContextMessage],
     fallbackSystemPrompt: String
   ) -> [Chat.Message] {
-    let systemMessages = messages.compactMap { message -> String? in
-      guard message.role == .system else {
-        return nil
-      }
-      return message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-    .filter { !$0.isEmpty }
     let lastUserIndex = messages.lastIndex(where: { $0.role == .user })
-    var didEmbedSystemMessages = false
+    var pendingSystemContext: [String] = []
     var renderedMessages: [Chat.Message] = []
 
     for index in messages.indices {
@@ -804,8 +792,17 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
       switch message.role {
       case .system:
-        continue
+        if let systemMessage = normalizedSystemPrompt(message.content) {
+          pendingSystemContext.append(systemMessage)
+        }
       case .assistant:
+        if renderedMessages.isEmpty, !pendingSystemContext.isEmpty {
+          renderedMessages.append(
+            .user(systemInstructionContent(pendingSystemContext.joined(separator: "\n\n"))))
+          pendingSystemContext.removeAll()
+        } else if !pendingSystemContext.isEmpty {
+          pendingSystemContext.removeAll()
+        }
         renderedMessages.append(.assistant(message.content))
       case .user:
         var systemContext: [String] = []
@@ -816,22 +813,18 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         {
           systemContext.append(fallback)
         }
-
-        if !didEmbedSystemMessages {
-          systemContext.append(contentsOf: systemMessages)
-          didEmbedSystemMessages = true
-        }
+        systemContext.append(contentsOf: pendingSystemContext)
+        pendingSystemContext.removeAll()
 
         renderedMessages.append(.user(userContent(message.content, systemContext: systemContext)))
       }
     }
 
-    guard !didEmbedSystemMessages, !systemMessages.isEmpty else {
+    guard renderedMessages.isEmpty, !pendingSystemContext.isEmpty else {
       return renderedMessages
     }
 
-    return [.user(systemInstructionContent(systemMessages.joined(separator: "\n\n")))]
-      + renderedMessages
+    return [.user(systemInstructionContent(pendingSystemContext.joined(separator: "\n\n")))]
   }
 
   nonisolated static func normalizedChatMessages(_ messages: [Chat.Message]) -> [Chat.Message] {
@@ -884,6 +877,63 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     return try validatedTemplateMessages(history)
   }
 
+  nonisolated static func generationPromptMessage(
+    from messages: [ChatModelContextMessage],
+    lastUserIndex: Int,
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) -> Chat.Message {
+    let userMessage = messages[lastUserIndex]
+    let prompt = promptWithAttachments(
+      prompt: userMessage.content,
+      attachments: userMessage.attachments + attachments
+    )
+    let promptSystemPrompt = userMessage.systemPromptSnapshot ?? systemPrompt
+    let systemContext = systemContextForUserPrompt(
+      at: lastUserIndex,
+      in: messages,
+      systemPrompt: promptSystemPrompt
+    )
+
+    return .user(userContent(prompt, systemContext: systemContext))
+  }
+
+  nonisolated private static func systemContextForUserPrompt(
+    at userIndex: Int,
+    in messages: [ChatModelContextMessage],
+    systemPrompt: String
+  ) -> [String] {
+    var systemContext: [String] = []
+    if let normalizedPrompt = normalizedSystemPrompt(systemPrompt) {
+      systemContext.append(normalizedPrompt)
+    }
+    systemContext.append(
+      contentsOf: systemMessagesImmediatelyBeforeUser(at: userIndex, in: messages))
+    return systemContext
+  }
+
+  nonisolated private static func systemMessagesImmediatelyBeforeUser(
+    at userIndex: Int,
+    in messages: [ChatModelContextMessage]
+  ) -> [String] {
+    var systemMessages: [String] = []
+    var cursor = userIndex
+
+    while cursor > messages.startIndex {
+      let previousIndex = messages.index(before: cursor)
+      let message = messages[previousIndex]
+      guard message.role == .system else {
+        break
+      }
+      if let systemMessage = normalizedSystemPrompt(message.content) {
+        systemMessages.insert(systemMessage, at: 0)
+      }
+      cursor = previousIndex
+    }
+
+    return systemMessages
+  }
+
   nonisolated private static func normalizedSystemPrompt(_ systemPrompt: String) -> String? {
     let effectiveSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
     return effectiveSystemPrompt.isEmpty ? nil : effectiveSystemPrompt
@@ -923,51 +973,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     System instructions:
     \(systemContext)
     """
-  }
-
-  nonisolated static func embeddingSystemPromptIfNeeded(
-    _ systemPrompt: String,
-    into messages: [Chat.Message]
-  ) -> [Chat.Message] {
-    let systemMessages = messages.compactMap { message -> String? in
-      guard message.role == .system else {
-        return nil
-      }
-      return message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-    .filter { !$0.isEmpty }
-
-    let systemContext = ([normalizedSystemPrompt(systemPrompt)] + systemMessages)
-      .compactMap(\.self)
-      .joined(separator: "\n\n")
-
-    guard !systemContext.isEmpty else {
-      return messages
-    }
-
-    let embeddedPrompt = """
-      System instructions:
-      \(systemContext)
-      """
-
-    var embeddedMessages = messages.filter { $0.role != .system }
-    guard let firstUserIndex = embeddedMessages.firstIndex(where: { $0.role == .user }) else {
-      return [.user(embeddedPrompt)] + embeddedMessages
-    }
-
-    let userMessage = embeddedMessages[firstUserIndex]
-    embeddedMessages[firstUserIndex] = Chat.Message(
-      role: .user,
-      content: """
-        \(embeddedPrompt)
-
-        User request:
-        \(userMessage.content)
-        """,
-      images: userMessage.images,
-      videos: userMessage.videos
-    )
-    return embeddedMessages
   }
 
 }

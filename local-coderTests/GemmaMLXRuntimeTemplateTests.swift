@@ -179,6 +179,130 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func generationPromptPreservesFocusedFileSystemContextOnFirstTurn() throws {
+    let messages: [ChatModelContextMessage] = [
+      ChatModelContextMessage(
+        role: .system,
+        content: """
+          Current focused file: index.htm
+          Source: previous read_file
+          Known content excerpt:
+          <h1>Dashboard</h1>
+          Explicit file paths in the user request or tool call take precedence.
+          """),
+      ChatModelContextMessage(
+        role: .user,
+        content: "explain this",
+        systemPromptSnapshot: "Use concise coding steps."
+      ),
+    ]
+    let lastUserIndex = try #require(messages.lastIndex(where: { $0.role == .user }))
+
+    let history = try GemmaMLXRuntime.generationHistoryMessages(
+      from: messages[..<lastUserIndex]
+    )
+    let prompt = GemmaMLXRuntime.generationPromptMessage(
+      from: messages,
+      lastUserIndex: lastUserIndex,
+      attachments: [],
+      systemPrompt: "A later fallback should not be needed."
+    )
+
+    #expect(history.isEmpty)
+    #expect(prompt.content.contains("Use concise coding steps."))
+    #expect(prompt.content.contains("Current focused file: index.htm"))
+    #expect(prompt.content.contains("<h1>Dashboard</h1>"))
+    #expect(prompt.content.contains("User request:"))
+    #expect(prompt.content.contains("explain this"))
+  }
+
+  @Test
+  func focusedFileSystemContextDoesNotRewriteHistoricalUserMessage() throws {
+    let initialUser = ChatModelContextMessage(
+      role: .user,
+      content: "summarize the current page",
+      systemPromptSnapshot: "Use concise coding steps."
+    )
+    let initialRendered = try GemmaMLXRuntime.templateMessages(
+      from: [initialUser],
+      attachments: [],
+      systemPrompt: "Use concise coding steps."
+    )
+    let messages: [ChatModelContextMessage] = [
+      initialUser,
+      ChatModelContextMessage(role: .assistant, content: "The page has a small table."),
+      ChatModelContextMessage(
+        role: .system,
+        content: """
+          Current focused file: robots.html
+          Source: previous read_file
+          Known content excerpt:
+          <table><tr><td>Robot</td></tr></table>
+          Explicit file paths in the user request or tool call take precedence.
+          """),
+      ChatModelContextMessage(
+        role: .user,
+        content: "change the heading",
+        systemPromptSnapshot: "No more tools may run in this response."
+      ),
+    ]
+    let lastUserIndex = try #require(messages.lastIndex(where: { $0.role == .user }))
+
+    let history = try GemmaMLXRuntime.generationHistoryMessages(
+      from: messages[..<lastUserIndex],
+      systemPrompt: "A later prompt should not rewrite history."
+    )
+    let prompt = GemmaMLXRuntime.generationPromptMessage(
+      from: messages,
+      lastUserIndex: lastUserIndex,
+      attachments: [],
+      systemPrompt: "A later prompt should not rewrite history."
+    )
+
+    #expect(history.map(\.role) == [.user, .assistant])
+    #expect(history[0].content == initialRendered[0].content)
+    #expect(!history[0].content.contains("Current focused file: robots.html"))
+    #expect(!history[0].content.contains("No more tools may run in this response."))
+    #expect(prompt.content.contains("No more tools may run in this response."))
+    #expect(prompt.content.contains("Current focused file: robots.html"))
+    #expect(prompt.content.contains("<table><tr><td>Robot</td></tr></table>"))
+    #expect(prompt.content.contains("change the heading"))
+  }
+
+  @Test
+  func legacyCurrentPromptUsesFallbackWithFocusedFileSystemContext() throws {
+    let messages: [ChatModelContextMessage] = [
+      ChatModelContextMessage(role: .user, content: "first request"),
+      ChatModelContextMessage(role: .assistant, content: "first response"),
+      ChatModelContextMessage(
+        role: .system,
+        content: """
+          Current focused file: index.swift
+          Source: previous read_file
+          Explicit file paths in the user request or tool call take precedence.
+          """),
+      ChatModelContextMessage(role: .user, content: "explain the focused file"),
+    ]
+    let lastUserIndex = try #require(messages.lastIndex(where: { $0.role == .user }))
+
+    let history = try GemmaMLXRuntime.generationHistoryMessages(
+      from: messages[..<lastUserIndex]
+    )
+    let prompt = GemmaMLXRuntime.generationPromptMessage(
+      from: messages,
+      lastUserIndex: lastUserIndex,
+      attachments: [],
+      systemPrompt: "Current prompt fallback."
+    )
+
+    #expect(history.map(\.role) == [.user, .assistant])
+    #expect(!history[0].content.contains("Current prompt fallback."))
+    #expect(!history[0].content.contains("Current focused file: index.swift"))
+    #expect(prompt.content.contains("Current prompt fallback."))
+    #expect(prompt.content.contains("Current focused file: index.swift"))
+  }
+
+  @Test
   func templateMessagesDoNotTeachGemmaInternalInvalidToolActions() throws {
     let callID = UUID()
     let messages: [ChatModelContextMessage] = [
