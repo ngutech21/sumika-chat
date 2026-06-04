@@ -1,4 +1,6 @@
+#if canImport(Darwin)
 import Darwin
+#endif
 import Foundation
 
 public protocol ProcessResourceMonitoring: Sendable {
@@ -30,6 +32,7 @@ public actor ProcessResourceMonitor: ProcessResourceMonitoring {
   }
 
   private static func currentMemoryBytes() -> UInt64? {
+#if canImport(Darwin)
     var info = task_vm_info_data_t()
     var count = mach_msg_type_number_t(
       MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size
@@ -51,9 +54,13 @@ public actor ProcessResourceMonitor: ProcessResourceMonitoring {
     }
 
     return UInt64(info.phys_footprint)
+#else
+    return nil
+#endif
   }
 
   private static func currentSample() -> ProcessResourceSample? {
+#if canImport(Darwin)
     var usage = rusage()
     guard getrusage(RUSAGE_SELF, &usage) == 0 else {
       return nil
@@ -63,9 +70,14 @@ public actor ProcessResourceMonitor: ProcessResourceMonitoring {
       cpuTime: seconds(from: usage.ru_utime) + seconds(from: usage.ru_stime),
       wallTime: Date().timeIntervalSinceReferenceDate
     )
+#else
+    return nil
+#endif
   }
 
+#if canImport(Darwin)
   private static func seconds(from time: timeval) -> TimeInterval {
     Double(time.tv_sec) + Double(time.tv_usec) / 1_000_000
   }
+#endif
 }
