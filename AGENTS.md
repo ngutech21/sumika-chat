@@ -280,6 +280,7 @@ When diagnosing latency, group rows by `turnID` and `generationID`. Compare `run
 
 - Use intentional commits: each commit should describe one coherent change and avoid bundling unrelated work.
 - Write commit messages with a lowercase conventional prefix and a lowercase imperative subject, for example `feat: add mock chat runtime`.
+- For commits that complete a GitHub issue, include a second paragraph with `Fixes #<id>` so GitHub closes the issue when the commit is merged or pushed to the default branch.
 - Prefer prefixes such as `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, and `build`.
 - Review the diff before committing so generated files, build output, and unrelated user changes are not included accidentally.
 
