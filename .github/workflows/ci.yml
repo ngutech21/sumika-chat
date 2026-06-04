@@ -39,4 +39,4 @@ jobs:
 
       - name: Test LocalCoderCore package
         timeout-minutes: 10
-        run: swift test
+        run: swift test --disable-xctest --enable-swift-testing
