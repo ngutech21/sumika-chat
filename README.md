@@ -1,5 +1,9 @@
 # local-coder
 
+[![CI](https://github.com/ngutech21/local-coder/actions/workflows/ci.yml/badge.svg)](https://github.com/ngutech21/local-coder/actions/workflows/ci.yml)
+[![Actions Lint](https://github.com/ngutech21/local-coder/actions/workflows/actions-lint.yml/badge.svg)](https://github.com/ngutech21/local-coder/actions/workflows/actions-lint.yml)
+[![Spelling](https://github.com/ngutech21/local-coder/actions/workflows/spelling.yml/badge.svg)](https://github.com/ngutech21/local-coder/actions/workflows/spelling.yml)
+
 ## Architecture
 
 - [Tool Runtime](docs/tool-runtime.md): core flow for adding type-safe tools,
