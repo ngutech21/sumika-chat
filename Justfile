@@ -23,6 +23,9 @@ test-app:
 ui-test:
     LOCAL_CODER_DEBUG_TRACE=1 xcodebuild -project {{project}} -scheme local-coder-ui-tests -destination "{{destination}}" -derivedDataPath {{derived_data}} -parallel-testing-enabled NO test -only-testing:local-coderUITests/LocalCoderUITests
 
+perf-report:
+    xcrun swift script/trace_performance_report.swift --model-id gemma3-27b
+
 coverage:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -enableCodeCoverage YES test
     @result=$(ls -td {{derived_data}}/Logs/Test/*.xcresult 2>/dev/null | head -n 1); \
