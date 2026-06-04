@@ -38,6 +38,10 @@ flowchart TD
   it also accepts a bounded closing-tag fallback so small local models that omit
   delimiter lines can still produce auditable `write_file` and `edit_file`
   calls instead of raw transcript text.
+- A syntactically complete tagged action is a committed assistant output for
+  model-runtime cache purposes. The app may stop streaming immediately after
+  that action so the tool loop can execute it, but this clean tool-action stop
+  must not be treated as cancelled, interrupted, or downstream-terminated.
 - Malformed tagged tool attempts and strong non-tagged tool intent are not
   executed or reparsed as alternate protocols. The tool loop records an internal
   failed `invalid` tool observation containing the original tool name when it

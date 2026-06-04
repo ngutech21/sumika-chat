@@ -59,7 +59,9 @@ flowchart TD
   `modelContextPolicy` is `.excluded`, except while that same turn is actively
   generating its direct follow-up response.
 - `ChatGenerationCoordinator` streams model events into transcript chunks and
-  metrics.
+  metrics. When generation stops early because one syntactically complete
+  `<action>` block was found, it commits that assistant output to the runtime as
+  a clean partial reply before the tool loop executes the action.
 - `ToolLoopCoordinator` handles model-emitted tool actions. Read-only tools run
   immediately; tools that require approval can attach an approval preview and
   return an awaiting-approval continuation without appending a normal tool
@@ -146,6 +148,38 @@ flowchart TD
   from future prompts and context-usage calculations.
 - The transcript remains the audit source. The filtered model context is the
   prompt source.
+
+## Gemma/MLX Cache Rules
+
+`GemmaMLXRuntime` keeps an in-memory `ChatSession` cache for the rendered
+model-facing prefix that MLX has actually consumed. The cache is valid only when
+the Swift-side prefix and the MLX session state describe the same bytes.
+
+- Exact history reuse is safe when the cached prefix, rendered context
+  signature, generation settings, and clean session state all match the current
+  model-facing history.
+- Append-only history is not automatically reusable. If current history is the
+  cached prefix plus new model-facing messages, the runtime must either rebuild
+  the `ChatSession` or use a real MLX append/prefill path that advances the KV
+  cache through those appended messages. Until such an append/prefill path
+  exists, append-only history is traced as `invalidated_history_appended`.
+- A complete tagged `<action>` emitted by the assistant is a valid committed
+  assistant output even when the app stops reading the stream early to execute
+  the tool. This path must mark the cached session clean rather than dirtying it
+  as `downstreamTerminated`.
+- Dirty states stay conservative. Cancelled turns, interrupted streams, runtime
+  errors, and non-tool downstream termination invalidate reuse.
+- Trace fields such as `cacheMode`, `cacheReason`, `appendOnly`,
+  `reusedMessageCount`, `appendedMessageCount`, `mismatchReason`, and
+  `firstMismatchIndex` are the source of truth for diagnosing cache behavior.
+  UI generation time alone cannot prove a cache hit.
+
+The intended long-term fast path for tool loops is either:
+
+1. Keep the same `ChatSession` alive and send only the next prompt/observation
+   that MLX has not consumed yet.
+2. Add a real MLX append/prefill capability and trace that path distinctly from
+   exact reuse.
 
 ## Persistence Rules
 
