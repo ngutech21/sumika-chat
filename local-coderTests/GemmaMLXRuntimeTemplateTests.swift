@@ -581,7 +581,9 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(superseded.task.isCancelled)
     #expect(registry.activeGenerationID == nil)
 
-    await superseded.task.value
+    try await withTestTimeout(.seconds(5)) {
+      await superseded.task.value
+    }
   }
 
   @Test
@@ -925,10 +927,14 @@ struct GemmaMLXRuntimeTemplateTests {
       consumerTask.cancel()
     }
 
-    var firstEventIterator = firstEventStream.makeAsyncIterator()
-    _ = await firstEventIterator.next()
+    _ = try await withTestTimeout(.seconds(5)) {
+      var firstEventIterator = firstEventStream.makeAsyncIterator()
+      return await firstEventIterator.next()
+    }
     consumerTask.cancel()
-    await consumerTask.value
+    try await withTestTimeout(.seconds(5)) {
+      await consumerTask.value
+    }
     try await waitUntilAsync {
       let firstReason = await recorder.firstReason
       return upstreamTask.isCancelled && firstReason == .downstreamTerminated
@@ -941,8 +947,10 @@ struct GemmaMLXRuntimeTemplateTests {
   ) -> Task<Void, Never> {
     Task {
       do {
-        var iterator = stream.makeAsyncIterator()
-        let firstEvent = try await iterator.next()
+        let firstEvent = try await withTestTimeout(.seconds(5)) {
+          var iterator = stream.makeAsyncIterator()
+          return try await iterator.next()
+        }
         guard case .chunk("tool") = firstEvent else {
           Issue.record("Expected first model stream event to be the initial chunk.")
           firstEventContinuation.finish()
@@ -981,8 +989,10 @@ struct GemmaMLXRuntimeTemplateTests {
     )
 
     do {
-      var iterator = stream.makeAsyncIterator()
-      let firstEvent = try await iterator.next()
+      let firstEvent = try await withTestTimeout(.seconds(5)) {
+        var iterator = stream.makeAsyncIterator()
+        return try await iterator.next()
+      }
       guard case .chunk("tool") = firstEvent else {
         Issue.record("Expected first model stream event to be the initial chunk.")
         return

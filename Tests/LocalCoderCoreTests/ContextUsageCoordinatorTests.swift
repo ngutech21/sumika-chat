@@ -116,7 +116,9 @@ struct ContextUsageCoordinatorTests {
       at: 0,
       with: ChatContextUsage(usedTokens: 10, tokenLimit: 100)
     )
-    await firstRefresh.value
+    try await withTestTimeout {
+      await firstRefresh.value
+    }
     try await waitUntilAsync { await runtime.completedContextUsageCount == 1 }
     try await waitUntilAsync { await runtime.contextUsageRequestCount == 2 }
 
@@ -162,7 +164,9 @@ struct ContextUsageCoordinatorTests {
       at: 0,
       with: ChatContextUsage(usedTokens: 10, tokenLimit: 100)
     )
-    await firstRefresh.value
+    try await withTestTimeout {
+      await firstRefresh.value
+    }
     try await Task.sleep(for: .milliseconds(50))
 
     #expect(await runtime.contextUsageRequestCount == 1)
