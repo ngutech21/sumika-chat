@@ -53,226 +53,8 @@ public struct NonEmptyPromptContextBlocks: Equatable, Sendable {
 }
 
 public enum PromptContextBlock: Equatable, Sendable {
-  case selectedRange(SelectedRangePromptContext)
-  case visibleRange(VisibleRangePromptContext)
   case focusedFile(FocusedFilePromptContext)
   case ambiguousRecentFiles(AmbiguousRecentFilesPromptContext)
-}
-
-public struct WorkspaceDisplayState: Equatable, Sendable {
-  public static let empty = WorkspaceDisplayState(
-    selectedRange: nil,
-    visibleRange: nil
-  )
-
-  private let selectedRange: WorkspaceFileRangeContext?
-  private let visibleRange: WorkspaceFileRangeContext?
-
-  private init(
-    selectedRange: WorkspaceFileRangeContext?,
-    visibleRange: WorkspaceFileRangeContext?
-  ) {
-    self.selectedRange = selectedRange
-    self.visibleRange = visibleRange
-  }
-
-  public static func withSelectedRange(
-    path: WorkspaceRelativePath,
-    startLine: Int,
-    endLine: Int,
-    text: String?
-  ) -> WorkspaceDisplayState? {
-    WorkspaceDisplayState.empty.withSelectedRange(
-      path: path,
-      startLine: startLine,
-      endLine: endLine,
-      text: text
-    )
-  }
-
-  public static func withVisibleRange(
-    path: WorkspaceRelativePath,
-    startLine: Int,
-    endLine: Int,
-    text: String?
-  ) -> WorkspaceDisplayState? {
-    WorkspaceDisplayState.empty.withVisibleRange(
-      path: path,
-      startLine: startLine,
-      endLine: endLine,
-      text: text
-    )
-  }
-
-  public func withSelectedRange(
-    path: WorkspaceRelativePath,
-    startLine: Int,
-    endLine: Int,
-    text: String?
-  ) -> WorkspaceDisplayState? {
-    guard
-      let selectedRange = WorkspaceFileRangeContext.make(
-        path: path,
-        startLine: startLine,
-        endLine: endLine,
-        text: text
-      )
-    else {
-      return nil
-    }
-    return WorkspaceDisplayState(
-      selectedRange: selectedRange,
-      visibleRange: visibleRange
-    )
-  }
-
-  public func withVisibleRange(
-    path: WorkspaceRelativePath,
-    startLine: Int,
-    endLine: Int,
-    text: String?
-  ) -> WorkspaceDisplayState? {
-    guard
-      let visibleRange = WorkspaceFileRangeContext.make(
-        path: path,
-        startLine: startLine,
-        endLine: endLine,
-        text: text
-      )
-    else {
-      return nil
-    }
-    return WorkspaceDisplayState(
-      selectedRange: selectedRange,
-      visibleRange: visibleRange
-    )
-  }
-
-  fileprivate var selectedRangeContext: WorkspaceFileRangeContext? {
-    selectedRange
-  }
-
-  fileprivate var visibleRangeContext: WorkspaceFileRangeContext? {
-    visibleRange
-  }
-}
-
-public struct WorkspaceFileRangeContext: Equatable, Sendable {
-  public let path: WorkspaceRelativePath
-  public let lineRange: WorkspaceFileLineRange
-  public let text: String?
-
-  private init(
-    path: WorkspaceRelativePath,
-    lineRange: WorkspaceFileLineRange,
-    text: String?
-  ) {
-    self.path = path
-    self.lineRange = lineRange
-    self.text = text
-  }
-
-  fileprivate static func make(
-    path: WorkspaceRelativePath,
-    startLine: Int,
-    endLine: Int,
-    text: String?
-  ) -> WorkspaceFileRangeContext? {
-    guard !path.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      return nil
-    }
-    guard
-      let lineRange = WorkspaceFileLineRange.make(
-        startLine: startLine,
-        endLine: endLine
-      )
-    else {
-      return nil
-    }
-    if let text, text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      return nil
-    }
-    return WorkspaceFileRangeContext(
-      path: path,
-      lineRange: lineRange,
-      text: text
-    )
-  }
-}
-
-public struct WorkspaceFileLineRange: Equatable, Sendable {
-  public let startLine: Int
-  public let endLine: Int
-
-  private init(startLine: Int, endLine: Int) {
-    self.startLine = startLine
-    self.endLine = endLine
-  }
-
-  fileprivate static func make(startLine: Int, endLine: Int) -> WorkspaceFileLineRange? {
-    guard startLine >= 1, endLine >= startLine else {
-      return nil
-    }
-    return WorkspaceFileLineRange(startLine: startLine, endLine: endLine)
-  }
-
-  fileprivate var renderedDescription: String {
-    if startLine == endLine {
-      return "\(startLine)"
-    }
-    return "\(startLine)-\(endLine)"
-  }
-}
-
-public struct SelectedRangePromptContext: Equatable, Sendable {
-  public let range: PromptFileRangeContext
-
-  private init(range: PromptFileRangeContext) {
-    self.range = range
-  }
-
-  fileprivate static func make(range: PromptFileRangeContext) -> SelectedRangePromptContext {
-    SelectedRangePromptContext(range: range)
-  }
-}
-
-public struct VisibleRangePromptContext: Equatable, Sendable {
-  public let range: PromptFileRangeContext
-
-  private init(range: PromptFileRangeContext) {
-    self.range = range
-  }
-
-  fileprivate static func make(range: PromptFileRangeContext) -> VisibleRangePromptContext {
-    VisibleRangePromptContext(range: range)
-  }
-}
-
-public struct PromptFileRangeContext: Equatable, Sendable {
-  public let path: WorkspaceRelativePath
-  public let lineRange: WorkspaceFileLineRange
-  public let excerpt: PromptContextExcerpt?
-
-  private init(
-    path: WorkspaceRelativePath,
-    lineRange: WorkspaceFileLineRange,
-    excerpt: PromptContextExcerpt?
-  ) {
-    self.path = path
-    self.lineRange = lineRange
-    self.excerpt = excerpt
-  }
-
-  fileprivate static func make(
-    displayRange: WorkspaceFileRangeContext,
-    excerpt: PromptContextExcerpt?
-  ) -> PromptFileRangeContext {
-    PromptFileRangeContext(
-      path: displayRange.path,
-      lineRange: displayRange.lineRange,
-      excerpt: excerpt
-    )
-  }
 }
 
 public struct FocusedFilePromptContext: Equatable, Sendable {
@@ -384,26 +166,8 @@ public protocol CurrentPromptContextSelecting: Sendable {
     userInput: String,
     mode: WorkspaceInteractionMode,
     focusedFileState: FocusedFileState,
-    workspaceDisplayState: WorkspaceDisplayState,
     budget: ContextBudget
   ) -> CurrentPromptContext
-}
-
-extension CurrentPromptContextSelecting {
-  public func selectContext(
-    userInput: String,
-    mode: WorkspaceInteractionMode,
-    focusedFileState: FocusedFileState,
-    budget: ContextBudget
-  ) -> CurrentPromptContext {
-    selectContext(
-      userInput: userInput,
-      mode: mode,
-      focusedFileState: focusedFileState,
-      workspaceDisplayState: .empty,
-      budget: budget
-    )
-  }
 }
 
 public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
@@ -413,17 +177,8 @@ public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
     userInput _: String,
     mode _: WorkspaceInteractionMode,
     focusedFileState: FocusedFileState,
-    workspaceDisplayState: WorkspaceDisplayState,
     budget: ContextBudget
   ) -> CurrentPromptContext {
-    if let selectedRange = workspaceDisplayState.selectedRangeContext {
-      return selectedRangeContext(from: selectedRange, budget: budget)
-    }
-
-    if let visibleRange = workspaceDisplayState.visibleRangeContext {
-      return visibleRangeContext(from: visibleRange, budget: budget)
-    }
-
     if let activePath = focusedFileState.activePath {
       return selectedFocusedFileContext(
         activePath: activePath,
@@ -446,52 +201,6 @@ public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
     }
 
     return .selected(.make(blocks: blocks, budget: budget, truncation: .none))
-  }
-
-  private func selectedRangeContext(
-    from displayRange: WorkspaceFileRangeContext,
-    budget: ContextBudget
-  ) -> CurrentPromptContext {
-    let excerpt = displayRange.text.map { truncatedExcerpt($0, budget: budget) }
-    let truncation =
-      excerpt?.truncated == true
-      ? PromptContextTruncation.byCharacterBudget
-      : .none
-    let range = PromptFileRangeContext.make(
-      displayRange: displayRange,
-      excerpt: excerpt
-    )
-    guard
-      let blocks = NonEmptyPromptContextBlocks.make([
-        .selectedRange(.make(range: range))
-      ])
-    else {
-      return .empty(budget)
-    }
-    return .selected(.make(blocks: blocks, budget: budget, truncation: truncation))
-  }
-
-  private func visibleRangeContext(
-    from displayRange: WorkspaceFileRangeContext,
-    budget: ContextBudget
-  ) -> CurrentPromptContext {
-    let excerpt = displayRange.text.map { truncatedExcerpt($0, budget: budget) }
-    let truncation =
-      excerpt?.truncated == true
-      ? PromptContextTruncation.byCharacterBudget
-      : .none
-    let range = PromptFileRangeContext.make(
-      displayRange: displayRange,
-      excerpt: excerpt
-    )
-    guard
-      let blocks = NonEmptyPromptContextBlocks.make([
-        .visibleRange(.make(range: range))
-      ])
-    else {
-      return .empty(budget)
-    }
-    return .selected(.make(blocks: blocks, budget: budget, truncation: truncation))
   }
 
   private func selectedFocusedFileContext(
@@ -554,57 +263,10 @@ public enum CurrentPromptContextRenderer {
 
   private static func renderBlock(_ block: PromptContextBlock) -> String {
     switch block {
-    case .selectedRange(let context):
-      return renderSelectedRange(context)
-    case .visibleRange(let context):
-      return renderVisibleRange(context)
     case .focusedFile(let context):
       return renderFocusedFile(context)
     case .ambiguousRecentFiles(let context):
       return renderAmbiguousRecentFiles(context)
-    }
-  }
-
-  private static func renderSelectedRange(_ context: SelectedRangePromptContext) -> String {
-    var lines = [
-      "Selected file range: \(context.range.path.rawValue)",
-      "Lines: \(context.range.lineRange.renderedDescription)",
-    ]
-    appendRangeExcerpt(
-      context.range.excerpt,
-      label: "Selected content excerpt",
-      to: &lines
-    )
-    lines.append("Explicit file paths in the user request or tool call take precedence.")
-    return lines.joined(separator: "\n")
-  }
-
-  private static func renderVisibleRange(_ context: VisibleRangePromptContext) -> String {
-    var lines = [
-      "Visible file range: \(context.range.path.rawValue)",
-      "Lines: \(context.range.lineRange.renderedDescription)",
-    ]
-    appendRangeExcerpt(
-      context.range.excerpt,
-      label: "Visible content excerpt",
-      to: &lines
-    )
-    lines.append("Explicit file paths in the user request or tool call take precedence.")
-    return lines.joined(separator: "\n")
-  }
-
-  private static func appendRangeExcerpt(
-    _ excerpt: PromptContextExcerpt?,
-    label: String,
-    to lines: inout [String]
-  ) {
-    guard let excerpt else {
-      return
-    }
-    lines.append("\(label):")
-    lines.append(excerpt.text)
-    if excerpt.truncated {
-      lines.append("\(label) was truncated to the current context budget.")
     }
   }
 

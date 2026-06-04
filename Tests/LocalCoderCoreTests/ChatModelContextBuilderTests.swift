@@ -115,41 +115,6 @@ struct ChatModelContextBuilderTests {
   }
 
   @Test
-  func currentPromptSystemContextFreezesRenderedWorkspaceDisplayRangeIntoUserPrompt() throws {
-    let displayState = try #require(
-      WorkspaceDisplayState.withSelectedRange(
-        path: WorkspaceRelativePath(rawValue: "Sources/Foo.swift"),
-        startLine: 7,
-        endLine: 9,
-        text: "func selected() {}"
-      ))
-
-    let systemContext = ChatModelContextBuilder().currentPromptSystemContext(
-      userInput: "explain selected lines",
-      mode: .inspect,
-      focusedFileState: .empty,
-      workspaceDisplayState: displayState
-    )
-    let entry = try ModelFacingPromptRenderer.userPromptEntry(
-      prompt: "explain selected lines",
-      systemContext: ["System"] + systemContext
-    )
-
-    #expect(
-      entry.body
-        == .userPrompt(
-          UserPromptContext(
-            prompt: "explain selected lines",
-            systemContext: ["System"] + systemContext
-          )
-        ))
-    #expect(entry.frozenContent.content.contains("Selected file range: Sources/Foo.swift"))
-    #expect(entry.frozenContent.content.contains("Lines: 7-9"))
-    #expect(entry.frozenContent.content.contains("Selected content excerpt:"))
-    #expect(entry.frozenContent.content.contains("func selected() {}"))
-  }
-
-  @Test
   func toolResultAppendIsPrefixStableWhenTranscriptMutates() throws {
     let turnID = UUID()
     let sourceMessageID = UUID()

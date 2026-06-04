@@ -851,8 +851,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     in systemInstructionBlock: String
   ) -> Range<String.Index>? {
     let markers = [
-      "Selected file range:",
-      "Visible file range:",
       "Current focused file:",
       "Recent files are ambiguous:",
     ]
