@@ -1,0 +1,6 @@
+[default.extend-words]
+# German intent keywords used by LocalCoderCore tool routing tests/heuristics.
+summar = "summar"
+suche = "suche"
+finde = "finde"
+ordner = "ordner"
