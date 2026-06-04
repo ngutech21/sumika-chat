@@ -11,7 +11,7 @@ struct ModelManagementTests {
     #expect(models.map(\.id) == ["gemma3-1b", "gemma3-4b", "gemma3-27b"])
     #expect(ManagedModelCatalog.defaultModelID == "gemma3-4b")
     #expect(ManagedModelCatalog.defaultModel.id == "gemma3-4b")
-    #expect(ManagedModelCatalog.defaultModel.defaultContextTokenLimit == 65_536)
+    #expect(ManagedModelCatalog.defaultModel.defaultContextTokenLimit == 16_384)
     #expect(ManagedModelCatalog.defaultModel.isRecommended)
     #expect(ManagedModelCatalog.model(id: "gemma3-27b")?.requiresLargeMemory == true)
     #expect(
@@ -45,7 +45,7 @@ struct ModelManagementTests {
     let settings = StoredModelSettings(
       systemPrompt: "Use short answers.",
       generationSettings: ChatGenerationSettings(
-        temperature: 0.4, topP: 0.8, topK: 20, maxTokens: 512),
+        temperature: 0.4, topP: 0.8, topK: 20, maxTokens: 512, maxKVSize: 16_384),
       contextTokenLimit: 32_768
     )
 
@@ -77,6 +77,7 @@ struct ModelManagementTests {
 
     #expect(settings.systemPrompt == ChatPromptDefaults.codingSystemPrompt)
     #expect(settings.generationSettings == .codingDefault)
+    #expect(settings.generationSettings.maxKVSize == nil)
     #expect(settings.contextTokenLimit == ManagedModelCatalog.defaultModel.defaultContextTokenLimit)
   }
 

@@ -360,7 +360,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
     let generateParameters = GenerateParameters(
       maxTokens: settings.maxTokens,
-      maxKVSize: contextTokenLimit,
+      maxKVSize: settings.maxKVSize,
       temperature: Float(settings.temperature),
       topP: Float(settings.topP),
       topK: settings.topK
@@ -747,6 +747,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       updateString(String(settings.temperature))
       updateString(String(settings.topP))
       updateString(String(settings.topK))
+      updateString(settings.maxKVSize.map(String.init) ?? "nil")
     }
   }
 

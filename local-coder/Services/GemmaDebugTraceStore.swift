@@ -28,16 +28,20 @@ actor GemmaDebugTraceStore: TurnTracing {
     }
 
     let truncatedPrompt = truncated(prompt)
+    var settingsTrace: [String: Any] = [
+      "maxTokens": settings.maxTokens,
+      "temperature": settings.temperature,
+      "topP": settings.topP,
+      "topK": settings.topK,
+    ]
+    if let maxKVSize = settings.maxKVSize {
+      settingsTrace["maxKVSize"] = maxKVSize
+    }
     var request: [String: Any] = [
       "id": id.uuidString,
       "timestamp": timestamp(),
       "kind": "gemma_request",
-      "settings": [
-        "maxTokens": settings.maxTokens,
-        "temperature": settings.temperature,
-        "topP": settings.topP,
-        "topK": settings.topK,
-      ],
+      "settings": settingsTrace,
       "history": history.map(traceMessage(from:)),
       "prompt": truncatedPrompt.value,
       "promptTruncated": truncatedPrompt.truncated,

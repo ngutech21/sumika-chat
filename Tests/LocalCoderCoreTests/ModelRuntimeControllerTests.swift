@@ -115,7 +115,8 @@ struct ModelRuntimeControllerTests {
       temperature: 0.3,
       topP: 0.85,
       topK: 40,
-      maxTokens: 768
+      maxTokens: 768,
+      maxKVSize: 8192
     )
 
     controller.saveSelectedModelSettings(
@@ -176,7 +177,7 @@ struct ModelRuntimeControllerTests {
     try await waitUntil { controller.modelState == .ready }
 
     let configuration = await runtime.loadedConfiguration
-    #expect(configuration?.contextTokenLimit == 65_536)
+    #expect(configuration?.contextTokenLimit == 16_384)
   }
 
   @Test

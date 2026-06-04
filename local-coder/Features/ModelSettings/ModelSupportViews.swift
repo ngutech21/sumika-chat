@@ -235,6 +235,15 @@ struct ModelAdvancedSettings: View {
         Text("Technical Generation")
           .font(.headline)
 
+        Toggle(isOn: maxKVSizeEnabled) {
+          SettingValueLabel(title: "Custom KV Cache", value: formattedMaxKVSize)
+        }
+
+        Stepper(value: maxKVSizeValue, in: 4096...131072, step: 4096) {
+          SettingValueLabel(title: "KV Cache Limit", value: formattedMaxKVSize)
+        }
+        .disabled(generationSettings.maxKVSize == nil)
+
         VStack(alignment: .leading, spacing: 6) {
           HStack {
             Label("Top P", systemImage: "chart.line.uptrend.xyaxis")
@@ -262,6 +271,30 @@ struct ModelAdvancedSettings: View {
 
   private var formattedContextTokenLimit: String {
     "\(contextTokenLimit / 1024)K"
+  }
+
+  private var formattedMaxKVSize: String {
+    guard let maxKVSize = generationSettings.maxKVSize else {
+      return "Runtime"
+    }
+
+    return "\(maxKVSize / 1024)K"
+  }
+
+  private var maxKVSizeEnabled: Binding<Bool> {
+    Binding(
+      get: { generationSettings.maxKVSize != nil },
+      set: { isEnabled in
+        generationSettings.maxKVSize = isEnabled ? contextTokenLimit : nil
+      }
+    )
+  }
+
+  private var maxKVSizeValue: Binding<Int> {
+    Binding(
+      get: { generationSettings.maxKVSize ?? contextTokenLimit },
+      set: { generationSettings.maxKVSize = $0 }
+    )
   }
 }
 

@@ -5,11 +5,27 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
   public var topP: Double
   public var topK: Int
   public var maxTokens: Int
+  public var maxKVSize: Int?
+
+  public init(
+    temperature: Double,
+    topP: Double,
+    topK: Int,
+    maxTokens: Int,
+    maxKVSize: Int? = nil
+  ) {
+    self.temperature = temperature
+    self.topP = topP
+    self.topK = topK
+    self.maxTokens = maxTokens
+    self.maxKVSize = maxKVSize
+  }
 
   public static let codingDefault = ChatGenerationSettings(
     temperature: 0,
     topP: 1,
     topK: 0,
-    maxTokens: 2048
+    maxTokens: 2048,
+    maxKVSize: nil
   )
 }

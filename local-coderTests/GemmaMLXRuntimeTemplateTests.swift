@@ -399,6 +399,29 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func renderedContextSignatureChangesWhenMaxKVSizeChanges() {
+    let history = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    var changedSettings = ChatGenerationSettings.codingDefault
+    changedSettings.maxKVSize = 16_384
+
+    let first = GemmaMLXRuntime.renderedContextSignature(
+      for: history,
+      settings: .codingDefault
+    )
+    let second = GemmaMLXRuntime.renderedContextSignature(
+      for: history,
+      settings: changedSettings
+    )
+
+    #expect(first != second)
+    #expect(first.renderedHistoryHash == second.renderedHistoryHash)
+    #expect(first.generationSettingsHash != second.generationSettingsHash)
+  }
+
+  @Test
   func cacheDecisionInvalidatesWhenRendererVersionChanges() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [
