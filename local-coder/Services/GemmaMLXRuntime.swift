@@ -116,6 +116,41 @@ nonisolated struct GemmaGenerationOwnership: Equatable, Sendable {
   }
 }
 
+nonisolated struct ActiveGemmaGeneration: Sendable {
+  let id: GemmaGenerationID
+  let task: Task<Void, Never>
+}
+
+nonisolated struct GemmaActiveGenerationRegistry: Sendable {
+  private(set) var activeGeneration: ActiveGemmaGeneration?
+
+  var activeGenerationID: GemmaGenerationID? {
+    activeGeneration?.id
+  }
+
+  mutating func register(id: GemmaGenerationID, task: Task<Void, Never>) {
+    activeGeneration = ActiveGemmaGeneration(id: id, task: task)
+  }
+
+  mutating func supersedeActiveGeneration() -> ActiveGemmaGeneration? {
+    guard let activeGeneration else {
+      return nil
+    }
+    self.activeGeneration = nil
+    activeGeneration.task.cancel()
+    return activeGeneration
+  }
+
+  @discardableResult
+  mutating func clearIfCurrent(_ generationID: GemmaGenerationID) -> Bool {
+    guard activeGeneration?.id == generationID else {
+      return false
+    }
+    activeGeneration = nil
+    return true
+  }
+}
+
 nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
   case clean
   case inFlight(generationID: GemmaGenerationID)
@@ -185,12 +220,18 @@ nonisolated private struct GemmaSessionCachePlan {
   let trace: GemmaSessionCacheTrace
 }
 
+nonisolated struct GemmaModelStreamPlan {
+  let stream: AsyncThrowingStream<ChatModelStreamEvent, Error>
+  let task: Task<Void, Never>
+}
+
 final actor GemmaMLXRuntime: ChatModelRuntime {
   private var modelContainer: ModelContainer?
   private var cachedSession: CachedGemmaSession?
   private var pendingCacheInvalidationReason: GemmaSessionInvalidationReason?
   private var contextTokenLimit: Int?
   private var generationOwnership = GemmaGenerationOwnership()
+  private var activeGenerationRegistry = GemmaActiveGenerationRegistry()
 
   func load(configuration: ChatModelConfiguration) async throws {
     #if !arch(arm64)
@@ -292,6 +333,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
     let historySnapshot = Self.messageSnapshot(from: history)
     let finalPrompt = promptMessage.content
+    await supersedeActiveGenerationBeforeStartingNew()
     let generationID = generationOwnership.beginGeneration()
     let cachePlan = prepareSession(
       modelContainer: modelContainer,
@@ -339,7 +381,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         )
       )
     }
-    return Self.modelStream(
+    let streamPlan = Self.modelStreamPlan(
       from: stream,
       traceID: traceID,
       traceMetadata: traceMetadata,
@@ -357,6 +399,20 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         await self?.markCachedSessionInvalid(generationID: generationID, reason: reason)
       }
     )
+    activeGenerationRegistry.register(id: generationID, task: streamPlan.task)
+    if generationOwnership.activeGenerationID != generationID {
+      activeGenerationRegistry.clearIfCurrent(generationID)
+    }
+    return streamPlan.stream
+  }
+
+  private func supersedeActiveGenerationBeforeStartingNew() async {
+    guard let superseded = activeGenerationRegistry.supersedeActiveGeneration() else {
+      return
+    }
+
+    markCachedSessionInvalid(generationID: superseded.id, reason: .cancelled)
+    await superseded.task.value
   }
 
   private func prepareSession(
@@ -423,6 +479,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     guard let cached = cachedSession,
       let completedState = cached.state.completing(generationID: generationID)
     else {
+      activeGenerationRegistry.clearIfCurrent(generationID)
       return
     }
 
@@ -442,6 +499,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       ),
       state: completedState
     )
+    activeGenerationRegistry.clearIfCurrent(generationID)
   }
 
   private func markCachedSessionInvalid(
@@ -455,6 +513,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     guard let cached = cachedSession,
       let dirtyState = cached.state.invalidating(generationID: generationID, reason: reason)
     else {
+      activeGenerationRegistry.clearIfCurrent(generationID)
       return
     }
 
@@ -465,9 +524,11 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       contextSignature: cached.contextSignature,
       state: dirtyState
     )
+    activeGenerationRegistry.clearIfCurrent(generationID)
   }
 
   private func invalidateCachedSession(reason: GemmaSessionInvalidationReason) {
+    _ = activeGenerationRegistry.supersedeActiveGeneration()
     generationOwnership.invalidateActiveGeneration()
     cachedSession = nil
     pendingCacheInvalidationReason = reason
@@ -725,98 +786,79 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     markCompleted: @escaping @Sendable (String) async -> Void,
     markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    return AsyncThrowingStream(ChatModelStreamEvent.self, bufferingPolicy: .unbounded) {
-      continuation in
-      let task = Task {
-        var output = ""
-        var completedMetrics: ChatGenerationMetrics?
-        let iterationStartedAt = Date()
-        var firstChunkAt: Date?
-        var didCompleteNaturally = false
-        var didTerminateDownstream = false
-        defer {
-          let memoryClearStartedAt = Date()
-          Memory.clearCache()
-          if let traceMetadata {
-            let durationMs = Date().timeIntervalSince(memoryClearStartedAt) * 1000
-            Task {
-              await traceMetadata.tracer.recordTurnTraceEvent(
-                TurnTraceEvent(
-                  turnID: traceMetadata.turnID,
-                  generationID: traceID,
-                  phase: .memoryClear,
-                  durationMs: durationMs,
-                  cacheMode: cacheTrace.cacheMode.rawValue,
-                  interactionMode: traceMetadata.interactionMode,
-                  contextSignature: cacheTrace.contextSignature,
-                  previousContextSignature: cacheTrace.previousContextSignature,
-                  appendOnly: cacheTrace.appendOnly,
-                  reusedMessageCount: cacheTrace.reusedMessageCount,
-                  appendedMessageCount: cacheTrace.appendedMessageCount,
-                  mismatchReason: cacheTrace.mismatchReason,
-                  firstMismatchIndex: cacheTrace.firstMismatchIndex,
-                  systemPromptChanged: cacheTrace.systemPromptChanged,
-                  focusedContextChanged: cacheTrace.focusedContextChanged
-                )
+    modelStreamPlan(
+      from: stream,
+      traceID: traceID,
+      traceMetadata: traceMetadata,
+      cacheTrace: cacheTrace,
+      markCompleted: markCompleted,
+      markCancelled: markCancelled
+    ).stream
+  }
+
+  nonisolated static func modelStreamPlan(
+    from stream: AsyncThrowingStream<Generation, Error>,
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: GemmaSessionCacheTrace,
+    markCompleted: @escaping @Sendable (String) async -> Void,
+    markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void
+  ) -> GemmaModelStreamPlan {
+    let (outputStream, continuation) = AsyncThrowingStream<ChatModelStreamEvent, Error>
+      .makeStream(bufferingPolicy: .unbounded)
+    let task = Task {
+      var output = ""
+      var completedMetrics: ChatGenerationMetrics?
+      let iterationStartedAt = Date()
+      var firstChunkAt: Date?
+      var didCompleteNaturally = false
+      var didTerminateDownstream = false
+      defer {
+        let memoryClearStartedAt = Date()
+        Memory.clearCache()
+        if let traceMetadata {
+          let durationMs = Date().timeIntervalSince(memoryClearStartedAt) * 1000
+          Task {
+            await traceMetadata.tracer.recordTurnTraceEvent(
+              TurnTraceEvent(
+                turnID: traceMetadata.turnID,
+                generationID: traceID,
+                phase: .memoryClear,
+                durationMs: durationMs,
+                cacheMode: cacheTrace.cacheMode.rawValue,
+                interactionMode: traceMetadata.interactionMode,
+                contextSignature: cacheTrace.contextSignature,
+                previousContextSignature: cacheTrace.previousContextSignature,
+                appendOnly: cacheTrace.appendOnly,
+                reusedMessageCount: cacheTrace.reusedMessageCount,
+                appendedMessageCount: cacheTrace.appendedMessageCount,
+                mismatchReason: cacheTrace.mismatchReason,
+                firstMismatchIndex: cacheTrace.firstMismatchIndex,
+                systemPromptChanged: cacheTrace.systemPromptChanged,
+                focusedContextChanged: cacheTrace.focusedContextChanged
               )
-            }
+            )
           }
         }
+      }
 
-        do {
-          generationLoop: for try await generation in stream {
-            try Task.checkCancellation()
+      do {
+        generationLoop: for try await generation in stream {
+          try Task.checkCancellation()
 
-            if let chunk = generation.chunk {
-              if firstChunkAt == nil {
-                let now = Date()
-                firstChunkAt = now
-                if let traceMetadata {
-                  let ttftMs = now.timeIntervalSince(iterationStartedAt) * 1000
-                  await traceMetadata.tracer.recordTurnTraceEvent(
-                    TurnTraceEvent(
-                      turnID: traceMetadata.turnID,
-                      generationID: traceID,
-                      phase: .runtimeTTFT,
-                      durationMs: ttftMs,
-                      ttftMs: ttftMs,
-                      cacheMode: cacheTrace.cacheMode.rawValue,
-                      interactionMode: traceMetadata.interactionMode,
-                      contextSignature: cacheTrace.contextSignature,
-                      previousContextSignature: cacheTrace.previousContextSignature,
-                      appendOnly: cacheTrace.appendOnly,
-                      reusedMessageCount: cacheTrace.reusedMessageCount,
-                      appendedMessageCount: cacheTrace.appendedMessageCount,
-                      mismatchReason: cacheTrace.mismatchReason,
-                      firstMismatchIndex: cacheTrace.firstMismatchIndex,
-                      systemPromptChanged: cacheTrace.systemPromptChanged,
-                      focusedContextChanged: cacheTrace.focusedContextChanged
-                    )
-                  )
-                }
-              }
-              output += chunk
-              if case .terminated = continuation.yield(.chunk(chunk)) {
-                didTerminateDownstream = true
-                break generationLoop
-              }
-            }
-
-            if let info = generation.info {
-              let metrics = ChatGenerationMetrics(
-                generatedTokenCount: info.generationTokenCount,
-                tokensPerSecond: info.tokensPerSecond
-              )
-              completedMetrics = metrics
+          if let chunk = generation.chunk {
+            if firstChunkAt == nil {
+              let now = Date()
+              firstChunkAt = now
               if let traceMetadata {
-                let decodeStartedAt = firstChunkAt ?? iterationStartedAt
+                let ttftMs = now.timeIntervalSince(iterationStartedAt) * 1000
                 await traceMetadata.tracer.recordTurnTraceEvent(
                   TurnTraceEvent(
                     turnID: traceMetadata.turnID,
                     generationID: traceID,
-                    phase: .runtimeDecode,
-                    durationMs: Date().timeIntervalSince(decodeStartedAt) * 1000,
-                    tokensPerSecond: info.tokensPerSecond,
+                    phase: .runtimeTTFT,
+                    durationMs: ttftMs,
+                    ttftMs: ttftMs,
                     cacheMode: cacheTrace.cacheMode.rawValue,
                     interactionMode: traceMetadata.interactionMode,
                     contextSignature: cacheTrace.contextSignature,
@@ -831,51 +873,60 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                   )
                 )
               }
-              didCompleteNaturally = true
-              if case .terminated = continuation.yield(.completed(metrics)) {
-                didTerminateDownstream = true
-                break generationLoop
-              }
+            }
+            output += chunk
+            if case .terminated = continuation.yield(.chunk(chunk)) {
+              didTerminateDownstream = true
+              break generationLoop
             }
           }
 
-          if didTerminateDownstream {
-            await markCancelled(.downstreamTerminated)
-            continuation.finish()
-            return
-          }
-
-          if !didCompleteNaturally {
-            let error = GemmaMLXRuntimeError.interruptedStream
-            await markCancelled(.interrupted)
-            await GemmaDebugTraceStore.shared.traceResponse(
-              id: traceID,
-              output: output,
-              metrics: completedMetrics,
-              error: error.localizedDescription
+          if let info = generation.info {
+            let metrics = ChatGenerationMetrics(
+              generatedTokenCount: info.generationTokenCount,
+              tokensPerSecond: info.tokensPerSecond
             )
-            continuation.finish(throwing: error)
-            return
+            completedMetrics = metrics
+            if let traceMetadata {
+              let decodeStartedAt = firstChunkAt ?? iterationStartedAt
+              await traceMetadata.tracer.recordTurnTraceEvent(
+                TurnTraceEvent(
+                  turnID: traceMetadata.turnID,
+                  generationID: traceID,
+                  phase: .runtimeDecode,
+                  durationMs: Date().timeIntervalSince(decodeStartedAt) * 1000,
+                  tokensPerSecond: info.tokensPerSecond,
+                  cacheMode: cacheTrace.cacheMode.rawValue,
+                  interactionMode: traceMetadata.interactionMode,
+                  contextSignature: cacheTrace.contextSignature,
+                  previousContextSignature: cacheTrace.previousContextSignature,
+                  appendOnly: cacheTrace.appendOnly,
+                  reusedMessageCount: cacheTrace.reusedMessageCount,
+                  appendedMessageCount: cacheTrace.appendedMessageCount,
+                  mismatchReason: cacheTrace.mismatchReason,
+                  firstMismatchIndex: cacheTrace.firstMismatchIndex,
+                  systemPromptChanged: cacheTrace.systemPromptChanged,
+                  focusedContextChanged: cacheTrace.focusedContextChanged
+                )
+              )
+            }
+            didCompleteNaturally = true
+            if case .terminated = continuation.yield(.completed(metrics)) {
+              didTerminateDownstream = true
+              break generationLoop
+            }
           }
+        }
 
-          await markCompleted(output)
-          await GemmaDebugTraceStore.shared.traceResponse(
-            id: traceID,
-            output: output,
-            metrics: completedMetrics
-          )
+        if didTerminateDownstream {
+          await markCancelled(.downstreamTerminated)
           continuation.finish()
-        } catch is CancellationError {
-          await markCancelled(.cancelled)
-          await GemmaDebugTraceStore.shared.traceResponse(
-            id: traceID,
-            output: output,
-            metrics: completedMetrics,
-            error: CancellationError().localizedDescription
-          )
-          continuation.finish(throwing: CancellationError())
-        } catch {
-          await markCancelled(.runtimeError)
+          return
+        }
+
+        if !didCompleteNaturally {
+          let error = GemmaMLXRuntimeError.interruptedStream
+          await markCancelled(.interrupted)
           await GemmaDebugTraceStore.shared.traceResponse(
             id: traceID,
             output: output,
@@ -883,20 +934,49 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             error: error.localizedDescription
           )
           continuation.finish(throwing: error)
-        }
-      }
-
-      continuation.onTermination = { termination in
-        guard case .cancelled = termination else {
           return
         }
 
-        Task {
-          await markCancelled(.downstreamTerminated)
-          task.cancel()
-        }
+        await markCompleted(output)
+        await GemmaDebugTraceStore.shared.traceResponse(
+          id: traceID,
+          output: output,
+          metrics: completedMetrics
+        )
+        continuation.finish()
+      } catch is CancellationError {
+        await markCancelled(.cancelled)
+        await GemmaDebugTraceStore.shared.traceResponse(
+          id: traceID,
+          output: output,
+          metrics: completedMetrics,
+          error: CancellationError().localizedDescription
+        )
+        continuation.finish(throwing: CancellationError())
+      } catch {
+        await markCancelled(.runtimeError)
+        await GemmaDebugTraceStore.shared.traceResponse(
+          id: traceID,
+          output: output,
+          metrics: completedMetrics,
+          error: error.localizedDescription
+        )
+        continuation.finish(throwing: error)
       }
     }
+
+    continuation.onTermination = { termination in
+      guard case .cancelled = termination else {
+        return
+      }
+
+      Task {
+        await markCancelled(.downstreamTerminated)
+        task.cancel()
+      }
+    }
+
+    return GemmaModelStreamPlan(stream: outputStream, task: task)
   }
 
   nonisolated static func templateMessages(

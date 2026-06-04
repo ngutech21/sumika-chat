@@ -488,6 +488,44 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func activeGenerationRegistrySupersedesAndCancelsPreviousTask() async throws {
+    var registry = GemmaActiveGenerationRegistry()
+    let generationID = GemmaGenerationID(rawValue: 1)
+    let task = Task<Void, Never> {
+      do {
+        try await Task.sleep(for: .seconds(5))
+      } catch {}
+    }
+
+    registry.register(id: generationID, task: task)
+
+    let supersededGeneration = registry.supersedeActiveGeneration()
+    let superseded = try #require(supersededGeneration)
+    #expect(superseded.id == generationID)
+    #expect(superseded.task.isCancelled)
+    #expect(registry.activeGenerationID == nil)
+
+    await superseded.task.value
+  }
+
+  @Test
+  func activeGenerationRegistryClearsOnlyCurrentGeneration() {
+    var registry = GemmaActiveGenerationRegistry()
+    let first = GemmaGenerationID(rawValue: 1)
+    let second = GemmaGenerationID(rawValue: 2)
+    let task = Task<Void, Never> {}
+
+    registry.register(id: first, task: task)
+
+    let staleClearAccepted = registry.clearIfCurrent(second)
+    #expect(!staleClearAccepted)
+    #expect(registry.activeGenerationID == first)
+    let currentClearAccepted = registry.clearIfCurrent(first)
+    #expect(currentClearAccepted)
+    #expect(registry.activeGenerationID == nil)
+  }
+
+  @Test
   func cachedSessionStateIsReusableOnlyWhenClean() {
     let generationID = GemmaGenerationID(rawValue: 1)
 
@@ -764,6 +802,75 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(await recorder.firstReason == .downstreamTerminated)
   }
 
+  @Test
+  func modelStreamPlanCancelsUpstreamTaskWhenConsumerTerminates() async throws {
+    let recorder = GemmaStreamInvalidationRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      let task = Task {
+        try? await Task.sleep(for: .seconds(5))
+        continuation.yield(.chunk("late"))
+      }
+      continuation.yield(.chunk("tool"))
+      continuation.onTermination = { _ in
+        task.cancel()
+      }
+    }
+    var plan: GemmaModelStreamPlan? = GemmaMLXRuntime.modelStreamPlan(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { _ in },
+      markCancelled: { reason in
+        await recorder.record(reason)
+      }
+    )
+    let upstreamTask = try #require(plan?.task)
+    var outputStream: AsyncThrowingStream<ChatModelStreamEvent, Error>? = try #require(plan?.stream)
+    plan = nil
+
+    let (firstEventStream, firstEventContinuation) = AsyncStream<Void>.makeStream()
+    let consumerTask = consumeFirstEventAndWait(
+      from: try #require(outputStream),
+      firstEventContinuation: firstEventContinuation
+    )
+    outputStream = nil
+    defer {
+      consumerTask.cancel()
+    }
+
+    var firstEventIterator = firstEventStream.makeAsyncIterator()
+    _ = await firstEventIterator.next()
+    consumerTask.cancel()
+    await consumerTask.value
+    try await waitUntilAsync {
+      let firstReason = await recorder.firstReason
+      return upstreamTask.isCancelled && firstReason == .downstreamTerminated
+    }
+  }
+
+  private func consumeFirstEventAndWait(
+    from stream: AsyncThrowingStream<ChatModelStreamEvent, Error>,
+    firstEventContinuation: AsyncStream<Void>.Continuation
+  ) -> Task<Void, Never> {
+    Task {
+      do {
+        var iterator = stream.makeAsyncIterator()
+        let firstEvent = try await iterator.next()
+        guard case .chunk("tool") = firstEvent else {
+          Issue.record("Expected first model stream event to be the initial chunk.")
+          firstEventContinuation.finish()
+          return
+        }
+        firstEventContinuation.yield(())
+        firstEventContinuation.finish()
+        try await Task.sleep(for: .seconds(5))
+      } catch {
+        firstEventContinuation.finish()
+      }
+    }
+  }
+
   private func consumeFirstModelStreamEvent(recorder: GemmaStreamInvalidationRecorder) async throws
   {
     let source = AsyncThrowingStream<Generation, Error> { continuation in
@@ -780,18 +887,7 @@ struct GemmaMLXRuntimeTemplateTests {
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
-      cacheTrace: GemmaSessionCacheTrace(
-        cacheMode: .newSessionHistory,
-        contextSignature: "context",
-        previousContextSignature: nil,
-        appendOnly: false,
-        reusedMessageCount: 0,
-        appendedMessageCount: 0,
-        mismatchReason: nil,
-        firstMismatchIndex: nil,
-        systemPromptChanged: nil,
-        focusedContextChanged: nil
-      ),
+      cacheTrace: defaultCacheTrace(),
       markCompleted: { _ in },
       markCancelled: { reason in
         await recorder.record(reason)
@@ -820,6 +916,21 @@ struct GemmaMLXRuntimeTemplateTests {
         toolName: .writeFile,
         arguments: arguments
       ))
+  }
+
+  private func defaultCacheTrace() -> GemmaSessionCacheTrace {
+    GemmaSessionCacheTrace(
+      cacheMode: .newSessionHistory,
+      contextSignature: "context",
+      previousContextSignature: nil,
+      appendOnly: false,
+      reusedMessageCount: 0,
+      appendedMessageCount: 0,
+      mismatchReason: nil,
+      firstMismatchIndex: nil,
+      systemPromptChanged: nil,
+      focusedContextChanged: nil
+    )
   }
 }
 
