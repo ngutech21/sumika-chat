@@ -481,7 +481,8 @@ public struct ToolLoopCoordinator: Sendable {
           " and ",
           " then ",
           "tell me",
-          "summar",
+          "summarize",
+          "summary",
           "explain",
           "analy",
           "inspect",
@@ -495,13 +496,6 @@ public struct ToolLoopCoordinator: Sendable {
           "which file should",
           "which file looks",
           "which file is",
-          " und ",
-          " dann ",
-          "erklär",
-          "analys",
-          "lies ",
-          "suche",
-          "finde",
         ],
         in: lowered
       )
@@ -510,21 +504,21 @@ public struct ToolLoopCoordinator: Sendable {
     }
 
     let mentionsFile =
-      containsAny(["file", "files", "datei", "dateien"], in: lowered)
-    let hasListVerb = containsAny(["list", "liste", "auflist"], in: lowered)
+      containsAny(["file", "files"], in: lowered)
+    let hasListVerb = containsAny(["list"], in: lowered)
     let asksWhichFiles = containsAny(
-      ["what files", "which files", "welche datei", "welche files"],
+      ["what files", "which files"],
       in: lowered
     )
     let hasDisplayVerb = containsAny(
-      ["show", "display", "print", "ausgeben", "zeig", "zeigen"],
+      ["show", "display", "print"],
       in: lowered
     )
     let mentionsDirectory = containsAny(
-      ["directory", "current dir", "dir", "folder", "verzeichnis", "ordner"],
+      ["directory", "current dir", "dir", "folder"],
       in: lowered
     )
-    let mentionsPluralFiles = containsAny(["files", "dateien"], in: lowered)
+    let mentionsPluralFiles = containsAny(["files"], in: lowered)
 
     return (hasListVerb && mentionsFile)
       || asksWhichFiles
