@@ -4,7 +4,7 @@ public struct ChatModelContextBuilder: Sendable {
   private let promptContextSelector: any CurrentPromptContextSelecting
 
   public init(
-    promptContextSelector: any CurrentPromptContextSelecting = FocusedPromptContextSelector()
+    promptContextSelector: any CurrentPromptContextSelecting = CurrentPromptContextSelector()
   ) {
     self.promptContextSelector = promptContextSelector
   }
@@ -40,12 +40,14 @@ public struct ChatModelContextBuilder: Sendable {
     userInput: String,
     mode: WorkspaceInteractionMode,
     focusedFileState: FocusedFileState,
+    workspaceDisplayState: WorkspaceDisplayState = .empty,
     budget: ContextBudget = .focusedFileDefault
   ) -> [String] {
     let context = promptContextSelector.selectContext(
       userInput: userInput,
       mode: mode,
       focusedFileState: focusedFileState,
+      workspaceDisplayState: workspaceDisplayState,
       budget: budget
     )
     return CurrentPromptContextRenderer.render(context)

@@ -52,6 +52,203 @@ struct FocusedPromptContextSelectorTests {
   }
 
   @Test
+  func selectedRangeTakesPrecedenceOverActiveFocusedFile() throws {
+    let selectedPath = WorkspaceRelativePath(rawValue: "Sources/Selected.swift")
+    let focusedPath = WorkspaceRelativePath(rawValue: "Sources/Focused.swift")
+    let displayState = try #require(
+      WorkspaceDisplayState.withSelectedRange(
+        path: selectedPath,
+        startLine: 3,
+        endLine: 5,
+        text: "let selected = true"
+      ))
+    let focusedState = FocusedFileState(
+      activePath: focusedPath,
+      recentPaths: [
+        FocusedPath(path: focusedPath, source: .readFile, confidence: .active)
+      ],
+      snapshots: [
+        focusedPath: FocusedFileSnapshot(
+          path: focusedPath,
+          contentHash: "hash",
+          excerpt: "let focused = true",
+          fullContentAvailable: true
+        )
+      ]
+    )
+
+    let context = CurrentPromptContextSelector().selectContext(
+      userInput: "explain this",
+      mode: .inspect,
+      focusedFileState: focusedState,
+      workspaceDisplayState: displayState,
+      budget: .focusedFileDefault
+    )
+
+    guard case .selected(let selection) = context else {
+      Issue.record("Expected selected current prompt context.")
+      return
+    }
+    guard case .selectedRange(let selectedRange) = selection.blocks.values[0] else {
+      Issue.record("Expected selected range to take precedence.")
+      return
+    }
+    #expect(selection.truncation == .none)
+    #expect(selectedRange.range.path == selectedPath)
+    #expect(selectedRange.range.lineRange.startLine == 3)
+    #expect(selectedRange.range.lineRange.endLine == 5)
+    #expect(selectedRange.range.excerpt?.text == "let selected = true")
+  }
+
+  @Test
+  func visibleRangeIsUsedWhenSelectedRangeIsMissing() throws {
+    let path = WorkspaceRelativePath(rawValue: "Sources/Visible.swift")
+    let displayState = try #require(
+      WorkspaceDisplayState.withVisibleRange(
+        path: path,
+        startLine: 10,
+        endLine: 12,
+        text: "func visible() {}"
+      ))
+
+    let context = CurrentPromptContextSelector().selectContext(
+      userInput: "what is visible?",
+      mode: .chat,
+      focusedFileState: .empty,
+      workspaceDisplayState: displayState,
+      budget: .focusedFileDefault
+    )
+
+    guard case .selected(let selection) = context,
+      case .visibleRange(let visibleRange) = selection.blocks.values[0]
+    else {
+      Issue.record("Expected visible range context block.")
+      return
+    }
+    #expect(selection.truncation == .none)
+    #expect(visibleRange.range.path == path)
+    #expect(visibleRange.range.lineRange.startLine == 10)
+    #expect(visibleRange.range.lineRange.endLine == 12)
+    #expect(visibleRange.range.excerpt?.text == "func visible() {}")
+  }
+
+  @Test
+  func emptyRangeTextIsRejectedAndFallsBackToFocusedFile() throws {
+    let path = WorkspaceRelativePath(rawValue: "Sources/Fallback.swift")
+    let invalidDisplayState = WorkspaceDisplayState.withSelectedRange(
+      path: path,
+      startLine: 1,
+      endLine: 1,
+      text: "  \n"
+    )
+    let focusedState = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(path: path, source: .readFile, confidence: .active)
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          path: path,
+          contentHash: "hash",
+          excerpt: "let fallback = true",
+          fullContentAvailable: true
+        )
+      ]
+    )
+
+    #expect(invalidDisplayState == nil)
+    let context = CurrentPromptContextSelector().selectContext(
+      userInput: "explain fallback",
+      mode: .inspect,
+      focusedFileState: focusedState,
+      workspaceDisplayState: invalidDisplayState ?? .empty,
+      budget: .focusedFileDefault
+    )
+
+    guard case .selected(let selection) = context,
+      case .focusedFile(let focusedFile) = selection.blocks.values[0]
+    else {
+      Issue.record("Expected focused file fallback.")
+      return
+    }
+    #expect(focusedFile.path == path)
+    #expect(focusedFile.excerpt?.text == "let fallback = true")
+  }
+
+  @Test
+  func emptyRangePathIsRejectedAndFallsBackToFocusedFile() throws {
+    let focusedPath = WorkspaceRelativePath(rawValue: "Sources/Fallback.swift")
+    let invalidDisplayState = WorkspaceDisplayState.withSelectedRange(
+      path: WorkspaceRelativePath(rawValue: " \n"),
+      startLine: 1,
+      endLine: 1,
+      text: "let selected = true"
+    )
+    let focusedState = FocusedFileState(
+      activePath: focusedPath,
+      recentPaths: [
+        FocusedPath(path: focusedPath, source: .readFile, confidence: .active)
+      ],
+      snapshots: [
+        focusedPath: FocusedFileSnapshot(
+          path: focusedPath,
+          contentHash: "hash",
+          excerpt: "let fallback = true",
+          fullContentAvailable: true
+        )
+      ]
+    )
+
+    #expect(invalidDisplayState == nil)
+    let context = CurrentPromptContextSelector().selectContext(
+      userInput: "explain fallback",
+      mode: .inspect,
+      focusedFileState: focusedState,
+      workspaceDisplayState: invalidDisplayState ?? .empty,
+      budget: .focusedFileDefault
+    )
+
+    guard case .selected(let selection) = context,
+      case .focusedFile(let focusedFile) = selection.blocks.values[0]
+    else {
+      Issue.record("Expected focused file fallback.")
+      return
+    }
+    #expect(focusedFile.path == focusedPath)
+  }
+
+  @Test
+  func rangeExcerptIsTruncatedByCharacterBudget() throws {
+    let path = WorkspaceRelativePath(rawValue: "Sources/LongSelection.swift")
+    let budget = try #require(ContextBudget.checked(maxCharacters: 6))
+    let displayState = try #require(
+      WorkspaceDisplayState.withSelectedRange(
+        path: path,
+        startLine: 2,
+        endLine: 4,
+        text: "0123456789"
+      ))
+
+    let context = CurrentPromptContextSelector().selectContext(
+      userInput: "summarize selection",
+      mode: .inspect,
+      focusedFileState: .empty,
+      workspaceDisplayState: displayState,
+      budget: budget
+    )
+
+    guard case .selected(let selection) = context,
+      case .selectedRange(let selectedRange) = selection.blocks.values[0]
+    else {
+      Issue.record("Expected truncated selected range context block.")
+      return
+    }
+    #expect(selection.truncation == .byCharacterBudget)
+    #expect(selectedRange.range.excerpt?.text == "012345")
+    #expect(selectedRange.range.excerpt?.truncated == true)
+  }
+
+  @Test
   func longExcerptIsTruncatedByCharacterBudget() throws {
     let path = WorkspaceRelativePath(rawValue: "Sources/Foo.swift")
     let budget = try #require(ContextBudget.checked(maxCharacters: 5))
@@ -131,6 +328,56 @@ struct FocusedPromptContextSelectorTests {
 }
 
 struct CurrentPromptContextRendererTests {
+  @Test
+  func rendersSelectedAndVisibleRangesStably() throws {
+    let selectedState = try #require(
+      WorkspaceDisplayState.withSelectedRange(
+        path: WorkspaceRelativePath(rawValue: "Sources/Selected.swift"),
+        startLine: 4,
+        endLine: 6,
+        text: "let value = selected"
+      ))
+    let visibleState = try #require(
+      WorkspaceDisplayState.withVisibleRange(
+        path: WorkspaceRelativePath(rawValue: "Sources/Visible.swift"),
+        startLine: 8,
+        endLine: 8,
+        text: "let value = visible"
+      ))
+    let selectedContext = CurrentPromptContextSelector().selectContext(
+      userInput: "explain",
+      mode: .chat,
+      focusedFileState: .empty,
+      workspaceDisplayState: selectedState,
+      budget: .focusedFileDefault
+    )
+    let visibleContext = CurrentPromptContextSelector().selectContext(
+      userInput: "explain",
+      mode: .chat,
+      focusedFileState: .empty,
+      workspaceDisplayState: visibleState,
+      budget: .focusedFileDefault
+    )
+
+    let selectedRendered = CurrentPromptContextRenderer.render(selectedContext)
+    let visibleRendered = CurrentPromptContextRenderer.render(visibleContext)
+
+    #expect(selectedRendered.count == 1)
+    #expect(visibleRendered.count == 1)
+    #expect(
+      selectedRendered.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    #expect(
+      visibleRendered.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    #expect(selectedRendered[0].contains("Selected file range: Sources/Selected.swift"))
+    #expect(selectedRendered[0].contains("Lines: 4-6"))
+    #expect(selectedRendered[0].contains("Selected content excerpt:"))
+    #expect(selectedRendered[0].contains("let value = selected"))
+    #expect(visibleRendered[0].contains("Visible file range: Sources/Visible.swift"))
+    #expect(visibleRendered[0].contains("Lines: 8"))
+    #expect(visibleRendered[0].contains("Visible content excerpt:"))
+    #expect(visibleRendered[0].contains("let value = visible"))
+  }
+
   @Test
   func rendersFocusedFileContextStably() throws {
     let path = WorkspaceRelativePath(rawValue: "index.html")

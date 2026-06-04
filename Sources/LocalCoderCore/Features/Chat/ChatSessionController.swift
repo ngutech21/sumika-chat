@@ -340,7 +340,8 @@ extension ChatSessionController {
     let currentPromptSystemContext = modelContextBuilder.currentPromptSystemContext(
       userInput: prompt,
       mode: interactionMode,
-      focusedFileState: chatSession.focusedFileState
+      focusedFileState: chatSession.focusedFileState,
+      workspaceDisplayState: .empty
     )
     if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
       turnID: turnID,
