@@ -180,6 +180,7 @@ public struct ChatGenerationCoordinator {
     }
 
     if didStopAfterCompleteToolAction && !didComplete {
+      await runtime.completePartialReply(output: displayedPartialToolAction)
       let partialDurationMs = Date().timeIntervalSince(generationStartedAt) * 1000
       await turnTracer.recordTurnTraceEvent(
         TurnTraceEvent(

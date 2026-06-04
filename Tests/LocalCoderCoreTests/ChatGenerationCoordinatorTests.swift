@@ -48,6 +48,7 @@ struct ChatGenerationCoordinatorTests {
 
     #expect(streamedContent == action)
     #expect(assistantContent == action)
+    #expect(await runtime.completedPartialReplies == [action])
     #expect(updatedMetrics?.generatedTokenCount == 4)
     #expect((updatedMetrics?.durationMs ?? 0) > 0)
     #expect(contextUsageUpdateCount == 1)

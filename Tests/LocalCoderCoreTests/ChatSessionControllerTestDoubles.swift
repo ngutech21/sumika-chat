@@ -495,6 +495,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private(set) var capturedMessages: [[ChatModelContextMessage]] = []
   private(set) var capturedSystemPrompts: [String] = []
   private(set) var capturedContextUsageSystemPrompts: [String] = []
+  private(set) var completedPartialReplies: [String] = []
 
   init(chunks: [String] = []) {
     self.turns = [chunks]
@@ -557,6 +558,10 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
       )
       continuation.finish()
     }
+  }
+
+  func completePartialReply(output: String) async {
+    completedPartialReplies.append(output)
   }
 }
 

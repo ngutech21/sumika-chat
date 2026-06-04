@@ -657,6 +657,67 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func cacheDecisionInvalidatesCleanAppendOnlyHistory() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let appendedHistory = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+      .user("tool observation"),
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedState: .clean,
+      currentHistory: appendedHistory,
+      currentSettings: settings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.cacheReason == .invalidatedHistoryAppended)
+    #expect(decision.trace.appendOnly)
+    #expect(decision.trace.reusedMessageCount == 2)
+    #expect(decision.trace.appendedMessageCount == 1)
+    #expect(decision.trace.mismatchReason == "history_appended")
+    #expect(decision.trace.firstMismatchIndex == 2)
+  }
+
+  @Test
+  func cacheDecisionKeepsDirtyAppendOnlyHistoryInvalidated() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let appendedHistory = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+      .user("tool observation"),
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedState: .dirty(reason: .downstreamTerminated),
+      currentHistory: appendedHistory,
+      currentSettings: settings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedDownstreamTerminated)
+    #expect(decision.trace.cacheReason == .invalidatedGenDownstreamTerminated)
+    #expect(decision.trace.appendOnly)
+    #expect(decision.trace.reusedMessageCount == 2)
+    #expect(decision.trace.appendedMessageCount == 1)
+    #expect(decision.trace.mismatchReason == nil)
+  }
+
+  @Test
   func cacheDecisionInvalidatesWhenRenderedHistoryChanges() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [
