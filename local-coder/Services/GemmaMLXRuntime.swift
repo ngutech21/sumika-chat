@@ -72,6 +72,42 @@ nonisolated struct GemmaRenderedContextSignature: Equatable, Sendable {
   }
 }
 
+nonisolated struct GemmaGenerationID: Equatable, Hashable, Sendable {
+  let rawValue: UInt64
+}
+
+nonisolated struct GemmaGenerationOwnership: Equatable, Sendable {
+  private var nextRawValue: UInt64 = 0
+  private(set) var activeGenerationID: GemmaGenerationID?
+
+  mutating func beginGeneration() -> GemmaGenerationID {
+    nextRawValue &+= 1
+    let generationID = GemmaGenerationID(rawValue: nextRawValue)
+    activeGenerationID = generationID
+    return generationID
+  }
+
+  mutating func completeIfCurrent(_ generationID: GemmaGenerationID) -> Bool {
+    guard activeGenerationID == generationID else {
+      return false
+    }
+    activeGenerationID = nil
+    return true
+  }
+
+  mutating func invalidateIfCurrent(_ generationID: GemmaGenerationID) -> Bool {
+    guard activeGenerationID == generationID else {
+      return false
+    }
+    activeGenerationID = nil
+    return true
+  }
+
+  mutating func invalidateActiveGeneration() {
+    activeGenerationID = nil
+  }
+}
+
 nonisolated struct GemmaSessionCacheTrace: Equatable, Sendable {
   let cacheMode: GemmaSessionCacheMode
   let contextSignature: String
@@ -109,6 +145,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   private var cachedSession: CachedGemmaSession?
   private var pendingCacheInvalidationReason: GemmaSessionInvalidationReason?
   private var contextTokenLimit: Int?
+  private var generationOwnership = GemmaGenerationOwnership()
 
   func load(configuration: ChatModelConfiguration) async throws {
     #if !arch(arm64)
@@ -210,6 +247,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
     let historySnapshot = Self.messageSnapshot(from: history)
     let finalPrompt = promptMessage.content
+    let generationID = generationOwnership.beginGeneration()
     let cachePlan = prepareSession(
       modelContainer: modelContainer,
       history: history,
@@ -262,6 +300,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       cacheTrace: cachePlan.trace,
       markCompleted: { [weak self] output in
         await self?.markSessionCompleted(
+          generationID: generationID,
           historyPrefix: historySnapshot,
           prompt: finalPrompt,
           output: output,
@@ -269,7 +308,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         )
       },
       markCancelled: { [weak self] reason in
-        await self?.markCachedSessionInvalid(reason: reason)
+        await self?.markCachedSessionInvalid(generationID: generationID, reason: reason)
       }
     )
   }
@@ -327,11 +366,16 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   private func markSessionCompleted(
+    generationID: GemmaGenerationID,
     historyPrefix: [GemmaMessageSnapshot],
     prompt: String,
     output: String,
     settings: ChatGenerationSettings
   ) {
+    guard generationOwnership.completeIfCurrent(generationID) else {
+      return
+    }
+
     let completedPrefix =
       historyPrefix
       + [
@@ -353,7 +397,14 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
   }
 
-  private func markCachedSessionInvalid(reason: GemmaSessionInvalidationReason) {
+  private func markCachedSessionInvalid(
+    generationID: GemmaGenerationID,
+    reason: GemmaSessionInvalidationReason
+  ) {
+    guard generationOwnership.invalidateIfCurrent(generationID) else {
+      return
+    }
+
     cachedSession = cachedSession.map { cached in
       CachedGemmaSession(
         session: cached.session,
@@ -367,6 +418,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   private func invalidateCachedSession(reason: GemmaSessionInvalidationReason) {
+    generationOwnership.invalidateActiveGeneration()
     cachedSession = nil
     pendingCacheInvalidationReason = reason
   }

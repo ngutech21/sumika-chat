@@ -428,6 +428,67 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func generationOwnershipBeginsMonotonicGenerations() {
+    var ownership = GemmaGenerationOwnership()
+
+    let first = ownership.beginGeneration()
+    let second = ownership.beginGeneration()
+
+    #expect(first.rawValue == 1)
+    #expect(second.rawValue == 2)
+    #expect(ownership.activeGenerationID == second)
+  }
+
+  @Test
+  func generationOwnershipCompletesOnlyCurrentGeneration() {
+    var ownership = GemmaGenerationOwnership()
+    let first = ownership.beginGeneration()
+    let second = ownership.beginGeneration()
+
+    let staleCompletionAccepted = ownership.completeIfCurrent(first)
+    #expect(ownership.activeGenerationID == second)
+    let currentCompletionAccepted = ownership.completeIfCurrent(second)
+    #expect(ownership.activeGenerationID == nil)
+    let repeatedCompletionAccepted = ownership.completeIfCurrent(second)
+
+    #expect(!staleCompletionAccepted)
+    #expect(currentCompletionAccepted)
+    #expect(!repeatedCompletionAccepted)
+  }
+
+  @Test
+  func generationOwnershipInvalidatesOnlyCurrentGeneration() {
+    var ownership = GemmaGenerationOwnership()
+    let first = ownership.beginGeneration()
+    let second = ownership.beginGeneration()
+
+    let staleInvalidationAccepted = ownership.invalidateIfCurrent(first)
+    #expect(ownership.activeGenerationID == second)
+    let currentInvalidationAccepted = ownership.invalidateIfCurrent(second)
+    #expect(ownership.activeGenerationID == nil)
+    let repeatedInvalidationAccepted = ownership.invalidateIfCurrent(second)
+
+    #expect(!staleInvalidationAccepted)
+    #expect(currentInvalidationAccepted)
+    #expect(!repeatedInvalidationAccepted)
+  }
+
+  @Test
+  func generationOwnershipInvalidatesActiveGeneration() {
+    var ownership = GemmaGenerationOwnership()
+    let generationID = ownership.beginGeneration()
+
+    ownership.invalidateActiveGeneration()
+
+    #expect(ownership.activeGenerationID == nil)
+    let completionAccepted = ownership.completeIfCurrent(generationID)
+    let invalidationAccepted = ownership.invalidateIfCurrent(generationID)
+
+    #expect(!completionAccepted)
+    #expect(!invalidationAccepted)
+  }
+
+  @Test
   func cacheDecisionReusesOnlyExactRenderedPrefix() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [
