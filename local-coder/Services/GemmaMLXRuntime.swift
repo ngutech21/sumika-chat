@@ -62,6 +62,16 @@ nonisolated struct GemmaMessageSnapshot: Equatable, Sendable {
   let content: String
 }
 
+nonisolated struct GemmaRenderedContextSignature: Equatable, Sendable {
+  let rendererVersion: Int
+  let renderedHistoryHash: String
+  let generationSettingsHash: String
+
+  var traceValue: String {
+    "renderer-v\(rendererVersion):history-\(renderedHistoryHash):settings-\(generationSettingsHash)"
+  }
+}
+
 nonisolated struct GemmaSessionCacheTrace: Equatable, Sendable {
   let cacheMode: GemmaSessionCacheMode
   let contextSignature: String
@@ -84,7 +94,7 @@ nonisolated private struct CachedGemmaSession {
   let session: ChatSession
   let prefix: [GemmaMessageSnapshot]
   let settings: ChatGenerationSettings
-  let contextSignature: String
+  let contextSignature: GemmaRenderedContextSignature
   let isReusable: Bool
   let invalidationReason: GemmaSessionInvalidationReason?
 }
@@ -271,11 +281,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     settings: ChatGenerationSettings,
     generateParameters: GenerateParameters
   ) -> GemmaSessionCachePlan {
-    let contextSignature = Self.contextSignature(for: historySnapshot)
+    let contextSignature = Self.renderedContextSignature(
+      for: historySnapshot,
+      settings: settings
+    )
     let cached = cachedSession
     let decision = Self.cacheDecision(
       cachedPrefix: cached?.prefix,
       cachedSettings: cached?.settings,
+      cachedContextSignature: cached?.contextSignature,
       cachedReusable: cached?.isReusable,
       invalidationReason: cached?.invalidationReason ?? pendingCacheInvalidationReason,
       currentHistory: historySnapshot,
@@ -329,7 +343,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         session: cached.session,
         prefix: completedPrefix,
         settings: settings,
-        contextSignature: Self.contextSignature(for: completedPrefix),
+        contextSignature: Self.renderedContextSignature(
+          for: completedPrefix,
+          settings: settings
+        ),
         isReusable: true,
         invalidationReason: nil
       )
@@ -361,6 +378,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   nonisolated private static let maxMLXCacheBytes = 512 * 1024 * 1024
+  nonisolated static let gemmaRendererVersion = 1
 
   nonisolated static func messageSnapshot(from messages: [Chat.Message]) -> [GemmaMessageSnapshot] {
     messages.map { message in
@@ -371,13 +389,25 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated static func cacheDecision(
     cachedPrefix: [GemmaMessageSnapshot]?,
     cachedSettings: ChatGenerationSettings?,
+    cachedContextSignature: GemmaRenderedContextSignature? = nil,
     cachedReusable: Bool?,
     invalidationReason: GemmaSessionInvalidationReason?,
     currentHistory: [GemmaMessageSnapshot],
-    currentSettings: ChatGenerationSettings
+    currentSettings: ChatGenerationSettings,
+    currentRendererVersion: Int = gemmaRendererVersion
   ) -> GemmaSessionCacheDecision {
-    let currentSignature = contextSignature(for: currentHistory)
-    let previousSignature = cachedPrefix.map(contextSignature(for:))
+    let currentSignature = renderedContextSignature(
+      for: currentHistory,
+      settings: currentSettings,
+      rendererVersion: currentRendererVersion
+    )
+    let previousSignature =
+      cachedContextSignature
+      ?? cachedPrefix.flatMap { prefix in
+        cachedSettings.map { settings in
+          renderedContextSignature(for: prefix, settings: settings)
+        }
+      }
     let appendOnly = cachedPrefix.map { isPrefix($0, of: currentHistory) } ?? false
     let reusedMessageCount = appendOnly ? (cachedPrefix?.count ?? 0) : 0
     let appendedMessageCount =
@@ -418,9 +448,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       shouldReuse = false
       mismatchReason = "settings_changed"
     } else if cachedPrefix == currentHistory {
-      cacheMode = .sessionReused
-      shouldReuse = true
-      mismatchReason = nil
+      if previousSignature == currentSignature {
+        cacheMode = .sessionReused
+        shouldReuse = true
+        mismatchReason = nil
+      } else {
+        cacheMode = .invalidatedSignatureMismatch
+        shouldReuse = false
+        mismatchReason = "rendered_context_signature_changed"
+      }
     } else if appendOnly {
       cacheMode = .invalidatedSignatureMismatch
       shouldReuse = false
@@ -435,8 +471,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       shouldReuse: shouldReuse,
       trace: GemmaSessionCacheTrace(
         cacheMode: cacheMode,
-        contextSignature: currentSignature,
-        previousContextSignature: previousSignature,
+        contextSignature: currentSignature.traceValue,
+        previousContextSignature: previousSignature?.traceValue,
         appendOnly: appendOnly,
         reusedMessageCount: reusedMessageCount,
         appendedMessageCount: appendedMessageCount,
@@ -446,6 +482,29 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         focusedContextChanged: mismatchReason == nil ? nil : focusedContextChanged
       )
     )
+  }
+
+  nonisolated static func renderedContextSignature(
+    for messages: [GemmaMessageSnapshot],
+    settings: ChatGenerationSettings,
+    rendererVersion: Int = gemmaRendererVersion
+  ) -> GemmaRenderedContextSignature {
+    GemmaRenderedContextSignature(
+      rendererVersion: rendererVersion,
+      renderedHistoryHash: contextSignature(for: messages),
+      generationSettingsHash: generationSettingsSignature(for: settings)
+    )
+  }
+
+  nonisolated private static func generationSettingsSignature(
+    for settings: ChatGenerationSettings
+  ) -> String {
+    hashSignature { updateString in
+      updateString(String(settings.maxTokens))
+      updateString(String(settings.temperature))
+      updateString(String(settings.topP))
+      updateString(String(settings.topK))
+    }
   }
 
   nonisolated private static func firstMismatchIndex(
@@ -523,6 +582,23 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         update(byte)
       }
       update(0xFF)
+    }
+
+    return String(format: "%016llx", hash)
+  }
+
+  nonisolated private static func hashSignature(_ body: ((String) -> Void) -> Void) -> String {
+    var hash: UInt64 = 14_695_981_039_346_656_037
+    func update(_ byte: UInt8) {
+      hash ^= UInt64(byte)
+      hash &*= 1_099_511_628_211
+    }
+
+    body { value in
+      for byte in value.utf8 {
+        update(byte)
+      }
+      update(0)
     }
 
     return String(format: "%016llx", hash)

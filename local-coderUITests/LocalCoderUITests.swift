@@ -3,6 +3,8 @@ import XCTest
 
 final class LocalCoderUITests: XCTestCase {
   private let modelID = "gemma3-27b"
+  private static let testRunTraceBasename =
+    "\(traceTimestamp())-\(UUID().uuidString)-gemma3-27b-ui-test.jsonl"
 
   @MainActor
   func testSmokeLoadsSelectedModelAndCompletesFirstChatPrompt() throws {
@@ -158,6 +160,8 @@ final class LocalCoderUITests: XCTestCase {
       fixture.workspaceURL.path(percentEncoded: false)
     application.launchEnvironment["LOCAL_CODER_UI_TEST_MODEL_ID"] = modelID
     application.launchEnvironment["LOCAL_CODER_DEBUG_TRACE"] = "1"
+    application.launchEnvironment["LOCAL_CODER_DEBUG_TRACE_BASENAME"] =
+      Self.testRunTraceBasename
 
     application.launch()
     XCTAssertTrue(application.textFields["message-field"].waitForExistence(timeout: 30))
@@ -361,13 +365,33 @@ final class LocalCoderUITests: XCTestCase {
   }
 
   private func traceFileURL() -> URL {
-    appContainerApplicationSupport()
+    if let traceFile = ProcessInfo.processInfo.environment["LOCAL_CODER_DEBUG_TRACE_FILE"],
+      !traceFile.isEmpty
+    {
+      return URL(filePath: traceFile, directoryHint: .notDirectory)
+    }
+
+    return appContainerApplicationSupport()
       .appending(path: "local-coder", directoryHint: .isDirectory)
       .appending(path: "debug", directoryHint: .isDirectory)
-      .appending(path: "gemma-trace.jsonl", directoryHint: .notDirectory)
+      .appending(path: "traces", directoryHint: .isDirectory)
+      .appending(path: Self.testRunTraceBasename, directoryHint: .notDirectory)
+  }
+
+  private static func traceTimestamp() -> String {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "yyyy-MM-dd'T'HHmmss'Z'"
+    return formatter.string(from: Date())
   }
 
   private func appContainerApplicationSupport() -> URL {
+    Self.appContainerApplicationSupport()
+  }
+
+  private static func appContainerApplicationSupport() -> URL {
     realUserHomeDirectory()
       .appending(path: "Library", directoryHint: .isDirectory)
       .appending(path: "Containers", directoryHint: .isDirectory)
@@ -378,6 +402,10 @@ final class LocalCoderUITests: XCTestCase {
   }
 
   private func realUserHomeDirectory() -> URL {
+    Self.realUserHomeDirectory()
+  }
+
+  private static func realUserHomeDirectory() -> URL {
     if let passwd = getpwuid(getuid()),
       let home = passwd.pointee.pw_dir
     {

@@ -76,6 +76,49 @@ struct GemmaDebugTraceStoreTests {
     #expect(object["focusedContextChanged"] as? Bool == true)
   }
 
+  @Test
+  func defaultTraceFileUsesEnvironmentOverrideWhenPresent() async throws {
+    setenv("LOCAL_CODER_DEBUG_TRACE", "1", 1)
+    let fileURL = temporaryTraceFileURL()
+    setenv("LOCAL_CODER_DEBUG_TRACE_FILE", fileURL.path(percentEncoded: false), 1)
+    defer {
+      unsetenv("LOCAL_CODER_DEBUG_TRACE")
+      unsetenv("LOCAL_CODER_DEBUG_TRACE_FILE")
+    }
+
+    let store = GemmaDebugTraceStore()
+
+    await store.traceTurnEvent(
+      TurnTraceEvent(phase: .runtimeTTFT, durationMs: 10, ttftMs: 10)
+    )
+
+    #expect(FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)))
+  }
+
+  @Test
+  func defaultTraceFileUsesBasenameEnvironmentOverrideWhenPresent() async throws {
+    setenv("LOCAL_CODER_DEBUG_TRACE", "1", 1)
+    let basename = "\(UUID().uuidString)-gemma-trace.jsonl"
+    setenv("LOCAL_CODER_DEBUG_TRACE_BASENAME", basename, 1)
+    defer {
+      unsetenv("LOCAL_CODER_DEBUG_TRACE")
+      unsetenv("LOCAL_CODER_DEBUG_TRACE_BASENAME")
+    }
+
+    let store = GemmaDebugTraceStore()
+
+    await store.traceTurnEvent(
+      TurnTraceEvent(phase: .runtimeTTFT, durationMs: 10, ttftMs: 10)
+    )
+
+    let traceURL = URL.applicationSupportDirectory
+      .appending(path: "local-coder", directoryHint: .isDirectory)
+      .appending(path: "debug", directoryHint: .isDirectory)
+      .appending(path: "traces", directoryHint: .isDirectory)
+      .appending(path: basename, directoryHint: .notDirectory)
+    #expect(FileManager.default.fileExists(atPath: traceURL.path(percentEncoded: false)))
+  }
+
   private func temporaryTraceFileURL() -> URL {
     FileManager.default.temporaryDirectory
       .appending(path: UUID().uuidString, directoryHint: .isDirectory)

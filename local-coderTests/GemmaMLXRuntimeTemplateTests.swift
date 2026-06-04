@@ -337,6 +337,97 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func renderedContextSignatureIsDeterministicForSameHistoryAndSettings() {
+    let settings = ChatGenerationSettings.codingDefault
+    let history = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+
+    let first = GemmaMLXRuntime.renderedContextSignature(for: history, settings: settings)
+    let second = GemmaMLXRuntime.renderedContextSignature(for: history, settings: settings)
+
+    #expect(first == second)
+    #expect(first.rendererVersion == GemmaMLXRuntime.gemmaRendererVersion)
+    #expect(first.traceValue == second.traceValue)
+  }
+
+  @Test
+  func renderedContextSignatureChangesWhenRenderedHistoryChanges() {
+    let settings = ChatGenerationSettings.codingDefault
+    let history = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let changedHistory = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("different"),
+    ])
+
+    let first = GemmaMLXRuntime.renderedContextSignature(for: history, settings: settings)
+    let second = GemmaMLXRuntime.renderedContextSignature(
+      for: changedHistory,
+      settings: settings
+    )
+
+    #expect(first != second)
+    #expect(first.renderedHistoryHash != second.renderedHistoryHash)
+    #expect(first.generationSettingsHash == second.generationSettingsHash)
+  }
+
+  @Test
+  func renderedContextSignatureChangesWhenGenerationSettingsChange() {
+    let history = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    var changedSettings = ChatGenerationSettings.codingDefault
+    changedSettings.maxTokens = 128
+
+    let first = GemmaMLXRuntime.renderedContextSignature(
+      for: history,
+      settings: .codingDefault
+    )
+    let second = GemmaMLXRuntime.renderedContextSignature(
+      for: history,
+      settings: changedSettings
+    )
+
+    #expect(first != second)
+    #expect(first.renderedHistoryHash == second.renderedHistoryHash)
+    #expect(first.generationSettingsHash != second.generationSettingsHash)
+  }
+
+  @Test
+  func cacheDecisionInvalidatesWhenRendererVersionChanges() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let cachedSignature = GemmaMLXRuntime.renderedContextSignature(
+      for: prefix,
+      settings: settings,
+      rendererVersion: GemmaMLXRuntime.gemmaRendererVersion - 1
+    )
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedContextSignature: cachedSignature,
+      cachedReusable: true,
+      invalidationReason: nil,
+      currentHistory: prefix,
+      currentSettings: settings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
+    #expect(decision.trace.contextSignature != decision.trace.previousContextSignature)
+  }
+
+  @Test
   func cacheDecisionReusesOnlyExactRenderedPrefix() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [

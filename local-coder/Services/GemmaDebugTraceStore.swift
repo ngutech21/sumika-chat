@@ -204,9 +204,27 @@ actor GemmaDebugTraceStore: TurnTracing {
   }
 
   nonisolated private static func defaultFileURL() -> URL {
+    if let traceFile = ProcessInfo.processInfo.environment["LOCAL_CODER_DEBUG_TRACE_FILE"],
+      !traceFile.isEmpty
+    {
+      return URL(filePath: traceFile, directoryHint: .notDirectory)
+    }
+    if let traceBasename = ProcessInfo.processInfo.environment["LOCAL_CODER_DEBUG_TRACE_BASENAME"],
+      !traceBasename.isEmpty,
+      !traceBasename.contains("/")
+    {
+      return debugDirectory()
+        .appending(path: "traces", directoryHint: .isDirectory)
+        .appending(path: traceBasename, directoryHint: .notDirectory)
+    }
+
+    return debugDirectory()
+      .appending(path: "gemma-trace.jsonl", directoryHint: .notDirectory)
+  }
+
+  nonisolated private static func debugDirectory() -> URL {
     URL.applicationSupportDirectory
       .appending(path: "local-coder", directoryHint: .isDirectory)
       .appending(path: "debug", directoryHint: .isDirectory)
-      .appending(path: "gemma-trace.jsonl", directoryHint: .notDirectory)
   }
 }
