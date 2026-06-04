@@ -28,6 +28,7 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
   public let ttftMs: Double?
   public let tokensPerSecond: Double?
   public let cacheMode: String?
+  public let cacheReason: String?
   public let interactionMode: WorkspaceInteractionMode?
   public let contextSignature: String?
   public let previousContextSignature: String?
@@ -52,6 +53,7 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     ttftMs: Double? = nil,
     tokensPerSecond: Double? = nil,
     cacheMode: String? = nil,
+    cacheReason: String? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
     contextSignature: String? = nil,
     previousContextSignature: String? = nil,
@@ -75,6 +77,7 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.ttftMs = ttftMs
     self.tokensPerSecond = tokensPerSecond
     self.cacheMode = cacheMode
+    self.cacheReason = cacheReason
     self.interactionMode = interactionMode
     self.contextSignature = contextSignature
     self.previousContextSignature = previousContextSignature

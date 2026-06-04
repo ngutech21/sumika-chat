@@ -123,6 +123,9 @@ actor GemmaDebugTraceStore: TurnTracing {
     if let cacheMode = event.cacheMode {
       trace["cacheMode"] = cacheMode
     }
+    if let cacheReason = event.cacheReason {
+      trace["cacheReason"] = cacheReason
+    }
     if let interactionMode = event.interactionMode {
       trace["interactionMode"] = interactionMode.rawValue
     }

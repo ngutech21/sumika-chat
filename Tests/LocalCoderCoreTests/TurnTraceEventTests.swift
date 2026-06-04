@@ -37,6 +37,7 @@ struct TurnTraceEventTests {
       ttftMs: 1234.5,
       tokensPerSecond: 21.5,
       cacheMode: "mlx_default",
+      cacheReason: "invalidated_history_prefix_mismatch",
       interactionMode: .agent,
       contextSignature: "ctx-new",
       previousContextSignature: "ctx-old",
@@ -66,6 +67,7 @@ struct TurnTraceEventTests {
     #expect(object["ttftMs"] as? Double == 1234.5)
     #expect(object["tokensPerSecond"] as? Double == 21.5)
     #expect(object["cacheMode"] as? String == "mlx_default")
+    #expect(object["cacheReason"] as? String == "invalidated_history_prefix_mismatch")
     #expect(object["interactionMode"] as? String == "agent")
     #expect(object["contextSignature"] as? String == "ctx-new")
     #expect(object["previousContextSignature"] as? String == "ctx-old")

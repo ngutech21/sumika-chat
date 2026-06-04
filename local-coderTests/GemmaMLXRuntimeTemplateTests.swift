@@ -422,8 +422,61 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(!decision.shouldReuse)
     #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.cacheReason == .invalidatedRendererVersionChanged)
     #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
     #expect(decision.trace.contextSignature != decision.trace.previousContextSignature)
+  }
+
+  @Test
+  func cacheDecisionReportsNewSessionWhenNoCacheExists() {
+    let settings = ChatGenerationSettings.codingDefault
+    let history = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello")
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: nil,
+      cachedSettings: nil,
+      cachedState: nil,
+      currentHistory: history,
+      currentSettings: settings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .newSessionHistory)
+    #expect(decision.trace.cacheReason == .newSessionNoCache)
+    #expect(decision.trace.mismatchReason == nil)
+  }
+
+  @Test
+  func cacheDecisionReportsRenderedContextSignatureChangeSeparatelyFromRendererVersion() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let cachedSignature = GemmaRenderedContextSignature(
+      rendererVersion: GemmaMLXRuntime.gemmaRendererVersion,
+      renderedHistoryHash: "different-history",
+      generationSettingsHash: GemmaMLXRuntime.renderedContextSignature(
+        for: prefix,
+        settings: settings
+      ).generationSettingsHash
+    )
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedContextSignature: cachedSignature,
+      cachedState: .clean,
+      currentHistory: prefix,
+      currentSettings: settings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.cacheReason == .invalidatedRenderedContextChanged)
+    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
   }
 
   @Test
@@ -572,6 +625,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(decision.shouldReuse)
     #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .sessionReused)
     #expect(decision.trace.appendOnly)
     #expect(decision.trace.reusedMessageCount == 2)
     #expect(decision.trace.appendedMessageCount == 0)
@@ -599,6 +653,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(!decision.shouldReuse)
     #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.cacheReason == .invalidatedHistoryPrefixMismatch)
     #expect(!decision.trace.appendOnly)
     #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
     #expect(decision.trace.firstMismatchIndex == 1)
@@ -623,6 +678,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(!decision.shouldReuse)
     #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.cacheReason == .invalidatedSettingsChanged)
     #expect(decision.trace.mismatchReason == "settings_changed")
     #expect(decision.trace.firstMismatchIndex == nil)
   }
@@ -675,6 +731,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(!decision.shouldReuse)
     #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.cacheReason == .invalidatedFocusedContextBoundary)
     #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
     #expect(decision.trace.firstMismatchIndex == 0)
     #expect(decision.trace.systemPromptChanged == false)
@@ -718,6 +775,7 @@ struct GemmaMLXRuntimeTemplateTests {
     )
 
     #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheReason == .invalidatedToolPromptChanged)
     #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
     #expect(decision.trace.firstMismatchIndex == 0)
     #expect(decision.trace.systemPromptChanged == true)
@@ -742,6 +800,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(!decision.shouldReuse)
     #expect(decision.trace.cacheMode == .invalidatedInterrupted)
+    #expect(decision.trace.cacheReason == .invalidatedGenInterrupted)
   }
 
   @Test
@@ -783,12 +842,16 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(!cancelled.shouldReuse)
     #expect(cancelled.trace.cacheMode == .invalidatedCancelled)
+    #expect(cancelled.trace.cacheReason == .invalidatedGenCancelled)
     #expect(!interrupted.shouldReuse)
     #expect(interrupted.trace.cacheMode == .invalidatedInterrupted)
+    #expect(interrupted.trace.cacheReason == .invalidatedGenInterrupted)
     #expect(!downstreamTerminated.shouldReuse)
     #expect(downstreamTerminated.trace.cacheMode == .invalidatedDownstreamTerminated)
+    #expect(downstreamTerminated.trace.cacheReason == .invalidatedGenDownstreamTerminated)
     #expect(!runtimeError.shouldReuse)
     #expect(runtimeError.trace.cacheMode == .invalidatedRuntimeError)
+    #expect(runtimeError.trace.cacheReason == .invalidatedGenRuntimeError)
   }
 
   @Test
@@ -921,6 +984,7 @@ struct GemmaMLXRuntimeTemplateTests {
   private func defaultCacheTrace() -> GemmaSessionCacheTrace {
     GemmaSessionCacheTrace(
       cacheMode: .newSessionHistory,
+      cacheReason: .newSessionNoCache,
       contextSignature: "context",
       previousContextSignature: nil,
       appendOnly: false,

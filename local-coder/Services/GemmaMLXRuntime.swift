@@ -65,6 +65,42 @@ nonisolated enum GemmaSessionInvalidationReason: Equatable, Sendable {
   }
 }
 
+nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
+  case sessionReused = "session_reused"
+  case newSessionNoCache = "new_session_no_cache"
+  case invalidatedGenCancelled = "invalidated_generation_cancelled"
+  case invalidatedGenInterrupted = "invalidated_generation_interrupted"
+  case invalidatedGenDownstreamTerminated = "invalidated_generation_downstream_terminated"
+  case invalidatedGenRuntimeError = "invalidated_generation_runtime_error"
+  case invalidatedSettingsChanged = "invalidated_settings_changed"
+  case invalidatedRendererVersionChanged = "invalidated_renderer_version_changed"
+  case invalidatedRenderedContextChanged = "invalidated_rendered_context_signature_changed"
+  case invalidatedHistoryAppended = "invalidated_history_appended"
+  case invalidatedHistoryPrefixMismatch = "invalidated_history_prefix_mismatch"
+  case invalidatedFocusedContextBoundary = "invalidated_focused_context_boundary"
+  case invalidatedToolPromptChanged = "invalidated_tool_prompt_changed"
+  case invalidatedModelChanged = "invalidated_model_changed"
+
+  static func generationInvalidationReason(
+    from reason: GemmaSessionInvalidationReason
+  ) -> GemmaSessionCacheReason {
+    switch reason {
+    case .signatureMismatch:
+      .invalidatedRenderedContextChanged
+    case .cancelled:
+      .invalidatedGenCancelled
+    case .interrupted:
+      .invalidatedGenInterrupted
+    case .downstreamTerminated:
+      .invalidatedGenDownstreamTerminated
+    case .runtimeError:
+      .invalidatedGenRuntimeError
+    case .modelChanged:
+      .invalidatedModelChanged
+    }
+  }
+}
+
 nonisolated struct GemmaMessageSnapshot: Equatable, Sendable {
   let role: String
   let content: String
@@ -191,6 +227,7 @@ nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
 
 nonisolated struct GemmaSessionCacheTrace: Equatable, Sendable {
   let cacheMode: GemmaSessionCacheMode
+  let cacheReason: GemmaSessionCacheReason
   let contextSignature: String
   let previousContextSignature: String?
   let appendOnly: Bool
@@ -368,6 +405,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           promptBytes: finalPrompt.utf8.count,
           messageCount: messages.count,
           cacheMode: cachePlan.trace.cacheMode.rawValue,
+          cacheReason: cachePlan.trace.cacheReason.rawValue,
           interactionMode: traceMetadata.interactionMode,
           contextSignature: cachePlan.trace.contextSignature,
           previousContextSignature: cachePlan.trace.previousContextSignature,
@@ -591,41 +629,56 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
 
     let cacheMode: GemmaSessionCacheMode
+    let cacheReason: GemmaSessionCacheReason
     let shouldReuse: Bool
     let mismatchReason: String?
     if cachedPrefix == nil, let invalidationReason = cachedState?.invalidationReason {
       cacheMode = invalidationReason.cacheMode
+      cacheReason = .generationInvalidationReason(from: invalidationReason)
       shouldReuse = false
       mismatchReason = nil
     } else if cachedPrefix == nil {
       cacheMode = .newSessionHistory
+      cacheReason = .newSessionNoCache
       shouldReuse = false
       mismatchReason = nil
     } else if cachedState?.isReusable != true {
       let invalidationReason = cachedState?.invalidationReason ?? .interrupted
       cacheMode = invalidationReason.cacheMode
+      cacheReason = .generationInvalidationReason(from: invalidationReason)
       shouldReuse = false
       mismatchReason = nil
     } else if cachedSettings != currentSettings {
       cacheMode = .invalidatedSignatureMismatch
+      cacheReason = .invalidatedSettingsChanged
       shouldReuse = false
       mismatchReason = "settings_changed"
     } else if cachedPrefix == currentHistory {
       if previousSignature == currentSignature {
         cacheMode = .sessionReused
+        cacheReason = .sessionReused
         shouldReuse = true
         mismatchReason = nil
       } else {
         cacheMode = .invalidatedSignatureMismatch
+        cacheReason = Self.signatureMismatchReason(
+          previousSignature: previousSignature,
+          currentSignature: currentSignature
+        )
         shouldReuse = false
         mismatchReason = "rendered_context_signature_changed"
       }
     } else if appendOnly {
       cacheMode = .invalidatedSignatureMismatch
+      cacheReason = .invalidatedHistoryAppended
       shouldReuse = false
       mismatchReason = "history_appended"
     } else {
       cacheMode = .invalidatedSignatureMismatch
+      cacheReason = Self.historyMismatchReason(
+        systemPromptChanged: systemPromptChanged,
+        focusedContextChanged: focusedContextChanged
+      )
       shouldReuse = false
       mismatchReason = "history_prefix_mismatch"
     }
@@ -634,6 +687,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       shouldReuse: shouldReuse,
       trace: GemmaSessionCacheTrace(
         cacheMode: cacheMode,
+        cacheReason: cacheReason,
         contextSignature: currentSignature.traceValue,
         previousContextSignature: previousSignature?.traceValue,
         appendOnly: appendOnly,
@@ -657,6 +711,32 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       renderedHistoryHash: contextSignature(for: messages),
       generationSettingsHash: generationSettingsSignature(for: settings)
     )
+  }
+
+  nonisolated private static func signatureMismatchReason(
+    previousSignature: GemmaRenderedContextSignature?,
+    currentSignature: GemmaRenderedContextSignature
+  ) -> GemmaSessionCacheReason {
+    guard let previousSignature else {
+      return .invalidatedRenderedContextChanged
+    }
+    if previousSignature.rendererVersion != currentSignature.rendererVersion {
+      return .invalidatedRendererVersionChanged
+    }
+    return .invalidatedRenderedContextChanged
+  }
+
+  nonisolated private static func historyMismatchReason(
+    systemPromptChanged: Bool?,
+    focusedContextChanged: Bool?
+  ) -> GemmaSessionCacheReason {
+    if focusedContextChanged == true {
+      return .invalidatedFocusedContextBoundary
+    }
+    if systemPromptChanged == true {
+      return .invalidatedToolPromptChanged
+    }
+    return .invalidatedHistoryPrefixMismatch
   }
 
   nonisolated private static func generationSettingsSignature(
@@ -826,6 +906,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                 phase: .memoryClear,
                 durationMs: durationMs,
                 cacheMode: cacheTrace.cacheMode.rawValue,
+                cacheReason: cacheTrace.cacheReason.rawValue,
                 interactionMode: traceMetadata.interactionMode,
                 contextSignature: cacheTrace.contextSignature,
                 previousContextSignature: cacheTrace.previousContextSignature,
@@ -860,6 +941,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                     durationMs: ttftMs,
                     ttftMs: ttftMs,
                     cacheMode: cacheTrace.cacheMode.rawValue,
+                    cacheReason: cacheTrace.cacheReason.rawValue,
                     interactionMode: traceMetadata.interactionMode,
                     contextSignature: cacheTrace.contextSignature,
                     previousContextSignature: cacheTrace.previousContextSignature,
@@ -897,6 +979,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
                   durationMs: Date().timeIntervalSince(decodeStartedAt) * 1000,
                   tokensPerSecond: info.tokensPerSecond,
                   cacheMode: cacheTrace.cacheMode.rawValue,
+                  cacheReason: cacheTrace.cacheReason.rawValue,
                   interactionMode: traceMetadata.interactionMode,
                   contextSignature: cacheTrace.contextSignature,
                   previousContextSignature: cacheTrace.previousContextSignature,

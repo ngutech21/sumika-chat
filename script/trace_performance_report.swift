@@ -170,7 +170,10 @@ func mergeTraceFields(_ object: [String: Any], into report: inout GenerationRepo
   report.turnID = report.turnID ?? value(object, "turnID", as: String.self)
   report.interactionMode = report.interactionMode ?? value(object, "interactionMode", as: String.self)
   report.cacheMode = report.cacheMode ?? value(object, "cacheMode", as: String.self)
-  report.cacheReason = report.cacheReason ?? value(object, "mismatchReason", as: String.self)
+  report.cacheReason =
+    report.cacheReason
+    ?? value(object, "cacheReason", as: String.self)
+    ?? value(object, "mismatchReason", as: String.self)
   report.contextSignature =
     report.contextSignature ?? value(object, "contextSignature", as: String.self)
   report.previousContextSignature =

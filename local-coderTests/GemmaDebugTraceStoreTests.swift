@@ -39,6 +39,7 @@ struct GemmaDebugTraceStoreTests {
         messageCount: 2,
         ttftMs: 123.5,
         cacheMode: "session_reused",
+        cacheReason: "session_reused",
         contextSignature: "ctx-new",
         previousContextSignature: "ctx-old",
         appendOnly: true,
@@ -65,6 +66,7 @@ struct GemmaDebugTraceStoreTests {
     #expect(object["messageCount"] as? Int == 2)
     #expect(object["ttftMs"] as? Double == 123.5)
     #expect(object["cacheMode"] as? String == "session_reused")
+    #expect(object["cacheReason"] as? String == "session_reused")
     #expect(object["contextSignature"] as? String == "ctx-new")
     #expect(object["previousContextSignature"] as? String == "ctx-old")
     #expect(object["appendOnly"] as? Bool == true)
