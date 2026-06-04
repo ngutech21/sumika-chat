@@ -15,12 +15,14 @@ struct AppSidebar: View {
         NavigationLink(value: AppNavigationSelection.models) {
           Label("Models", systemImage: "cpu")
         }
+        .accessibilityIdentifier("sidebar.modelsLink")
       }
 
       Section {
         Button(action: onAddWorkspace) {
           Label("Add Workspace", systemImage: "folder.badge.plus")
         }
+        .accessibilityIdentifier("sidebar.addWorkspaceButton")
       }
 
       ForEach(appState.workspaceLibrary.workspaces) { workspace in
@@ -29,6 +31,7 @@ struct AppSidebar: View {
             NavigationLink(value: AppNavigationSelection.session(session.id)) {
               Label(session.title, systemImage: "bubble.left.and.bubble.right")
             }
+            .accessibilityIdentifier("sidebar.sessionLink")
             .contextMenu {
               Button("Rename") {
                 sessionBeingRenamed = session
@@ -49,9 +52,11 @@ struct AppSidebar: View {
             Label("New Session", systemImage: "plus")
           }
           .buttonStyle(.borderless)
+          .accessibilityIdentifier("sidebar.newSessionButton")
         }
       }
     }
+    .accessibilityIdentifier("sidebar.workspaceList")
     .listStyle(.sidebar)
     .navigationTitle("local-coder")
     .alert("Rename Session", isPresented: renameAlertBinding) {

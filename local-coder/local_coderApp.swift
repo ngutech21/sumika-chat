@@ -6,7 +6,7 @@ import SwiftUI
 struct LocalCoderApp: App {
   var body: some Scene {
     WindowGroup {
-      ContentView()
+      ContentView(appState: AppLaunchConfiguration.makeAppState())
     }
   }
 }

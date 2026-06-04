@@ -174,10 +174,19 @@ Use Xcode/xcodebuild when building or packaging the macOS app, checking app-targ
 
 `just test-app` runs the Xcode app test target locally. `just test` runs both `test-core` and `test-app`.
 
+The repository also has local-only XCUITests in `local-coderUITests/` for end-to-end app flows that need the real macOS UI and real MLX/Gemma runtime. Run them explicitly with:
+
+```sh
+just ui-test
+```
+
+`just ui-test` uses the `local-coder-ui-tests` scheme and enables `LOCAL_CODER_DEBUG_TRACE=1`. It is intentionally not part of `just test`, `just test-app`, `just final-check`, or CI. These tests currently use `gemma3-27b` from the existing app model cache and must never download a model. If the local cache is missing, especially `~/Library/Containers/ngutech21.local-coder/Data/Library/Application Support/local-coder/Models/gemma3-27b/config.json`, the UI tests should skip cleanly.
+
 Choose the narrowest test task that matches the change:
 
 - For changes only under `Sources/LocalCoderCore/`, `Tests/LocalCoderCoreTests/`, or `Package.swift`, run `just test-core`.
 - For changes only under `local-coder/` or `local-coderTests/`, run `just test-app`.
+- For changes to `local-coderUITests/`, UI accessibility identifiers, app launch test mode, model-loading UI, chat/inspect UI flows, or Gemma trace behavior used by the UI tests, run `just ui-test` locally.
 - For changes that cross the Core/App boundary, change project wiring, or alter shared build/test configuration, run `just test`.
 - CI intentionally runs only `xcrun swift test` so GitHub Actions stays headless.
 
@@ -187,6 +196,7 @@ Prefer the project task runner for routine local checks:
 just build
 just test-core
 just test-app
+just ui-test
 just test
 just lint
 just format

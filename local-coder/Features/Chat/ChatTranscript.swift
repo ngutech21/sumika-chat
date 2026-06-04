@@ -21,6 +21,7 @@ struct ChatTranscript: View {
             description: Text(emptyStateDescription)
           )
           .frame(maxWidth: .infinity, minHeight: 360)
+          .accessibilityIdentifier("chat.emptyState")
         } else {
           ForEach(messages) { message in
             ChatBubble(
@@ -35,6 +36,8 @@ struct ChatTranscript: View {
       .padding(20)
       .frame(maxWidth: .infinity, alignment: .leading)
     }
+    .accessibilityIdentifier("chat.transcript")
+    .accessibilityValue(modelState.accessibilityValue)
   }
 
   private var emptyStateTitle: String {
@@ -142,6 +145,7 @@ private struct ChatBubble: View {
       }
     }
     .frame(maxWidth: .infinity)
+    .accessibilityIdentifier(message.accessibilityIdentifier)
   }
 
   private func copyMessageToClipboard() {
@@ -165,6 +169,7 @@ private struct GenerationMetricsView: View {
       .foregroundStyle(.secondary)
       .help(metrics.detailSummary)
       .accessibilityLabel(metrics.accessibilitySummary)
+      .accessibilityIdentifier("chat.generationMetrics")
   }
 }
 
@@ -310,5 +315,37 @@ extension ChatGenerationMetrics {
 extension ChatBubble {
   var messageBubbleBackground: Color {
     message.isDisplayedAsUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
+  }
+}
+
+extension ChatMessage {
+  fileprivate var accessibilityIdentifier: String {
+    switch payload {
+    case .assistant:
+      "chat.assistantMessage"
+    case .user:
+      "chat.userMessage"
+    case .system:
+      "chat.systemMessage"
+    case .toolCall:
+      "chat.toolCallMessage"
+    case .toolResult:
+      "chat.toolResultMessage"
+    }
+  }
+}
+
+extension ModelLoadState {
+  fileprivate var accessibilityValue: String {
+    switch self {
+    case .notLoaded:
+      "notLoaded"
+    case .loading:
+      "loading"
+    case .ready:
+      "ready"
+    case .failed:
+      "failed"
+    }
   }
 }

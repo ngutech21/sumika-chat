@@ -20,6 +20,9 @@ test-core:
 test-app:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
 
+ui-test:
+    LOCAL_CODER_DEBUG_TRACE=1 xcodebuild -project {{project}} -scheme local-coder-ui-tests -destination "{{destination}}" -derivedDataPath {{derived_data}} -parallel-testing-enabled NO test -only-testing:local-coderUITests/LocalCoderUITests
+
 coverage:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -enableCodeCoverage YES test
     @result=$(ls -td {{derived_data}}/Logs/Test/*.xcresult 2>/dev/null | head -n 1); \
@@ -72,7 +75,7 @@ final-check: format lint test check-warnings
 
 format:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
-    swift-format format --in-place --recursive --parallel local-coder local-coderTests Sources Tests Package.swift
+    swift-format format --in-place --recursive --parallel local-coder local-coderTests local-coderUITests Sources Tests Package.swift
 
 typos:
     typos

@@ -79,6 +79,7 @@ struct ChatComposer: View {
           .controlSize(.small)
           .disabled(!canChangeModel)
           .help("Select model for this workspace")
+          .accessibilityIdentifier("chat.modelPicker")
 
           if modelState != .ready {
             Button(action: onLoadModel) {
@@ -87,12 +88,14 @@ struct ChatComposer: View {
             .controlSize(.small)
             .disabled(!canLoadSelectedModel)
             .help(modelLoadHelp)
+            .accessibilityIdentifier("load-model-button")
           }
 
           Picker("Mode", selection: interactionModeSelection) {
             ForEach(WorkspaceInteractionMode.allCases, id: \.self) { mode in
               Text(mode.displayName)
                 .tag(mode)
+                .accessibilityIdentifier("chat.mode.\(mode.rawValue)")
             }
           }
           .pickerStyle(.segmented)
@@ -101,6 +104,7 @@ struct ChatComposer: View {
           .controlSize(.small)
           .disabled(!canChangeInteractionMode)
           .help("Select interaction mode")
+          .accessibilityIdentifier("chat.modePicker")
 
           ComposerResourceSummary(
             contextUsage: contextUsage,
