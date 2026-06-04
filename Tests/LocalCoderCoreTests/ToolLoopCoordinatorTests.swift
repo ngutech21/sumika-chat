@@ -586,11 +586,11 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(toolCallRecord(from: result)?.resultPreview == nil)
+    #expect(toolCallRecord(from: result)?.resultPreview?.status == .failed)
     #expect(completedToolResult(from: result)?.preview.status == .failed)
     #expect(
       completedToolResult(from: result)?.preview.text
-        == "read_file failed: Tool result unavailable for read_file.")
+        == "read_file failed: Failed for test.")
   }
 
   @Test
@@ -795,12 +795,16 @@ private struct NoPreviewToolOrchestrator: ToolOrchestrating {
     )
     return ToolCallRecord(
       request: request,
-      status: .failed,
       evaluation: ToolPermissionEvaluation(
         decision: .allowed,
         reason: "Allowed for test.",
         riskLevel: .low
-      )
+      ),
+      state: .failed(
+        .failure(
+          ToolFailure(
+            toolName: request.toolName, path: nil, reason: .executionError("Failed for test."))
+        ))
     )
   }
 }
@@ -820,16 +824,15 @@ private struct CompletedWriteFileToolOrchestrator: ToolOrchestrating {
     )
     return ToolCallRecord(
       request: request,
-      status: .completed,
       evaluation: ToolPermissionEvaluation(
         decision: .allowed,
         reason: "Allowed for test.",
         riskLevel: .high
       ),
-      resultPayload: .writeFile(
-        .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 19)
-      ),
-      resultPreview: ToolResultPreview(status: .success, text: "Wrote test content.")
+      state: .completed(
+        .writeFile(
+          .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 19)
+        ))
     )
   }
 }

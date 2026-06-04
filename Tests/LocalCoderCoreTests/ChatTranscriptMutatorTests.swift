@@ -268,11 +268,12 @@ private func makeToolCallRecord() -> ToolCallRecord {
   )
   return ToolCallRecord(
     request: request,
-    status: .completed,
     evaluation: ToolPermissionEvaluation(
       decision: .allowed,
       reason: "Allowed for test.",
       riskLevel: .low
-    )
+    ),
+    state: .completed(
+      .listFiles(ListFilesResult(root: WorkspaceRelativePath(rawValue: "."), entries: [])))
   )
 }

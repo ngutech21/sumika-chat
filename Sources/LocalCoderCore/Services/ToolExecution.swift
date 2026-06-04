@@ -259,17 +259,30 @@ public struct AnyToolExecutor: Sendable {
       return true
     }
 
-    record.resultPreview = preview
+    record.state = .awaitingApproval(preview: preview)
 
     switch preview.status {
     case .success:
       return true
     case .failed:
-      record.status = .failed
+      record.state = .failed(
+        ToolResultPayload.failure(
+          ToolFailure(
+            toolName: record.request.toolName,
+            path: firstPath(in: preview),
+            reason: .executionError(preview.text)
+          )))
       record.events.append(ToolCallEvent(actor: .tool, kind: .failed, message: preview.text))
       return false
     case .denied:
-      record.status = .denied
+      record.state = .denied(
+        ToolResultPayload.failure(
+          ToolFailure(
+            toolName: record.request.toolName,
+            path: firstPath(in: preview),
+            reason: .permissionDenied,
+            recovery: .askUser(message: preview.text)
+          )))
       record.evaluation = ToolPermissionEvaluation(
         decision: .denied,
         reason: preview.text,
@@ -291,34 +304,32 @@ public struct AnyToolExecutor: Sendable {
     case .allowed:
       return true
     case .requiresApproval where isApproved:
-      record.status = .approved
+      record.state = .approved
       record.events.append(
         ToolCallEvent(actor: .user, kind: .approved, message: "Approved by user."))
       return true
     case .requiresApproval:
-      record.status = .awaitingApproval
+      let preview = record.approvalPreview
+      record.state = .awaitingApproval(preview: preview)
       record.events.append(
         ToolCallEvent(actor: .system, kind: .awaitingApproval, message: evaluation.reason))
       return false
     case .denied:
-      let preview = ToolResultPreview(
-        status: .denied,
-        text: evaluation.reason,
-        affectedPaths: evaluation.modelFacingPaths
-      )
-      record.status = .denied
-      record.resultPayload = .failure(
-        ToolFailure(
-          toolName: record.request.toolName,
-          path: evaluation.firstModelFacingPath,
-          reason: .permissionDenied,
-          recovery: .askUser(message: evaluation.reason)
-        )
-      )
-      record.resultPreview = preview
+      record.state = .denied(
+        .failure(
+          ToolFailure(
+            toolName: record.request.toolName,
+            path: evaluation.firstModelFacingPath,
+            reason: .permissionDenied,
+            recovery: .askUser(message: evaluation.reason)
+          )))
       record.events.append(ToolCallEvent(actor: .system, kind: .denied, message: evaluation.reason))
       return false
     }
+  }
+
+  private static func firstPath(in preview: ToolResultPreview) -> WorkspaceRelativePath? {
+    preview.affectedPaths.first.map { WorkspaceRelativePath(rawValue: $0) }
   }
 
   private static func runEvaluatedTool<T: TypedToolExecutor>(
@@ -329,18 +340,16 @@ public struct AnyToolExecutor: Sendable {
     context: ToolContext
   ) async -> ToolCallRecord {
     var record = record
-    record.status = .running
+    record.state = .running
     record.events.append(
       ToolCallEvent(actor: .tool, kind: .started, message: "Started \(request.toolName.rawValue)."))
 
     let payload = await tool.run(input, context: context)
     let preview = payload.preview
-    record.resultPayload = payload
-    record.resultPreview = preview
 
     switch preview.status {
     case .success:
-      record.status = .completed
+      record.state = .completed(payload)
       record.events.append(
         ToolCallEvent(
           actor: .tool,
@@ -348,10 +357,10 @@ public struct AnyToolExecutor: Sendable {
           message: "Completed \(request.toolName.rawValue)."
         ))
     case .failed:
-      record.status = .failed
+      record.state = .failed(payload)
       record.events.append(ToolCallEvent(actor: .tool, kind: .failed, message: preview.text))
     case .denied:
-      record.status = .denied
+      record.state = .denied(payload)
       record.events.append(ToolCallEvent(actor: .tool, kind: .denied, message: preview.text))
     }
 
@@ -365,20 +374,19 @@ public struct AnyToolExecutor: Sendable {
   ) -> ToolCallRecord {
     let message = "Invalid arguments for \(definition.name.rawValue): \(error.localizedDescription)"
     var record = makePendingRecord(request: request)
-    record.status = .failed
+    record.state = .failed(
+      .failure(
+        ToolFailure(
+          toolName: definition.name,
+          path: nil,
+          reason: .invalidArguments(.parserError(error.localizedDescription))
+        )
+      ))
     record.evaluation = ToolPermissionEvaluation(
       decision: .denied,
       reason: message,
       riskLevel: definition.riskLevel
     )
-    record.resultPayload = .failure(
-      ToolFailure(
-        toolName: definition.name,
-        path: nil,
-        reason: .invalidArguments(.parserError(error.localizedDescription))
-      )
-    )
-    record.resultPreview = ToolResultPreview(status: .failed, text: message)
     record.events.append(ToolCallEvent(actor: .system, kind: .failed, message: message))
     return record
   }
@@ -386,7 +394,6 @@ public struct AnyToolExecutor: Sendable {
   private static func makePendingRecord(request: ToolCallRequest) -> ToolCallRecord {
     ToolCallRecord(
       request: request,
-      status: .pending,
       evaluation: ToolPermissionEvaluation(
         decision: .denied,
         reason: "Tool call has not been evaluated.",
@@ -398,7 +405,8 @@ public struct AnyToolExecutor: Sendable {
           kind: .requested,
           message: "Requested \(request.toolName.rawValue)."
         )
-      ]
+      ],
+      state: .pending
     )
   }
 
@@ -1238,7 +1246,6 @@ public struct ToolOrchestrator: Sendable {
   private func deniedRecord(request: ToolCallRequest, message: String) -> ToolCallRecord {
     ToolCallRecord(
       request: request,
-      status: .denied,
       evaluation: ToolPermissionEvaluation(
         decision: .denied,
         reason: message,
@@ -1246,15 +1253,14 @@ public struct ToolOrchestrator: Sendable {
       ),
       events: requestedEvents(request: request)
         + [ToolCallEvent(actor: .system, kind: .denied, message: message)],
-      resultPayload: .failure(
-        ToolFailure(
-          toolName: request.toolName,
-          path: nil,
-          reason: .permissionDenied,
-          recovery: .askUser(message: message)
-        )
-      ),
-      resultPreview: ToolResultPreview(status: .denied, text: message)
+      state: .denied(
+        .failure(
+          ToolFailure(
+            toolName: request.toolName,
+            path: nil,
+            reason: .permissionDenied,
+            recovery: .askUser(message: message)
+          )))
     )
   }
 
@@ -1264,9 +1270,12 @@ public struct ToolOrchestrator: Sendable {
     message: String,
     riskLevel: ToolRiskLevel
   ) -> ToolCallRecord {
-    ToolCallRecord(
+    let resultPayload =
+      payload
+      ?? .failure(
+        ToolFailure(toolName: request.toolName, path: nil, reason: .executionError(message)))
+    return ToolCallRecord(
       request: request,
-      status: .failed,
       evaluation: ToolPermissionEvaluation(
         decision: .denied,
         reason: message,
@@ -1274,10 +1283,7 @@ public struct ToolOrchestrator: Sendable {
       ),
       events: requestedEvents(request: request)
         + [ToolCallEvent(actor: .system, kind: .failed, message: message)],
-      resultPayload: payload
-        ?? .failure(
-          ToolFailure(toolName: request.toolName, path: nil, reason: .executionError(message))),
-      resultPreview: ToolResultPreview(status: .failed, text: message)
+      state: .failed(resultPayload)
     )
   }
 

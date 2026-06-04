@@ -892,7 +892,8 @@ struct ToolExecutionTests {
     #expect(result.evaluation.riskLevel == .high)
     #expect(result.resultPreview?.status == .denied)
     #expect(
-      result.resultPreview?.text == "Tool call workspace does not match the active workspace."
+      result.resultPreview?.text
+        == "read_file failed: Permission denied. Tool call workspace does not match the active workspace."
     )
   }
 

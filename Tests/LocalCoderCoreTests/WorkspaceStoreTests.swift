@@ -196,7 +196,6 @@ struct WorkspaceStoreTests {
     )
     return ToolCallRecord(
       request: request,
-      status: .awaitingApproval,
       evaluation: ToolPermissionEvaluation(
         decision: .allowed,
         reason: "Reading files inside the workspace is allowed.",
@@ -219,17 +218,12 @@ struct WorkspaceStoreTests {
           message: "Cancelled by user"
         ),
       ],
-      resultPayload: .readFile(
-        .success(
-          path: WorkspaceRelativePath(rawValue: "README.md"),
-          content: ToolTextOutput(text: "Preview", truncated: true, redacted: true)
-        )),
-      resultPreview: ToolResultPreview(
-        text: "Preview",
-        truncated: true,
-        redacted: true,
-        affectedPaths: ["/tmp/project/README.md"]
-      )
+      state: .completed(
+        .readFile(
+          .success(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            content: ToolTextOutput(text: "Preview", truncated: true, redacted: true)
+          )))
     )
   }
 

@@ -591,7 +591,6 @@ public struct ToolLoopCoordinator: Sendable {
     )
     return ToolCallRecord(
       request: request,
-      status: .failed,
       evaluation: ToolPermissionEvaluation(
         decision: .denied,
         reason: message,
@@ -605,8 +604,7 @@ public struct ToolLoopCoordinator: Sendable {
         ),
         ToolCallEvent(actor: .system, kind: .failed, message: message),
       ],
-      resultPayload: resultPayload,
-      resultPreview: resultPayload.preview
+      state: .failed(resultPayload)
     )
   }
 

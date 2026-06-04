@@ -115,4 +115,42 @@ struct ToolCallTests {
     #expect(message.transcriptArguments.map(\.name) == ["path"])
     #expect(message.transcriptArguments.map(\.value) == ["Sources/App.swift"])
   }
+
+  @Test
+  func toolCallStateDerivesCompletedStatusPayloadAndPreview() {
+    let payload = ToolResultPayload.writeFile(
+      .success(path: WorkspaceRelativePath(rawValue: "README.md"), bytesWritten: 12)
+    )
+    let state = ToolCallState.completed(payload)
+
+    #expect(state.status == .completed)
+    #expect(state.resultPayload == payload)
+    #expect(state.approvalPreview == nil)
+    #expect(state.preview == payload.preview)
+  }
+
+  @Test
+  func toolCallStateDerivesAwaitingApprovalPreviewWithoutPayload() {
+    let preview = ToolResultPreview(
+      status: .success,
+      text: "Will update README.md.",
+      affectedPaths: ["README.md"]
+    )
+    let state = ToolCallState.awaitingApproval(preview: preview)
+
+    #expect(state.status == .awaitingApproval)
+    #expect(state.resultPayload == nil)
+    #expect(state.approvalPreview == preview)
+    #expect(state.preview == preview)
+  }
+
+  @Test
+  func toolCallStateNonResultStatesHaveNoPayload() {
+    let states: [ToolCallState] = [.pending, .running, .cancelled]
+
+    for state in states {
+      #expect(state.resultPayload == nil)
+      #expect(state.preview == nil)
+    }
+  }
 }

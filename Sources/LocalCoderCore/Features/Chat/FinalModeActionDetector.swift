@@ -235,7 +235,6 @@ public struct FinalModeActionDetector: Sendable {
     )
     return ToolCallRecord(
       request: request,
-      status: .failed,
       evaluation: ToolPermissionEvaluation(
         decision: .denied,
         reason: evaluationReason(for: requestedTool, reason: reason),
@@ -248,8 +247,7 @@ public struct FinalModeActionDetector: Sendable {
           message: eventMessage(for: requestedTool, reason: reason)
         )
       ],
-      resultPayload: payload,
-      resultPreview: payload.preview
+      state: .failed(payload)
     )
   }
 

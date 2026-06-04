@@ -331,11 +331,35 @@ private func makeToolCallRecord(
     )
   return ToolCallRecord(
     request: resolvedRequest,
-    status: status,
     evaluation: ToolPermissionEvaluation(
       decision: .allowed,
       reason: "Allowed for test.",
       riskLevel: .low
-    )
+    ),
+    state: toolCallState(status: status)
   )
+}
+
+private func toolCallState(status: ToolCallStatus) -> ToolCallState {
+  switch status {
+  case .pending:
+    return .pending
+  case .awaitingApproval:
+    return .awaitingApproval(preview: nil)
+  case .approved:
+    return .approved
+  case .running:
+    return .running
+  case .completed:
+    return .completed(
+      .listFiles(ListFilesResult(root: WorkspaceRelativePath(rawValue: "."), entries: [])))
+  case .denied:
+    return .denied(
+      .failure(ToolFailure(toolName: .listFiles, path: nil, reason: .permissionDenied)))
+  case .failed:
+    return .failed(
+      .failure(ToolFailure(toolName: .listFiles, path: nil, reason: .executionError("Failed."))))
+  case .cancelled:
+    return .cancelled
+  }
 }

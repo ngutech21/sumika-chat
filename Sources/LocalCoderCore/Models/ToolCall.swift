@@ -448,26 +448,92 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   public var id: UUID { request.id }
 
   public var request: ToolCallRequest
-  public var status: ToolCallStatus
   public var evaluation: ToolPermissionEvaluation
   public var events: [ToolCallEvent]
-  public var resultPayload: ToolResultPayload?
-  public var resultPreview: ToolResultPreview?
+  public var state: ToolCallState
+
+  public var status: ToolCallStatus {
+    state.status
+  }
+
+  public var resultPayload: ToolResultPayload? {
+    state.resultPayload
+  }
+
+  public var approvalPreview: ToolResultPreview? {
+    state.approvalPreview
+  }
+
+  public var resultPreview: ToolResultPreview? {
+    state.preview
+  }
 
   public init(
     request: ToolCallRequest,
-    status: ToolCallStatus,
     evaluation: ToolPermissionEvaluation,
     events: [ToolCallEvent] = [],
-    resultPayload: ToolResultPayload? = nil,
-    resultPreview: ToolResultPreview? = nil
+    state: ToolCallState
   ) {
     self.request = request
-    self.status = status
     self.evaluation = evaluation
     self.events = events
-    self.resultPayload = resultPayload
-    self.resultPreview = resultPreview
+    self.state = state
+  }
+}
+
+public enum ToolCallState: Codable, Equatable, Sendable {
+  case pending
+  case awaitingApproval(preview: ToolResultPreview?)
+  case approved
+  case running
+  case completed(ToolResultPayload)
+  case denied(ToolResultPayload)
+  case failed(ToolResultPayload)
+  case cancelled
+}
+
+nonisolated extension ToolCallState {
+  public var status: ToolCallStatus {
+    switch self {
+    case .pending:
+      .pending
+    case .awaitingApproval:
+      .awaitingApproval
+    case .approved:
+      .approved
+    case .running:
+      .running
+    case .completed:
+      .completed
+    case .denied:
+      .denied
+    case .failed:
+      .failed
+    case .cancelled:
+      .cancelled
+    }
+  }
+
+  public var resultPayload: ToolResultPayload? {
+    switch self {
+    case .completed(let payload), .denied(let payload), .failed(let payload):
+      payload
+    case .pending, .awaitingApproval, .approved, .running, .cancelled:
+      nil
+    }
+  }
+
+  public var approvalPreview: ToolResultPreview? {
+    switch self {
+    case .awaitingApproval(let preview):
+      preview
+    case .pending, .approved, .running, .completed, .denied, .failed, .cancelled:
+      nil
+    }
+  }
+
+  public var preview: ToolResultPreview? {
+    resultPayload?.preview ?? approvalPreview
   }
 }
 

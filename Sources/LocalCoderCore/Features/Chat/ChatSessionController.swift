@@ -917,19 +917,14 @@ extension ChatSessionController {
 
     let message = "Tool call denied by user."
     var deniedRecord = existingRecord
-    deniedRecord.status = .denied
-    deniedRecord.resultPayload = .failure(
-      ToolFailure(
-        toolName: deniedRecord.request.toolName,
-        path: deniedRecord.evaluation.firstModelFacingPath,
-        reason: .permissionDenied,
-        recovery: .askUser(message: message)
-      )
-    )
-    deniedRecord.resultPreview = ToolResultPreview(
-      status: .denied,
-      text: message,
-      affectedPaths: existingRecord.evaluation.modelFacingPaths
+    deniedRecord.state = .denied(
+      .failure(
+        ToolFailure(
+          toolName: deniedRecord.request.toolName,
+          path: deniedRecord.evaluation.firstModelFacingPath,
+          reason: .permissionDenied,
+          recovery: .askUser(message: message)
+        ))
     )
     deniedRecord.events.append(ToolCallEvent(actor: .user, kind: .denied, message: message))
     let nextAssistantMessageID = UUID()
