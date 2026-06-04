@@ -58,6 +58,18 @@ struct TaggedToolCallingTests {
   }
 
   @Test
+  func parserReturnsNoneForWhitespaceOnlyAssistantText() throws {
+    let result = try TaggedToolCallParser().parse(
+      " \n\t  ",
+      workspaceID: UUID(),
+      sessionID: UUID(),
+      createdAt: Date(timeIntervalSince1970: 1)
+    )
+
+    #expect(result == .none)
+  }
+
+  @Test
   func parserParsesReadFileAction() throws {
     let workspaceID = UUID()
     let sessionID = UUID()
@@ -498,6 +510,15 @@ struct TaggedToolCallingTests {
     #expect(throws: TaggedToolCallParseError.unclosedAction) {
       _ = try TaggedToolCallParser().parse(
         #"<action name="read_file"><path>a.swift</path>"#,
+        workspaceID: UUID(),
+        sessionID: UUID(),
+        createdAt: Date()
+      )
+    }
+
+    #expect(throws: TaggedToolCallParseError.unclosedAction) {
+      _ = try TaggedToolCallParser().parse(
+        #"<action name="read_file">"# + "\n   ",
         workspaceID: UUID(),
         sessionID: UUID(),
         createdAt: Date()

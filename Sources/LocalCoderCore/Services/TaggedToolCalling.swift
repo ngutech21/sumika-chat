@@ -169,6 +169,9 @@ public struct TaggedToolCallParser: ToolCallParsing {
 
     while cursor < text.endIndex {
       cursor = skipWhitespace(in: text, from: cursor)
+      guard cursor < text.endIndex else {
+        break
+      }
 
       if text[cursor...].hasPrefix("</action>") {
         cursor = text.index(cursor, offsetBy: "</action>".count)

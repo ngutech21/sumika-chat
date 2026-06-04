@@ -126,6 +126,16 @@ struct ToolCallRequestValidatorTests {
   }
 
   @Test
+  func invalidEditFileWithoutArgumentsReportsMissingRequiredArgument() {
+    let request = validator.validate(
+      raw(.editFile, arguments: [:]),
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(invalidReason(request) == .missingRequiredArgument("path"))
+  }
+
+  @Test
   func payloadMatchingAllowsOnlyInvalidPayloadsToKeepOriginalToolName() {
     #expect(ToolCallPayload.readFile(ReadFileInput(path: "README.md")).matches(.readFile))
     #expect(ToolCallPayload.showFile(ReadFileInput(path: "README.md")).matches(.showFile))
