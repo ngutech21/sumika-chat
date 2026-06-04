@@ -27,6 +27,7 @@ struct ChatComposer: View {
   let onSend: () -> Void
   let onCancel: () -> Void
   @State private var isDropTarget = false
+  @FocusState private var messageFieldFocused: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -50,8 +51,9 @@ struct ChatComposer: View {
           .lineLimit(1...5)
           .frame(minHeight: 36, alignment: .topLeading)
           .accessibilityIdentifier("message-field")
-          .disabled(modelState != .ready || isGenerating || isInputBlocked)
-          .onSubmit(onSend)
+          .focused($messageFieldFocused)
+          .disabled(modelState != .ready || isInputBlocked)
+          .onSubmit(sendMessage)
           .onDrop(
             of: [UTType.fileURL.identifier],
             isTargeted: $isDropTarget,
@@ -113,7 +115,7 @@ struct ChatComposer: View {
 
           Spacer()
 
-          Button(action: isGenerating ? onCancel : onSend) {
+          Button(action: isGenerating ? onCancel : sendMessage) {
             Image(systemName: isGenerating ? "stop.fill" : "paperplane.fill")
           }
           .accessibilityIdentifier(isGenerating ? "cancel-generation-button" : "send-button")
@@ -148,6 +150,9 @@ struct ChatComposer: View {
       isTargeted: $isDropTarget,
       perform: handleDrop
     )
+    .onAppear {
+      messageFieldFocused = true
+    }
   }
 
   private var modelSelection: Binding<ManagedModel.ID> {
@@ -184,6 +189,15 @@ struct ChatComposer: View {
     isSelectedModelDownloaded
       ? "Load selected model"
       : "Download this model from Models first"
+  }
+
+  private func sendMessage() {
+    guard canSend else {
+      return
+    }
+
+    onSend()
+    messageFieldFocused = true
   }
 
   private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
