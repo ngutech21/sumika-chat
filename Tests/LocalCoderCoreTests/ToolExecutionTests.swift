@@ -582,6 +582,20 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func runCommandDefinitionIsAvailableOnlyInCodingAgentRegistry() {
+    let definition = ToolDefinition.runCommand
+
+    #expect(definition.name == .runCommand)
+    #expect(definition.parameters.map(\.name) == ["command", "timeoutSeconds", "reason"])
+    #expect(definition.parameters.first { $0.name == "timeoutSeconds" }?.minimum == 1)
+    #expect(definition.parameters.first { $0.name == "timeoutSeconds" }?.maximum == 120)
+    #expect(definition.capabilities == [.runCommand])
+    #expect(definition.riskLevel == .high)
+    #expect(!ToolExecutorRegistry.readOnly.definitions.map(\.name).contains(.runCommand))
+    #expect(ToolExecutorRegistry.codingAgent.definitions.map(\.name).contains(.runCommand))
+  }
+
+  @Test
   func workspaceDiffReturnsCleanWorkspaceMessage() async throws {
     let workspace = try makeWorkspace()
     try initializeGitRepository(in: workspace)
@@ -977,6 +991,256 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func runCommandRequiresApprovalWithoutSpawningProcess() async throws {
+    let workspace = try makeWorkspace()
+    let runner = SpyCommandProcessRunner()
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(RunCommandToolExecutor(processRunner: runner))
+    ])
+    let command = "printf 'hello'"
+
+    let result = await ToolOrchestrator(executorRegistry: registry).execute(
+      request: request(
+        .runCommand,
+        workspace: workspace,
+        arguments: [
+          "command": .string(command),
+          "timeoutSeconds": .number(10),
+          "reason": .string("Verify command approval preview."),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .awaitingApproval)
+    #expect(result.evaluation.decision == .requiresApproval)
+    #expect(result.resultPreview?.text.contains(command) == true)
+    #expect(result.resultPreview?.text.contains("Timeout: 10 seconds") == true)
+    #expect(await runner.spawnCount == 0)
+    guard case .runCommand(let input) = result.request.payload else {
+      Issue.record("Expected run_command typed input.")
+      return
+    }
+    #expect(input.command == command)
+  }
+
+  @Test
+  func approvedRunCommandSpawnsExactCommandAndStoresLatestResult() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let runner = SpyCommandProcessRunner(
+      result: CommandProcessResult(
+        exitCode: 0,
+        durationMs: 25,
+        stdout: "ok\n",
+        stderr: ""
+      )
+    )
+    let store = LatestCommandResultStore()
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(RunCommandToolExecutor(processRunner: runner))
+    ])
+    let command = "printf 'ok\\n'"
+
+    let result = await ToolOrchestrator(
+      executorRegistry: registry,
+      latestCommandResultStore: store
+    ).executeApproved(
+      request: request(
+        .runCommand,
+        workspace: workspace,
+        sessionID: sessionID,
+        arguments: [
+          "command": .string(command),
+          "timeoutSeconds": .number(10),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .completed)
+    #expect(await runner.spawnCount == 1)
+    #expect(await runner.lastRequest?.executableURL.path(percentEncoded: false) == "/bin/bash")
+    #expect(await runner.lastRequest?.arguments == ["-c", command])
+    #expect(await runner.lastRequest?.workingDirectoryURL == workspace.rootURL)
+    #expect(
+      await runner.lastRequest?.environment["PWD"] == workspace.rootURL.path(percentEncoded: false))
+    guard case .runCommand(let payload) = result.resultPayload else {
+      Issue.record("Expected run_command result payload.")
+      return
+    }
+    #expect(payload.command == command)
+    #expect(payload.exitCode == 0)
+    #expect(payload.stdout.text == "ok\n")
+    #expect(await store.result(workspaceID: workspace.id, sessionID: sessionID) == payload)
+  }
+
+  @Test
+  func runCommandNonZeroExitIsStructuredCompletedResult() async throws {
+    let workspace = try makeWorkspace()
+    let runner = SpyCommandProcessRunner(
+      result: CommandProcessResult(
+        exitCode: 2,
+        durationMs: 30,
+        stdout: "",
+        stderr: "tests failed\n"
+      )
+    )
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(RunCommandToolExecutor(processRunner: runner))
+    ])
+
+    let result = await ToolOrchestrator(executorRegistry: registry).executeApproved(
+      request: request(
+        .runCommand,
+        workspace: workspace,
+        arguments: [
+          "command": .string("false"),
+          "timeoutSeconds": .number(5),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .completed)
+    guard case .runCommand(let payload) = result.resultPayload else {
+      Issue.record("Expected run_command result payload.")
+      return
+    }
+    #expect(payload.exitCode == 2)
+    #expect(payload.stderr.text == "tests failed\n")
+    #expect(result.resultPreview?.text.contains("Exit code: 2") == true)
+  }
+
+  @Test
+  func runCommandRecordsTimeoutCancellationAndOutputLimits() async throws {
+    let workspace = try makeWorkspace()
+    let runner = SpyCommandProcessRunner(
+      result: CommandProcessResult(
+        exitCode: nil,
+        durationMs: 120_000,
+        stdout: "abc🙂def",
+        stderr: "cancelled",
+        timedOut: true,
+        cancelled: true
+      )
+    )
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(RunCommandToolExecutor(maxOutputBytes: 8, processRunner: runner))
+    ])
+
+    let result = await ToolOrchestrator(executorRegistry: registry).executeApproved(
+      request: request(
+        .runCommand,
+        workspace: workspace,
+        arguments: [
+          "command": .string("sleep 999"),
+          "timeoutSeconds": .number(999),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    guard case .runCommand(let payload) = result.resultPayload else {
+      Issue.record("Expected run_command result payload.")
+      return
+    }
+    #expect(await runner.lastRequest?.timeoutSeconds == 120)
+    #expect(payload.timeoutSeconds == 120)
+    #expect(payload.timedOut)
+    #expect(payload.cancelled)
+    #expect(payload.stdout.truncated)
+    #expect(payload.outputTruncated)
+    #expect(payload.stdout.text.contains("[run_command stdout truncated]"))
+  }
+
+  @Test
+  func invalidRunCommandArgumentsFailBeforeApproval() async throws {
+    let workspace = try makeWorkspace()
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(RunCommandToolExecutor(processRunner: SpyCommandProcessRunner()))
+    ])
+
+    let missingTimeout = await ToolOrchestrator(executorRegistry: registry).execute(
+      request: request(
+        .runCommand,
+        workspace: workspace,
+        arguments: ["command": .string("just test-core")]
+      ),
+      workspace: workspace
+    )
+    let invalidTimeout = await ToolOrchestrator(executorRegistry: registry).execute(
+      request: request(
+        .runCommand,
+        workspace: workspace,
+        arguments: [
+          "command": .string("just test-core"),
+          "timeoutSeconds": .string("soon"),
+        ]
+      ),
+      workspace: workspace
+    )
+    let unknownArgument = await ToolOrchestrator(executorRegistry: registry).execute(
+      request: request(
+        .runCommand,
+        workspace: workspace,
+        arguments: [
+          "command": .string("just test-core"),
+          "timeoutSeconds": .number(10),
+          "cwd": .string("/tmp"),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    #expect(missingTimeout.status == .failed)
+    #expect(
+      missingTimeout.resultPreview?.text.contains("Missing required argument: timeoutSeconds")
+        == true)
+    #expect(invalidTimeout.status == .failed)
+    #expect(
+      invalidTimeout.resultPreview?.text.contains("timeoutSeconds must be an integer") == true)
+    #expect(unknownArgument.status == .failed)
+    #expect(unknownArgument.resultPreview?.text.contains("Unknown argument") == true)
+  }
+
+  @Test
+  func deniedRunCommandDoesNotOverwriteLatestCommandResult() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    let existing = RunCommandResult(
+      command: "just test-core",
+      timeoutSeconds: 10,
+      exitCode: 0,
+      durationMs: 1,
+      stdout: ToolTextOutput(text: "ok"),
+      stderr: ToolTextOutput(text: "")
+    )
+    await store.record(existing, workspaceID: workspace.id, sessionID: sessionID)
+
+    _ = await ToolOrchestrator(
+      executorRegistry: ToolExecutorRegistry([
+        AnyToolExecutor(RunCommandToolExecutor(processRunner: SpyCommandProcessRunner()))
+      ]),
+      latestCommandResultStore: store
+    ).execute(
+      request: request(
+        .runCommand,
+        workspace: workspace,
+        sessionID: sessionID,
+        arguments: [
+          "command": .string("just test"),
+          "timeoutSeconds": .number(120),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    #expect(await store.result(workspaceID: workspace.id, sessionID: sessionID) == existing)
+  }
+
+  @Test
   func orchestratorDecodesTypedInputsBeforeExecution() async throws {
     let workspace = try makeWorkspace()
     try write("hello", to: "README.md", in: workspace)
@@ -1128,17 +1392,19 @@ struct ToolExecutionTests {
         .workspaceDiff,
         .editFile,
         .writeFile,
+        .runCommand,
       ])
   }
 
   private func request(
     _ toolName: ToolName,
     workspace: Workspace,
+    sessionID: ChatSession.ID = UUID(),
     arguments: ToolCallArguments
   ) -> RawToolCallRequest {
     RawToolCallRequest(
       workspaceID: workspace.id,
-      sessionID: UUID(),
+      sessionID: sessionID,
       toolName: toolName,
       arguments: arguments
     )
@@ -1226,5 +1492,34 @@ private struct TestGitError: Error, CustomStringConvertible {
 
   var description: String {
     "git \(arguments.joined(separator: " ")) failed: \(errorText)"
+  }
+}
+
+private actor SpyCommandProcessRunner: CommandProcessRunning {
+  private(set) var requests: [CommandProcessRequest] = []
+  private let result: CommandProcessResult
+
+  init(
+    result: CommandProcessResult = CommandProcessResult(
+      exitCode: 0,
+      durationMs: 1,
+      stdout: "",
+      stderr: ""
+    )
+  ) {
+    self.result = result
+  }
+
+  var spawnCount: Int {
+    requests.count
+  }
+
+  var lastRequest: CommandProcessRequest? {
+    requests.last
+  }
+
+  func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult {
+    requests.append(request)
+    return result
   }
 }

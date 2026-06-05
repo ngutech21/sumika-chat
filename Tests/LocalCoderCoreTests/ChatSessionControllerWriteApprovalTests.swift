@@ -202,6 +202,48 @@ struct ChatSessionControllerWriteApprovalTests {
   }
 
   @Test
+  func denyingRunCommandDoesNotSpawnProcessAndAllowsFinalAssistantResponse() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runner = ApprovalSpyCommandProcessRunner()
+    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+      [
+        runCommandAction(
+          command: "just test-core",
+          timeoutSeconds: 120,
+          reason: "Verify tests."
+        )
+      ],
+      ["I did not run the command."],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: ToolExecutorRegistry([
+          AnyToolExecutor(RunCommandToolExecutor(processRunner: runner))
+        ]))
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.draft = "run tests"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
+    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
+
+    controller.denyToolCall(id: toolCallID)
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(await runner.spawnCount == 0)
+    #expect(controller.chatSession.toolCalls[0].request.toolName == .runCommand)
+    #expect(controller.chatSession.toolCalls[0].status == .denied)
+    #expect(controller.chatSession.toolCalls[0].resultPreview?.status == .denied)
+    #expect(controller.chatSession.testMessages[2].toolResult?.preview.status == .denied)
+    #expect(controller.chatSession.testMessages[3].content == "I did not run the command.")
+  }
+
+  @Test
   func denyingWriteFileRecordsFinalModeToolAttemptInsteadOfLeavingActionText() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -554,6 +596,33 @@ struct ChatSessionControllerWriteApprovalTests {
     </new_text>
     </action>
     """
+  }
+
+  private func runCommandAction(
+    command: String,
+    timeoutSeconds: Int,
+    reason: String
+  ) -> String {
+    """
+    <action name="run_command">
+    <command>\(command)</command>
+    <timeoutSeconds>\(timeoutSeconds)</timeoutSeconds>
+    <reason>\(reason)</reason>
+    </action>
+    """
+  }
+}
+
+private actor ApprovalSpyCommandProcessRunner: CommandProcessRunning {
+  private(set) var requests: [CommandProcessRequest] = []
+
+  var spawnCount: Int {
+    requests.count
+  }
+
+  func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult {
+    requests.append(request)
+    return CommandProcessResult(exitCode: 0, durationMs: 1, stdout: "", stderr: "")
   }
 }
 

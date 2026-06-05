@@ -79,6 +79,14 @@ public struct ToolPermissionEvaluator: Sendable {
         riskLevel: .high,
         successReason: "Editing files inside the workspace requires approval."
       )
+    case .runCommand:
+      return evaluatePathTool(
+        paths: ["."],
+        in: workspace,
+        decision: .requiresApproval,
+        riskLevel: .high,
+        successReason: "Running commands inside the workspace requires approval."
+      )
     case .invalid(let input):
       return ToolPermissionEvaluation(
         decision: .denied,

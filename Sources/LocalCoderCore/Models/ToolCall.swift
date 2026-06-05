@@ -239,6 +239,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
   case workspaceDiff(WorkspaceDiffInput)
   case writeFile(WriteFileInput)
   case editFile(EditFileInput)
+  case runCommand(RunCommandInput)
   case invalid(InvalidToolInput)
 }
 
@@ -261,6 +262,8 @@ nonisolated extension ToolCallPayload {
       .writeFile
     case .editFile:
       .editFile
+    case .runCommand:
+      .runCommand
     case .invalid:
       .invalid
     }
@@ -300,6 +303,7 @@ public enum InvalidToolCallReason: Error, Codable, Equatable, Sendable {
   case invalidArgumentType(name: String, expected: String)
   case emptyPath
   case invalidPagination(String)
+  case invalidTimeout(String)
   case emptyOldText
   case parserError(String)
 }
@@ -321,6 +325,8 @@ nonisolated extension InvalidToolCallReason {
       "Tool path must not be empty."
     case .invalidPagination(let name):
       "\(name) must be greater than or equal to 1."
+    case .invalidTimeout(let name):
+      "\(name) must be an integer timeout in seconds."
     case .emptyOldText:
       "edit_file old_text must not be empty."
     case .parserError(let error):
@@ -611,6 +617,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case workspaceDiff(WorkspaceDiffResult)
   case writeFile(WriteFileResult)
   case editFile(EditFileResult)
+  case runCommand(RunCommandResult)
   case invalidTool(InvalidToolResult)
   case failure(ToolFailure)
 }
@@ -696,6 +703,41 @@ public enum EditFileResult: Codable, Equatable, Sendable {
   case multipleMatches(path: WorkspaceRelativePath, matchCount: Int, recovery: RecoveryHint)
   case unchanged(path: WorkspaceRelativePath)
   case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+}
+
+public struct RunCommandResult: Codable, Equatable, Sendable {
+  public var command: String
+  public var timeoutSeconds: Int
+  public var exitCode: Int32?
+  public var durationMs: Int
+  public var stdout: ToolTextOutput
+  public var stderr: ToolTextOutput
+  public var timedOut: Bool
+  public var cancelled: Bool
+
+  public init(
+    command: String,
+    timeoutSeconds: Int,
+    exitCode: Int32?,
+    durationMs: Int,
+    stdout: ToolTextOutput,
+    stderr: ToolTextOutput,
+    timedOut: Bool = false,
+    cancelled: Bool = false
+  ) {
+    self.command = command
+    self.timeoutSeconds = timeoutSeconds
+    self.exitCode = exitCode
+    self.durationMs = durationMs
+    self.stdout = stdout
+    self.stderr = stderr
+    self.timedOut = timedOut
+    self.cancelled = cancelled
+  }
+
+  public var outputTruncated: Bool {
+    stdout.truncated || stderr.truncated
+  }
 }
 
 public enum EditMatchStrategy: String, Codable, Equatable, Sendable {
@@ -904,6 +946,8 @@ nonisolated extension ToolResultPayload {
       return result.preview
     case .editFile(let result):
       return result.preview
+    case .runCommand(let result):
+      return result.preview
     case .invalidTool(let result):
       return ToolResultPreview(
         status: .failed,
@@ -1032,6 +1076,36 @@ nonisolated extension EditFileResult {
         affectedPaths: path.map { [$0.rawValue] } ?? []
       )
     }
+  }
+}
+
+nonisolated extension RunCommandResult {
+  fileprivate var preview: ToolResultPreview {
+    ToolResultPreview(
+      text: previewText,
+      truncated: outputTruncated,
+      affectedPaths: ["."]
+    )
+  }
+
+  public var previewText: String {
+    var lines: [String] = [
+      "Command: \(command)",
+      "Exit code: \(exitCode.map(String.init) ?? "none")",
+      "Duration: \(durationMs) ms",
+      "Timed out: \(timedOut)",
+      "Cancelled: \(cancelled)",
+    ]
+    if outputTruncated {
+      lines.append("Output truncated: true")
+    }
+    if !stdout.text.isEmpty {
+      lines.append("stdout:\n\(stdout.text)")
+    }
+    if !stderr.text.isEmpty {
+      lines.append("stderr:\n\(stderr.text)")
+    }
+    return lines.joined(separator: "\n")
   }
 }
 

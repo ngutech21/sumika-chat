@@ -93,7 +93,8 @@ flowchart TD
 - `ToolResultPreview` is limited to approval previews and derived compatibility
   summaries. It must not be persisted as the result body or used as the source
   of truth when `ToolResultPayload` is available.
-- `ToolContext` carries runtime context such as the active workspace.
+- `ToolContext` carries runtime context such as the active workspace, active
+  session ID, read tracker, and latest command result store.
 - `ToolDefinition` describes a tool for prompts and provider adapters,
   including capability, risk, structured parameter metadata, and a
   provider-neutral function-tool schema projection. Provider-specific wire
@@ -188,7 +189,7 @@ flowchart TD
   Git-only: it returns `git status --short`, `git diff --stat`, and unified
   `git diff` output for tracked changes. Untracked files are reported in status
   without dumping their contents. Output is capped and marked when truncated.
-- Write tools, and future command tools, must require explicit approval before
+- Write tools and command tools must require explicit approval before
   execution.
 - A tool that returns `.requiresApproval` must move to
   `ToolCallStatus.awaitingApproval`. It must not be marked as denied, failed,
@@ -198,6 +199,23 @@ flowchart TD
   mutate the workspace.
 - Approved execution must re-validate the raw request and re-run
   permission/path evaluation immediately before the side effect.
+- `run_command` is available only in the Agent registry. It executes
+  `/bin/bash -c <command>` in the active workspace root, inside
+  `withSecurityScopedAccess`, after approval. The approval preview and record
+  must preserve the exact command string from the request. The command must
+  never spawn before approval, and denied approval must append a denied result
+  without creating a process.
+- `run_command` uses a required timeout that is clamped to the supported range
+  before execution. It captures stdout, stderr, exit code, duration, timeout,
+  cancellation, and truncation metadata as a structured `RunCommandResult`.
+  A non-zero process exit is still a completed tool execution so the model can
+  inspect compiler/test output and repair; it must not become a controller
+  error.
+- After an actual `run_command` process is started, the capped
+  `RunCommandResult` is recorded in ephemeral latest-command state keyed by
+  workspace and session. Awaiting-approval or denied command requests must not
+  overwrite this state. Future read-only diagnostics tools may parse this
+  runtime state, but command execution remains owned by `run_command`.
 - `write_file` writes the model-provided `content` directly. The model should
   not generate helper scripts to create files. Missing-path suggestions do not
   apply to `write_file`, because creating a new file is a normal write case.

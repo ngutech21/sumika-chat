@@ -126,6 +126,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("To find files by name, use glob_files or list_files."))
     #expect(prompt.contains("To search code contents, use search_files."))
     #expect(prompt.contains("To review current workspace changes, use workspace_diff."))
+    #expect(prompt.contains("run_command"))
     #expect(prompt.contains("To create a new file, use write_file"))
     #expect(prompt.contains("To modify an existing file, use read_file first"))
     #expect(prompt.contains("For targeted edits to existing files, use edit_file."))
@@ -135,6 +136,8 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("Do not include line-number prefixes in old_text."))
     #expect(prompt.contains("old_text matches exactly once."))
     #expect(prompt.contains("If old_text is not found, read the file"))
+    #expect(prompt.contains("For destructive commands such as rm"))
+    #expect(prompt.contains("rm -rf -- ./tmp"))
     #expect(prompt.contains("Do not generate Python, shell, sed, awk, or helper scripts"))
   }
 
@@ -176,7 +179,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("current file content"))
     #expect(
       prompt.contains(
-        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff, edit_file, write_file."
+        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff, edit_file, write_file, run_command."
       ))
     #expect(prompt.contains("edit_file"))
     #expect(!prompt.contains("Tool calling:"))

@@ -75,6 +75,15 @@ public struct ToolCallRequestValidator: Sendable {
         throw InvalidToolCallReason.emptyOldText
       }
       return .editFile(input)
+    case .runCommand:
+      let input = try decode(RunCommandInput.self, from: rawRequest.arguments)
+      guard !input.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        throw InvalidToolCallReason.invalidArgumentType(
+          name: "command",
+          expected: "a non-empty shell command"
+        )
+      }
+      return .runCommand(input)
     default:
       throw InvalidToolCallReason.unknownToolName(rawRequest.toolName.rawValue)
     }
@@ -140,6 +149,13 @@ public struct ToolCallRequestValidator: Sendable {
       }
     }
 
+    if let runCommandError = error as? RunCommandInputValidationError {
+      switch runCommandError {
+      case .invalidTimeout:
+        return .invalidTimeout("timeoutSeconds")
+      }
+    }
+
     if let decodingError = error as? DecodingError {
       return invalidReason(from: decodingError)
     }
@@ -194,6 +210,8 @@ nonisolated extension ToolDefinition {
       .writeFile
     case .editFile:
       .editFile
+    case .runCommand:
+      .runCommand
     default:
       nil
     }

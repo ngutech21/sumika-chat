@@ -2,11 +2,20 @@ import Foundation
 
 public struct ToolContext: Sendable {
   public let workspace: Workspace
+  public let sessionID: ChatSession.ID?
   public let readTracker: ReadFileReadTracker?
+  public let latestCommandResultStore: LatestCommandResultStore?
 
-  public init(workspace: Workspace, readTracker: ReadFileReadTracker? = nil) {
+  public init(
+    workspace: Workspace,
+    sessionID: ChatSession.ID? = nil,
+    readTracker: ReadFileReadTracker? = nil,
+    latestCommandResultStore: LatestCommandResultStore? = nil
+  ) {
     self.workspace = workspace
+    self.sessionID = sessionID
     self.readTracker = readTracker
+    self.latestCommandResultStore = latestCommandResultStore
   }
 }
 
@@ -432,6 +441,8 @@ public struct AnyToolExecutor: Sendable {
       return try cast(input, as: inputType, definition: definition, actualToolName: .writeFile)
     case .editFile(let input):
       return try cast(input, as: inputType, definition: definition, actualToolName: .editFile)
+    case .runCommand(let input):
+      return try cast(input, as: inputType, definition: definition, actualToolName: .runCommand)
     case .invalid:
       throw ToolInputDecodingError.payloadMismatch(
         expected: definition.name.rawValue,
@@ -475,6 +486,7 @@ public struct ToolExecutorRegistry: Sendable {
     AnyToolExecutor(WorkspaceDiffToolExecutor()),
     AnyToolExecutor(EditFileToolExecutor()),
     AnyToolExecutor(WriteFileToolExecutor()),
+    AnyToolExecutor(RunCommandToolExecutor()),
   ])
 
   private let orderedExecutors: [AnyToolExecutor]
@@ -1164,15 +1176,18 @@ public struct ToolOrchestrator: Sendable {
   private let executorRegistry: ToolExecutorRegistry
   private let validator: ToolCallRequestValidator
   private let readTracker: ReadFileReadTracker
+  private let latestCommandResultStore: LatestCommandResultStore
 
   public init(
     executorRegistry: ToolExecutorRegistry = .readOnly,
     validator: ToolCallRequestValidator = ToolCallRequestValidator(),
-    readTracker: ReadFileReadTracker = ReadFileReadTracker()
+    readTracker: ReadFileReadTracker = ReadFileReadTracker(),
+    latestCommandResultStore: LatestCommandResultStore = LatestCommandResultStore()
   ) {
     self.executorRegistry = executorRegistry
     self.validator = validator
     self.readTracker = readTracker
+    self.latestCommandResultStore = latestCommandResultStore
   }
 
   public var toolRegistry: ToolRegistry {
@@ -1222,13 +1237,23 @@ public struct ToolOrchestrator: Sendable {
     if isApproved {
       return await executor.runApproved(
         request,
-        context: ToolContext(workspace: workspace, readTracker: readTracker)
+        context: ToolContext(
+          workspace: workspace,
+          sessionID: request.sessionID,
+          readTracker: readTracker,
+          latestCommandResultStore: latestCommandResultStore
+        )
       )
     }
 
     return await executor.run(
       request,
-      context: ToolContext(workspace: workspace, readTracker: readTracker)
+      context: ToolContext(
+        workspace: workspace,
+        sessionID: request.sessionID,
+        readTracker: readTracker,
+        latestCommandResultStore: latestCommandResultStore
+      )
     )
   }
 

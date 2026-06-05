@@ -129,6 +129,8 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
       "Create or fully overwrite a workspace text file."
     case .editFile:
       "Replace one exact old_text span in an existing workspace file."
+    case .runCommand:
+      "Run an approved foreground shell command in the workspace root."
     case .invalid:
       "Invalid tool-call observation."
     default:

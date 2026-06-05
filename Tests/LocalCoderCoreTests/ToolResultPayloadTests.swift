@@ -25,6 +25,15 @@ struct ToolResultPayloadTests {
           path: nil,
           content: ToolTextOutput(text: "No workspace changes.")
         )),
+      .runCommand(
+        RunCommandResult(
+          command: "just test-core",
+          timeoutSeconds: 120,
+          exitCode: 1,
+          durationMs: 42,
+          stdout: ToolTextOutput(text: ""),
+          stderr: ToolTextOutput(text: "failed")
+        )),
       .invalidTool(
         InvalidToolResult(
           originalName: "deploy",

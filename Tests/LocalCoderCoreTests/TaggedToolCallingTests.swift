@@ -23,6 +23,9 @@ struct TaggedToolCallingTests {
     #expect(registry.definition(canonicalizing: "search files")?.name == .searchFiles)
     #expect(registry.definition(canonicalizing: "diff")?.name == .workspaceDiff)
     #expect(registry.definition(canonicalizing: "run_command") == nil)
+    #expect(
+      ToolExecutorRegistry.codingAgent.toolRegistry.definition(canonicalizing: "run command")?.name
+        == .runCommand)
   }
 
   @Test
@@ -60,6 +63,19 @@ struct TaggedToolCallingTests {
     #expect(!prompt.contains("Sources/AppState.swift"))
     #expect(!prompt.contains("<pattern>**/*.swift</pattern>"))
     #expect(!prompt.contains("apply_patch"))
+  }
+
+  @Test
+  func codingAgentPromptIncludesRunCommandSignature() {
+    let prompt = TaggedToolPromptRenderer().renderToolInstructions(
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry,
+      payloadDelimiter: "LC_PAYLOAD_TEST"
+    )
+
+    #expect(
+      prompt.contains(
+        "- run_command(command, timeoutSeconds, reason?): Run an approved foreground shell command in the workspace root."
+      ))
   }
 
   @Test

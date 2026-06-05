@@ -149,6 +149,7 @@ public struct ToolPromptPolicy: Sendable {
         - To find files by name, use glob_files or list_files.
         - To search code contents, use search_files.
         - To review current workspace changes, use workspace_diff.
+        - To run build, test, lint, or project verification commands after approval, use run_command.
         - To create a new file, use write_file with the complete file content.
         - To modify an existing file, use read_file first unless the exact current file content is
           already visible in this request context.
@@ -162,6 +163,10 @@ public struct ToolPromptPolicy: Sendable {
         - Include enough surrounding context so old_text matches exactly once.
         - If old_text is not found, read the file and retry with exact copied text.
         - If old_text matches multiple locations, retry with more surrounding context.
+
+        run_command rules:
+        - For destructive commands such as rm, mv, or overwrite operations, use explicit workspace-relative
+          operands like ./tmp and include -- before path operands when the command supports it, e.g. rm -rf -- ./tmp.
 
         Do not generate Python, shell, sed, awk, or helper scripts to write files.
         """,
@@ -221,6 +226,7 @@ public struct ToolPromptPolicy: Sendable {
       - To find files by name, use glob_files or list_files.
       - To search code contents, use search_files.
       - To review current workspace changes, use workspace_diff.
+      - To run build, test, lint, or project verification commands after approval, use run_command.
       - To create a new file, use write_file with the complete file content.
       - To modify an existing file, use read_file first unless the exact current file content is
         already visible in this request context.
@@ -234,6 +240,10 @@ public struct ToolPromptPolicy: Sendable {
       - Include enough surrounding context so old_text matches exactly once.
       - If old_text is not found, read the file and retry with exact copied text.
       - If old_text matches multiple locations, retry with more surrounding context.
+
+      run_command rules:
+      - For destructive commands such as rm, mv, or overwrite operations, use explicit workspace-relative
+        operands like ./tmp and include -- before path operands when the command supports it, e.g. rm -rf -- ./tmp.
 
       Do not generate Python, shell, sed, awk, or helper scripts to write files.
       """,

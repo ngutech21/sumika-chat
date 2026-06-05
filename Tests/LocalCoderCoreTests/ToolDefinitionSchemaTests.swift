@@ -74,6 +74,26 @@ struct ToolDefinitionSchemaTests {
   }
 
   @Test
+  func runCommandDefinitionExposesApprovalBoundedTimeout() {
+    let definition = ToolDefinition.runCommand
+    let schema = definition.functionSchema
+
+    #expect(definition.description.contains("after explicit user approval"))
+    #expect(definition.capabilities == [.runCommand])
+    #expect(definition.riskLevel == .high)
+    #expect(
+      definition.parameters.first { $0.name == "command" }?.description.contains("./tmp") == true)
+    #expect(
+      definition.parameters.first { $0.name == "command" }?.description.contains("--") == true)
+    #expect(schema.parameters.required == ["command", "timeoutSeconds"])
+    #expect(schema.parameters.properties["command"]?.type == .string)
+    #expect(schema.parameters.properties["timeoutSeconds"]?.type == .integer)
+    #expect(schema.parameters.properties["timeoutSeconds"]?.minimum == 1)
+    #expect(schema.parameters.properties["timeoutSeconds"]?.maximum == 120)
+    #expect(schema.parameters.properties["reason"]?.type == .string)
+  }
+
+  @Test
   func functionSchemaEncodesProviderNeutralFunctionToolShape() throws {
     let data = try JSONEncoder().encode(ToolDefinition.readFile.functionSchema)
     let object = try #require(

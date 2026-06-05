@@ -55,6 +55,16 @@ struct ToolCallRequestValidatorTests {
         ]),
       registry: registry
     )
+    let command = validator.validate(
+      raw(
+        .runCommand,
+        arguments: [
+          "command": .string("just test-core"),
+          "timeoutSeconds": .string("120"),
+          "reason": .string("Verify tests."),
+        ]),
+      registry: registry
+    )
 
     guard case .readFile(let readInput) = read.payload else {
       Issue.record("Expected read_file payload")
@@ -76,6 +86,11 @@ struct ToolCallRequestValidatorTests {
       edit.payload
         == .editFile(
           EditFileInput(path: "Sources/App.swift", oldText: "old", newText: "new")))
+    #expect(
+      command.payload
+        == .runCommand(
+          RunCommandInput(command: "just test-core", timeoutSeconds: 120, reason: "Verify tests.")
+        ))
   }
 
   @Test
@@ -145,6 +160,9 @@ struct ToolCallRequestValidatorTests {
     #expect(ToolCallPayload.readFile(ReadFileInput(path: "README.md")).matches(.readFile))
     #expect(ToolCallPayload.showFile(ReadFileInput(path: "README.md")).matches(.showFile))
     #expect(ToolCallPayload.workspaceDiff(WorkspaceDiffInput(path: nil)).matches(.workspaceDiff))
+    #expect(
+      ToolCallPayload.runCommand(RunCommandInput(command: "date", timeoutSeconds: 1)).matches(
+        .runCommand))
     #expect(!ToolCallPayload.readFile(ReadFileInput(path: "README.md")).matches(.writeFile))
     #expect(
       ToolCallPayload.invalid(

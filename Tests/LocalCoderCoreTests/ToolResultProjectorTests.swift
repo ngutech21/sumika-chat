@@ -167,6 +167,32 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func runCommandObservationIncludesExitAndOutput() {
+    let result = RunCommandResult(
+      command: "just test-core",
+      timeoutSeconds: 120,
+      exitCode: 1,
+      durationMs: 42,
+      stdout: ToolTextOutput(text: "build started\n"),
+      stderr: ToolTextOutput(text: "Tests failed\n")
+    )
+    let projection = ToolResultProjector.project(
+      payload: .runCommand(result),
+      request: request(
+        toolName: .runCommand,
+        payload: .runCommand(RunCommandInput(command: "just test-core", timeoutSeconds: 120))
+      )
+    )
+
+    #expect(projection.observation.blocks == [.commandResult(result)])
+    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
+    #expect(rendered.contains("Command: just test-core"))
+    #expect(rendered.contains("Exit code: 1"))
+    #expect(rendered.contains("Stdout:\nbuild started"))
+    #expect(rendered.contains("Stderr:\nTests failed"))
+  }
+
+  @Test
   func successProjectionsDoNotContainFailureBlocks() {
     let projections = [
       ToolResultProjector.project(

@@ -123,6 +123,7 @@ public enum ToolObservationBlock: Equatable, Sendable {
     diffSummary: String?,
     matchStrategy: EditMatchStrategy?
   )
+  case commandResult(RunCommandResult)
   case failure(String)
 }
 
@@ -229,6 +230,8 @@ public enum ToolResultProjector {
       return projectWriteFile(result, request: request)
     case .editFile(let result):
       return projectEditFile(result, request: request)
+    case .runCommand(let result):
+      return projectRunCommand(result, request: request)
     case .invalidTool(let result):
       let text = "The tool call was invalid: \(result.reason.message)"
       return summaryProjection(
@@ -410,6 +413,24 @@ public enum ToolResultProjector {
         affectedPaths: path.map { [$0] } ?? []
       )
     }
+  }
+
+  private static func projectRunCommand(
+    _ result: RunCommandResult,
+    request: ToolCallRequest
+  ) -> ToolResultProjection {
+    ToolResultProjection(
+      display: .summary(
+        status: .success,
+        text: result.previewText,
+        affectedPaths: [WorkspaceRelativePath(rawValue: ".")]
+      ),
+      observation: ToolModelObservation.success(
+        toolName: request.toolName,
+        affectedPaths: [WorkspaceRelativePath(rawValue: ".")],
+        blocks: [.commandResult(result)]
+      )
+    )
   }
 
   private static func summaryProjection(

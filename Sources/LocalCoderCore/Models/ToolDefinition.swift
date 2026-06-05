@@ -448,4 +448,40 @@ nonisolated extension ToolDefinition {
     capabilities: [.writeWorkspace],
     riskLevel: .high
   )
+
+  public static let runCommand = ToolDefinition(
+    name: .runCommand,
+    description:
+      "Run a foreground shell command in the active workspace root after explicit user approval. Use this for build, test, lint, and project scripts when structured file tools are not sufficient.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "command",
+        description:
+          "Exact shell command to run from the workspace root. For destructive commands, prefer explicit workspace-relative operands such as ./tmp and use -- before path operands when supported.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "timeoutSeconds",
+        description: "Required timeout in seconds. Values are clamped to the supported range.",
+        isRequired: true,
+        valueType: .integer,
+        minimum: 1,
+        maximum: 120
+      ),
+      ToolParameterDefinition(
+        name: "reason",
+        description: "Optional short reason for running this command.",
+        isRequired: false
+      ),
+    ],
+    taggedExample: """
+      <action name="run_command">
+      <command>just test-core</command>
+      <timeoutSeconds>120</timeoutSeconds>
+      <reason>Verify the core test suite after the code change.</reason>
+      </action>
+      """,
+    capabilities: [.runCommand],
+    riskLevel: .high
+  )
 }

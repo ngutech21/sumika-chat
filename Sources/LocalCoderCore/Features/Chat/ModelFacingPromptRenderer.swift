@@ -324,6 +324,18 @@ public enum ToolModelObservationRenderer {
         matchStrategy.map { "Match strategy: \($0.rawValue)" },
         diffSummary.map { "Diff summary:\n\($0)" },
       ].compactMap { $0 }.joined(separator: "\n")
+    case .commandResult(let result):
+      return [
+        "Command: \(result.command)",
+        "Exit code: \(result.exitCode.map(String.init) ?? "none")",
+        "Duration ms: \(result.durationMs)",
+        "Timed out: \(result.timedOut)",
+        "Cancelled: \(result.cancelled)",
+        "Stdout truncated: \(result.stdout.truncated)",
+        result.stdout.text.isEmpty ? nil : "Stdout:\n\(result.stdout.text)",
+        "Stderr truncated: \(result.stderr.truncated)",
+        result.stderr.text.isEmpty ? nil : "Stderr:\n\(result.stderr.text)",
+      ].compactMap { $0 }.joined(separator: "\n")
     case .failure(let text):
       return "Failure: \(text)"
     }
