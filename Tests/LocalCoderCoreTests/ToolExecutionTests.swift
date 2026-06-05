@@ -1190,7 +1190,9 @@ struct ToolExecutionTests {
   private func runGit(_ arguments: [String], in workspace: Workspace) throws {
     let process = Process()
     process.executableURL = URL(filePath: "/usr/bin/git")
-    process.arguments = ["-C", workspace.rootURL.path(percentEncoded: false)] + arguments
+    process.arguments =
+      ["-c", "core.fsmonitor=false", "-C", workspace.rootURL.path(percentEncoded: false)]
+      + arguments
     let stdout = Pipe()
     let stderr = Pipe()
     process.standardOutput = stdout

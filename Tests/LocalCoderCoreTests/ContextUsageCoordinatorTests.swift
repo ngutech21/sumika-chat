@@ -319,7 +319,12 @@ private actor ContextUsageFakeRuntime: ChatModelRuntime {
 }
 
 private actor ContextUsageControlledRuntime: ChatModelRuntime {
-  private var contextUsageContinuations: [CheckedContinuation<ChatContextUsage, Never>] = []
+  private struct PendingContextUsage {
+    let id: UUID
+    let continuation: CheckedContinuation<ChatContextUsage, Never>
+  }
+
+  private var contextUsageContinuations: [PendingContextUsage] = []
   private(set) var contextUsageRequestCount = 0
   private(set) var completedContextUsageCount = 0
 
@@ -339,8 +344,16 @@ private actor ContextUsageControlledRuntime: ChatModelRuntime {
     _ = attachments
     _ = systemPrompt
     contextUsageRequestCount += 1
+    let id = UUID()
     let usage = await withCheckedContinuation { continuation in
-      contextUsageContinuations.append(continuation)
+      contextUsageContinuations.append(PendingContextUsage(id: id, continuation: continuation))
+      Task {
+        try? await Task.sleep(for: .seconds(2))
+        self.resolveContextUsage(
+          id: id,
+          with: ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+        )
+      }
     }
     completedContextUsageCount += 1
     return usage
@@ -350,8 +363,18 @@ private actor ContextUsageControlledRuntime: ChatModelRuntime {
     guard contextUsageContinuations.indices.contains(index) else {
       return
     }
-    let continuation = contextUsageContinuations.remove(at: index)
-    continuation.resume(returning: usage)
+    let pendingUsage = contextUsageContinuations.remove(at: index)
+    pendingUsage.continuation.resume(returning: usage)
+  }
+
+  private func resolveContextUsage(id: UUID, with usage: ChatContextUsage) {
+    guard
+      let index = contextUsageContinuations.firstIndex(where: { $0.id == id })
+    else {
+      return
+    }
+    let pendingUsage = contextUsageContinuations.remove(at: index)
+    pendingUsage.continuation.resume(returning: usage)
   }
 
   func streamReply(

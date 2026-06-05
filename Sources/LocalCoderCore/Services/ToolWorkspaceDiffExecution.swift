@@ -84,8 +84,9 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
         let pathArguments = scopedPath.map { [$0.rawValue] } ?? []
         let status = try await runGit(
           command: gitCommand,
-          arguments: ["-C", rootURL.path(percentEncoded: false), "status", "--short", "--"]
-            + pathArguments
+          arguments: configuredGitArguments(
+            ["-C", rootURL.path(percentEncoded: false), "status", "--short", "--"]
+              + pathArguments)
         )
         guard !status.timedOut else {
           return timeoutResult(path: scopedPath)
@@ -96,9 +97,10 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
 
         let stat = try await runGit(
           command: gitCommand,
-          arguments: [
-            "-C", rootURL.path(percentEncoded: false), "diff", "--no-ext-diff", "--stat", "--",
-          ] + pathArguments
+          arguments: configuredGitArguments(
+            [
+              "-C", rootURL.path(percentEncoded: false), "diff", "--no-ext-diff", "--stat", "--",
+            ] + pathArguments)
         )
         guard !stat.timedOut else {
           return timeoutResult(path: scopedPath)
@@ -109,8 +111,9 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
 
         let diff = try await runGit(
           command: gitCommand,
-          arguments: ["-C", rootURL.path(percentEncoded: false), "diff", "--no-ext-diff", "--"]
-            + pathArguments
+          arguments: configuredGitArguments(
+            ["-C", rootURL.path(percentEncoded: false), "diff", "--no-ext-diff", "--"]
+              + pathArguments)
         )
         guard !diff.timedOut else {
           return timeoutResult(path: scopedPath)
@@ -163,6 +166,10 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     )
   }
 
+  private func configuredGitArguments(_ arguments: [String]) -> [String] {
+    ["-c", "core.fsmonitor=false"] + arguments
+  }
+
   private func runGit(command: GitLaunchCommand, arguments: [String]) async throws
     -> GitCommandResult
   {
@@ -173,23 +180,35 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
       process.environment = environment
     }
 
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
+    let outputID = UUID().uuidString
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+    let stdoutURL = temporaryDirectory.appending(
+      path: "local-coder-workspace-diff-\(outputID).stdout")
+    let stderrURL = temporaryDirectory.appending(
+      path: "local-coder-workspace-diff-\(outputID).stderr")
+    try Data().write(to: stdoutURL)
+    try Data().write(to: stderrURL)
 
-    try process.run()
+    let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+    let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+    var outputHandlesClosed = false
+    func closeOutputHandles() {
+      guard !outputHandlesClosed else {
+        return
+      }
+      outputHandlesClosed = true
+      try? stdoutHandle.close()
+      try? stderrHandle.close()
+    }
+    defer {
+      closeOutputHandles()
+      try? FileManager.default.removeItem(at: stdoutURL)
+      try? FileManager.default.removeItem(at: stderrURL)
+    }
 
-    let stdoutTask = Task {
-      try stdoutPipe.fileHandleForReading.readToEnd() ?? Data()
-    }
-    let stderrTask = Task {
-      try stderrPipe.fileHandleForReading.readToEnd() ?? Data()
-    }
-    let waitTask = Task {
-      process.waitUntilExit()
-      return process.terminationStatus
-    }
+    process.standardOutput = stdoutHandle
+    process.standardError = stderrHandle
+
     let timeoutTask = Task {
       try await Task.sleep(for: .seconds(timeoutSeconds))
       guard process.isRunning else {
@@ -199,11 +218,12 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
       return true
     }
 
-    let exitCode = await waitTask.value
+    let exitCode = try await runProcessAndWaitForExit(process)
     timeoutTask.cancel()
     let timedOut = (try? await timeoutTask.value) ?? false
-    let stdoutData = try await stdoutTask.value
-    let stderrData = try await stderrTask.value
+    closeOutputHandles()
+    let stdoutData = try Data(contentsOf: stdoutURL)
+    let stderrData = try Data(contentsOf: stderrURL)
 
     return GitCommandResult(
       exitCode: exitCode,
@@ -211,6 +231,21 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
       stderr: String(data: stderrData, encoding: .utf8) ?? "",
       timedOut: timedOut
     )
+  }
+
+  private func runProcessAndWaitForExit(_ process: Process) async throws -> Int32 {
+    try await withCheckedThrowingContinuation { continuation in
+      process.terminationHandler = { process in
+        continuation.resume(returning: process.terminationStatus)
+      }
+
+      do {
+        try process.run()
+      } catch {
+        process.terminationHandler = nil
+        continuation.resume(throwing: error)
+      }
+    }
   }
 
   private func render(status: String, stat: String, diff: String) -> String {
