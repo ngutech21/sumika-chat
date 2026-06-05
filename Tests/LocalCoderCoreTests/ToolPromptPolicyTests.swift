@@ -100,6 +100,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("list_files"))
     #expect(prompt.contains("glob_files"))
     #expect(prompt.contains("search_files"))
+    #expect(prompt.contains("workspace_diff"))
     #expect(prompt.contains("Do not modify files"))
     #expect(!prompt.contains("- write_file("))
     #expect(!prompt.contains("- edit_file("))
@@ -124,6 +125,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("To inspect, explain, summarize, search within, reason about"))
     #expect(prompt.contains("To find files by name, use glob_files or list_files."))
     #expect(prompt.contains("To search code contents, use search_files."))
+    #expect(prompt.contains("To review current workspace changes, use workspace_diff."))
     #expect(prompt.contains("To create a new file, use write_file"))
     #expect(prompt.contains("To modify an existing file, use read_file first"))
     #expect(prompt.contains("For targeted edits to existing files, use edit_file."))
@@ -174,7 +176,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("current file content"))
     #expect(
       prompt.contains(
-        "Available tools: read_file, show_file, list_files, glob_files, search_files, edit_file, write_file."
+        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff, edit_file, write_file."
       ))
     #expect(prompt.contains("edit_file"))
     #expect(!prompt.contains("Tool calling:"))
@@ -201,11 +203,12 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("same action format"))
     #expect(
       prompt.contains(
-        "Available tools: read_file, show_file, list_files, glob_files, search_files."))
+        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff."))
     #expect(prompt.contains("read_file"))
     #expect(prompt.contains("list_files"))
     #expect(prompt.contains("glob_files"))
     #expect(prompt.contains("search_files"))
+    #expect(prompt.contains("workspace_diff"))
     #expect(prompt.contains("Do not modify files"))
     #expect(!prompt.contains("edit_file"))
     #expect(!prompt.contains("write_file"))

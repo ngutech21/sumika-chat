@@ -18,6 +18,7 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
   public static let readFile = ToolName(rawValue: "read_file")
   public static let showFile = ToolName(rawValue: "show_file")
   public static let searchFiles = ToolName(rawValue: "search_files")
+  public static let workspaceDiff = ToolName(rawValue: "workspace_diff")
   public static let editFile = ToolName(rawValue: "edit_file")
   public static let writeFile = ToolName(rawValue: "write_file")
   public static let runCommand = ToolName(rawValue: "run_command")
@@ -39,6 +40,8 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
       return Self.globFiles.rawValue
     case "search":
       return Self.searchFiles.rawValue
+    case "diff", "git_diff":
+      return Self.workspaceDiff.rawValue
     case "edit":
       return Self.editFile.rawValue
     case "write":
@@ -87,6 +90,7 @@ public enum ToolIntentHeuristics {
       ToolName.listFiles.rawValue,
       ToolName.globFiles.rawValue,
       ToolName.searchFiles.rawValue,
+      ToolName.workspaceDiff.rawValue,
       ToolName.editFile.rawValue,
       ToolName.writeFile.rawValue,
       ToolName.runCommand.rawValue,
@@ -232,6 +236,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
   case listFiles(ListFilesInput)
   case globFiles(GlobFilesInput)
   case searchFiles(SearchFilesInput)
+  case workspaceDiff(WorkspaceDiffInput)
   case writeFile(WriteFileInput)
   case editFile(EditFileInput)
   case invalid(InvalidToolInput)
@@ -250,6 +255,8 @@ nonisolated extension ToolCallPayload {
       .globFiles
     case .searchFiles:
       .searchFiles
+    case .workspaceDiff:
+      .workspaceDiff
     case .writeFile:
       .writeFile
     case .editFile:
@@ -601,6 +608,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case listFiles(ListFilesResult)
   case globFiles(GlobFilesResult)
   case searchFiles(SearchFilesResult)
+  case workspaceDiff(WorkspaceDiffResult)
   case writeFile(WriteFileResult)
   case editFile(EditFileResult)
   case invalidTool(InvalidToolResult)
@@ -666,6 +674,11 @@ public struct SearchFilesResult: Codable, Equatable, Sendable {
     self.matches = matches
     self.truncated = truncated
   }
+}
+
+public enum WorkspaceDiffResult: Codable, Equatable, Sendable {
+  case success(path: WorkspaceRelativePath?, content: ToolTextOutput)
+  case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
 }
 
 public enum WriteFileResult: Codable, Equatable, Sendable {
@@ -885,6 +898,8 @@ nonisolated extension ToolResultPayload {
         truncated: result.truncated,
         affectedPaths: [result.root.rawValue]
       )
+    case .workspaceDiff(let result):
+      return result.preview
     case .writeFile(let result):
       return result.preview
     case .editFile(let result):
@@ -926,6 +941,26 @@ nonisolated extension ReadFileResult {
         text:
           "Repeated read_file loop detected for \(path.rawValue) after \(count) reads. Stop reading this file again unless it changed or you need a different range.",
         affectedPaths: [path.rawValue]
+      )
+    case .failed(let path, let reason):
+      return ToolResultPreview(
+        status: reason.previewStatus,
+        text: reason.message,
+        affectedPaths: path.map { [$0.rawValue] } ?? []
+      )
+    }
+  }
+}
+
+nonisolated extension WorkspaceDiffResult {
+  fileprivate var preview: ToolResultPreview {
+    switch self {
+    case .success(let path, let content):
+      return ToolResultPreview(
+        text: content.text,
+        truncated: content.truncated,
+        redacted: content.redacted,
+        affectedPaths: [path?.rawValue ?? "."]
       )
     case .failed(let path, let reason):
       return ToolResultPreview(

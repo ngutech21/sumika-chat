@@ -199,6 +199,15 @@ struct ToolResultProjectorTests {
         )
       ),
       ToolResultProjector.project(
+        payload: .workspaceDiff(
+          .success(
+            path: nil,
+            content: ToolTextOutput(text: "No workspace changes.")
+          )
+        ),
+        request: request(toolName: .workspaceDiff, payload: .workspaceDiff(WorkspaceDiffInput()))
+      ),
+      ToolResultProjector.project(
         payload: .writeFile(
           .success(path: WorkspaceRelativePath(rawValue: "README.md"), bytesWritten: 5)
         ),

@@ -98,6 +98,24 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     #endif
   }
 
+  public func withSecurityScopedAccess<Result>(
+    _ body: () async throws -> Result
+  ) async rethrows -> Result {
+    #if canImport(Darwin)
+      let accessURL = securityScopedAccessURL()
+      let didStartSecurityScope = accessURL.startAccessingSecurityScopedResource()
+      defer {
+        if didStartSecurityScope {
+          accessURL.stopAccessingSecurityScopedResource()
+        }
+      }
+
+      return try await body()
+    #else
+      return try await body()
+    #endif
+  }
+
   private static func resolveSymlinksPreservingMissingPath(for url: URL) -> URL {
     let fileManager = FileManager.default
     var existingURL = url.standardizedFileURL

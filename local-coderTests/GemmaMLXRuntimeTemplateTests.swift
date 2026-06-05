@@ -321,6 +321,7 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(first != second)
     #expect(first.renderedHistoryHash != second.renderedHistoryHash)
     #expect(first.generationSettingsHash == second.generationSettingsHash)
+    #expect(first.nativeToolSchemaHash == second.nativeToolSchemaHash)
   }
 
   @Test
@@ -344,6 +345,7 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(first != second)
     #expect(first.renderedHistoryHash == second.renderedHistoryHash)
     #expect(first.generationSettingsHash != second.generationSettingsHash)
+    #expect(first.nativeToolSchemaHash == second.nativeToolSchemaHash)
   }
 
   @Test
@@ -367,6 +369,37 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(first != second)
     #expect(first.renderedHistoryHash == second.renderedHistoryHash)
     #expect(first.generationSettingsHash != second.generationSettingsHash)
+    #expect(first.nativeToolSchemaHash == second.nativeToolSchemaHash)
+  }
+
+  @Test
+  func renderedContextSignatureChangesWhenNativeToolSchemaChanges() {
+    let history = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let readOnlyToolSchemaHash = GemmaMLXRuntime.nativeToolSchemaSignature(
+      for: ToolExecutorRegistry.readOnly.toolRegistry.tools
+    )
+    let codingToolSchemaHash = GemmaMLXRuntime.nativeToolSchemaSignature(
+      for: ToolExecutorRegistry.codingAgent.toolRegistry.tools
+    )
+
+    let first = GemmaMLXRuntime.renderedContextSignature(
+      for: history,
+      settings: .codingDefault,
+      nativeToolSchemaHash: readOnlyToolSchemaHash
+    )
+    let second = GemmaMLXRuntime.renderedContextSignature(
+      for: history,
+      settings: .codingDefault,
+      nativeToolSchemaHash: codingToolSchemaHash
+    )
+
+    #expect(first != second)
+    #expect(first.renderedHistoryHash == second.renderedHistoryHash)
+    #expect(first.generationSettingsHash == second.generationSettingsHash)
+    #expect(first.nativeToolSchemaHash != second.nativeToolSchemaHash)
   }
 
   @Test
@@ -459,7 +492,8 @@ struct GemmaMLXRuntimeTemplateTests {
       generationSettingsHash: GemmaMLXRuntime.renderedContextSignature(
         for: prefix,
         settings: settings
-      ).generationSettingsHash
+      ).generationSettingsHash,
+      nativeToolSchemaHash: GemmaMLXRuntime.nativeToolSchemaSignature(from: nil)
     )
 
     let decision = GemmaMLXRuntime.cacheDecision(
@@ -659,6 +693,100 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(decision.trace.appendOnly)
     #expect(decision.trace.reusedMessageCount == 2)
     #expect(decision.trace.appendedMessageCount == 0)
+  }
+
+  @Test
+  func cacheDecisionReusesExactNativeToolSchemaPrefix() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let toolSchemaHash = GemmaMLXRuntime.nativeToolSchemaSignature(
+      for: ToolExecutorRegistry.readOnly.toolRegistry.tools
+    )
+    let cachedSignature = GemmaMLXRuntime.renderedContextSignature(
+      for: prefix,
+      settings: settings,
+      nativeToolSchemaHash: toolSchemaHash
+    )
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedContextSignature: cachedSignature,
+      cachedState: .clean,
+      currentHistory: prefix,
+      currentSettings: settings,
+      currentNativeToolSchemaHash: toolSchemaHash
+    )
+
+    #expect(decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .sessionReused)
+  }
+
+  @Test
+  func cacheDecisionInvalidatesWhenNativeToolSchemaChanges() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let readOnlyToolSchemaHash = GemmaMLXRuntime.nativeToolSchemaSignature(
+      for: ToolExecutorRegistry.readOnly.toolRegistry.tools
+    )
+    let codingToolSchemaHash = GemmaMLXRuntime.nativeToolSchemaSignature(
+      for: ToolExecutorRegistry.codingAgent.toolRegistry.tools
+    )
+    let cachedSignature = GemmaMLXRuntime.renderedContextSignature(
+      for: prefix,
+      settings: settings,
+      nativeToolSchemaHash: readOnlyToolSchemaHash
+    )
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedContextSignature: cachedSignature,
+      cachedState: .clean,
+      currentHistory: prefix,
+      currentSettings: settings,
+      currentNativeToolSchemaHash: codingToolSchemaHash
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.cacheReason == .invalidatedToolSchemaChanged)
+    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
+  }
+
+  @Test
+  func cacheDecisionReusesExactNoToolSchemaPrefix() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let cachedSignature = GemmaMLXRuntime.renderedContextSignature(
+      for: prefix,
+      settings: settings,
+      nativeToolSchemaHash: GemmaMLXRuntime.nativeToolSchemaSignature(from: nil)
+    )
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedContextSignature: cachedSignature,
+      cachedState: .clean,
+      currentHistory: prefix,
+      currentSettings: settings,
+      currentNativeToolSchemaHash: GemmaMLXRuntime.nativeToolSchemaSignature(from: nil)
+    )
+
+    #expect(decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .sessionReused)
   }
 
   @Test

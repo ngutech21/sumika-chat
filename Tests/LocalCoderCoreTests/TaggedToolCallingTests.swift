@@ -9,7 +9,9 @@ struct TaggedToolCallingTests {
     let registry = ToolExecutorRegistry.readOnly.toolRegistry
 
     #expect(
-      registry.tools.map(\.name) == [.readFile, .showFile, .listFiles, .globFiles, .searchFiles])
+      registry.tools.map(\.name) == [
+        .readFile, .showFile, .listFiles, .globFiles, .searchFiles, .workspaceDiff,
+      ])
     #expect(registry.definition(canonicalizing: "Read")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "READ")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "READ-FILE")?.name == .readFile)
@@ -19,6 +21,7 @@ struct TaggedToolCallingTests {
     #expect(registry.definition(canonicalizing: "show-file")?.name == .showFile)
     #expect(registry.definition(canonicalizing: "glob-files")?.name == .globFiles)
     #expect(registry.definition(canonicalizing: "search files")?.name == .searchFiles)
+    #expect(registry.definition(canonicalizing: "diff")?.name == .workspaceDiff)
     #expect(registry.definition(canonicalizing: "run_command") == nil)
   }
 
@@ -41,6 +44,7 @@ struct TaggedToolCallingTests {
     #expect(prompt.contains("- glob_files(pattern, path?): Find workspace files by glob."))
     #expect(
       prompt.contains("- search_files(pattern, path?, include?): Search workspace text files."))
+    #expect(prompt.contains("- workspace_diff(path?): Show current workspace changes using Git diff."))
     #expect(
       prompt.contains(
         #"For content, old_text, and new_text, use delimiter="LC_PAYLOAD_TEST""#))

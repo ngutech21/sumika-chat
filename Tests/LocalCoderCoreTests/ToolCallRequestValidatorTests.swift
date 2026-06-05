@@ -32,6 +32,10 @@ struct ToolCallRequestValidatorTests {
         ]),
       registry: registry
     )
+    let diff = validator.validate(
+      raw(.workspaceDiff, arguments: ["path": .string("Sources/App.swift")]),
+      registry: registry
+    )
     let write = validator.validate(
       raw(
         .writeFile,
@@ -64,6 +68,7 @@ struct ToolCallRequestValidatorTests {
       search.payload
         == .searchFiles(
           SearchFilesInput(pattern: "ToolCallRequest", path: nil, include: "*.swift")))
+    #expect(diff.payload == .workspaceDiff(WorkspaceDiffInput(path: "Sources/App.swift")))
     #expect(
       write.payload
         == .writeFile(WriteFileInput(path: "Sources/App.swift", content: "let value = 1")))
@@ -139,6 +144,7 @@ struct ToolCallRequestValidatorTests {
   func payloadMatchingAllowsOnlyInvalidPayloadsToKeepOriginalToolName() {
     #expect(ToolCallPayload.readFile(ReadFileInput(path: "README.md")).matches(.readFile))
     #expect(ToolCallPayload.showFile(ReadFileInput(path: "README.md")).matches(.showFile))
+    #expect(ToolCallPayload.workspaceDiff(WorkspaceDiffInput(path: nil)).matches(.workspaceDiff))
     #expect(!ToolCallPayload.readFile(ReadFileInput(path: "README.md")).matches(.writeFile))
     #expect(
       ToolCallPayload.invalid(

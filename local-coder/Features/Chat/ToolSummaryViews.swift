@@ -223,6 +223,8 @@ extension ToolDisplayPayload {
       .success
     case .searchResults:
       .success
+    case .workspaceDiff:
+      .success
     case .summary(let status, _, _):
       status
     }
@@ -245,6 +247,8 @@ extension ToolDisplayPayload {
       [root]
     case .searchResults(let root, _, _, _):
       [root]
+    case .workspaceDiff(let path, _):
+      [path ?? WorkspaceRelativePath(rawValue: ".")]
     case .summary(_, _, let affectedPaths):
       affectedPaths
     }
@@ -258,6 +262,8 @@ extension ToolDisplayPayload {
       truncated
     case .searchResults(_, _, _, let truncated):
       truncated
+    case .workspaceDiff(_, let content):
+      content.truncated
     case .summary:
       false
     }
@@ -278,6 +284,8 @@ extension ToolDisplayPayload {
         ? "(no matches)"
         : matches.map { "\($0.path.rawValue):\($0.line): \($0.snippet)" }
           .joined(separator: "\n")
+    case .workspaceDiff(_, let content):
+      return content.text
     case .summary(_, let text, _):
       return text
     }

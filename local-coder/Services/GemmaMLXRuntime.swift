@@ -79,6 +79,7 @@ nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
   case invalidatedHistoryPrefixMismatch = "invalidated_history_prefix_mismatch"
   case invalidatedCurrentPromptContextBoundary = "invalidated_current_prompt_context_boundary"
   case invalidatedToolPromptChanged = "invalidated_tool_prompt_changed"
+  case invalidatedToolSchemaChanged = "invalidated_tool_schema_changed"
   case invalidatedModelChanged = "invalidated_model_changed"
 
   static func generationInvalidationReason(
@@ -111,9 +112,10 @@ nonisolated struct GemmaRenderedContextSignature: Equatable, Sendable {
   let projectionMode: ModelContextProjectionMode
   let renderedHistoryHash: String
   let generationSettingsHash: String
+  let nativeToolSchemaHash: String
 
   var traceValue: String {
-    "renderer-v\(rendererVersion):projection-\(projectionMode.signatureComponent):history-\(renderedHistoryHash):settings-\(generationSettingsHash)"
+    "renderer-v\(rendererVersion):projection-\(projectionMode.signatureComponent):history-\(renderedHistoryHash):settings-\(generationSettingsHash):tools-\(nativeToolSchemaHash)"
   }
 }
 
@@ -197,6 +199,7 @@ nonisolated struct ActiveGemmaCompletionContext: Sendable {
   let prompt: String
   let settings: ChatGenerationSettings
   let projectionMode: ModelContextProjectionMode
+  let nativeToolSchemaHash: String
 }
 
 nonisolated struct GemmaActiveGenerationRegistry: Sendable {
@@ -426,9 +429,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       topK: settings.topK
     )
     let toolSpecs = Self.toolSpecs(from: toolContext)
-    if toolContext?.strategy == .nativeGemma4 {
-      invalidateCachedSession(reason: .signatureMismatch)
-    }
+    let nativeToolSchemaHash = Self.nativeToolSchemaSignature(from: toolContext)
     let history = try Self.generationHistoryMessages(
       from: projectedEntries[..<lastUserIndex]
     )
@@ -443,6 +444,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       settings: settings,
       generateParameters: generateParameters,
       projectionMode: projectionMode,
+      nativeToolSchemaHash: nativeToolSchemaHash,
       generationID: generationID
     )
     cachePlan.session.tools = toolSpecs
@@ -491,7 +493,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       historyPrefix: historySnapshot,
       prompt: finalPrompt,
       settings: settings,
-      projectionMode: projectionMode
+      projectionMode: projectionMode,
+      nativeToolSchemaHash: nativeToolSchemaHash
     )
     let streamPlan = Self.modelStreamPlan(
       from: stream,
@@ -505,7 +508,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           prompt: finalPrompt,
           output: output,
           settings: settings,
-          projectionMode: projectionMode
+          projectionMode: projectionMode,
+          nativeToolSchemaHash: nativeToolSchemaHash
         )
       },
       markCancelled: { [weak self] reason in
@@ -530,7 +534,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       prompt: context.prompt,
       output: output,
       settings: context.settings,
-      projectionMode: context.projectionMode
+      projectionMode: context.projectionMode,
+      nativeToolSchemaHash: context.nativeToolSchemaHash
     )
   }
 
@@ -550,12 +555,14 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     settings: ChatGenerationSettings,
     generateParameters: GenerateParameters,
     projectionMode: ModelContextProjectionMode,
+    nativeToolSchemaHash: String,
     generationID: GemmaGenerationID
   ) -> GemmaSessionCachePlan {
     let contextSignature = Self.renderedContextSignature(
       for: historySnapshot,
       settings: settings,
-      projectionMode: projectionMode
+      projectionMode: projectionMode,
+      nativeToolSchemaHash: nativeToolSchemaHash
     )
     let cached = cachedSession
     let decision = Self.cacheDecision(
@@ -565,7 +572,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       cachedState: cached?.state ?? pendingCacheInvalidationReason.map { .dirty(reason: $0) },
       currentHistory: historySnapshot,
       currentSettings: settings,
-      projectionMode: projectionMode
+      projectionMode: projectionMode,
+      currentNativeToolSchemaHash: nativeToolSchemaHash
     )
     pendingCacheInvalidationReason = nil
 
@@ -602,7 +610,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     prompt: String,
     output: String,
     settings: ChatGenerationSettings,
-    projectionMode: ModelContextProjectionMode
+    projectionMode: ModelContextProjectionMode,
+    nativeToolSchemaHash: String
   ) {
     guard generationOwnership.completeIfCurrent(generationID) else {
       return
@@ -629,7 +638,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       contextSignature: Self.renderedContextSignature(
         for: completedPrefix,
         settings: settings,
-        projectionMode: projectionMode
+        projectionMode: projectionMode,
+        nativeToolSchemaHash: nativeToolSchemaHash
       ),
       state: completedState
     )
@@ -709,19 +719,25 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     currentHistory: [GemmaMessageSnapshot],
     currentSettings: ChatGenerationSettings,
     projectionMode: ModelContextProjectionMode = .fullHistory,
+    currentNativeToolSchemaHash: String = nativeToolSchemaSignature(from: nil),
     currentRendererVersion: Int = gemmaRendererVersion
   ) -> GemmaSessionCacheDecision {
     let currentSignature = renderedContextSignature(
       for: currentHistory,
       settings: currentSettings,
       projectionMode: projectionMode,
+      nativeToolSchemaHash: currentNativeToolSchemaHash,
       rendererVersion: currentRendererVersion
     )
     let previousSignature =
       cachedContextSignature
       ?? cachedPrefix.flatMap { prefix in
         cachedSettings.map { settings in
-          renderedContextSignature(for: prefix, settings: settings, projectionMode: projectionMode)
+          renderedContextSignature(
+            for: prefix,
+            settings: settings,
+            projectionMode: projectionMode
+          )
         }
       }
     let appendOnly = cachedPrefix.map { isPrefix($0, of: currentHistory) } ?? false
@@ -822,13 +838,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     for messages: [GemmaMessageSnapshot],
     settings: ChatGenerationSettings,
     projectionMode: ModelContextProjectionMode = .fullHistory,
+    nativeToolSchemaHash: String = nativeToolSchemaSignature(from: nil),
     rendererVersion: Int = gemmaRendererVersion
   ) -> GemmaRenderedContextSignature {
     GemmaRenderedContextSignature(
       rendererVersion: rendererVersion,
       projectionMode: projectionMode,
       renderedHistoryHash: contextSignature(for: messages),
-      generationSettingsHash: generationSettingsSignature(for: settings)
+      generationSettingsHash: generationSettingsSignature(for: settings),
+      nativeToolSchemaHash: nativeToolSchemaHash
     )
   }
 
@@ -844,6 +862,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
     if previousSignature.projectionMode != currentSignature.projectionMode {
       return .invalidatedRenderedContextChanged
+    }
+    if previousSignature.nativeToolSchemaHash != currentSignature.nativeToolSchemaHash {
+      return .invalidatedToolSchemaChanged
     }
     return .invalidatedRenderedContextChanged
   }
@@ -870,6 +891,70 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       updateString(String(settings.topP))
       updateString(String(settings.topK))
       updateString(settings.maxKVSize.map(String.init) ?? "nil")
+    }
+  }
+
+  nonisolated static func nativeToolSchemaSignature(
+    from toolContext: ChatRuntimeToolContext?
+  ) -> String {
+    guard toolContext?.strategy == .nativeGemma4 else {
+      return "none"
+    }
+    return nativeToolSchemaSignature(for: toolContext?.registry.tools ?? [])
+  }
+
+  nonisolated static func nativeToolSchemaSignature(
+    for tools: [ToolDefinition]
+  ) -> String {
+    guard !tools.isEmpty else {
+      return "none"
+    }
+
+    return hashSignature { updateString in
+      updateString("native_gemma4_tools_v1")
+      for tool in tools {
+        updateString("tool")
+        updateString(tool.name.rawValue)
+        updateString(tool.description)
+        for parameter in tool.parameters {
+          updateString("parameter")
+          updateString(parameter.name)
+          updateString(parameter.description)
+          updateString(parameter.isRequired ? "required" : "optional")
+          updateString(parameter.valueType.rawValue)
+          if let enumValues = parameter.enumValues {
+            updateString("enum")
+            for value in enumValues {
+              updateString(value)
+            }
+          } else {
+            updateString("enum:nil")
+          }
+          updateString(parameter.defaultValue.map(toolArgumentSignature(from:)) ?? "default:nil")
+          updateString(parameter.minimum.map { String($0) } ?? "minimum:nil")
+          updateString(parameter.maximum.map { String($0) } ?? "maximum:nil")
+        }
+      }
+    }
+  }
+
+  nonisolated private static func toolArgumentSignature(from value: ToolArgumentValue) -> String {
+    switch value {
+    case .string(let string):
+      return "string:\(string)"
+    case .number(let number):
+      return "number:\(number)"
+    case .bool(let bool):
+      return "bool:\(bool)"
+    case .array(let array):
+      return "array:[\(array.map(toolArgumentSignature(from:)).joined(separator: ","))]"
+    case .object(let object):
+      let entries = object.keys.sorted().map { key in
+        "\(key):\(toolArgumentSignature(from: object[key] ?? .null))"
+      }
+      return "object:{\(entries.joined(separator: ","))}"
+    case .null:
+      return "null"
     }
   }
 

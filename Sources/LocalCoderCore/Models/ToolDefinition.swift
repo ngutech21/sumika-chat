@@ -357,6 +357,27 @@ nonisolated extension ToolDefinition {
     riskLevel: .low
   )
 
+  public static let workspaceDiff = ToolDefinition(
+    name: .workspaceDiff,
+    description:
+      "Show current workspace changes using Git status and diff. Read-only. Use this after edits to review what changed. Optionally scope to one workspace-relative path.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "path",
+        description:
+          "Optional workspace-relative path to scope the diff, e.g. Sources/App.swift. Defaults to the whole workspace.",
+        isRequired: false
+      )
+    ],
+    taggedExample: """
+      <action name="workspace_diff">
+      <path>Sources/App.swift</path>
+      </action>
+      """,
+    capabilities: [.readWorkspace],
+    riskLevel: .low
+  )
+
   public static let writeFile = ToolDefinition(
     name: .writeFile,
     description:

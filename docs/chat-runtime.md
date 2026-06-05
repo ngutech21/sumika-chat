@@ -168,8 +168,8 @@ model-facing prefix that MLX has actually consumed. The cache is valid only when
 the Swift-side prefix and the MLX session state describe the same bytes.
 
 - Exact history reuse is safe when the cached prefix, rendered context
-  signature, generation settings, and clean session state all match the current
-  model-facing history.
+  signature, generation settings, native tool schema identity, and clean
+  session state all match the current model-facing history.
 - Tool-loop follow-ups should keep the previously consumed frozen entries as
   exact history and render the new observation or final tool result as the
   current prompt. That path should trace `session_reused` instead of
@@ -189,6 +189,9 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   `reusedMessageCount`, `appendedMessageCount`, `mismatchReason`,
   `firstMismatchIndex`, and `toolLoopIteration` are the source of truth for
   diagnosing cache behavior. UI generation time alone cannot prove a cache hit.
+- For native Gemma 4 tool calling, the active tool schema identity is part of
+  the rendered context signature. Reuse across different tool registries is
+  invalid even when the visible frozen history is unchanged.
 
 The intended long-term fast path for tool loops is either:
 

@@ -123,6 +123,8 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
       "Find workspace files by glob."
     case .searchFiles:
       "Search workspace text files."
+    case .workspaceDiff:
+      "Show current workspace changes using Git diff."
     case .writeFile:
       "Create or fully overwrite a workspace text file."
     case .editFile:

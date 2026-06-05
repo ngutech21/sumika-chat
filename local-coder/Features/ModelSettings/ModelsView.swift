@@ -124,7 +124,7 @@ struct ModelsView: View {
   private var selectedModelStatusText: String {
     if modelRuntime.selectedModel.stability == .experimental {
       return
-        "\(modelRuntime.selectedModel.estimatedDownloadSize), experimental plain chat only"
+        "\(modelRuntime.selectedModel.estimatedDownloadSize), experimental"
     }
 
     if modelRuntime.selectedModel.requiresLargeMemory {

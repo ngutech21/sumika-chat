@@ -141,6 +141,7 @@ flowchart TD
      AnyToolExecutor(ListFilesToolExecutor()),
      AnyToolExecutor(GlobFilesToolExecutor()),
      AnyToolExecutor(SearchFilesToolExecutor()),
+     AnyToolExecutor(WorkspaceDiffToolExecutor()),
    ])
    ```
 
@@ -181,6 +182,12 @@ flowchart TD
   directories, and cap returned results. `search_files` treats a valid pattern
   as a regular expression; invalid regular expressions fall back to literal
   substring matching.
+- `workspace_diff` is a read-only review tool available in Inspect and Agent
+  registries. It validates the optional workspace-relative `path`, then runs
+  Git through `Process` argv, not shell interpolation. The first version is
+  Git-only: it returns `git status --short`, `git diff --stat`, and unified
+  `git diff` output for tracked changes. Untracked files are reported in status
+  without dumping their contents. Output is capped and marked when truncated.
 - Write tools, and future command tools, must require explicit approval before
   execution.
 - A tool that returns `.requiresApproval` must move to

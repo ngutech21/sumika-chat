@@ -60,6 +60,10 @@ public struct ToolCallRequestValidator: Sendable {
       let input = try decode(SearchFilesInput.self, from: rawRequest.arguments)
       try input.path.map(validatePath)
       return .searchFiles(input)
+    case .workspaceDiff:
+      let input = try decode(WorkspaceDiffInput.self, from: rawRequest.arguments)
+      try input.path.map(validatePath)
+      return .workspaceDiff(input)
     case .writeFile:
       let input = try decode(WriteFileInput.self, from: rawRequest.arguments)
       try validatePath(input.path)
@@ -184,6 +188,8 @@ nonisolated extension ToolDefinition {
       .globFiles
     case .searchFiles:
       .searchFiles
+    case .workspaceDiff:
+      .workspaceDiff
     case .writeFile:
       .writeFile
     case .editFile:

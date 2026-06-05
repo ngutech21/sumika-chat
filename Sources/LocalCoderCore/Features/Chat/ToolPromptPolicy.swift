@@ -71,6 +71,7 @@ public struct ToolPromptPolicy: Sendable {
         - To inspect, explain, summarize, search within, or reason about a file, use read_file.
         - To find files by name, use glob_files or list_files.
         - To search code contents, use search_files.
+        - To review current workspace changes, use workspace_diff.
         - If enough information is already visible in context, answer directly.
         - Never emit write_file or edit_file actions in Inspect mode.
         """,
@@ -147,6 +148,7 @@ public struct ToolPromptPolicy: Sendable {
         - To inspect, explain, summarize, search within, reason about, or modify a file, use read_file.
         - To find files by name, use glob_files or list_files.
         - To search code contents, use search_files.
+        - To review current workspace changes, use workspace_diff.
         - To create a new file, use write_file with the complete file content.
         - To modify an existing file, use read_file first unless the exact current file content is
           already visible in this request context.
@@ -193,6 +195,7 @@ public struct ToolPromptPolicy: Sendable {
       - To inspect, explain, summarize, search within, or reason about a file, use read_file.
       - To find files by name, use glob_files or list_files.
       - To search code contents, use search_files.
+      - To review current workspace changes, use workspace_diff.
       - If enough information is already visible in context, answer directly.
       - Never call write_file or edit_file in Inspect mode.
       """,
@@ -217,6 +220,7 @@ public struct ToolPromptPolicy: Sendable {
       - To inspect, explain, summarize, search within, reason about, or modify a file, use read_file.
       - To find files by name, use glob_files or list_files.
       - To search code contents, use search_files.
+      - To review current workspace changes, use workspace_diff.
       - To create a new file, use write_file with the complete file content.
       - To modify an existing file, use read_file first unless the exact current file content is
         already visible in this request context.

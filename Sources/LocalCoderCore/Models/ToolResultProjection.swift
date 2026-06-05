@@ -14,6 +14,7 @@ public enum ToolDisplayPayload: Equatable, Sendable {
     matches: [SearchFileMatch],
     truncated: Bool
   )
+  case workspaceDiff(path: WorkspaceRelativePath?, content: ToolTextOutput)
   case summary(status: ToolResultStatus, text: String, affectedPaths: [WorkspaceRelativePath])
 }
 
@@ -222,6 +223,8 @@ public enum ToolResultProjector {
           ]
         )
       )
+    case .workspaceDiff(let result):
+      return projectWorkspaceDiff(result, request: request)
     case .writeFile(let result):
       return projectWriteFile(result, request: request)
     case .editFile(let result):
@@ -316,6 +319,31 @@ public enum ToolResultProjector {
           toolName: request.toolName,
           affectedPaths: [path],
           blocks: [.summary("Wrote \(bytesWritten) bytes to \(path.rawValue).")]
+        )
+      )
+    case .failed(let path, let reason):
+      return summaryProjection(
+        toolName: request.toolName,
+        status: reason.projectedStatus,
+        text: reason.message,
+        affectedPaths: path.map { [$0] } ?? []
+      )
+    }
+  }
+
+  private static func projectWorkspaceDiff(
+    _ result: WorkspaceDiffResult,
+    request: ToolCallRequest
+  ) -> ToolResultProjection {
+    switch result {
+    case .success(let path, let content):
+      let affectedPaths = [path ?? WorkspaceRelativePath(rawValue: ".")]
+      return ToolResultProjection(
+        display: .workspaceDiff(path: path, content: content),
+        observation: ToolModelObservation.success(
+          toolName: request.toolName,
+          affectedPaths: affectedPaths,
+          blocks: [.summary(content.text)]
         )
       )
     case .failed(let path, let reason):

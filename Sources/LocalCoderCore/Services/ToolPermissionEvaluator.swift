@@ -55,6 +55,14 @@ public struct ToolPermissionEvaluator: Sendable {
         riskLevel: .low,
         successReason: "Searching files inside the workspace is allowed."
       )
+    case .workspaceDiff(let input):
+      return evaluatePathTool(
+        paths: [input.path ?? "."],
+        in: workspace,
+        decision: .allowed,
+        riskLevel: .low,
+        successReason: "Showing workspace diff is allowed."
+      )
     case .writeFile(let input):
       return evaluatePathTool(
         paths: [input.path],

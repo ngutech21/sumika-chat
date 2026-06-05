@@ -577,7 +577,114 @@ struct ToolExecutionTests {
         .listFiles,
         .globFiles,
         .searchFiles,
+        .workspaceDiff,
       ])
+  }
+
+  @Test
+  func workspaceDiffReturnsCleanWorkspaceMessage() async throws {
+    let workspace = try makeWorkspace()
+    try initializeGitRepository(in: workspace)
+
+    let result = await WorkspaceDiffToolExecutor().run(
+      WorkspaceDiffInput(),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text == "No workspace changes.")
+    #expect(result.truncated == false)
+    #expect(result.affectedPaths == ["."])
+  }
+
+  @Test
+  func workspaceDiffShowsTrackedModifications() async throws {
+    let workspace = try makeWorkspace()
+    try write("old\n", to: "README.md", in: workspace)
+    try initializeGitRepository(in: workspace, trackedPaths: ["README.md"])
+    try write("new\n", to: "README.md", in: workspace)
+
+    let result = await WorkspaceDiffToolExecutor().run(
+      WorkspaceDiffInput(),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text.contains("Status:\n M README.md"))
+    #expect(result.text.contains("Diff stat:"))
+    #expect(result.text.contains("README.md"))
+    #expect(result.text.contains("Diff:\n"))
+    #expect(result.text.contains("-old"))
+    #expect(result.text.contains("+new"))
+  }
+
+  @Test
+  func workspaceDiffScopesOptionalPath() async throws {
+    let workspace = try makeWorkspace()
+    try write("old app\n", to: "Sources/App.swift", in: workspace)
+    try write("old readme\n", to: "README.md", in: workspace)
+    try initializeGitRepository(in: workspace, trackedPaths: ["Sources/App.swift", "README.md"])
+    try write("new app\n", to: "Sources/App.swift", in: workspace)
+    try write("new readme\n", to: "README.md", in: workspace)
+
+    let result = await WorkspaceDiffToolExecutor().run(
+      WorkspaceDiffInput(path: "Sources/App.swift"),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text.contains("Sources/App.swift"))
+    #expect(result.text.contains("+new app"))
+    #expect(!result.text.contains("README.md"))
+    #expect(!result.text.contains("+new readme"))
+    #expect(result.affectedPaths == ["Sources/App.swift"])
+  }
+
+  @Test
+  func workspaceDiffShowsUntrackedStatusWithoutContents() async throws {
+    let workspace = try makeWorkspace()
+    try initializeGitRepository(in: workspace)
+    try write("secret untracked content\n", to: "notes.txt", in: workspace)
+
+    let result = await WorkspaceDiffToolExecutor().run(
+      WorkspaceDiffInput(),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.text.contains("?? notes.txt"))
+    #expect(!result.text.contains("secret untracked content"))
+    #expect(!result.text.contains("Diff:\n"))
+  }
+
+  @Test
+  func workspaceDiffFailsClearlyOutsideGitRepository() async throws {
+    let workspace = try makeWorkspace()
+
+    let result = await WorkspaceDiffToolExecutor().run(
+      WorkspaceDiffInput(),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .failed)
+    #expect(result.text.contains("This workspace is not inside a Git repository."))
+  }
+
+  @Test
+  func workspaceDiffCapsLargeOutput() async throws {
+    let workspace = try makeWorkspace()
+    try write("old\n", to: "large.txt", in: workspace)
+    try initializeGitRepository(in: workspace, trackedPaths: ["large.txt"])
+    try write(String(repeating: "new line\n", count: 80), to: "large.txt", in: workspace)
+
+    let result = await WorkspaceDiffToolExecutor(maxBytes: 220).run(
+      WorkspaceDiffInput(),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .success)
+    #expect(result.truncated)
+    #expect(result.text.contains("[workspace_diff output truncated]"))
   }
 
   @Test
@@ -902,9 +1009,13 @@ struct ToolExecutionTests {
     let registry = ToolExecutorRegistry.readOnly
 
     #expect(
-      registry.definitions == [.readFile, .showFile, .listFiles, .globFiles, .searchFiles])
+      registry.definitions == [
+        .readFile, .showFile, .listFiles, .globFiles, .searchFiles, .workspaceDiff,
+      ])
     #expect(
-      registry.toolRegistry.tools == [.readFile, .showFile, .listFiles, .globFiles, .searchFiles])
+      registry.toolRegistry.tools == [
+        .readFile, .showFile, .listFiles, .globFiles, .searchFiles, .workspaceDiff,
+      ])
     #expect(
       ToolExecutorRegistry.codingAgent.definitions == [
         .readFile,
@@ -912,6 +1023,7 @@ struct ToolExecutionTests {
         .listFiles,
         .globFiles,
         .searchFiles,
+        .workspaceDiff,
         .editFile,
         .writeFile,
       ])
@@ -938,6 +1050,44 @@ struct ToolExecutionTests {
       name: "Project", rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)))
   }
 
+  private func initializeGitRepository(
+    in workspace: Workspace,
+    trackedPaths: [String] = []
+  ) throws {
+    try runGit(["init"], in: workspace)
+    if !trackedPaths.isEmpty {
+      try runGit(["add"] + trackedPaths, in: workspace)
+      try runGit(
+        [
+          "-c", "user.name=Local Coder Test",
+          "-c", "user.email=local-coder@example.invalid",
+          "commit", "-m", "initial",
+        ],
+        in: workspace
+      )
+    }
+  }
+
+  private func runGit(_ arguments: [String], in workspace: Workspace) throws {
+    let process = Process()
+    process.executableURL = URL(filePath: "/usr/bin/git")
+    process.arguments = ["-C", workspace.rootURL.path(percentEncoded: false)] + arguments
+    let stdout = Pipe()
+    let stderr = Pipe()
+    process.standardOutput = stdout
+    process.standardError = stderr
+    try process.run()
+    process.waitUntilExit()
+
+    guard process.terminationStatus == 0 else {
+      let errorText = String(
+        data: stderr.fileHandleForReading.readDataToEndOfFile(),
+        encoding: .utf8
+      ) ?? ""
+      throw TestGitError(arguments: arguments, errorText: errorText)
+    }
+  }
+
   private func write(_ content: String, to path: String, in workspace: Workspace) throws {
     let url = workspace.rootURL.appending(path: path)
     try FileManager.default.createDirectory(
@@ -945,5 +1095,14 @@ struct ToolExecutionTests {
       withIntermediateDirectories: true
     )
     try content.write(to: url, atomically: true, encoding: .utf8)
+  }
+}
+
+private struct TestGitError: Error, CustomStringConvertible {
+  var arguments: [String]
+  var errorText: String
+
+  var description: String {
+    "git \(arguments.joined(separator: " ")) failed: \(errorText)"
   }
 }

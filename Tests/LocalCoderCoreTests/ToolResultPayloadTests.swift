@@ -20,6 +20,11 @@ struct ToolResultPayloadTests {
           currentContent: ToolTextOutput(text: "let value = 1"),
           recovery: .readFile(path: WorkspaceRelativePath(rawValue: "Sources/App.swift"))
         )),
+      .workspaceDiff(
+        .success(
+          path: nil,
+          content: ToolTextOutput(text: "No workspace changes.")
+        )),
       .invalidTool(
         InvalidToolResult(
           originalName: "deploy",
