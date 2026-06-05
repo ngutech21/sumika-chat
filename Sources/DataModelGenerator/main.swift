@@ -19,6 +19,6 @@ do {
   )
   print("Generated \(outputURL.path)")
 } catch {
-  fputs("data-model generation failed: \(error)\n", stderr)
+  FileHandle.standardError.write(Data("data-model generation failed: \(error)\n".utf8))
   exit(1)
 }
