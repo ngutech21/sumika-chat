@@ -45,7 +45,7 @@ jobs:
 
       - name: Build package tests
         timeout-minutes: 20
-        run: swift build --build-tests --disable-xctest --enable-swift-testing --disable-index-store
+        run: swift build --build-tests --disable-xctest --enable-swift-testing
 
       - name: Run package tests
         timeout-minutes: 10
