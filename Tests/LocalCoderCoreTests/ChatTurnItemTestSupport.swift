@@ -65,7 +65,7 @@ struct TestTranscriptMessage: Equatable {
   }
 }
 
-extension ChatSessionState {
+extension ChatSession {
   var transcriptItemsForTesting: [ChatTurnItem] {
     turns.flatMap(\.items)
   }

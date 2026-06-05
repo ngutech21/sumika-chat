@@ -187,7 +187,7 @@ struct ModelFacingTranscriptTests {
     )
     let data = try JSONEncoder().encode(session)
     var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    object.removeValue(forKey: "transcript")
+    object.removeValue(forKey: "modelFacingTranscript")
     let legacyData = try JSONSerialization.data(withJSONObject: object)
 
     #expect(throws: DecodingError.self) {
@@ -200,7 +200,7 @@ struct ModelFacingTranscriptTests {
     let turnID = UUID()
     let callID = UUID()
     let mutator = ChatTranscriptMutator()
-    var state = ChatSessionState.codingDefault
+    var state = ChatSession.codingDefault
     mutator.appendModelFacingEntry(
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,

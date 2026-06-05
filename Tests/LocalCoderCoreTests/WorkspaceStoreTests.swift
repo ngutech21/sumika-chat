@@ -173,33 +173,63 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func chatSessionRejectsFlatTranscriptFields() throws {
-    let transcript = ModelFacingTranscript(
-      entries: [
-        try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
-      ]
-    )
-    let messages = [LegacyStoredMessage(content: "hello")]
-    let flatSession = FlatChatSession(
+  func chatSessionRejectsTranscriptWrapper() throws {
+    let wrappedSession = TranscriptWrappedChatSession(
       id: UUID(),
-      title: "Flat",
+      title: "Wrapped",
       selectedModelID: "gemma3-1b",
-      messages: messages,
-      modelFacingTranscript: transcript,
-      toolCalls: [],
-      turns: [],
-      focusedFileState: .empty,
-      systemPrompt: "Legacy prompt",
-      generationSettings: .codingDefault,
-      interactionMode: .inspect,
+      transcript: LegacyTranscriptWrapper(
+        modelFacingTranscript: ModelFacingTranscript(
+          entries: [
+            try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
+          ]
+        ),
+        toolCalls: [],
+        turns: [],
+        focusedFileState: .empty,
+        systemPrompt: "Legacy prompt",
+        generationSettings: .codingDefault,
+        interactionMode: .inspect
+      ),
       createdAt: Date(),
       updatedAt: Date()
     )
-    let data = try JSONEncoder().encode(flatSession)
+    let data = try JSONEncoder().encode(wrappedSession)
 
     #expect(throws: DecodingError.self) {
       _ = try JSONDecoder().decode(ChatSession.self, from: data)
     }
+  }
+
+  @Test
+  func chatSessionEncodingOmitsPendingAttachmentsAndTranscriptWrapper() throws {
+    let session = ChatSession(
+      selectedModelID: "gemma3-1b",
+      modelFacingTranscript: ModelFacingTranscript(
+        entries: [
+          try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
+        ]
+      ),
+      pendingAttachments: [
+        ChatAttachment(
+          url: URL(filePath: "/tmp/project/README.md"),
+          displayName: "README.md",
+          kind: .text,
+          content: "draft"
+        )
+      ],
+      systemPrompt: "Use short answers.",
+      generationSettings: .codingDefault
+    )
+    let data = try JSONEncoder().encode(session)
+    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
+
+    #expect(object["transcript"] == nil)
+    #expect(object["pendingAttachments"] == nil)
+    #expect(object["modelFacingTranscript"] != nil)
+    #expect(decoded.pendingAttachments.isEmpty)
+    #expect(decoded == session)
   }
 
   private func temporaryLibraryURL() -> URL {
@@ -276,11 +306,16 @@ private struct LegacyChatSession: Codable {
   let updatedAt: Date
 }
 
-private struct FlatChatSession: Codable {
+private struct TranscriptWrappedChatSession: Codable {
   let id: UUID
   let title: String
   let selectedModelID: ManagedModel.ID
-  let messages: [LegacyStoredMessage]
+  let transcript: LegacyTranscriptWrapper
+  let createdAt: Date
+  let updatedAt: Date
+}
+
+private struct LegacyTranscriptWrapper: Codable {
   let modelFacingTranscript: ModelFacingTranscript
   let toolCalls: [ToolCallRecord]
   let turns: [ChatTurn]
@@ -288,8 +323,6 @@ private struct FlatChatSession: Codable {
   let systemPrompt: String
   let generationSettings: ChatGenerationSettings
   let interactionMode: WorkspaceInteractionMode
-  let createdAt: Date
-  let updatedAt: Date
 }
 
 private struct LegacyStoredMessage: Codable {

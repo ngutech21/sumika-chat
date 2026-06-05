@@ -55,7 +55,7 @@ flowchart TD
   Tool-call and tool-result items store only `ToolCallRecord.ID`.
 - `AssistantTurnMessage.deliveryStatus` distinguishes complete assistant
   messages from streaming or cancelled partial output.
-- `ChatModelContextBuilder` turns `ChatSessionState` into the model-facing
+- `ChatModelContextBuilder` turns `ChatSession` into the model-facing
   `ModelFacingTranscript`. It excludes entries belonging to turns whose
   `modelContextPolicy` is `.excluded`, except while that same turn is actively
   generating its direct follow-up response.
@@ -74,7 +74,7 @@ flowchart TD
   require a workspace execution request. If the final answer still contains a
   tool attempt, it records a structured blocked observation and removes the raw
   action from normal assistant prose.
-- `ChatWorkflowEventApplier` applies typed workflow events to `ChatSessionState`
+- `ChatWorkflowEventApplier` applies typed workflow events to `ChatSession`
   using `ChatTranscriptMutator`. These events are not persisted; persistence
   stores only the resulting turns, turn items, and tool-call records.
 - `ContextUsageCoordinator` computes token usage from the same filtered frozen

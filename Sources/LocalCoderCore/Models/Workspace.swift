@@ -4,71 +4,28 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   public let id: UUID
   public var title: String
   public var selectedModelID: ManagedModel.ID
-  public var transcript: ChatTranscriptState
+  public var modelFacingTranscript: ModelFacingTranscript
+  public var toolCalls: [ToolCallRecord]
+  public var turns: [ChatTurn]
+  public var focusedFileState: FocusedFileState
+  public var systemPrompt: String
+  public var generationSettings: ChatGenerationSettings
+  public var interactionMode: WorkspaceInteractionMode
+  public var pendingAttachments: [ChatAttachment]
   public var createdAt: Date
   public var updatedAt: Date
 
-  public var modelFacingTranscript: ModelFacingTranscript {
-    get { transcript.modelFacingTranscript }
-    set { transcript.modelFacingTranscript = newValue }
-  }
-
-  public var toolCalls: [ToolCallRecord] {
-    get { transcript.toolCalls }
-    set { transcript.toolCalls = newValue }
-  }
-
-  public var turns: [ChatTurn] {
-    get { transcript.turns }
-    set { transcript.turns = newValue }
-  }
-
-  public var focusedFileState: FocusedFileState {
-    get { transcript.focusedFileState }
-    set { transcript.focusedFileState = newValue }
-  }
-
-  public var systemPrompt: String {
-    get { transcript.systemPrompt }
-    set { transcript.systemPrompt = newValue }
-  }
-
-  public var generationSettings: ChatGenerationSettings {
-    get { transcript.generationSettings }
-    set { transcript.generationSettings = newValue }
-  }
-
-  public var interactionMode: WorkspaceInteractionMode {
-    get { transcript.interactionMode }
-    set { transcript.interactionMode = newValue }
-  }
-
   public init(
     id: UUID = UUID(),
     title: String = "New Session",
-    selectedModelID: ManagedModel.ID,
-    transcript: ChatTranscriptState,
-    createdAt: Date = Date(),
-    updatedAt: Date = Date()
-  ) {
-    self.id = id
-    self.title = title
-    self.selectedModelID = selectedModelID
-    self.transcript = transcript
-    self.createdAt = createdAt
-    self.updatedAt = updatedAt
-  }
-
-  public init(
-    id: UUID = UUID(),
-    title: String = "New Session",
-    selectedModelID: ManagedModel.ID,
+    selectedModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID,
     modelFacingTranscript: ModelFacingTranscript = ModelFacingTranscript(),
     toolCalls: [ToolCallRecord] = [],
     turns: [ChatTurn] = [],
+    pendingAttachments: [ChatAttachment] = [],
     focusedFileState: FocusedFileState = .empty,
-    systemPrompt: String,
-    generationSettings: ChatGenerationSettings,
+    systemPrompt: String = ChatPromptDefaults.codingSystemPrompt,
+    generationSettings: ChatGenerationSettings = .codingDefault,
     interactionMode: WorkspaceInteractionMode = .chat,
     createdAt: Date = Date(),
     updatedAt: Date = Date()
@@ -76,24 +33,46 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.id = id
     self.title = title
     self.selectedModelID = selectedModelID
-    self.transcript = ChatTranscriptState(
-      modelFacingTranscript: modelFacingTranscript,
-      toolCalls: toolCalls,
-      turns: turns,
-      focusedFileState: focusedFileState,
-      systemPrompt: systemPrompt,
-      generationSettings: generationSettings,
-      interactionMode: interactionMode
-    )
+    self.modelFacingTranscript = modelFacingTranscript
+    self.toolCalls = toolCalls
+    self.turns = turns
+    self.focusedFileState = focusedFileState
+    self.systemPrompt = systemPrompt
+    self.generationSettings = generationSettings
+    self.interactionMode = interactionMode
+    self.pendingAttachments = pendingAttachments
     self.createdAt = createdAt
     self.updatedAt = updatedAt
+  }
+
+  public static let codingDefault = ChatSession()
+
+  public static func == (lhs: ChatSession, rhs: ChatSession) -> Bool {
+    lhs.id == rhs.id
+      && lhs.title == rhs.title
+      && lhs.selectedModelID == rhs.selectedModelID
+      && lhs.modelFacingTranscript == rhs.modelFacingTranscript
+      && lhs.toolCalls == rhs.toolCalls
+      && lhs.turns == rhs.turns
+      && lhs.focusedFileState == rhs.focusedFileState
+      && lhs.systemPrompt == rhs.systemPrompt
+      && lhs.generationSettings == rhs.generationSettings
+      && lhs.interactionMode == rhs.interactionMode
+      && lhs.createdAt == rhs.createdAt
+      && lhs.updatedAt == rhs.updatedAt
   }
 
   private enum CodingKeys: String, CodingKey {
     case id
     case title
     case selectedModelID
-    case transcript
+    case modelFacingTranscript
+    case toolCalls
+    case turns
+    case focusedFileState
+    case systemPrompt
+    case generationSettings
+    case interactionMode
     case createdAt
     case updatedAt
   }
@@ -103,7 +82,23 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     id = try container.decode(UUID.self, forKey: .id)
     title = try container.decode(String.self, forKey: .title)
     selectedModelID = try container.decode(ManagedModel.ID.self, forKey: .selectedModelID)
-    transcript = try container.decode(ChatTranscriptState.self, forKey: .transcript)
+    modelFacingTranscript = try container.decode(
+      ModelFacingTranscript.self,
+      forKey: .modelFacingTranscript
+    )
+    toolCalls = try container.decode([ToolCallRecord].self, forKey: .toolCalls)
+    turns = try container.decode([ChatTurn].self, forKey: .turns)
+    focusedFileState = try container.decode(FocusedFileState.self, forKey: .focusedFileState)
+    systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
+    generationSettings = try container.decode(
+      ChatGenerationSettings.self,
+      forKey: .generationSettings
+    )
+    interactionMode = try container.decode(
+      WorkspaceInteractionMode.self,
+      forKey: .interactionMode
+    )
+    pendingAttachments = []
     createdAt = try container.decode(Date.self, forKey: .createdAt)
     updatedAt = try container.decode(Date.self, forKey: .updatedAt)
   }
@@ -113,9 +108,28 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     try container.encode(id, forKey: .id)
     try container.encode(title, forKey: .title)
     try container.encode(selectedModelID, forKey: .selectedModelID)
-    try container.encode(transcript, forKey: .transcript)
+    try container.encode(modelFacingTranscript, forKey: .modelFacingTranscript)
+    try container.encode(toolCalls, forKey: .toolCalls)
+    try container.encode(turns, forKey: .turns)
+    try container.encode(focusedFileState, forKey: .focusedFileState)
+    try container.encode(systemPrompt, forKey: .systemPrompt)
+    try container.encode(generationSettings, forKey: .generationSettings)
+    try container.encode(interactionMode, forKey: .interactionMode)
     try container.encode(createdAt, forKey: .createdAt)
     try container.encode(updatedAt, forKey: .updatedAt)
+  }
+
+  public func turnID(containingToolCall toolCallID: ToolCallRecord.ID) -> ChatTurn.ID? {
+    turns.first { turn in
+      turn.items.contains { item in
+        switch item {
+        case .toolCall(let id), .toolResult(let id):
+          id == toolCallID
+        case .userMessage, .assistantMessage:
+          false
+        }
+      }
+    }?.id
   }
 }
 

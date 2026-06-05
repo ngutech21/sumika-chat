@@ -251,12 +251,12 @@ private func makeState(
   attachments: [ChatAttachment] = [],
   systemPrompt: String = "System",
   generationSettings: ChatGenerationSettings = .codingDefault
-) -> ChatSessionState {
+) -> ChatSession {
   let resolvedTurns =
     turns.isEmpty && !items.isEmpty
     ? [ChatTurn(status: .running, items: items)]
     : turns
-  return ChatSessionState(
+  return ChatSession(
     toolCalls: toolCalls,
     turns: resolvedTurns,
     pendingAttachments: attachments,

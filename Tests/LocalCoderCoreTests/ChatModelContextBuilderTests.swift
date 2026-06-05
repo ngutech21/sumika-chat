@@ -17,7 +17,7 @@ struct ChatModelContextBuilderTests {
       turnID: excludedTurnID,
       prompt: "large listing"
     )
-    let state = ChatSessionState(
+    let state = ChatSession(
       modelFacingTranscript: ModelFacingTranscript(
         entries: [unscopedEntry, includedEntry, excludedEntry]
       ),
@@ -46,7 +46,7 @@ struct ChatModelContextBuilderTests {
       turnID: turnID,
       prompt: "README.md"
     )
-    let state = ChatSessionState(
+    let state = ChatSession(
       modelFacingTranscript: ModelFacingTranscript(entries: [toolResult]),
       turns: [
         ChatTurn(
@@ -188,7 +188,7 @@ struct ChatModelContextBuilderTests {
       sourceMessageID: sourceMessageID,
       content: "<action name=\"read_file\"></action>"
     )
-    var state = ChatSessionState(
+    var state = ChatSession(
       modelFacingTranscript: ModelFacingTranscript(entries: [firstEntry]),
       turns: [
         ChatTurn(

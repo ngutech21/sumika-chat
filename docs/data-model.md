@@ -10,16 +10,14 @@ flowchart TD
   AssistantTurnMessage --> ChatGenerationMetrics
   ChatAttachment --> ChatAttachmentKind
   ChatContextUsage --> ChatContextUsageAccuracy
-  ChatSession --> ChatTranscriptState
+  ChatSession --> ChatAttachment
+  ChatSession --> ChatGenerationSettings
+  ChatSession --> ChatTurn
+  ChatSession --> FocusedFileState
   ChatSession --> ManagedModel
-  ChatSessionState --> ChatAttachment
-  ChatSessionState --> ChatTranscriptState
-  ChatTranscriptState --> ChatGenerationSettings
-  ChatTranscriptState --> ChatTurn
-  ChatTranscriptState --> FocusedFileState
-  ChatTranscriptState --> ModelFacingTranscript
-  ChatTranscriptState --> ToolCallRecord
-  ChatTranscriptState --> WorkspaceInteractionMode
+  ChatSession --> ModelFacingTranscript
+  ChatSession --> ToolCallRecord
+  ChatSession --> WorkspaceInteractionMode
   ChatTurn --> ChatTurnItem
   ChatTurn --> ChatTurnModelContextPolicy
   ChatTurn --> ChatTurnStatus
@@ -319,54 +317,26 @@ Properties:
 Properties:
 
 - `createdAt: Date`
+- `focusedFileState: FocusedFileState`
+- `generationSettings: ChatGenerationSettings`
 - `id: UUID`
+- `interactionMode: WorkspaceInteractionMode`
+- `modelFacingTranscript: ModelFacingTranscript`
+- `pendingAttachments: [ChatAttachment]`
 - `selectedModelID: ManagedModel.ID`
+- `systemPrompt: String`
 - `title: String`
-- `transcript: ChatTranscriptState`
+- `toolCalls: [ToolCallRecord]`
+- `turns: [ChatTurn]`
 - `updatedAt: Date`
 
 Relations:
 
-- `ChatTranscriptState`
-- `ManagedModel`
-
-### ChatSessionState
-
-- Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ChatSessionState.swift`
-- Conforms to: `Equatable`, `Sendable`
-
-Properties:
-
-- `pendingAttachments: [ChatAttachment]`
-- `transcript: ChatTranscriptState`
-
-Relations:
-
 - `ChatAttachment`
-- `ChatTranscriptState`
-
-### ChatTranscriptState
-
-- Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ChatTranscriptState.swift`
-- Conforms to: `Codable`, `Equatable`, `Sendable`
-
-Properties:
-
-- `focusedFileState: FocusedFileState`
-- `generationSettings: ChatGenerationSettings`
-- `interactionMode: WorkspaceInteractionMode`
-- `modelFacingTranscript: ModelFacingTranscript`
-- `systemPrompt: String`
-- `toolCalls: [ToolCallRecord]`
-- `turns: [ChatTurn]`
-
-Relations:
-
 - `ChatGenerationSettings`
 - `ChatTurn`
 - `FocusedFileState`
+- `ManagedModel`
 - `ModelFacingTranscript`
 - `ToolCallRecord`
 - `WorkspaceInteractionMode`

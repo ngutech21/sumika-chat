@@ -89,7 +89,7 @@ public struct ChatWorkflowEventApplier: Sendable {
   @discardableResult
   public func apply(
     _ events: [ChatWorkflowEvent],
-    to state: inout ChatSessionState
+    to state: inout ChatSession
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
     var diagnostics: [ChatWorkflowEventApplicationDiagnostic] = []
     for event in events {
@@ -101,7 +101,7 @@ public struct ChatWorkflowEventApplier: Sendable {
   @discardableResult
   public func apply(
     _ event: ChatWorkflowEvent,
-    to state: inout ChatSessionState
+    to state: inout ChatSession
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
     let diagnostics = diagnostics(for: event, in: state)
     switch event {
@@ -165,7 +165,7 @@ public struct ChatWorkflowEventApplier: Sendable {
 
   private func diagnostics(
     for event: ChatWorkflowEvent,
-    in state: ChatSessionState
+    in state: ChatSession
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
     switch event {
     case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, _):
@@ -197,7 +197,7 @@ public struct ChatWorkflowEventApplier: Sendable {
   private func missingMessageDiagnostics(
     _ messageIDs: [UUID],
     event: ChatWorkflowEvent,
-    in state: ChatSessionState
+    in state: ChatSession
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
     messageIDs.compactMap { messageID in
       guard
@@ -218,7 +218,7 @@ public struct ChatWorkflowEventApplier: Sendable {
   private func missingTurnDiagnostics(
     _ turnIDs: [ChatTurn.ID],
     event: ChatWorkflowEvent,
-    in state: ChatSessionState
+    in state: ChatSession
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
     turnIDs.compactMap { turnID in
       guard !state.turns.contains(where: { $0.id == turnID }) else {
@@ -234,7 +234,7 @@ public struct ChatWorkflowEventApplier: Sendable {
 
   private func replaceToolCallRecord(
     _ record: ToolCallRecord,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     guard let index = state.toolCalls.firstIndex(where: { $0.id == record.id }) else {
       return

@@ -10,7 +10,7 @@ public struct ChatModelContextBuilder: Sendable {
   }
 
   public func transcript(
-    from state: ChatSessionState,
+    from state: ChatSession,
     includingTurnID: ChatTurn.ID? = nil
   ) -> ModelFacingTranscript {
     let excludedTurnIDs = Set(

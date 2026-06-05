@@ -6,7 +6,7 @@ classDiagram
     workspaces: [Workspace]
     activeWorkspaceID
     activeSessionID
-  }
+  } 
 
   class Workspace {
     id
@@ -19,10 +19,6 @@ classDiagram
     id
     title
     selectedModelID
-    transcript: ChatTranscriptState
-  }
-
-  class ChatTranscriptState {
     turns: [ChatTurn]
     toolCalls: [ToolCallRecord]
     modelFacingTranscript: ModelFacingTranscript
@@ -30,6 +26,7 @@ classDiagram
     systemPrompt
     generationSettings
     interactionMode
+    pendingAttachments: [ChatAttachment] transient
   }
 
   class ChatTurn {
@@ -99,12 +96,11 @@ classDiagram
 
   WorkspaceLibrary "1" --> "*" Workspace
   Workspace "1" --> "*" ChatSession
-  ChatSession "1" --> "1" ChatTranscriptState
 
-  ChatTranscriptState "1" --> "*" ChatTurn : canonical order
-  ChatTranscriptState "1" --> "*" ToolCallRecord : canonical tool lifecycle
-  ChatTranscriptState "1" --> "1" ModelFacingTranscript : persisted prompt snapshot
-  ChatTranscriptState "1" --> "1" FocusedFileState
+  ChatSession "1" --> "*" ChatTurn : canonical order
+  ChatSession "1" --> "*" ToolCallRecord : canonical tool lifecycle
+  ChatSession "1" --> "1" ModelFacingTranscript : persisted prompt snapshot
+  ChatSession "1" --> "1" FocusedFileState
 
   ChatTurn "1" --> "*" ChatTurnItem
   ChatTurnItem --> UserTurnMessage : embeds user

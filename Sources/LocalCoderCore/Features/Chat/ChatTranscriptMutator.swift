@@ -8,7 +8,7 @@ public struct ChatTranscriptMutator: Sendable {
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
     attachments: [ChatAttachment],
-    to state: inout ChatSessionState
+    to state: inout ChatSession
   ) {
     appendItem(
       .userMessage(UserTurnMessage(id: id, content: content, attachments: attachments)),
@@ -19,7 +19,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   public func appendModelFacingEntry(
     _ entry: ModelContextEntry,
-    to state: inout ChatSessionState
+    to state: inout ChatSession
   ) {
     state.modelFacingTranscript.entries.append(entry)
   }
@@ -28,7 +28,7 @@ public struct ChatTranscriptMutator: Sendable {
     _ content: String,
     turnID: ChatTurn.ID,
     systemPromptSnapshot: String,
-    to state: inout ChatSessionState
+    to state: inout ChatSession
   ) {
     if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
       turnID: turnID,
@@ -43,7 +43,7 @@ public struct ChatTranscriptMutator: Sendable {
     _ content: String,
     turnID: ChatTurn.ID,
     systemPromptSnapshot: String,
-    to state: inout ChatSessionState
+    to state: inout ChatSession
   ) {
     guard
       let terminalIndex = state.modelFacingTranscript.entries.lastIndex(where: { entry in
@@ -86,7 +86,7 @@ public struct ChatTranscriptMutator: Sendable {
   public func updateLastUserModelContextSystemPromptSnapshot(
     _ systemPromptSnapshot: String,
     turnID: ChatTurn.ID,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     updateLastUserModelFacingEntrySystemPromptSnapshot(
       systemPromptSnapshot,
@@ -98,7 +98,7 @@ public struct ChatTranscriptMutator: Sendable {
   public func appendAssistantPlaceholder(
     id: UUID,
     turnID: ChatTurn.ID? = nil,
-    to state: inout ChatSessionState
+    to state: inout ChatSession
   ) {
     appendItem(
       .assistantMessage(
@@ -113,7 +113,7 @@ public struct ChatTranscriptMutator: Sendable {
     _ content: String,
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
-    to state: inout ChatSessionState
+    to state: inout ChatSession
   ) {
     appendItem(
       .assistantMessage(
@@ -124,7 +124,7 @@ public struct ChatTranscriptMutator: Sendable {
     )
   }
 
-  public func appendChunk(_ chunk: String, to messageID: UUID, in state: inout ChatSessionState) {
+  public func appendChunk(_ chunk: String, to messageID: UUID, in state: inout ChatSession) {
     updateAssistantMessage(messageID, in: &state) { message in
       var updatedMessage = message
       updatedMessage.content += chunk
@@ -135,7 +135,7 @@ public struct ChatTranscriptMutator: Sendable {
   public func updateGenerationMetrics(
     _ metrics: ChatGenerationMetrics?,
     for messageID: UUID,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     updateAssistantMessage(messageID, in: &state) { message in
       var updatedMessage = message
@@ -147,7 +147,7 @@ public struct ChatTranscriptMutator: Sendable {
   public func updateDeliveryStatus(
     _ status: AssistantTurnMessage.DeliveryStatus,
     for messageID: UUID,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     updateAssistantMessage(messageID, in: &state) { message in
       var updatedMessage = message
@@ -159,7 +159,7 @@ public struct ChatTranscriptMutator: Sendable {
   public func replaceAssistantContent(
     _ content: String,
     for messageID: UUID,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     updateAssistantMessage(messageID, in: &state) { message in
       var updatedMessage = message
@@ -172,7 +172,7 @@ public struct ChatTranscriptMutator: Sendable {
   public func annotateToolCall(
     _ toolCall: ToolCallModelMessage,
     for messageID: UUID,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     ensureToolCallRecord(for: toolCall, in: &state)
     replaceItem(matchingMessageID: messageID, with: .toolCall(toolCall.callID), in: &state)
@@ -181,17 +181,17 @@ public struct ChatTranscriptMutator: Sendable {
   public func appendToolResult(
     _ toolResult: ToolResultModelMessage,
     turnID: ChatTurn.ID? = nil,
-    to state: inout ChatSessionState
+    to state: inout ChatSession
   ) {
     ensureToolCallRecord(for: toolResult, in: &state)
     appendItem(.toolResult(toolResult.callID), toTurn: turnID, in: &state)
   }
 
-  public func removeMessage(id: UUID, from state: inout ChatSessionState) {
+  public func removeMessage(id: UUID, from state: inout ChatSession) {
     removeItems(matchingMessageID: id, from: &state)
   }
 
-  public func removeTransientAssistantPlaceholders(from state: inout ChatSessionState) {
+  public func removeTransientAssistantPlaceholders(from state: inout ChatSession) {
     for index in state.turns.indices {
       let originalCount = state.turns[index].items.count
       state.turns[index].items.removeAll { item in
@@ -208,7 +208,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   public func markStreamingAssistantMessagesCancelled(
     inTurn turnID: ChatTurn.ID,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     updateTurn(turnID, in: &state) { turn in
       var updatedTurn = turn
@@ -228,7 +228,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func clearTranscript(in state: inout ChatSessionState) {
+  public func clearTranscript(in state: inout ChatSession) {
     state.modelFacingTranscript.entries.removeAll()
     state.toolCalls.removeAll()
     state.turns.removeAll()
@@ -236,14 +236,14 @@ public struct ChatTranscriptMutator: Sendable {
     state.focusedFileState = .empty
   }
 
-  public func appendTurn(_ turn: ChatTurn, to state: inout ChatSessionState) {
+  public func appendTurn(_ turn: ChatTurn, to state: inout ChatSession) {
     state.turns.append(turn)
   }
 
   public func appendItem(
     _ item: ChatTurnItem,
     toTurn turnID: ChatTurn.ID?,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     guard let turnID else {
       if state.turns.isEmpty {
@@ -271,7 +271,7 @@ public struct ChatTranscriptMutator: Sendable {
     _ status: ChatTurnStatus,
     modelContextPolicy: ChatTurnModelContextPolicy? = nil,
     for turnID: ChatTurn.ID,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     updateTurn(turnID, in: &state) { turn in
       var updatedTurn = turn
@@ -286,7 +286,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   private func updateAssistantMessage(
     _ messageID: UUID,
-    in state: inout ChatSessionState,
+    in state: inout ChatSession,
     transform: (AssistantTurnMessage) -> AssistantTurnMessage
   ) {
     for turnIndex in state.turns.indices {
@@ -306,7 +306,7 @@ public struct ChatTranscriptMutator: Sendable {
   private func replaceItem(
     matchingMessageID messageID: UUID,
     with replacement: ChatTurnItem,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     for turnIndex in state.turns.indices {
       for itemIndex in state.turns[turnIndex].items.indices {
@@ -320,7 +320,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  private func removeItems(matchingMessageID messageID: UUID, from state: inout ChatSessionState) {
+  private func removeItems(matchingMessageID messageID: UUID, from state: inout ChatSession) {
     for turnIndex in state.turns.indices {
       let originalCount = state.turns[turnIndex].items.count
       state.turns[turnIndex].items.removeAll { item in
@@ -341,7 +341,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   private func ensureToolCallRecord(
     for toolResult: ToolResultModelMessage,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     guard !state.toolCalls.contains(where: { $0.id == toolResult.callID }) else {
       return
@@ -375,7 +375,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   private func ensureToolCallRecord(
     for toolCall: ToolCallModelMessage,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     guard !state.toolCalls.contains(where: { $0.id == toolCall.callID }) else {
       return
@@ -416,7 +416,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   private func updateTurn(
     _ turnID: ChatTurn.ID,
-    in state: inout ChatSessionState,
+    in state: inout ChatSession,
     transform: (ChatTurn) -> ChatTurn
   ) {
     guard let index = state.turns.firstIndex(where: { $0.id == turnID }) else {
@@ -429,7 +429,7 @@ public struct ChatTranscriptMutator: Sendable {
   private func updateLastUserModelFacingEntrySystemPromptSnapshot(
     _ systemPromptSnapshot: String,
     turnID: ChatTurn.ID,
-    in state: inout ChatSessionState
+    in state: inout ChatSession
   ) {
     guard
       let index = state.modelFacingTranscript.entries.lastIndex(where: { entry in

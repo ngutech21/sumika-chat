@@ -4,7 +4,7 @@ import Observation
 @MainActor
 @Observable
 public final class ChatSessionController {
-  public var chatSession = ChatSessionState.codingDefault
+  public var chatSession = ChatSession.codingDefault
   public var contextUsage: ChatContextUsage?
   public var draft = ""
   public var isGenerating = false
@@ -73,7 +73,7 @@ public final class ChatSessionController {
       selectedModelID: selectedModel.id,
       modelPath: selectedModel.localPath,
       modelContextTokenLimit: storedSettings.contextTokenLimit,
-      chatSession: ChatSessionState(
+      chatSession: ChatSession(
         modelFacingTranscript: ModelFacingTranscript(),
         toolCalls: [],
         turns: [],
@@ -127,7 +127,7 @@ public final class ChatSessionController {
     selectedModelID: ManagedModel.ID,
     modelPath: String,
     modelContextTokenLimit: Int,
-    chatSession: ChatSessionState,
+    chatSession: ChatSession,
     modelSettingsStore: any ModelSettingsStoring,
     modelDownloader: any ModelDownloading,
     runtime: any ChatModelRuntime,
@@ -226,10 +226,8 @@ extension ChatSessionController {
     let didResetRuntime = modelRuntime.applySessionModel(model)
     errorMessage = nil
     contextUsage = nil
-    chatSession = ChatSessionState(
-      transcript: session.transcript,
-      pendingAttachments: []
-    )
+    chatSession = session
+    chatSession.pendingAttachments = []
 
     if didResetRuntime {
       invalidateContextUsage()
@@ -242,7 +240,14 @@ extension ChatSessionController {
   public func sessionSnapshot(updating session: ChatSession) -> ChatSession {
     var snapshot = session
     snapshot.selectedModelID = modelRuntime.selectedModelID
-    snapshot.transcript = chatSession.transcript
+    snapshot.modelFacingTranscript = chatSession.modelFacingTranscript
+    snapshot.toolCalls = chatSession.toolCalls
+    snapshot.turns = chatSession.turns
+    snapshot.focusedFileState = chatSession.focusedFileState
+    snapshot.systemPrompt = chatSession.systemPrompt
+    snapshot.generationSettings = chatSession.generationSettings
+    snapshot.interactionMode = chatSession.interactionMode
+    snapshot.pendingAttachments = []
     snapshot.updatedAt = Date()
     return snapshot
   }
