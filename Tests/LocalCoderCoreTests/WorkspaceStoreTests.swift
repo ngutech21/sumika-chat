@@ -70,7 +70,7 @@ struct WorkspaceStoreTests {
     let turn = ChatTurnRecord(
       status: .cancelled,
       modelContextPolicy: .excluded,
-      toolCallIDs: [toolCall.id]
+      items: [.toolCall(toolCall.id)]
     )
     let session = CodingSession(
       id: sessionID,
@@ -173,7 +173,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func codingSessionDecodesFlatTranscriptFieldsIntoTranscriptState() throws {
+  func codingSessionRejectsFlatTranscriptFields() throws {
     let transcript = ModelFacingTranscript(
       entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
@@ -197,17 +197,9 @@ struct WorkspaceStoreTests {
     )
     let data = try JSONEncoder().encode(flatSession)
 
-    let decoded = try JSONDecoder().decode(CodingSession.self, from: data)
-
-    #expect(
-      decoded.transcript
-        == ChatTranscriptState(
-          messages: messages,
-          modelFacingTranscript: transcript,
-          systemPrompt: "Legacy prompt",
-          generationSettings: .codingDefault,
-          interactionMode: .inspect
-        ))
+    #expect(throws: DecodingError.self) {
+      _ = try JSONDecoder().decode(CodingSession.self, from: data)
+    }
   }
 
   private func temporaryLibraryURL() -> URL {

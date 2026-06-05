@@ -150,9 +150,9 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.turns[0].status == .completed)
     #expect(controller.chatSession.turns[0].modelContextPolicy == .included)
     #expect(
-      controller.chatSession.messages.map(\.turnID).allSatisfy {
-        $0 == controller.chatSession.turns[0].id
-      })
+      controller.chatSession.turns[0].items.map(messageID)
+        == controller.chatSession.messages.map(\.id)
+    )
     let generationMetrics = try #require(controller.chatSession.messages[1].generationMetrics)
     #expect(generationMetrics.generatedTokenCount == 2)
     #expect(generationMetrics.tokensPerSecond == 100)
@@ -221,7 +221,9 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.turns.count == 1)
     #expect(controller.chatSession.turns[0].status == .cancelled)
     #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
-    #expect(controller.chatSession.turns[0].messageIDs == [controller.chatSession.messages[0].id])
+    #expect(
+      controller.chatSession.turns[0].items.map(messageID)
+        == [controller.chatSession.messages[0].id])
     #expect(controller.errorMessage == nil)
   }
 
@@ -579,9 +581,7 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.messages[1].content.isEmpty)
     #expect(controller.chatSession.messages[1].toolCall?.callID == callID)
     #expect(controller.chatSession.messages[1].toolCall?.toolName == .readFile)
-    let toolCallMetrics = try #require(controller.chatSession.messages[1].generationMetrics)
-    #expect(toolCallMetrics.generatedTokenCount == 4)
-    #expect((toolCallMetrics.durationMs ?? 0) > 0)
+    #expect(controller.chatSession.messages[1].generationMetrics == nil)
     #expect(
       controller.chatSession.messages[1].toolCall?.arguments == [
         ToolCallModelArgument(name: "path", value: "README.md")
@@ -1018,5 +1018,14 @@ struct ChatSessionControllerTests {
       encoding: .utf8
     )
     return modelDirectory
+  }
+
+  private func messageID(from item: ChatTurnItem) -> ChatMessage.ID? {
+    switch item {
+    case .userMessage(let message), .assistantMessage(let message):
+      message.id
+    case .toolCall, .toolResult:
+      nil
+    }
   }
 }

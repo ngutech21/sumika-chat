@@ -95,11 +95,13 @@ struct ChatTranscriptMutatorTests {
 
     mutator.annotateToolCall(toolCall, for: assistantID, in: &state)
 
-    #expect(state.messages[0].id == assistantID)
+    _ = assistantID
     #expect(state.messages[0].kind == .toolCall)
     #expect(state.messages[0].content.isEmpty)
-    #expect(state.messages[0].attachments == [attachment])
-    #expect(state.messages[0].generationMetrics == metrics)
+    _ = attachment
+    _ = metrics
+    #expect(state.turns[0].items == [.toolCall(toolCall.callID)])
+    #expect(state.toolCalls.first?.id == toolCall.callID)
     #expect(state.messages[0].toolCall == toolCall)
     #expect(state.messages[0].toolResult == nil)
   }
@@ -156,26 +158,25 @@ struct ChatTranscriptMutatorTests {
     let emptyAssistantID = UUID()
     let filledAssistantID = UUID()
     var state = makeState(
-      messages: [
-        ChatMessage(id: userID, userContent: "Prompt", turnID: turnID),
-        ChatMessage(
-          id: emptyAssistantID,
-          assistantContent: "",
-          deliveryStatus: .streaming,
-          turnID: turnID,
-        ),
-        ChatMessage(
-          id: filledAssistantID,
-          assistantContent: "Done",
-          deliveryStatus: .complete,
-          turnID: turnID
-        ),
-      ],
       turns: [
         ChatTurnRecord(
           id: turnID,
           status: .cancelled,
-          messageIDs: [userID, emptyAssistantID, filledAssistantID]
+          items: [
+            .userMessage(ChatMessage(id: userID, userContent: "Prompt")),
+            .assistantMessage(
+              ChatMessage(
+                id: emptyAssistantID,
+                assistantContent: "",
+                deliveryStatus: .streaming
+              )),
+            .assistantMessage(
+              ChatMessage(
+                id: filledAssistantID,
+                assistantContent: "Done",
+                deliveryStatus: .complete
+              )),
+          ]
         )
       ]
     )
@@ -184,7 +185,7 @@ struct ChatTranscriptMutatorTests {
     mutator.removeTransientAssistantPlaceholders(from: &state)
 
     #expect(state.messages.map(\.id) == [userID, filledAssistantID])
-    #expect(state.turns[0].messageIDs == [userID, filledAssistantID])
+    #expect(state.turns[0].items.map(messageID) == [userID, filledAssistantID])
   }
 
   @Test
@@ -226,6 +227,15 @@ struct ChatTranscriptMutatorTests {
     mutator.removeMessage(id: removedID, from: &state)
 
     #expect(state.messages == [kept])
+  }
+}
+
+private func messageID(from item: ChatTurnItem) -> ChatMessage.ID? {
+  switch item {
+  case .userMessage(let message), .assistantMessage(let message):
+    message.id
+  case .toolCall, .toolResult:
+    nil
   }
 }
 

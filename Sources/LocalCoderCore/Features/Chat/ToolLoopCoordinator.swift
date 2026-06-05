@@ -475,12 +475,6 @@ public struct ToolLoopCoordinator: Sendable {
   }
 
   private func latestUserRequestContent(for request: ToolLoopRequest) -> String? {
-    if let sameTurnUser = request.messages.last(where: { message in
-      message.turnID == request.turnID && message.kind == .user
-    }) {
-      return sameTurnUser.content
-    }
-
     guard
       let assistantIndex = request.messages.firstIndex(where: {
         $0.id == request.assistantMessageID

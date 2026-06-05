@@ -20,7 +20,7 @@ struct WorkspaceChatView: View {
   var body: some View {
     VStack(spacing: 0) {
       ChatTranscript(
-        messages: controller.chatSession.messages,
+        turns: controller.chatSession.turns,
         toolCalls: controller.chatSession.toolCalls,
         selectedModel: controller.modelRuntime.selectedModel,
         modelState: controller.modelRuntime.modelState,

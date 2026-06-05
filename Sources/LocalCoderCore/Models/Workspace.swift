@@ -9,8 +9,8 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
   public var updatedAt: Date
 
   public var messages: [ChatMessage] {
-    get { transcript.messages }
-    set { transcript.messages = newValue }
+    get { transcript.projectedMessages }
+    set { transcript.replaceMessageProjection(newValue) }
   }
 
   public var modelFacingTranscript: ModelFacingTranscript {
@@ -23,7 +23,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     set { transcript.toolCalls = newValue }
   }
 
-  public var turns: [ChatTurnRecord] {
+  public var turns: [ChatTurn] {
     get { transcript.turns }
     set { transcript.turns = newValue }
   }
@@ -68,10 +68,9 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     id: UUID = UUID(),
     title: String = "New Session",
     selectedModelID: ManagedModel.ID,
-    messages: [ChatMessage] = [],
     modelFacingTranscript: ModelFacingTranscript = ModelFacingTranscript(),
     toolCalls: [ToolCallRecord] = [],
-    turns: [ChatTurnRecord] = [],
+    turns: [ChatTurn] = [],
     focusedFileState: FocusedFileState = .empty,
     systemPrompt: String,
     generationSettings: ChatGenerationSettings,
@@ -83,7 +82,6 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     self.title = title
     self.selectedModelID = selectedModelID
     self.transcript = ChatTranscriptState(
-      messages: messages,
       modelFacingTranscript: modelFacingTranscript,
       toolCalls: toolCalls,
       turns: turns,
@@ -101,14 +99,6 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     case title
     case selectedModelID
     case transcript
-    case messages
-    case modelFacingTranscript
-    case toolCalls
-    case turns
-    case focusedFileState
-    case systemPrompt
-    case generationSettings
-    case interactionMode
     case createdAt
     case updatedAt
   }
@@ -118,35 +108,7 @@ public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
     id = try container.decode(UUID.self, forKey: .id)
     title = try container.decode(String.self, forKey: .title)
     selectedModelID = try container.decode(ManagedModel.ID.self, forKey: .selectedModelID)
-    if let decodedTranscript = try container.decodeIfPresent(
-      ChatTranscriptState.self,
-      forKey: .transcript
-    ) {
-      transcript = decodedTranscript
-    } else {
-      transcript = ChatTranscriptState(
-        messages: try container.decode([ChatMessage].self, forKey: .messages),
-        modelFacingTranscript: try container.decode(
-          ModelFacingTranscript.self,
-          forKey: .modelFacingTranscript
-        ),
-        toolCalls: try container.decodeIfPresent([ToolCallRecord].self, forKey: .toolCalls) ?? [],
-        turns: try container.decodeIfPresent([ChatTurnRecord].self, forKey: .turns) ?? [],
-        focusedFileState: try container.decodeIfPresent(
-          FocusedFileState.self,
-          forKey: .focusedFileState
-        ) ?? .empty,
-        systemPrompt: try container.decode(String.self, forKey: .systemPrompt),
-        generationSettings: try container.decode(
-          ChatGenerationSettings.self,
-          forKey: .generationSettings
-        ),
-        interactionMode: try container.decodeIfPresent(
-          WorkspaceInteractionMode.self,
-          forKey: .interactionMode
-        ) ?? .chat
-      )
-    }
+    transcript = try container.decode(ChatTranscriptState.self, forKey: .transcript)
     createdAt = try container.decode(Date.self, forKey: .createdAt)
     updatedAt = try container.decode(Date.self, forKey: .updatedAt)
   }

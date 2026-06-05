@@ -12,7 +12,6 @@ flowchart TD
   ChatAttachment --> ChatAttachmentKind
   ChatContextUsage --> ChatContextUsageAccuracy
   ChatMessage --> ChatMessagePayload
-  ChatMessage --> ChatTurnRecord
   ChatMessagePayload --> AssistantMessagePayload
   ChatMessagePayload --> SystemMessagePayload
   ChatMessagePayload --> ToolCallMessagePayload
@@ -21,16 +20,17 @@ flowchart TD
   ChatSessionState --> ChatAttachment
   ChatSessionState --> ChatTranscriptState
   ChatTranscriptState --> ChatGenerationSettings
-  ChatTranscriptState --> ChatMessage
-  ChatTranscriptState --> ChatTurnRecord
+  ChatTranscriptState --> ChatTurn
   ChatTranscriptState --> FocusedFileState
   ChatTranscriptState --> ModelFacingTranscript
   ChatTranscriptState --> ToolCallRecord
   ChatTranscriptState --> WorkspaceInteractionMode
-  ChatTurnRecord --> ChatMessage
-  ChatTurnRecord --> ChatTurnModelContextPolicy
-  ChatTurnRecord --> ChatTurnStatus
-  ChatTurnRecord --> ToolCallRecord
+  ChatTurn --> ChatTurnItem
+  ChatTurn --> ChatTurnModelContextPolicy
+  ChatTurn --> ChatTurnStatus
+  ChatTurnItem --> ChatMessage
+  ChatTurnItem --> ToolCallRecord
+  ChatTurnRecord --> ChatTurn
   CodingSession --> ChatTranscriptState
   CodingSession --> ManagedModel
   EditFileResult --> EditMatchStrategy
@@ -38,7 +38,6 @@ flowchart TD
   EditFileResult --> ToolFailureReason
   EditFileResult --> ToolTextOutput
   EditFileResult --> WorkspaceRelativePath
-  FocusedFileSnapshot --> WorkspaceRelativePath
   FocusedFileState --> FocusedFileSnapshot
   FocusedFileState --> FocusedPath
   FocusedFileState --> WorkspaceRelativePath
@@ -316,12 +315,10 @@ Properties:
 
 - `id: UUID`
 - `payload: ChatMessagePayload`
-- `turnID: ChatTurnRecord.ID?`
 
 Relations:
 
 - `ChatMessagePayload`
-- `ChatTurnRecord`
 
 ### ChatMessageDeliveryStatus
 
@@ -400,21 +397,58 @@ Properties:
 - `focusedFileState: FocusedFileState`
 - `generationSettings: ChatGenerationSettings`
 - `interactionMode: WorkspaceInteractionMode`
-- `messages: [ChatMessage]`
 - `modelFacingTranscript: ModelFacingTranscript`
 - `systemPrompt: String`
 - `toolCalls: [ToolCallRecord]`
-- `turns: [ChatTurnRecord]`
+- `turns: [ChatTurn]`
 
 Relations:
 
 - `ChatGenerationSettings`
-- `ChatMessage`
-- `ChatTurnRecord`
+- `ChatTurn`
 - `FocusedFileState`
 - `ModelFacingTranscript`
 - `ToolCallRecord`
 - `WorkspaceInteractionMode`
+
+### ChatTurn
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ChatTurn.swift`
+- Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
+
+Properties:
+
+- `createdAt: Date`
+- `id: UUID`
+- `items: [ChatTurnItem]`
+- `modelContextPolicy: ChatTurnModelContextPolicy`
+- `status: ChatTurnStatus`
+- `updatedAt: Date`
+
+Relations:
+
+- `ChatTurnItem`
+- `ChatTurnModelContextPolicy`
+- `ChatTurnStatus`
+
+### ChatTurnItem
+
+- Kind: `enum`
+- Source: `Sources/LocalCoderCore/Models/ChatTurn.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Cases:
+
+- `assistantMessage(ChatMessage)`
+- `toolCall(ToolCallRecord.ID)`
+- `toolResult(ToolCallRecord.ID)`
+- `userMessage(ChatMessage)`
+
+Relations:
+
+- `ChatMessage`
+- `ToolCallRecord`
 
 ### ChatTurnModelContextPolicy
 
@@ -429,26 +463,13 @@ Cases:
 
 ### ChatTurnRecord
 
-- Kind: `struct`
+- Kind: `typealias`
 - Source: `Sources/LocalCoderCore/Models/ChatTurn.swift`
-- Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
-
-Properties:
-
-- `createdAt: Date`
-- `id: UUID`
-- `messageIDs: [ChatMessage.ID]`
-- `modelContextPolicy: ChatTurnModelContextPolicy`
-- `status: ChatTurnStatus`
-- `toolCallIDs: [ToolCallRecord.ID]`
-- `updatedAt: Date`
+- Aliased type: `ChatTurn`
 
 Relations:
 
-- `ChatMessage`
-- `ChatTurnModelContextPolicy`
-- `ChatTurnStatus`
-- `ToolCallRecord`
+- `ChatTurn`
 
 ### ChatTurnStatus
 
@@ -543,12 +564,7 @@ Properties:
 - `contentHash: String`
 - `excerpt: String?`
 - `fullContentAvailable: Bool`
-- `path: WorkspaceRelativePath`
 - `updatedAt: Date`
-
-Relations:
-
-- `WorkspaceRelativePath`
 
 ### FocusedFileState
 

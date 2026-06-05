@@ -42,7 +42,7 @@ struct ChatWorkflowEventApplierTests {
     )
 
     #expect(state.toolCalls == [record])
-    #expect(state.turns[0].toolCallIDs == [record.id])
+    #expect(state.turns[0].items == [.toolCall(record.id)])
   }
 
   @Test
@@ -84,9 +84,10 @@ struct ChatWorkflowEventApplierTests {
       to: &state
     )
 
-    #expect(state.messages.map(\.id) == [messageID])
+    _ = messageID
+    #expect(state.messages.map(\.id) == [result.callID])
     #expect(state.messages[0].toolResult == result)
-    #expect(state.turns[0].messageIDs == [messageID])
+    #expect(state.turns[0].items == [.toolResult(result.callID)])
   }
 
   @Test
@@ -103,7 +104,7 @@ struct ChatWorkflowEventApplierTests {
     #expect(state.messages.map(\.id) == [messageID])
     #expect(state.messages[0].kind == .assistant)
     #expect(state.messages[0].deliveryStatus == .streaming)
-    #expect(state.turns[0].messageIDs == [messageID])
+    #expect(state.turns[0].items == [.assistantMessage(state.messages[0])])
   }
 
   @Test
@@ -128,7 +129,7 @@ struct ChatWorkflowEventApplierTests {
     #expect(state.messages[0].kind == .assistant)
     #expect(state.messages[0].content.contains("1: project notes"))
     #expect(state.messages[0].deliveryStatus == .complete)
-    #expect(state.turns[0].messageIDs == [messageID])
+    #expect(state.turns[0].items == [.assistantMessage(state.messages[0])])
     #expect(state.modelFacingTranscript.entries.map(\.frozenContent.role) == [.assistant])
     #expect(
       state.modelFacingTranscript.entries[0].frozenContent.content
@@ -184,31 +185,30 @@ struct ChatWorkflowEventApplierTests {
     let removedID = UUID()
     let keptID = UUID()
     var state = makeState(
-      messages: [
-        ChatMessage(
-          id: cancelledID,
-          assistantContent: "partial",
-          deliveryStatus: .streaming,
-          turnID: turnID
-        ),
-        ChatMessage(
-          id: removedID,
-          assistantContent: "",
-          deliveryStatus: .streaming,
-          turnID: turnID
-        ),
-        ChatMessage(
-          id: keptID,
-          assistantContent: "done",
-          deliveryStatus: .complete,
-          turnID: turnID
-        ),
-      ],
       turns: [
         ChatTurnRecord(
           id: turnID,
           status: .running,
-          messageIDs: [cancelledID, removedID, keptID]
+          items: [
+            .assistantMessage(
+              ChatMessage(
+                id: cancelledID,
+                assistantContent: "partial",
+                deliveryStatus: .streaming
+              )),
+            .assistantMessage(
+              ChatMessage(
+                id: removedID,
+                assistantContent: "",
+                deliveryStatus: .streaming
+              )),
+            .assistantMessage(
+              ChatMessage(
+                id: keptID,
+                assistantContent: "done",
+                deliveryStatus: .complete
+              )),
+          ]
         )
       ]
     )
@@ -223,7 +223,7 @@ struct ChatWorkflowEventApplierTests {
 
     #expect(state.messages.map(\.id) == [cancelledID, keptID])
     #expect(state.messages[0].deliveryStatus == .cancelled)
-    #expect(state.turns[0].messageIDs == [cancelledID, keptID])
+    #expect(state.turns[0].items.map(messageID) == [cancelledID, keptID])
   }
 
   @Test
@@ -273,7 +273,8 @@ struct ChatWorkflowEventApplierTests {
 
     let diagnostics = ChatWorkflowEventApplier().apply(event, to: &state)
 
-    #expect(state.messages.map(\.id) == [messageID])
+    _ = messageID
+    #expect(state.messages.map(\.id) == [result.callID])
     #expect(state.messages[0].toolResult == result)
     #expect(diagnostics.count == 1)
     #expect(diagnostics[0].event == event)
@@ -294,6 +295,15 @@ struct ChatWorkflowEventApplierTests {
     #expect(diagnostics[0].event == event)
     #expect(diagnostics[0].missingTargetKind == .toolCall)
     #expect(diagnostics[0].missingTargetID == record.id)
+  }
+}
+
+private func messageID(from item: ChatTurnItem) -> ChatMessage.ID? {
+  switch item {
+  case .userMessage(let message), .assistantMessage(let message):
+    message.id
+  case .toolCall, .toolResult:
+    nil
   }
 }
 

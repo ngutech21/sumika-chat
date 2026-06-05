@@ -161,7 +161,6 @@ public struct FocusedFileStateReducer: Sendable {
 
     if let content {
       updatedState.snapshots[path] = FocusedFileSnapshot(
-        path: path,
         contentHash: Self.contentHash(for: content),
         excerpt: Self.excerpt(from: content, limit: maxSnapshotCharacters),
         fullContentAvailable: fullContentAvailable && content.count <= maxSnapshotCharacters,

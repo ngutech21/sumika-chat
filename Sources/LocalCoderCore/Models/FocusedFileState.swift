@@ -51,23 +51,35 @@ public enum FocusConfidence: String, Codable, Equatable, Sendable {
 }
 
 public struct FocusedFileSnapshot: Codable, Equatable, Sendable {
-  public var path: WorkspaceRelativePath
   public var contentHash: String
   public var excerpt: String?
   public var fullContentAvailable: Bool
   public var updatedAt: Date
 
   public init(
-    path: WorkspaceRelativePath,
     contentHash: String,
     excerpt: String?,
     fullContentAvailable: Bool,
     updatedAt: Date = Date()
   ) {
-    self.path = path
     self.contentHash = contentHash
     self.excerpt = excerpt
     self.fullContentAvailable = fullContentAvailable
     self.updatedAt = updatedAt
+  }
+
+  public init(
+    path _: WorkspaceRelativePath,
+    contentHash: String,
+    excerpt: String?,
+    fullContentAvailable: Bool,
+    updatedAt: Date = Date()
+  ) {
+    self.init(
+      contentHash: contentHash,
+      excerpt: excerpt,
+      fullContentAvailable: fullContentAvailable,
+      updatedAt: updatedAt
+    )
   }
 }

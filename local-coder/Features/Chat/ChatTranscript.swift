@@ -4,7 +4,7 @@ import MarkdownUI
 import SwiftUI
 
 struct ChatTranscript: View {
-  let messages: [ChatMessage]
+  let turns: [ChatTurn]
   let toolCalls: [ToolCallRecord]
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
@@ -14,7 +14,7 @@ struct ChatTranscript: View {
   var body: some View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 12) {
-        if messages.isEmpty {
+        if transcriptItems.isEmpty {
           ContentUnavailableView(
             emptyStateTitle,
             systemImage: "bubble.left.and.bubble.right",
@@ -23,10 +23,10 @@ struct ChatTranscript: View {
           .frame(maxWidth: .infinity, minHeight: 360)
           .accessibilityIdentifier("chat.emptyState")
         } else {
-          ForEach(messages) { message in
+          ForEach(transcriptItems) { item in
             ChatBubble(
-              message: message,
-              toolCallRecord: toolCallRecord(for: message),
+              message: item.message,
+              toolCallRecord: item.toolCallRecord,
               onApproveToolCall: onApproveToolCall,
               onDenyToolCall: onDenyToolCall
             )
@@ -66,12 +66,45 @@ struct ChatTranscript: View {
     }
   }
 
-  private func toolCallRecord(for message: ChatMessage) -> ToolCallRecord? {
-    guard case .toolCall(let payload) = message.payload else {
-      return nil
+  private var transcriptItems: [RenderedChatTurnItem] {
+    let recordsByID = Dictionary(toolCalls.map { ($0.id, $0) }) { _, latest in latest }
+    return turns.flatMap { turn in
+      turn.items.enumerated().compactMap { offset, item in
+        switch item {
+        case .userMessage(let message), .assistantMessage(let message):
+          return RenderedChatTurnItem(
+            id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
+            message: message,
+            toolCallRecord: nil
+          )
+        case .toolCall(let id):
+          guard let record = recordsByID[id] else {
+            return nil
+          }
+          return RenderedChatTurnItem(
+            id: "\(turn.id.uuidString):\(offset):toolCall:\(id.uuidString)",
+            message: ChatMessage(id: id, toolCall: ToolCallModelMessage(request: record.request)),
+            toolCallRecord: record
+          )
+        case .toolResult(let id):
+          guard let record = recordsByID[id] else {
+            return nil
+          }
+          return RenderedChatTurnItem(
+            id: "\(turn.id.uuidString):\(offset):toolResult:\(id.uuidString)",
+            message: ChatMessage(id: id, toolResult: ToolResultModelMessage(record: record)),
+            toolCallRecord: record
+          )
+        }
+      }
     }
-    return toolCalls.first { $0.id == payload.toolCall.callID }
   }
+}
+
+private struct RenderedChatTurnItem: Identifiable {
+  let id: String
+  let message: ChatMessage
+  let toolCallRecord: ToolCallRecord?
 }
 
 private struct ChatBubble: View {

@@ -1,11 +1,10 @@
 import Foundation
 
-public struct ChatTurnRecord: Codable, Identifiable, Equatable, Sendable {
+public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
   public let id: UUID
   public var status: ChatTurnStatus
   public var modelContextPolicy: ChatTurnModelContextPolicy
-  public var messageIDs: [ChatMessage.ID]
-  public var toolCallIDs: [ToolCallRecord.ID]
+  public var items: [ChatTurnItem]
   public var createdAt: Date
   public var updatedAt: Date
 
@@ -13,19 +12,24 @@ public struct ChatTurnRecord: Codable, Identifiable, Equatable, Sendable {
     id: UUID = UUID(),
     status: ChatTurnStatus,
     modelContextPolicy: ChatTurnModelContextPolicy = .included,
-    messageIDs: [ChatMessage.ID] = [],
-    toolCallIDs: [ToolCallRecord.ID] = [],
+    items: [ChatTurnItem] = [],
     createdAt: Date = Date(),
     updatedAt: Date = Date()
   ) {
     self.id = id
     self.status = status
     self.modelContextPolicy = modelContextPolicy
-    self.messageIDs = messageIDs
-    self.toolCallIDs = toolCallIDs
+    self.items = items
     self.createdAt = createdAt
     self.updatedAt = updatedAt
   }
+}
+
+public enum ChatTurnItem: Codable, Equatable, Sendable {
+  case userMessage(ChatMessage)
+  case assistantMessage(ChatMessage)
+  case toolCall(ToolCallRecord.ID)
+  case toolResult(ToolCallRecord.ID)
 }
 
 public enum ChatTurnStatus: String, Codable, Equatable, Sendable {
@@ -40,3 +44,5 @@ public enum ChatTurnModelContextPolicy: String, Codable, Equatable, Sendable {
   case included
   case excluded
 }
+
+public typealias ChatTurnRecord = ChatTurn

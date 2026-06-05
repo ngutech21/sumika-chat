@@ -74,9 +74,9 @@ public final class ChatSessionController {
       modelPath: selectedModel.localPath,
       modelContextTokenLimit: storedSettings.contextTokenLimit,
       chatSession: ChatSessionState(
-        messages: [],
         modelFacingTranscript: ModelFacingTranscript(),
         toolCalls: [],
+        turns: [],
         pendingAttachments: [],
         systemPrompt: storedSettings.systemPrompt,
         generationSettings: storedSettings.generationSettings
@@ -311,8 +311,7 @@ extension ChatSessionController {
     transcriptMutator.appendTurn(
       ChatTurnRecord(
         id: turnID,
-        status: .running,
-        messageIDs: [userMessageID, assistantMessageID]
+        status: .running
       ),
       to: &chatSession
     )
@@ -689,7 +688,7 @@ extension ChatSessionController {
     guard existingRecord.status == .awaitingApproval else {
       return
     }
-    guard let turnID = chatSession.turns.first(where: { $0.toolCallIDs.contains(toolCallID) })?.id
+    guard let turnID = chatSession.turnID(containingToolCall: toolCallID)
     else {
       return
     }
@@ -898,7 +897,7 @@ extension ChatSessionController {
     guard existingRecord.status == .awaitingApproval else {
       return
     }
-    guard let turnID = chatSession.turns.first(where: { $0.toolCallIDs.contains(toolCallID) })?.id
+    guard let turnID = chatSession.turnID(containingToolCall: toolCallID)
     else {
       return
     }
