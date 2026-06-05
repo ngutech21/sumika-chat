@@ -113,6 +113,7 @@ public struct ToolPromptPolicy: Sendable {
         the same action format. If editing, call edit_file with exact old_text copied from
         current file content.
         Available tools: \(availableToolNames(in: toolRegistry)).
+        If todo_write already succeeded with "Plan updated.", do not call todo_write again unless the plan actually changed. Continue with the next non-todo tool or answer.
         """,
       ].joined(separator: "\n\n")
     case .afterToolResultFinal:
@@ -144,7 +145,7 @@ public struct ToolPromptPolicy: Sendable {
         - Use workspace-relative paths.
 
         File workflow:
-        - For multi-step Agent tasks, use todo_write to keep a compact current plan with 2 to 6 short items.
+        - For multi-step Agent tasks, first call todo_write with the full current plan as 2 to 6 items. Never send only the next step.
         - To display file contents directly to the user, use show_file.
         - To inspect, explain, summarize, search within, reason about, or modify a file, use read_file.
         - To find files by name, use glob_files or list_files.
@@ -222,7 +223,7 @@ public struct ToolPromptPolicy: Sendable {
       \(nativeMultipleToolCallInstruction(policy: toolCallingPolicy))
 
       File workflow:
-      - For multi-step Agent tasks, use todo_write to keep a compact current plan with 2 to 6 short items.
+      - For multi-step Agent tasks, first call todo_write with the full current plan as 2 to 6 items. Never send only the next step.
       - To display file contents directly to the user, use show_file.
       - To inspect, explain, summarize, search within, reason about, or modify a file, use read_file.
       - To find files by name, use glob_files or list_files.
@@ -262,12 +263,19 @@ public struct ToolPromptPolicy: Sendable {
       readOnly
       ? "Answer now if sufficient, or call read-only tools using the native tool interface."
       : "Answer now if sufficient, or call tools using the native tool interface."
+    let todoFollowUpInstruction =
+      !readOnly && toolRegistry.definition(for: .todoWrite) != nil
+      ? """
+      If todo_write already succeeded with "Plan updated.", do not call todo_write again unless the plan actually changed. Continue with the next non-todo tool or answer.
+      """
+      : ""
     return [
       basePrompt,
       """
       You received a tool result. \(modeInstruction)
       Available tools: \(availableToolNames(in: toolRegistry)).
       \(nativeMultipleToolCallInstruction(policy: toolCallingPolicy))
+      \(todoFollowUpInstruction)
       """,
     ].joined(separator: "\n\n")
   }

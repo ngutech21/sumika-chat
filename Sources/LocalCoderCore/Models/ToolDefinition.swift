@@ -503,27 +503,9 @@ nonisolated extension ToolDefinition {
       ToolParameterDefinition(
         name: "items",
         description:
-          "Structured todo items. Native calls should pass an array of objects with id, content, and status. Tagged calls should pass the same array as JSON.",
+          "JSON array string with 2 to 6 todo objects. Do not send a single object or a one-item array. Each object must have id, content, and status, for example [{\"id\":\"setup\",\"content\":\"Create project structure\",\"status\":\"inProgress\"},{\"id\":\"verify\",\"content\":\"Run tests\",\"status\":\"pending\"}].",
         isRequired: true,
-        valueType: .array,
-        arrayItems: ToolJSONSchemaObject(
-          properties: [
-            "id": ToolJSONSchemaProperty(
-              type: .string,
-              description: "Stable short id for this todo item, such as inspect or verify."
-            ),
-            "content": ToolJSONSchemaProperty(
-              type: .string,
-              description: "Short todo text, 120 characters or fewer."
-            ),
-            "status": ToolJSONSchemaProperty(
-              type: .string,
-              description: "Todo status.",
-              enumValues: ["pending", "inProgress", "completed", "blocked"]
-            ),
-          ],
-          required: ["id", "content", "status"]
-        ),
+        valueType: .string,
         supportsHeredocPayload: true
       )
     ],

@@ -233,12 +233,13 @@ flowchart TD
 - `todo_write` is available only in the Agent registry. It accepts 2 to 6
   short todo items, allows at most one `inProgress` item, and never requires
   approval because it mutates only session state. Chat and Inspect prompts must
-  not render the todo tool or current todo plan. Tagged `todo_write` calls pass
-  the structured item array as JSON in the `items` payload; provider-native
-  tool calls pass the same shape as an array with an item object schema. The
-  validator also tolerates direct `id`/`content`/`status` arguments for this
-  Agent-only state tool so small models get a todo validation error instead of
-  an unrelated unknown-argument failure.
+  not render the todo tool or current todo plan. `todo_write` calls pass
+  `items` as a JSON array string containing objects with `id`, `content`, and
+  `status`; this avoids provider-native `array<object>` argument splitting in
+  small Gemma/MLX tool calls. The validator also tolerates direct
+  `id`/`content`/`status` arguments for this Agent-only state tool so small
+  models get a todo validation error instead of an unrelated unknown-argument
+  failure.
 - `write_file` writes the model-provided `content` directly. The model should
   not generate helper scripts to create files. Missing-path suggestions do not
   apply to `write_file`, because creating a new file is a normal write case.

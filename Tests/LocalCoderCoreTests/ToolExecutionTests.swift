@@ -609,7 +609,7 @@ struct ToolExecutionTests {
 
     #expect(definition.name == .todoWrite)
     #expect(definition.parameters.map(\.name) == ["items"])
-    #expect(definition.parameters.first?.valueType == .array)
+    #expect(definition.parameters.first?.valueType == .string)
     #expect(definition.capabilities.isEmpty)
     #expect(definition.riskLevel == .low)
     #expect(!ToolExecutorRegistry.readOnly.definitions.map(\.name).contains(.todoWrite))

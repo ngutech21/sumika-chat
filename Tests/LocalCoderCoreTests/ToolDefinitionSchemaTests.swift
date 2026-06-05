@@ -94,7 +94,7 @@ struct ToolDefinitionSchemaTests {
   }
 
   @Test
-  func todoWriteDefinitionExposesStructuredItemsParameter() {
+  func todoWriteDefinitionExposesItemsAsJSONArrayString() {
     let definition = ToolDefinition.todoWrite
     let schema = definition.functionSchema
 
@@ -103,12 +103,9 @@ struct ToolDefinitionSchemaTests {
     #expect(definition.capabilities.isEmpty)
     #expect(schema.parameters.required == ["items"])
     let items = schema.parameters.properties["items"]
-    #expect(items?.type == .array)
-    #expect(items?.arrayItems?.required == ["id", "content", "status"])
-    #expect(items?.arrayItems?.properties["content"]?.type == .string)
-    #expect(
-      items?.arrayItems?.properties["status"]?.enumValues
-        == ["pending", "inProgress", "completed", "blocked"])
+    #expect(items?.type == .string)
+    #expect(items?.description.contains("JSON array string") == true)
+    #expect(items?.arrayItems == nil)
     #expect(definition.parameters.first { $0.name == "items" }?.supportsHeredocPayload == true)
   }
 

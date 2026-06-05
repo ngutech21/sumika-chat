@@ -1386,7 +1386,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func nativeGemma4ToolContextIncludesTodoItemSchema() throws {
+  func nativeGemma4ToolContextDefinesTodoItemsAsJSONString() throws {
     let toolContext = ChatRuntimeToolContext(
       strategy: .nativeGemma4,
       registry: ToolExecutorRegistry.codingAgent.toolRegistry
@@ -1402,15 +1402,10 @@ struct GemmaMLXRuntimeTemplateTests {
     let parameters = try #require(function["parameters"] as? [String: any Sendable])
     let properties = try #require(parameters["properties"] as? [String: any Sendable])
     let items = try #require(properties["items"] as? [String: any Sendable])
-    let itemSchema = try #require(items["items"] as? [String: any Sendable])
-    let itemProperties = try #require(itemSchema["properties"] as? [String: any Sendable])
-    let status = try #require(itemProperties["status"] as? [String: any Sendable])
 
-    #expect(items["type"] as? String == "array")
-    #expect(itemSchema["type"] as? String == "object")
-    #expect(itemSchema["required"] as? [String] == ["id", "content", "status"])
-    #expect(itemProperties["content"] != nil)
-    #expect(status["enum"] as? [String] == ["pending", "inProgress", "completed", "blocked"])
+    #expect(items["type"] as? String == "string")
+    #expect((items["description"] as? String)?.contains("JSON array string") == true)
+    #expect(items["items"] == nil)
   }
 
   @Test

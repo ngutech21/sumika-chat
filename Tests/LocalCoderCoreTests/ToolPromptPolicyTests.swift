@@ -126,7 +126,8 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("To find files by name, use glob_files or list_files."))
     #expect(prompt.contains("To search code contents, use search_files."))
     #expect(prompt.contains("To review current workspace changes, use workspace_diff."))
-    #expect(prompt.contains("use todo_write to keep a compact current plan"))
+    #expect(prompt.contains("first call todo_write with the full current plan as 2 to 6 items"))
+    #expect(prompt.contains("Never send only the next step."))
     #expect(prompt.contains("run_command"))
     #expect(prompt.contains("To create a new file, use write_file"))
     #expect(prompt.contains("To modify an existing file, use read_file first"))
@@ -176,6 +177,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("Answer now if sufficient"))
     #expect(prompt.contains("call one more tool using"))
     #expect(prompt.contains("same action format"))
+    #expect(prompt.contains("do not call todo_write again unless the plan actually changed"))
     #expect(prompt.contains("call edit_file with exact old_text copied from"))
     #expect(prompt.contains("current file content"))
     #expect(
@@ -221,6 +223,28 @@ struct ToolPromptPolicyTests {
     #expect(!prompt.contains("Tools:"))
     #expect(!prompt.contains(#"<action name="read_file">"#))
     #expect(!prompt.contains("Multiline payload example:"))
+  }
+
+  @Test
+  func nativeInspectToolResultPromptDoesNotMentionTodoWrite() {
+    let policy = ToolPromptPolicy()
+
+    let prompt = policy.systemPrompt(
+      basePrompt: "Base",
+      mode: .afterInspectToolResultCanContinue,
+      toolRegistry: ToolExecutorRegistry.readOnly.toolRegistry,
+      toolPromptRenderer: TaggedToolPromptRenderer(),
+      toolCallingPolicy: .nativeGemma4
+    )
+
+    #expect(prompt.contains("Base"))
+    #expect(prompt.contains("read-only tools using the native tool interface"))
+    #expect(
+      prompt.contains(
+        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff."
+      ))
+    #expect(!prompt.contains("todo_write"))
+    #expect(!prompt.contains("Plan updated."))
   }
 
   @Test

@@ -80,7 +80,9 @@ struct TaggedToolCallingTests {
       ))
     #expect(
       prompt.contains(
-        "For todo_write, emit exactly one items parameter containing a JSON array of objects."))
+        "For todo_write, emit exactly one items parameter containing a JSON array string with the full current plan as 2 to 6 objects."
+      ))
+    #expect(prompt.contains("Never send only the next step."))
   }
 
   @Test
