@@ -1,3 +1,5 @@
+set quiet := true
+
 project := "local-coder.xcodeproj"
 scheme := "local-coder"
 destination := "platform=macOS,arch=arm64"
@@ -10,32 +12,32 @@ default:
   @just --list
 
 build:
-    xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} build
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} build
 
 release:
-    xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration Release build
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration Release build
 
 test: test-core test-app
 
 test-core:
-    {{swift}} test -Xswiftc -warnings-as-errors
+    {{swift}} test -q -Xswiftc -warnings-as-errors
 
 
 data-model:
     mkdir -p .build/data-model-build .build/swiftpm-cache .build/clang-module-cache .build/swiftpm-home
-    HOME="$PWD/.build/swiftpm-home" CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" {{swift}} run --disable-sandbox --build-path .build/data-model-build --cache-path .build/swiftpm-cache DataModelGenerator
+    HOME="$PWD/.build/swiftpm-home" CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" {{swift}} run -q --disable-sandbox --build-path .build/data-model-build --cache-path .build/swiftpm-cache DataModelGenerator
 
 test-app:
-    xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
 
 ui-test:
-    @echo "Gemma trace directory: $HOME/Library/Containers/ngutech21.local-coder/Data/Library/Application Support/local-coder/debug/traces"; LOCAL_CODER_DEBUG_TRACE=1 xcodebuild -project {{project}} -scheme local-coder-ui-tests -destination "{{destination}}" -derivedDataPath {{derived_data}} -parallel-testing-enabled NO test -only-testing:local-coderUITests/LocalCoderUITests
+    @echo "Gemma trace directory: $HOME/Library/Containers/ngutech21.local-coder/Data/Library/Application Support/local-coder/debug/traces"; LOCAL_CODER_DEBUG_TRACE=1 xcodebuild -quiet -project {{project}} -scheme local-coder-ui-tests -destination "{{destination}}" -derivedDataPath {{derived_data}} -parallel-testing-enabled NO test -only-testing:local-coderUITests/LocalCoderUITests
 
 perf-report scenario="ui-trace":
     @trace_path="$HOME/Library/Containers/ngutech21.local-coder/Data/Library/Application Support/local-coder/debug/gemma-trace.jsonl"; trace_dir="$HOME/Library/Containers/ngutech21.local-coder/Data/Library/Application Support/local-coder/debug/traces"; latest_trace=""; if [ -d "$trace_dir" ]; then latest_trace="$(ls -t "$trace_dir"/*-ui-test.jsonl 2>/dev/null | head -n 1 || true)"; if [ -n "$latest_trace" ]; then trace_path="$latest_trace"; fi; fi; if [ -z "$latest_trace" ] && [ -f .perf/ui-tests/latest-trace-path.txt ]; then candidate="$(cat .perf/ui-tests/latest-trace-path.txt)"; if [ -f "$candidate" ]; then trace_path="$candidate"; fi; fi; echo "Gemma trace: $trace_path"; xcrun swift script/trace_performance_report.swift "$trace_path" --model-id gemma3-27b --scenario "{{scenario}}" --limit all
 
 coverage:
-    xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -enableCodeCoverage YES test
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -enableCodeCoverage YES test
     @result=$(ls -td {{derived_data}}/Logs/Test/*.xcresult 2>/dev/null | head -n 1); \
     if [ -z "$result" ]; then \
         echo "No test result bundle found."; \
@@ -80,7 +82,7 @@ check-warnings:
 
 lint:
     @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew install swiftlint"; exit 127; }
-    swiftlint lint --strict --no-cache --config .swiftlint.yml
+    swiftlint lint --quiet --strict --no-cache --config .swiftlint.yml
 
 final-check: typos format lint test check-warnings
 
@@ -89,4 +91,4 @@ format:
     swift-format format --in-place --recursive --parallel local-coder local-coderTests local-coderUITests Sources Tests Package.swift
 
 typos:
-    typos
+    typos -q --format brief
