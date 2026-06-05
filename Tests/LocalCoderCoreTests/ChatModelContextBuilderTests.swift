@@ -90,14 +90,15 @@ struct ChatModelContextBuilderTests {
       ]
     )
 
-    let systemContext = ChatModelContextBuilder().currentPromptSystemContext(
+    let currentPromptContext = ChatModelContextBuilder().currentPromptContext(
       userInput: "summarize this",
       mode: .chat,
       focusedFileState: state
     )
     let entry = try ModelFacingPromptRenderer.userPromptEntry(
       prompt: "summarize this",
-      systemContext: ["System"] + systemContext
+      systemContext: ["System"] + currentPromptContext.renderedBlocks,
+      currentPromptContext: currentPromptContext.consumedContext
     )
 
     #expect(
@@ -105,9 +106,21 @@ struct ChatModelContextBuilderTests {
         == .userPrompt(
           UserPromptContext(
             prompt: "summarize this",
-            systemContext: ["System"] + systemContext
+            systemContext: ["System"] + currentPromptContext.renderedBlocks,
+            currentPromptContext: currentPromptContext.consumedContext
           )
         ))
+    guard case .userPrompt(let userPromptContext) = entry.body,
+      case .selected(let consumedSelection) = userPromptContext.currentPromptContext,
+      case .focusedFile(let consumedFocusedFile) = consumedSelection.blocks.values[0]
+    else {
+      Issue.record("Expected typed focused file context snapshot.")
+      return
+    }
+    #expect(consumedFocusedFile.path == path)
+    #expect(consumedFocusedFile.source == .writeFile)
+    #expect(consumedFocusedFile.contentHash == "hash")
+    #expect(consumedFocusedFile.excerpt?.text == "<h1>Hello</h1>")
     #expect(entry.frozenContent.content.contains("Current focused file: index.html"))
     #expect(entry.frozenContent.content.contains("Source: previous write_file"))
     #expect(entry.frozenContent.content.contains("Known content excerpt:"))
@@ -127,7 +140,7 @@ struct ChatModelContextBuilderTests {
       rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory)
     )
 
-    let systemContext = ChatModelContextBuilder().currentPromptSystemContext(
+    let currentPromptContext = ChatModelContextBuilder().currentPromptContext(
       userInput: "explain attached",
       mode: .inspect,
       focusedFileState: .empty,
@@ -137,7 +150,8 @@ struct ChatModelContextBuilderTests {
     let entry = try ModelFacingPromptRenderer.userPromptEntry(
       prompt: "explain attached",
       attachments: [attachment],
-      systemContext: ["System"] + systemContext
+      systemContext: ["System"] + currentPromptContext.renderedBlocks,
+      currentPromptContext: currentPromptContext.consumedContext
     )
 
     #expect(
@@ -146,9 +160,20 @@ struct ChatModelContextBuilderTests {
           UserPromptContext(
             prompt: "explain attached",
             attachmentNames: ["Foo.swift"],
-            systemContext: ["System"] + systemContext
+            systemContext: ["System"] + currentPromptContext.renderedBlocks,
+            currentPromptContext: currentPromptContext.consumedContext
           )
         ))
+    guard case .userPrompt(let userPromptContext) = entry.body,
+      case .selected(let consumedSelection) = userPromptContext.currentPromptContext,
+      case .attachedFile(let consumedAttachment) = consumedSelection.blocks.values[0]
+    else {
+      Issue.record("Expected typed attached file context snapshot.")
+      return
+    }
+    #expect(consumedAttachment.path == WorkspaceRelativePath(rawValue: "Sources/Foo.swift"))
+    #expect(consumedAttachment.displayName == "Foo.swift")
+    #expect(consumedAttachment.excerpt?.text == "func attached() {}")
     #expect(entry.frozenContent.content.contains("Attached file: Sources/Foo.swift"))
     #expect(entry.frozenContent.content.contains("Attached content excerpt:"))
     #expect(entry.frozenContent.content.contains("func attached() {}"))

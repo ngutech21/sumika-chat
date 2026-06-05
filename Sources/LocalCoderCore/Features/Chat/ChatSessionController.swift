@@ -337,7 +337,7 @@ extension ChatSessionController {
       attachments: sentAttachments,
       to: &chatSession
     )
-    let currentPromptSystemContext = modelContextBuilder.currentPromptSystemContext(
+    let currentPromptContext = modelContextBuilder.currentPromptContext(
       userInput: prompt,
       mode: interactionMode,
       focusedFileState: chatSession.focusedFileState,
@@ -349,7 +349,8 @@ extension ChatSessionController {
       sourceMessageID: userMessageID,
       prompt: prompt,
       attachments: sentAttachments,
-      systemContext: [initialSystemPromptSnapshot] + currentPromptSystemContext
+      systemContext: [initialSystemPromptSnapshot] + currentPromptContext.renderedBlocks,
+      currentPromptContext: currentPromptContext.consumedContext
     ) {
       transcriptMutator.appendModelFacingEntry(entry, to: &chatSession)
     }

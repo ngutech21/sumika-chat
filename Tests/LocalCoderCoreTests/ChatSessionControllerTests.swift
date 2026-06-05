@@ -181,6 +181,15 @@ struct ChatSessionControllerTests {
     if case .userPrompt(let context) = controller.chatSession.modelFacingTranscript.entries[0].body
     {
       #expect(context.attachmentNames == [attachment.displayName])
+      guard case .selected(let selection) = context.currentPromptContext,
+        case .attachedFile(let attachedFile) = selection.blocks.values[0]
+      else {
+        Issue.record("Expected typed attached file current prompt context.")
+        return
+      }
+      #expect(attachedFile.path == WorkspaceRelativePath(rawValue: "source.swift"))
+      #expect(attachedFile.displayName == "source.swift")
+      #expect(attachedFile.excerpt?.text == "let value = 1")
     } else {
       Issue.record("Expected first model-facing entry to be a user prompt.")
     }

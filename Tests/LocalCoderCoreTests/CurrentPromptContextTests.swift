@@ -357,6 +357,46 @@ struct CurrentPromptContextRendererTests {
   }
 
   @Test
+  func renderedContextIncludesTypedConsumedAttachedFileSnapshot() throws {
+    let attachment = ChatAttachment(
+      url: URL(filePath: "/tmp/project/Sources/Foo.swift"),
+      displayName: "Foo.swift",
+      kind: .text,
+      content: "let value = 1"
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory)
+    )
+    let context = CurrentPromptContextSelector().selectContext(
+      userInput: "explain",
+      mode: .chat,
+      focusedFileState: .empty,
+      attachments: [attachment],
+      workspace: workspace,
+      budget: .focusedFileDefault
+    )
+
+    let rendered = CurrentPromptContextRenderer.renderedContext(context)
+
+    #expect(rendered.renderedBlocks.count == 1)
+    guard case .selected(let selection) = rendered.consumedContext,
+      case .attachedFile(let consumedAttachment) = selection.blocks.values[0]
+    else {
+      Issue.record("Expected typed attached file consumed context.")
+      return
+    }
+    #expect(selection.budget.maxCharacters == ContextBudget.focusedFileDefault.maxCharacters)
+    #expect(selection.truncation == .none)
+    #expect(consumedAttachment.path == WorkspaceRelativePath(rawValue: "Sources/Foo.swift"))
+    #expect(consumedAttachment.displayName == "Foo.swift")
+    #expect(!consumedAttachment.contentHash.isEmpty)
+    #expect(consumedAttachment.excerpt?.text == "let value = 1")
+    #expect(consumedAttachment.excerpt?.truncated == false)
+    #expect(consumedAttachment.isEmpty == false)
+  }
+
+  @Test
   func rendersEmptyAttachedFileWithoutEmptyExcerpt() throws {
     let attachment = ChatAttachment(
       url: URL(filePath: "/tmp/Empty.swift"),
@@ -448,5 +488,17 @@ struct CurrentPromptContextRendererTests {
     #expect(rendered[0].contains("Current focused file:") == false)
     #expect(rendered[0].contains("- index.html"))
     #expect(rendered[0].contains("- style.css"))
+  }
+
+  @Test
+  func renderedEmptyContextIncludesTypedEmptySnapshot() {
+    let rendered = CurrentPromptContextRenderer.renderedContext(.empty(.focusedFileDefault))
+
+    #expect(rendered.renderedBlocks.isEmpty)
+    guard case .empty(let budget) = rendered.consumedContext else {
+      Issue.record("Expected typed empty consumed context.")
+      return
+    }
+    #expect(budget.maxCharacters == ContextBudget.focusedFileDefault.maxCharacters)
   }
 }

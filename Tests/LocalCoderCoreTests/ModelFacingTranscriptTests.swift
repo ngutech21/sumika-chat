@@ -30,6 +30,116 @@ struct ModelFacingTranscriptTests {
   }
 
   @Test
+  func userPromptContextCodablePreservesTypedCurrentPromptContext() throws {
+    let path = WorkspaceRelativePath(rawValue: "Sources/Foo.swift")
+    let focusedState = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(path: path, source: .readFile, confidence: .active)
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          path: path,
+          contentHash: "hash",
+          excerpt: "let value = 1",
+          fullContentAvailable: true
+        )
+      ]
+    )
+    let currentPromptContext = ChatModelContextBuilder().currentPromptContext(
+      userInput: "explain",
+      mode: .inspect,
+      focusedFileState: focusedState
+    )
+    let entry = try ModelFacingPromptRenderer.userPromptEntry(
+      prompt: "explain",
+      systemContext: currentPromptContext.renderedBlocks,
+      currentPromptContext: currentPromptContext.consumedContext
+    )
+
+    let decoded = try JSONDecoder().decode(
+      ModelContextEntry.self,
+      from: JSONEncoder().encode(entry)
+    )
+
+    #expect(decoded == entry)
+    guard case .userPrompt(let context) = decoded.body,
+      case .selected(let selection) = context.currentPromptContext,
+      case .focusedFile(let focusedFile) = selection.blocks.values[0]
+    else {
+      Issue.record("Expected decoded typed focused file context.")
+      return
+    }
+    #expect(focusedFile.path == path)
+    #expect(focusedFile.source == .readFile)
+    #expect(focusedFile.contentHash == "hash")
+    #expect(focusedFile.excerpt?.text == "let value = 1")
+  }
+
+  @Test
+  func frozenContentSignatureIgnoresTypedCurrentPromptContextMetadata() throws {
+    let typedContext = CurrentPromptContextRenderer.renderedContext(.empty(.focusedFileDefault))
+      .consumedContext
+    let plainEntry = try ModelFacingPromptRenderer.userPromptEntry(
+      prompt: "hello",
+      systemContext: ["System"]
+    )
+    let typedEntry = try ModelFacingPromptRenderer.userPromptEntry(
+      prompt: "hello",
+      systemContext: ["System"],
+      currentPromptContext: typedContext
+    )
+
+    #expect(typedEntry.frozenContent.content == plainEntry.frozenContent.content)
+    #expect(typedEntry.frozenContent.signature == plainEntry.frozenContent.signature)
+  }
+
+  @Test
+  func consumedSelectedContextDecodeRejectsEmptyBlocks() throws {
+    let data = Data(
+      """
+      {
+        "kind": "selected",
+        "selected": {
+          "blocks": [],
+          "budget": 4000,
+          "truncation": "none"
+        }
+      }
+      """.utf8)
+
+    #expect(throws: DecodingError.self) {
+      _ = try JSONDecoder().decode(ConsumedCurrentPromptContext.self, from: data)
+    }
+  }
+
+  @Test
+  func consumedAmbiguousRecentFilesDecodeRejectsEmptyPaths() throws {
+    let data = Data(
+      """
+      {
+        "kind": "selected",
+        "selected": {
+          "blocks": [
+            {
+              "kind": "ambiguousRecentFiles",
+              "ambiguousRecentFiles": {
+                "paths": []
+              }
+            }
+          ],
+          "budget": 4000,
+          "truncation": "none"
+        }
+      }
+      """.utf8)
+
+    #expect(throws: DecodingError.self) {
+      _ = try JSONDecoder().decode(ConsumedCurrentPromptContext.self, from: data)
+    }
+  }
+
+  @Test
   func codingSessionDecodeRequiresModelFacingTranscript() throws {
     let session = CodingSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,

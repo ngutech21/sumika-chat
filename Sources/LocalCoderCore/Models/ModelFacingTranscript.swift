@@ -164,15 +164,18 @@ public struct UserPromptContext: Codable, Equatable, Sendable {
   public let prompt: String
   public let attachmentNames: [String]
   public let systemContext: [String]
+  public let currentPromptContext: ConsumedCurrentPromptContext?
 
   public init(
     prompt: String,
     attachmentNames: [String] = [],
-    systemContext: [String] = []
+    systemContext: [String] = [],
+    currentPromptContext: ConsumedCurrentPromptContext? = nil
   ) {
     self.prompt = prompt
     self.attachmentNames = attachmentNames
     self.systemContext = systemContext
+    self.currentPromptContext = currentPromptContext
   }
 }
 

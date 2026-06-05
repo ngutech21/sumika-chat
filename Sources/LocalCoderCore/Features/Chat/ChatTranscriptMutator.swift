@@ -351,7 +351,8 @@ public struct ChatTranscriptMutator: Sendable {
         turnID: entry.turnID,
         sourceMessageID: entry.sourceMessageID,
         prompt: context.prompt,
-        systemContext: [systemPromptSnapshot]
+        systemContext: [systemPromptSnapshot],
+        currentPromptContext: context.currentPromptContext
       )
     case .toolObservation(let context):
       updatedEntry = try? ModelContextEntry(

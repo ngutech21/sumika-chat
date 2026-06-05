@@ -179,6 +179,25 @@ public struct NonEmptyWorkspaceRelativePaths: Equatable, Sendable {
   }
 }
 
+extension NonEmptyWorkspaceRelativePaths: Codable {
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    let values = try container.decode([WorkspaceRelativePath].self)
+    guard let paths = Self.make(values) else {
+      throw DecodingError.dataCorruptedError(
+        in: container,
+        debugDescription: "NonEmptyWorkspaceRelativePaths requires at least one path."
+      )
+    }
+    self = paths
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(storage)
+  }
+}
+
 public struct ContextBudget: Equatable, Sendable {
   public let maxCharacters: Int
 
@@ -200,9 +219,332 @@ public struct ContextBudget: Equatable, Sendable {
   }
 }
 
-public enum PromptContextTruncation: Equatable, Sendable {
+public enum PromptContextTruncation: String, Codable, Equatable, Sendable {
   case none
   case byCharacterBudget
+}
+
+public struct RenderedCurrentPromptContext: Equatable, Sendable {
+  public let renderedBlocks: [String]
+  public let consumedContext: ConsumedCurrentPromptContext
+
+  fileprivate init(
+    renderedBlocks: [String],
+    consumedContext: ConsumedCurrentPromptContext
+  ) {
+    self.renderedBlocks = renderedBlocks
+    self.consumedContext = consumedContext
+  }
+}
+
+public enum ConsumedCurrentPromptContext: Codable, Equatable, Sendable {
+  case empty(ConsumedContextBudget)
+  case selected(ConsumedCurrentPromptContextSelection)
+
+  fileprivate static func snapshot(from context: CurrentPromptContext)
+    -> ConsumedCurrentPromptContext
+  {
+    switch context {
+    case .empty(let budget):
+      return .empty(.make(from: budget))
+    case .selected(let selection):
+      return .selected(.snapshot(from: selection))
+    }
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case kind
+    case empty
+    case selected
+  }
+
+  private enum Kind: String, Codable {
+    case empty
+    case selected
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    switch try container.decode(Kind.self, forKey: .kind) {
+    case .empty:
+      self = .empty(try container.decode(ConsumedContextBudget.self, forKey: .empty))
+    case .selected:
+      self = .selected(
+        try container.decode(ConsumedCurrentPromptContextSelection.self, forKey: .selected)
+      )
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+    case .empty(let budget):
+      try container.encode(Kind.empty, forKey: .kind)
+      try container.encode(budget, forKey: .empty)
+    case .selected(let selection):
+      try container.encode(Kind.selected, forKey: .kind)
+      try container.encode(selection, forKey: .selected)
+    }
+  }
+}
+
+public struct ConsumedCurrentPromptContextSelection: Codable, Equatable, Sendable {
+  public let blocks: NonEmptyConsumedPromptContextBlocks
+  public let budget: ConsumedContextBudget
+  public let truncation: PromptContextTruncation
+
+  private init(
+    blocks: NonEmptyConsumedPromptContextBlocks,
+    budget: ConsumedContextBudget,
+    truncation: PromptContextTruncation
+  ) {
+    self.blocks = blocks
+    self.budget = budget
+    self.truncation = truncation
+  }
+
+  fileprivate static func snapshot(
+    from selection: CurrentPromptContextSelection
+  ) -> ConsumedCurrentPromptContextSelection {
+    ConsumedCurrentPromptContextSelection(
+      blocks: .snapshot(from: selection.blocks),
+      budget: .make(from: selection.budget),
+      truncation: selection.truncation
+    )
+  }
+}
+
+public struct NonEmptyConsumedPromptContextBlocks: Codable, Equatable, Sendable {
+  private let storage: [ConsumedPromptContextBlock]
+
+  public var values: [ConsumedPromptContextBlock] {
+    storage
+  }
+
+  private init(_ storage: [ConsumedPromptContextBlock]) {
+    self.storage = storage
+  }
+
+  fileprivate static func make(
+    _ values: [ConsumedPromptContextBlock]
+  ) -> NonEmptyConsumedPromptContextBlocks? {
+    guard !values.isEmpty else {
+      return nil
+    }
+    return NonEmptyConsumedPromptContextBlocks(values)
+  }
+
+  fileprivate static func snapshot(
+    from blocks: NonEmptyPromptContextBlocks
+  ) -> NonEmptyConsumedPromptContextBlocks {
+    NonEmptyConsumedPromptContextBlocks(blocks.values.map(ConsumedPromptContextBlock.snapshot))
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    let values = try container.decode([ConsumedPromptContextBlock].self)
+    guard let blocks = Self.make(values) else {
+      throw DecodingError.dataCorruptedError(
+        in: container,
+        debugDescription: "NonEmptyConsumedPromptContextBlocks requires at least one block."
+      )
+    }
+    self = blocks
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(storage)
+  }
+}
+
+public enum ConsumedPromptContextBlock: Codable, Equatable, Sendable {
+  case attachedFile(ConsumedAttachedFilePromptContext)
+  case focusedFile(ConsumedFocusedFilePromptContext)
+  case ambiguousRecentFiles(ConsumedAmbiguousFilesPromptContext)
+
+  fileprivate static func snapshot(from block: PromptContextBlock) -> ConsumedPromptContextBlock {
+    switch block {
+    case .attachedFile(let context):
+      return .attachedFile(.snapshot(from: context))
+    case .focusedFile(let context):
+      return .focusedFile(.snapshot(from: context))
+    case .ambiguousRecentFiles(let context):
+      return .ambiguousRecentFiles(.snapshot(from: context))
+    }
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case kind
+    case attachedFile
+    case focusedFile
+    case ambiguousRecentFiles
+  }
+
+  private enum Kind: String, Codable {
+    case attachedFile
+    case focusedFile
+    case ambiguousRecentFiles
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    switch try container.decode(Kind.self, forKey: .kind) {
+    case .attachedFile:
+      self = .attachedFile(
+        try container.decode(ConsumedAttachedFilePromptContext.self, forKey: .attachedFile)
+      )
+    case .focusedFile:
+      self = .focusedFile(
+        try container.decode(ConsumedFocusedFilePromptContext.self, forKey: .focusedFile)
+      )
+    case .ambiguousRecentFiles:
+      self = .ambiguousRecentFiles(
+        try container.decode(
+          ConsumedAmbiguousFilesPromptContext.self,
+          forKey: .ambiguousRecentFiles
+        )
+      )
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+    case .attachedFile(let context):
+      try container.encode(Kind.attachedFile, forKey: .kind)
+      try container.encode(context, forKey: .attachedFile)
+    case .focusedFile(let context):
+      try container.encode(Kind.focusedFile, forKey: .kind)
+      try container.encode(context, forKey: .focusedFile)
+    case .ambiguousRecentFiles(let context):
+      try container.encode(Kind.ambiguousRecentFiles, forKey: .kind)
+      try container.encode(context, forKey: .ambiguousRecentFiles)
+    }
+  }
+}
+
+public struct ConsumedAttachedFilePromptContext: Codable, Equatable, Sendable {
+  public let path: WorkspaceRelativePath
+  public let displayName: String
+  public let contentHash: String
+  public let excerpt: ConsumedPromptContextExcerpt?
+  public let isEmpty: Bool
+
+  private init(
+    path: WorkspaceRelativePath,
+    displayName: String,
+    contentHash: String,
+    excerpt: ConsumedPromptContextExcerpt?,
+    isEmpty: Bool
+  ) {
+    self.path = path
+    self.displayName = displayName
+    self.contentHash = contentHash
+    self.excerpt = excerpt
+    self.isEmpty = isEmpty
+  }
+
+  fileprivate static func snapshot(
+    from context: AttachedFilePromptContext
+  ) -> ConsumedAttachedFilePromptContext {
+    ConsumedAttachedFilePromptContext(
+      path: context.path,
+      displayName: context.displayName,
+      contentHash: context.contentHash,
+      excerpt: context.excerpt.map(ConsumedPromptContextExcerpt.snapshot),
+      isEmpty: context.isEmpty
+    )
+  }
+}
+
+public struct ConsumedFocusedFilePromptContext: Codable, Equatable, Sendable {
+  public let path: WorkspaceRelativePath
+  public let source: FocusedPathSource?
+  public let contentHash: String?
+  public let excerpt: ConsumedPromptContextExcerpt?
+
+  private init(
+    path: WorkspaceRelativePath,
+    source: FocusedPathSource?,
+    contentHash: String?,
+    excerpt: ConsumedPromptContextExcerpt?
+  ) {
+    self.path = path
+    self.source = source
+    self.contentHash = contentHash
+    self.excerpt = excerpt
+  }
+
+  fileprivate static func snapshot(
+    from context: FocusedFilePromptContext
+  ) -> ConsumedFocusedFilePromptContext {
+    ConsumedFocusedFilePromptContext(
+      path: context.path,
+      source: context.source,
+      contentHash: context.contentHash,
+      excerpt: context.excerpt.map(ConsumedPromptContextExcerpt.snapshot)
+    )
+  }
+}
+
+public struct ConsumedAmbiguousFilesPromptContext: Codable, Equatable, Sendable {
+  public let paths: NonEmptyWorkspaceRelativePaths
+
+  private init(paths: NonEmptyWorkspaceRelativePaths) {
+    self.paths = paths
+  }
+
+  fileprivate static func snapshot(
+    from context: AmbiguousRecentFilesPromptContext
+  ) -> ConsumedAmbiguousFilesPromptContext {
+    ConsumedAmbiguousFilesPromptContext(paths: context.paths)
+  }
+}
+
+public struct ConsumedPromptContextExcerpt: Codable, Equatable, Sendable {
+  public let text: String
+  public let truncated: Bool
+
+  private init(text: String, truncated: Bool) {
+    self.text = text
+    self.truncated = truncated
+  }
+
+  fileprivate static func snapshot(from excerpt: PromptContextExcerpt)
+    -> ConsumedPromptContextExcerpt
+  {
+    ConsumedPromptContextExcerpt(text: excerpt.text, truncated: excerpt.truncated)
+  }
+}
+
+public struct ConsumedContextBudget: Codable, Equatable, Sendable {
+  public let maxCharacters: Int
+
+  private init(maxCharacters: Int) {
+    self.maxCharacters = maxCharacters
+  }
+
+  fileprivate static func make(from budget: ContextBudget) -> ConsumedContextBudget {
+    ConsumedContextBudget(maxCharacters: budget.maxCharacters)
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    let maxCharacters = try container.decode(Int.self)
+    guard maxCharacters > 0 else {
+      throw DecodingError.dataCorruptedError(
+        in: container,
+        debugDescription: "ConsumedContextBudget.maxCharacters must be greater than zero."
+      )
+    }
+    self.init(maxCharacters: maxCharacters)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(maxCharacters)
+  }
 }
 
 public protocol CurrentPromptContextSelecting: Sendable {
@@ -419,6 +761,15 @@ public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
 }
 
 public enum CurrentPromptContextRenderer {
+  public static func renderedContext(_ context: CurrentPromptContext)
+    -> RenderedCurrentPromptContext
+  {
+    RenderedCurrentPromptContext(
+      renderedBlocks: render(context),
+      consumedContext: .snapshot(from: context)
+    )
+  }
+
   public static func render(_ context: CurrentPromptContext) -> [String] {
     switch context {
     case .empty:
