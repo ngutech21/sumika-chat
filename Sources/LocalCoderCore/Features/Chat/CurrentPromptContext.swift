@@ -418,8 +418,6 @@ public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
   }
 }
 
-public typealias FocusedPromptContextSelector = CurrentPromptContextSelector
-
 public enum CurrentPromptContextRenderer {
   public static func render(_ context: CurrentPromptContext) -> [String] {
     switch context {
