@@ -274,7 +274,7 @@ Cases:
 
 Properties:
 
-- `durationMs: Double?`
+- `durationMs: Double`
 - `generatedTokenCount: Int`
 - `tokensPerSecond: Double`
 

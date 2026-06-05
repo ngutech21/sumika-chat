@@ -56,7 +56,11 @@ struct ChatTranscriptMutatorTests {
   func updateGenerationMetricsPreservesMessagePayload() {
     let attachment = makeAttachment(name: "main.swift")
     let assistantID = UUID()
-    let metrics = ChatGenerationMetrics(generatedTokenCount: 12, tokensPerSecond: 4.5)
+    let metrics = ChatGenerationMetrics(
+      generatedTokenCount: 12,
+      tokensPerSecond: 4.5,
+      durationMs: 2_666.67
+    )
     var state = makeState(items: [
       .assistantMessage(
         AssistantTurnMessage(

@@ -303,7 +303,13 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
           continuation.yield(.chunk(chunk))
         }
         continuation.yield(
-          .completed(ChatGenerationMetrics(generatedTokenCount: chunks.count, tokensPerSecond: 100))
+          .completed(
+            ChatGenerationMetrics(
+              generatedTokenCount: chunks.count,
+              tokensPerSecond: 100,
+              durationMs: Double(chunks.count) * 10
+            )
+          )
         )
         continuation.finish()
         self.recordStreamFinished(callIndex: callIndex)
@@ -555,7 +561,13 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
         continuation.yield(.chunk(chunk))
       }
       continuation.yield(
-        .completed(ChatGenerationMetrics(generatedTokenCount: chunks.count, tokensPerSecond: 100))
+        .completed(
+          ChatGenerationMetrics(
+            generatedTokenCount: chunks.count,
+            tokensPerSecond: 100,
+            durationMs: Double(chunks.count) * 10
+          )
+        )
       )
       continuation.finish()
     }

@@ -50,7 +50,7 @@ struct ChatGenerationCoordinatorTests {
     #expect(assistantContent == action)
     #expect(await runtime.completedPartialReplies == [action])
     #expect(updatedMetrics?.generatedTokenCount == 4)
-    #expect((updatedMetrics?.durationMs ?? 0) > 0)
+    #expect(try #require(updatedMetrics).durationMs > 0)
     #expect(contextUsageUpdateCount == 1)
     let event = try #require(await tracer.events.first { $0.phase == .runtimePartialDecode })
     #expect(event.turnID == turnID)
@@ -98,7 +98,7 @@ struct ChatGenerationCoordinatorTests {
     #expect(assistantContent == combined)
     #expect(updatedMetrics?.generatedTokenCount == 1)
     #expect(updatedMetrics?.tokensPerSecond == 100)
-    #expect((updatedMetrics?.durationMs ?? 0) > 0)
+    #expect(try #require(updatedMetrics).durationMs > 0)
     #expect(contextUsageUpdateCount == 1)
   }
 
@@ -127,7 +127,7 @@ struct ChatGenerationCoordinatorTests {
     #expect(assistantContent == "hello world")
     #expect(updatedMetrics?.generatedTokenCount == 2)
     #expect(updatedMetrics?.tokensPerSecond == 100)
-    #expect((updatedMetrics?.durationMs ?? 0) > 0)
+    #expect(try #require(updatedMetrics).durationMs > 0)
   }
 
   @Test

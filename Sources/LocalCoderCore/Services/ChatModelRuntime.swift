@@ -95,7 +95,9 @@ public struct MockChatRuntime: ChatModelRuntime {
         }
 
         continuation.yield(
-          .completed(ChatGenerationMetrics(generatedTokenCount: 18, tokensPerSecond: 40))
+          .completed(
+            ChatGenerationMetrics(generatedTokenCount: 18, tokensPerSecond: 40, durationMs: 450)
+          )
         )
         continuation.finish()
       }

@@ -156,7 +156,7 @@ struct ChatSessionControllerTests {
     let generationMetrics = try #require(controller.chatSession.testMessages[1].generationMetrics)
     #expect(generationMetrics.generatedTokenCount == 2)
     #expect(generationMetrics.tokensPerSecond == 100)
-    #expect((generationMetrics.durationMs ?? 0) > 0)
+    #expect(generationMetrics.durationMs > 0)
     let capturedMessages = await runtime.capturedMessages
     #expect(
       capturedMessages.first?.contains(where: { message in

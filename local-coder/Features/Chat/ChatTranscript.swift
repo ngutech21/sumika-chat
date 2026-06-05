@@ -326,10 +326,6 @@ extension Theme {
 
 extension ChatGenerationMetrics {
   var visibleSummary: String {
-    guard let durationMs else {
-      return "\(generatedTokenCount) tokens"
-    }
-
     return "\(generatedTokenCount) tokens · \(formattedDuration(durationMs))"
   }
 
@@ -338,10 +334,6 @@ extension ChatGenerationMetrics {
   }
 
   var accessibilitySummary: String {
-    guard let durationMs else {
-      return "\(generatedTokenCount) generated tokens"
-    }
-
     return "\(generatedTokenCount) generated tokens in \(formattedDuration(durationMs))"
   }
 

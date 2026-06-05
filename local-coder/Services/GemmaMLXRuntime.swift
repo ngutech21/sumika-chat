@@ -1072,13 +1072,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           }
 
           if let info = generation.info {
+            let decodeStartedAt = firstChunkAt ?? iterationStartedAt
+            let durationMs = Date().timeIntervalSince(decodeStartedAt) * 1000
             let metrics = ChatGenerationMetrics(
               generatedTokenCount: info.generationTokenCount,
-              tokensPerSecond: info.tokensPerSecond
+              tokensPerSecond: info.tokensPerSecond,
+              durationMs: durationMs
             )
             completedMetrics = metrics
             if let traceMetadata {
-              let decodeStartedAt = firstChunkAt ?? iterationStartedAt
               await traceMetadata.tracer.recordTurnTraceEvent(
                 TurnTraceEvent(
                   turnID: traceMetadata.turnID,
