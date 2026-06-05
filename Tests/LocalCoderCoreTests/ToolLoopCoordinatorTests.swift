@@ -301,6 +301,84 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func directWorkspaceDiffRequestStopsWithoutModelFollowUpInAgentMode() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let turnID = UUID()
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator(
+      agentToolOrchestrator: CompletedWorkspaceDiffToolOrchestrator()
+    )
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: turnID,
+        assistantMessageID: assistantMessageID,
+        items: [
+          .userMessage(UserTurnMessage(content: "show git diff")),
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="workspace_diff">
+                </action>
+                """
+            )),
+        ],
+        interactionMode: .agent
+      )
+    )
+
+    #expect(result?.continuation == .stopTurn)
+    #expect(toolResult(from: result)?.toolName == .workspaceDiff)
+    let assistant = directAssistantMessage(from: result)
+    #expect(assistant?.content.contains("Workspace changes:") == true)
+    #expect(assistant?.content.contains("Untracked:") == true)
+    #expect(assistant?.content.contains("index.html") == true)
+    #expect(
+      assistant?.modelContextContent
+        == "Displayed workspace_diff result directly to the user.")
+  }
+
+  @Test
+  func workspaceDiffWithFollowUpQuestionKeepsModelFollowUpInAgentMode() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let turnID = UUID()
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator(
+      agentToolOrchestrator: CompletedWorkspaceDiffToolOrchestrator()
+    )
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: turnID,
+        assistantMessageID: assistantMessageID,
+        items: [
+          .userMessage(UserTurnMessage(content: "show git diff and explain it")),
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="workspace_diff">
+                </action>
+                """
+            )),
+        ],
+        interactionMode: .agent
+      )
+    )
+
+    #expect(completedToolResult(from: result)?.toolName == .workspaceDiff)
+    #expect(directAssistantMessage(from: result) == nil)
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
   func listFilesWithFollowUpQuestionKeepsModelFollowUpInInspectMode() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -946,6 +1024,38 @@ private struct NoPreviewToolOrchestrator: ToolOrchestrating {
           ToolFailure(
             toolName: request.toolName, path: nil, reason: .executionError("Failed for test."))
         ))
+    )
+  }
+}
+
+private struct CompletedWorkspaceDiffToolOrchestrator: ToolOrchestrating {
+  var toolRegistry: ToolRegistry {
+    ToolExecutorRegistry.codingAgent.toolRegistry
+  }
+
+  func execute(request rawRequest: RawToolCallRequest, workspace: Workspace) async
+    -> ToolCallRecord
+  {
+    _ = workspace
+    let request = ToolCallRequestValidator().validate(
+      rawRequest,
+      registry: toolRegistry
+    )
+    return ToolCallRecord(
+      request: request,
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Allowed for test.",
+        riskLevel: .low
+      ),
+      state: .completed(
+        .workspaceDiff(
+          .success(
+            path: nil,
+            content: ToolTextOutput(text: "Status:\nUntracked:\n  index.html")
+          )
+        )
+      )
     )
   }
 }

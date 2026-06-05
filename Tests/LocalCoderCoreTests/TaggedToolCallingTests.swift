@@ -44,7 +44,8 @@ struct TaggedToolCallingTests {
     #expect(prompt.contains("- glob_files(pattern, path?): Find workspace files by glob."))
     #expect(
       prompt.contains("- search_files(pattern, path?, include?): Search workspace text files."))
-    #expect(prompt.contains("- workspace_diff(path?): Show current workspace changes using Git diff."))
+    #expect(
+      prompt.contains("- workspace_diff(path?): Show current workspace changes using Git diff."))
     #expect(
       prompt.contains(
         #"For content, old_text, and new_text, use delimiter="LC_PAYLOAD_TEST""#))

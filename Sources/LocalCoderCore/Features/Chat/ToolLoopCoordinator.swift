@@ -518,6 +518,12 @@ public struct ToolLoopCoordinator: Sendable {
         modelContextContent:
           "Displayed list_files result for \(result.root.rawValue) directly to the user."
       )
+    case .workspaceDiff(.success(let path, let content))
+    where shouldRespondDirectlyToWorkspaceDiff(request):
+      return DirectToolResultResponse(
+        content: directWorkspaceDiffResponse(path: path, content: content),
+        modelContextContent: "Displayed workspace_diff result directly to the user."
+      )
     default:
       return nil
     }
@@ -565,6 +571,30 @@ public struct ToolLoopCoordinator: Sendable {
       .joined(separator: "\n")
     if truncated {
       response += "\n\nResult truncated."
+    }
+    return response
+  }
+
+  private func directWorkspaceDiffResponse(
+    path: WorkspaceRelativePath?,
+    content: ToolTextOutput
+  ) -> String {
+    var response =
+      if let path {
+        "Workspace changes for `\(path.rawValue)`:"
+      } else {
+        "Workspace changes:"
+      }
+    let body = content.text.isEmpty ? "No workspace changes." : content.text
+    response += "\n\n"
+    response += body.split(separator: "\n", omittingEmptySubsequences: false)
+      .map { "    \($0)" }
+      .joined(separator: "\n")
+    if content.truncated {
+      response += "\n\nResult truncated."
+    }
+    if content.redacted {
+      response += "\n\nSome content was redacted."
     }
     return response
   }
@@ -641,6 +671,67 @@ public struct ToolLoopCoordinator: Sendable {
     return (hasListVerb && mentionsFile)
       || asksWhichFiles
       || (hasDisplayVerb && mentionsPluralFiles && mentionsDirectory)
+  }
+
+  private func shouldRespondDirectlyToWorkspaceDiff(_ request: ToolLoopRequest) -> Bool {
+    guard let userContent = latestUserRequestContent(for: request) else {
+      return false
+    }
+
+    let lowered = userContent.lowercased()
+    guard
+      !containsAny(
+        [
+          " and ",
+          " then ",
+          "tell me",
+          "summarize",
+          "summary",
+          "explain",
+          "analy",
+          "inspect",
+          "review",
+          "fix",
+          "edit",
+          "change it",
+          "implement",
+          "update",
+          "which ",
+          "erklär",
+          "erklaer",
+          "analys",
+          "prüf",
+          "pruef",
+          "repar",
+          "ändere",
+          "aendere",
+          "implementier",
+        ],
+        in: lowered
+      )
+    else {
+      return false
+    }
+
+    let asksForDisplay = containsAny(
+      ["show", "display", "print", "zeige", "zeig", "anzeigen"],
+      in: lowered
+    )
+    let asksForDiff = containsAny(
+      [
+        "git diff",
+        "workspace diff",
+        "diff",
+        "changes",
+        "änderungen",
+        "aenderungen",
+        "git status",
+        "git changes",
+      ],
+      in: lowered
+    )
+
+    return asksForDisplay && asksForDiff
   }
 
   private func containsAny(_ needles: [String], in haystack: String) -> Bool {

@@ -203,7 +203,8 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("same action format"))
     #expect(
       prompt.contains(
-        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff."))
+        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff."
+      ))
     #expect(prompt.contains("read_file"))
     #expect(prompt.contains("list_files"))
     #expect(prompt.contains("glob_files"))

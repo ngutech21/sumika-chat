@@ -598,6 +598,107 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func gitPathEnvironmentPrependsConfiguredDirectories() throws {
+    let binDirectory = try makeTemporaryDirectory()
+    let existingDirectory = try makeTemporaryDirectory()
+
+    let path = GitPathEnvironment(
+      environment: ["PATH": existingDirectory.path(percentEncoded: false)],
+      prefixDirectories: [binDirectory]
+    ).resolvedPath()
+
+    #expect(
+      path
+        == [
+          binDirectory.path(percentEncoded: false),
+          existingDirectory.path(percentEncoded: false),
+        ].joined(separator: ":"))
+  }
+
+  @Test
+  func gitPathEnvironmentDeduplicatesConfiguredDirectories() throws {
+    let binDirectory = try makeTemporaryDirectory()
+
+    let path = GitPathEnvironment(
+      environment: ["PATH": binDirectory.path(percentEncoded: false)],
+      prefixDirectories: [binDirectory]
+    ).resolvedPath()
+
+    #expect(path == binDirectory.path(percentEncoded: false))
+  }
+
+  @Test
+  func workspaceDiffExplainsXcrunSandboxFailure() async throws {
+    let binDirectory = try makeTemporaryDirectory()
+    _ = try writeExecutable(
+      "git",
+      content: """
+        #!/bin/sh
+        echo "xcrun: error: cannot be used within an App Sandbox." >&2
+        exit 1
+
+        """,
+      in: binDirectory
+    )
+    let workspace = try makeWorkspace()
+
+    let result = await WorkspaceDiffToolExecutor(
+      directGitExecutableURLs: [],
+      gitEnvironment: ["PATH": binDirectory.path(percentEncoded: false)],
+      gitPathPrefixDirectories: []
+    ).run(
+      WorkspaceDiffInput(),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .failed)
+    #expect(result.text.contains("invokes xcrun"))
+    #expect(result.text.contains("App Sandbox"))
+    #expect(result.text.contains("app PATH"))
+  }
+
+  @Test
+  func workspaceDiffCanUseDirectGitExecutableBeforePathGit() async throws {
+    let directGitDirectory = try makeTemporaryDirectory()
+    let pathGitDirectory = try makeTemporaryDirectory()
+    let markerPath = "direct git was used"
+    let directGitURL = try writeExecutable(
+      "git",
+      content: """
+        #!/bin/sh
+        echo "\(markerPath)"
+        exit 1
+
+        """,
+      in: directGitDirectory
+    )
+    _ = try writeExecutable(
+      "git",
+      content: """
+        #!/bin/sh
+        echo "path git was used"
+        exit 1
+
+        """,
+      in: pathGitDirectory
+    )
+    let workspace = try makeWorkspace()
+
+    let result = await WorkspaceDiffToolExecutor(
+      directGitExecutableURLs: [directGitURL],
+      gitEnvironment: ["PATH": pathGitDirectory.path(percentEncoded: false)],
+      gitPathPrefixDirectories: []
+    ).run(
+      WorkspaceDiffInput(),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(result.status == .failed)
+    #expect(result.text.contains(markerPath))
+    #expect(!result.text.contains("path git was used"))
+  }
+
+  @Test
   func workspaceDiffShowsTrackedModifications() async throws {
     let workspace = try makeWorkspace()
     try write("old\n", to: "README.md", in: workspace)
@@ -610,7 +711,7 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.text.contains("Status:\n M README.md"))
+    #expect(result.text.contains("Status:\nModified:\n  README.md"))
     #expect(result.text.contains("Diff stat:"))
     #expect(result.text.contains("README.md"))
     #expect(result.text.contains("Diff:\n"))
@@ -652,7 +753,8 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .success)
-    #expect(result.text.contains("?? notes.txt"))
+    #expect(result.text.contains("Status:\nUntracked:\n  notes.txt"))
+    #expect(!result.text.contains("?? notes.txt"))
     #expect(!result.text.contains("secret untracked content"))
     #expect(!result.text.contains("Diff:\n"))
   }
@@ -1050,6 +1152,23 @@ struct ToolExecutionTests {
       name: "Project", rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)))
   }
 
+  private func makeTemporaryDirectory() throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+      .appending(path: "local-coder-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+  }
+
+  private func writeExecutable(_ name: String, content: String, in directory: URL) throws -> URL {
+    let url = directory.appending(path: name)
+    try content.write(to: url, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o755],
+      ofItemAtPath: url.path(percentEncoded: false)
+    )
+    return url
+  }
+
   private func initializeGitRepository(
     in workspace: Workspace,
     trackedPaths: [String] = []
@@ -1080,10 +1199,11 @@ struct ToolExecutionTests {
     process.waitUntilExit()
 
     guard process.terminationStatus == 0 else {
-      let errorText = String(
-        data: stderr.fileHandleForReading.readDataToEndOfFile(),
-        encoding: .utf8
-      ) ?? ""
+      let errorText =
+        String(
+          data: stderr.fileHandleForReading.readDataToEndOfFile(),
+          encoding: .utf8
+        ) ?? ""
       throw TestGitError(arguments: arguments, errorText: errorText)
     }
   }

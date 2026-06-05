@@ -11,16 +11,38 @@ public struct WorkspaceDiffInput: Codable, Equatable, Sendable {
 public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
   public static let definition = ToolDefinition.workspaceDiff
 
-  private let gitExecutableURL: URL
+  private static let defaultDirectGitExecutableURLs = [
+    URL(filePath: "/Applications/Xcode.app/Contents/Developer/usr/bin/git")
+  ]
+
+  private static let defaultGitPathPrefixDirectories = [
+    URL(filePath: "/opt/homebrew/bin"),
+    URL(filePath: "/usr/local/bin"),
+    URL(filePath: "/opt/local/bin"),
+  ]
+
+  private let gitExecutableURL: URL?
+  private let directGitExecutableURLs: [URL]
+  private let gitEnvironment: [String: String]
+  private let gitPathPrefixDirectories: [URL]
+  private let envExecutableURL: URL
   private let maxBytes: Int
   private let timeoutSeconds: Int
 
   public init(
-    gitExecutableURL: URL = URL(filePath: "/usr/bin/git"),
+    gitExecutableURL: URL? = nil,
+    directGitExecutableURLs: [URL]? = nil,
+    gitEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+    gitPathPrefixDirectories: [URL]? = nil,
+    envExecutableURL: URL = URL(filePath: "/usr/bin/env"),
     maxBytes: Int = 48 * 1024,
     timeoutSeconds: Int = 10
   ) {
     self.gitExecutableURL = gitExecutableURL
+    self.directGitExecutableURLs = directGitExecutableURLs ?? Self.defaultDirectGitExecutableURLs
+    self.gitEnvironment = gitEnvironment
+    self.gitPathPrefixDirectories = gitPathPrefixDirectories ?? Self.defaultGitPathPrefixDirectories
+    self.envExecutableURL = envExecutableURL
     self.maxBytes = maxBytes
     self.timeoutSeconds = timeoutSeconds
   }
@@ -53,6 +75,7 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     do {
       return try await context.workspace.withSecurityScopedAccess {
         let rootURL = try context.workspace.resolveAllowedPath(".")
+        let gitCommand = makeGitCommand()
         if let path = input.path {
           let resolvedURL = try context.workspace.resolveAllowedPath(path)
           scopedPath = context.workspace.relativePath(for: resolvedURL)
@@ -60,6 +83,7 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
 
         let pathArguments = scopedPath.map { [$0.rawValue] } ?? []
         let status = try await runGit(
+          command: gitCommand,
           arguments: ["-C", rootURL.path(percentEncoded: false), "status", "--short", "--"]
             + pathArguments
         )
@@ -71,6 +95,7 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
         }
 
         let stat = try await runGit(
+          command: gitCommand,
           arguments: [
             "-C", rootURL.path(percentEncoded: false), "diff", "--no-ext-diff", "--stat", "--",
           ] + pathArguments
@@ -83,6 +108,7 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
         }
 
         let diff = try await runGit(
+          command: gitCommand,
           arguments: ["-C", rootURL.path(percentEncoded: false), "diff", "--no-ext-diff", "--"]
             + pathArguments
         )
@@ -108,10 +134,44 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     }
   }
 
-  private func runGit(arguments: [String]) async throws -> GitCommandResult {
+  private func makeGitCommand() -> GitLaunchCommand {
+    if let gitExecutableURL {
+      return GitLaunchCommand(
+        executableURL: gitExecutableURL,
+        leadingArguments: [],
+        environment: nil
+      )
+    }
+
+    if let directGitExecutableURL = directGitExecutableURLs.first(where: {
+      FileManager.default.isExecutableFile(atPath: $0.path(percentEncoded: false))
+    }) {
+      return GitLaunchCommand(
+        executableURL: directGitExecutableURL,
+        leadingArguments: [],
+        environment: nil
+      )
+    }
+
+    return GitLaunchCommand(
+      executableURL: envExecutableURL,
+      leadingArguments: ["git"],
+      environment: GitPathEnvironment(
+        environment: gitEnvironment,
+        prefixDirectories: gitPathPrefixDirectories
+      ).resolvedEnvironment()
+    )
+  }
+
+  private func runGit(command: GitLaunchCommand, arguments: [String]) async throws
+    -> GitCommandResult
+  {
     let process = Process()
-    process.executableURL = gitExecutableURL
-    process.arguments = arguments
+    process.executableURL = command.executableURL
+    process.arguments = command.leadingArguments + arguments
+    if let environment = command.environment {
+      process.environment = environment
+    }
 
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()
@@ -154,7 +214,7 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
   }
 
   private func render(status: String, stat: String, diff: String) -> String {
-    let status = trimmingTrailingWhitespace(status)
+    let status = formattedStatus(status)
     let stat = trimmingTrailingWhitespace(stat)
     let diff = trimmingTrailingWhitespace(diff)
 
@@ -172,6 +232,78 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     return sections.joined(separator: "\n\n")
   }
 
+  private func formattedStatus(_ status: String) -> String {
+    let lines = trimmingTrailingWhitespace(status)
+      .split(separator: "\n", omittingEmptySubsequences: true)
+      .map(String.init)
+    guard !lines.isEmpty else {
+      return ""
+    }
+
+    var groups: [(label: String, paths: [String])] = []
+    for line in lines {
+      let entry = formattedStatusEntry(line)
+      if let index = groups.firstIndex(where: { $0.label == entry.label }) {
+        groups[index].paths.append(entry.path)
+      } else {
+        groups.append((label: entry.label, paths: [entry.path]))
+      }
+    }
+
+    return groups.map { group in
+      let paths = group.paths.map { "  \($0)" }.joined(separator: "\n")
+      return "\(group.label):\n\(paths)"
+    }.joined(separator: "\n")
+  }
+
+  private func formattedStatusEntry(_ line: String) -> (label: String, path: String) {
+    guard line.count >= 3 else {
+      return ("Changes", line)
+    }
+
+    let code = String(line.prefix(2))
+    let path = String(line.dropFirst(3))
+
+    if code == "??" {
+      return ("Untracked", path)
+    }
+    if code == "!!" {
+      return ("Ignored", path)
+    }
+
+    let indexStatus = code.first ?? " "
+    let worktreeStatus = code.dropFirst().first ?? " "
+    return (statusLabel(indexStatus: indexStatus, worktreeStatus: worktreeStatus), path)
+  }
+
+  private func statusLabel(indexStatus: Character, worktreeStatus: Character) -> String {
+    if indexStatus != " ", worktreeStatus != " " {
+      return "Staged and unstaged changes"
+    }
+
+    if worktreeStatus != " " {
+      switch worktreeStatus {
+      case "M": return "Modified"
+      case "D": return "Deleted"
+      case "A": return "Added"
+      case "R": return "Renamed"
+      case "C": return "Copied"
+      case "U": return "Unmerged"
+      default: return "Changes"
+      }
+    }
+
+    switch indexStatus {
+    case "M": return "Staged modified"
+    case "D": return "Staged deleted"
+    case "A": return "Staged added"
+    case "R": return "Staged renamed"
+    case "C": return "Staged copied"
+    case "U": return "Unmerged"
+    default: return "Changes"
+    }
+  }
+
   private func failureResult(
     path: WorkspaceRelativePath?,
     command: String,
@@ -183,6 +315,12 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     let reason: String
     if output.localizedCaseInsensitiveContains("not a git repository") {
       reason = "This workspace is not inside a Git repository."
+    } else if output.localizedCaseInsensitiveContains(
+      "xcrun: error: cannot be used within an App Sandbox"
+    ) {
+      reason =
+        "The selected git executable invokes xcrun, which cannot run inside the App Sandbox. "
+        + "Make a real git executable available in the app PATH."
     } else if output.isEmpty {
       reason = "\(command) exited with status \(result.exitCode)."
     } else {
@@ -209,8 +347,27 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     let markerBytes = marker.utf8.count
     let prefixByteCount = max(maxBytes - markerBytes, 0)
     let prefixData = Data(text.utf8.prefix(prefixByteCount))
-    let prefix = String(decoding: prefixData, as: UTF8.self)
+    let prefix = utf8StringDroppingPartialSuffix(from: prefixData)
     return ToolTextOutput(text: prefix + marker, truncated: true)
+  }
+
+  private func utf8StringDroppingPartialSuffix(from data: Data) -> String {
+    if let string = String(bytes: data, encoding: .utf8) {
+      return string
+    }
+
+    guard !data.isEmpty else {
+      return ""
+    }
+
+    for droppedByteCount in 1...min(3, data.count) {
+      let shortenedData = data.dropLast(droppedByteCount)
+      if let string = String(bytes: shortenedData, encoding: .utf8) {
+        return string
+      }
+    }
+
+    return ""
   }
 
   private func trimmingTrailingWhitespace(_ text: String) -> String {
@@ -227,4 +384,55 @@ private struct GitCommandResult: Equatable, Sendable {
   var stdout: String
   var stderr: String
   var timedOut: Bool
+}
+
+private struct GitLaunchCommand: Equatable, Sendable {
+  var executableURL: URL
+  var leadingArguments: [String]
+  var environment: [String: String]?
+}
+
+struct GitPathEnvironment: Sendable {
+  private let environment: [String: String]
+  private let prefixDirectories: [URL]
+
+  init(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    prefixDirectories: [URL]
+  ) {
+    self.environment = environment
+    self.prefixDirectories = prefixDirectories
+  }
+
+  func resolvedEnvironment() -> [String: String] {
+    var environment = environment
+    environment["PATH"] = resolvedPath()
+    return environment
+  }
+
+  func resolvedPath() -> String {
+    let path = environment["PATH"] ?? ""
+    let pathDirectories =
+      path
+      .split(separator: ":", omittingEmptySubsequences: true)
+      .map { URL(filePath: String($0)) }
+    let directories = prefixDirectories + pathDirectories
+    var seenPaths = Set<String>()
+    var resolvedComponents: [String] = []
+
+    for directory in directories {
+      let path = normalizedPath(directory)
+      guard !seenPaths.contains(path) else {
+        continue
+      }
+      seenPaths.insert(path)
+      resolvedComponents.append(path)
+    }
+
+    return resolvedComponents.joined(separator: ":")
+  }
+
+  private func normalizedPath(_ url: URL) -> String {
+    url.standardizedFileURL.path(percentEncoded: false)
+  }
 }
