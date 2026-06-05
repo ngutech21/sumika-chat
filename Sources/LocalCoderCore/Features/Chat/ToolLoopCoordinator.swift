@@ -18,6 +18,8 @@ public struct ToolLoopRequest: Sendable {
   public let interactionMode: WorkspaceInteractionMode
   public let followUpPromptMode: ToolPromptMode
   public let toolLoopIteration: Int?
+  public let toolCallingPolicy: ToolCallingPolicy
+  public let nativeToolCalls: [ChatRuntimeToolCall]
 
   public init(
     workspace: Workspace,
@@ -28,7 +30,9 @@ public struct ToolLoopRequest: Sendable {
     focusedFileState: FocusedFileState = .empty,
     interactionMode: WorkspaceInteractionMode = .agent,
     followUpPromptMode: ToolPromptMode = .afterToolResultCanContinue,
-    toolLoopIteration: Int? = nil
+    toolLoopIteration: Int? = nil,
+    toolCallingPolicy: ToolCallingPolicy = .taggedAction,
+    nativeToolCalls: [ChatRuntimeToolCall] = []
   ) {
     self.workspace = workspace
     self.sessionID = sessionID
@@ -39,12 +43,14 @@ public struct ToolLoopRequest: Sendable {
     self.interactionMode = interactionMode
     self.followUpPromptMode = followUpPromptMode
     self.toolLoopIteration = toolLoopIteration
+    self.toolCallingPolicy = toolCallingPolicy
+    self.nativeToolCalls = nativeToolCalls
   }
 }
 
 nonisolated private enum ToolLoopParsedAction: Equatable, Sendable {
   case none
-  case toolCall(ToolCallParseOutput, recoveredFromMalformedContent: Bool)
+  case toolCalls([ToolCallParseOutput], recoveredFromMalformedContent: Bool)
   case invalid(originalToolName: String, error: String)
 }
 
@@ -85,11 +91,20 @@ public struct ToolLoopCoordinator: Sendable {
     let parseStartedAt = Date()
     let parsedAction: ToolLoopParsedAction
     do {
-      parsedAction = try parseToolAction(
-        assistantContent,
-        workspaceID: request.workspace.id,
-        sessionID: request.sessionID
-      )
+      if !request.nativeToolCalls.isEmpty {
+        parsedAction = nativeToolActions(
+          request.nativeToolCalls,
+          policy: request.toolCallingPolicy,
+          workspaceID: request.workspace.id,
+          sessionID: request.sessionID
+        )
+      } else {
+        parsedAction = try parseToolAction(
+          assistantContent,
+          workspaceID: request.workspace.id,
+          sessionID: request.sessionID
+        )
+      }
     } catch {
       await traceToolPhase(
         .toolParse,
@@ -141,67 +156,11 @@ public struct ToolLoopCoordinator: Sendable {
         focusedFileState: request.focusedFileState,
         followUpPromptMode: request.followUpPromptMode
       )
-    case .toolCall(let output, let recoveredFromMalformedContent):
-      let executeStartedAt = Date()
-      var record = await toolOrchestrator(for: request.interactionMode).execute(
-        request: output.request,
-        workspace: request.workspace
-      )
-      await traceToolPhase(
-        .toolExecute,
-        startedAt: executeStartedAt,
-        request: request,
-        toolName: output.request.toolName.rawValue
-      )
-      appendRecoveryEventIfNeeded(
-        to: &record,
-        recoveredFromMalformedContent: recoveredFromMalformedContent
-      )
-      guard record.status != .awaitingApproval else {
-        return ChatWorkflowStep(
-          events: [
-            .assistantMessageAnnotatedAsToolCall(
-              assistantMessageID: request.assistantMessageID,
-              toolCall: output.modelMessage
-            ),
-            .toolCallAppended(record, turnID: request.turnID),
-            .turnStatusChanged(
-              turnID: request.turnID,
-              status: .awaitingApproval,
-              modelContextPolicy: nil
-            ),
-          ],
-          continuation: .awaitingApproval
-        )
-      }
-
-      let toolResult = ToolResultModelMessage(
-        callID: output.request.id,
-        toolName: output.request.toolName,
-        payload: record.resultPayload
-          ?? .failure(
-            ToolFailure(
-              toolName: output.request.toolName,
-              path: nil,
-              reason: .executionError(
-                "Tool result unavailable for \(output.request.toolName.rawValue)."
-              )
-            ))
-      )
-
-      return completedStep(
-        assistantMessageID: request.assistantMessageID,
-        turnID: request.turnID,
-        toolCall: output.modelMessage,
-        record: record,
-        toolResult: toolResult,
-        focusedFileState: request.focusedFileState,
-        followUpPromptMode: followUpPromptMode(
-          after: record,
-          defaultMode: request.followUpPromptMode,
-          interactionMode: request.interactionMode
-        ),
-        directResponse: directResponse(after: record, toolResult: toolResult, request: request)
+    case .toolCalls(let outputs, let recoveredFromMalformedContent):
+      return await executeToolCalls(
+        outputs,
+        recoveredFromMalformedContent: recoveredFromMalformedContent,
+        request: request
       )
     }
   }
@@ -233,6 +192,119 @@ public struct ToolLoopCoordinator: Sendable {
     case .chat, .agent:
       agentToolOrchestrator
     }
+  }
+
+  private func executeToolCalls(
+    _ outputs: [ToolCallParseOutput],
+    recoveredFromMalformedContent: Bool,
+    request: ToolLoopRequest
+  ) async -> ChatWorkflowStep {
+    guard !outputs.isEmpty else {
+      return ChatWorkflowStep(events: [], continuation: .none)
+    }
+
+    let nextAssistantMessageID = UUID()
+    var events: [ChatWorkflowEvent] = []
+    var focusedFileState = request.focusedFileState
+    var nextFollowUpPromptMode = request.followUpPromptMode
+
+    for (index, output) in outputs.enumerated() {
+      let executeStartedAt = Date()
+      var record = await toolOrchestrator(for: request.interactionMode).execute(
+        request: output.request,
+        workspace: request.workspace
+      )
+      await traceToolPhase(
+        .toolExecute,
+        startedAt: executeStartedAt,
+        request: request,
+        toolName: output.request.toolName.rawValue
+      )
+      appendRecoveryEventIfNeeded(
+        to: &record,
+        recoveredFromMalformedContent: recoveredFromMalformedContent && index == 0
+      )
+
+      if index == 0 {
+        events.append(
+          .assistantMessageAnnotatedAsToolCall(
+            assistantMessageID: request.assistantMessageID,
+            toolCall: output.modelMessage
+          ))
+      }
+      events.append(.toolCallAppended(record, turnID: request.turnID))
+
+      guard record.status != .awaitingApproval else {
+        events.append(
+          .turnStatusChanged(
+            turnID: request.turnID,
+            status: .awaitingApproval,
+            modelContextPolicy: nil
+          ))
+        return ChatWorkflowStep(events: events, continuation: .awaitingApproval)
+      }
+
+      let toolResult = toolResultMessage(output: output, record: record)
+      events.append(.toolResultAppended(toolResult, turnID: request.turnID))
+
+      let updatedFocusedFileState = focusedFileReducer.applyingToolResult(
+        record.resultPayload,
+        request: record.request,
+        to: focusedFileState
+      )
+      if updatedFocusedFileState != focusedFileState {
+        events.append(.focusedFileStateChanged(updatedFocusedFileState))
+        focusedFileState = updatedFocusedFileState
+      }
+
+      nextFollowUpPromptMode = followUpPromptMode(
+        after: record,
+        defaultMode: nextFollowUpPromptMode,
+        interactionMode: request.interactionMode
+      )
+
+      if let directResponse = directResponse(
+        after: record, toolResult: toolResult, request: request)
+      {
+        events.append(
+          .assistantMessageAppended(
+            content: directResponse.content,
+            modelContextContent: directResponse.modelContextContent,
+            messageID: nextAssistantMessageID,
+            turnID: request.turnID
+          ))
+        return ChatWorkflowStep(events: events, continuation: .stopTurn)
+      }
+    }
+
+    events.append(
+      .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: request.turnID))
+    return ChatWorkflowStep(
+      events: events,
+      continuation: .resumeGeneration(
+        assistantMessageID: nextAssistantMessageID,
+        promptMode: nextFollowUpPromptMode
+      )
+    )
+  }
+
+  private func toolResultMessage(
+    output: ToolCallParseOutput,
+    record: ToolCallRecord
+  ) -> ToolResultModelMessage {
+    ToolResultModelMessage(
+      callID: output.request.id,
+      toolName: output.request.toolName,
+      payload: record.resultPayload
+        ?? .failure(
+          ToolFailure(
+            toolName: output.request.toolName,
+            path: nil,
+            reason: .executionError(
+              "Tool result unavailable for \(output.request.toolName.rawValue)."
+            )
+          ))
+    )
   }
 
   private func completedStep(
@@ -315,7 +387,7 @@ public struct ToolLoopCoordinator: Sendable {
             + "Emit one complete <action> block and no explanatory text."
         )
       case .toolCall(let output):
-        return .toolCall(output, recoveredFromMalformedContent: false)
+        return .toolCalls([output], recoveredFromMalformedContent: false)
       }
     } catch let parseError as TaggedToolCallParseError {
       let initialError = errorDescription(from: parseError)
@@ -340,7 +412,7 @@ public struct ToolLoopCoordinator: Sendable {
             error: initialError
           )
         case .toolCall(let output):
-          return .toolCall(output, recoveredFromMalformedContent: true)
+          return .toolCalls([output], recoveredFromMalformedContent: true)
         }
       } catch let parseError as TaggedToolCallParseError {
         return .invalid(
@@ -349,6 +421,38 @@ public struct ToolLoopCoordinator: Sendable {
         )
       }
     }
+  }
+
+  private func nativeToolActions(
+    _ toolCalls: [ChatRuntimeToolCall],
+    policy: ToolCallingPolicy,
+    workspaceID: Workspace.ID,
+    sessionID: ChatSession.ID
+  ) -> ToolLoopParsedAction {
+    guard toolCalls.count <= 1 || policy.allowsMultipleToolCalls else {
+      return .invalid(
+        originalToolName: toolCalls.first?.name ?? "native_tool_call",
+        error:
+          "Model emitted multiple native tool calls, but this model is configured for one "
+          + "tool call per turn. Emit one tool call, wait for the result, then continue."
+      )
+    }
+
+    let outputs = toolCalls.map { toolCall in
+      let request = RawToolCallRequest(
+        workspaceID: workspaceID,
+        sessionID: sessionID,
+        toolName: ToolName(canonicalizing: toolCall.name),
+        arguments: toolCall.arguments,
+        rawText: toolCall.rawText,
+        createdAt: Date()
+      )
+      return ToolCallParseOutput(
+        request: request,
+        modelMessage: ToolCallModelMessage(rawRequest: request)
+      )
+    }
+    return .toolCalls(outputs, recoveredFromMalformedContent: false)
   }
 
   private func appendRecoveryEventIfNeeded(
@@ -682,8 +786,8 @@ extension ToolLoopParsedAction {
       nil
     case .invalid(let originalToolName, _):
       originalToolName
-    case .toolCall(let output, _):
-      output.request.toolName.rawValue
+    case .toolCalls(let outputs, _):
+      outputs.map(\.request.toolName.rawValue).joined(separator: ",")
     }
   }
 }

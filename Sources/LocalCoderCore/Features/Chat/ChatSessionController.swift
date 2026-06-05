@@ -370,7 +370,7 @@ extension ChatSessionController {
       do {
         try await awaitPendingRuntimeContextClear()
         refreshContextUsage(toolPromptMode: initialToolPromptMode)
-        try await streamAssistantReply(
+        let generationResult = try await streamAssistantReply(
           to: assistantMessageID,
           interactionMode: interactionMode,
           toolPromptMode: initialToolPromptMode,
@@ -385,7 +385,8 @@ extension ChatSessionController {
             sessionID: sessionID,
             lastAssistantMessageID: assistantMessageID,
             turnID: turnID,
-            interactionMode: interactionMode
+            interactionMode: interactionMode,
+            lastNativeToolCalls: generationResult.nativeToolCalls
           )
         }
       } catch is CancellationError {
@@ -757,7 +758,7 @@ extension ChatSessionController {
         toolPromptMode: promptMode,
         turnID: turnID
       )
-      try await streamAssistantReply(
+      let generationResult = try await streamAssistantReply(
         to: nextAssistantMessageID,
         interactionMode: chatSession.interactionMode,
         toolPromptMode: promptMode,
@@ -779,7 +780,8 @@ extension ChatSessionController {
           lastAssistantMessageID: nextAssistantMessageID,
           turnID: turnID,
           interactionMode: chatSession.interactionMode,
-          remainingIterations: maxToolLoopIterations - 1
+          remainingIterations: maxToolLoopIterations - 1,
+          lastNativeToolCalls: generationResult.nativeToolCalls
         )
       }
     } catch is CancellationError {
@@ -945,7 +947,7 @@ extension ChatSessionController {
         return
       }
       do {
-        try await streamAssistantReply(
+        _ = try await streamAssistantReply(
           to: nextAssistantMessageID,
           interactionMode: chatSession.interactionMode,
           toolPromptMode: .afterToolResultFinal,
@@ -1074,7 +1076,9 @@ extension ChatSessionController {
     toolLoopIteration: Int? = nil
   )
     async throws
+    -> ChatGenerationResult
   {
+    let toolCallingPolicy = modelRuntime.selectedModel.toolCallingPolicy
     let systemPromptStartedAt = Date()
     let renderedSystemPrompt = systemPrompt(toolPromptMode: toolPromptMode)
     transcriptMutator.updateLastUserModelContextSystemPromptSnapshot(
@@ -1106,14 +1110,19 @@ extension ChatSessionController {
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
-    let assistantModelContent = try await chatGenerationCoordinator.streamAssistantReply(
+    let generationResult = try await chatGenerationCoordinator.streamAssistantReplyResult(
       turnID: turnID,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode,
       transcript: modelContextSnapshot,
       systemPrompt: renderedSystemPrompt,
       settings: chatSession.generationSettings,
-      stopAfterCompleteToolAction: toolPromptMode.shouldStopAfterCompleteToolAction,
+      stopAfterCompleteToolAction: toolPromptMode.shouldStopAfterCompleteToolAction(
+        strategy: toolCallingPolicy.strategy),
+      toolContext: runtimeToolContext(
+        for: toolPromptMode,
+        policy: toolCallingPolicy
+      ),
       appendChunk: { chunk in
         guard isCurrentTurn(turnID) else {
           return
@@ -1132,17 +1141,20 @@ extension ChatSessionController {
         await MainActor.run {}
       }
     )
-    guard isCurrentTurn(turnID), !assistantModelContent.isEmpty else {
-      return
+    guard isCurrentTurn(turnID) else {
+      return ChatGenerationResult(assistantContent: "")
     }
-    if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
-      turnID: turnID,
-      sourceMessageID: assistantMessageID,
-      content: assistantModelContent
-    ) {
-      transcriptMutator.appendModelContextEntry(entry, to: &chatSession)
+    if !generationResult.assistantContent.isEmpty {
+      if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        sourceMessageID: assistantMessageID,
+        content: generationResult.assistantContent
+      ) {
+        transcriptMutator.appendModelContextEntry(entry, to: &chatSession)
+      }
     }
     refreshContextUsage(toolPromptMode: toolPromptMode)
+    return generationResult
   }
 
   fileprivate func runToolLoop(
@@ -1151,14 +1163,17 @@ extension ChatSessionController {
     lastAssistantMessageID: UUID,
     turnID: ChatTurn.ID,
     interactionMode: WorkspaceInteractionMode,
-    remainingIterations initialRemainingIterations: Int? = nil
+    remainingIterations initialRemainingIterations: Int? = nil,
+    lastNativeToolCalls: [ChatRuntimeToolCall] = []
   ) async throws {
     guard interactionMode.allowsToolLoop, let workspace, let sessionID else {
       return
     }
 
     var currentAssistantMessageID = lastAssistantMessageID
+    var currentNativeToolCalls = lastNativeToolCalls
     var remainingIterations = initialRemainingIterations ?? maxToolLoopIterations
+    let toolCallingPolicy = modelRuntime.selectedModel.toolCallingPolicy
 
     while remainingIterations > 0 {
       let toolLoopIteration = (maxToolLoopIterations - remainingIterations) + 1
@@ -1175,12 +1190,15 @@ extension ChatSessionController {
             focusedFileState: chatSession.focusedFileState,
             interactionMode: interactionMode,
             followUpPromptMode: followUpPromptMode,
-            toolLoopIteration: toolLoopIteration
+            toolLoopIteration: toolLoopIteration,
+            toolCallingPolicy: toolCallingPolicy,
+            nativeToolCalls: currentNativeToolCalls
           )
         )
       else {
         return
       }
+      currentNativeToolCalls = []
       remainingIterations -= 1
       try Task.checkCancellation()
       guard isCurrentTurn(turnID) else {
@@ -1198,13 +1216,14 @@ extension ChatSessionController {
         notifySessionDidChange()
         return
       case .resumeGeneration(let nextAssistantMessageID, let promptMode):
-        try await streamAssistantReply(
+        let generationResult = try await streamAssistantReply(
           to: nextAssistantMessageID,
           interactionMode: interactionMode,
           toolPromptMode: promptMode,
           turnID: turnID,
           toolLoopIteration: toolLoopIteration
         )
+        currentNativeToolCalls = generationResult.nativeToolCalls
         guard promptMode != .afterToolResultFinal else {
           try await recordFinalModeToolAttemptIfNeeded(
             workspaceID: workspace.id,
@@ -1276,8 +1295,23 @@ extension ChatSessionController {
       basePrompt: chatSession.systemPrompt,
       mode: toolPromptMode,
       toolRegistry: toolRegistry(for: toolPromptMode),
-      toolPromptRenderer: toolPromptRenderer
+      toolPromptRenderer: toolPromptRenderer,
+      toolCallingPolicy: modelRuntime.selectedModel.toolCallingPolicy
     )
+  }
+
+  fileprivate func runtimeToolContext(
+    for toolPromptMode: ToolPromptMode,
+    policy: ToolCallingPolicy
+  ) -> ChatRuntimeToolContext? {
+    guard policy.strategy == .nativeGemma4 else {
+      return nil
+    }
+    let registry = toolRegistry(for: toolPromptMode)
+    guard !registry.tools.isEmpty else {
+      return nil
+    }
+    return ChatRuntimeToolContext(strategy: policy.strategy, registry: registry)
   }
 
   private func toolPromptMode(
@@ -1338,7 +1372,7 @@ extension ChatSessionController {
   }
 
   private func unsupportedInteractionModeMessage(for model: ManagedModel) -> String {
-    "\(model.displayName) supports plain chat only. Select a Gemma 3 model to use Inspect or Agent tools."
+    "\(model.displayName) supports plain chat only. Select a model with workspace tool support to use Inspect or Agent tools."
   }
 }
 
@@ -1349,13 +1383,16 @@ extension ManagedModel {
 }
 
 extension ToolPromptMode {
-  fileprivate var shouldStopAfterCompleteToolAction: Bool {
+  fileprivate func shouldStopAfterCompleteToolAction(strategy: ToolCallingStrategy) -> Bool {
+    guard strategy == .taggedAction else {
+      return false
+    }
     switch self {
     case .enabled(true), .inspect, .afterInspectToolResultCanContinue,
       .afterToolResultCanContinue:
-      true
+      return true
     case .disabled, .enabled(false), .afterToolResultFinal:
-      false
+      return false
     }
   }
 }

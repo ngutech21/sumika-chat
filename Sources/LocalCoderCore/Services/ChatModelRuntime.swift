@@ -16,15 +16,65 @@ public protocol ChatModelRuntime: Sendable {
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
+  func streamReply(
+    for transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings,
+    toolContext: ChatRuntimeToolContext?
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
   func completePartialReply(output: String) async
 }
 
 public enum ChatModelStreamEvent: Sendable {
   case chunk(String)
+  case toolCall(ChatRuntimeToolCall)
   case completed(ChatGenerationMetrics?)
 }
 
+public struct ChatRuntimeToolContext: Equatable, Sendable {
+  public var strategy: ToolCallingStrategy
+  public var registry: ToolRegistry
+
+  public init(strategy: ToolCallingStrategy, registry: ToolRegistry) {
+    self.strategy = strategy
+    self.registry = registry
+  }
+}
+
+public struct ChatRuntimeToolCall: Equatable, Sendable {
+  public var name: String
+  public var arguments: ToolCallArguments
+  public var rawText: String?
+
+  public init(
+    name: String,
+    arguments: ToolCallArguments = [:],
+    rawText: String? = nil
+  ) {
+    self.name = name
+    self.arguments = arguments
+    self.rawText = rawText
+  }
+}
+
 extension ChatModelRuntime {
+  public func streamReply(
+    for transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings,
+    toolContext: ChatRuntimeToolContext?
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = toolContext
+    return try await streamReply(
+      for: transcript,
+      attachments: attachments,
+      systemPrompt: systemPrompt,
+      settings: settings
+    )
+  }
+
   public func generatedTokenCount(for text: String) async throws -> Int {
     text.split(whereSeparator: \.isWhitespace).count
   }

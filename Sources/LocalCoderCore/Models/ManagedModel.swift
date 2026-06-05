@@ -5,6 +5,38 @@ public enum ManagedModelStability: Equatable, Sendable {
   case experimental
 }
 
+public enum ToolCallingStrategy: String, Codable, Equatable, Sendable {
+  case unsupported
+  case taggedAction
+  case nativeGemma4
+}
+
+public struct ToolCallingPolicy: Codable, Equatable, Sendable {
+  public var strategy: ToolCallingStrategy
+  public var allowsMultipleToolCalls: Bool
+
+  public init(
+    strategy: ToolCallingStrategy,
+    allowsMultipleToolCalls: Bool
+  ) {
+    self.strategy = strategy
+    self.allowsMultipleToolCalls = allowsMultipleToolCalls
+  }
+
+  public static let unsupported = ToolCallingPolicy(
+    strategy: .unsupported,
+    allowsMultipleToolCalls: false
+  )
+  public static let taggedAction = ToolCallingPolicy(
+    strategy: .taggedAction,
+    allowsMultipleToolCalls: false
+  )
+  public static let nativeGemma4 = ToolCallingPolicy(
+    strategy: .nativeGemma4,
+    allowsMultipleToolCalls: true
+  )
+}
+
 public struct ManagedModel: Identifiable, Equatable, Sendable {
   public let id: String
   public let displayName: String
@@ -18,10 +50,18 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
   public let isRecommended: Bool
   public let requiresLargeMemory: Bool
   public let stability: ManagedModelStability
-  public let supportsWorkspaceTools: Bool
+  public let toolCallingPolicy: ToolCallingPolicy
   public let defaultSystemPrompt: String
   public let defaultGenerationSettings: ChatGenerationSettings
   public let defaultContextTokenLimit: Int
+
+  public var toolCallingStrategy: ToolCallingStrategy {
+    toolCallingPolicy.strategy
+  }
+
+  public var supportsWorkspaceTools: Bool {
+    toolCallingPolicy.strategy != .unsupported
+  }
 
   public var localDirectoryURL: URL {
     LocalModelDirectory.defaultBaseURL.appending(
@@ -51,7 +91,7 @@ public enum ManagedModelCatalog {
       isRecommended: false,
       requiresLargeMemory: false,
       stability: .stable,
-      supportsWorkspaceTools: true,
+      toolCallingPolicy: .taggedAction,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -69,7 +109,7 @@ public enum ManagedModelCatalog {
       isRecommended: true,
       requiresLargeMemory: false,
       stability: .stable,
-      supportsWorkspaceTools: true,
+      toolCallingPolicy: .taggedAction,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -87,7 +127,7 @@ public enum ManagedModelCatalog {
       isRecommended: false,
       requiresLargeMemory: true,
       stability: .stable,
-      supportsWorkspaceTools: true,
+      toolCallingPolicy: .taggedAction,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -105,7 +145,7 @@ public enum ManagedModelCatalog {
       isRecommended: false,
       requiresLargeMemory: false,
       stability: .experimental,
-      supportsWorkspaceTools: false,
+      toolCallingPolicy: .nativeGemma4,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -123,7 +163,7 @@ public enum ManagedModelCatalog {
       isRecommended: false,
       requiresLargeMemory: false,
       stability: .experimental,
-      supportsWorkspaceTools: false,
+      toolCallingPolicy: .nativeGemma4,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit

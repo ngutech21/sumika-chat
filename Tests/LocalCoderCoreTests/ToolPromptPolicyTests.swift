@@ -137,6 +137,24 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
+  func nativeGemma4PromptAllowsOnlyIndependentMultipleToolCalls() {
+    let policy = ToolPromptPolicy()
+
+    let prompt = policy.systemPrompt(
+      basePrompt: "Base",
+      mode: .enabled(true),
+      toolRegistry: ToolExecutorRegistry.codingAgent.toolRegistry,
+      toolPromptRenderer: TaggedToolPromptRenderer(),
+      toolCallingPolicy: .nativeGemma4
+    )
+
+    #expect(prompt.contains("native tool-calling interface"))
+    #expect(prompt.contains("multiple native tool calls only when they are independent"))
+    #expect(prompt.contains("For dependent steps, emit one tool call and wait for the result."))
+    #expect(!prompt.contains("<action"))
+  }
+
+  @Test
   func afterToolResultCanContinuePromptUsesCompactContinuation() {
     let policy = ToolPromptPolicy()
 

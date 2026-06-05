@@ -41,6 +41,120 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func executesNativeRuntimeToolCallWithoutTaggedActionText() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: UUID(),
+        assistantMessageID: assistantMessageID,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(id: assistantMessageID, content: "")
+          )
+        ],
+        interactionMode: .inspect,
+        toolCallingPolicy: .nativeGemma4,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          )
+        ]
+      )
+    )
+
+    #expect(annotatedAssistantMessageID(from: result) == assistantMessageID)
+    #expect(toolCall(from: result)?.toolName == .readFile)
+    #expect(toolCallRecord(from: result)?.status == .completed)
+    #expect(completedToolResult(from: result)?.preview.text == "1: project notes")
+  }
+
+  @Test
+  func executesMultipleNativeRuntimeToolCallsWhenModelPolicyAllowsIt() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: UUID(),
+        assistantMessageID: assistantMessageID,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(id: assistantMessageID, content: "")
+          )
+        ],
+        interactionMode: .inspect,
+        toolCallingPolicy: .nativeGemma4,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          ),
+          ChatRuntimeToolCall(
+            name: "list_files",
+            arguments: ["root": .string(".")]
+          ),
+        ]
+      )
+    )
+
+    #expect(annotatedAssistantMessageID(from: result) == assistantMessageID)
+    #expect(toolCallRecords(from: result).map(\.request.toolName) == [.readFile, .listFiles])
+    #expect(toolResults(from: result).map(\.toolName) == [.readFile, .listFiles])
+    #expect(result?.continuation != .awaitingApproval)
+  }
+
+  @Test
+  func rejectsMultipleNativeRuntimeToolCallsWhenModelPolicyDisallowsIt() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: UUID(),
+        assistantMessageID: assistantMessageID,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(id: assistantMessageID, content: "")
+          )
+        ],
+        interactionMode: .inspect,
+        toolCallingPolicy: .taggedAction,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          ),
+          ChatRuntimeToolCall(
+            name: "list_files",
+            arguments: ["root": .string(".")]
+          ),
+        ]
+      )
+    )
+
+    #expect(toolCall(from: result)?.toolName == .invalid)
+    #expect(toolCallRecord(from: result)?.status == .failed)
+    #expect(
+      completedToolResult(from: result)?.preview.text.contains(
+        "multiple native tool calls") == true)
+  }
+
+  @Test
   func showFileDisplayStopsWithoutModelFollowUp() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -742,13 +856,18 @@ struct ToolLoopCoordinatorTests {
   }
 
   private func toolCallRecord(from step: ChatWorkflowStep?) -> ToolCallRecord? {
+    toolCallRecords(from: step).first
+  }
+
+  private func toolCallRecords(from step: ChatWorkflowStep?) -> [ToolCallRecord] {
+    var records: [ToolCallRecord] = []
     for event in step?.events ?? [] {
       guard case .toolCallAppended(let record, _) = event else {
         continue
       }
-      return record
+      records.append(record)
     }
-    return nil
+    return records
   }
 
   private func hasRecoveredToolCallEvent(_ step: ChatWorkflowStep?) -> Bool {
@@ -774,13 +893,18 @@ struct ToolLoopCoordinatorTests {
   }
 
   private func toolResult(from step: ChatWorkflowStep?) -> ToolResultModelMessage? {
+    toolResults(from: step).first
+  }
+
+  private func toolResults(from step: ChatWorkflowStep?) -> [ToolResultModelMessage] {
+    var results: [ToolResultModelMessage] = []
     for event in step?.events ?? [] {
       guard case .toolResultAppended(let toolResult, _) = event else {
         continue
       }
-      return toolResult
+      results.append(toolResult)
     }
-    return nil
+    return results
   }
 
   private func directAssistantMessage(from step: ChatWorkflowStep?) -> (

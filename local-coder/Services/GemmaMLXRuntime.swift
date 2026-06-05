@@ -387,6 +387,22 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    try await streamReply(
+      for: transcript,
+      attachments: attachments,
+      systemPrompt: systemPrompt,
+      settings: settings,
+      toolContext: nil
+    )
+  }
+
+  func streamReply(
+    for transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings,
+    toolContext: ChatRuntimeToolContext?
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = attachments
     _ = systemPrompt
     let streamStartStartedAt = Date()
@@ -409,6 +425,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       topP: Float(settings.topP),
       topK: settings.topK
     )
+    let toolSpecs = Self.toolSpecs(from: toolContext)
+    if toolContext?.strategy == .nativeGemma4 {
+      invalidateCachedSession(reason: .signatureMismatch)
+    }
     let history = try Self.generationHistoryMessages(
       from: projectedEntries[..<lastUserIndex]
     )
@@ -425,6 +445,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       projectionMode: projectionMode,
       generationID: generationID
     )
+    cachePlan.session.tools = toolSpecs
 
     let traceMetadata = TurnTraceContext.current
     let traceID = traceMetadata?.generationID ?? UUID()
@@ -964,6 +985,118 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     return zip(prefix, messages).allSatisfy(==)
   }
 
+  nonisolated static func toolSpecs(from toolContext: ChatRuntimeToolContext?) -> [ToolSpec]? {
+    guard toolContext?.strategy == .nativeGemma4 else {
+      return nil
+    }
+    let tools = toolContext?.registry.tools ?? []
+    guard !tools.isEmpty else {
+      return nil
+    }
+    return tools.map(toolSpec(for:))
+  }
+
+  nonisolated private static func toolSpec(for definition: ToolDefinition) -> ToolSpec {
+    [
+      "type": "function",
+      "function": [
+        "name": definition.name.rawValue,
+        "description": definition.description,
+        "parameters": jsonSchemaObject(for: definition.parameters),
+      ] as [String: any Sendable],
+    ] as ToolSpec
+  }
+
+  nonisolated private static func jsonSchemaObject(
+    for parameters: [ToolParameterDefinition]
+  ) -> [String: any Sendable] {
+    var properties: [String: any Sendable] = [:]
+    var required: [String] = []
+
+    for parameter in parameters {
+      properties[parameter.name] = jsonSchemaProperty(for: parameter)
+      if parameter.isRequired {
+        required.append(parameter.name)
+      }
+    }
+
+    return [
+      "type": "object",
+      "properties": properties,
+      "required": required,
+      "additionalProperties": false,
+    ] as [String: any Sendable]
+  }
+
+  nonisolated private static func jsonSchemaProperty(
+    for parameter: ToolParameterDefinition
+  ) -> [String: any Sendable] {
+    var schema: [String: any Sendable] = [
+      "type": parameter.valueType.rawValue,
+      "description": parameter.description,
+    ]
+    if let enumValues = parameter.enumValues {
+      schema["enum"] = enumValues
+    }
+    if let defaultValue = parameter.defaultValue {
+      schema["default"] = sendableValue(from: defaultValue)
+    }
+    if let minimum = parameter.minimum {
+      schema["minimum"] = minimum
+    }
+    if let maximum = parameter.maximum {
+      schema["maximum"] = maximum
+    }
+    return schema
+  }
+
+  nonisolated private static func sendableValue(
+    from value: ToolArgumentValue
+  ) -> any Sendable {
+    switch value {
+    case .string(let string):
+      return string
+    case .number(let number):
+      return number
+    case .bool(let bool):
+      return bool
+    case .array(let array):
+      return array.map(sendableValue(from:))
+    case .object(let object):
+      return object.mapValues(sendableValue(from:))
+    case .null:
+      return NSNull()
+    }
+  }
+
+  nonisolated static func chatRuntimeToolCall(from toolCall: MLXLMCommon.ToolCall)
+    -> ChatRuntimeToolCall
+  {
+    ChatRuntimeToolCall(
+      name: toolCall.function.name,
+      arguments: toolCall.function.arguments.mapValues(toolArgumentValue(from:))
+    )
+  }
+
+  nonisolated private static func toolArgumentValue(from value: JSONValue) -> ToolArgumentValue {
+    switch value {
+    case .null:
+      return .null
+    case .bool(let bool):
+      return .bool(bool)
+    case .int(let int):
+      return .number(Double(int))
+    case .double(let double):
+      return .number(double)
+    case .string(let string):
+      return .string(string)
+    case .array(let array):
+      return .array(array.map(toolArgumentValue(from:)))
+    case .object(let object):
+      return .object(object.mapValues(toolArgumentValue(from:)))
+    }
+  }
+
   nonisolated static func modelStream(
     from stream: AsyncThrowingStream<Generation, Error>,
     traceID: UUID,
@@ -1066,6 +1199,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
             }
             output += chunk
             if case .terminated = continuation.yield(.chunk(chunk)) {
+              didTerminateDownstream = true
+              break generationLoop
+            }
+          }
+
+          if let toolCall = generation.toolCall {
+            if case .terminated = continuation.yield(
+              .toolCall(Self.chatRuntimeToolCall(from: toolCall))
+            ) {
               didTerminateDownstream = true
               break generationLoop
             }

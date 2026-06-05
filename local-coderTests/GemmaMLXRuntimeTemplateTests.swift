@@ -1230,6 +1230,54 @@ struct GemmaMLXRuntimeTemplateTests {
     }
   }
 
+  @Test
+  func nativeGemma4ToolContextMapsRegistryToMLXToolSpecs() throws {
+    let toolContext = ChatRuntimeToolContext(
+      strategy: .nativeGemma4,
+      registry: ToolExecutorRegistry.readOnly.toolRegistry
+    )
+
+    let specs = try #require(GemmaMLXRuntime.toolSpecs(from: toolContext))
+    let readFileSpec = try #require(
+      specs.first { spec in
+        let function = spec["function"] as? [String: any Sendable]
+        return function?["name"] as? String == "read_file"
+      })
+    let function = try #require(readFileSpec["function"] as? [String: any Sendable])
+    let parameters = try #require(function["parameters"] as? [String: any Sendable])
+    let properties = try #require(parameters["properties"] as? [String: any Sendable])
+    let path = try #require(properties["path"] as? [String: any Sendable])
+    let limit = try #require(properties["limit"] as? [String: any Sendable])
+
+    #expect(readFileSpec["type"] as? String == "function")
+    #expect(function["description"] as? String == ToolDefinition.readFile.description)
+    #expect(parameters["type"] as? String == "object")
+    #expect(parameters["additionalProperties"] as? Bool == false)
+    #expect(path["type"] as? String == "string")
+    #expect(limit["type"] as? String == "integer")
+  }
+
+  @Test
+  func mlxToolCallMapsToRuntimeToolCallArguments() {
+    let mlxToolCall = MLXLMCommon.ToolCall(
+      function: .init(
+        name: "read_file",
+        arguments: [
+          "path": .string("README.md"),
+          "limit": .int(20),
+          "include_hidden": .bool(false),
+        ]
+      )
+    )
+
+    let runtimeToolCall = GemmaMLXRuntime.chatRuntimeToolCall(from: mlxToolCall)
+
+    #expect(runtimeToolCall.name == "read_file")
+    #expect(runtimeToolCall.arguments["path"] == .string("README.md"))
+    #expect(runtimeToolCall.arguments["limit"] == .number(20))
+    #expect(runtimeToolCall.arguments["include_hidden"] == .bool(false))
+  }
+
   private func consumeFirstEventAndWait(
     from stream: AsyncThrowingStream<ChatModelStreamEvent, Error>,
     firstEventContinuation: AsyncStream<Void>.Continuation

@@ -82,7 +82,7 @@ struct ChatSessionControllerTests {
   }
 
   @Test
-  func loadSessionForExperimentalGemma4CoercesToolModeToChat() {
+  func loadSessionForExperimentalGemma4PreservesToolMode() {
     let session = ChatSession(
       selectedModelID: "gemma4-e2b",
       interactionMode: .agent
@@ -95,15 +95,12 @@ struct ChatSessionControllerTests {
     controller.loadSession(session)
 
     #expect(controller.modelRuntime.selectedModelID == "gemma4-e2b")
-    #expect(controller.chatSession.interactionMode == .chat)
-    #expect(
-      controller.errorMessage
-        == "Gemma 4 E2B Experimental supports plain chat only. Select a Gemma 3 model to use Inspect or Agent tools."
-    )
+    #expect(controller.chatSession.interactionMode == .agent)
+    #expect(controller.errorMessage == nil)
   }
 
   @Test
-  func setInteractionModeBlocksExperimentalGemma4ToolModes() {
+  func setInteractionModeAllowsExperimentalGemma4ToolModes() {
     let session = ChatSession(selectedModelID: "gemma4-e2b")
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
@@ -113,16 +110,13 @@ struct ChatSessionControllerTests {
 
     controller.setInteractionMode(.inspect)
 
-    #expect(controller.chatSession.interactionMode == .chat)
-    #expect(
-      controller.errorMessage
-        == "Gemma 4 E2B Experimental supports plain chat only. Select a Gemma 3 model to use Inspect or Agent tools."
-    )
+    #expect(controller.chatSession.interactionMode == .inspect)
+    #expect(controller.errorMessage == nil)
   }
 
   @Test
-  func sendMessageDoesNotRunExperimentalGemma4PersistedToolMode() async throws {
-    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["should not stream"])
+  func sendMessageAllowsExperimentalGemma4PersistedToolMode() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["native mode response"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.loadSession(ChatSession(selectedModelID: "gemma4-e2b"))
     controller.chatSession.interactionMode = .agent
@@ -130,11 +124,11 @@ struct ChatSessionControllerTests {
     controller.draft = "inspect files"
 
     controller.sendMessage()
-    await Task.yield()
+    try await waitUntil { !controller.isGenerating }
 
-    #expect(controller.draft == "inspect files")
-    #expect(controller.chatSession.turns.isEmpty)
-    #expect(controller.errorMessage != nil)
+    #expect(controller.draft == "")
+    #expect(!controller.chatSession.turns.isEmpty)
+    #expect(controller.errorMessage == nil)
   }
 
   @Test

@@ -11,6 +11,19 @@ public enum ChatGenerationError: LocalizedError, Equatable, Sendable {
   }
 }
 
+public struct ChatGenerationResult: Equatable, Sendable {
+  public var assistantContent: String
+  public var nativeToolCalls: [ChatRuntimeToolCall]
+
+  public init(
+    assistantContent: String,
+    nativeToolCalls: [ChatRuntimeToolCall] = []
+  ) {
+    self.assistantContent = assistantContent
+    self.nativeToolCalls = nativeToolCalls
+  }
+}
+
 @MainActor
 public struct ChatGenerationCoordinator {
   private let runtime: any ChatModelRuntime
@@ -42,6 +55,35 @@ public struct ChatGenerationCoordinator {
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateContextUsage: () async -> Void
   ) async throws -> String {
+    let result = try await streamAssistantReplyResult(
+      turnID: turnID,
+      toolLoopIteration: toolLoopIteration,
+      interactionMode: interactionMode,
+      transcript: transcript,
+      systemPrompt: systemPrompt,
+      settings: settings,
+      stopAfterCompleteToolAction: stopAfterCompleteToolAction,
+      toolContext: nil,
+      appendChunk: appendChunk,
+      updateGenerationMetrics: updateGenerationMetrics,
+      updateContextUsage: updateContextUsage
+    )
+    return result.assistantContent
+  }
+
+  public func streamAssistantReplyResult(
+    turnID: ChatTurn.ID? = nil,
+    toolLoopIteration: Int? = nil,
+    interactionMode: WorkspaceInteractionMode? = nil,
+    transcript: ModelContextSnapshot,
+    systemPrompt: String,
+    settings: ChatGenerationSettings,
+    stopAfterCompleteToolAction: Bool = false,
+    toolContext: ChatRuntimeToolContext? = nil,
+    appendChunk: (String) -> Void,
+    updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
+    updateContextUsage: () async -> Void
+  ) async throws -> ChatGenerationResult {
     let generationID = UUID()
     let metadata = TurnTraceMetadata(
       turnID: turnID,
@@ -60,6 +102,7 @@ public struct ChatGenerationCoordinator {
         systemPrompt: systemPrompt,
         settings: settings,
         stopAfterCompleteToolAction: stopAfterCompleteToolAction,
+        toolContext: toolContext,
         appendChunk: appendChunk,
         updateGenerationMetrics: updateGenerationMetrics,
         updateContextUsage: updateContextUsage
@@ -75,21 +118,24 @@ public struct ChatGenerationCoordinator {
     systemPrompt: String,
     settings: ChatGenerationSettings,
     stopAfterCompleteToolAction: Bool,
+    toolContext: ChatRuntimeToolContext?,
     appendChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateContextUsage: () async -> Void
-  ) async throws -> String {
+  ) async throws -> ChatGenerationResult {
     let generationStartedAt = Date()
     let stream = try await runtime.streamReply(
       for: transcript,
       attachments: [],
       systemPrompt: systemPrompt,
-      settings: settings
+      settings: settings,
+      toolContext: toolContext
     )
 
     var bufferedChunk = ""
     var generatedContent = ""
     var displayedPartialToolAction = ""
+    var nativeToolCalls: [ChatRuntimeToolCall] = []
     var lastFlushDate = Date()
     var didStopAfterCompleteToolAction = false
     var didComplete = false
@@ -170,6 +216,9 @@ public struct ChatGenerationCoordinator {
             flushBufferedChunks()
           }
         }
+      case .toolCall(let toolCall):
+        flushBufferedChunks()
+        nativeToolCalls.append(toolCall)
       case .completed(let metrics):
         flushBufferedChunks()
         let completedMetrics = try await generationMetrics(
@@ -203,11 +252,14 @@ public struct ChatGenerationCoordinator {
       )
       updateGenerationMetrics(partialMetrics)
       await updateContextUsage()
-      return displayedPartialToolAction
+      return ChatGenerationResult(assistantContent: displayedPartialToolAction)
     } else if !didComplete {
       throw ChatGenerationError.streamInterrupted
     }
-    return generatedContent
+    return ChatGenerationResult(
+      assistantContent: generatedContent,
+      nativeToolCalls: nativeToolCalls
+    )
   }
 
   private func generationMetrics(

@@ -22,6 +22,8 @@ struct ModelManagementTests {
     #expect(ManagedModelCatalog.defaultModel.isRecommended)
     #expect(ManagedModelCatalog.defaultModel.stability == .stable)
     #expect(ManagedModelCatalog.defaultModel.supportsWorkspaceTools)
+    #expect(ManagedModelCatalog.defaultModel.toolCallingStrategy == .taggedAction)
+    #expect(!ManagedModelCatalog.defaultModel.toolCallingPolicy.allowsMultipleToolCalls)
     #expect(ManagedModelCatalog.model(id: "gemma3-27b")?.requiresLargeMemory == true)
     #expect(
       ManagedModelCatalog.model(id: "gemma3-4b")?.huggingFaceRepoID
@@ -30,9 +32,17 @@ struct ModelManagementTests {
       ManagedModelCatalog.model(id: "gemma4-e2b")?.huggingFaceRepoID
         == "mlx-community/gemma-4-e2b-it-4bit")
     #expect(ManagedModelCatalog.model(id: "gemma4-e2b")?.stability == .experimental)
-    #expect(ManagedModelCatalog.model(id: "gemma4-e2b")?.supportsWorkspaceTools == false)
+    #expect(ManagedModelCatalog.model(id: "gemma4-e2b")?.supportsWorkspaceTools == true)
+    #expect(ManagedModelCatalog.model(id: "gemma4-e2b")?.toolCallingStrategy == .nativeGemma4)
+    #expect(
+      ManagedModelCatalog.model(id: "gemma4-e2b")?.toolCallingPolicy.allowsMultipleToolCalls == true
+    )
     #expect(ManagedModelCatalog.model(id: "gemma4-e4b")?.stability == .experimental)
-    #expect(ManagedModelCatalog.model(id: "gemma4-e4b")?.supportsWorkspaceTools == false)
+    #expect(ManagedModelCatalog.model(id: "gemma4-e4b")?.supportsWorkspaceTools == true)
+    #expect(ManagedModelCatalog.model(id: "gemma4-e4b")?.toolCallingStrategy == .nativeGemma4)
+    #expect(
+      ManagedModelCatalog.model(id: "gemma4-e4b")?.toolCallingPolicy.allowsMultipleToolCalls == true
+    )
   }
 
   @Test
