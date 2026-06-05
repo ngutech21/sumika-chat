@@ -3,6 +3,9 @@ scheme := "local-coder"
 destination := "platform=macOS,arch=arm64"
 derived_data := "build/DerivedData"
 
+swift := env("SWIFT", "swift")
+
+
 default:
   @just --list
 
@@ -15,7 +18,8 @@ release:
 test: test-core test-app
 
 test-core:
-    /usr/bin/time -p xcrun swift test -Xswiftc -warnings-as-errors
+    {{swift}} test -Xswiftc -warnings-as-errors
+
 
 data-model:
     mkdir -p .build/swiftpm-cache .build/clang-module-cache .build/swiftpm-home
