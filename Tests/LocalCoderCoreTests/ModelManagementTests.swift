@@ -5,18 +5,34 @@ import Testing
 
 struct ModelManagementTests {
   @Test
-  func catalogContainsCuratedGemma3ModelsAndDefaultsTo4B() {
+  func catalogContainsCuratedGemmaModelsAndDefaultsToStable4B() {
     let models = ManagedModelCatalog.models
 
-    #expect(models.map(\.id) == ["gemma3-1b", "gemma3-4b", "gemma3-27b"])
+    #expect(
+      models.map(\.id) == [
+        "gemma3-1b",
+        "gemma3-4b",
+        "gemma3-27b",
+        "gemma4-e2b",
+        "gemma4-e4b",
+      ])
     #expect(ManagedModelCatalog.defaultModelID == "gemma3-4b")
     #expect(ManagedModelCatalog.defaultModel.id == "gemma3-4b")
     #expect(ManagedModelCatalog.defaultModel.defaultContextTokenLimit == 16_384)
     #expect(ManagedModelCatalog.defaultModel.isRecommended)
+    #expect(ManagedModelCatalog.defaultModel.stability == .stable)
+    #expect(ManagedModelCatalog.defaultModel.supportsWorkspaceTools)
     #expect(ManagedModelCatalog.model(id: "gemma3-27b")?.requiresLargeMemory == true)
     #expect(
       ManagedModelCatalog.model(id: "gemma3-4b")?.huggingFaceRepoID
         == "mlx-community/gemma-3-4b-it-qat-4bit")
+    #expect(
+      ManagedModelCatalog.model(id: "gemma4-e2b")?.huggingFaceRepoID
+        == "mlx-community/gemma-4-e2b-it-4bit")
+    #expect(ManagedModelCatalog.model(id: "gemma4-e2b")?.stability == .experimental)
+    #expect(ManagedModelCatalog.model(id: "gemma4-e2b")?.supportsWorkspaceTools == false)
+    #expect(ManagedModelCatalog.model(id: "gemma4-e4b")?.stability == .experimental)
+    #expect(ManagedModelCatalog.model(id: "gemma4-e4b")?.supportsWorkspaceTools == false)
   }
 
   @Test

@@ -193,6 +193,7 @@ extension ChatSessionController {
       }
 
       self.clearChatHistory()
+      self.disableUnsupportedInteractionModeIfNeeded()
       self.chatSession.systemPrompt = settings.systemPrompt
       self.chatSession.generationSettings = settings.generationSettings
       self.notifySessionDidChange()
@@ -227,6 +228,7 @@ extension ChatSessionController {
     contextUsage = nil
     chatSession = session
     chatSession.pendingAttachments = []
+    disableUnsupportedInteractionModeIfNeeded()
 
     if didResetRuntime {
       invalidateContextUsage()
@@ -253,6 +255,10 @@ extension ChatSessionController {
 
   public func setInteractionMode(_ mode: WorkspaceInteractionMode) {
     guard canChangeInteractionMode, chatSession.interactionMode != mode else {
+      return
+    }
+    guard modelRuntime.selectedModel.supports(interactionMode: mode) else {
+      errorMessage = unsupportedInteractionModeMessage(for: modelRuntime.selectedModel)
       return
     }
 
@@ -291,6 +297,10 @@ extension ChatSessionController {
   private func sendMessage(workspace: Workspace?, sessionID: ChatSession.ID?) {
     let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard canSend else { return }
+    guard modelRuntime.selectedModel.supports(interactionMode: chatSession.interactionMode) else {
+      errorMessage = unsupportedInteractionModeMessage(for: modelRuntime.selectedModel)
+      return
+    }
 
     let toolAvailability = toolPromptPolicy.toolAvailability(
       workspace: workspace,
@@ -298,6 +308,7 @@ extension ChatSessionController {
     )
     let toolsAvailable =
       toolAvailability == .availableForWorkspace && chatSession.interactionMode != .chat
+      && modelRuntime.selectedModel.supportsWorkspaceTools
     let interactionMode = chatSession.interactionMode
     let initialToolPromptMode = toolPromptMode(
       for: interactionMode,
@@ -1314,6 +1325,26 @@ extension ChatSessionController {
     case .disabled, .enabled(false), .afterToolResultFinal:
       return ToolRegistry(tools: [])
     }
+  }
+
+  private func disableUnsupportedInteractionModeIfNeeded() {
+    let selectedModel = modelRuntime.selectedModel
+    guard !selectedModel.supports(interactionMode: chatSession.interactionMode) else {
+      return
+    }
+
+    chatSession.interactionMode = .chat
+    errorMessage = unsupportedInteractionModeMessage(for: selectedModel)
+  }
+
+  private func unsupportedInteractionModeMessage(for model: ManagedModel) -> String {
+    "\(model.displayName) supports plain chat only. Select a Gemma 3 model to use Inspect or Agent tools."
+  }
+}
+
+extension ManagedModel {
+  fileprivate func supports(interactionMode: WorkspaceInteractionMode) -> Bool {
+    interactionMode == .chat || supportsWorkspaceTools
   }
 }
 

@@ -49,6 +49,13 @@ struct ManagedModelRow: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
 
+            if model.stability == .experimental {
+              Label("Experimental", systemImage: "testtube.2")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.orange)
+                .accessibilityIdentifier("model-experimental-badge-\(model.id)")
+            }
+
             if model.requiresLargeMemory {
               Label("High memory", systemImage: "memorychip")
                 .font(.caption)
@@ -79,6 +86,7 @@ struct ManagedModelRow: View {
     }
     .buttonStyle(.plain)
     .disabled(!canSelect && !isSelected)
+    .accessibilityIdentifier("model-row-\(model.id)")
   }
 
   private var statusText: String {

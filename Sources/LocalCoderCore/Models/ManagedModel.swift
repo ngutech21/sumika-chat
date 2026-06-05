@@ -1,5 +1,10 @@
 import Foundation
 
+public enum ManagedModelStability: Equatable, Sendable {
+  case stable
+  case experimental
+}
+
 public struct ManagedModel: Identifiable, Equatable, Sendable {
   public let id: String
   public let displayName: String
@@ -12,6 +17,8 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
   public let estimatedDownloadSize: String
   public let isRecommended: Bool
   public let requiresLargeMemory: Bool
+  public let stability: ManagedModelStability
+  public let supportsWorkspaceTools: Bool
   public let defaultSystemPrompt: String
   public let defaultGenerationSettings: ChatGenerationSettings
   public let defaultContextTokenLimit: Int
@@ -43,6 +50,8 @@ public enum ManagedModelCatalog {
       estimatedDownloadSize: "733 MB",
       isRecommended: false,
       requiresLargeMemory: false,
+      stability: .stable,
+      supportsWorkspaceTools: true,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -59,6 +68,8 @@ public enum ManagedModelCatalog {
       estimatedDownloadSize: "3 GB",
       isRecommended: true,
       requiresLargeMemory: false,
+      stability: .stable,
+      supportsWorkspaceTools: true,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -75,6 +86,44 @@ public enum ManagedModelCatalog {
       estimatedDownloadSize: "16.8 GB",
       isRecommended: false,
       requiresLargeMemory: true,
+      stability: .stable,
+      supportsWorkspaceTools: true,
+      defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
+      defaultGenerationSettings: .codingDefault,
+      defaultContextTokenLimit: defaultContextTokenLimit
+    ),
+    ManagedModel(
+      id: "gemma4-e2b",
+      displayName: "Gemma 4 E2B Experimental",
+      shortName: "E2B",
+      summary: "Experimental small model",
+      detail: "Experimental Gemma 4 text model for plain chat testing.",
+      huggingFaceRepoID: "mlx-community/gemma-4-e2b-it-4bit",
+      localDirectoryName: "gemma4-e2b",
+      parameterSize: "E2B",
+      estimatedDownloadSize: "3.6 GB",
+      isRecommended: false,
+      requiresLargeMemory: false,
+      stability: .experimental,
+      supportsWorkspaceTools: false,
+      defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
+      defaultGenerationSettings: .codingDefault,
+      defaultContextTokenLimit: defaultContextTokenLimit
+    ),
+    ManagedModel(
+      id: "gemma4-e4b",
+      displayName: "Gemma 4 E4B Experimental",
+      shortName: "E4B",
+      summary: "Experimental coding model",
+      detail: "Experimental Gemma 4 text model for plain chat testing on capable Macs.",
+      huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-4bit",
+      localDirectoryName: "gemma4-e4b",
+      parameterSize: "E4B",
+      estimatedDownloadSize: "4.5 GB",
+      isRecommended: false,
+      requiresLargeMemory: false,
+      stability: .experimental,
+      supportsWorkspaceTools: false,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit

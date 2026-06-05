@@ -82,6 +82,62 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func loadSessionForExperimentalGemma4CoercesToolModeToChat() {
+    let session = ChatSession(
+      selectedModelID: "gemma4-e2b",
+      interactionMode: .agent
+    )
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+
+    controller.loadSession(session)
+
+    #expect(controller.modelRuntime.selectedModelID == "gemma4-e2b")
+    #expect(controller.chatSession.interactionMode == .chat)
+    #expect(
+      controller.errorMessage
+        == "Gemma 4 E2B Experimental supports plain chat only. Select a Gemma 3 model to use Inspect or Agent tools."
+    )
+  }
+
+  @Test
+  func setInteractionModeBlocksExperimentalGemma4ToolModes() {
+    let session = ChatSession(selectedModelID: "gemma4-e2b")
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+    controller.loadSession(session)
+
+    controller.setInteractionMode(.inspect)
+
+    #expect(controller.chatSession.interactionMode == .chat)
+    #expect(
+      controller.errorMessage
+        == "Gemma 4 E2B Experimental supports plain chat only. Select a Gemma 3 model to use Inspect or Agent tools."
+    )
+  }
+
+  @Test
+  func sendMessageDoesNotRunExperimentalGemma4PersistedToolMode() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["should not stream"])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.loadSession(ChatSession(selectedModelID: "gemma4-e2b"))
+    controller.chatSession.interactionMode = .agent
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "inspect files"
+
+    controller.sendMessage()
+    await Task.yield()
+
+    #expect(controller.draft == "inspect files")
+    #expect(controller.chatSession.turns.isEmpty)
+    #expect(controller.errorMessage != nil)
+  }
+
+  @Test
   func setInteractionModeClearsRuntimeContext() async throws {
     let runtime = CountingClearContextRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")

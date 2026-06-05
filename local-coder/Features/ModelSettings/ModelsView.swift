@@ -21,7 +21,7 @@ struct ModelsView: View {
           Text("Models")
             .font(.title2.weight(.semibold))
           Text(
-            "Choose a local Gemma 3 model. Downloads are explicit so you stay in control of storage and network use."
+            "Choose a local Gemma model. Downloads are explicit so you stay in control of storage and network use."
           )
           .foregroundStyle(.secondary)
           .frame(maxWidth: 720, alignment: .leading)
@@ -122,6 +122,11 @@ struct ModelsView: View {
   }
 
   private var selectedModelStatusText: String {
+    if modelRuntime.selectedModel.stability == .experimental {
+      return
+        "\(modelRuntime.selectedModel.estimatedDownloadSize), experimental plain chat only"
+    }
+
     if modelRuntime.selectedModel.requiresLargeMemory {
       return "\(modelRuntime.selectedModel.estimatedDownloadSize), needs a lot of memory"
     }
