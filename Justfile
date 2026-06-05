@@ -17,6 +17,10 @@ test: test-core test-app
 test-core:
     /usr/bin/time -p xcrun swift test -Xswiftc -warnings-as-errors
 
+data-model:
+    mkdir -p .build/swiftpm-cache .build/clang-module-cache .build/swiftpm-home
+    HOME="$PWD/.build/swiftpm-home" CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" xcrun swift run --disable-sandbox --cache-path .build/swiftpm-cache DataModelGenerator
+
 test-app:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
 
