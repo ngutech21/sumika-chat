@@ -12,8 +12,8 @@ struct ChatWorkflowEventApplierTests {
       toolName: .readFile,
       arguments: [ToolCallModelArgument(name: "path", value: "README.md")]
     )
-    var state = makeState(messages: [
-      ChatMessage(id: assistantID, assistantContent: "<action>")
+    var state = makeState(items: [
+      .assistantMessage(AssistantTurnMessage(id: assistantID, content: "<action>"))
     ])
 
     ChatWorkflowEventApplier().apply(
@@ -26,8 +26,9 @@ struct ChatWorkflowEventApplierTests {
       to: &state
     )
 
-    #expect(state.messages[0].kind == .toolCall)
-    #expect(state.messages[0].toolCall == toolCall)
+    let items = state.transcriptItemsForTesting
+    #expect(items[0].kindForTesting == .toolCall)
+    #expect(items[0].toolCallForTesting(records: state.toolCalls) == toolCall)
   }
 
   @Test
@@ -65,7 +66,6 @@ struct ChatWorkflowEventApplierTests {
   @Test
   func appendsToolResultAndRegistersMessageOnTurn() {
     let turnID = UUID()
-    let messageID = UUID()
     let result = ToolResultModelMessage(
       callID: UUID(),
       toolName: .listFiles,
@@ -80,14 +80,15 @@ struct ChatWorkflowEventApplierTests {
     var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
 
     ChatWorkflowEventApplier().apply(
-      [.toolResultAppended(result, messageID: messageID, turnID: turnID)],
+      [.toolResultAppended(result, turnID: turnID)],
       to: &state
     )
 
-    _ = messageID
-    #expect(state.messages.map(\.id) == [result.callID])
-    #expect(state.messages[0].toolResult == result)
+    let items = state.transcriptItemsForTesting
+    #expect(items.compactMap(\.messageID) == [result.callID])
+    #expect(items[0].toolResultForTesting(records: state.toolCalls) == result)
     #expect(state.turns[0].items == [.toolResult(result.callID)])
+    #expect(state.modelFacingTranscript.entries[0].sourceMessageID == result.callID)
   }
 
   @Test
@@ -101,10 +102,11 @@ struct ChatWorkflowEventApplierTests {
       to: &state
     )
 
-    #expect(state.messages.map(\.id) == [messageID])
-    #expect(state.messages[0].kind == .assistant)
-    #expect(state.messages[0].deliveryStatus == .streaming)
-    #expect(state.turns[0].items == [.assistantMessage(state.messages[0])])
+    let items = state.transcriptItemsForTesting
+    #expect(items.compactMap(\.messageID) == [messageID])
+    #expect(items[0].kindForTesting == .assistant)
+    #expect(items[0].deliveryStatusForTesting == .streaming)
+    #expect(state.turns[0].items == items)
   }
 
   @Test
@@ -125,11 +127,12 @@ struct ChatWorkflowEventApplierTests {
       to: &state
     )
 
-    #expect(state.messages.map(\.id) == [messageID])
-    #expect(state.messages[0].kind == .assistant)
-    #expect(state.messages[0].content.contains("1: project notes"))
-    #expect(state.messages[0].deliveryStatus == .complete)
-    #expect(state.turns[0].items == [.assistantMessage(state.messages[0])])
+    let items = state.transcriptItemsForTesting
+    #expect(items.compactMap(\.messageID) == [messageID])
+    #expect(items[0].kindForTesting == .assistant)
+    #expect(items[0].contentForTesting.contains("1: project notes"))
+    #expect(items[0].deliveryStatusForTesting == .complete)
+    #expect(state.turns[0].items == items)
     #expect(state.modelFacingTranscript.entries.map(\.frozenContent.role) == [.assistant])
     #expect(
       state.modelFacingTranscript.entries[0].frozenContent.content
@@ -191,21 +194,21 @@ struct ChatWorkflowEventApplierTests {
           status: .running,
           items: [
             .assistantMessage(
-              ChatMessage(
+              AssistantTurnMessage(
                 id: cancelledID,
-                assistantContent: "partial",
+                content: "partial",
                 deliveryStatus: .streaming
               )),
             .assistantMessage(
-              ChatMessage(
+              AssistantTurnMessage(
                 id: removedID,
-                assistantContent: "",
+                content: "",
                 deliveryStatus: .streaming
               )),
             .assistantMessage(
-              ChatMessage(
+              AssistantTurnMessage(
                 id: keptID,
-                assistantContent: "done",
+                content: "done",
                 deliveryStatus: .complete
               )),
           ]
@@ -221,9 +224,10 @@ struct ChatWorkflowEventApplierTests {
       to: &state
     )
 
-    #expect(state.messages.map(\.id) == [cancelledID, keptID])
-    #expect(state.messages[0].deliveryStatus == .cancelled)
-    #expect(state.turns[0].items.map(messageID) == [cancelledID, keptID])
+    let items = state.transcriptItemsForTesting
+    #expect(items.compactMap(\.messageID) == [cancelledID, keptID])
+    #expect(items[0].deliveryStatusForTesting == .cancelled)
+    #expect(state.turns[0].items.map(testMessageID) == [cancelledID, keptID])
   }
 
   @Test
@@ -242,7 +246,7 @@ struct ChatWorkflowEventApplierTests {
 
     let diagnostics = ChatWorkflowEventApplier().apply(event, to: &state)
 
-    #expect(state.messages.isEmpty)
+    #expect(state.transcriptItemsForTesting.isEmpty)
     #expect(diagnostics.count == 1)
     #expect(diagnostics[0].event == event)
     #expect(diagnostics[0].missingTargetKind == .message)
@@ -252,7 +256,6 @@ struct ChatWorkflowEventApplierTests {
   @Test
   func reportsMissingTurnTargetWhileStillAppendingAuditableToolResult() {
     let missingTurnID = UUID()
-    let messageID = UUID()
     let result = ToolResultModelMessage(
       callID: UUID(),
       toolName: .listFiles,
@@ -266,16 +269,15 @@ struct ChatWorkflowEventApplierTests {
     )
     let event = ChatWorkflowEvent.toolResultAppended(
       result,
-      messageID: messageID,
       turnID: missingTurnID
     )
     var state = makeState()
 
     let diagnostics = ChatWorkflowEventApplier().apply(event, to: &state)
 
-    _ = messageID
-    #expect(state.messages.map(\.id) == [result.callID])
-    #expect(state.messages[0].toolResult == result)
+    let items = state.transcriptItemsForTesting
+    #expect(items.compactMap(\.messageID) == [result.callID])
+    #expect(items[0].toolResultForTesting(records: state.toolCalls) == result)
     #expect(diagnostics.count == 1)
     #expect(diagnostics[0].event == event)
     #expect(diagnostics[0].missingTargetKind == .turn)
@@ -298,27 +300,21 @@ struct ChatWorkflowEventApplierTests {
   }
 }
 
-private func messageID(from item: ChatTurnItem) -> ChatMessage.ID? {
-  switch item {
-  case .userMessage(let message), .assistantMessage(let message):
-    message.id
-  case .toolCall, .toolResult:
-    nil
-  }
-}
-
 private func makeState(
-  messages: [ChatMessage] = [],
+  items: [ChatTurnItem] = [],
   toolCalls: [ToolCallRecord] = [],
   turns: [ChatTurn] = [],
   attachments: [ChatAttachment] = [],
   systemPrompt: String = "System",
   generationSettings: ChatGenerationSettings = .codingDefault
 ) -> ChatSessionState {
-  ChatSessionState(
-    messages: messages,
+  let resolvedTurns =
+    turns.isEmpty && !items.isEmpty
+    ? [ChatTurn(status: .running, items: items)]
+    : turns
+  return ChatSessionState(
     toolCalls: toolCalls,
-    turns: turns,
+    turns: resolvedTurns,
     pendingAttachments: attachments,
     systemPrompt: systemPrompt,
     generationSettings: generationSettings

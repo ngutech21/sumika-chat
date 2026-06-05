@@ -18,7 +18,6 @@ struct ChatModelContextBuilderTests {
       prompt: "large listing"
     )
     let state = ChatSessionState(
-      messages: [],
       modelFacingTranscript: ModelFacingTranscript(
         entries: [unscopedEntry, includedEntry, excludedEntry]
       ),
@@ -48,7 +47,6 @@ struct ChatModelContextBuilderTests {
       prompt: "README.md"
     )
     let state = ChatSessionState(
-      messages: [],
       modelFacingTranscript: ModelFacingTranscript(entries: [toolResult]),
       turns: [
         ChatTurn(
@@ -191,11 +189,20 @@ struct ChatModelContextBuilderTests {
       content: "<action name=\"read_file\"></action>"
     )
     var state = ChatSessionState(
-      messages: [
-        ChatMessage(id: sourceMessageID, assistantContent: "<action name=\"read_file\"></action>")
-      ],
       modelFacingTranscript: ModelFacingTranscript(entries: [firstEntry]),
-      turns: [ChatTurn(id: turnID, status: .running)],
+      turns: [
+        ChatTurn(
+          id: turnID,
+          status: .running,
+          items: [
+            .assistantMessage(
+              AssistantTurnMessage(
+                id: sourceMessageID,
+                content: "<action name=\"read_file\"></action>"
+              ))
+          ]
+        )
+      ],
       pendingAttachments: [],
       systemPrompt: "System",
       generationSettings: .codingDefault
@@ -214,7 +221,7 @@ struct ChatModelContextBuilderTests {
     let after = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
 
     #expect(Array(after.entries.prefix(before.entries.count)) == before.entries)
-    #expect(state.messages[0].kind == .toolCall)
+    #expect(state.transcriptItemsForTesting[0].kindForTesting == .toolCall)
     #expect(after.entries.last?.frozenContent.content == "observation")
   }
 }

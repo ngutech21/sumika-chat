@@ -5,11 +5,6 @@ public struct ChatSessionState: Equatable, Sendable {
   public var transcript: ChatTranscriptState
   public var pendingAttachments: [ChatAttachment]
 
-  public var messages: [ChatMessage] {
-    get { transcript.projectedMessages }
-    set { transcript.replaceMessageProjection(newValue) }
-  }
-
   public var modelFacingTranscript: ModelFacingTranscript {
     get { transcript.modelFacingTranscript }
     set { transcript.modelFacingTranscript = newValue }
@@ -61,7 +56,6 @@ public struct ChatSessionState: Equatable, Sendable {
   }
 
   public init(
-    messages: [ChatMessage] = [],
     modelFacingTranscript: ModelFacingTranscript = ModelFacingTranscript(),
     toolCalls: [ToolCallRecord] = [],
     turns: [ChatTurn] = [],
@@ -71,27 +65,10 @@ public struct ChatSessionState: Equatable, Sendable {
     generationSettings: ChatGenerationSettings,
     interactionMode: WorkspaceInteractionMode = .chat
   ) {
-    let projectedTurns: [ChatTurn]
-    if turns.isEmpty, !messages.isEmpty {
-      projectedTurns = [
-        ChatTurn(status: .completed, items: messages.map(ChatTurnItem.init(projectedMessage:)))
-      ]
-    } else if !messages.isEmpty {
-      projectedTurns = turns.enumerated().map { index, turn in
-        guard index == 0 else {
-          return turn
-        }
-        var updatedTurn = turn
-        updatedTurn.items.append(contentsOf: messages.map(ChatTurnItem.init(projectedMessage:)))
-        return updatedTurn
-      }
-    } else {
-      projectedTurns = turns
-    }
     self.transcript = ChatTranscriptState(
       modelFacingTranscript: modelFacingTranscript,
       toolCalls: toolCalls,
-      turns: projectedTurns,
+      turns: turns,
       focusedFileState: focusedFileState,
       systemPrompt: systemPrompt,
       generationSettings: generationSettings,
@@ -113,53 +90,5 @@ public struct ChatSessionState: Equatable, Sendable {
         }
       }
     }?.id
-  }
-}
-
-extension ChatTranscriptState {
-  public var projectedMessages: [ChatMessage] {
-    let recordsByID = Dictionary(toolCalls.map { ($0.id, $0) }) { _, latest in latest }
-    return turns.flatMap { turn in
-      turn.items.compactMap { item in
-        switch item {
-        case .userMessage(let message), .assistantMessage(let message):
-          return message
-        case .toolCall(let id):
-          guard let record = recordsByID[id] else {
-            return nil
-          }
-          return ChatMessage(id: id, toolCall: ToolCallModelMessage(request: record.request))
-        case .toolResult(let id):
-          guard let record = recordsByID[id] else {
-            return nil
-          }
-          return ChatMessage(id: id, toolResult: ToolResultModelMessage(record: record))
-        }
-      }
-    }
-  }
-
-  public mutating func replaceMessageProjection(_ messages: [ChatMessage]) {
-    let items = messages.map(ChatTurnItem.init(projectedMessage:))
-    if turns.isEmpty {
-      turns = [ChatTurn(status: .completed, items: items)]
-    } else {
-      turns[turns.count - 1].items = items
-    }
-  }
-}
-
-extension ChatTurnItem {
-  init(projectedMessage message: ChatMessage) {
-    switch message.payload {
-    case .user:
-      self = .userMessage(message)
-    case .assistant, .system:
-      self = .assistantMessage(message)
-    case .toolCall(let payload):
-      self = .toolCall(payload.toolCall.callID)
-    case .toolResult(let payload):
-      self = .toolResult(payload.callID)
-    }
   }
 }

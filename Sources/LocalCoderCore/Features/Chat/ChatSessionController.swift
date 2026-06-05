@@ -798,7 +798,6 @@ extension ChatSessionController {
       .toolCallReplaced(record),
       .toolResultAppended(
         toolResultMessage(for: record),
-        messageID: UUID(),
         turnID: turnID
       ),
     ]
@@ -919,7 +918,6 @@ extension ChatSessionController {
       .toolCallReplaced(deniedRecord),
       .toolResultAppended(
         deniedToolResultMessage(for: deniedRecord, message: message),
-        messageID: UUID(),
         turnID: turnID
       ),
       .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
@@ -1169,7 +1167,7 @@ extension ChatSessionController {
             sessionID: sessionID,
             turnID: turnID,
             assistantMessageID: currentAssistantMessageID,
-            messages: chatSession.messages,
+            items: chatSession.turns.flatMap(\.items),
             focusedFileState: chatSession.focusedFileState,
             interactionMode: interactionMode,
             followUpPromptMode: followUpPromptMode,
@@ -1233,7 +1231,7 @@ extension ChatSessionController {
   private func recordFinalModeToolAttemptIfNeeded(
     workspaceID: Workspace.ID?,
     sessionID: ChatSession.ID,
-    assistantMessageID: ChatMessage.ID,
+    assistantMessageID: UUID,
     turnID: ChatTurn.ID,
     interactionMode: WorkspaceInteractionMode,
     reason: FinalModeActionDetectionReason = .finalMode
@@ -1248,7 +1246,7 @@ extension ChatSessionController {
           sessionID: sessionID,
           turnID: turnID,
           assistantMessageID: assistantMessageID,
-          messages: chatSession.messages,
+          items: chatSession.turns.flatMap(\.items),
           interactionMode: interactionMode,
           reason: reason,
           toolLoopIteration: maxToolLoopIterations + 1

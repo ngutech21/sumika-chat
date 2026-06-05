@@ -4,7 +4,7 @@ public enum ModelFacingPromptRenderer {
   public static func userPromptEntry(
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
-    sourceMessageID: ChatMessage.ID? = nil,
+    sourceMessageID: UUID? = nil,
     prompt: String,
     attachments: [ChatAttachment] = [],
     systemContext: [String] = [],
@@ -30,7 +30,7 @@ public enum ModelFacingPromptRenderer {
   public static func assistantOutputEntry(
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
-    sourceMessageID: ChatMessage.ID? = nil,
+    sourceMessageID: UUID? = nil,
     content: String
   ) throws -> ModelContextEntry {
     try ModelContextEntry(
@@ -45,7 +45,7 @@ public enum ModelFacingPromptRenderer {
   public static func toolResultEntry(
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
-    sourceMessageID: ChatMessage.ID? = nil,
+    sourceMessageID: UUID? = nil,
     toolResult: ToolResultModelMessage,
     request: ToolCallRequest,
     policy: ToolResultProjectionPolicy = .default,
@@ -106,7 +106,7 @@ public enum ModelFacingPromptRenderer {
   public static func finalToolResultPromptEntry(
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
-    sourceMessageID: ChatMessage.ID? = nil,
+    sourceMessageID: UUID? = nil,
     terminalToolResult: TerminalToolResultContext,
     followUpInstruction: String,
     systemContext: [String] = []

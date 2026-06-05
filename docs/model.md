@@ -41,15 +41,24 @@ classDiagram
 
   class ChatTurnItem {
     <<enum>>
-    userMessage(ChatMessage)
-    assistantMessage(ChatMessage)
+    userMessage(UserTurnMessage)
+    assistantMessage(AssistantTurnMessage)
     toolCall(ToolCallRecord.ID)
     toolResult(ToolCallRecord.ID)
   }
 
-  class ChatMessage {
+  class UserTurnMessage {
     id
-    payload: user | assistant | system | projection
+    content
+    attachments: [ChatAttachment]
+  }
+
+  class AssistantTurnMessage {
+    id
+    content
+    attachments: [ChatAttachment]
+    generationMetrics
+    deliveryStatus
   }
 
   class ToolCallRecord {
@@ -98,11 +107,10 @@ classDiagram
   ChatTranscriptState "1" --> "1" FocusedFileState
 
   ChatTurn "1" --> "*" ChatTurnItem
-  ChatTurnItem --> ChatMessage : embeds user/assistant
+  ChatTurnItem --> UserTurnMessage : embeds user
+  ChatTurnItem --> AssistantTurnMessage : embeds assistant
   ChatTurnItem ..> ToolCallRecord : references by ID
 
   ToolCallRecord "1" --> "1" ToolCallRequest
   ToolCallRecord "1" --> "1" ToolCallState
-
-  ChatTranscriptState ..> ChatMessage : projectedMessages only
 ```

@@ -9,8 +9,8 @@ public struct FinalModeActionDetectionRequest: Sendable {
   public let workspaceID: Workspace.ID?
   public let sessionID: ChatSession.ID
   public let turnID: ChatTurn.ID
-  public let assistantMessageID: ChatMessage.ID
-  public let messages: [ChatMessage]
+  public let assistantMessageID: UUID
+  public let items: [ChatTurnItem]
   public let interactionMode: WorkspaceInteractionMode
   public let reason: FinalModeActionDetectionReason
   public let toolLoopIteration: Int?
@@ -19,8 +19,8 @@ public struct FinalModeActionDetectionRequest: Sendable {
     workspaceID: Workspace.ID?,
     sessionID: ChatSession.ID,
     turnID: ChatTurn.ID,
-    assistantMessageID: ChatMessage.ID,
-    messages: [ChatMessage],
+    assistantMessageID: UUID,
+    items: [ChatTurnItem],
     interactionMode: WorkspaceInteractionMode,
     reason: FinalModeActionDetectionReason,
     toolLoopIteration: Int? = nil
@@ -29,7 +29,7 @@ public struct FinalModeActionDetectionRequest: Sendable {
     self.sessionID = sessionID
     self.turnID = turnID
     self.assistantMessageID = assistantMessageID
-    self.messages = messages
+    self.items = items
     self.interactionMode = interactionMode
     self.reason = reason
     self.toolLoopIteration = toolLoopIteration
@@ -62,7 +62,7 @@ public struct FinalModeActionDetector: Sendable {
       return nil
     }
 
-    let assistantContent = messageContent(for: request.assistantMessageID, in: request.messages)
+    let assistantContent = assistantContent(for: request.assistantMessageID, in: request.items)
     let parseStartedAt = Date()
     let attempt: ForbiddenToolAttempt
     do {
@@ -115,7 +115,7 @@ public struct FinalModeActionDetector: Sendable {
         generationID: nil,
         phase: .toolParse,
         durationMs: Date().timeIntervalSince(startedAt) * 1000,
-        messageCount: request.messages.count,
+        messageCount: request.items.count,
         toolLoopIteration: request.toolLoopIteration,
         toolName: toolName,
         interactionMode: request.interactionMode
@@ -206,7 +206,7 @@ public struct FinalModeActionDetector: Sendable {
           toolCall: toolCall
         ),
         .toolCallAppended(record, turnID: request.turnID),
-        .toolResultAppended(toolResult, messageID: UUID(), turnID: request.turnID),
+        .toolResultAppended(toolResult, turnID: request.turnID),
       ],
       continuation: .stopTurn
     )
@@ -345,8 +345,13 @@ public struct FinalModeActionDetector: Sendable {
     parseError.errorDescription ?? String(describing: parseError)
   }
 
-  private func messageContent(for id: UUID, in messages: [ChatMessage]) -> String {
-    messages.first { $0.id == id }?.content ?? ""
+  private func assistantContent(for id: UUID, in items: [ChatTurnItem]) -> String {
+    items.compactMap { item -> String? in
+      guard case .assistantMessage(let message) = item, message.id == id else {
+        return nil
+      }
+      return message.content
+    }.first ?? ""
   }
 }
 

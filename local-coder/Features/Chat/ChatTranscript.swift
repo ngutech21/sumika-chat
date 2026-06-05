@@ -25,8 +25,7 @@ struct ChatTranscript: View {
         } else {
           ForEach(transcriptItems) { item in
             ChatBubble(
-              message: item.message,
-              toolCallRecord: item.toolCallRecord,
+              item: item,
               onApproveToolCall: onApproveToolCall,
               onDenyToolCall: onDenyToolCall
             )
@@ -71,10 +70,16 @@ struct ChatTranscript: View {
     return turns.flatMap { turn in
       turn.items.enumerated().compactMap { offset, item in
         switch item {
-        case .userMessage(let message), .assistantMessage(let message):
+        case .userMessage(let message):
           return RenderedChatTurnItem(
             id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
-            message: message,
+            item: item,
+            toolCallRecord: nil
+          )
+        case .assistantMessage(let message):
+          return RenderedChatTurnItem(
+            id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
+            item: item,
             toolCallRecord: nil
           )
         case .toolCall(let id):
@@ -83,7 +88,7 @@ struct ChatTranscript: View {
           }
           return RenderedChatTurnItem(
             id: "\(turn.id.uuidString):\(offset):toolCall:\(id.uuidString)",
-            message: ChatMessage(id: id, toolCall: ToolCallModelMessage(request: record.request)),
+            item: item,
             toolCallRecord: record
           )
         case .toolResult(let id):
@@ -92,7 +97,7 @@ struct ChatTranscript: View {
           }
           return RenderedChatTurnItem(
             id: "\(turn.id.uuidString):\(offset):toolResult:\(id.uuidString)",
-            message: ChatMessage(id: id, toolResult: ToolResultModelMessage(record: record)),
+            item: item,
             toolCallRecord: record
           )
         }
@@ -103,61 +108,60 @@ struct ChatTranscript: View {
 
 private struct RenderedChatTurnItem: Identifiable {
   let id: String
-  let message: ChatMessage
+  let item: ChatTurnItem
   let toolCallRecord: ToolCallRecord?
 }
 
 private struct ChatBubble: View {
-  let message: ChatMessage
-  let toolCallRecord: ToolCallRecord?
+  let item: RenderedChatTurnItem
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
   @State private var didCopy = false
 
   var body: some View {
     HStack(alignment: .top) {
-      if message.isDisplayedAsUser {
+      if item.isDisplayedAsUser {
         Spacer(minLength: 80)
       }
 
-      VStack(alignment: message.isDisplayedAsUser ? .trailing : .leading, spacing: 6) {
-        Label(message.displayTitle, systemImage: message.displaySystemImage)
+      VStack(alignment: item.isDisplayedAsUser ? .trailing : .leading, spacing: 6) {
+        Label(item.displayTitle, systemImage: item.displaySystemImage)
           .font(.caption)
           .foregroundStyle(.secondary)
 
-        if message.shouldShowAssistantPlaceholder {
+        if item.shouldShowAssistantPlaceholder {
           Label(
-            message.assistantPlaceholderTitle,
-            systemImage: message.assistantPlaceholderSystemImage
+            item.assistantPlaceholderTitle,
+            systemImage: item.assistantPlaceholderSystemImage
           )
           .foregroundStyle(.secondary)
           .padding(10)
           .background(Color.secondary.opacity(0.12))
           .clipShape(RoundedRectangle(cornerRadius: 8))
         } else {
-          VStack(alignment: message.isDisplayedAsUser ? .trailing : .leading, spacing: 8) {
+          VStack(alignment: item.isDisplayedAsUser ? .trailing : .leading, spacing: 8) {
             MessageContentText(
-              message: message,
-              toolCallRecord: toolCallRecord,
+              item: item.item,
+              toolCallRecord: item.toolCallRecord,
               onApproveToolCall: onApproveToolCall,
               onDenyToolCall: onDenyToolCall
             )
             .textSelection(.enabled)
 
-            if let metrics = message.generationMetrics {
+            if let metrics = item.generationMetrics {
               GenerationMetricsView(metrics: metrics)
             }
           }
           .padding(10)
-          .background(messageBubbleBackground)
+          .background(item.messageBubbleBackground)
           .clipShape(RoundedRectangle(cornerRadius: 8))
         }
 
-        if message.isDisplayedAsUser && !message.attachments.isEmpty {
-          SentAttachmentList(attachments: message.attachments)
+        if item.isDisplayedAsUser && !item.attachments.isEmpty {
+          SentAttachmentList(attachments: item.attachments)
         }
 
-        if message.canCopyAssistantContent {
+        if item.canCopyAssistantContent {
           HStack(spacing: 8) {
             Button {
               copyMessageToClipboard()
@@ -171,19 +175,19 @@ private struct ChatBubble: View {
           }
         }
       }
-      .frame(maxWidth: 680, alignment: message.isDisplayedAsUser ? .trailing : .leading)
+      .frame(maxWidth: 680, alignment: item.isDisplayedAsUser ? .trailing : .leading)
 
-      if !message.isDisplayedAsUser {
+      if !item.isDisplayedAsUser {
         Spacer(minLength: 80)
       }
     }
     .frame(maxWidth: .infinity)
-    .accessibilityIdentifier(message.accessibilityIdentifier)
+    .accessibilityIdentifier(item.accessibilityIdentifier)
   }
 
   private func copyMessageToClipboard() {
     NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(message.content, forType: .string)
+    NSPasteboard.general.setString(item.content, forType: .string)
     didCopy = true
 
     Task {
@@ -226,31 +230,36 @@ private struct SentAttachmentList: View {
 }
 
 private struct MessageContentText: View {
-  let message: ChatMessage
+  let item: ChatTurnItem
   let toolCallRecord: ToolCallRecord?
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
 
   @ViewBuilder
   var body: some View {
-    switch message.payload {
-    case .toolCall(let payload):
-      ToolCallSummaryView(
-        toolCall: payload.toolCall,
-        toolCallRecord: toolCallRecord,
-        onApprove: onApproveToolCall,
-        onDeny: onDenyToolCall
-      )
-    case .toolResult(let toolResult):
-      ToolResultSummaryView(toolResult: toolResult, toolCallRecord: toolCallRecord)
-    case .assistant(let payload):
-      Markdown(AssistantMarkdownPreprocessor.renderableContent(for: payload.content))
+    switch item {
+    case .toolCall:
+      if let toolCallRecord {
+        ToolCallSummaryView(
+          toolCall: ToolCallModelMessage(request: toolCallRecord.request),
+          toolCallRecord: toolCallRecord,
+          onApprove: onApproveToolCall,
+          onDeny: onDenyToolCall
+        )
+      }
+    case .toolResult:
+      if let toolCallRecord {
+        ToolResultSummaryView(
+          toolResult: ToolResultModelMessage(record: toolCallRecord),
+          toolCallRecord: toolCallRecord
+        )
+      }
+    case .assistantMessage(let message):
+      Markdown(AssistantMarkdownPreprocessor.renderableContent(for: message.content))
         .markdownTheme(.chatMessage)
         .markdownCodeSyntaxHighlighter(ChatCodeSyntaxHighlighter())
-    case .user(let payload):
-      Text(payload.content)
-    case .system(let payload):
-      Text(payload.content)
+    case .userMessage(let message):
+      Text(message.content)
     }
   }
 }
@@ -345,26 +354,96 @@ extension ChatGenerationMetrics {
   }
 }
 
-extension ChatBubble {
+extension RenderedChatTurnItem {
   var messageBubbleBackground: Color {
-    message.isDisplayedAsUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
+    isDisplayedAsUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
   }
-}
 
-extension ChatMessage {
   fileprivate var accessibilityIdentifier: String {
-    switch payload {
-    case .assistant:
+    switch item {
+    case .assistantMessage:
       "chat.assistantMessage"
-    case .user:
+    case .userMessage:
       "chat.userMessage"
-    case .system:
-      "chat.systemMessage"
     case .toolCall:
       "chat.toolCallMessage"
     case .toolResult:
       "chat.toolResultMessage"
     }
+  }
+
+  var isDisplayedAsUser: Bool {
+    if case .userMessage = item {
+      return true
+    }
+    return false
+  }
+
+  var displayTitle: String {
+    switch item {
+    case .userMessage:
+      "You"
+    case .assistantMessage, .toolCall, .toolResult:
+      "Local Coder"
+    }
+  }
+
+  var displaySystemImage: String {
+    switch item {
+    case .userMessage:
+      "person.crop.circle"
+    case .assistantMessage:
+      "cpu"
+    case .toolCall:
+      "wrench.and.screwdriver"
+    case .toolResult:
+      "checkmark.circle"
+    }
+  }
+
+  var shouldShowAssistantPlaceholder: Bool {
+    assistantMessage?.shouldShowAssistantPlaceholder ?? false
+  }
+
+  var assistantPlaceholderTitle: String {
+    assistantMessage?.assistantPlaceholderTitle ?? "Generating"
+  }
+
+  var assistantPlaceholderSystemImage: String {
+    assistantMessage?.assistantPlaceholderSystemImage ?? "sparkles"
+  }
+
+  var generationMetrics: ChatGenerationMetrics? {
+    assistantMessage?.generationMetrics
+  }
+
+  var attachments: [ChatAttachment] {
+    guard case .userMessage(let message) = item else {
+      return []
+    }
+    return message.attachments
+  }
+
+  var canCopyAssistantContent: Bool {
+    assistantMessage?.canCopyAssistantContent ?? false
+  }
+
+  var content: String {
+    switch item {
+    case .userMessage(let message):
+      message.content
+    case .assistantMessage(let message):
+      message.content
+    case .toolCall, .toolResult:
+      ""
+    }
+  }
+
+  private var assistantMessage: AssistantTurnMessage? {
+    guard case .assistantMessage(let message) = item else {
+      return nil
+    }
+    return message
   }
 }
 

@@ -37,8 +37,8 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(controller.chatSession.toolCalls.count == 1)
     #expect(controller.chatSession.toolCalls[0].status == .awaitingApproval)
     #expect(controller.chatSession.toolCalls[0].request.toolName == .writeFile)
-    #expect(controller.chatSession.messages.count == 2)
-    #expect(controller.chatSession.messages[1].kind == .toolCall)
+    #expect(controller.chatSession.testMessages.count == 2)
+    #expect(controller.chatSession.testMessages[1].kind == .toolCall)
     #expect(!FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)))
 
     controller.draft = "are you there"
@@ -92,11 +92,11 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(
       controller.chatSession.focusedFileState.snapshots[
         WorkspaceRelativePath(rawValue: "movies.html")]?.excerpt == htmlContent)
-    #expect(controller.chatSession.messages.count == 4)
-    #expect(controller.chatSession.messages[2].kind == .toolResult)
-    #expect(controller.chatSession.messages[2].toolResult?.toolName == .writeFile)
+    #expect(controller.chatSession.testMessages.count == 4)
+    #expect(controller.chatSession.testMessages[2].kind == .toolResult)
+    #expect(controller.chatSession.testMessages[2].toolResult?.toolName == .writeFile)
     #expect(
-      controller.chatSession.messages[3].content == "Updated movies.html with the movie table.")
+      controller.chatSession.testMessages[3].content == "Updated movies.html with the movie table.")
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
@@ -142,8 +142,8 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(controller.chatSession.toolCalls[0].status == .completed)
     #expect(controller.chatSession.toolCalls[1].request.toolName == .readFile)
     #expect(controller.chatSession.toolCalls[1].status == .failed)
-    #expect(!controller.chatSession.messages.contains { $0.content.contains("<action") })
-    guard case .failure(let failure) = controller.chatSession.messages.last?.toolResult?.payload
+    #expect(!controller.chatSession.testMessages.contains { $0.content.contains("<action") })
+    guard case .failure(let failure) = controller.chatSession.testMessages.last?.toolResult?.payload
     else {
       Issue.record("Expected final-mode action to be recorded as a structured failure.")
       return
@@ -182,11 +182,12 @@ struct ChatSessionControllerWriteApprovalTests {
       return
     }
     #expect(writeFailure.path == WorkspaceRelativePath(rawValue: "movies.html"))
-    #expect(controller.chatSession.messages.count == 4)
-    #expect(controller.chatSession.messages[2].toolResult?.preview.status == .denied)
-    #expect(controller.chatSession.messages[2].toolResult?.preview.affectedPaths == ["movies.html"])
+    #expect(controller.chatSession.testMessages.count == 4)
+    #expect(controller.chatSession.testMessages[2].toolResult?.preview.status == .denied)
     #expect(
-      controller.chatSession.messages[3].content
+      controller.chatSession.testMessages[2].toolResult?.preview.affectedPaths == ["movies.html"])
+    #expect(
+      controller.chatSession.testMessages[3].content
         == "I will not write the file. I can describe the change instead.")
 
     controller.draft = "are you there"
@@ -230,8 +231,8 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(controller.chatSession.toolCalls[0].status == .denied)
     #expect(controller.chatSession.toolCalls[1].request.toolName == .readFile)
     #expect(controller.chatSession.toolCalls[1].status == .failed)
-    #expect(!controller.chatSession.messages.contains { $0.content.contains("<action") })
-    guard case .failure(let failure) = controller.chatSession.messages.last?.toolResult?.payload
+    #expect(!controller.chatSession.testMessages.contains { $0.content.contains("<action") })
+    guard case .failure(let failure) = controller.chatSession.testMessages.last?.toolResult?.payload
     else {
       Issue.record("Expected final-mode action to be recorded as a structured failure.")
       return
@@ -423,10 +424,10 @@ struct ChatSessionControllerWriteApprovalTests {
       controller.chatSession.focusedFileState.activePath
         == WorkspaceRelativePath(rawValue: "README.md"))
     #expect(controller.chatSession.focusedFileState.recentPaths.first?.source == .editFile)
-    #expect(controller.chatSession.messages.count == 4)
-    #expect(controller.chatSession.messages[2].kind == .toolResult)
-    #expect(controller.chatSession.messages[2].toolResult?.toolName == .editFile)
-    #expect(controller.chatSession.messages[3].content == "Updated README.md.")
+    #expect(controller.chatSession.testMessages.count == 4)
+    #expect(controller.chatSession.testMessages[2].kind == .toolResult)
+    #expect(controller.chatSession.testMessages[2].toolResult?.toolName == .editFile)
+    #expect(controller.chatSession.testMessages[3].content == "Updated README.md.")
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
@@ -469,10 +470,11 @@ struct ChatSessionControllerWriteApprovalTests {
       return
     }
     #expect(editFailure.path == WorkspaceRelativePath(rawValue: "README.md"))
-    #expect(controller.chatSession.messages.count == 4)
-    #expect(controller.chatSession.messages[2].toolResult?.preview.status == .denied)
-    #expect(controller.chatSession.messages[2].toolResult?.preview.affectedPaths == ["README.md"])
-    #expect(controller.chatSession.messages[3].content == "I will leave README.md unchanged.")
+    #expect(controller.chatSession.testMessages.count == 4)
+    #expect(controller.chatSession.testMessages[2].toolResult?.preview.status == .denied)
+    #expect(
+      controller.chatSession.testMessages[2].toolResult?.preview.affectedPaths == ["README.md"])
+    #expect(controller.chatSession.testMessages[3].content == "I will leave README.md unchanged.")
   }
 
   private func waitUntil(

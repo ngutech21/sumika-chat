@@ -26,10 +26,54 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
 }
 
 public enum ChatTurnItem: Codable, Equatable, Sendable {
-  case userMessage(ChatMessage)
-  case assistantMessage(ChatMessage)
+  case userMessage(UserTurnMessage)
+  case assistantMessage(AssistantTurnMessage)
   case toolCall(ToolCallRecord.ID)
   case toolResult(ToolCallRecord.ID)
+}
+
+public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
+  public let id: UUID
+  public var content: String
+  public var attachments: [ChatAttachment]
+
+  public init(
+    id: UUID = UUID(),
+    content: String,
+    attachments: [ChatAttachment] = []
+  ) {
+    self.id = id
+    self.content = content
+    self.attachments = attachments
+  }
+}
+
+public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
+  public enum DeliveryStatus: String, Codable, Equatable, Sendable {
+    case complete
+    case streaming
+    case cancelled
+  }
+
+  public let id: UUID
+  public var content: String
+  public var attachments: [ChatAttachment]
+  public var generationMetrics: ChatGenerationMetrics?
+  public var deliveryStatus: DeliveryStatus
+
+  public init(
+    id: UUID = UUID(),
+    content: String,
+    attachments: [ChatAttachment] = [],
+    generationMetrics: ChatGenerationMetrics? = nil,
+    deliveryStatus: DeliveryStatus = .complete
+  ) {
+    self.id = id
+    self.content = content
+    self.attachments = attachments
+    self.generationMetrics = generationMetrics
+    self.deliveryStatus = deliveryStatus
+  }
 }
 
 public enum ChatTurnStatus: String, Codable, Equatable, Sendable {
@@ -43,4 +87,24 @@ public enum ChatTurnStatus: String, Codable, Equatable, Sendable {
 public enum ChatTurnModelContextPolicy: String, Codable, Equatable, Sendable {
   case included
   case excluded
+}
+
+nonisolated extension ChatTurnItem {
+  public var messageID: UUID? {
+    switch self {
+    case .userMessage(let message):
+      message.id
+    case .assistantMessage(let message):
+      message.id
+    case .toolCall(let id), .toolResult(let id):
+      id
+    }
+  }
+
+  public var userContent: String? {
+    guard case .userMessage(let message) = self else {
+      return nil
+    }
+    return message.content
+  }
 }

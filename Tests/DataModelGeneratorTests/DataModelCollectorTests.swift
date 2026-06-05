@@ -10,20 +10,20 @@ struct DataModelCollectorTests {
 
       /// Session state used by tests.
       public struct ChatSessionState: Equatable {
-        public var messages: [ChatMessage]
-        public var activeMessage: ChatMessage.ID?
+        public var turns: [ChatTurn]
+        public var activeTurn: ChatTurn.ID?
         public var computed: String { "value" }
         private var hidden: HiddenModel
       }
 
-      public enum ChatMessagePayload {
-        case user(UserMessagePayload)
+      public enum ChatTurnItem {
+        case user(UserTurnMessage)
         case toolResult(payload: ToolResultPayload, preview: ToolResultProjection?)
         case ignored
       }
 
-      public protocol ChatMessageRendering {
-        public var message: ChatMessage { get }
+      public protocol ChatTurnRendering {
+        public var item: ChatTurnItem { get }
       }
 
       public typealias ToolCallArguments = [String: ToolArgumentValue]
@@ -37,9 +37,9 @@ struct DataModelCollectorTests {
 
     #expect(
       models.map(\.name).sorted() == [
-        "ChatMessagePayload",
-        "ChatMessageRendering",
         "ChatSessionState",
+        "ChatTurnItem",
+        "ChatTurnRendering",
         "ToolCallArguments",
       ])
 
@@ -47,16 +47,16 @@ struct DataModelCollectorTests {
     #expect(session.summary == "Session state used by tests.")
     #expect(
       session.properties == [
-        DataModelProperty(name: "messages", type: "[ChatMessage]", isStored: true),
-        DataModelProperty(name: "activeMessage", type: "ChatMessage.ID?", isStored: true),
+        DataModelProperty(name: "turns", type: "[ChatTurn]", isStored: true),
+        DataModelProperty(name: "activeTurn", type: "ChatTurn.ID?", isStored: true),
       ])
 
-    let payload = try #require(models.first { $0.name == "ChatMessagePayload" })
+    let payload = try #require(models.first { $0.name == "ChatTurnItem" })
     #expect(
       payload.cases == [
         DataModelCase(
           name: "user",
-          associatedValues: [DataModelAssociatedValue(type: "UserMessagePayload")]
+          associatedValues: [DataModelAssociatedValue(type: "UserTurnMessage")]
         ),
         DataModelCase(
           name: "toolResult",
@@ -75,7 +75,7 @@ struct DataModelCollectorTests {
   @Test
   func referencedModelTypesNormalizesContainersAndQualifiedIDs() {
     let knownTypes: Set<String> = [
-      "ChatMessage",
+      "ChatTurn",
       "FocusedFileSnapshot",
       "WorkspaceRelativePath",
     ]
@@ -87,7 +87,7 @@ struct DataModelCollectorTests {
       ) == ["FocusedFileSnapshot", "WorkspaceRelativePath"]
     )
     #expect(
-      referencedModelTypes(in: "ChatMessage.ID?", knownTypes: knownTypes) == ["ChatMessage"]
+      referencedModelTypes(in: "ChatTurn.ID?", knownTypes: knownTypes) == ["ChatTurn"]
     )
   }
 }

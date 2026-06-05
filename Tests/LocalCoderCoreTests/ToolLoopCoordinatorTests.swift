@@ -17,15 +17,16 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="read_file">
-              <path>README.md</path>
-              </action>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="read_file">
+                <path>README.md</path>
+                </action>
+                """
+            ))
         ]
       )
     )
@@ -52,16 +53,17 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(userContent: "show the content of README.md"),
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="show_file">
-              <path>README.md</path>
-              </action>
-              """
-          ),
+        items: [
+          .userMessage(UserTurnMessage(content: "show the content of README.md")),
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="show_file">
+                <path>README.md</path>
+                </action>
+                """
+            )),
         ],
         interactionMode: .inspect
       )
@@ -90,15 +92,16 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="show_file">
-              <path>README.md</path>
-              </action>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="show_file">
+                <path>README.md</path>
+                </action>
+                """
+            ))
         ],
         interactionMode: .agent
       )
@@ -122,16 +125,17 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(userContent: "show README.md"),
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="read_file">
-              <path>README.md</path>
-              </action>
-              """
-          ),
+        items: [
+          .userMessage(UserTurnMessage(content: "show README.md")),
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="read_file">
+                <path>README.md</path>
+                </action>
+                """
+            )),
         ],
         interactionMode: .inspect
       )
@@ -156,17 +160,17 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: turnID,
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(userContent: "list the files in this directory", turnID: turnID),
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="list_files">
-              <path>.</path>
-              </action>
-              """,
-            turnID: turnID
-          ),
+        items: [
+          .userMessage(UserTurnMessage(content: "list the files in this directory")),
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="list_files">
+                <path>.</path>
+                </action>
+                """
+            )),
         ],
         interactionMode: .inspect
       )
@@ -196,20 +200,20 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: turnID,
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            userContent: "list the files and tell me which one looks like the entry point",
-            turnID: turnID
-          ),
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="list_files">
-              <path>.</path>
-              </action>
-              """,
-            turnID: turnID
-          ),
+        items: [
+          .userMessage(
+            UserTurnMessage(
+              content: "list the files and tell me which one looks like the entry point"
+            )),
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="list_files">
+                <path>.</path>
+                </action>
+                """
+            )),
         ],
         interactionMode: .inspect
       )
@@ -233,15 +237,16 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="Read">
-              <path>README.md</path>
-              </action>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="Read">
+                <path>README.md</path>
+                </action>
+                """
+            ))
         ]
       )
     )
@@ -273,17 +278,18 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="read_file">
-              <path>README.md</path>
-              <offset>2</offset>
-              <limit>1</limit>
-              </action>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="read_file">
+                <path>README.md</path>
+                <offset>2</offset>
+                <limit>1</limit>
+                </action>
+                """
+            ))
         ]
       )
     )
@@ -306,16 +312,17 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              I should inspect this.
-              <action name="read_file">
-              <path>README.md</path>
-              </action>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                I should inspect this.
+                <action name="read_file">
+                <path>README.md</path>
+                </action>
+                """
+            ))
         ]
       )
     )
@@ -338,17 +345,18 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              ```xml
-              <action name="list_files">
-              <path>.</path>
-              </action>
-              ```
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                ```xml
+                <action name="list_files">
+                <path>.</path>
+                </action>
+                ```
+                """
+            ))
         ]
       )
     )
@@ -371,18 +379,19 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="read_file">
-              <path>README.md</path>
-              </action>
-              <action name="list_files">
-              <path>.</path>
-              </action>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="read_file">
+                <path>README.md</path>
+                </action>
+                <action name="list_files">
+                <path>.</path>
+                </action>
+                """
+            ))
         ]
       )
     )
@@ -407,14 +416,15 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="read_file">
-              <path>README.md</path>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="read_file">
+                <path>README.md</path>
+                """
+            ))
         ]
       )
     )
@@ -439,11 +449,12 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: "The answer does not need workspace context."
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: "The answer does not need workspace context."
+            ))
         ]
       )
     )
@@ -464,15 +475,16 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="Deploy">
-              <path>.</path>
-              </action>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="Deploy">
+                <path>.</path>
+                </action>
+                """
+            ))
         ]
       )
     )
@@ -499,15 +511,16 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="read_file">
-              <path>README.md
-              </action>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="read_file">
+                <path>README.md
+                </action>
+                """
+            ))
         ]
       )
     )
@@ -533,19 +546,20 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              Tool call edit_file requested.
-              Path:
-              index.html
-              Old text:
-              <body>
-              New text:
-              <body style="background: blue">
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                Tool call edit_file requested.
+                Path:
+                index.html
+                Old text:
+                <body>
+                New text:
+                <body style="background: blue">
+                """
+            ))
         ]
       )
     )
@@ -573,15 +587,16 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="read_file">
-              <path>README.md</path>
-              </action>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="read_file">
+                <path>README.md</path>
+                </action>
+                """
+            ))
         ]
       )
     )
@@ -608,18 +623,19 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="write_file">
-              <path>movies.html</path>
-              <content delimiter="LC_PAYLOAD_V1">
-              <html></html>
-              </content>
-              </action>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="write_file">
+                <path>movies.html</path>
+                <content delimiter="LC_PAYLOAD_V1">
+                <html></html>
+                </content>
+                </action>
+                """
+            ))
         ]
       )
     )
@@ -648,18 +664,19 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         turnID: UUID(),
         assistantMessageID: assistantMessageID,
-        messages: [
-          ChatMessage(
-            id: assistantMessageID,
-            assistantContent: """
-              <action name="write_file">
-              <path>movies.html</path>
-              <content delimiter="LC_PAYLOAD_V1">
-              <html></html>
-              </content>
-              </action>
-              """
-          )
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="write_file">
+                <path>movies.html</path>
+                <content delimiter="LC_PAYLOAD_V1">
+                <html></html>
+                </content>
+                </action>
+                """
+            ))
         ]
       )
     )
@@ -712,7 +729,7 @@ struct ToolLoopCoordinatorTests {
     return nil
   }
 
-  private func annotatedAssistantMessageID(from step: ChatWorkflowStep?) -> ChatMessage.ID? {
+  private func annotatedAssistantMessageID(from step: ChatWorkflowStep?) -> UUID? {
     for event in step?.events ?? [] {
       guard
         case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, _) = event
@@ -758,7 +775,7 @@ struct ToolLoopCoordinatorTests {
 
   private func toolResult(from step: ChatWorkflowStep?) -> ToolResultModelMessage? {
     for event in step?.events ?? [] {
-      guard case .toolResultAppended(let toolResult, _, _) = event else {
+      guard case .toolResultAppended(let toolResult, _) = event else {
         continue
       }
       return toolResult

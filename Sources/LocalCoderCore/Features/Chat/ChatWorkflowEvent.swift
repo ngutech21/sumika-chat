@@ -2,7 +2,7 @@ import Foundation
 
 public enum ChatWorkflowEvent: Equatable, Sendable {
   case assistantMessageAnnotatedAsToolCall(
-    assistantMessageID: ChatMessage.ID,
+    assistantMessageID: UUID,
     toolCall: ToolCallModelMessage
   )
   case toolCallAppended(
@@ -12,17 +12,16 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
   case toolCallReplaced(ToolCallRecord)
   case toolResultAppended(
     ToolResultModelMessage,
-    messageID: ChatMessage.ID,
     turnID: ChatTurn.ID
   )
   case assistantPlaceholderAppended(
-    messageID: ChatMessage.ID,
+    messageID: UUID,
     turnID: ChatTurn.ID
   )
   case assistantMessageAppended(
     content: String,
     modelContextContent: String,
-    messageID: ChatMessage.ID,
+    messageID: UUID,
     turnID: ChatTurn.ID
   )
   case turnStatusChanged(
@@ -39,7 +38,7 @@ public enum ChatWorkflowContinuation: Equatable, Sendable {
   case none
   case awaitingApproval
   case resumeGeneration(
-    assistantMessageID: ChatMessage.ID,
+    assistantMessageID: UUID,
     promptMode: ToolPromptMode
   )
   case stopTurn
@@ -119,12 +118,12 @@ public struct ChatWorkflowEventApplier: Sendable {
       }
     case .toolCallReplaced(let record):
       replaceToolCallRecord(record, in: &state)
-    case .toolResultAppended(let toolResult, let messageID, let turnID):
-      mutator.appendToolResult(toolResult, id: messageID, turnID: turnID, to: &state)
+    case .toolResultAppended(let toolResult, let turnID):
+      mutator.appendToolResult(toolResult, turnID: turnID, to: &state)
       if let request = state.toolCalls.first(where: { $0.id == toolResult.callID })?.request {
         if let entry = try? ModelFacingPromptRenderer.toolResultEntry(
           turnID: turnID,
-          sourceMessageID: messageID,
+          sourceMessageID: toolResult.callID,
           toolResult: toolResult,
           request: request
         ) {
@@ -184,7 +183,7 @@ public struct ChatWorkflowEventApplier: Sendable {
         ]
       }
       return []
-    case .toolResultAppended(_, _, let turnID),
+    case .toolResultAppended(_, let turnID),
       .assistantPlaceholderAppended(_, let turnID),
       .assistantMessageAppended(_, _, _, let turnID),
       .turnStatusChanged(let turnID, _, _),
@@ -196,13 +195,15 @@ public struct ChatWorkflowEventApplier: Sendable {
   }
 
   private func missingMessageDiagnostics(
-    _ messageIDs: [ChatMessage.ID],
+    _ messageIDs: [UUID],
     event: ChatWorkflowEvent,
     in state: ChatSessionState
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
     messageIDs.compactMap { messageID in
       guard
-        !state.messages.contains(where: { $0.id == messageID || $0.toolCall?.callID == messageID })
+        !state.turns.contains(where: { turn in
+          turn.items.contains { $0.messageID == messageID }
+        })
       else {
         return nil
       }

@@ -5,13 +5,13 @@ public struct ChatTranscriptMutator: Sendable {
 
   public func appendUserMessage(
     _ content: String,
-    id: ChatMessage.ID = UUID(),
+    id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
     attachments: [ChatAttachment],
     to state: inout ChatSessionState
   ) {
     appendItem(
-      .userMessage(ChatMessage(id: id, userContent: content, attachments: attachments)),
+      .userMessage(UserTurnMessage(id: id, content: content, attachments: attachments)),
       toTurn: turnID,
       in: &state
     )
@@ -96,13 +96,13 @@ public struct ChatTranscriptMutator: Sendable {
   }
 
   public func appendAssistantPlaceholder(
-    id: ChatMessage.ID,
+    id: UUID,
     turnID: ChatTurn.ID? = nil,
     to state: inout ChatSessionState
   ) {
     appendItem(
       .assistantMessage(
-        ChatMessage(id: id, assistantContent: "", deliveryStatus: .streaming)
+        AssistantTurnMessage(id: id, content: "", deliveryStatus: .streaming)
       ),
       toTurn: turnID,
       in: &state
@@ -111,13 +111,13 @@ public struct ChatTranscriptMutator: Sendable {
 
   public func appendAssistantMessage(
     _ content: String,
-    id: ChatMessage.ID = UUID(),
+    id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
     to state: inout ChatSessionState
   ) {
     appendItem(
       .assistantMessage(
-        ChatMessage(id: id, assistantContent: content, deliveryStatus: .complete)
+        AssistantTurnMessage(id: id, content: content, deliveryStatus: .complete)
       ),
       toTurn: turnID,
       in: &state
@@ -125,8 +125,10 @@ public struct ChatTranscriptMutator: Sendable {
   }
 
   public func appendChunk(_ chunk: String, to messageID: UUID, in state: inout ChatSessionState) {
-    updateMessage(messageID, in: &state) { message in
-      message.replacingContent(message.content + chunk)
+    updateAssistantMessage(messageID, in: &state) { message in
+      var updatedMessage = message
+      updatedMessage.content += chunk
+      return updatedMessage
     }
   }
 
@@ -135,34 +137,35 @@ public struct ChatTranscriptMutator: Sendable {
     for messageID: UUID,
     in state: inout ChatSessionState
   ) {
-    updateMessage(messageID, in: &state) { message in
-      message.replacingGenerationMetrics(metrics)
+    updateAssistantMessage(messageID, in: &state) { message in
+      var updatedMessage = message
+      updatedMessage.generationMetrics = metrics
+      return updatedMessage
     }
   }
 
   public func updateDeliveryStatus(
-    _ status: ChatMessageDeliveryStatus,
-    for messageID: ChatMessage.ID,
+    _ status: AssistantTurnMessage.DeliveryStatus,
+    for messageID: UUID,
     in state: inout ChatSessionState
   ) {
-    updateMessage(messageID, in: &state) { message in
-      message.replacingDeliveryStatus(status)
+    updateAssistantMessage(messageID, in: &state) { message in
+      var updatedMessage = message
+      updatedMessage.deliveryStatus = status
+      return updatedMessage
     }
   }
 
   public func replaceAssistantContent(
     _ content: String,
-    for messageID: ChatMessage.ID,
+    for messageID: UUID,
     in state: inout ChatSessionState
   ) {
-    updateMessage(messageID, in: &state) { message in
-      ChatMessage(
-        id: message.id,
-        assistantContent: content,
-        attachments: message.attachments,
-        generationMetrics: message.generationMetrics,
-        deliveryStatus: .complete
-      )
+    updateAssistantMessage(messageID, in: &state) { message in
+      var updatedMessage = message
+      updatedMessage.content = content
+      updatedMessage.deliveryStatus = .complete
+      return updatedMessage
     }
   }
 
@@ -172,19 +175,14 @@ public struct ChatTranscriptMutator: Sendable {
     in state: inout ChatSessionState
   ) {
     ensureToolCallRecord(for: toolCall, in: &state)
-    updateMessage(messageID, in: &state) { message in
-      _ = message
-      return ChatMessage(id: toolCall.callID, toolCall: toolCall)
-    }
+    replaceItem(matchingMessageID: messageID, with: .toolCall(toolCall.callID), in: &state)
   }
 
   public func appendToolResult(
     _ toolResult: ToolResultModelMessage,
-    id: ChatMessage.ID = UUID(),
     turnID: ChatTurn.ID? = nil,
     to state: inout ChatSessionState
   ) {
-    _ = id
     ensureToolCallRecord(for: toolResult, in: &state)
     appendItem(.toolResult(toolResult.callID), toTurn: turnID, in: &state)
   }
@@ -221,7 +219,9 @@ public struct ChatTranscriptMutator: Sendable {
         else {
           return item
         }
-        return .assistantMessage(message.replacingDeliveryStatus(.cancelled))
+        var updatedMessage = message
+        updatedMessage.deliveryStatus = .cancelled
+        return .assistantMessage(updatedMessage)
       }
       updatedTurn.updatedAt = Date()
       return updatedTurn
@@ -284,25 +284,16 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  private func updateMessage(
+  private func updateAssistantMessage(
     _ messageID: UUID,
     in state: inout ChatSessionState,
-    transform: (ChatMessage) -> ChatMessage
+    transform: (AssistantTurnMessage) -> AssistantTurnMessage
   ) {
     for turnIndex in state.turns.indices {
       for itemIndex in state.turns[turnIndex].items.indices {
         switch state.turns[turnIndex].items[itemIndex] {
-        case .userMessage(let message) where message.id == messageID:
-          state.turns[turnIndex].items[itemIndex] = .userMessage(transform(message))
-          state.turns[turnIndex].updatedAt = Date()
-          return
         case .assistantMessage(let message) where message.id == messageID:
-          let updatedMessage = transform(message)
-          if updatedMessage.kind == .toolCall, let toolCall = updatedMessage.toolCall {
-            state.turns[turnIndex].items[itemIndex] = .toolCall(toolCall.callID)
-          } else {
-            state.turns[turnIndex].items[itemIndex] = .assistantMessage(updatedMessage)
-          }
+          state.turns[turnIndex].items[itemIndex] = .assistantMessage(transform(message))
           state.turns[turnIndex].updatedAt = Date()
           return
         case .toolCall, .toolResult, .userMessage, .assistantMessage:
@@ -312,12 +303,31 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
+  private func replaceItem(
+    matchingMessageID messageID: UUID,
+    with replacement: ChatTurnItem,
+    in state: inout ChatSessionState
+  ) {
+    for turnIndex in state.turns.indices {
+      for itemIndex in state.turns[turnIndex].items.indices {
+        guard state.turns[turnIndex].items[itemIndex].messageID == messageID else {
+          continue
+        }
+        state.turns[turnIndex].items[itemIndex] = replacement
+        state.turns[turnIndex].updatedAt = Date()
+        return
+      }
+    }
+  }
+
   private func removeItems(matchingMessageID messageID: UUID, from state: inout ChatSessionState) {
     for turnIndex in state.turns.indices {
       let originalCount = state.turns[turnIndex].items.count
       state.turns[turnIndex].items.removeAll { item in
         switch item {
-        case .userMessage(let message), .assistantMessage(let message):
+        case .userMessage(let message):
+          message.id == messageID
+        case .assistantMessage(let message):
           message.id == messageID
         case .toolCall(let id), .toolResult(let id):
           id == messageID
@@ -465,66 +475,5 @@ public struct ChatTranscriptMutator: Sendable {
     if let updatedEntry {
       state.modelFacingTranscript.entries[index] = updatedEntry
     }
-  }
-}
-
-nonisolated extension ChatMessage {
-  fileprivate func replacingContent(_ content: String) -> ChatMessage {
-    switch payload {
-    case .user(let payload):
-      ChatMessage(
-        id: id,
-        userContent: content,
-        attachments: payload.attachments
-      )
-    case .assistant(let payload):
-      ChatMessage(
-        id: id,
-        assistantContent: content,
-        attachments: payload.attachments,
-        generationMetrics: payload.generationMetrics,
-        deliveryStatus: payload.deliveryStatus
-      )
-    case .system:
-      ChatMessage(id: id, systemContent: content)
-    case .toolCall, .toolResult:
-      self
-    }
-  }
-
-  fileprivate func replacingGenerationMetrics(_ metrics: ChatGenerationMetrics?) -> ChatMessage {
-    switch payload {
-    case .assistant(let payload):
-      ChatMessage(
-        id: id,
-        assistantContent: payload.content,
-        attachments: payload.attachments,
-        generationMetrics: metrics,
-        deliveryStatus: payload.deliveryStatus
-      )
-    case .toolCall(let payload):
-      ChatMessage(
-        id: id,
-        toolCall: payload.toolCall,
-        attachments: payload.attachments,
-        generationMetrics: metrics
-      )
-    case .user, .system, .toolResult:
-      self
-    }
-  }
-
-  fileprivate func replacingDeliveryStatus(_ status: ChatMessageDeliveryStatus) -> ChatMessage {
-    guard case .assistant(let payload) = payload else {
-      return self
-    }
-
-    return ChatMessage(
-      id: id,
-      assistantContent: payload.content,
-      attachments: payload.attachments,
-      generationMetrics: payload.generationMetrics,
-      deliveryStatus: status
-    )
   }
 }

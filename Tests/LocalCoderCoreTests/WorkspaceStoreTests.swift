@@ -159,7 +159,7 @@ struct WorkspaceStoreTests {
       id: UUID(),
       title: "Legacy",
       selectedModelID: "gemma3-1b",
-      messages: [ChatMessage(userContent: "hello")],
+      messages: [LegacyStoredMessage(content: "hello")],
       systemPrompt: "Legacy prompt",
       generationSettings: .codingDefault,
       createdAt: Date(),
@@ -179,7 +179,7 @@ struct WorkspaceStoreTests {
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
       ]
     )
-    let messages = [ChatMessage(userContent: "hello")]
+    let messages = [LegacyStoredMessage(content: "hello")]
     let flatSession = FlatChatSession(
       id: UUID(),
       title: "Flat",
@@ -269,7 +269,7 @@ private struct LegacyChatSession: Codable {
   let id: UUID
   let title: String
   let selectedModelID: ManagedModel.ID
-  let messages: [ChatMessage]
+  let messages: [LegacyStoredMessage]
   let systemPrompt: String
   let generationSettings: ChatGenerationSettings
   let createdAt: Date
@@ -280,7 +280,7 @@ private struct FlatChatSession: Codable {
   let id: UUID
   let title: String
   let selectedModelID: ManagedModel.ID
-  let messages: [ChatMessage]
+  let messages: [LegacyStoredMessage]
   let modelFacingTranscript: ModelFacingTranscript
   let toolCalls: [ToolCallRecord]
   let turns: [ChatTurn]
@@ -290,4 +290,9 @@ private struct FlatChatSession: Codable {
   let interactionMode: WorkspaceInteractionMode
   let createdAt: Date
   let updatedAt: Date
+}
+
+private struct LegacyStoredMessage: Codable {
+  var id: UUID = UUID()
+  var content: String
 }

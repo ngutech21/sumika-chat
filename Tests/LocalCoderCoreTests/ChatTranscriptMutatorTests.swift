@@ -12,10 +12,11 @@ struct ChatTranscriptMutatorTests {
 
     mutator.appendUserMessage("Inspect this file", attachments: sentAttachments, to: &state)
 
-    #expect(state.messages.count == 1)
-    #expect(state.messages[0].kind == .user)
-    #expect(state.messages[0].content == "Inspect this file")
-    #expect(state.messages[0].attachments == sentAttachments)
+    let items = state.transcriptItemsForTesting
+    #expect(items.count == 1)
+    #expect(items[0].kindForTesting == .user)
+    #expect(items[0].contentForTesting == "Inspect this file")
+    #expect(items[0].attachmentsForTesting == sentAttachments)
   }
 
   @Test
@@ -26,25 +27,29 @@ struct ChatTranscriptMutatorTests {
 
     mutator.appendAssistantPlaceholder(id: assistantID, to: &state)
 
-    #expect(state.messages.count == 1)
-    #expect(state.messages[0].id == assistantID)
-    #expect(state.messages[0].kind == .assistant)
-    #expect(state.messages[0].content.isEmpty)
-    #expect(state.messages[0].deliveryStatus == .streaming)
+    let items = state.transcriptItemsForTesting
+    #expect(items.count == 1)
+    #expect(items[0].messageID == assistantID)
+    #expect(items[0].kindForTesting == .assistant)
+    #expect(items[0].contentForTesting.isEmpty)
+    #expect(items[0].deliveryStatusForTesting == .streaming)
   }
 
   @Test
   func appendChunkUpdatesExistingMessageAndIgnoresMissingID() {
     let assistantID = UUID()
-    var state = makeState(messages: [ChatMessage(id: assistantID, assistantContent: "Hel")]
+    var state = makeState(items: [
+      .assistantMessage(AssistantTurnMessage(id: assistantID, content: "Hel"))
+    ]
     )
     let mutator = ChatTranscriptMutator()
 
     mutator.appendChunk("lo", to: assistantID, in: &state)
     mutator.appendChunk(" ignored", to: UUID(), in: &state)
 
-    #expect(state.messages.count == 1)
-    #expect(state.messages[0].content == "Hello")
+    let items = state.transcriptItemsForTesting
+    #expect(items.count == 1)
+    #expect(items[0].contentForTesting == "Hello")
   }
 
   @Test
@@ -52,24 +57,26 @@ struct ChatTranscriptMutatorTests {
     let attachment = makeAttachment(name: "main.swift")
     let assistantID = UUID()
     let metrics = ChatGenerationMetrics(generatedTokenCount: 12, tokensPerSecond: 4.5)
-    var state = makeState(messages: [
-      ChatMessage(
-        id: assistantID,
-        assistantContent: "Answer",
-        attachments: [attachment]
-      )
+    var state = makeState(items: [
+      .assistantMessage(
+        AssistantTurnMessage(
+          id: assistantID,
+          content: "Answer",
+          attachments: [attachment]
+        ))
     ])
     let mutator = ChatTranscriptMutator()
 
     mutator.updateGenerationMetrics(metrics, for: assistantID, in: &state)
 
-    #expect(state.messages[0].id == assistantID)
-    #expect(state.messages[0].kind == .assistant)
-    #expect(state.messages[0].content == "Answer")
-    #expect(state.messages[0].attachments == [attachment])
-    #expect(state.messages[0].generationMetrics == metrics)
-    #expect(state.messages[0].toolCall == nil)
-    #expect(state.messages[0].toolResult == nil)
+    let items = state.transcriptItemsForTesting
+    #expect(items[0].messageID == assistantID)
+    #expect(items[0].kindForTesting == .assistant)
+    #expect(items[0].contentForTesting == "Answer")
+    #expect(items[0].attachmentsForTesting == [attachment])
+    #expect(items[0].generationMetricsForTesting == metrics)
+    #expect(items[0].toolCallForTesting(records: state.toolCalls) == nil)
+    #expect(items[0].toolResultForTesting(records: state.toolCalls) == nil)
   }
 
   @Test
@@ -83,27 +90,29 @@ struct ChatTranscriptMutatorTests {
       toolName: .readFile,
       arguments: [ToolCallModelArgument(name: "path", value: "Package.swift")]
     )
-    var state = makeState(messages: [
-      ChatMessage(
-        id: assistantID,
-        assistantContent: "<action>",
-        attachments: [attachment],
-        generationMetrics: metrics
-      )
+    var state = makeState(items: [
+      .assistantMessage(
+        AssistantTurnMessage(
+          id: assistantID,
+          content: "<action>",
+          attachments: [attachment],
+          generationMetrics: metrics
+        ))
     ])
     let mutator = ChatTranscriptMutator()
 
     mutator.annotateToolCall(toolCall, for: assistantID, in: &state)
 
     _ = assistantID
-    #expect(state.messages[0].kind == .toolCall)
-    #expect(state.messages[0].content.isEmpty)
+    let items = state.transcriptItemsForTesting
+    #expect(items[0].kindForTesting == .toolCall)
+    #expect(items[0].contentForTesting.isEmpty)
     _ = attachment
     _ = metrics
     #expect(state.turns[0].items == [.toolCall(toolCall.callID)])
     #expect(state.toolCalls.first?.id == toolCall.callID)
-    #expect(state.messages[0].toolCall == toolCall)
-    #expect(state.messages[0].toolResult == nil)
+    #expect(items[0].toolCallForTesting(records: state.toolCalls) == toolCall)
+    #expect(items[0].toolResultForTesting(records: state.toolCalls) == nil)
   }
 
   @Test
@@ -124,31 +133,36 @@ struct ChatTranscriptMutatorTests {
 
     mutator.appendToolResult(toolResult, to: &state)
 
-    #expect(state.messages.count == 1)
-    #expect(state.messages[0].kind == .toolResult)
-    #expect(state.messages[0].content.isEmpty)
-    #expect(state.messages[0].toolResult == toolResult)
+    let items = state.transcriptItemsForTesting
+    #expect(items.count == 1)
+    #expect(items[0].kindForTesting == .toolResult)
+    #expect(items[0].contentForTesting.isEmpty)
+    #expect(items[0].toolResultForTesting(records: state.toolCalls) == toolResult)
   }
 
   @Test
   func removeTransientAssistantPlaceholdersKeepsRealAssistantMessages() {
     let emptyAssistantID = UUID()
-    let filledAssistant = ChatMessage(assistantContent: "Done")
-    let userMessage = ChatMessage(userContent: "Prompt")
-    var state = makeState(messages: [
-      userMessage,
-      ChatMessage(
-        id: emptyAssistantID,
-        assistantContent: "",
-        deliveryStatus: .streaming
-      ),
-      filledAssistant,
+    let filledAssistant = AssistantTurnMessage(content: "Done")
+    let userMessage = UserTurnMessage(content: "Prompt")
+    var state = makeState(items: [
+      .userMessage(userMessage),
+      .assistantMessage(
+        AssistantTurnMessage(
+          id: emptyAssistantID,
+          content: "",
+          deliveryStatus: .streaming
+        )),
+      .assistantMessage(filledAssistant),
     ])
     let mutator = ChatTranscriptMutator()
 
     mutator.removeTransientAssistantPlaceholders(from: &state)
 
-    #expect(state.messages == [userMessage, filledAssistant])
+    #expect(
+      state.transcriptItemsForTesting == [
+        .userMessage(userMessage), .assistantMessage(filledAssistant),
+      ])
   }
 
   @Test
@@ -163,17 +177,17 @@ struct ChatTranscriptMutatorTests {
           id: turnID,
           status: .cancelled,
           items: [
-            .userMessage(ChatMessage(id: userID, userContent: "Prompt")),
+            .userMessage(UserTurnMessage(id: userID, content: "Prompt")),
             .assistantMessage(
-              ChatMessage(
+              AssistantTurnMessage(
                 id: emptyAssistantID,
-                assistantContent: "",
+                content: "",
                 deliveryStatus: .streaming
               )),
             .assistantMessage(
-              ChatMessage(
+              AssistantTurnMessage(
                 id: filledAssistantID,
-                assistantContent: "Done",
+                content: "Done",
                 deliveryStatus: .complete
               )),
           ]
@@ -184,8 +198,8 @@ struct ChatTranscriptMutatorTests {
 
     mutator.removeTransientAssistantPlaceholders(from: &state)
 
-    #expect(state.messages.map(\.id) == [userID, filledAssistantID])
-    #expect(state.turns[0].items.map(messageID) == [userID, filledAssistantID])
+    #expect(state.transcriptItemsForTesting.compactMap(\.messageID) == [userID, filledAssistantID])
+    #expect(state.turns[0].items.map(testMessageID) == [userID, filledAssistantID])
   }
 
   @Test
@@ -195,7 +209,7 @@ struct ChatTranscriptMutatorTests {
     let turn = ChatTurn(status: .completed)
     let toolCall = makeToolCallRecord()
     var state = makeState(
-      messages: [ChatMessage(userContent: "Prompt")],
+      items: [.userMessage(UserTurnMessage(content: "Prompt"))],
       toolCalls: [toolCall],
       turns: [turn],
       attachments: [attachment],
@@ -206,7 +220,7 @@ struct ChatTranscriptMutatorTests {
 
     mutator.clearTranscript(in: &state)
 
-    #expect(state.messages.isEmpty)
+    #expect(state.transcriptItemsForTesting.isEmpty)
     #expect(state.toolCalls.isEmpty)
     #expect(state.turns.isEmpty)
     #expect(state.pendingAttachments.isEmpty)
@@ -217,40 +231,34 @@ struct ChatTranscriptMutatorTests {
   @Test
   func removeMessageDeletesMatchingMessageOnly() {
     let removedID = UUID()
-    let kept = ChatMessage(assistantContent: "Keep")
-    var state = makeState(messages: [
-      ChatMessage(id: removedID, userContent: "Remove"),
-      kept,
+    let kept = AssistantTurnMessage(content: "Keep")
+    var state = makeState(items: [
+      .userMessage(UserTurnMessage(id: removedID, content: "Remove")),
+      .assistantMessage(kept),
     ])
     let mutator = ChatTranscriptMutator()
 
     mutator.removeMessage(id: removedID, from: &state)
 
-    #expect(state.messages == [kept])
-  }
-}
-
-private func messageID(from item: ChatTurnItem) -> ChatMessage.ID? {
-  switch item {
-  case .userMessage(let message), .assistantMessage(let message):
-    message.id
-  case .toolCall, .toolResult:
-    nil
+    #expect(state.transcriptItemsForTesting == [.assistantMessage(kept)])
   }
 }
 
 private func makeState(
-  messages: [ChatMessage] = [],
+  items: [ChatTurnItem] = [],
   toolCalls: [ToolCallRecord] = [],
   turns: [ChatTurn] = [],
   attachments: [ChatAttachment] = [],
   systemPrompt: String = "System",
   generationSettings: ChatGenerationSettings = .codingDefault
 ) -> ChatSessionState {
-  ChatSessionState(
-    messages: messages,
+  let resolvedTurns =
+    turns.isEmpty && !items.isEmpty
+    ? [ChatTurn(status: .running, items: items)]
+    : turns
+  return ChatSessionState(
     toolCalls: toolCalls,
-    turns: turns,
+    turns: resolvedTurns,
     pendingAttachments: attachments,
     systemPrompt: systemPrompt,
     generationSettings: generationSettings

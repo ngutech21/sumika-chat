@@ -23,14 +23,14 @@ flowchart TD
   X --> V{"Invalid tool call?"}
   V -- "yes" --> L
   V -- "no" --> K{"Tool requires approval?"}
-  K -- "no" --> L["Append ToolCallRecord + ToolResultModelMessage"]
+  K -- "no" --> L["Append ToolCallRecord + toolResult item"]
   L --> Q["Stream direct follow-up with current turn included"]
   Q --> U{"Follow-up emitted another allowed tool call?"}
   U -- "yes, within 6-call turn budget" --> J
   U -- "no" --> I
   K -- "yes" --> R["Mark turn awaitingApproval"]
   R --> S["User approves or denies"]
-  S -- "approve" --> T["Execute approved tool + append ToolResultModelMessage"]
+  S -- "approve" --> T["Execute approved tool + append toolResult item"]
   T --> Q
   S -- "deny" --> I
   E --> M{"User cancels active turn?"}
@@ -49,11 +49,12 @@ flowchart TD
   completion so stale async work from a cancelled or replaced turn cannot reset
   current UI state.
 - `ChatTurn` is the persisted turn audit record: status, model-context
-  policy, message IDs, tool-call IDs, and timestamps.
-- `ChatMessage.turnID` links transcript messages to a turn. Legacy messages
-  without a turn ID are treated as included context.
-- `ChatMessage.deliveryStatus` distinguishes complete assistant messages from
-  streaming or cancelled partial output.
+  policy, ordered `ChatTurnItem` values, and timestamps.
+- `ChatTurnItem` is the canonical transcript/UI item. User and assistant items
+  store typed `UserTurnMessage` and `AssistantTurnMessage` payloads directly.
+  Tool-call and tool-result items store only `ToolCallRecord.ID`.
+- `AssistantTurnMessage.deliveryStatus` distinguishes complete assistant
+  messages from streaming or cancelled partial output.
 - `ChatModelContextBuilder` turns `ChatSessionState` into the model-facing
   `ModelFacingTranscript`. It excludes entries belonging to turns whose
   `modelContextPolicy` is `.excluded`, except while that same turn is actively
@@ -75,7 +76,7 @@ flowchart TD
   action from normal assistant prose.
 - `ChatWorkflowEventApplier` applies typed workflow events to `ChatSessionState`
   using `ChatTranscriptMutator`. These events are not persisted; persistence
-  stores only the resulting messages, tool-call records, and turns.
+  stores only the resulting turns, turn items, and tool-call records.
 - `ContextUsageCoordinator` computes token usage from the same filtered frozen
   model-facing transcript used for generation.
 

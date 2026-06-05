@@ -35,9 +35,9 @@ struct ChatSessionControllerToolLoopTests {
     #expect(controller.chatSession.toolCalls.count == 7)
     #expect(controller.chatSession.toolCalls.dropLast().allSatisfy { $0.status == .completed })
     #expect(controller.chatSession.toolCalls.last?.status == .failed)
-    #expect(controller.chatSession.messages.last?.kind == .toolResult)
+    #expect(controller.chatSession.testMessages.last?.kind == .toolResult)
     guard
-      case .failure(let failure) = controller.chatSession.messages.last?.toolResult?.payload
+      case .failure(let failure) = controller.chatSession.testMessages.last?.toolResult?.payload
     else {
       Issue.record("Expected final over-budget result to be structured as a tool failure.")
       return
@@ -80,15 +80,15 @@ struct ChatSessionControllerToolLoopTests {
     #expect(controller.chatSession.toolCalls.count == 7)
     #expect(controller.chatSession.toolCalls.allSatisfy { $0.request.toolName == .invalid })
     #expect(controller.chatSession.toolCalls.last?.status == .failed)
-    #expect(controller.chatSession.messages.last?.kind == .toolResult)
+    #expect(controller.chatSession.testMessages.last?.kind == .toolResult)
     guard
-      case .failure(let failure) = controller.chatSession.messages.last?.toolResult?.payload
+      case .failure(let failure) = controller.chatSession.testMessages.last?.toolResult?.payload
     else {
       Issue.record("Expected final over-budget result to be structured as a tool failure.")
       return
     }
     #expect(failure.reason == .toolBudgetExceeded(requestedTool: .editFile, iterationLimit: 6))
-    #expect(!controller.chatSession.messages.contains { $0.content == invalidToolIntent })
+    #expect(!controller.chatSession.testMessages.contains { $0.content == invalidToolIntent })
   }
 
   @Test
@@ -120,11 +120,12 @@ struct ChatSessionControllerToolLoopTests {
     #expect(controller.chatSession.toolCalls.count == 1)
     #expect(controller.chatSession.toolCalls[0].request.toolName == .invalid)
     #expect(controller.chatSession.toolCalls[0].status == .failed)
-    #expect(controller.chatSession.messages[1].kind == .toolCall)
-    #expect(controller.chatSession.messages[1].content.isEmpty)
-    #expect(!controller.chatSession.messages.contains { $0.content == invalidToolIntent })
+    #expect(controller.chatSession.testMessages[1].kind == .toolCall)
+    #expect(controller.chatSession.testMessages[1].content.isEmpty)
+    #expect(!controller.chatSession.testMessages.contains { $0.content == invalidToolIntent })
     #expect(
-      controller.chatSession.messages.last?.content == "I need to use the tagged action format.")
+      controller.chatSession.testMessages.last?.content == "I need to use the tagged action format."
+    )
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
@@ -177,7 +178,7 @@ struct ChatSessionControllerToolLoopTests {
       controller.chatSession.toolCalls[0].resultPreview?.text.contains("not found") == true)
     #expect(controller.chatSession.toolCalls[1].request.toolName == .readFile)
     #expect(controller.chatSession.toolCalls[1].status == .completed)
-    #expect(controller.chatSession.messages.last?.content == "The file contains project notes.")
+    #expect(controller.chatSession.testMessages.last?.content == "The file contains project notes.")
   }
 
   @Test
@@ -217,8 +218,8 @@ struct ChatSessionControllerToolLoopTests {
     #expect(controller.chatSession.turns.count == 2)
     #expect(controller.chatSession.turns.allSatisfy { $0.status == .completed })
     #expect(controller.chatSession.toolCalls.map(\.request.toolName) == [.readFile, .listFiles])
-    #expect(controller.chatSession.messages.last?.content.contains("Files in `.`:") == true)
-    #expect(controller.chatSession.messages.last?.content.contains("README.md") == true)
+    #expect(controller.chatSession.testMessages.last?.content.contains("Files in `.`:") == true)
+    #expect(controller.chatSession.testMessages.last?.content.contains("README.md") == true)
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 3)

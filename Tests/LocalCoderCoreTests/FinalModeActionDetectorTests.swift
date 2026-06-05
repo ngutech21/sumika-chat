@@ -9,8 +9,8 @@ struct FinalModeActionDetectorTests {
     let assistantMessageID = UUID()
     let request = makeRequest(
       assistantMessageID: assistantMessageID,
-      messages: [
-        ChatMessage(id: assistantMessageID, assistantContent: "Done.")
+      items: [
+        .assistantMessage(AssistantTurnMessage(id: assistantMessageID, content: "Done."))
       ],
       reason: .finalMode
     )
@@ -25,15 +25,16 @@ struct FinalModeActionDetectorTests {
     let assistantMessageID = UUID()
     let request = makeRequest(
       assistantMessageID: assistantMessageID,
-      messages: [
-        ChatMessage(
-          id: assistantMessageID,
-          assistantContent: """
-            <action name="read_file">
-            <path>README.md</path>
-            </action>
-            """
-        )
+      items: [
+        .assistantMessage(
+          AssistantTurnMessage(
+            id: assistantMessageID,
+            content: """
+              <action name="read_file">
+              <path>README.md</path>
+              </action>
+              """
+          ))
       ],
       reason: .finalMode
     )
@@ -54,19 +55,20 @@ struct FinalModeActionDetectorTests {
     let assistantMessageID = UUID()
     let request = makeRequest(
       assistantMessageID: assistantMessageID,
-      messages: [
-        ChatMessage(
-          id: assistantMessageID,
-          assistantContent: """
-            Tool call edit_file requested.
-            Path:
-            README.md
-            Old text:
-            before
-            New text:
-            after
-            """
-        )
+      items: [
+        .assistantMessage(
+          AssistantTurnMessage(
+            id: assistantMessageID,
+            content: """
+              Tool call edit_file requested.
+              Path:
+              README.md
+              Old text:
+              before
+              New text:
+              after
+              """
+          ))
       ],
       reason: .toolBudgetExceeded(iterationLimit: 6)
     )
@@ -83,8 +85,8 @@ struct FinalModeActionDetectorTests {
   }
 
   private func makeRequest(
-    assistantMessageID: ChatMessage.ID,
-    messages: [ChatMessage],
+    assistantMessageID: UUID,
+    items: [ChatTurnItem],
     reason: FinalModeActionDetectionReason
   ) -> FinalModeActionDetectionRequest {
     FinalModeActionDetectionRequest(
@@ -92,7 +94,7 @@ struct FinalModeActionDetectorTests {
       sessionID: UUID(),
       turnID: UUID(),
       assistantMessageID: assistantMessageID,
-      messages: messages,
+      items: items,
       interactionMode: .agent,
       reason: reason
     )
@@ -120,7 +122,7 @@ struct FinalModeActionDetectorTests {
 
   private func toolResult(from step: ChatWorkflowStep?) -> ToolResultModelMessage? {
     for event in step?.events ?? [] {
-      guard case .toolResultAppended(let toolResult, _, _) = event else {
+      guard case .toolResultAppended(let toolResult, _) = event else {
         continue
       }
       return toolResult

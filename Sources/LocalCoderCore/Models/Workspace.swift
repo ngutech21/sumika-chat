@@ -8,11 +8,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   public var createdAt: Date
   public var updatedAt: Date
 
-  public var messages: [ChatMessage] {
-    get { transcript.projectedMessages }
-    set { transcript.replaceMessageProjection(newValue) }
-  }
-
   public var modelFacingTranscript: ModelFacingTranscript {
     get { transcript.modelFacingTranscript }
     set { transcript.modelFacingTranscript = newValue }

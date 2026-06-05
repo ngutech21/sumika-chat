@@ -10,7 +10,6 @@ public struct ChatTranscriptState: Codable, Equatable, Sendable {
   public var interactionMode: WorkspaceInteractionMode
 
   public init(
-    messages: [ChatMessage] = [],
     modelFacingTranscript: ModelFacingTranscript = ModelFacingTranscript(),
     toolCalls: [ToolCallRecord] = [],
     turns: [ChatTurn] = [],
@@ -19,26 +18,9 @@ public struct ChatTranscriptState: Codable, Equatable, Sendable {
     generationSettings: ChatGenerationSettings,
     interactionMode: WorkspaceInteractionMode = .chat
   ) {
-    let projectedTurns: [ChatTurn]
-    if turns.isEmpty, !messages.isEmpty {
-      projectedTurns = [
-        ChatTurn(status: .completed, items: messages.map(ChatTurnItem.init(projectedMessage:)))
-      ]
-    } else if !messages.isEmpty {
-      projectedTurns = turns.enumerated().map { index, turn in
-        guard index == 0 else {
-          return turn
-        }
-        var updatedTurn = turn
-        updatedTurn.items.append(contentsOf: messages.map(ChatTurnItem.init(projectedMessage:)))
-        return updatedTurn
-      }
-    } else {
-      projectedTurns = turns
-    }
     self.modelFacingTranscript = modelFacingTranscript
     self.toolCalls = toolCalls
-    self.turns = projectedTurns
+    self.turns = turns
     self.focusedFileState = focusedFileState
     self.systemPrompt = systemPrompt
     self.generationSettings = generationSettings

@@ -13,7 +13,7 @@ public struct ToolLoopRequest: Sendable {
   public let sessionID: ChatSession.ID
   public let turnID: ChatTurn.ID
   public let assistantMessageID: UUID
-  public let messages: [ChatMessage]
+  public let items: [ChatTurnItem]
   public let focusedFileState: FocusedFileState
   public let interactionMode: WorkspaceInteractionMode
   public let followUpPromptMode: ToolPromptMode
@@ -24,7 +24,7 @@ public struct ToolLoopRequest: Sendable {
     sessionID: ChatSession.ID,
     turnID: ChatTurn.ID,
     assistantMessageID: UUID,
-    messages: [ChatMessage],
+    items: [ChatTurnItem],
     focusedFileState: FocusedFileState = .empty,
     interactionMode: WorkspaceInteractionMode = .agent,
     followUpPromptMode: ToolPromptMode = .afterToolResultCanContinue,
@@ -34,7 +34,7 @@ public struct ToolLoopRequest: Sendable {
     self.sessionID = sessionID
     self.turnID = turnID
     self.assistantMessageID = assistantMessageID
-    self.messages = messages
+    self.items = items
     self.focusedFileState = focusedFileState
     self.interactionMode = interactionMode
     self.followUpPromptMode = followUpPromptMode
@@ -81,7 +81,7 @@ public struct ToolLoopCoordinator: Sendable {
       return nil
     }
 
-    let assistantContent = messageContent(for: request.assistantMessageID, in: request.messages)
+    let assistantContent = assistantContent(for: request.assistantMessageID, in: request.items)
     let parseStartedAt = Date()
     let parsedAction: ToolLoopParsedAction
     do {
@@ -218,7 +218,7 @@ public struct ToolLoopCoordinator: Sendable {
         generationID: nil,
         phase: phase,
         durationMs: Date().timeIntervalSince(startedAt) * 1000,
-        messageCount: request.messages.count,
+        messageCount: request.items.count,
         toolLoopIteration: request.toolLoopIteration,
         toolName: toolName,
         interactionMode: request.interactionMode
@@ -236,7 +236,7 @@ public struct ToolLoopCoordinator: Sendable {
   }
 
   private func completedStep(
-    assistantMessageID: ChatMessage.ID,
+    assistantMessageID: UUID,
     turnID: ChatTurn.ID,
     toolCall: ToolCallModelMessage,
     record: ToolCallRecord,
@@ -252,7 +252,7 @@ public struct ToolLoopCoordinator: Sendable {
         toolCall: toolCall
       ),
       .toolCallAppended(record, turnID: turnID),
-      .toolResultAppended(toolResult, messageID: UUID(), turnID: turnID),
+      .toolResultAppended(toolResult, turnID: turnID),
     ]
     events.append(contentsOf: focusedFileEvents(record: record, from: focusedFileState))
     if let directResponse {
@@ -476,15 +476,15 @@ public struct ToolLoopCoordinator: Sendable {
 
   private func latestUserRequestContent(for request: ToolLoopRequest) -> String? {
     guard
-      let assistantIndex = request.messages.firstIndex(where: {
-        $0.id == request.assistantMessageID
+      let assistantIndex = request.items.firstIndex(where: {
+        $0.messageID == request.assistantMessageID
       }
       )
     else {
-      return request.messages.last(where: { $0.kind == .user })?.content
+      return request.items.reversed().compactMap(\.userContent).first
     }
 
-    return request.messages[..<assistantIndex].last(where: { $0.kind == .user })?.content
+    return request.items[..<assistantIndex].reversed().compactMap(\.userContent).first
   }
 
   private func isDirectListFilesRequest(_ content: String) -> Bool {
@@ -665,8 +665,13 @@ public struct ToolLoopCoordinator: Sendable {
     return lines.joined(separator: "\n")
   }
 
-  private func messageContent(for id: UUID, in messages: [ChatMessage]) -> String {
-    messages.first(where: { $0.id == id })?.content ?? ""
+  private func assistantContent(for id: UUID, in items: [ChatTurnItem]) -> String {
+    items.compactMap { item -> String? in
+      guard case .assistantMessage(let message) = item, message.id == id else {
+        return nil
+      }
+      return message.content
+    }.first ?? ""
   }
 }
 
