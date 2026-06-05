@@ -309,7 +309,7 @@ extension ChatSessionController {
     chatSession.pendingAttachments.removeAll()
     applyWorkflowEvents(focusEventsForAttachments(sentAttachments, workspace: workspace))
     transcriptMutator.appendTurn(
-      ChatTurnRecord(
+      ChatTurn(
         id: turnID,
         status: .running
       ),
@@ -628,7 +628,7 @@ extension ChatSessionController {
   private func traceTurnPhase(
     _ phase: TurnTracePhase,
     startedAt: Date,
-    turnID: ChatTurnRecord.ID?,
+    turnID: ChatTurn.ID?,
     generationID: UUID?,
     promptBytes: Int? = nil,
     promptTokens: Int? = nil,
@@ -662,11 +662,11 @@ extension ChatSessionController {
     }
   }
 
-  private func isCurrentTurn(_ turnID: ChatTurnRecord.ID) -> Bool {
+  private func isCurrentTurn(_ turnID: ChatTurn.ID) -> Bool {
     chatTurnCoordinator.isActive(turnID)
   }
 
-  private func markTurnCancelled(_ turnID: ChatTurnRecord.ID) {
+  private func markTurnCancelled(_ turnID: ChatTurn.ID) {
     applyWorkflowEvents([
       .turnStatusChanged(
         turnID: turnID,
@@ -715,7 +715,7 @@ extension ChatSessionController {
   private func runApprovedToolCall(
     _ existingRecord: ToolCallRecord,
     in workspace: Workspace,
-    turnID: ChatTurnRecord.ID
+    turnID: ChatTurn.ID
   ) async {
     do {
       let approvedRecord = await toolOrchestrator.executeApproved(
@@ -792,7 +792,7 @@ extension ChatSessionController {
   private func approvedToolCompletionEvents(
     record: ToolCallRecord,
     focusedFileState: FocusedFileState,
-    turnID: ChatTurnRecord.ID
+    turnID: ChatTurn.ID
   ) -> [ChatWorkflowEvent] {
     var events: [ChatWorkflowEvent] = [
       .toolCallReplaced(record),
@@ -822,7 +822,7 @@ extension ChatSessionController {
     )
   }
 
-  private func finishApprovedToolFailure(_ turnID: ChatTurnRecord.ID) {
+  private func finishApprovedToolFailure(_ turnID: ChatTurn.ID) {
     guard isCurrentTurn(turnID) else {
       return
     }
@@ -839,7 +839,7 @@ extension ChatSessionController {
     notifySessionDidChange()
   }
 
-  private func finishCancelledApprovedToolTurn(_ turnID: ChatTurnRecord.ID) {
+  private func finishCancelledApprovedToolTurn(_ turnID: ChatTurn.ID) {
     guard isCurrentTurn(turnID) else {
       return
     }
@@ -850,7 +850,7 @@ extension ChatSessionController {
     notifySessionDidChange()
   }
 
-  private func finishFailedApprovedToolTurn(_ turnID: ChatTurnRecord.ID, error: Error) {
+  private func finishFailedApprovedToolTurn(_ turnID: ChatTurn.ID, error: Error) {
     guard isCurrentTurn(turnID) else {
       return
     }
@@ -870,7 +870,7 @@ extension ChatSessionController {
     notifySessionDidChange()
   }
 
-  private func finishCompletedApprovedToolTurn(_ turnID: ChatTurnRecord.ID) {
+  private func finishCompletedApprovedToolTurn(_ turnID: ChatTurn.ID) {
     guard isCurrentTurn(turnID) else {
       return
     }
@@ -1047,7 +1047,7 @@ extension ChatSessionController {
 
   private func appendFinalToolFollowUpBoundaryIfNeeded(
     toolPromptMode: ToolPromptMode,
-    turnID: ChatTurnRecord.ID
+    turnID: ChatTurn.ID
   ) {
     guard toolPromptMode == .afterToolResultFinal else {
       return
@@ -1068,7 +1068,7 @@ extension ChatSessionController {
     to assistantMessageID: UUID,
     interactionMode: WorkspaceInteractionMode,
     toolPromptMode: ToolPromptMode,
-    turnID: ChatTurnRecord.ID,
+    turnID: ChatTurn.ID,
     toolLoopIteration: Int? = nil
   )
     async throws
@@ -1147,7 +1147,7 @@ extension ChatSessionController {
     workspace: Workspace?,
     sessionID: ChatSession.ID?,
     lastAssistantMessageID: UUID,
-    turnID: ChatTurnRecord.ID,
+    turnID: ChatTurn.ID,
     interactionMode: WorkspaceInteractionMode,
     remainingIterations initialRemainingIterations: Int? = nil
   ) async throws {
@@ -1234,7 +1234,7 @@ extension ChatSessionController {
     workspaceID: Workspace.ID?,
     sessionID: ChatSession.ID,
     assistantMessageID: ChatMessage.ID,
-    turnID: ChatTurnRecord.ID,
+    turnID: ChatTurn.ID,
     interactionMode: WorkspaceInteractionMode,
     reason: FinalModeActionDetectionReason = .finalMode
   ) async throws {

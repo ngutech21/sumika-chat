@@ -34,7 +34,7 @@ struct ChatWorkflowEventApplierTests {
   func appendsToolCallAndRegistersItOnTurn() {
     let turnID = UUID()
     let record = makeToolCallRecord(status: .completed)
-    var state = makeState(turns: [ChatTurnRecord(id: turnID, status: .running)])
+    var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
 
     ChatWorkflowEventApplier().apply(
       [.toolCallAppended(record, turnID: turnID)],
@@ -77,7 +77,7 @@ struct ChatWorkflowEventApplierTests {
           ]
         ))
     )
-    var state = makeState(turns: [ChatTurnRecord(id: turnID, status: .running)])
+    var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
 
     ChatWorkflowEventApplier().apply(
       [.toolResultAppended(result, messageID: messageID, turnID: turnID)],
@@ -94,7 +94,7 @@ struct ChatWorkflowEventApplierTests {
   func appendsAssistantPlaceholderAndRegistersMessageOnTurn() {
     let turnID = UUID()
     let messageID = UUID()
-    var state = makeState(turns: [ChatTurnRecord(id: turnID, status: .running)])
+    var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
 
     ChatWorkflowEventApplier().apply(
       [.assistantPlaceholderAppended(messageID: messageID, turnID: turnID)],
@@ -111,7 +111,7 @@ struct ChatWorkflowEventApplierTests {
   func appendsDirectAssistantMessageAndModelContextSummary() {
     let turnID = UUID()
     let messageID = UUID()
-    var state = makeState(turns: [ChatTurnRecord(id: turnID, status: .running)])
+    var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
 
     ChatWorkflowEventApplier().apply(
       [
@@ -139,7 +139,7 @@ struct ChatWorkflowEventApplierTests {
   @Test
   func updatesTurnStatusAndModelContextPolicy() {
     let turnID = UUID()
-    var state = makeState(turns: [ChatTurnRecord(id: turnID, status: .running)])
+    var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
 
     ChatWorkflowEventApplier().apply(
       [
@@ -186,7 +186,7 @@ struct ChatWorkflowEventApplierTests {
     let keptID = UUID()
     var state = makeState(
       turns: [
-        ChatTurnRecord(
+        ChatTurn(
           id: turnID,
           status: .running,
           items: [
@@ -310,7 +310,7 @@ private func messageID(from item: ChatTurnItem) -> ChatMessage.ID? {
 private func makeState(
   messages: [ChatMessage] = [],
   toolCalls: [ToolCallRecord] = [],
-  turns: [ChatTurnRecord] = [],
+  turns: [ChatTurn] = [],
   attachments: [ChatAttachment] = [],
   systemPrompt: String = "System",
   generationSettings: ChatGenerationSettings = .codingDefault

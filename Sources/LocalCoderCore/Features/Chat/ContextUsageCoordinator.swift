@@ -3,7 +3,7 @@ import Foundation
 public struct ContextUsageSnapshot: Sendable {
   public let modelState: ModelLoadState
   public let operationID: UUID
-  public let turnID: ChatTurnRecord.ID?
+  public let turnID: ChatTurn.ID?
   public let transcript: ModelFacingTranscript
   public let attachments: [ChatAttachment]
   public let systemPrompt: String
@@ -14,7 +14,7 @@ public struct ContextUsageSnapshot: Sendable {
   public init(
     modelState: ModelLoadState,
     operationID: UUID,
-    turnID: ChatTurnRecord.ID? = nil,
+    turnID: ChatTurn.ID? = nil,
     transcript: ModelFacingTranscript,
     attachments: [ChatAttachment],
     systemPrompt: String,

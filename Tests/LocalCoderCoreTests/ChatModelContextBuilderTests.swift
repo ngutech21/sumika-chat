@@ -23,8 +23,8 @@ struct ChatModelContextBuilderTests {
         entries: [unscopedEntry, includedEntry, excludedEntry]
       ),
       turns: [
-        ChatTurnRecord(id: includedTurnID, status: .completed),
-        ChatTurnRecord(
+        ChatTurn(id: includedTurnID, status: .completed),
+        ChatTurn(
           id: excludedTurnID,
           status: .cancelled,
           modelContextPolicy: .excluded
@@ -51,7 +51,7 @@ struct ChatModelContextBuilderTests {
       messages: [],
       modelFacingTranscript: ModelFacingTranscript(entries: [toolResult]),
       turns: [
-        ChatTurnRecord(
+        ChatTurn(
           id: turnID,
           status: .cancelled,
           modelContextPolicy: .excluded
@@ -195,7 +195,7 @@ struct ChatModelContextBuilderTests {
         ChatMessage(id: sourceMessageID, assistantContent: "<action name=\"read_file\"></action>")
       ],
       modelFacingTranscript: ModelFacingTranscript(entries: [firstEntry]),
-      turns: [ChatTurnRecord(id: turnID, status: .running)],
+      turns: [ChatTurn(id: turnID, status: .running)],
       pendingAttachments: [],
       systemPrompt: "System",
       generationSettings: .codingDefault

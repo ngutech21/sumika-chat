@@ -31,7 +31,7 @@ public struct ChatGenerationCoordinator {
   }
 
   public func streamAssistantReply(
-    turnID: ChatTurnRecord.ID? = nil,
+    turnID: ChatTurn.ID? = nil,
     toolLoopIteration: Int? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
     transcript: ModelFacingTranscript,
@@ -68,7 +68,7 @@ public struct ChatGenerationCoordinator {
   }
 
   private func streamAssistantReplyWithTraceContext(
-    turnID: ChatTurnRecord.ID?,
+    turnID: ChatTurn.ID?,
     generationID: UUID,
     interactionMode: WorkspaceInteractionMode?,
     transcript: ModelFacingTranscript,

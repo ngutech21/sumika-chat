@@ -32,7 +32,6 @@ flowchart TD
   ChatTurn --> ChatTurnStatus
   ChatTurnItem --> ChatMessage
   ChatTurnItem --> ToolCallRecord
-  ChatTurnRecord --> ChatTurn
   EditFileResult --> EditMatchStrategy
   EditFileResult --> RecoveryHint
   EditFileResult --> ToolFailureReason
@@ -56,7 +55,7 @@ flowchart TD
   ManagedModelCatalog --> ManagedModel
   MissingPathSuggestion --> WorkspaceRelativePath
   ModelContextEntry --> ChatMessage
-  ModelContextEntry --> ChatTurnRecord
+  ModelContextEntry --> ChatTurn
   ModelContextEntry --> FrozenModelContent
   ModelContextEntry --> ModelContextEntryBody
   ModelContextEntryBody --> AssistantOutputContext
@@ -481,16 +480,6 @@ Cases:
 - `excluded`
 - `included`
 
-### ChatTurnRecord
-
-- Kind: `typealias`
-- Source: `Sources/LocalCoderCore/Models/ChatTurn.swift`
-- Aliased type: `ChatTurn`
-
-Relations:
-
-- `ChatTurn`
-
 ### ChatTurnStatus
 
 - Kind: `enum`
@@ -821,12 +810,12 @@ Properties:
 - `frozenContent: FrozenModelContent`
 - `id: UUID`
 - `sourceMessageID: ChatMessage.ID?`
-- `turnID: ChatTurnRecord.ID?`
+- `turnID: ChatTurn.ID?`
 
 Relations:
 
 - `ChatMessage`
-- `ChatTurnRecord`
+- `ChatTurn`
 - `FrozenModelContent`
 - `ModelContextEntryBody`
 

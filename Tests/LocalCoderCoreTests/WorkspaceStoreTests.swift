@@ -67,7 +67,7 @@ struct WorkspaceStoreTests {
     let workspaceID = UUID()
     let sessionID = UUID()
     let toolCall = makeToolCallRecord(workspaceID: workspaceID, sessionID: sessionID)
-    let turn = ChatTurnRecord(
+    let turn = ChatTurn(
       status: .cancelled,
       modelContextPolicy: .excluded,
       items: [.toolCall(toolCall.id)]
@@ -283,7 +283,7 @@ private struct FlatChatSession: Codable {
   let messages: [ChatMessage]
   let modelFacingTranscript: ModelFacingTranscript
   let toolCalls: [ToolCallRecord]
-  let turns: [ChatTurnRecord]
+  let turns: [ChatTurn]
   let focusedFileState: FocusedFileState
   let systemPrompt: String
   let generationSettings: ChatGenerationSettings

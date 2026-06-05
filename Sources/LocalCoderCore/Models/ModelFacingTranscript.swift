@@ -36,14 +36,14 @@ public struct ProjectedModelContextEntry: Equatable, Sendable {
 
 public struct ModelContextEntry: Codable, Identifiable, Equatable, Sendable {
   public let id: UUID
-  public let turnID: ChatTurnRecord.ID?
+  public let turnID: ChatTurn.ID?
   public let sourceMessageID: ChatMessage.ID?
   public let body: ModelContextEntryBody
   public let frozenContent: FrozenModelContent
 
   public init(
     id: UUID = UUID(),
-    turnID: ChatTurnRecord.ID? = nil,
+    turnID: ChatTurn.ID? = nil,
     sourceMessageID: ChatMessage.ID? = nil,
     body: ModelContextEntryBody,
     frozenContent: FrozenModelContent
@@ -72,7 +72,7 @@ public struct ModelContextEntry: Codable, Identifiable, Equatable, Sendable {
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let id = try container.decode(UUID.self, forKey: .id)
-    let turnID = try container.decodeIfPresent(ChatTurnRecord.ID.self, forKey: .turnID)
+    let turnID = try container.decodeIfPresent(ChatTurn.ID.self, forKey: .turnID)
     let sourceMessageID = try container.decodeIfPresent(
       ChatMessage.ID.self, forKey: .sourceMessageID)
     let body = try container.decode(ModelContextEntryBody.self, forKey: .body)

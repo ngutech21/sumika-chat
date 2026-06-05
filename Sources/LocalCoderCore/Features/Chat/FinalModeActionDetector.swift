@@ -8,7 +8,7 @@ public enum FinalModeActionDetectionReason: Equatable, Sendable {
 public struct FinalModeActionDetectionRequest: Sendable {
   public let workspaceID: Workspace.ID?
   public let sessionID: ChatSession.ID
-  public let turnID: ChatTurnRecord.ID
+  public let turnID: ChatTurn.ID
   public let assistantMessageID: ChatMessage.ID
   public let messages: [ChatMessage]
   public let interactionMode: WorkspaceInteractionMode
@@ -18,7 +18,7 @@ public struct FinalModeActionDetectionRequest: Sendable {
   public init(
     workspaceID: Workspace.ID?,
     sessionID: ChatSession.ID,
-    turnID: ChatTurnRecord.ID,
+    turnID: ChatTurn.ID,
     assistantMessageID: ChatMessage.ID,
     messages: [ChatMessage],
     interactionMode: WorkspaceInteractionMode,

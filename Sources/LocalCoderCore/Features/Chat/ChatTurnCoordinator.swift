@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 public final class ChatTurnCoordinator {
-  private(set) var activeTurnID: ChatTurnRecord.ID?
+  private(set) var activeTurnID: ChatTurn.ID?
   private var activeTask: Task<Void, Never>?
 
   deinit {
@@ -11,9 +11,9 @@ public final class ChatTurnCoordinator {
 
   @discardableResult
   public func startTurn(
-    id turnID: ChatTurnRecord.ID,
-    operation: @escaping @MainActor @Sendable (ChatTurnRecord.ID) async -> Void
-  ) -> ChatTurnRecord.ID {
+    id turnID: ChatTurn.ID,
+    operation: @escaping @MainActor @Sendable (ChatTurn.ID) async -> Void
+  ) -> ChatTurn.ID {
     activeTask?.cancel()
     activeTurnID = turnID
     activeTask = Task {
@@ -22,7 +22,7 @@ public final class ChatTurnCoordinator {
     return turnID
   }
 
-  public func cancelActiveTurn() -> ChatTurnRecord.ID? {
+  public func cancelActiveTurn() -> ChatTurn.ID? {
     guard let activeTurnID else {
       return nil
     }
@@ -33,7 +33,7 @@ public final class ChatTurnCoordinator {
     return activeTurnID
   }
 
-  public func finishTurn(_ turnID: ChatTurnRecord.ID) {
+  public func finishTurn(_ turnID: ChatTurn.ID) {
     guard activeTurnID == turnID else {
       return
     }
@@ -42,7 +42,7 @@ public final class ChatTurnCoordinator {
     activeTurnID = nil
   }
 
-  public func isActive(_ turnID: ChatTurnRecord.ID) -> Bool {
+  public func isActive(_ turnID: ChatTurn.ID) -> Bool {
     activeTurnID == turnID
   }
 }

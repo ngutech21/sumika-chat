@@ -3,7 +3,7 @@ import Foundation
 public enum ModelFacingPromptRenderer {
   public static func userPromptEntry(
     id: UUID = UUID(),
-    turnID: ChatTurnRecord.ID? = nil,
+    turnID: ChatTurn.ID? = nil,
     sourceMessageID: ChatMessage.ID? = nil,
     prompt: String,
     attachments: [ChatAttachment] = [],
@@ -29,7 +29,7 @@ public enum ModelFacingPromptRenderer {
 
   public static func assistantOutputEntry(
     id: UUID = UUID(),
-    turnID: ChatTurnRecord.ID? = nil,
+    turnID: ChatTurn.ID? = nil,
     sourceMessageID: ChatMessage.ID? = nil,
     content: String
   ) throws -> ModelContextEntry {
@@ -44,7 +44,7 @@ public enum ModelFacingPromptRenderer {
 
   public static func toolResultEntry(
     id: UUID = UUID(),
-    turnID: ChatTurnRecord.ID? = nil,
+    turnID: ChatTurn.ID? = nil,
     sourceMessageID: ChatMessage.ID? = nil,
     toolResult: ToolResultModelMessage,
     request: ToolCallRequest,
@@ -105,7 +105,7 @@ public enum ModelFacingPromptRenderer {
 
   public static func finalToolResultPromptEntry(
     id: UUID = UUID(),
-    turnID: ChatTurnRecord.ID? = nil,
+    turnID: ChatTurn.ID? = nil,
     sourceMessageID: ChatMessage.ID? = nil,
     terminalToolResult: TerminalToolResultContext,
     followUpInstruction: String,

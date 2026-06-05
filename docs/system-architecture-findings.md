@@ -143,7 +143,7 @@ Concrete solution:
 ## Already Improved
 
 - `ChatTurnCoordinator` owns the active generation task and turn ID.
-- Cancelled turns are persisted as `ChatTurnRecord.status == .cancelled`.
+- Cancelled turns are persisted as `ChatTurn.status == .cancelled`.
 - Cancelled tool-turn audit data remains visible but is excluded from future model context through
   `ChatModelContextBuilder`.
 - `ChatMessage` now records `turnID` and `deliveryStatus` with migration-safe decode defaults.

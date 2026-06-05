@@ -44,5 +44,3 @@ public enum ChatTurnModelContextPolicy: String, Codable, Equatable, Sendable {
   case included
   case excluded
 }
-
-public typealias ChatTurnRecord = ChatTurn

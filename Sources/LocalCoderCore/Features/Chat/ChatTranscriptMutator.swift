@@ -6,7 +6,7 @@ public struct ChatTranscriptMutator: Sendable {
   public func appendUserMessage(
     _ content: String,
     id: ChatMessage.ID = UUID(),
-    turnID: ChatTurnRecord.ID? = nil,
+    turnID: ChatTurn.ID? = nil,
     attachments: [ChatAttachment],
     to state: inout ChatSessionState
   ) {
@@ -26,7 +26,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   public func appendModelContextUserBoundary(
     _ content: String,
-    turnID: ChatTurnRecord.ID,
+    turnID: ChatTurn.ID,
     systemPromptSnapshot: String,
     to state: inout ChatSessionState
   ) {
@@ -41,7 +41,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   public func appendFinalToolResultFollowUpBoundary(
     _ content: String,
-    turnID: ChatTurnRecord.ID,
+    turnID: ChatTurn.ID,
     systemPromptSnapshot: String,
     to state: inout ChatSessionState
   ) {
@@ -85,7 +85,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   public func updateLastUserModelContextSystemPromptSnapshot(
     _ systemPromptSnapshot: String,
-    turnID: ChatTurnRecord.ID,
+    turnID: ChatTurn.ID,
     in state: inout ChatSessionState
   ) {
     updateLastUserModelFacingEntrySystemPromptSnapshot(
@@ -97,7 +97,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   public func appendAssistantPlaceholder(
     id: ChatMessage.ID,
-    turnID: ChatTurnRecord.ID? = nil,
+    turnID: ChatTurn.ID? = nil,
     to state: inout ChatSessionState
   ) {
     appendItem(
@@ -112,7 +112,7 @@ public struct ChatTranscriptMutator: Sendable {
   public func appendAssistantMessage(
     _ content: String,
     id: ChatMessage.ID = UUID(),
-    turnID: ChatTurnRecord.ID? = nil,
+    turnID: ChatTurn.ID? = nil,
     to state: inout ChatSessionState
   ) {
     appendItem(
@@ -181,7 +181,7 @@ public struct ChatTranscriptMutator: Sendable {
   public func appendToolResult(
     _ toolResult: ToolResultModelMessage,
     id: ChatMessage.ID = UUID(),
-    turnID: ChatTurnRecord.ID? = nil,
+    turnID: ChatTurn.ID? = nil,
     to state: inout ChatSessionState
   ) {
     _ = id
@@ -209,7 +209,7 @@ public struct ChatTranscriptMutator: Sendable {
   }
 
   public func markStreamingAssistantMessagesCancelled(
-    inTurn turnID: ChatTurnRecord.ID,
+    inTurn turnID: ChatTurn.ID,
     in state: inout ChatSessionState
   ) {
     updateTurn(turnID, in: &state) { turn in
@@ -236,13 +236,13 @@ public struct ChatTranscriptMutator: Sendable {
     state.focusedFileState = .empty
   }
 
-  public func appendTurn(_ turn: ChatTurnRecord, to state: inout ChatSessionState) {
+  public func appendTurn(_ turn: ChatTurn, to state: inout ChatSessionState) {
     state.turns.append(turn)
   }
 
   public func appendItem(
     _ item: ChatTurnItem,
-    toTurn turnID: ChatTurnRecord.ID?,
+    toTurn turnID: ChatTurn.ID?,
     in state: inout ChatSessionState
   ) {
     guard let turnID else {
@@ -270,7 +270,7 @@ public struct ChatTranscriptMutator: Sendable {
   public func updateTurnStatus(
     _ status: ChatTurnStatus,
     modelContextPolicy: ChatTurnModelContextPolicy? = nil,
-    for turnID: ChatTurnRecord.ID,
+    for turnID: ChatTurn.ID,
     in state: inout ChatSessionState
   ) {
     updateTurn(turnID, in: &state) { turn in
@@ -405,9 +405,9 @@ public struct ChatTranscriptMutator: Sendable {
   }
 
   private func updateTurn(
-    _ turnID: ChatTurnRecord.ID,
+    _ turnID: ChatTurn.ID,
     in state: inout ChatSessionState,
-    transform: (ChatTurnRecord) -> ChatTurnRecord
+    transform: (ChatTurn) -> ChatTurn
   ) {
     guard let index = state.turns.firstIndex(where: { $0.id == turnID }) else {
       return
@@ -418,7 +418,7 @@ public struct ChatTranscriptMutator: Sendable {
 
   private func updateLastUserModelFacingEntrySystemPromptSnapshot(
     _ systemPromptSnapshot: String,
-    turnID: ChatTurnRecord.ID,
+    turnID: ChatTurn.ID,
     in state: inout ChatSessionState
   ) {
     guard

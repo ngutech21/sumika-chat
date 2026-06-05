@@ -10,7 +10,7 @@ auditability while being excluded from future model prompts.
 ```mermaid
 flowchart TD
   A["User sends message"] --> B["ChatSessionController"]
-  B --> C["Create ChatTurnRecord(running)"]
+  B --> C["Create ChatTurn(running)"]
   C --> D["Append user message + assistant placeholder"]
   D --> E["ChatTurnCoordinator.startTurn(turnID)"]
   E --> F["ChatModelContextBuilder filters model context"]
@@ -48,7 +48,7 @@ flowchart TD
 - `ChatTurnCoordinator` owns the active chat-turn task and `turnID`. It gates
   completion so stale async work from a cancelled or replaced turn cannot reset
   current UI state.
-- `ChatTurnRecord` is the persisted turn audit record: status, model-context
+- `ChatTurn` is the persisted turn audit record: status, model-context
   policy, message IDs, tool-call IDs, and timestamps.
 - `ChatMessage.turnID` links transcript messages to a turn. Legacy messages
   without a turn ID are treated as included context.
@@ -81,7 +81,7 @@ flowchart TD
 
 ## Turn Lifecycle
 
-1. `sendMessage` creates a `ChatTurnRecord` with status `.running` and
+1. `sendMessage` creates a `ChatTurn` with status `.running` and
    `modelContextPolicy == .included`.
 2. The user message and assistant placeholder are appended with the new `turnID`.
 3. `ChatTurnCoordinator` starts the async operation for that turn.
@@ -203,7 +203,7 @@ The intended long-term fast path for tool loops is either:
 - Sessions without a stored `modelFacingTranscript` do not decode.
 - New Codable fields use defaults so sessions saved before turn metadata decode
   successfully.
-- `ChatTurnRecord.messageIDs` and `toolCallIDs` are audit links. They should be
+- `ChatTurn.messageIDs` and `toolCallIDs` are audit links. They should be
   updated whenever a turn appends a new transcript message or records a tool
   call.
 - Clearing a chat transcript removes messages, tool calls, turns, and

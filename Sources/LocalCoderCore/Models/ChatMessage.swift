@@ -7,7 +7,7 @@ public struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
   public init(
     id: UUID = UUID(),
     payload: ChatMessagePayload,
-    turnID _: ChatTurnRecord.ID? = nil
+    turnID _: ChatTurn.ID? = nil
   ) {
     self.id = id
     self.payload = payload
@@ -17,7 +17,7 @@ public struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     id: UUID = UUID(),
     userContent content: String,
     attachments: [ChatAttachment] = [],
-    turnID _: ChatTurnRecord.ID? = nil
+    turnID _: ChatTurn.ID? = nil
   ) {
     self.init(
       id: id,
@@ -31,7 +31,7 @@ public struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     attachments: [ChatAttachment] = [],
     generationMetrics: ChatGenerationMetrics? = nil,
     deliveryStatus: ChatMessageDeliveryStatus = .complete,
-    turnID _: ChatTurnRecord.ID? = nil
+    turnID _: ChatTurn.ID? = nil
   ) {
     self.init(
       id: id,
@@ -49,7 +49,7 @@ public struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
   public init(
     id: UUID = UUID(),
     systemContent content: String,
-    turnID _: ChatTurnRecord.ID? = nil
+    turnID _: ChatTurn.ID? = nil
   ) {
     self.init(id: id, payload: .system(SystemMessagePayload(content: content)))
   }
@@ -59,7 +59,7 @@ public struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     toolCall: ToolCallModelMessage,
     attachments: [ChatAttachment] = [],
     generationMetrics: ChatGenerationMetrics? = nil,
-    turnID _: ChatTurnRecord.ID? = nil
+    turnID _: ChatTurn.ID? = nil
   ) {
     self.init(
       id: id,
@@ -76,7 +76,7 @@ public struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
   public init(
     id: UUID = UUID(),
     toolResult: ToolResultModelMessage,
-    turnID _: ChatTurnRecord.ID? = nil
+    turnID _: ChatTurn.ID? = nil
   ) {
     self.init(id: id, payload: .toolResult(toolResult))
   }

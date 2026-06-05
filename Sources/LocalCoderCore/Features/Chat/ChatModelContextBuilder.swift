@@ -11,10 +11,10 @@ public struct ChatModelContextBuilder: Sendable {
 
   public func transcript(
     from state: ChatSessionState,
-    includingTurnID: ChatTurnRecord.ID? = nil
+    includingTurnID: ChatTurn.ID? = nil
   ) -> ModelFacingTranscript {
     let excludedTurnIDs = Set(
-      state.turns.compactMap { turn -> ChatTurnRecord.ID? in
+      state.turns.compactMap { turn -> ChatTurn.ID? in
         guard turn.modelContextPolicy == .excluded, turn.id != includingTurnID else {
           return nil
         }

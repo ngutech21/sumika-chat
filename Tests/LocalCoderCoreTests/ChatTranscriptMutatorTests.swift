@@ -159,7 +159,7 @@ struct ChatTranscriptMutatorTests {
     let filledAssistantID = UUID()
     var state = makeState(
       turns: [
-        ChatTurnRecord(
+        ChatTurn(
           id: turnID,
           status: .cancelled,
           items: [
@@ -192,7 +192,7 @@ struct ChatTranscriptMutatorTests {
   func clearTranscriptClearsMessagesToolsTurnsAndAttachmentsOnly() {
     let attachment = makeAttachment(name: "notes.txt")
     let settings = ChatGenerationSettings(temperature: 0.2, topP: 0.8, topK: 10, maxTokens: 256)
-    let turn = ChatTurnRecord(status: .completed)
+    let turn = ChatTurn(status: .completed)
     let toolCall = makeToolCallRecord()
     var state = makeState(
       messages: [ChatMessage(userContent: "Prompt")],
@@ -242,7 +242,7 @@ private func messageID(from item: ChatTurnItem) -> ChatMessage.ID? {
 private func makeState(
   messages: [ChatMessage] = [],
   toolCalls: [ToolCallRecord] = [],
-  turns: [ChatTurnRecord] = [],
+  turns: [ChatTurn] = [],
   attachments: [ChatAttachment] = [],
   systemPrompt: String = "System",
   generationSettings: ChatGenerationSettings = .codingDefault

@@ -11,7 +11,7 @@ extension ToolOrchestrator: ToolOrchestrating {}
 public struct ToolLoopRequest: Sendable {
   public let workspace: Workspace
   public let sessionID: ChatSession.ID
-  public let turnID: ChatTurnRecord.ID
+  public let turnID: ChatTurn.ID
   public let assistantMessageID: UUID
   public let messages: [ChatMessage]
   public let focusedFileState: FocusedFileState
@@ -22,7 +22,7 @@ public struct ToolLoopRequest: Sendable {
   public init(
     workspace: Workspace,
     sessionID: ChatSession.ID,
-    turnID: ChatTurnRecord.ID,
+    turnID: ChatTurn.ID,
     assistantMessageID: UUID,
     messages: [ChatMessage],
     focusedFileState: FocusedFileState = .empty,
@@ -237,7 +237,7 @@ public struct ToolLoopCoordinator: Sendable {
 
   private func completedStep(
     assistantMessageID: ChatMessage.ID,
-    turnID: ChatTurnRecord.ID,
+    turnID: ChatTurn.ID,
     toolCall: ToolCallModelMessage,
     record: ToolCallRecord,
     toolResult: ToolResultModelMessage,

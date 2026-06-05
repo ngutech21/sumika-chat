@@ -7,31 +7,31 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
   )
   case toolCallAppended(
     ToolCallRecord,
-    turnID: ChatTurnRecord.ID
+    turnID: ChatTurn.ID
   )
   case toolCallReplaced(ToolCallRecord)
   case toolResultAppended(
     ToolResultModelMessage,
     messageID: ChatMessage.ID,
-    turnID: ChatTurnRecord.ID
+    turnID: ChatTurn.ID
   )
   case assistantPlaceholderAppended(
     messageID: ChatMessage.ID,
-    turnID: ChatTurnRecord.ID
+    turnID: ChatTurn.ID
   )
   case assistantMessageAppended(
     content: String,
     modelContextContent: String,
     messageID: ChatMessage.ID,
-    turnID: ChatTurnRecord.ID
+    turnID: ChatTurn.ID
   )
   case turnStatusChanged(
-    turnID: ChatTurnRecord.ID,
+    turnID: ChatTurn.ID,
     status: ChatTurnStatus,
     modelContextPolicy: ChatTurnModelContextPolicy?
   )
   case focusedFileStateChanged(FocusedFileState)
-  case streamingAssistantMessagesCancelled(turnID: ChatTurnRecord.ID)
+  case streamingAssistantMessagesCancelled(turnID: ChatTurn.ID)
   case transientAssistantPlaceholdersRemoved
 }
 
@@ -215,7 +215,7 @@ public struct ChatWorkflowEventApplier: Sendable {
   }
 
   private func missingTurnDiagnostics(
-    _ turnIDs: [ChatTurnRecord.ID],
+    _ turnIDs: [ChatTurn.ID],
     event: ChatWorkflowEvent,
     in state: ChatSessionState
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
