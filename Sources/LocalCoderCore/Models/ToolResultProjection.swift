@@ -1,13 +1,8 @@
 import Foundation
 
 public struct ToolResultProjection: Equatable, Sendable {
-  public var display: ToolDisplayPayload
-  public var observation: ToolModelObservation
-
-  public init(display: ToolDisplayPayload, observation: ToolModelObservation) {
-    self.display = display
-    self.observation = observation
-  }
+  public let display: ToolDisplayPayload
+  public let observation: ToolModelObservation
 }
 
 public enum ToolDisplayPayload: Equatable, Sendable {
@@ -23,12 +18,12 @@ public enum ToolDisplayPayload: Equatable, Sendable {
 }
 
 public struct ToolModelObservation: Equatable, Sendable {
-  public var toolName: ToolName
-  public var status: ToolResultStatus
-  public var affectedPaths: [WorkspaceRelativePath]
-  public var blocks: [ToolObservationBlock]
+  public let toolName: ToolName
+  public let status: ToolResultStatus
+  public let affectedPaths: [WorkspaceRelativePath]
+  public let blocks: [ToolObservationBlock]
 
-  public init(
+  private init(
     toolName: ToolName,
     status: ToolResultStatus,
     affectedPaths: [WorkspaceRelativePath],
@@ -38,6 +33,63 @@ public struct ToolModelObservation: Equatable, Sendable {
     self.status = status
     self.affectedPaths = affectedPaths
     self.blocks = blocks
+  }
+
+  static func success(
+    toolName: ToolName,
+    affectedPaths: [WorkspaceRelativePath],
+    blocks: [ToolObservationBlock]
+  ) -> ToolModelObservation {
+    precondition(
+      !blocks.contains(where: \.isFailure),
+      "Success tool observations cannot contain failure blocks."
+    )
+    return ToolModelObservation(
+      toolName: toolName,
+      status: .success,
+      affectedPaths: affectedPaths,
+      blocks: blocks
+    )
+  }
+
+  static func failed(
+    toolName: ToolName,
+    affectedPaths: [WorkspaceRelativePath],
+    text: String
+  ) -> ToolModelObservation {
+    failure(
+      toolName: toolName,
+      status: .failed,
+      affectedPaths: affectedPaths,
+      text: text
+    )
+  }
+
+  static func denied(
+    toolName: ToolName,
+    affectedPaths: [WorkspaceRelativePath],
+    text: String
+  ) -> ToolModelObservation {
+    failure(
+      toolName: toolName,
+      status: .denied,
+      affectedPaths: affectedPaths,
+      text: text
+    )
+  }
+
+  private static func failure(
+    toolName: ToolName,
+    status: ToolResultStatus,
+    affectedPaths: [WorkspaceRelativePath],
+    text: String
+  ) -> ToolModelObservation {
+    ToolModelObservation(
+      toolName: toolName,
+      status: status,
+      affectedPaths: affectedPaths,
+      blocks: [.failure(text)]
+    )
   }
 }
 
@@ -73,6 +125,15 @@ public enum ToolObservationBlock: Equatable, Sendable {
   case failure(String)
 }
 
+extension ToolObservationBlock {
+  fileprivate var isFailure: Bool {
+    if case .failure = self {
+      return true
+    }
+    return false
+  }
+}
+
 public struct ToolResultProjectionPolicy: Equatable, Sendable {
   public var maxListObservationEntries: Int
   public var maxSearchObservationSnippets: Int
@@ -106,9 +167,8 @@ public enum ToolResultProjector {
     case .listFiles(let result):
       return ToolResultProjection(
         display: .fileList(root: result.root, entries: result.entries, truncated: result.truncated),
-        observation: ToolModelObservation(
+        observation: ToolModelObservation.success(
           toolName: request.toolName,
-          status: .success,
           affectedPaths: [result.root],
           blocks: [
             .fileList(
@@ -125,9 +185,8 @@ public enum ToolResultProjector {
       let entries = result.matches.map { WorkspaceFileEntry(path: $0, kind: .file) }
       return ToolResultProjection(
         display: .fileList(root: result.root, entries: entries, truncated: result.truncated),
-        observation: ToolModelObservation(
+        observation: ToolModelObservation.success(
           toolName: request.toolName,
-          status: .success,
           affectedPaths: [result.root],
           blocks: [
             .summary("Matched pattern \(result.pattern)."),
@@ -148,9 +207,8 @@ public enum ToolResultProjector {
           matches: result.matches,
           truncated: result.truncated
         ),
-        observation: ToolModelObservation(
+        observation: ToolModelObservation.success(
           toolName: request.toolName,
-          status: .success,
           affectedPaths: [result.root],
           blocks: [
             .searchSnippets(
@@ -199,9 +257,8 @@ public enum ToolResultProjector {
         : policy.includeReadFileBodyInObservation
       return ToolResultProjection(
         display: .fileContent(path: path, content: content),
-        observation: ToolModelObservation(
+        observation: ToolModelObservation.success(
           toolName: request.toolName,
-          status: .success,
           affectedPaths: [path],
           blocks: [
             includeBody
@@ -255,9 +312,8 @@ public enum ToolResultProjector {
           text: "Wrote \(bytesWritten) bytes to \(path.rawValue).",
           affectedPaths: [path]
         ),
-        observation: ToolModelObservation(
+        observation: ToolModelObservation.success(
           toolName: request.toolName,
-          status: .success,
           affectedPaths: [path],
           blocks: [.summary("Wrote \(bytesWritten) bytes to \(path.rawValue).")]
         )
@@ -284,9 +340,8 @@ public enum ToolResultProjector {
           text: diff ?? "Edited \(path.rawValue).",
           affectedPaths: [path]
         ),
-        observation: ToolModelObservation(
+        observation: ToolModelObservation.success(
           toolName: request.toolName,
-          status: .success,
           affectedPaths: [path],
           blocks: [.editReceipt(path: path, diffSummary: diff, matchStrategy: matchStrategy)]
         )
@@ -298,11 +353,10 @@ public enum ToolResultProjector {
         currentContent.map { "\(text)\n\nCurrent file excerpt:\n\($0.text)" } ?? text
       return ToolResultProjection(
         display: .summary(status: .failed, text: displayText, affectedPaths: [path]),
-        observation: ToolModelObservation(
+        observation: ToolModelObservation.failed(
           toolName: request.toolName,
-          status: .failed,
           affectedPaths: [path],
-          blocks: [.failure(text)]
+          text: text
         )
       )
     case .multipleMatches(let path, let matchCount, let recovery):
@@ -336,14 +390,31 @@ public enum ToolResultProjector {
     text: String,
     affectedPaths: [WorkspaceRelativePath]
   ) -> ToolResultProjection {
-    ToolResultProjection(
+    let observation =
+      switch status {
+      case .success:
+        ToolModelObservation.success(
+          toolName: toolName,
+          affectedPaths: affectedPaths,
+          blocks: [.summary(text)]
+        )
+      case .failed:
+        ToolModelObservation.failed(
+          toolName: toolName,
+          affectedPaths: affectedPaths,
+          text: text
+        )
+      case .denied:
+        ToolModelObservation.denied(
+          toolName: toolName,
+          affectedPaths: affectedPaths,
+          text: text
+        )
+      }
+
+    return ToolResultProjection(
       display: .summary(status: status, text: text, affectedPaths: affectedPaths),
-      observation: ToolModelObservation(
-        toolName: toolName,
-        status: status,
-        affectedPaths: affectedPaths,
-        blocks: [status == .failed || status == .denied ? .failure(text) : .summary(text)]
-      )
+      observation: observation
     )
   }
 

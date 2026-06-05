@@ -328,12 +328,43 @@ public struct FrozenModelContent: Codable, Equatable, Sendable {
 
   public init(
     role: ModelContextRole,
-    content: String,
-    signature: String? = nil
+    content: String
   ) {
     self.role = role
     self.content = content
-    self.signature = signature ?? Self.signature(role: role, content: content)
+    self.signature = Self.signature(role: role, content: content)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case role
+    case content
+    case signature
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let role = try container.decode(ModelContextRole.self, forKey: .role)
+    let content = try container.decode(String.self, forKey: .content)
+    let signature = try container.decode(String.self, forKey: .signature)
+    let expectedSignature = Self.signature(role: role, content: content)
+    guard signature == expectedSignature else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .signature,
+        in: container,
+        debugDescription: "Frozen model content signature does not match role and content."
+      )
+    }
+
+    self.role = role
+    self.content = content
+    self.signature = expectedSignature
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(role, forKey: .role)
+    try container.encode(content, forKey: .content)
+    try container.encode(Self.signature(role: role, content: content), forKey: .signature)
   }
 
   public static func signature(role: ModelContextRole, content: String) -> String {

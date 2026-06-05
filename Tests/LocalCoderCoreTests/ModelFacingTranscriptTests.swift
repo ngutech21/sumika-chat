@@ -21,12 +21,46 @@ struct ModelFacingTranscriptTests {
     var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     var frozenContent = try #require(object["frozenContent"] as? [String: Any])
     frozenContent["role"] = "assistant"
+    frozenContent["signature"] = FrozenModelContent.signature(role: .assistant, content: "hello")
     object["frozenContent"] = frozenContent
     let mismatchData = try JSONSerialization.data(withJSONObject: object)
 
     #expect(throws: ModelContextEntryError.roleMismatch(expected: .user, actual: .assistant)) {
       _ = try JSONDecoder().decode(ModelContextEntry.self, from: mismatchData)
     }
+  }
+
+  @Test
+  func frozenContentDerivesSignatureFromRoleAndContent() {
+    let content = FrozenModelContent(role: .user, content: "hello")
+
+    #expect(content.signature == FrozenModelContent.signature(role: .user, content: "hello"))
+  }
+
+  @Test
+  func frozenContentDecodeRejectsForgedSignature() throws {
+    let content = FrozenModelContent(role: .user, content: "hello")
+    let data = try JSONEncoder().encode(content)
+    var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    object["signature"] = "forged"
+    let forgedData = try JSONSerialization.data(withJSONObject: object)
+
+    #expect(throws: DecodingError.self) {
+      _ = try JSONDecoder().decode(FrozenModelContent.self, from: forgedData)
+    }
+  }
+
+  @Test
+  func frozenContentCodableRoundTripsDerivedSignature() throws {
+    let content = FrozenModelContent(role: .assistant, content: "done")
+
+    let decoded = try JSONDecoder().decode(
+      FrozenModelContent.self,
+      from: JSONEncoder().encode(content)
+    )
+
+    #expect(decoded == content)
+    #expect(decoded.signature == FrozenModelContent.signature(role: .assistant, content: "done"))
   }
 
   @Test

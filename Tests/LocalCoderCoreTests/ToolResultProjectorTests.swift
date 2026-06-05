@@ -167,6 +167,68 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func successProjectionsDoNotContainFailureBlocks() {
+    let projections = [
+      ToolResultProjector.project(
+        payload: .readFile(
+          .success(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            content: ToolTextOutput(text: "notes")
+          )),
+        request: request(toolName: .readFile, payload: .readFile(ReadFileInput(path: "README.md")))
+      ),
+      ToolResultProjector.project(
+        payload: .listFiles(
+          ListFilesResult(
+            root: WorkspaceRelativePath(rawValue: "."),
+            entries: []
+          )),
+        request: request(toolName: .listFiles, payload: .listFiles(ListFilesInput(path: ".")))
+      ),
+      ToolResultProjector.project(
+        payload: .searchFiles(
+          SearchFilesResult(
+            root: WorkspaceRelativePath(rawValue: "."),
+            pattern: "value",
+            matches: []
+          )
+        ),
+        request: request(
+          toolName: .searchFiles,
+          payload: .searchFiles(SearchFilesInput(pattern: "value", path: ".", include: nil))
+        )
+      ),
+      ToolResultProjector.project(
+        payload: .writeFile(
+          .success(path: WorkspaceRelativePath(rawValue: "README.md"), bytesWritten: 5)
+        ),
+        request: request(
+          toolName: .writeFile,
+          payload: .writeFile(WriteFileInput(path: "README.md", content: "hello"))
+        )
+      ),
+      ToolResultProjector.project(
+        payload: .editFile(
+          .success(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            diff: nil,
+            matchStrategy: .exact
+          )
+        ),
+        request: request(
+          toolName: .editFile,
+          payload: .editFile(EditFileInput(path: "README.md", oldText: "old", newText: "new"))
+        )
+      ),
+    ]
+
+    for projection in projections {
+      #expect(projection.observation.status == .success)
+      #expect(!projection.observation.blocks.containsFailure)
+    }
+  }
+
+  @Test
   func failureProjectionUsesFailureBlock() {
     let projection = ToolResultProjector.project(
       payload: .failure(
@@ -186,6 +248,7 @@ struct ToolResultProjectorTests {
       return
     }
     #expect(status == .failed)
+    #expect(projection.observation.status == .failed)
     #expect(
       projection.observation.blocks == [
         .failure("read_file failed for missing.swift: No such file")
@@ -213,6 +276,7 @@ struct ToolResultProjectorTests {
       return
     }
     #expect(status == .denied)
+    #expect(projection.observation.status == .denied)
     #expect(text.contains("Permission denied. Tool call denied by user."))
     #expect(
       projection.observation.blocks == [
@@ -229,5 +293,16 @@ struct ToolResultProjectorTests {
       ),
       payload: payload
     )
+  }
+}
+
+extension [ToolObservationBlock] {
+  fileprivate var containsFailure: Bool {
+    contains { block in
+      if case .failure = block {
+        return true
+      }
+      return false
+    }
   }
 }
