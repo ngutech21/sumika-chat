@@ -22,8 +22,8 @@ test-core:
 
 
 data-model:
-    mkdir -p .build/swiftpm-cache .build/clang-module-cache .build/swiftpm-home
-    HOME="$PWD/.build/swiftpm-home" CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" xcrun swift run --disable-sandbox --cache-path .build/swiftpm-cache DataModelGenerator
+    mkdir -p .build/data-model-build .build/swiftpm-cache .build/clang-module-cache .build/swiftpm-home
+    HOME="$PWD/.build/swiftpm-home" CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" {{swift}} run --disable-sandbox --build-path .build/data-model-build --cache-path .build/swiftpm-cache DataModelGenerator
 
 test-app:
     xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
