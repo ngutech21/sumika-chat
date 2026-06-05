@@ -10,6 +10,11 @@ public enum ChatAttachmentEvent: Equatable, Sendable {
 @MainActor
 public final class ChatAttachmentCoordinator {
   private let loader: any ChatAttachmentLoading
+  private let loadQueue = DispatchQueue(
+    label: "local-coder.chat-attachments.load",
+    qos: .userInitiated,
+    attributes: .concurrent
+  )
   private var loadTask: Task<Void, Never>?
   private var loadRequestID = UUID()
   private var isHandlingDroppedDraftPath = false
@@ -36,22 +41,23 @@ public final class ChatAttachmentCoordinator {
     loadRequestID = requestID
     loadTask?.cancel()
     let loader = loader
+    let loadQueue = loadQueue
 
     loadTask = Task {
       do {
-        let attachments = try await Task.detached {
-          try loader.loadAttachments(
-            from: urls,
-            existingAttachments: existingAttachments
-          )
-        }.value
-        guard requestID == loadRequestID else {
+        let attachments = try await Self.loadAttachments(
+          from: urls,
+          existingAttachments: existingAttachments,
+          loader: loader,
+          loadQueue: loadQueue
+        )
+        guard !Task.isCancelled, requestID == loadRequestID else {
           return
         }
         onEvent(.appendAttachments(attachments))
       } catch is CancellationError {
       } catch {
-        guard requestID == loadRequestID else {
+        guard !Task.isCancelled, requestID == loadRequestID else {
           return
         }
         onEvent(.error(error.localizedDescription))
@@ -59,6 +65,27 @@ public final class ChatAttachmentCoordinator {
 
       if requestID == loadRequestID {
         loadTask = nil
+      }
+    }
+  }
+
+  private nonisolated static func loadAttachments(
+    from urls: [URL],
+    existingAttachments: [ChatAttachment],
+    loader: any ChatAttachmentLoading,
+    loadQueue: DispatchQueue
+  ) async throws -> [ChatAttachment] {
+    try await withCheckedThrowingContinuation { continuation in
+      loadQueue.async {
+        do {
+          let attachments = try loader.loadAttachments(
+            from: urls,
+            existingAttachments: existingAttachments
+          )
+          continuation.resume(returning: attachments)
+        } catch {
+          continuation.resume(throwing: error)
+        }
       }
     }
   }
