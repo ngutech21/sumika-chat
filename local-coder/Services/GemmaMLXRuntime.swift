@@ -116,6 +116,39 @@ nonisolated struct GemmaRenderedContextSignature: Equatable, Sendable {
   }
 }
 
+nonisolated private enum CurrentPromptContextRuntimeBoundary: Equatable, Sendable {
+  case attachedFile
+  case focusedFile
+  case ambiguousRecentFiles
+
+  var marker: String {
+    switch self {
+    case .attachedFile:
+      "Attached file:"
+    case .focusedFile:
+      "Current focused file:"
+    case .ambiguousRecentFiles:
+      "Recent files are ambiguous:"
+    }
+  }
+
+  static let all: [CurrentPromptContextRuntimeBoundary] = [
+    .attachedFile,
+    .focusedFile,
+    .ambiguousRecentFiles,
+  ]
+}
+
+nonisolated private struct CurrentPromptContextRuntimeBoundaryMatch: Equatable, Sendable {
+  let boundary: CurrentPromptContextRuntimeBoundary
+  let range: Range<String.Index>
+}
+
+nonisolated private struct CurrentPromptContextRuntimeBlock: Equatable, Sendable {
+  let boundary: CurrentPromptContextRuntimeBoundary
+  let content: String
+}
+
 nonisolated struct GemmaGenerationID: Equatable, Hashable, Sendable {
   let rawValue: UInt64
 }
@@ -815,22 +848,25 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     guard let block = systemInstructionBlock(from: messages) else {
       return nil
     }
-    guard let currentPromptContextRange = currentPromptContextRange(in: block) else {
+    guard let boundary = currentPromptContextBoundary(in: block) else {
       return block
     }
-    return String(block[..<currentPromptContextRange.lowerBound])
+    return String(block[..<boundary.range.lowerBound])
       .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   nonisolated private static func currentPromptContextBlock(
     from messages: [GemmaMessageSnapshot]
-  ) -> String? {
+  ) -> CurrentPromptContextRuntimeBlock? {
     guard let block = systemInstructionBlock(from: messages),
-      let currentPromptContextRange = currentPromptContextRange(in: block)
+      let boundary = currentPromptContextBoundary(in: block)
     else {
       return nil
     }
-    return String(block[currentPromptContextRange.lowerBound...])
+    return CurrentPromptContextRuntimeBlock(
+      boundary: boundary.boundary,
+      content: String(block[boundary.range.lowerBound...])
+    )
   }
 
   nonisolated private static func systemInstructionBlock(
@@ -847,16 +883,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     return String(firstUser.content[..<userRequestRange.lowerBound])
   }
 
-  nonisolated private static func currentPromptContextRange(
+  nonisolated private static func currentPromptContextBoundary(
     in systemInstructionBlock: String
-  ) -> Range<String.Index>? {
-    let markers = [
-      "Attached file:",
-      "Current focused file:",
-      "Recent files are ambiguous:",
-    ]
-    return markers.compactMap { systemInstructionBlock.range(of: $0) }
-      .min { $0.lowerBound < $1.lowerBound }
+  ) -> CurrentPromptContextRuntimeBoundaryMatch? {
+    CurrentPromptContextRuntimeBoundary.all.compactMap { boundary in
+      systemInstructionBlock.range(of: boundary.marker).map { range in
+        CurrentPromptContextRuntimeBoundaryMatch(boundary: boundary, range: range)
+      }
+    }
+    .min { $0.range.lowerBound < $1.range.lowerBound }
   }
 
   nonisolated static func contextSignature(for messages: [GemmaMessageSnapshot]) -> String {
