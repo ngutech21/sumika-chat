@@ -124,14 +124,14 @@ struct ChatSessionControllerTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.draft = "Explain this"
-    controller.chatSession.attachments = [attachment]
+    controller.chatSession.pendingAttachments = [attachment]
 
     controller.sendMessage()
 
     try await waitUntil { !controller.isGenerating }
 
     #expect(controller.draft.isEmpty)
-    #expect(controller.chatSession.attachments.isEmpty)
+    #expect(controller.chatSession.pendingAttachments.isEmpty)
     #expect(controller.chatSession.messages.count == 2)
     #expect(controller.chatSession.messages[0].kind == .user)
     #expect(controller.chatSession.messages[0].content == "Explain this")
@@ -943,14 +943,14 @@ struct ChatSessionControllerTests {
 
     controller.addAttachments(from: [URL(filePath: "/tmp/second.swift")])
     try await waitUntil {
-      controller.chatSession.attachments.map(\.displayName) == ["second.swift"]
+      controller.chatSession.pendingAttachments.map(\.displayName) == ["second.swift"]
     }
 
     loader.releaseFirstLoad()
     try await waitUntil { loader.completedCount == 2 }
     await Task.yield()
 
-    #expect(controller.chatSession.attachments.map(\.displayName) == ["second.swift"])
+    #expect(controller.chatSession.pendingAttachments.map(\.displayName) == ["second.swift"])
   }
 
   private func waitUntil(

@@ -172,6 +172,44 @@ struct WorkspaceStoreTests {
     }
   }
 
+  @Test
+  func codingSessionDecodesFlatTranscriptFieldsIntoTranscriptState() throws {
+    let transcript = ModelFacingTranscript(
+      entries: [
+        try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
+      ]
+    )
+    let messages = [ChatMessage(userContent: "hello")]
+    let flatSession = FlatCodingSession(
+      id: UUID(),
+      title: "Flat",
+      selectedModelID: "gemma3-1b",
+      messages: messages,
+      modelFacingTranscript: transcript,
+      toolCalls: [],
+      turns: [],
+      focusedFileState: .empty,
+      systemPrompt: "Legacy prompt",
+      generationSettings: .codingDefault,
+      interactionMode: .inspect,
+      createdAt: Date(),
+      updatedAt: Date()
+    )
+    let data = try JSONEncoder().encode(flatSession)
+
+    let decoded = try JSONDecoder().decode(CodingSession.self, from: data)
+
+    #expect(
+      decoded.transcript
+        == ChatTranscriptState(
+          messages: messages,
+          modelFacingTranscript: transcript,
+          systemPrompt: "Legacy prompt",
+          generationSettings: .codingDefault,
+          interactionMode: .inspect
+        ))
+  }
+
   private func temporaryLibraryURL() -> URL {
     FileManager.default.temporaryDirectory
       .appending(path: "local-coder-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -242,6 +280,22 @@ private struct LegacyCodingSession: Codable {
   let messages: [ChatMessage]
   let systemPrompt: String
   let generationSettings: ChatGenerationSettings
+  let createdAt: Date
+  let updatedAt: Date
+}
+
+private struct FlatCodingSession: Codable {
+  let id: UUID
+  let title: String
+  let selectedModelID: ManagedModel.ID
+  let messages: [ChatMessage]
+  let modelFacingTranscript: ModelFacingTranscript
+  let toolCalls: [ToolCallRecord]
+  let turns: [ChatTurnRecord]
+  let focusedFileState: FocusedFileState
+  let systemPrompt: String
+  let generationSettings: ChatGenerationSettings
+  let interactionMode: WorkspaceInteractionMode
   let createdAt: Date
   let updatedAt: Date
 }

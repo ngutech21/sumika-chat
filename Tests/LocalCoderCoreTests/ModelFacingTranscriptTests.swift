@@ -187,7 +187,7 @@ struct ModelFacingTranscriptTests {
     )
     let data = try JSONEncoder().encode(session)
     var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    object.removeValue(forKey: "modelFacingTranscript")
+    object.removeValue(forKey: "transcript")
     let legacyData = try JSONSerialization.data(withJSONObject: object)
 
     #expect(throws: DecodingError.self) {

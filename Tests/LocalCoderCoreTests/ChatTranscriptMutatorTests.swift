@@ -7,7 +7,7 @@ struct ChatTranscriptMutatorTests {
   @Test
   func appendUserMessageKeepsContentAndAttachments() {
     var state = makeState(attachments: [makeAttachment(name: "README.md")])
-    let sentAttachments = state.attachments
+    let sentAttachments = state.pendingAttachments
     let mutator = ChatTranscriptMutator()
 
     mutator.appendUserMessage("Inspect this file", attachments: sentAttachments, to: &state)
@@ -208,7 +208,7 @@ struct ChatTranscriptMutatorTests {
     #expect(state.messages.isEmpty)
     #expect(state.toolCalls.isEmpty)
     #expect(state.turns.isEmpty)
-    #expect(state.attachments.isEmpty)
+    #expect(state.pendingAttachments.isEmpty)
     #expect(state.systemPrompt == "Keep this prompt")
     #expect(state.generationSettings == settings)
   }
@@ -241,7 +241,7 @@ private func makeState(
     messages: messages,
     toolCalls: toolCalls,
     turns: turns,
-    attachments: attachments,
+    pendingAttachments: attachments,
     systemPrompt: systemPrompt,
     generationSettings: generationSettings
   )

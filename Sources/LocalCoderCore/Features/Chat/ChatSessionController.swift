@@ -77,7 +77,7 @@ public final class ChatSessionController {
         messages: [],
         modelFacingTranscript: ModelFacingTranscript(),
         toolCalls: [],
-        attachments: [],
+        pendingAttachments: [],
         systemPrompt: storedSettings.systemPrompt,
         generationSettings: storedSettings.generationSettings
       ),
@@ -227,15 +227,8 @@ extension ChatSessionController {
     errorMessage = nil
     contextUsage = nil
     chatSession = ChatSessionState(
-      messages: session.messages,
-      modelFacingTranscript: session.modelFacingTranscript,
-      toolCalls: session.toolCalls,
-      turns: session.turns,
-      attachments: [],
-      focusedFileState: session.focusedFileState,
-      systemPrompt: session.systemPrompt,
-      generationSettings: session.generationSettings,
-      interactionMode: session.interactionMode
+      transcript: session.transcript,
+      pendingAttachments: []
     )
 
     if didResetRuntime {
@@ -249,14 +242,7 @@ extension ChatSessionController {
   public func sessionSnapshot(updating session: CodingSession) -> CodingSession {
     var snapshot = session
     snapshot.selectedModelID = modelRuntime.selectedModelID
-    snapshot.messages = chatSession.messages
-    snapshot.modelFacingTranscript = chatSession.modelFacingTranscript
-    snapshot.toolCalls = chatSession.toolCalls
-    snapshot.turns = chatSession.turns
-    snapshot.focusedFileState = chatSession.focusedFileState
-    snapshot.systemPrompt = chatSession.systemPrompt
-    snapshot.generationSettings = chatSession.generationSettings
-    snapshot.interactionMode = chatSession.interactionMode
+    snapshot.transcript = chatSession.transcript
     snapshot.updatedAt = Date()
     return snapshot
   }
@@ -314,13 +300,13 @@ extension ChatSessionController {
       toolsAvailable: toolsAvailable
     )
     let initialSystemPromptSnapshot = systemPrompt(toolPromptMode: initialToolPromptMode)
-    let sentAttachments = chatSession.attachments
+    let sentAttachments = chatSession.pendingAttachments
     let turnID = UUID()
     let userMessageID = UUID()
     let assistantMessageID = UUID()
     draft = ""
     errorMessage = nil
-    chatSession.attachments.removeAll()
+    chatSession.pendingAttachments.removeAll()
     applyWorkflowEvents(focusEventsForAttachments(sentAttachments, workspace: workspace))
     transcriptMutator.appendTurn(
       ChatTurnRecord(
@@ -582,7 +568,7 @@ extension ChatSessionController {
       operationID: modelRuntime.currentOperationID(),
       turnID: turnID,
       transcript: transcript,
-      attachments: chatSession.attachments,
+      attachments: chatSession.pendingAttachments,
       systemPrompt: renderedSystemPrompt,
       contextTokenLimit: modelRuntime.modelContextTokenLimit,
       runtimeIsBusy: isGenerating || pendingRuntimeContextClear != nil,
@@ -604,7 +590,7 @@ extension ChatSessionController {
   public func addAttachments(from urls: [URL]) {
     attachmentCoordinator.addAttachments(
       from: urls,
-      existingAttachments: chatSession.attachments,
+      existingAttachments: chatSession.pendingAttachments,
       onEvent: handleAttachmentEvent(_:))
   }
 
@@ -612,7 +598,7 @@ extension ChatSessionController {
     attachmentCoordinator.convertDroppedFilePaths(
       in: draft,
       isGenerating: isGenerating,
-      existingAttachments: chatSession.attachments,
+      existingAttachments: chatSession.pendingAttachments,
       onEvent: handleAttachmentEvent(_:))
   }
 
@@ -623,13 +609,13 @@ extension ChatSessionController {
   private func handleAttachmentEvent(_ event: ChatAttachmentEvent) {
     switch event {
     case .appendAttachments(let attachments):
-      chatSession.attachments.append(contentsOf: attachments)
+      chatSession.pendingAttachments.append(contentsOf: attachments)
       errorMessage = nil
       refreshContextUsage()
     case .replaceDraft(let cleanedDraft):
       draft = cleanedDraft
     case .removeAttachment(let id):
-      chatSession.attachments.removeAll { $0.id == id }
+      chatSession.pendingAttachments.removeAll { $0.id == id }
       refreshContextUsage()
     case .error(let message):
       errorMessage = message

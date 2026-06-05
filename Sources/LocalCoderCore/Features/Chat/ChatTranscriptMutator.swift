@@ -245,7 +245,7 @@ public struct ChatTranscriptMutator: Sendable {
     state.modelFacingTranscript.entries.removeAll()
     state.toolCalls.removeAll()
     state.turns.removeAll()
-    state.attachments.removeAll()
+    state.pendingAttachments.removeAll()
     state.focusedFileState = .empty
   }
 

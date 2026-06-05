@@ -30,7 +30,7 @@ struct ChatModelContextBuilderTests {
           modelContextPolicy: .excluded
         ),
       ],
-      attachments: [],
+      pendingAttachments: [],
       systemPrompt: "System",
       generationSettings: .codingDefault
     )
@@ -57,7 +57,7 @@ struct ChatModelContextBuilderTests {
           modelContextPolicy: .excluded
         )
       ],
-      attachments: [],
+      pendingAttachments: [],
       systemPrompt: "System",
       generationSettings: .codingDefault
     )
@@ -196,7 +196,7 @@ struct ChatModelContextBuilderTests {
       ],
       modelFacingTranscript: ModelFacingTranscript(entries: [firstEntry]),
       turns: [ChatTurnRecord(id: turnID, status: .running)],
-      attachments: [],
+      pendingAttachments: [],
       systemPrompt: "System",
       generationSettings: .codingDefault
     )

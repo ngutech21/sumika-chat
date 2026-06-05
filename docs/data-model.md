@@ -19,25 +19,20 @@ flowchart TD
   ChatMessagePayload --> ToolResultModelMessage
   ChatMessagePayload --> UserMessagePayload
   ChatSessionState --> ChatAttachment
-  ChatSessionState --> ChatGenerationSettings
-  ChatSessionState --> ChatMessage
-  ChatSessionState --> ChatTurnRecord
-  ChatSessionState --> FocusedFileState
-  ChatSessionState --> ModelFacingTranscript
-  ChatSessionState --> ToolCallRecord
-  ChatSessionState --> WorkspaceInteractionMode
+  ChatSessionState --> ChatTranscriptState
+  ChatTranscriptState --> ChatGenerationSettings
+  ChatTranscriptState --> ChatMessage
+  ChatTranscriptState --> ChatTurnRecord
+  ChatTranscriptState --> FocusedFileState
+  ChatTranscriptState --> ModelFacingTranscript
+  ChatTranscriptState --> ToolCallRecord
+  ChatTranscriptState --> WorkspaceInteractionMode
   ChatTurnRecord --> ChatMessage
   ChatTurnRecord --> ChatTurnModelContextPolicy
   ChatTurnRecord --> ChatTurnStatus
   ChatTurnRecord --> ToolCallRecord
-  CodingSession --> ChatGenerationSettings
-  CodingSession --> ChatMessage
-  CodingSession --> ChatTurnRecord
-  CodingSession --> FocusedFileState
+  CodingSession --> ChatTranscriptState
   CodingSession --> ManagedModel
-  CodingSession --> ModelFacingTranscript
-  CodingSession --> ToolCallRecord
-  CodingSession --> WorkspaceInteractionMode
   EditFileResult --> EditMatchStrategy
   EditFileResult --> RecoveryHint
   EditFileResult --> ToolFailureReason
@@ -386,7 +381,22 @@ Properties:
 
 Properties:
 
-- `attachments: [ChatAttachment]`
+- `pendingAttachments: [ChatAttachment]`
+- `transcript: ChatTranscriptState`
+
+Relations:
+
+- `ChatAttachment`
+- `ChatTranscriptState`
+
+### ChatTranscriptState
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ChatTranscriptState.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
 - `focusedFileState: FocusedFileState`
 - `generationSettings: ChatGenerationSettings`
 - `interactionMode: WorkspaceInteractionMode`
@@ -398,7 +408,6 @@ Properties:
 
 Relations:
 
-- `ChatAttachment`
 - `ChatGenerationSettings`
 - `ChatMessage`
 - `ChatTurnRecord`
@@ -464,29 +473,16 @@ Cases:
 Properties:
 
 - `createdAt: Date`
-- `focusedFileState: FocusedFileState`
-- `generationSettings: ChatGenerationSettings`
 - `id: UUID`
-- `interactionMode: WorkspaceInteractionMode`
-- `messages: [ChatMessage]`
-- `modelFacingTranscript: ModelFacingTranscript`
 - `selectedModelID: ManagedModel.ID`
-- `systemPrompt: String`
 - `title: String`
-- `toolCalls: [ToolCallRecord]`
-- `turns: [ChatTurnRecord]`
+- `transcript: ChatTranscriptState`
 - `updatedAt: Date`
 
 Relations:
 
-- `ChatGenerationSettings`
-- `ChatMessage`
-- `ChatTurnRecord`
-- `FocusedFileState`
+- `ChatTranscriptState`
 - `ManagedModel`
-- `ModelFacingTranscript`
-- `ToolCallRecord`
-- `WorkspaceInteractionMode`
 
 ### EditFileResult
 

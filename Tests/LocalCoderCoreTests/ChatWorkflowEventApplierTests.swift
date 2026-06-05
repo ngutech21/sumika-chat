@@ -309,7 +309,7 @@ private func makeState(
     messages: messages,
     toolCalls: toolCalls,
     turns: turns,
-    attachments: attachments,
+    pendingAttachments: attachments,
     systemPrompt: systemPrompt,
     generationSettings: generationSettings
   )
