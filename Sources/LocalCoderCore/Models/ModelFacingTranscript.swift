@@ -6,6 +6,32 @@ public struct ModelFacingTranscript: Codable, Equatable, Sendable {
   public init(entries: [ModelContextEntry] = []) {
     self.entries = entries
   }
+
+  public func projectedEntries(
+    mode: ModelContextProjectionMode = .fullHistory
+  ) -> [ProjectedModelContextEntry] {
+    let currentPromptIndex = entries.lastIndex { $0.frozenContent.role == .user }
+    return entries.indices.map { index in
+      entries[index].projectedEntry(
+        mode: mode,
+        keepFullContent: index == currentPromptIndex
+      )
+    }
+  }
+}
+
+public enum ModelContextProjectionMode: String, Equatable, Sendable {
+  case fullHistory = "full_history"
+  case compactedHistoryForLaterTurns = "compacted_history_for_later_turns"
+
+  public var signatureComponent: String {
+    rawValue
+  }
+}
+
+public struct ProjectedModelContextEntry: Equatable, Sendable {
+  public let role: ModelContextRole
+  public let content: String
 }
 
 public struct ModelContextEntry: Codable, Identifiable, Equatable, Sendable {
@@ -192,17 +218,20 @@ public struct ToolObservationContext: Codable, Equatable, Sendable {
   public let toolName: ToolName
   public let status: ToolResultStatus
   public let content: String
+  public let toolReceipt: ToolReceipt?
 
   public init(
     callID: UUID,
     toolName: ToolName,
     status: ToolResultStatus,
-    content: String
+    content: String,
+    toolReceipt: ToolReceipt? = nil
   ) {
     self.callID = callID
     self.toolName = toolName
     self.status = status
     self.content = content
+    self.toolReceipt = toolReceipt
   }
 }
 
@@ -211,17 +240,94 @@ public struct TerminalToolResultContext: Codable, Equatable, Sendable {
   public let toolName: ToolName
   public let status: ToolResultStatus
   public let content: String
+  public let toolReceipt: ToolReceipt?
 
   public init(
     callID: UUID,
     toolName: ToolName,
     status: ToolResultStatus,
-    content: String
+    content: String,
+    toolReceipt: ToolReceipt? = nil
   ) {
     self.callID = callID
     self.toolName = toolName
     self.status = status
     self.content = content
+    self.toolReceipt = toolReceipt
+  }
+}
+
+public struct ToolReceipt: Codable, Equatable, Sendable {
+  public let callID: UUID
+  public let toolName: ToolName
+  public let status: ToolResultStatus
+  public let affectedPaths: [WorkspaceRelativePath]
+  public let summary: ToolReceiptSummary
+  public let outputTruncated: Bool
+  public let outputRedacted: Bool
+
+  private init(
+    callID: UUID,
+    toolName: ToolName,
+    status: ToolResultStatus,
+    affectedPaths: [WorkspaceRelativePath],
+    summary: ToolReceiptSummary,
+    outputTruncated: Bool,
+    outputRedacted: Bool
+  ) {
+    self.callID = callID
+    self.toolName = toolName
+    self.status = status
+    self.affectedPaths = affectedPaths
+    self.summary = summary
+    self.outputTruncated = outputTruncated
+    self.outputRedacted = outputRedacted
+  }
+
+  static func make(
+    callID: UUID,
+    toolName: ToolName,
+    status: ToolResultStatus,
+    affectedPaths: [WorkspaceRelativePath],
+    summary: ToolReceiptSummary,
+    outputTruncated: Bool,
+    outputRedacted: Bool
+  ) -> ToolReceipt {
+    ToolReceipt(
+      callID: callID,
+      toolName: toolName,
+      status: status,
+      affectedPaths: affectedPaths,
+      summary: summary,
+      outputTruncated: outputTruncated,
+      outputRedacted: outputRedacted
+    )
+  }
+}
+
+public struct ToolReceiptSummary: Codable, Equatable, Sendable {
+  public let text: String
+  public let truncated: Bool
+
+  private init(text: String, truncated: Bool) {
+    self.text = text
+    self.truncated = truncated
+  }
+
+  public static func checked(text: String, maxCharacters: Int = 600) -> ToolReceiptSummary? {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, maxCharacters > 0 else {
+      return nil
+    }
+
+    guard trimmed.count > maxCharacters else {
+      return ToolReceiptSummary(text: trimmed, truncated: false)
+    }
+
+    return ToolReceiptSummary(
+      text: String(trimmed.prefix(maxCharacters)),
+      truncated: true
+    )
   }
 }
 
@@ -272,4 +378,48 @@ public struct FrozenModelContent: Codable, Equatable, Sendable {
 public enum ModelContextRole: String, Codable, Equatable, Sendable {
   case user
   case assistant
+}
+
+extension ModelContextEntry {
+  fileprivate func projectedEntry(
+    mode: ModelContextProjectionMode,
+    keepFullContent: Bool
+  ) -> ProjectedModelContextEntry {
+    guard mode == .compactedHistoryForLaterTurns, !keepFullContent else {
+      return ProjectedModelContextEntry(
+        role: frozenContent.role,
+        content: frozenContent.content
+      )
+    }
+
+    switch body {
+    case .toolObservation(let context):
+      guard let toolReceipt = context.toolReceipt else {
+        return ProjectedModelContextEntry(
+          role: frozenContent.role,
+          content: frozenContent.content
+        )
+      }
+      return ProjectedModelContextEntry(
+        role: .user,
+        content: ToolReceiptRenderer.render(toolReceipt)
+      )
+    case .terminalToolResult(let context):
+      guard let toolReceipt = context.toolReceipt else {
+        return ProjectedModelContextEntry(
+          role: frozenContent.role,
+          content: frozenContent.content
+        )
+      }
+      return ProjectedModelContextEntry(
+        role: .assistant,
+        content: ToolReceiptRenderer.render(toolReceipt)
+      )
+    case .userPrompt, .assistantOutput, .legacy:
+      return ProjectedModelContextEntry(
+        role: frozenContent.role,
+        content: frozenContent.content
+      )
+    }
+  }
 }

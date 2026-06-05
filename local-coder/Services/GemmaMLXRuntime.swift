@@ -108,11 +108,12 @@ nonisolated struct GemmaMessageSnapshot: Equatable, Sendable {
 
 nonisolated struct GemmaRenderedContextSignature: Equatable, Sendable {
   let rendererVersion: Int
+  let projectionMode: ModelContextProjectionMode
   let renderedHistoryHash: String
   let generationSettingsHash: String
 
   var traceValue: String {
-    "renderer-v\(rendererVersion):history-\(renderedHistoryHash):settings-\(generationSettingsHash)"
+    "renderer-v\(rendererVersion):projection-\(projectionMode.signatureComponent):history-\(renderedHistoryHash):settings-\(generationSettingsHash)"
   }
 }
 
@@ -195,6 +196,7 @@ nonisolated struct ActiveGemmaCompletionContext: Sendable {
   let historyPrefix: [GemmaMessageSnapshot]
   let prompt: String
   let settings: ChatGenerationSettings
+  let projectionMode: ModelContextProjectionMode
 }
 
 nonisolated struct GemmaActiveGenerationRegistry: Sendable {
@@ -368,7 +370,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
 
     let rawMessages = try Self.validatedTemplateMessages(
-      transcript.entries.map(Self.chatMessage(from:))
+      transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
+        .map(Self.chatMessage(from:))
     )
     .map { ["role": $0.role.rawValue, "content": $0.content] as [String: any Sendable] }
     let usedTokens = try await modelContainer.perform { context in
@@ -396,7 +399,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       throw GemmaMLXRuntimeError.missingUserMessage
     }
 
-    let promptMessage = Self.chatMessage(from: entries[lastUserIndex])
+    let projectionMode = ModelContextProjectionMode.compactedHistoryForLaterTurns
+    let projectedEntries = transcript.projectedEntries(mode: projectionMode)
+    let promptMessage = Self.chatMessage(from: projectedEntries[lastUserIndex])
     let generateParameters = GenerateParameters(
       maxTokens: settings.maxTokens,
       maxKVSize: settings.maxKVSize,
@@ -405,7 +410,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       topK: settings.topK
     )
     let history = try Self.generationHistoryMessages(
-      from: entries[..<lastUserIndex]
+      from: projectedEntries[..<lastUserIndex]
     )
     let historySnapshot = Self.messageSnapshot(from: history)
     let finalPrompt = promptMessage.content
@@ -417,6 +422,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       historySnapshot: historySnapshot,
       settings: settings,
       generateParameters: generateParameters,
+      projectionMode: projectionMode,
       generationID: generationID
     )
 
@@ -463,7 +469,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       generationID: generationID,
       historyPrefix: historySnapshot,
       prompt: finalPrompt,
-      settings: settings
+      settings: settings,
+      projectionMode: projectionMode
     )
     let streamPlan = Self.modelStreamPlan(
       from: stream,
@@ -476,7 +483,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           historyPrefix: historySnapshot,
           prompt: finalPrompt,
           output: output,
-          settings: settings
+          settings: settings,
+          projectionMode: projectionMode
         )
       },
       markCancelled: { [weak self] reason in
@@ -500,7 +508,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       historyPrefix: context.historyPrefix,
       prompt: context.prompt,
       output: output,
-      settings: context.settings
+      settings: context.settings,
+      projectionMode: context.projectionMode
     )
   }
 
@@ -519,11 +528,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     historySnapshot: [GemmaMessageSnapshot],
     settings: ChatGenerationSettings,
     generateParameters: GenerateParameters,
+    projectionMode: ModelContextProjectionMode,
     generationID: GemmaGenerationID
   ) -> GemmaSessionCachePlan {
     let contextSignature = Self.renderedContextSignature(
       for: historySnapshot,
-      settings: settings
+      settings: settings,
+      projectionMode: projectionMode
     )
     let cached = cachedSession
     let decision = Self.cacheDecision(
@@ -532,7 +543,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       cachedContextSignature: cached?.contextSignature,
       cachedState: cached?.state ?? pendingCacheInvalidationReason.map { .dirty(reason: $0) },
       currentHistory: historySnapshot,
-      currentSettings: settings
+      currentSettings: settings,
+      projectionMode: projectionMode
     )
     pendingCacheInvalidationReason = nil
 
@@ -568,7 +580,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     historyPrefix: [GemmaMessageSnapshot],
     prompt: String,
     output: String,
-    settings: ChatGenerationSettings
+    settings: ChatGenerationSettings,
+    projectionMode: ModelContextProjectionMode
   ) {
     guard generationOwnership.completeIfCurrent(generationID) else {
       return
@@ -594,7 +607,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       settings: settings,
       contextSignature: Self.renderedContextSignature(
         for: completedPrefix,
-        settings: settings
+        settings: settings,
+        projectionMode: projectionMode
       ),
       state: completedState
     )
@@ -666,6 +680,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
   }
 
+  nonisolated static func chatMessage(from entry: ProjectedModelContextEntry) -> Chat.Message {
+    switch entry.role {
+    case .user:
+      return .user(entry.content)
+    case .assistant:
+      return .assistant(entry.content)
+    }
+  }
+
   nonisolated static func cacheDecision(
     cachedPrefix: [GemmaMessageSnapshot]?,
     cachedSettings: ChatGenerationSettings?,
@@ -673,18 +696,20 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     cachedState: GemmaCachedSessionState?,
     currentHistory: [GemmaMessageSnapshot],
     currentSettings: ChatGenerationSettings,
+    projectionMode: ModelContextProjectionMode = .fullHistory,
     currentRendererVersion: Int = gemmaRendererVersion
   ) -> GemmaSessionCacheDecision {
     let currentSignature = renderedContextSignature(
       for: currentHistory,
       settings: currentSettings,
+      projectionMode: projectionMode,
       rendererVersion: currentRendererVersion
     )
     let previousSignature =
       cachedContextSignature
       ?? cachedPrefix.flatMap { prefix in
         cachedSettings.map { settings in
-          renderedContextSignature(for: prefix, settings: settings)
+          renderedContextSignature(for: prefix, settings: settings, projectionMode: projectionMode)
         }
       }
     let appendOnly = cachedPrefix.map { isPrefix($0, of: currentHistory) } ?? false
@@ -784,10 +809,12 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated static func renderedContextSignature(
     for messages: [GemmaMessageSnapshot],
     settings: ChatGenerationSettings,
+    projectionMode: ModelContextProjectionMode = .fullHistory,
     rendererVersion: Int = gemmaRendererVersion
   ) -> GemmaRenderedContextSignature {
     GemmaRenderedContextSignature(
       rendererVersion: rendererVersion,
+      projectionMode: projectionMode,
       renderedHistoryHash: contextSignature(for: messages),
       generationSettingsHash: generationSettingsSignature(for: settings)
     )
@@ -802,6 +829,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
     if previousSignature.rendererVersion != currentSignature.rendererVersion {
       return .invalidatedRendererVersionChanged
+    }
+    if previousSignature.projectionMode != currentSignature.projectionMode {
+      return .invalidatedRenderedContextChanged
     }
     return .invalidatedRenderedContextChanged
   }
@@ -1159,7 +1189,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     _ = systemPrompt
     return try validatedTemplateMessages(
       normalizedChatMessages(
-        transcript.entries.map(Self.chatMessage(from:))
+        transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
+          .map(Self.chatMessage(from:))
       )
     )
   }
@@ -1208,6 +1239,28 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
 
     return try validatedTemplateMessages(history)
+  }
+
+  nonisolated static func generationHistoryMessages(
+    from entries: ArraySlice<ProjectedModelContextEntry>
+  ) throws -> [Chat.Message] {
+    var history = normalizedChatMessages(entries.map(Self.chatMessage(from:)))
+
+    while history.last?.role == .user {
+      history.removeLast()
+    }
+
+    return try validatedTemplateMessages(history)
+  }
+
+  nonisolated static func generationHistoryMessages(
+    from transcript: ModelFacingTranscript
+  ) throws -> [Chat.Message] {
+    let entries = transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
+    guard let lastUserIndex = entries.lastIndex(where: { $0.role == .user }) else {
+      return []
+    }
+    return try generationHistoryMessages(from: entries[..<lastUserIndex])
   }
 
 }

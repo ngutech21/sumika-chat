@@ -57,7 +57,10 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(rendered[2].content.contains("Use concise coding steps."))
     #expect(!rendered[2].content.contains("This runtime argument must not rewrite"))
     #expect(rendered[1].content.contains("Tool call write_file requested."))
-    #expect(rendered[1].content.contains("Summary: Wrote 13 bytes to index.htm."))
+    #expect(rendered[1].content.contains("Tool receipt: write_file"))
+    #expect(rendered[1].content.contains("Summary:"))
+    #expect(rendered[1].content.contains("Wrote 13 bytes to index.htm."))
+    #expect(rendered[1].content.contains("<observation") == false)
     #expect(!rendered.contains { $0.role == .system })
   }
 
@@ -369,6 +372,32 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func renderedContextSignatureChangesWhenProjectionModeChanges() {
+    let settings = ChatGenerationSettings.codingDefault
+    let history = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+
+    let full = GemmaMLXRuntime.renderedContextSignature(
+      for: history,
+      settings: settings,
+      projectionMode: .fullHistory
+    )
+    let compacted = GemmaMLXRuntime.renderedContextSignature(
+      for: history,
+      settings: settings,
+      projectionMode: .compactedHistoryForLaterTurns
+    )
+
+    #expect(full != compacted)
+    #expect(full.projectionMode == .fullHistory)
+    #expect(compacted.projectionMode == .compactedHistoryForLaterTurns)
+    #expect(full.renderedHistoryHash == compacted.renderedHistoryHash)
+    #expect(full.generationSettingsHash == compacted.generationSettingsHash)
+  }
+
+  @Test
   func cacheDecisionInvalidatesWhenRendererVersionChanges() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [
@@ -427,6 +456,7 @@ struct GemmaMLXRuntimeTemplateTests {
     ])
     let cachedSignature = GemmaRenderedContextSignature(
       rendererVersion: GemmaMLXRuntime.gemmaRendererVersion,
+      projectionMode: .fullHistory,
       renderedHistoryHash: "different-history",
       generationSettingsHash: GemmaMLXRuntime.renderedContextSignature(
         for: prefix,
@@ -447,6 +477,36 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
     #expect(decision.trace.cacheReason == .invalidatedRenderedContextChanged)
     #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
+  }
+
+  @Test
+  func cacheDecisionInvalidatesWhenProjectionModeChanges() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let cachedSignature = GemmaMLXRuntime.renderedContextSignature(
+      for: prefix,
+      settings: settings,
+      projectionMode: .fullHistory
+    )
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedContextSignature: cachedSignature,
+      cachedState: .clean,
+      currentHistory: prefix,
+      currentSettings: settings,
+      projectionMode: .compactedHistoryForLaterTurns
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.cacheReason == .invalidatedRenderedContextChanged)
+    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
+    #expect(decision.trace.contextSignature != decision.trace.previousContextSignature)
   }
 
   @Test
@@ -658,6 +718,47 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(decision.trace.cacheReason == .sessionReused)
     #expect(decision.trace.appendedMessageCount == 0)
     #expect(decision.trace.mismatchReason == nil)
+  }
+
+  @Test
+  func laterUserTurnHistoryCompactsPreviousToolObservationToReceipt() throws {
+    let callID = UUID()
+    let transcript = ModelFacingTranscript(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        content: """
+          <action name="read_file">
+          <path>README.md</path>
+          </action>
+          """
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .readFile,
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            ))
+        ),
+        request: toolRequest(
+          callID: callID,
+          toolName: .readFile,
+          arguments: ["path": .string("README.md")]
+        )
+      ),
+      try ModelFacingPromptRenderer.assistantOutputEntry(content: "README.md is a project file."),
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "what did you read?"),
+    ])
+
+    let history = try GemmaMLXRuntime.generationHistoryMessages(from: transcript)
+
+    #expect(history.map(\.role) == [.user, .assistant, .user, .assistant])
+    #expect(history[2].content.contains("Tool receipt: read_file"))
+    #expect(history[2].content.contains("Summary:"))
+    #expect(history[2].content.contains("Project overview"))
+    #expect(history[2].content.contains("<observation") == false)
   }
 
   @Test

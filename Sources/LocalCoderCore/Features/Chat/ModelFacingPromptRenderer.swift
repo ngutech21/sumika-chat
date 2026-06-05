@@ -60,6 +60,11 @@ public enum ModelFacingPromptRenderer {
       projection.observation,
       callID: toolResult.callID
     )
+    let toolReceipt = ToolReceiptFactory.make(
+      callID: toolResult.callID,
+      toolName: toolResult.toolName,
+      preview: toolResult.preview
+    )
     if toolResult.toolName == .writeFile || toolResult.toolName == .editFile {
       return try ModelContextEntry(
         id: id,
@@ -70,7 +75,8 @@ public enum ModelFacingPromptRenderer {
             callID: toolResult.callID,
             toolName: toolResult.toolName,
             status: projection.observation.status,
-            content: rawContent
+            content: rawContent,
+            toolReceipt: toolReceipt
           )
         ),
         frozenContent: FrozenModelContent(role: .assistant, content: rawContent)
@@ -86,7 +92,8 @@ public enum ModelFacingPromptRenderer {
           callID: toolResult.callID,
           toolName: toolResult.toolName,
           status: projection.observation.status,
-          content: rawContent
+          content: rawContent,
+          toolReceipt: toolReceipt
         )
       ),
       frozenContent: FrozenModelContent(
@@ -121,7 +128,8 @@ public enum ModelFacingPromptRenderer {
           callID: terminalToolResult.callID,
           toolName: terminalToolResult.toolName,
           status: terminalToolResult.status,
-          content: prompt
+          content: prompt,
+          toolReceipt: terminalToolResult.toolReceipt
         )
       ),
       frozenContent: FrozenModelContent(
@@ -188,6 +196,65 @@ public enum ModelFacingPromptRenderer {
     systemContext
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
+  }
+}
+
+enum ToolReceiptFactory {
+  static func make(
+    callID: UUID,
+    toolName: ToolName,
+    preview: ToolResultPreview
+  ) -> ToolReceipt? {
+    guard let summary = ToolReceiptSummary.checked(text: preview.text) else {
+      return nil
+    }
+
+    let affectedPaths = preview.affectedPaths.compactMap { path -> WorkspaceRelativePath? in
+      let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else {
+        return nil
+      }
+      return WorkspaceRelativePath(rawValue: trimmed)
+    }
+
+    return ToolReceipt.make(
+      callID: callID,
+      toolName: toolName,
+      status: preview.status,
+      affectedPaths: affectedPaths,
+      summary: summary,
+      outputTruncated: preview.truncated || summary.truncated,
+      outputRedacted: preview.redacted
+    )
+  }
+}
+
+public enum ToolReceiptRenderer {
+  public static func render(_ receipt: ToolReceipt) -> String {
+    var lines = [
+      "Tool receipt: \(receipt.toolName.rawValue)",
+      "Call ID: \(receipt.callID.uuidString)",
+      "Status: \(receipt.status.rawValue)",
+    ]
+
+    if receipt.affectedPaths.isEmpty {
+      lines.append("Affected paths: none")
+    } else {
+      lines.append("Affected paths:")
+      lines.append(contentsOf: receipt.affectedPaths.map { "- \($0.rawValue)" })
+    }
+
+    lines.append("Summary:")
+    lines.append(receipt.summary.text)
+    if receipt.summary.truncated || receipt.outputTruncated {
+      lines.append("Tool output summary was truncated.")
+    }
+    if receipt.outputRedacted {
+      lines.append("Tool output was redacted.")
+    }
+    lines.append(
+      "Receipt is not full file or code context; read_file is required for exact content.")
+    return lines.joined(separator: "\n")
   }
 }
 

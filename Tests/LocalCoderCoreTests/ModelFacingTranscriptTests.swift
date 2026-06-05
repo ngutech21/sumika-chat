@@ -236,4 +236,181 @@ struct ModelFacingTranscriptTests {
         "Use the preceding tool result to answer the user's request."))
     #expect(finalEntry.frozenContent.content.contains("No more tools may run in this response."))
   }
+
+  @Test
+  func toolResultEntryStoresTypedToolReceiptMetadata() throws {
+    let callID = UUID()
+    let entry = try readFileToolResultEntry(
+      callID: callID,
+      content: "Project overview",
+      truncated: true,
+      redacted: true
+    )
+
+    guard case .toolObservation(let context) = entry.body else {
+      Issue.record("Expected tool observation context.")
+      return
+    }
+    let receipt = try #require(context.toolReceipt)
+    #expect(receipt.callID == callID)
+    #expect(receipt.toolName == .readFile)
+    #expect(receipt.status == .success)
+    #expect(receipt.affectedPaths == [WorkspaceRelativePath(rawValue: "README.md")])
+    #expect(receipt.summary.text == "Project overview")
+    #expect(receipt.outputTruncated)
+    #expect(receipt.outputRedacted)
+    #expect(entry.frozenContent.content.contains("<observation"))
+  }
+
+  @Test
+  func toolReceiptSummaryIsDeterministicallyTruncated() throws {
+    let longContent = String(repeating: "a", count: 700)
+    let entry = try readFileToolResultEntry(callID: UUID(), content: longContent)
+
+    guard case .toolObservation(let context) = entry.body else {
+      Issue.record("Expected tool observation context.")
+      return
+    }
+    let receipt = try #require(context.toolReceipt)
+    #expect(receipt.summary.text == String(longContent.prefix(600)))
+    #expect(receipt.summary.truncated)
+    #expect(receipt.outputTruncated)
+  }
+
+  @Test
+  func compactedProjectionRendersPreviousTurnToolObservationAsReceipt() throws {
+    let toolEntry = try readFileToolResultEntry(
+      callID: UUID(),
+      content: "Very large file body that should not remain in later history."
+    )
+    let transcript = ModelFacingTranscript(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
+      try ModelFacingPromptRenderer.assistantOutputEntry(content: "I will read it."),
+      toolEntry,
+      try ModelFacingPromptRenderer.assistantOutputEntry(content: "I read README.md."),
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "what did you do?"),
+    ])
+
+    let projected = transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
+
+    #expect(projected[2].content.contains("Tool receipt: read_file"))
+    #expect(projected[2].content.contains("Very large file body"))
+    #expect(projected[2].content.contains("<observation") == false)
+    #expect(projected[4].content.contains("what did you do?"))
+  }
+
+  @Test
+  func compactedProjectionKeepsActiveSameTurnToolFollowUpFull() throws {
+    let toolEntry = try readFileToolResultEntry(
+      callID: UUID(),
+      content: "Project overview"
+    )
+    let transcript = ModelFacingTranscript(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
+      try ModelFacingPromptRenderer.assistantOutputEntry(content: "I will read it."),
+      toolEntry,
+    ])
+
+    let projected = transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
+
+    #expect(projected[2].content.contains("<observation"))
+    #expect(projected[2].content.contains("Project overview"))
+    #expect(projected[2].content.contains("Tool receipt:") == false)
+  }
+
+  @Test
+  func finalToolResultFollowUpPreservesToolReceiptMetadata() throws {
+    let callID = UUID()
+    let terminalEntry = try ModelFacingPromptRenderer.toolResultEntry(
+      toolResult: ToolResultModelMessage(
+        callID: callID,
+        toolName: .writeFile,
+        payload: .writeFile(
+          .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 18)
+        )
+      ),
+      request: writeFileRequest(callID: callID)
+    )
+
+    guard case .terminalToolResult(let terminalContext) = terminalEntry.body else {
+      Issue.record("Expected terminal tool result context.")
+      return
+    }
+
+    let followUpEntry = try ModelFacingPromptRenderer.finalToolResultPromptEntry(
+      terminalToolResult: terminalContext,
+      followUpInstruction: "Use the preceding tool result to answer the user's request."
+    )
+
+    guard case .toolObservation(let context) = followUpEntry.body else {
+      Issue.record("Expected tool observation context.")
+      return
+    }
+    let receipt = try #require(context.toolReceipt)
+    #expect(receipt.callID == callID)
+    #expect(receipt.toolName == .writeFile)
+    #expect(receipt.summary.text == "Wrote 18 bytes to movies.html.")
+  }
+
+  @Test
+  func toolReceiptMetadataCodableRoundTripsInTranscript() throws {
+    let entry = try readFileToolResultEntry(callID: UUID(), content: "Project overview")
+    let transcript = ModelFacingTranscript(entries: [entry])
+
+    let decoded = try JSONDecoder().decode(
+      ModelFacingTranscript.self,
+      from: JSONEncoder().encode(transcript)
+    )
+
+    #expect(decoded == transcript)
+    guard case .toolObservation(let context) = decoded.entries[0].body else {
+      Issue.record("Expected decoded tool observation context.")
+      return
+    }
+    #expect(context.toolReceipt?.summary.text == "Project overview")
+  }
+
+  private func readFileToolResultEntry(
+    callID: UUID,
+    content: String,
+    truncated: Bool = false,
+    redacted: Bool = false
+  ) throws -> ModelContextEntry {
+    try ModelFacingPromptRenderer.toolResultEntry(
+      toolResult: ToolResultModelMessage(
+        callID: callID,
+        toolName: .readFile,
+        payload: .readFile(
+          .success(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            content: ToolTextOutput(text: content, truncated: truncated, redacted: redacted)
+          ))
+      ),
+      request: readFileRequest(callID: callID)
+    )
+  }
+
+  private func readFileRequest(callID: UUID) -> ToolCallRequest {
+    ToolCallRequest.validated(
+      raw: RawToolCallRequest(
+        id: callID,
+        workspaceID: UUID(),
+        sessionID: UUID(),
+        toolName: .readFile
+      ),
+      payload: .readFile(ReadFileInput(path: "README.md"))
+    )
+  }
+
+  private func writeFileRequest(callID: UUID) -> ToolCallRequest {
+    ToolCallRequest.validated(
+      raw: RawToolCallRequest(
+        id: callID,
+        workspaceID: UUID(),
+        sessionID: UUID(),
+        toolName: .writeFile
+      ),
+      payload: .writeFile(WriteFileInput(path: "movies.html", content: "<html></html>"))
+    )
+  }
 }
