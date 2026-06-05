@@ -5,11 +5,15 @@ import Observation
 @MainActor
 @Observable
 final class AppState {
-  var workspaceLibrary: WorkspaceLibrary
+  var workspaceLibrary: WorkspaceLibrary {
+    get { workspaceLibraryController.library }
+    set { workspaceLibraryController.replaceLibrary(newValue) }
+  }
   var workspaceErrorMessage: String?
   var isWorkspaceLibraryLoading = true
 
   @ObservationIgnored let chatController: ChatSessionController
+  private var workspaceLibraryController: WorkspaceLibraryController
   @ObservationIgnored private let workspaceStore: any WorkspaceStoring
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
@@ -26,7 +30,6 @@ final class AppState {
   ) {
     self.workspaceStore = workspaceStore
     self.modelSettingsStore = modelSettingsStore
-    self.workspaceLibrary = WorkspaceLibrary()
 
     if let chatController {
       self.chatController = chatController
@@ -38,6 +41,13 @@ final class AppState {
         turnTracer: GemmaDebugTraceStore.shared
       )
     }
+    self.workspaceLibraryController = WorkspaceLibraryController(
+      defaultSessionFactory: Self.defaultSessionFactory(
+        selectedModelID: defaultSessionModelID,
+        systemPrompt: defaultSessionSystemPrompt,
+        generationSettings: defaultSessionGenerationSettings
+      )
+    )
 
     self.chatController.setSessionChangeHandler { [weak self] in
       self?.persistActiveSession()
@@ -46,139 +56,65 @@ final class AppState {
   }
 
   var activeWorkspace: Workspace? {
-    guard let activeWorkspaceID = workspaceLibrary.activeWorkspaceID else {
-      return nil
-    }
-
-    return workspaceLibrary.workspaces.first { $0.id == activeWorkspaceID }
+    workspaceLibraryController.activeWorkspace
   }
 
   var activeSession: CodingSession? {
-    guard
-      let activeWorkspace,
-      let activeSessionID = workspaceLibrary.activeSessionID
-    else {
-      return nil
-    }
-
-    return activeWorkspace.sessions.first { $0.id == activeSessionID }
+    workspaceLibraryController.activeSession
   }
 
   var activeSessionID: CodingSession.ID? {
-    workspaceLibrary.activeSessionID
+    workspaceLibraryController.activeSessionID
   }
 
   @discardableResult
   func addWorkspace(from url: URL) -> CodingSession.ID? {
     let rootURL = url.standardizedFileURL.resolvingSymlinksInPath()
-    let normalizedPath = Workspace.normalizedPath(for: rootURL)
-
-    if let existingWorkspace = workspaceLibrary.workspaces.first(where: {
-      $0.normalizedRootPath == normalizedPath
-    }) {
-      activateWorkspace(existingWorkspace.id)
-      return workspaceLibrary.activeSessionID
-    }
-
-    let session = makeDefaultSession()
-    let now = Date()
-    let workspace = Workspace(
+    persistActiveSession()
+    refreshDefaultSessionFactory()
+    let sessionID = workspaceLibraryController.addWorkspace(
       name: rootURL.lastPathComponent,
       rootURL: rootURL,
-      bookmarkData: makeSecurityScopedBookmarkData(for: rootURL),
-      sessions: [session],
-      createdAt: now,
-      updatedAt: now
+      bookmarkData: makeSecurityScopedBookmarkData(for: rootURL)
     )
-
-    workspaceLibrary.workspaces.append(workspace)
-    workspaceLibrary.activeWorkspaceID = workspace.id
-    workspaceLibrary.activeSessionID = session.id
     saveLibrary()
     loadActiveSession()
-    return session.id
+    return sessionID
   }
 
   @discardableResult
   func createSession(in workspaceID: Workspace.ID? = nil) -> CodingSession.ID? {
-    guard
-      let workspaceIndex = workspaceIndex(for: workspaceID ?? workspaceLibrary.activeWorkspaceID)
-    else {
+    refreshDefaultSessionFactory()
+    guard let sessionID = workspaceLibraryController.createSession(in: workspaceID) else {
       return nil
     }
-
-    let session = makeDefaultSession()
-    workspaceLibrary.workspaces[workspaceIndex].sessions.append(session)
-    workspaceLibrary.workspaces[workspaceIndex].updatedAt = Date()
-    workspaceLibrary.activeWorkspaceID = workspaceLibrary.workspaces[workspaceIndex].id
-    workspaceLibrary.activeSessionID = session.id
     saveLibrary()
     loadActiveSession()
-    return session.id
+    return sessionID
   }
 
   func selectSession(_ sessionID: CodingSession.ID) {
     persistActiveSession()
-
-    guard
-      let workspaceIndex = workspaceLibrary.workspaces.firstIndex(where: { workspace in
-        workspace.sessions.contains { $0.id == sessionID }
-      })
-    else {
+    guard workspaceLibraryController.selectSession(sessionID) else {
       return
     }
-
-    workspaceLibrary.activeWorkspaceID = workspaceLibrary.workspaces[workspaceIndex].id
-    workspaceLibrary.activeSessionID = sessionID
     saveLibrary()
     loadActiveSession()
   }
 
   func renameSession(_ sessionID: CodingSession.ID, title: String) {
-    let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard
-      !trimmedTitle.isEmpty,
-      let workspaceIndex = workspaceLibrary.workspaces.firstIndex(where: { workspace in
-        workspace.sessions.contains { $0.id == sessionID }
-      }),
-      let sessionIndex = workspaceLibrary.workspaces[workspaceIndex].sessions.firstIndex(where: {
-        $0.id == sessionID
-      })
-    else {
+    guard workspaceLibraryController.renameSession(sessionID, title: title) else {
       return
     }
-
-    let now = Date()
-    workspaceLibrary.workspaces[workspaceIndex].sessions[sessionIndex].title = trimmedTitle
-    workspaceLibrary.workspaces[workspaceIndex].sessions[sessionIndex].updatedAt = now
-    workspaceLibrary.workspaces[workspaceIndex].updatedAt = now
     saveLibrary()
   }
 
   func deleteSession(_ sessionID: CodingSession.ID) {
-    guard
-      let workspaceIndex = workspaceLibrary.workspaces.firstIndex(where: { workspace in
-        workspace.sessions.contains { $0.id == sessionID }
-      })
-    else {
+    let wasActiveSession = workspaceLibrary.activeSessionID == sessionID
+    refreshDefaultSessionFactory()
+    guard workspaceLibraryController.deleteSession(sessionID) else {
       return
     }
-
-    let wasActiveSession = workspaceLibrary.activeSessionID == sessionID
-    workspaceLibrary.workspaces[workspaceIndex].sessions.removeAll { $0.id == sessionID }
-
-    if workspaceLibrary.workspaces[workspaceIndex].sessions.isEmpty {
-      let replacementSession = makeDefaultSession()
-      workspaceLibrary.workspaces[workspaceIndex].sessions = [replacementSession]
-      workspaceLibrary.activeWorkspaceID = workspaceLibrary.workspaces[workspaceIndex].id
-      workspaceLibrary.activeSessionID = replacementSession.id
-    } else if wasActiveSession {
-      workspaceLibrary.activeWorkspaceID = workspaceLibrary.workspaces[workspaceIndex].id
-      workspaceLibrary.activeSessionID =
-        workspaceLibrary.workspaces[workspaceIndex].sessions.first?.id
-    }
-
-    workspaceLibrary.workspaces[workspaceIndex].updatedAt = Date()
     saveLibrary()
 
     if wasActiveSession {
@@ -188,46 +124,25 @@ final class AppState {
 
   func persistActiveSession() {
     guard
-      let workspaceIndex = activeWorkspaceIndex,
-      let sessionIndex = activeSessionIndex(in: workspaceIndex)
+      let currentSession = activeSession
     else {
       return
     }
 
-    let currentSession = workspaceLibrary.workspaces[workspaceIndex].sessions[sessionIndex]
-    workspaceLibrary.workspaces[workspaceIndex].sessions[sessionIndex] =
+    workspaceLibraryController.persistActiveSessionSnapshot(
       chatController.sessionSnapshot(updating: currentSession)
-    workspaceLibrary.workspaces[workspaceIndex].updatedAt = Date()
+    )
     saveLibrary()
   }
 
   private func normalizeLoadedLibrary() {
-    workspaceLibrary.workspaces = workspaceLibrary.workspaces.map(resolveBookmarkedWorkspace)
-    workspaceLibrary.workspaces = deduplicatedWorkspaces(workspaceLibrary.workspaces)
-
-    if let activeWorkspaceID = workspaceLibrary.activeWorkspaceID,
-      !workspaceLibrary.workspaces.contains(where: { $0.id == activeWorkspaceID })
-    {
-      workspaceLibrary.activeWorkspaceID = nil
-      workspaceLibrary.activeSessionID = nil
-    }
-
-    if workspaceLibrary.activeWorkspaceID == nil {
-      workspaceLibrary.activeWorkspaceID = workspaceLibrary.workspaces.first?.id
-    }
-
-    ensureActiveWorkspaceHasSession()
-
-    if let activeWorkspaceIndex,
-      let activeSessionID = workspaceLibrary.activeSessionID,
-      !workspaceLibrary.workspaces[activeWorkspaceIndex].sessions.contains(where: {
-        $0.id == activeSessionID
-      })
-    {
-      workspaceLibrary.activeSessionID =
-        workspaceLibrary.workspaces[activeWorkspaceIndex].sessions.first?.id
-    }
-
+    let resolvedLibrary = WorkspaceLibrary(
+      workspaces: workspaceLibrary.workspaces.map(resolveBookmarkedWorkspace),
+      activeWorkspaceID: workspaceLibrary.activeWorkspaceID,
+      activeSessionID: workspaceLibrary.activeSessionID
+    )
+    workspaceLibraryController.replaceLibrary(resolvedLibrary)
+    workspaceLibraryController.normalizeLoadedLibrary()
     saveLibrary()
   }
 
@@ -255,40 +170,6 @@ final class AppState {
     }
   }
 
-  private func ensureActiveWorkspaceHasSession() {
-    guard let activeWorkspaceIndex else {
-      return
-    }
-
-    if workspaceLibrary.workspaces[activeWorkspaceIndex].sessions.isEmpty {
-      let session = makeDefaultSession()
-      workspaceLibrary.workspaces[activeWorkspaceIndex].sessions = [session]
-      workspaceLibrary.activeSessionID = session.id
-    } else if workspaceLibrary.activeSessionID == nil {
-      workspaceLibrary.activeSessionID =
-        workspaceLibrary.workspaces[activeWorkspaceIndex].sessions.first?.id
-    }
-  }
-
-  private func activateWorkspace(_ workspaceID: Workspace.ID) {
-    persistActiveSession()
-    workspaceLibrary.activeWorkspaceID = workspaceID
-
-    if let workspaceIndex = workspaceIndex(for: workspaceID) {
-      if workspaceLibrary.workspaces[workspaceIndex].sessions.isEmpty {
-        let session = makeDefaultSession()
-        workspaceLibrary.workspaces[workspaceIndex].sessions = [session]
-        workspaceLibrary.activeSessionID = session.id
-      } else {
-        workspaceLibrary.activeSessionID =
-          workspaceLibrary.workspaces[workspaceIndex].sessions.first?.id
-      }
-    }
-
-    saveLibrary()
-    loadActiveSession()
-  }
-
   private func loadActiveSession() {
     guard let activeSession else {
       return
@@ -297,22 +178,37 @@ final class AppState {
     chatController.loadSession(activeSession)
   }
 
-  private func makeDefaultSession() -> CodingSession {
+  private func refreshDefaultSessionFactory() {
+    workspaceLibraryController.defaultSessionFactory = makeDefaultSessionFactory()
+  }
+
+  private func makeDefaultSessionFactory() -> DefaultCodingSessionFactory {
     if chatController.modelRuntime.selectedModelID != ManagedModelCatalog.defaultModelID
       || defaultSessionModelID == ManagedModelCatalog.defaultModelID
     {
-      return CodingSession(
+      return Self.defaultSessionFactory(
         selectedModelID: chatController.modelRuntime.selectedModelID,
         systemPrompt: chatController.chatSession.systemPrompt,
-        generationSettings: chatController.chatSession.generationSettings,
-        interactionMode: .chat
+        generationSettings: chatController.chatSession.generationSettings
       )
     }
 
-    return CodingSession(
+    return Self.defaultSessionFactory(
       selectedModelID: defaultSessionModelID,
       systemPrompt: defaultSessionSystemPrompt,
-      generationSettings: defaultSessionGenerationSettings,
+      generationSettings: defaultSessionGenerationSettings
+    )
+  }
+
+  private static func defaultSessionFactory(
+    selectedModelID: ManagedModel.ID,
+    systemPrompt: String,
+    generationSettings: ChatGenerationSettings
+  ) -> DefaultCodingSessionFactory {
+    DefaultCodingSessionFactory(
+      selectedModelID: selectedModelID,
+      systemPrompt: systemPrompt,
+      generationSettings: generationSettings,
       interactionMode: .chat
     )
   }
@@ -355,48 +251,11 @@ final class AppState {
       defaultSessionModelID = selectedModel.id
       defaultSessionSystemPrompt = settings.systemPrompt
       defaultSessionGenerationSettings = settings.generationSettings
-      self.workspaceLibrary = library
+      self.refreshDefaultSessionFactory()
+      self.workspaceLibraryController.replaceLibrary(library)
       self.normalizeLoadedLibrary()
       self.loadActiveSession()
       self.isWorkspaceLibraryLoading = false
-    }
-  }
-
-  private func deduplicatedWorkspaces(_ workspaces: [Workspace]) -> [Workspace] {
-    var seenPaths = Set<String>()
-    var uniqueWorkspaces: [Workspace] = []
-
-    for workspace in workspaces {
-      guard !seenPaths.contains(workspace.normalizedRootPath) else {
-        continue
-      }
-
-      seenPaths.insert(workspace.normalizedRootPath)
-      uniqueWorkspaces.append(workspace)
-    }
-
-    return uniqueWorkspaces
-  }
-
-  private func workspaceIndex(for workspaceID: Workspace.ID?) -> Int? {
-    guard let workspaceID else {
-      return nil
-    }
-
-    return workspaceLibrary.workspaces.firstIndex { $0.id == workspaceID }
-  }
-
-  private var activeWorkspaceIndex: Int? {
-    workspaceIndex(for: workspaceLibrary.activeWorkspaceID)
-  }
-
-  private func activeSessionIndex(in workspaceIndex: Int) -> Int? {
-    guard let activeSessionID = workspaceLibrary.activeSessionID else {
-      return nil
-    }
-
-    return workspaceLibrary.workspaces[workspaceIndex].sessions.firstIndex {
-      $0.id == activeSessionID
     }
   }
 
