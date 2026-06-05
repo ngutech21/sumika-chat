@@ -24,6 +24,7 @@ struct WorkspaceChatView: View {
         toolCalls: controller.chatSession.toolCalls,
         selectedModel: controller.modelRuntime.selectedModel,
         modelState: controller.modelRuntime.modelState,
+        isGenerating: controller.isGenerating,
         onApproveToolCall: { toolCallID in
           controller.approveToolCall(id: toolCallID, in: workspace)
         },

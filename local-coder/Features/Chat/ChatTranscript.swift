@@ -8,36 +8,58 @@ struct ChatTranscript: View {
   let toolCalls: [ToolCallRecord]
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
+  let isGenerating: Bool
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
 
   var body: some View {
-    ScrollView {
-      LazyVStack(alignment: .leading, spacing: 12) {
-        if transcriptItems.isEmpty {
-          ContentUnavailableView(
-            emptyStateTitle,
-            systemImage: "bubble.left.and.bubble.right",
-            description: Text(emptyStateDescription)
-          )
-          .frame(maxWidth: .infinity, minHeight: 360)
-          .accessibilityIdentifier("chat.emptyState")
-        } else {
-          ForEach(transcriptItems) { item in
-            ChatBubble(
-              item: item,
-              onApproveToolCall: onApproveToolCall,
-              onDenyToolCall: onDenyToolCall
+    ScrollViewReader { scrollProxy in
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 12) {
+          if transcriptItems.isEmpty {
+            ContentUnavailableView(
+              emptyStateTitle,
+              systemImage: "bubble.left.and.bubble.right",
+              description: Text(emptyStateDescription)
             )
+            .frame(maxWidth: .infinity, minHeight: 360)
+            .accessibilityIdentifier("chat.emptyState")
+          } else {
+            ForEach(transcriptItems) { item in
+              ChatBubble(
+                item: item,
+                onApproveToolCall: onApproveToolCall,
+                onDenyToolCall: onDenyToolCall
+              )
+            }
+
+            if shouldShowTranscriptGenerationIndicator {
+              TranscriptGenerationIndicator()
+            }
           }
+
+          Color.clear
+            .frame(height: 1)
+            .id(Self.bottomAnchorID)
         }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
-      .padding(20)
-      .frame(maxWidth: .infinity, alignment: .leading)
+      .accessibilityIdentifier("chat.transcript")
+      .accessibilityValue(modelState.accessibilityValue)
+      .onAppear {
+        scrollToBottom(with: scrollProxy, animated: false)
+      }
+      .onChange(of: scrollSignature) {
+        scrollToBottom(with: scrollProxy)
+      }
+      .onChange(of: isGenerating) {
+        scrollToBottom(with: scrollProxy)
+      }
     }
-    .accessibilityIdentifier("chat.transcript")
-    .accessibilityValue(modelState.accessibilityValue)
   }
+
+  private static let bottomAnchorID = "chat.transcript.bottom"
 
   private var emptyStateTitle: String {
     switch modelState {
@@ -109,6 +131,56 @@ struct ChatTranscript: View {
       }
     }
   }
+
+  private var shouldShowTranscriptGenerationIndicator: Bool {
+    isGenerating && !transcriptItems.contains { $0.shouldShowAssistantPlaceholder }
+  }
+
+  private var scrollSignature: String {
+    let turnSignature = turns.map { turn in
+      let itemSignature = turn.items.map { item in
+        switch item {
+        case .userMessage(let message):
+          return
+            "user:\(message.id.uuidString):\(message.content.count):\(message.attachments.count)"
+        case .assistantMessage(let message):
+          return [
+            "assistant",
+            message.id.uuidString,
+            "\(message.content.count)",
+            message.deliveryStatus.rawValue,
+            "\(message.generationMetrics?.generatedTokenCount ?? 0)",
+          ].joined(separator: ":")
+        case .toolCall(let id):
+          return "toolCall:\(id.uuidString)"
+        case .toolResult(let id):
+          return "toolResult:\(id.uuidString)"
+        }
+      }
+      .joined(separator: ",")
+      return "\(turn.id.uuidString):\(turn.status.rawValue):\(itemSignature)"
+    }
+    .joined(separator: "|")
+
+    let toolSignature = toolCalls.map { record in
+      "\(record.id.uuidString):\(record.status.rawValue)"
+    }
+    .joined(separator: "|")
+
+    return "\(turnSignature)#\(toolSignature)#generating:\(isGenerating)"
+  }
+
+  private func scrollToBottom(with scrollProxy: ScrollViewProxy, animated: Bool = true) {
+    Task { @MainActor in
+      if animated {
+        withAnimation(.easeOut(duration: 0.18)) {
+          scrollProxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+        }
+      } else {
+        scrollProxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+      }
+    }
+  }
 }
 
 private struct RenderedChatTurnItem: Identifiable {
@@ -138,14 +210,7 @@ private struct ChatBubble: View {
         }
 
         if item.shouldShowAssistantPlaceholder {
-          Label(
-            item.assistantPlaceholderTitle,
-            systemImage: item.assistantPlaceholderSystemImage
-          )
-          .foregroundStyle(.secondary)
-          .padding(10)
-          .background(Color.secondary.opacity(0.12))
-          .clipShape(RoundedRectangle(cornerRadius: 8))
+          AssistantPlaceholderView(item: item)
         } else {
           VStack(alignment: item.isDisplayedAsUser ? .trailing : .leading, spacing: 8) {
             MessageContentText(
@@ -170,7 +235,7 @@ private struct ChatBubble: View {
           SentAttachmentList(attachments: item.attachments)
         }
 
-        if item.canCopyAssistantContent {
+        if item.canCopyMessageContent {
           HStack(spacing: 8) {
             Button {
               copyMessageToClipboard()
@@ -180,7 +245,7 @@ private struct ChatBubble: View {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help(didCopy ? "Copied" : "Copy")
-            .accessibilityLabel("Copy assistant message")
+            .accessibilityLabel(item.copyAccessibilityLabel)
           }
         }
       }
@@ -206,6 +271,60 @@ private struct ChatBubble: View {
       try? await Task.sleep(for: .seconds(1.2))
       didCopy = false
     }
+  }
+}
+
+private struct AssistantPlaceholderView: View {
+  let item: RenderedChatTurnItem
+
+  var body: some View {
+    HStack(spacing: 8) {
+      ProgressView()
+        .controlSize(.small)
+
+      Label(
+        item.assistantPlaceholderTitle,
+        systemImage: item.assistantPlaceholderSystemImage
+      )
+      .labelStyle(.titleAndIcon)
+    }
+    .foregroundStyle(.secondary)
+    .padding(10)
+    .background(Color.secondary.opacity(0.12))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(item.assistantPlaceholderTitle)
+    .accessibilityIdentifier("chat.generationSpinner")
+  }
+}
+
+private struct TranscriptGenerationIndicator: View {
+  var body: some View {
+    HStack(alignment: .top) {
+      VStack(alignment: .leading, spacing: 6) {
+        Label("Local Coder", systemImage: "cpu")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+
+        HStack(spacing: 8) {
+          ProgressView()
+            .controlSize(.small)
+
+          Text("Generating")
+        }
+        .foregroundStyle(.secondary)
+        .padding(10)
+        .background(Color.secondary.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Generating")
+        .accessibilityIdentifier("chat.generationSpinner")
+      }
+      .frame(maxWidth: 680, alignment: .leading)
+
+      Spacer(minLength: 80)
+    }
+    .frame(maxWidth: .infinity)
   }
 }
 
@@ -447,8 +566,19 @@ extension RenderedChatTurnItem {
     return message.attachments
   }
 
-  var canCopyAssistantContent: Bool {
-    assistantMessage?.canCopyAssistantContent ?? false
+  var canCopyMessageContent: Bool {
+    switch item {
+    case .userMessage(let message):
+      !message.content.isEmpty
+    case .assistantMessage(let message):
+      message.canCopyAssistantContent
+    case .toolCall, .toolResult:
+      false
+    }
+  }
+
+  var copyAccessibilityLabel: String {
+    isDisplayedAsUser ? "Copy user message" : "Copy assistant message"
   }
 
   var content: String {
