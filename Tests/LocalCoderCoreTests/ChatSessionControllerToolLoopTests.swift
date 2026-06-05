@@ -3,6 +3,7 @@ import Testing
 
 @testable import LocalCoderCore
 
+@Suite(.serialized)
 @MainActor
 struct ChatSessionControllerToolLoopTests {
   @Test

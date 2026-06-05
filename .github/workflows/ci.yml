@@ -49,4 +49,4 @@ jobs:
 
       - name: Run package tests
         timeout-minutes: 10
-        run: swift test --skip-build --disable-xctest --enable-swift-testing --verbose
+        run: swift test --skip-build --disable-xctest --enable-swift-testing --no-parallel --verbose

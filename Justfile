@@ -20,7 +20,7 @@ release:
 test: test-core test-app
 
 test-core:
-    {{swift}} test -q -Xswiftc -warnings-as-errors
+    {{swift}} test --no-parallel -q -Xswiftc -warnings-as-errors
 
 
 data-model:

@@ -3,6 +3,7 @@ import Testing
 
 @testable import LocalCoderCore
 
+@Suite(.serialized)
 @MainActor
 struct ChatAttachmentCoordinatorTests {
   @Test
@@ -39,6 +40,10 @@ struct ChatAttachmentCoordinatorTests {
   @Test
   func newerLoadInvalidatesOlderResult() async throws {
     let loader = AttachmentControlledLoader()
+    defer {
+      loader.resolve(at: 0, with: [])
+      loader.resolve(at: 1, with: [])
+    }
     let coordinator = ChatAttachmentCoordinator(loader: loader)
     let firstAttachment = makeAttachment(name: "first.swift", content: "first")
     let secondAttachment = makeAttachment(name: "second.swift", content: "second")
@@ -203,7 +208,7 @@ private final class AttachmentControlledLoader: ChatAttachmentLoading, @unchecke
     calls.append(call)
     lock.unlock()
 
-    call.wait()
+    try call.wait()
     lock.lock()
     completedCalls += 1
     lock.unlock()
@@ -239,8 +244,10 @@ private final class ControlledAttachmentLoad: @unchecked Sendable {
     return _attachments
   }
 
-  func wait() {
-    semaphore.wait()
+  func wait() throws {
+    guard semaphore.wait(timeout: .now() + .seconds(2)) == .success else {
+      throw TestWaitTimeoutError()
+    }
   }
 
   func resolve(with attachments: [ChatAttachment]) {

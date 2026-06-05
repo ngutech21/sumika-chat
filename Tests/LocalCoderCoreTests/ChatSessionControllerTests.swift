@@ -3,6 +3,7 @@ import Testing
 
 @testable import LocalCoderCore
 
+@Suite(.serialized)
 @MainActor
 struct ChatSessionControllerTests {
   @Test
@@ -144,6 +145,7 @@ struct ChatSessionControllerTests {
   @Test
   func sendMessageWaitsForPendingRuntimeContextClear() async throws {
     let runtime = DelayedClearContextRuntime()
+    defer { Task { await runtime.releaseClearContext() } }
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
 
@@ -250,6 +252,7 @@ struct ChatSessionControllerTests {
   @Test
   func cancelGenerationStopsControllerAndDropsTransientAssistantPlaceholder() async throws {
     let runtime = NonCooperativeStreamingRuntime(chunks: ["late reply"])
+    defer { Task { await runtime.releaseChunks() } }
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.draft = "Cancel this"
@@ -336,6 +339,7 @@ struct ChatSessionControllerTests {
       ],
       blockedCallIndexes: [1]
     )
+    defer { Task { await runtime.releaseStream(callIndex: 1) } }
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.inspect)
@@ -376,6 +380,12 @@ struct ChatSessionControllerTests {
       ],
       blockedCallIndexes: [0, 1]
     )
+    defer {
+      Task {
+        await runtime.releaseStream(callIndex: 0)
+        await runtime.releaseStream(callIndex: 1)
+      }
+    }
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.draft = "first"
@@ -927,6 +937,7 @@ struct ChatSessionControllerTests {
   @Test
   func refreshContextUsageEstimatesWhileGeneratingWithoutDeferredTokenization() async throws {
     let runtime = ControlledStreamingRuntime(turns: [["done"]], blockedCallIndexes: [0])
+    defer { Task { await runtime.releaseStream(callIndex: 0) } }
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.draft = "Wait before answering"
@@ -951,6 +962,7 @@ struct ChatSessionControllerTests {
   func clearChatHistoryDoesNotPublishStaleContextUsageAfterModelChange() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = DelayedClearContextRuntime()
+    defer { Task { await runtime.releaseClearContext() } }
     let controller = ChatSessionController(
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
@@ -977,6 +989,7 @@ struct ChatSessionControllerTests {
   @Test
   func staleAttachmentLoadDoesNotAppendAfterNewerAttachmentRequest() async throws {
     let loader = BlockingFirstAttachmentLoader()
+    defer { loader.releaseFirstLoad() }
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model",

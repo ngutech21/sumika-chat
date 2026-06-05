@@ -72,6 +72,10 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
       return
     }
     streamContinuation = continuation
+    Task {
+      try? await Task.sleep(for: .seconds(2))
+      self.releaseChunks()
+    }
   }
 
   private func recordStreamFinished() {
@@ -330,6 +334,10 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
       return
     }
     streamContinuations[callIndex] = continuation
+    Task {
+      try? await Task.sleep(for: .seconds(2))
+      self.releaseStream(callIndex: callIndex)
+    }
   }
 
   private func recordStreamFinished(callIndex: Int) {
@@ -398,6 +406,10 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
     didStartClearContext = true
     await withCheckedContinuation { continuation in
       clearContextContinuation = continuation
+      Task {
+        try? await Task.sleep(for: .seconds(2))
+        self.releaseClearContext()
+      }
     }
     didFinishClearContext = true
   }
@@ -465,7 +477,9 @@ final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sen
     lock.unlock()
 
     if callNumber == 1 {
-      firstLoadRelease.wait()
+      guard firstLoadRelease.wait(timeout: .now() + .seconds(2)) == .success else {
+        throw TestWaitTimeoutError()
+      }
     }
 
     lock.lock()

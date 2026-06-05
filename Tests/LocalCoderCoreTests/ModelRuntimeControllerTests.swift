@@ -3,6 +3,7 @@ import Testing
 
 @testable import LocalCoderCore
 
+@Suite(.serialized)
 @MainActor
 struct ModelRuntimeControllerTests {
   @Test
@@ -185,6 +186,7 @@ struct ModelRuntimeControllerTests {
     let firstModelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let secondModelDirectory = try makeModelDirectory(config: #"{"n_ctx":4096}"#)
     let runtime = RuntimeControllerRaceLoadingRuntime()
+    defer { Task { await runtime.releaseFirstLoad() } }
     let controller = await makeController(
       runtime: runtime,
       modelPath: firstModelDirectory.path(percentEncoded: false)
@@ -214,6 +216,7 @@ struct ModelRuntimeControllerTests {
   func staleUnloadDoesNotOverwriteRuntimeAfterSubsequentLoad() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = RuntimeControllerDelayedUnloadRuntime()
+    defer { Task { await runtime.releaseUnload() } }
     let controller = await makeController(
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
@@ -435,6 +438,10 @@ private actor RuntimeControllerRaceLoadingRuntime: ChatModelRuntime {
     if loadedConfigurations.count == 1 {
       await withCheckedContinuation { continuation in
         firstLoadContinuation = continuation
+        Task {
+          try? await Task.sleep(for: .seconds(2))
+          self.releaseFirstLoad()
+        }
       }
       didFinishFirstLoad = true
       try Task.checkCancellation()
@@ -493,6 +500,10 @@ private actor RuntimeControllerDelayedUnloadRuntime: ChatModelRuntime {
     didStartUnload = true
     await withCheckedContinuation { continuation in
       unloadContinuation = continuation
+      Task {
+        try? await Task.sleep(for: .seconds(2))
+        self.releaseUnload()
+      }
     }
     isLoaded = false
     didFinishUnload = true

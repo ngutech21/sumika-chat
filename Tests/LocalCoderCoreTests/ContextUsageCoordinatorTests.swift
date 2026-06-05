@@ -3,6 +3,7 @@ import Testing
 
 @testable import LocalCoderCore
 
+@Suite(.serialized)
 @MainActor
 struct ContextUsageCoordinatorTests {
   @Test
@@ -133,6 +134,7 @@ struct ContextUsageCoordinatorTests {
   @Test
   func clearRuntimeContextDoesNotPublishAfterNewerRefresh() async throws {
     let runtime = ContextUsageDelayedClearRuntime()
+    defer { Task { await runtime.releaseClearContext() } }
     let firstOperationID = UUID()
     let secondOperationID = UUID()
     let runtimeOperations = RuntimeOperationCoordinator(
@@ -383,6 +385,10 @@ private actor ContextUsageDelayedClearRuntime: ChatModelRuntime {
     didStartClearContext = true
     await withCheckedContinuation { continuation in
       clearContextContinuation = continuation
+      Task {
+        try? await Task.sleep(for: .seconds(2))
+        self.releaseClearContext()
+      }
     }
     didFinishClearContext = true
   }
