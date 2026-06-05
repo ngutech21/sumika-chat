@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:local-coder}",
+            "name": "Debug DataModelGenerator",
+            "target": "DataModelGenerator",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug DataModelGenerator"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:local-coder}",
+            "name": "Release DataModelGenerator",
+            "target": "DataModelGenerator",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release DataModelGenerator"
+        }
+    ]
+}
