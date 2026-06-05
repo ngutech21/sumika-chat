@@ -858,7 +858,7 @@ struct ChatSessionControllerTests {
   }
 
   @Test
-  func refreshContextUsageDebouncesToLatestResult() async throws {
+  func refreshContextUsagePublishesEstimateWithoutRuntimeTokenization() async throws {
     let runtime = ControlledContextUsageRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -866,21 +866,16 @@ struct ChatSessionControllerTests {
 
     controller.refreshContextUsage()
     controller.refreshContextUsage()
-    try await waitUntilAsync(timeout: .seconds(2)) { await runtime.contextUsageRequestCount == 1 }
+    await Task.yield()
 
-    await runtime.resolveContextUsage(
-      at: 0,
-      with: ChatContextUsage(usedTokens: 20, tokenLimit: 100)
-    )
-    try await waitUntil { controller.contextUsage?.usedTokens == 20 }
-
-    #expect(controller.contextUsage?.usedTokens == 20)
-    #expect(controller.contextUsage?.tokenLimit == 100)
-    #expect(await runtime.completedContextUsageCount == 1)
+    #expect(controller.contextUsage?.accuracy == .estimate)
+    #expect(controller.contextUsage?.isStale == false)
+    #expect(await runtime.contextUsageRequestCount == 0)
+    #expect(await runtime.completedContextUsageCount == 0)
   }
 
   @Test
-  func refreshContextUsageDefersWhileGeneratingAndRunsAfterCompletion() async throws {
+  func refreshContextUsageEstimatesWhileGeneratingWithoutDeferredTokenization() async throws {
     let runtime = ControlledStreamingRuntime(turns: [["done"]], blockedCallIndexes: [0])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -894,11 +889,12 @@ struct ChatSessionControllerTests {
 
     #expect(await runtime.contextUsageRequestCount == 0)
     #expect(controller.contextUsage?.accuracy == .estimate)
-    #expect(controller.contextUsage?.isStale == true)
+    #expect(controller.contextUsage?.isStale == false)
 
     await runtime.releaseStream(callIndex: 0)
     try await waitUntil { !controller.isGenerating }
-    try await waitUntilAsync(timeout: .seconds(2)) { await runtime.contextUsageRequestCount == 1 }
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(await runtime.contextUsageRequestCount == 0)
   }
 
   @Test

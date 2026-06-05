@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct ContextUsageCoordinatorTests {
   @Test
-  func refreshPublishesUsageWhenModelIsReady() async {
+  func refreshPublishesEstimateWhenModelIsReadyWithoutRuntimeTokenization() async {
     let runtime = ContextUsageFakeRuntime(
       usage: ChatContextUsage(usedTokens: 12, tokenLimit: 128))
     let operationID = UUID()
@@ -17,11 +17,16 @@ struct ContextUsageCoordinatorTests {
       events.append($0)
     }
 
-    #expect(events == [.updated(ChatContextUsage(usedTokens: 12, tokenLimit: 128))])
+    #expect(await runtime.contextUsageRequestCount == 0)
+    #expect(
+      events == [
+        .updated(
+          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false))
+      ])
   }
 
   @Test
-  func busyRefreshPublishesStaleEstimateWithoutRuntimeTokenization() async {
+  func busyRefreshPublishesEstimateWithoutRuntimeTokenization() async {
     let runtime = ContextUsageFakeRuntime()
     let operationID = UUID()
     let coordinator = makeCoordinator(runtime: runtime, initialOperationID: operationID)
@@ -37,7 +42,7 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: true))
+          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false))
       ])
   }
 
@@ -58,8 +63,8 @@ struct ContextUsageCoordinatorTests {
   }
 
   @Test
-  func debouncedRefreshesCollapseIntoOneRuntimeRequest() async throws {
-    let runtime = ContextUsageControlledRuntime()
+  func repeatedRefreshesPublishEstimatesWithoutRuntimeTokenization() async {
+    let runtime = ContextUsageFakeRuntime()
     let operationID = UUID()
     let coordinator = makeCoordinator(runtime: runtime, initialOperationID: operationID)
     var events: [ContextUsageEvent] = []
@@ -71,105 +76,33 @@ struct ContextUsageCoordinatorTests {
     coordinator.refresh(snapshot: readySnapshot(operationID: operationID)) {
       events.append($0)
     }
-    try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
 
-    await runtime.resolveContextUsage(
-      at: 0,
-      with: ChatContextUsage(usedTokens: 20, tokenLimit: 100)
-    )
-    try await waitUntil { events == [.updated(ChatContextUsage(usedTokens: 20, tokenLimit: 100))] }
-
-    #expect(await runtime.completedContextUsageCount == 1)
-  }
-
-  @Test
-  func exactRefreshInFlightQueuesLatestRefreshWithoutStartingSecondRuntimeRequest() async throws {
-    let runtime = ContextUsageControlledRuntime()
-    let operationID = UUID()
-    let coordinator = makeCoordinator(runtime: runtime, initialOperationID: operationID)
-    var events: [ContextUsageEvent] = []
-
-    let firstRefresh = Task {
-      await coordinator.refreshNow(snapshot: readySnapshot(operationID: operationID)) {
-        events.append($0)
-      }
-    }
-    defer {
-      firstRefresh.cancel()
-    }
-    try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
-
-    coordinator.refresh(
-      snapshot: readySnapshot(operationID: operationID, systemPrompt: "new system")
-    ) {
-      events.append($0)
-    }
-    await Task.yield()
-    #expect(await runtime.contextUsageRequestCount == 1)
+    #expect(await runtime.contextUsageRequestCount == 0)
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 16, tokenLimit: 100, accuracy: .estimate, isStale: true))
+          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false)),
+        .updated(
+          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false)),
       ])
-
-    await runtime.resolveContextUsage(
-      at: 0,
-      with: ChatContextUsage(usedTokens: 10, tokenLimit: 100)
-    )
-    try await withTestTimeout {
-      await firstRefresh.value
-    }
-    try await waitUntilAsync { await runtime.completedContextUsageCount == 1 }
-    try await waitUntilAsync { await runtime.contextUsageRequestCount == 2 }
-
-    await runtime.resolveContextUsage(
-      at: 0,
-      with: ChatContextUsage(usedTokens: 30, tokenLimit: 100)
-    )
-    try await waitUntil {
-      events.last == .updated(ChatContextUsage(usedTokens: 30, tokenLimit: 100))
-    }
   }
 
   @Test
-  func invalidateDropsQueuedRefreshBehindInFlightExactRefresh() async throws {
-    let runtime = ContextUsageControlledRuntime()
+  func invalidatePublishesResetAfterEstimateRefresh() async {
+    let runtime = ContextUsageFakeRuntime()
     let operationID = UUID()
     let coordinator = makeCoordinator(runtime: runtime, initialOperationID: operationID)
     var events: [ContextUsageEvent] = []
 
-    let firstRefresh = Task {
-      await coordinator.refreshNow(snapshot: readySnapshot(operationID: operationID)) {
-        events.append($0)
-      }
-    }
-    defer {
-      firstRefresh.cancel()
-    }
-    try await waitUntilAsync { await runtime.contextUsageRequestCount == 1 }
-
-    coordinator.refresh(
-      snapshot: readySnapshot(operationID: operationID, systemPrompt: "queued system")
-    ) {
+    await coordinator.refreshNow(snapshot: readySnapshot(operationID: operationID)) {
       events.append($0)
     }
-    await Task.yield()
-    #expect(await runtime.contextUsageRequestCount == 1)
 
     coordinator.invalidate {
       events.append($0)
     }
 
-    await runtime.resolveContextUsage(
-      at: 0,
-      with: ChatContextUsage(usedTokens: 10, tokenLimit: 100)
-    )
-    try await withTestTimeout {
-      await firstRefresh.value
-    }
-    try await Task.sleep(for: .milliseconds(50))
-
-    #expect(await runtime.contextUsageRequestCount == 1)
+    #expect(await runtime.contextUsageRequestCount == 0)
     #expect(events.last == .reset)
   }
 
@@ -193,7 +126,7 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: true))
+          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false))
       ])
   }
 
@@ -232,13 +165,14 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: true)),
-        .updated(ChatContextUsage(usedTokens: 42, tokenLimit: nil)),
+          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false)),
+        .updated(
+          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false)),
       ])
   }
 
   @Test
-  func exactRefreshTracesTokenizationButEstimateDoesNot() async throws {
+  func estimateRefreshDoesNotTraceTokenization() async {
     let runtime = ContextUsageFakeRuntime(usage: ChatContextUsage(usedTokens: 12, tokenLimit: 128))
     let operationID = UUID()
     let tracer = RecordingContextUsageTracer()
@@ -251,29 +185,13 @@ struct ContextUsageCoordinatorTests {
     ) {
       events.append($0)
     }
+
+    await coordinator.refreshNow(snapshot: readySnapshot(operationID: operationID)) {
+      events.append($0)
+    }
+
+    #expect(await runtime.contextUsageRequestCount == 0)
     #expect(await tracer.events.isEmpty)
-
-    await coordinator.refreshNow(snapshot: readySnapshot(operationID: operationID)) {
-      events.append($0)
-    }
-
-    let event = try #require(await tracer.events.first)
-    #expect(event.phase == .tokenizeContextUsage)
-    #expect(event.promptTokens == 12)
-  }
-
-  @Test
-  func refreshFailurePublishesFailedEvent() async {
-    let runtime = ContextUsageFailingRuntime()
-    let operationID = UUID()
-    let coordinator = makeCoordinator(runtime: runtime, initialOperationID: operationID)
-    var events: [ContextUsageEvent] = []
-
-    await coordinator.refreshNow(snapshot: readySnapshot(operationID: operationID)) {
-      events.append($0)
-    }
-
-    #expect(events == [.failed])
   }
 
   private func makeCoordinator(

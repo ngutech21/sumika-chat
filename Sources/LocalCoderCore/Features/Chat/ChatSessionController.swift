@@ -27,7 +27,6 @@ public final class ChatSessionController {
   @ObservationIgnored private let workflowEventApplier = ChatWorkflowEventApplier()
   @ObservationIgnored private let focusedFileReducer = FocusedFileStateReducer()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
-  @ObservationIgnored private var pendingContextUsageRefreshMode: ToolPromptMode?
   @ObservationIgnored private var pendingRuntimeContextClear: PendingRuntimeContextClear?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
@@ -452,10 +451,6 @@ extension ChatSessionController {
 
   public func refreshContextUsage(toolPromptMode: ToolPromptMode = .disabled) {
     let snapshot = contextUsageSnapshot(toolPromptMode: toolPromptMode)
-    if snapshot.runtimeIsBusy {
-      pendingContextUsageRefreshMode = toolPromptMode
-    }
-
     contextUsageCoordinator.refreshDebounced(
       snapshot: snapshot,
       onEvent: handleContextUsageEvent(_:))
@@ -463,17 +458,12 @@ extension ChatSessionController {
 
   public func updateContextUsage() async {
     let snapshot = contextUsageSnapshot()
-    if snapshot.runtimeIsBusy {
-      pendingContextUsageRefreshMode = .disabled
-    }
-
     contextUsageCoordinator.refreshDebounced(
       snapshot: snapshot,
       onEvent: handleContextUsageEvent(_:))
   }
 
   private func invalidateContextUsage() {
-    pendingContextUsageRefreshMode = nil
     contextUsageCoordinator.invalidate(onEvent: handleContextUsageEvent(_:))
   }
 
@@ -532,9 +522,7 @@ extension ChatSessionController {
   }
 
   private func flushPendingContextUsageRefresh(defaultMode: ToolPromptMode) {
-    let mode = pendingContextUsageRefreshMode ?? defaultMode
-    pendingContextUsageRefreshMode = nil
-    refreshContextUsage(toolPromptMode: mode)
+    refreshContextUsage(toolPromptMode: defaultMode)
   }
 
   private func contextUsageSnapshot(toolPromptMode: ToolPromptMode = .disabled)

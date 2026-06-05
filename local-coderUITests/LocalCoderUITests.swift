@@ -250,6 +250,67 @@ final class LocalCoderUITests: XCTestCase {
     )
   }
 
+  @MainActor
+  func testContextUsageRefreshWithLargeToolHistoryDoesNotTokenize() throws {
+    let largeFile = (1...700)
+      .map { line in
+        "Performance fixture line \(line): local context usage should stay estimate-only."
+      }
+      .joined(separator: "\n")
+    let fixture = try launchFixture(
+      files: ["large-context.txt": largeFile]
+    )
+    let application = try launchApp(fixture: fixture)
+    defer {
+      application.terminate()
+    }
+
+    try loadSelectedModel(in: application)
+    try selectInspectMode(in: application)
+    let toolTraceOffset = fileSize(at: fixture.traceURL)
+    try sendPrompt(
+      "Use the show_file tool with path large-context.txt. Then answer with one short sentence.",
+      in: application
+    )
+    let toolRows = try waitForCompletedTraceRows(
+      in: fixture.traceURL,
+      afterOffset: toolTraceOffset,
+      application: application,
+      interactionMode: "inspect",
+      timeout: 420
+    )
+
+    XCTAssertGreaterThanOrEqual(toolRows.toolExecutionCount(named: "show_file"), 1)
+    XCTAssertEqual(toolRows.tokenizeContextUsageCount, 0)
+
+    let refreshTraceOffset = fileSize(at: fixture.traceURL)
+    let refreshStartedAt = Date()
+    try selectChatMode(in: application)
+    try selectInspectMode(in: application)
+    waitForGenerationIdle(in: application, timeout: 30)
+    let refreshDurationMs = Date().timeIntervalSince(refreshStartedAt) * 1000
+    let observationWindowMs = 5_000.0
+    let observationDeadline = Date().addingTimeInterval(observationWindowMs / 1000)
+    var refreshRows = try traceRows(in: fixture.traceURL, afterOffset: refreshTraceOffset)
+    while refreshRows.tokenizeContextUsageCount == 0 && Date() < observationDeadline {
+      RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.25))
+      refreshRows = try traceRows(in: fixture.traceURL, afterOffset: refreshTraceOffset)
+    }
+
+    XCTAssertEqual(refreshRows.tokenizeContextUsageCount, 0)
+    XCTAssertLessThan(refreshDurationMs, 2_000)
+    XCTContext.runActivity(named: "Large context usage refresh performance") { activity in
+      activity.add(
+        XCTAttachment(
+          string: """
+            refreshDurationMs=\(String(format: "%.1f", refreshDurationMs))
+            observationWindowMs=\(String(format: "%.1f", observationWindowMs))
+            tokenize_context_usage_rows=\(refreshRows.tokenizeContextUsageCount)
+            """
+        ))
+    }
+  }
+
   private func launchFixture(
     readme: String? = nil,
     files: [String: String] = [:]
@@ -669,5 +730,11 @@ extension Array where Element == TraceRow {
         && row.toolLoopIteration != nil
         && row.cacheReason == cacheReason
     }
+  }
+
+  fileprivate var tokenizeContextUsageCount: Int {
+    filter { row in
+      row.kind == "turn_trace" && row.phase == "tokenize_context_usage"
+    }.count
   }
 }
