@@ -11,7 +11,7 @@ struct AppStateTests {
   func interactionModeChangePersistsActiveSession() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()
-    let session = CodingSession(
+    let session = ChatSession(
       id: sessionID,
       selectedModelID: ManagedModelCatalog.defaultModelID,
       systemPrompt: "System",

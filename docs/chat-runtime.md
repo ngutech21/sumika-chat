@@ -198,7 +198,7 @@ The intended long-term fast path for tool loops is either:
 
 ## Persistence Rules
 
-- `CodingSession` persists `messages`, `modelFacingTranscript`, `toolCalls`,
+- `ChatSession` persists `messages`, `modelFacingTranscript`, `toolCalls`,
   and `turns`.
 - Sessions without a stored `modelFacingTranscript` do not decode.
 - New Codable fields use defaults so sessions saved before turn metadata decode

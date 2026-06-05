@@ -10,7 +10,7 @@ extension ToolOrchestrator: ToolOrchestrating {}
 
 public struct ToolLoopRequest: Sendable {
   public let workspace: Workspace
-  public let sessionID: CodingSession.ID
+  public let sessionID: ChatSession.ID
   public let turnID: ChatTurnRecord.ID
   public let assistantMessageID: UUID
   public let messages: [ChatMessage]
@@ -21,7 +21,7 @@ public struct ToolLoopRequest: Sendable {
 
   public init(
     workspace: Workspace,
-    sessionID: CodingSession.ID,
+    sessionID: ChatSession.ID,
     turnID: ChatTurnRecord.ID,
     assistantMessageID: UUID,
     messages: [ChatMessage],
@@ -294,7 +294,7 @@ public struct ToolLoopCoordinator: Sendable {
   private func parseToolAction(
     _ content: String,
     workspaceID: Workspace.ID,
-    sessionID: CodingSession.ID
+    sessionID: ChatSession.ID
   ) throws -> ToolLoopParsedAction {
     do {
       let parseResult = try toolCallParser.parse(
@@ -548,7 +548,7 @@ public struct ToolLoopCoordinator: Sendable {
     error: String,
     rawText: String,
     workspaceID: Workspace.ID,
-    sessionID: CodingSession.ID
+    sessionID: ChatSession.ID
   ) -> ToolCallParseOutput {
     let request = RawToolCallRequest(
       workspaceID: workspaceID,

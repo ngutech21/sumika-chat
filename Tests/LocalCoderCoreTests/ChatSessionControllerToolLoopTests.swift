@@ -239,7 +239,7 @@ struct ChatSessionControllerToolLoopTests {
     }
   }
 
-  private func makeWorkspace(sessionID: CodingSession.ID) throws -> Workspace {
+  private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
     let rootURL = FileManager.default.temporaryDirectory.appending(
       path: "local-coder-tests-\(UUID().uuidString)",
       directoryHint: .isDirectory
@@ -254,7 +254,7 @@ struct ChatSessionControllerToolLoopTests {
       name: "Project",
       rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)),
       sessions: [
-        CodingSession(
+        ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
           systemPrompt: ChatPromptDefaults.codingSystemPrompt,

@@ -1,6 +1,6 @@
 import Foundation
 
-public struct DefaultCodingSessionFactory: Equatable, Sendable {
+public struct DefaultChatSessionFactory: Equatable, Sendable {
   public var selectedModelID: ManagedModel.ID
   public var systemPrompt: String
   public var generationSettings: ChatGenerationSettings
@@ -22,8 +22,8 @@ public struct DefaultCodingSessionFactory: Equatable, Sendable {
     title: String = "New Session",
     createdAt: Date = Date(),
     updatedAt: Date = Date()
-  ) -> CodingSession {
-    CodingSession(
+  ) -> ChatSession {
+    ChatSession(
       title: title,
       selectedModelID: selectedModelID,
       systemPrompt: systemPrompt,
@@ -37,13 +37,13 @@ public struct DefaultCodingSessionFactory: Equatable, Sendable {
 
 public struct WorkspaceLibraryController {
   public private(set) var library: WorkspaceLibrary
-  public var defaultSessionFactory: DefaultCodingSessionFactory
+  public var defaultSessionFactory: DefaultChatSessionFactory
 
   private let now: () -> Date
 
   public init(
     library: WorkspaceLibrary = WorkspaceLibrary(),
-    defaultSessionFactory: DefaultCodingSessionFactory,
+    defaultSessionFactory: DefaultChatSessionFactory,
     now: @escaping () -> Date = Date.init
   ) {
     self.library = library
@@ -59,7 +59,7 @@ public struct WorkspaceLibraryController {
     return library.workspaces.first { $0.id == activeWorkspaceID }
   }
 
-  public var activeSession: CodingSession? {
+  public var activeSession: ChatSession? {
     guard
       let activeWorkspace,
       let activeSessionID = library.activeSessionID
@@ -70,7 +70,7 @@ public struct WorkspaceLibraryController {
     return activeWorkspace.sessions.first { $0.id == activeSessionID }
   }
 
-  public var activeSessionID: CodingSession.ID? {
+  public var activeSessionID: ChatSession.ID? {
     library.activeSessionID
   }
 
@@ -79,7 +79,7 @@ public struct WorkspaceLibraryController {
     name: String,
     rootURL: URL,
     bookmarkData: Data? = nil
-  ) -> CodingSession.ID? {
+  ) -> ChatSession.ID? {
     let normalizedRootURL = rootURL.standardizedFileURL.resolvingSymlinksInPath()
     let normalizedPath = Workspace.normalizedPath(for: normalizedRootURL)
 
@@ -108,7 +108,7 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func createSession(in workspaceID: Workspace.ID? = nil) -> CodingSession.ID? {
+  public mutating func createSession(in workspaceID: Workspace.ID? = nil) -> ChatSession.ID? {
     guard
       let workspaceIndex = workspaceIndex(for: workspaceID ?? library.activeWorkspaceID)
     else {
@@ -125,7 +125,7 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func selectSession(_ sessionID: CodingSession.ID) -> Bool {
+  public mutating func selectSession(_ sessionID: ChatSession.ID) -> Bool {
     guard
       let workspaceIndex = library.workspaces.firstIndex(where: { workspace in
         workspace.sessions.contains { $0.id == sessionID }
@@ -140,7 +140,7 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func renameSession(_ sessionID: CodingSession.ID, title: String) -> Bool {
+  public mutating func renameSession(_ sessionID: ChatSession.ID, title: String) -> Bool {
     let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard
       !trimmedTitle.isEmpty,
@@ -162,7 +162,7 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func deleteSession(_ sessionID: CodingSession.ID) -> Bool {
+  public mutating func deleteSession(_ sessionID: ChatSession.ID) -> Bool {
     guard
       let workspaceIndex = library.workspaces.firstIndex(where: { workspace in
         workspace.sessions.contains { $0.id == sessionID }
@@ -219,7 +219,7 @@ public struct WorkspaceLibraryController {
     }
   }
 
-  public mutating func persistActiveSessionSnapshot(_ snapshot: CodingSession) {
+  public mutating func persistActiveSessionSnapshot(_ snapshot: ChatSession) {
     guard
       let workspaceIndex = activeWorkspaceIndex,
       let sessionIndex = activeSessionIndex(in: workspaceIndex)
@@ -261,7 +261,7 @@ public struct WorkspaceLibraryController {
     }
   }
 
-  private func makeDefaultSession(createdAt: Date, updatedAt: Date) -> CodingSession {
+  private func makeDefaultSession(createdAt: Date, updatedAt: Date) -> ChatSession {
     defaultSessionFactory.makeSession(createdAt: createdAt, updatedAt: updatedAt)
   }
 

@@ -215,12 +215,12 @@ struct ToolPromptPolicyTests {
     #expect(!prompt.contains("Available tools:"))
   }
 
-  private func makeWorkspace(sessionID: CodingSession.ID) -> Workspace {
+  private func makeWorkspace(sessionID: ChatSession.ID) -> Workspace {
     Workspace(
       name: "Project",
       rootURL: URL(filePath: "/tmp/project"),
       sessions: [
-        CodingSession(
+        ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
           systemPrompt: ChatPromptDefaults.codingSystemPrompt,

@@ -14,7 +14,7 @@ public protocol ToolCallParsing: Sendable {
   func parse(
     _ text: String,
     workspaceID: Workspace.ID,
-    sessionID: CodingSession.ID,
+    sessionID: ChatSession.ID,
     createdAt: Date
   ) throws -> ToolCallParseResult
 }
@@ -156,7 +156,7 @@ public struct TaggedToolCallParser: ToolCallParsing {
   public func parse(
     _ text: String,
     workspaceID: Workspace.ID,
-    sessionID: CodingSession.ID,
+    sessionID: ChatSession.ID,
     createdAt: Date = Date()
   ) throws -> ToolCallParseResult {
     guard let actionStart = text.range(of: "<action")?.lowerBound else {

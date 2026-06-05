@@ -235,7 +235,7 @@ The chat composer uses a manual `WorkspaceInteractionMode` for each coding sessi
 
 Do not decide tool availability with keyword checks such as `prompt.contains("file")`. Mode is product/session state selected by the user, and V1 has no auto-router. If auto-routing is added later, keep it separate from the stable per-turn mode and avoid changing tool schemas unpredictably mid-turn.
 
-Persist the mode on `CodingSession`, keep it in `ChatSessionState`, and default legacy sessions without a stored mode to `.chat`. Trace `turn_trace.interactionMode` so latency analysis can compare chat, inspect, and agent prompts.
+Persist the mode on `ChatSession`, keep it in `ChatSessionState`, and default legacy sessions without a stored mode to `.chat`. Trace `turn_trace.interactionMode` so latency analysis can compare chat, inspect, and agent prompts.
 
 ## Debugging and Tracing
 

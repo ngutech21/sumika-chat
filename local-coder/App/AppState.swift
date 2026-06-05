@@ -59,16 +59,16 @@ final class AppState {
     workspaceLibraryController.activeWorkspace
   }
 
-  var activeSession: CodingSession? {
+  var activeSession: ChatSession? {
     workspaceLibraryController.activeSession
   }
 
-  var activeSessionID: CodingSession.ID? {
+  var activeSessionID: ChatSession.ID? {
     workspaceLibraryController.activeSessionID
   }
 
   @discardableResult
-  func addWorkspace(from url: URL) -> CodingSession.ID? {
+  func addWorkspace(from url: URL) -> ChatSession.ID? {
     let rootURL = url.standardizedFileURL.resolvingSymlinksInPath()
     persistActiveSession()
     refreshDefaultSessionFactory()
@@ -83,7 +83,7 @@ final class AppState {
   }
 
   @discardableResult
-  func createSession(in workspaceID: Workspace.ID? = nil) -> CodingSession.ID? {
+  func createSession(in workspaceID: Workspace.ID? = nil) -> ChatSession.ID? {
     refreshDefaultSessionFactory()
     guard let sessionID = workspaceLibraryController.createSession(in: workspaceID) else {
       return nil
@@ -93,7 +93,7 @@ final class AppState {
     return sessionID
   }
 
-  func selectSession(_ sessionID: CodingSession.ID) {
+  func selectSession(_ sessionID: ChatSession.ID) {
     persistActiveSession()
     guard workspaceLibraryController.selectSession(sessionID) else {
       return
@@ -102,14 +102,14 @@ final class AppState {
     loadActiveSession()
   }
 
-  func renameSession(_ sessionID: CodingSession.ID, title: String) {
+  func renameSession(_ sessionID: ChatSession.ID, title: String) {
     guard workspaceLibraryController.renameSession(sessionID, title: title) else {
       return
     }
     saveLibrary()
   }
 
-  func deleteSession(_ sessionID: CodingSession.ID) {
+  func deleteSession(_ sessionID: ChatSession.ID) {
     let wasActiveSession = workspaceLibrary.activeSessionID == sessionID
     refreshDefaultSessionFactory()
     guard workspaceLibraryController.deleteSession(sessionID) else {
@@ -182,7 +182,7 @@ final class AppState {
     workspaceLibraryController.defaultSessionFactory = makeDefaultSessionFactory()
   }
 
-  private func makeDefaultSessionFactory() -> DefaultCodingSessionFactory {
+  private func makeDefaultSessionFactory() -> DefaultChatSessionFactory {
     if chatController.modelRuntime.selectedModelID != ManagedModelCatalog.defaultModelID
       || defaultSessionModelID == ManagedModelCatalog.defaultModelID
     {
@@ -204,8 +204,8 @@ final class AppState {
     selectedModelID: ManagedModel.ID,
     systemPrompt: String,
     generationSettings: ChatGenerationSettings
-  ) -> DefaultCodingSessionFactory {
-    DefaultCodingSessionFactory(
+  ) -> DefaultChatSessionFactory {
+    DefaultChatSessionFactory(
       selectedModelID: selectedModelID,
       systemPrompt: systemPrompt,
       generationSettings: generationSettings,

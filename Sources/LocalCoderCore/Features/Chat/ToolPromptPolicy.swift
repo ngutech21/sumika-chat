@@ -23,7 +23,7 @@ public struct ToolPromptPolicy: Sendable {
 
   public func toolAvailability(
     workspace: Workspace?,
-    sessionID: CodingSession.ID?
+    sessionID: ChatSession.ID?
   ) -> ToolAvailability {
     guard
       let workspace,

@@ -13,7 +13,7 @@ struct WorkspaceLibraryControllerTests {
       name: "Project",
       rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
       sessions: [
-        CodingSession(
+        ChatSession(
           id: sessionID,
           selectedModelID: "gemma3-1b",
           systemPrompt: "Existing",
@@ -182,7 +182,7 @@ struct WorkspaceLibraryControllerTests {
   ) -> WorkspaceLibraryController {
     WorkspaceLibraryController(
       library: library,
-      defaultSessionFactory: DefaultCodingSessionFactory(
+      defaultSessionFactory: DefaultChatSessionFactory(
         selectedModelID: "gemma3-1b",
         systemPrompt: "Default system",
         generationSettings: .codingDefault
@@ -192,10 +192,10 @@ struct WorkspaceLibraryControllerTests {
   }
 
   private func makeSession(
-    id: CodingSession.ID = UUID(),
+    id: ChatSession.ID = UUID(),
     title: String = "Session"
-  ) -> CodingSession {
-    CodingSession(
+  ) -> ChatSession {
+    ChatSession(
       id: id,
       title: title,
       selectedModelID: "gemma3-1b",

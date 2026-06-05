@@ -59,7 +59,7 @@ enum AppLaunchConfiguration {
     workspaceURL: URL,
     selectedModel: ManagedModel
   ) -> WorkspaceLibrary {
-    let session = CodingSession(
+    let session = ChatSession(
       title: "UI Performance",
       selectedModelID: selectedModel.id,
       systemPrompt: selectedModel.defaultSystemPrompt,

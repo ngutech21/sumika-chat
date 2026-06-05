@@ -7,7 +7,7 @@ public enum FinalModeActionDetectionReason: Equatable, Sendable {
 
 public struct FinalModeActionDetectionRequest: Sendable {
   public let workspaceID: Workspace.ID?
-  public let sessionID: CodingSession.ID
+  public let sessionID: ChatSession.ID
   public let turnID: ChatTurnRecord.ID
   public let assistantMessageID: ChatMessage.ID
   public let messages: [ChatMessage]
@@ -17,7 +17,7 @@ public struct FinalModeActionDetectionRequest: Sendable {
 
   public init(
     workspaceID: Workspace.ID?,
-    sessionID: CodingSession.ID,
+    sessionID: ChatSession.ID,
     turnID: ChatTurnRecord.ID,
     assistantMessageID: ChatMessage.ID,
     messages: [ChatMessage],
@@ -126,7 +126,7 @@ public struct FinalModeActionDetector: Sendable {
   private func parseForbiddenToolAttempt(
     _ content: String,
     workspaceID: Workspace.ID,
-    sessionID: CodingSession.ID
+    sessionID: ChatSession.ID
   ) throws -> ForbiddenToolAttempt {
     do {
       let parseResult = try toolCallParser.parse(
@@ -308,7 +308,7 @@ public struct FinalModeActionDetector: Sendable {
     error: String,
     rawText: String,
     workspaceID: Workspace.ID,
-    sessionID: CodingSession.ID
+    sessionID: ChatSession.ID
   ) -> ToolCallParseOutput {
     let request = RawToolCallRequest(
       workspaceID: workspaceID,

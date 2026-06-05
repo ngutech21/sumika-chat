@@ -166,7 +166,7 @@ public enum ToolArgumentValue: Codable, Equatable, Sendable {
 public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   public let id: UUID
   public let workspaceID: Workspace.ID
-  public let sessionID: CodingSession.ID
+  public let sessionID: ChatSession.ID
   public var toolName: ToolName
   public var arguments: ToolCallArguments
   public var rawText: String?
@@ -175,7 +175,7 @@ public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   public init(
     id: UUID = UUID(),
     workspaceID: Workspace.ID,
-    sessionID: CodingSession.ID,
+    sessionID: ChatSession.ID,
     toolName: ToolName,
     arguments: ToolCallArguments = [:],
     rawText: String? = nil,
@@ -197,7 +197,7 @@ public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
 
   public var id: UUID { raw.id }
   public var workspaceID: Workspace.ID { raw.workspaceID }
-  public var sessionID: CodingSession.ID { raw.sessionID }
+  public var sessionID: ChatSession.ID { raw.sessionID }
   public var toolName: ToolName { raw.toolName }
   public var createdAt: Date { raw.createdAt }
   public var rawArguments: ToolCallArguments { raw.arguments }

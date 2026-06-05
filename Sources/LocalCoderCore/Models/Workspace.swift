@@ -1,6 +1,6 @@
 import Foundation
 
-public struct CodingSession: Codable, Identifiable, Equatable, Sendable {
+public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   public let id: UUID
   public var title: String
   public var selectedModelID: ManagedModel.ID
@@ -129,7 +129,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
   public var name: String
   public var rootURL: URL
   public var bookmarkData: Data?
-  public var sessions: [CodingSession]
+  public var sessions: [ChatSession]
   public var createdAt: Date
   public var updatedAt: Date
 
@@ -138,7 +138,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     name: String,
     rootURL: URL,
     bookmarkData: Data? = nil,
-    sessions: [CodingSession] = [],
+    sessions: [ChatSession] = [],
     createdAt: Date = Date(),
     updatedAt: Date = Date()
   ) {
@@ -297,12 +297,12 @@ public enum WorkspacePathResolutionError: LocalizedError, Equatable {
 public struct WorkspaceLibrary: Codable, Equatable, Sendable {
   public var workspaces: [Workspace]
   public var activeWorkspaceID: Workspace.ID?
-  public var activeSessionID: CodingSession.ID?
+  public var activeSessionID: ChatSession.ID?
 
   public init(
     workspaces: [Workspace] = [],
     activeWorkspaceID: Workspace.ID? = nil,
-    activeSessionID: CodingSession.ID? = nil
+    activeSessionID: ChatSession.ID? = nil
   ) {
     self.workspaces = workspaces
     self.activeWorkspaceID = activeWorkspaceID

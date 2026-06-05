@@ -217,7 +217,7 @@ extension ChatSessionController {
     onSessionDidChange = handler
   }
 
-  public func loadSession(_ session: CodingSession) {
+  public func loadSession(_ session: ChatSession) {
     let model =
       ManagedModelCatalog.model(id: session.selectedModelID)
       ?? ManagedModelCatalog.defaultModel
@@ -239,7 +239,7 @@ extension ChatSessionController {
     }
   }
 
-  public func sessionSnapshot(updating session: CodingSession) -> CodingSession {
+  public func sessionSnapshot(updating session: ChatSession) -> ChatSession {
     var snapshot = session
     snapshot.selectedModelID = modelRuntime.selectedModelID
     snapshot.transcript = chatSession.transcript
@@ -276,7 +276,7 @@ extension ChatSessionController {
     sendMessage(workspace: nil, sessionID: nil)
   }
 
-  public func sendMessage(in workspace: Workspace, sessionID: CodingSession.ID) {
+  public func sendMessage(in workspace: Workspace, sessionID: ChatSession.ID) {
     sendMessage(workspace: workspace, sessionID: sessionID)
   }
 
@@ -284,7 +284,7 @@ extension ChatSessionController {
     sendMessage(workspace: workspace, sessionID: workspace.sessions.first?.id)
   }
 
-  private func sendMessage(workspace: Workspace?, sessionID: CodingSession.ID?) {
+  private func sendMessage(workspace: Workspace?, sessionID: ChatSession.ID?) {
     let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard canSend else { return }
 
@@ -1145,7 +1145,7 @@ extension ChatSessionController {
 
   fileprivate func runToolLoop(
     workspace: Workspace?,
-    sessionID: CodingSession.ID?,
+    sessionID: ChatSession.ID?,
     lastAssistantMessageID: UUID,
     turnID: ChatTurnRecord.ID,
     interactionMode: WorkspaceInteractionMode,
@@ -1232,7 +1232,7 @@ extension ChatSessionController {
 
   private func recordFinalModeToolAttemptIfNeeded(
     workspaceID: Workspace.ID?,
-    sessionID: CodingSession.ID,
+    sessionID: ChatSession.ID,
     assistantMessageID: ChatMessage.ID,
     turnID: ChatTurnRecord.ID,
     interactionMode: WorkspaceInteractionMode,

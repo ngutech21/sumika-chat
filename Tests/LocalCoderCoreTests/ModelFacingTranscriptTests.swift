@@ -174,8 +174,8 @@ struct ModelFacingTranscriptTests {
   }
 
   @Test
-  func codingSessionDecodeRequiresModelFacingTranscript() throws {
-    let session = CodingSession(
+  func chatSessionDecodeRequiresModelFacingTranscript() throws {
+    let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
       modelFacingTranscript: ModelFacingTranscript(
         entries: [
@@ -191,7 +191,7 @@ struct ModelFacingTranscriptTests {
     let legacyData = try JSONSerialization.data(withJSONObject: object)
 
     #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(CodingSession.self, from: legacyData)
+      _ = try JSONDecoder().decode(ChatSession.self, from: legacyData)
     }
   }
 

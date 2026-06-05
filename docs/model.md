@@ -12,10 +12,10 @@ classDiagram
     id
     name
     rootURL
-    sessions: [CodingSession]
+    sessions: [ChatSession]
   }
 
-  class CodingSession {
+  class ChatSession {
     id
     title
     selectedModelID
@@ -89,8 +89,8 @@ classDiagram
   }
 
   WorkspaceLibrary "1" --> "*" Workspace
-  Workspace "1" --> "*" CodingSession
-  CodingSession "1" --> "1" ChatTranscriptState
+  Workspace "1" --> "*" ChatSession
+  ChatSession "1" --> "1" ChatTranscriptState
 
   ChatTranscriptState "1" --> "*" ChatTurn : canonical order
   ChatTranscriptState "1" --> "*" ToolCallRecord : canonical tool lifecycle

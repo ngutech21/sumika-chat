@@ -287,7 +287,7 @@ nonisolated struct GemmaSessionCacheDecision: Equatable, Sendable {
 }
 
 nonisolated private struct CachedGemmaSession {
-  let session: ChatSession
+  let session: MLXLMCommon.ChatSession
   let prefix: [GemmaMessageSnapshot]
   let settings: ChatGenerationSettings
   let contextSignature: GemmaRenderedContextSignature
@@ -295,7 +295,7 @@ nonisolated private struct CachedGemmaSession {
 }
 
 nonisolated private struct GemmaSessionCachePlan {
-  let session: ChatSession
+  let session: MLXLMCommon.ChatSession
   let trace: GemmaSessionCacheTrace
 }
 
@@ -559,7 +559,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       return GemmaSessionCachePlan(session: cached.session, trace: decision.trace)
     }
 
-    let session = ChatSession(
+    let session = MLXLMCommon.ChatSession(
       modelContainer,
       instructions: nil,
       history: history,

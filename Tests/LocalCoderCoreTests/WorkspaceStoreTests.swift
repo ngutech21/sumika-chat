@@ -25,7 +25,7 @@ struct WorkspaceStoreTests {
   func workspaceStorePersistsLibraryAndBookmarkData() async throws {
     let libraryURL = temporaryLibraryURL()
     let store = WorkspaceStore(libraryURL: libraryURL)
-    let session = CodingSession(
+    let session = ChatSession(
       selectedModelID: "gemma3-1b",
       modelFacingTranscript: ModelFacingTranscript(
         entries: [
@@ -72,7 +72,7 @@ struct WorkspaceStoreTests {
       modelContextPolicy: .excluded,
       items: [.toolCall(toolCall.id)]
     )
-    let session = CodingSession(
+    let session = ChatSession(
       id: sessionID,
       selectedModelID: "gemma3-1b",
       toolCalls: [toolCall],
@@ -134,7 +134,7 @@ struct WorkspaceStoreTests {
         )
       ]
     )
-    let session = CodingSession(
+    let session = ChatSession(
       selectedModelID: "gemma3-1b",
       focusedFileState: focusedFileState,
       systemPrompt: "Use short answers.",
@@ -154,8 +154,8 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func codingSessionDecodeRequiresModelFacingTranscript() throws {
-    let legacySession = LegacyCodingSession(
+  func chatSessionDecodeRequiresModelFacingTranscript() throws {
+    let legacySession = LegacyChatSession(
       id: UUID(),
       title: "Legacy",
       selectedModelID: "gemma3-1b",
@@ -168,19 +168,19 @@ struct WorkspaceStoreTests {
     let data = try JSONEncoder().encode(legacySession)
 
     #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(CodingSession.self, from: data)
+      _ = try JSONDecoder().decode(ChatSession.self, from: data)
     }
   }
 
   @Test
-  func codingSessionRejectsFlatTranscriptFields() throws {
+  func chatSessionRejectsFlatTranscriptFields() throws {
     let transcript = ModelFacingTranscript(
       entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
       ]
     )
     let messages = [ChatMessage(userContent: "hello")]
-    let flatSession = FlatCodingSession(
+    let flatSession = FlatChatSession(
       id: UUID(),
       title: "Flat",
       selectedModelID: "gemma3-1b",
@@ -198,7 +198,7 @@ struct WorkspaceStoreTests {
     let data = try JSONEncoder().encode(flatSession)
 
     #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(CodingSession.self, from: data)
+      _ = try JSONDecoder().decode(ChatSession.self, from: data)
     }
   }
 
@@ -210,7 +210,7 @@ struct WorkspaceStoreTests {
 
   private func makeToolCallRecord(
     workspaceID: Workspace.ID,
-    sessionID: CodingSession.ID
+    sessionID: ChatSession.ID
   ) -> ToolCallRecord {
     let rawRequest = RawToolCallRequest(
       id: fixedUUID("00000000-0000-0000-0000-000000000001"),
@@ -265,7 +265,7 @@ struct WorkspaceStoreTests {
   }
 }
 
-private struct LegacyCodingSession: Codable {
+private struct LegacyChatSession: Codable {
   let id: UUID
   let title: String
   let selectedModelID: ManagedModel.ID
@@ -276,7 +276,7 @@ private struct LegacyCodingSession: Codable {
   let updatedAt: Date
 }
 
-private struct FlatCodingSession: Codable {
+private struct FlatChatSession: Codable {
   let id: UUID
   let title: String
   let selectedModelID: ManagedModel.ID

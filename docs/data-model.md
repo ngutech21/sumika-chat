@@ -17,6 +17,8 @@ flowchart TD
   ChatMessagePayload --> ToolCallMessagePayload
   ChatMessagePayload --> ToolResultModelMessage
   ChatMessagePayload --> UserMessagePayload
+  ChatSession --> ChatTranscriptState
+  ChatSession --> ManagedModel
   ChatSessionState --> ChatAttachment
   ChatSessionState --> ChatTranscriptState
   ChatTranscriptState --> ChatGenerationSettings
@@ -31,8 +33,6 @@ flowchart TD
   ChatTurnItem --> ChatMessage
   ChatTurnItem --> ToolCallRecord
   ChatTurnRecord --> ChatTurn
-  CodingSession --> ChatTranscriptState
-  CodingSession --> ManagedModel
   EditFileResult --> EditMatchStrategy
   EditFileResult --> RecoveryHint
   EditFileResult --> ToolFailureReason
@@ -67,7 +67,7 @@ flowchart TD
   ModelFacingTranscript --> ModelContextEntry
   NoopTurnTracer --> TurnTracing
   ProjectedModelContextEntry --> ModelContextRole
-  RawToolCallRequest --> CodingSession
+  RawToolCallRequest --> ChatSession
   RawToolCallRequest --> ToolCallArguments
   RawToolCallRequest --> ToolName
   RawToolCallRequest --> Workspace
@@ -161,10 +161,10 @@ flowchart TD
   TurnTraceMetadata --> TurnTracing
   TurnTraceMetadata --> WorkspaceInteractionMode
   UserMessagePayload --> ChatAttachment
-  Workspace --> CodingSession
+  Workspace --> ChatSession
   WorkspaceFileEntry --> WorkspaceFileKind
   WorkspaceFileEntry --> WorkspaceRelativePath
-  WorkspaceLibrary --> CodingSession
+  WorkspaceLibrary --> ChatSession
   WorkspaceLibrary --> Workspace
   WriteFileResult --> ToolFailureReason
   WriteFileResult --> WorkspaceRelativePath
@@ -370,6 +370,26 @@ Properties:
 - Kind: `enum`
 - Source: `Sources/LocalCoderCore/Models/ChatPromptDefaults.swift`
 
+### ChatSession
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/Workspace.swift`
+- Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
+
+Properties:
+
+- `createdAt: Date`
+- `id: UUID`
+- `selectedModelID: ManagedModel.ID`
+- `title: String`
+- `transcript: ChatTranscriptState`
+- `updatedAt: Date`
+
+Relations:
+
+- `ChatTranscriptState`
+- `ManagedModel`
+
 ### ChatSessionState
 
 - Kind: `struct`
@@ -484,26 +504,6 @@ Cases:
 - `completed`
 - `failed`
 - `running`
-
-### CodingSession
-
-- Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/Workspace.swift`
-- Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
-
-Properties:
-
-- `createdAt: Date`
-- `id: UUID`
-- `selectedModelID: ManagedModel.ID`
-- `title: String`
-- `transcript: ChatTranscriptState`
-- `updatedAt: Date`
-
-Relations:
-
-- `ChatTranscriptState`
-- `ManagedModel`
 
 ### EditFileResult
 
@@ -990,13 +990,13 @@ Properties:
 - `createdAt: Date`
 - `id: UUID`
 - `rawText: String?`
-- `sessionID: CodingSession.ID`
+- `sessionID: ChatSession.ID`
 - `toolName: ToolName`
 - `workspaceID: Workspace.ID`
 
 Relations:
 
-- `CodingSession`
+- `ChatSession`
 - `ToolCallArguments`
 - `ToolName`
 - `Workspace`
@@ -1939,12 +1939,12 @@ Properties:
 - `id: UUID`
 - `name: String`
 - `rootURL: URL`
-- `sessions: [CodingSession]`
+- `sessions: [ChatSession]`
 - `updatedAt: Date`
 
 Relations:
 
-- `CodingSession`
+- `ChatSession`
 
 ### WorkspaceFileEntry
 
@@ -1993,13 +1993,13 @@ Cases:
 
 Properties:
 
-- `activeSessionID: CodingSession.ID?`
+- `activeSessionID: ChatSession.ID?`
 - `activeWorkspaceID: Workspace.ID?`
 - `workspaces: [Workspace]`
 
 Relations:
 
-- `CodingSession`
+- `ChatSession`
 - `Workspace`
 
 ### WorkspacePathResolutionError

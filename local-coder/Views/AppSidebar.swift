@@ -5,8 +5,8 @@ struct AppSidebar: View {
   let appState: AppState
   @Binding var selection: AppNavigationSelection?
   let onAddWorkspace: () -> Void
-  @State private var sessionBeingRenamed: CodingSession?
-  @State private var sessionPendingDeletion: CodingSession?
+  @State private var sessionBeingRenamed: ChatSession?
+  @State private var sessionPendingDeletion: ChatSession?
   @State private var renameTitle = ""
 
   var body: some View {

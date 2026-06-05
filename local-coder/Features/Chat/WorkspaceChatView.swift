@@ -4,7 +4,7 @@ import SwiftUI
 struct WorkspaceChatView: View {
   @Bindable var controller: ChatSessionController
   let workspace: Workspace
-  let sessionID: CodingSession.ID?
+  let sessionID: ChatSession.ID?
   let onAddAttachments: () -> Void
 
   private var onSend: () -> Void {

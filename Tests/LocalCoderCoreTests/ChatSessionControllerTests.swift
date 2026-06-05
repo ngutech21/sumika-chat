@@ -34,7 +34,7 @@ struct ChatSessionControllerTests {
         FocusedPath(path: path, source: .readFile, confidence: .active)
       ]
     )
-    let session = CodingSession(
+    let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
       focusedFileState: focusedFileState,
       systemPrompt: "System",
@@ -58,7 +58,7 @@ struct ChatSessionControllerTests {
   @Test
   func loadSessionClearsRuntimeContextWhenModelIsReused() async throws {
     let runtime = CountingClearContextRuntime()
-    let session = CodingSession(
+    let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
       systemPrompt: "System",
       generationSettings: .codingDefault,
@@ -538,7 +538,7 @@ struct ChatSessionControllerTests {
       name: "Project",
       rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)),
       sessions: [
-        CodingSession(
+        ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
           systemPrompt: ChatPromptDefaults.codingSystemPrompt,
@@ -657,7 +657,7 @@ struct ChatSessionControllerTests {
       name: "Project",
       rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)),
       sessions: [
-        CodingSession(
+        ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
           systemPrompt: ChatPromptDefaults.codingSystemPrompt,
@@ -726,7 +726,7 @@ struct ChatSessionControllerTests {
       name: "Project",
       rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)),
       sessions: [
-        CodingSession(
+        ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
           systemPrompt: ChatPromptDefaults.codingSystemPrompt,
@@ -981,7 +981,7 @@ struct ChatSessionControllerTests {
     }
   }
 
-  private func makeWorkspace(sessionID: CodingSession.ID) throws -> Workspace {
+  private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
     let rootURL = FileManager.default.temporaryDirectory.appending(
       path: "local-coder-tests-\(UUID().uuidString)",
       directoryHint: .isDirectory
@@ -996,7 +996,7 @@ struct ChatSessionControllerTests {
       name: "Project",
       rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)),
       sessions: [
-        CodingSession(
+        ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
           systemPrompt: ChatPromptDefaults.codingSystemPrompt,
