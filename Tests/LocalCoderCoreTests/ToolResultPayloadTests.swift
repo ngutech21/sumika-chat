@@ -116,31 +116,4 @@ struct ToolResultPayloadTests {
     #expect(preview.affectedPaths.isEmpty)
   }
 
-  @Test
-  func toolPermissionEvaluationDecodesLegacyShapeWithoutWorkspaceRelativePaths() throws {
-    struct LegacyToolPermissionEvaluation: Codable {
-      var decision: ToolPermissionDecision
-      var reason: String
-      var riskLevel: ToolRiskLevel
-      var normalizedPaths: [String]
-    }
-
-    let legacy = LegacyToolPermissionEvaluation(
-      decision: .requiresApproval,
-      reason: "Writing files inside the workspace requires approval.",
-      riskLevel: .high,
-      normalizedPaths: ["/tmp/project/README.md"]
-    )
-
-    let decoded = try JSONDecoder().decode(
-      ToolPermissionEvaluation.self,
-      from: JSONEncoder().encode(legacy)
-    )
-
-    #expect(decoded.decision == .requiresApproval)
-    #expect(decoded.reason == legacy.reason)
-    #expect(decoded.riskLevel == .high)
-    #expect(decoded.normalizedPaths == ["/tmp/project/README.md"])
-    #expect(decoded.workspaceRelativePaths.isEmpty)
-  }
 }

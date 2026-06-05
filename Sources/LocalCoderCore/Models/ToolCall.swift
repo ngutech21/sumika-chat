@@ -825,23 +825,6 @@ public struct ToolResultPreview: Codable, Equatable, Sendable {
     self.redacted = redacted
     self.affectedPaths = affectedPaths
   }
-
-  private enum CodingKeys: String, CodingKey {
-    case status
-    case text
-    case truncated
-    case redacted
-    case affectedPaths
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    status = try container.decodeIfPresent(ToolResultStatus.self, forKey: .status) ?? .success
-    text = try container.decode(String.self, forKey: .text)
-    truncated = try container.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
-    redacted = try container.decodeIfPresent(Bool.self, forKey: .redacted) ?? false
-    affectedPaths = try container.decodeIfPresent([String].self, forKey: .affectedPaths) ?? []
-  }
 }
 
 public enum ToolResultStatus: String, Codable, Equatable, Sendable {
@@ -1191,10 +1174,9 @@ public struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
     decision = try container.decode(ToolPermissionDecision.self, forKey: .decision)
     reason = try container.decode(String.self, forKey: .reason)
     riskLevel = try container.decode(ToolRiskLevel.self, forKey: .riskLevel)
-    normalizedPaths = try container.decodeIfPresent([String].self, forKey: .normalizedPaths) ?? []
+    normalizedPaths = try container.decode([String].self, forKey: .normalizedPaths)
     workspaceRelativePaths =
-      try container.decodeIfPresent([WorkspaceRelativePath].self, forKey: .workspaceRelativePaths)
-      ?? []
+      try container.decode([WorkspaceRelativePath].self, forKey: .workspaceRelativePaths)
   }
 
   public func encode(to encoder: Encoder) throws {

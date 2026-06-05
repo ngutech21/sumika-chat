@@ -73,7 +73,6 @@ struct ModelContextSnapshotTests {
       ],
       snapshots: [
         path: FocusedFileSnapshot(
-          path: path,
           contentHash: "hash",
           excerpt: "let value = 1",
           fullContentAvailable: true

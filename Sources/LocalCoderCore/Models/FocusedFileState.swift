@@ -67,19 +67,4 @@ public struct FocusedFileSnapshot: Codable, Equatable, Sendable {
     self.fullContentAvailable = fullContentAvailable
     self.updatedAt = updatedAt
   }
-
-  public init(
-    path _: WorkspaceRelativePath,
-    contentHash: String,
-    excerpt: String?,
-    fullContentAvailable: Bool,
-    updatedAt: Date = Date()
-  ) {
-    self.init(
-      contentHash: contentHash,
-      excerpt: excerpt,
-      fullContentAvailable: fullContentAvailable,
-      updatedAt: updatedAt
-    )
-  }
 }

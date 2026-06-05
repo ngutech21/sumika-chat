@@ -55,7 +55,6 @@ struct CurrentPromptContextSelectorTests {
       ],
       snapshots: [
         focusedPath: FocusedFileSnapshot(
-          path: focusedPath,
           contentHash: "hash",
           excerpt: "let focused = true",
           fullContentAvailable: true
@@ -164,7 +163,6 @@ struct CurrentPromptContextSelectorTests {
       ],
       snapshots: [
         focusedPath: FocusedFileSnapshot(
-          path: focusedPath,
           contentHash: "hash",
           excerpt: "let fallback = true",
           fullContentAvailable: true
@@ -210,7 +208,6 @@ struct CurrentPromptContextSelectorTests {
       ],
       snapshots: [
         path: FocusedFileSnapshot(
-          path: path,
           contentHash: "hash",
           excerpt: "<h1>Hello</h1>",
           fullContentAvailable: true
@@ -253,7 +250,6 @@ struct CurrentPromptContextSelectorTests {
       ],
       snapshots: [
         path: FocusedFileSnapshot(
-          path: path,
           contentHash: "hash",
           excerpt: "0123456789",
           fullContentAvailable: false
@@ -430,7 +426,6 @@ struct CurrentPromptContextRendererTests {
       ],
       snapshots: [
         path: FocusedFileSnapshot(
-          path: path,
           contentHash: "hash",
           excerpt: "<h1>Hello</h1>",
           fullContentAvailable: true

@@ -126,7 +126,6 @@ struct WorkspaceStoreTests {
       ],
       snapshots: [
         path: FocusedFileSnapshot(
-          path: path,
           contentHash: "abc",
           excerpt: "struct App {}",
           fullContentAvailable: true,

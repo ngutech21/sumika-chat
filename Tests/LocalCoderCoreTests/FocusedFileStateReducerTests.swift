@@ -76,7 +76,6 @@ struct FocusedFileStateReducerTests {
       recentPaths: [],
       snapshots: [
         path: FocusedFileSnapshot(
-          path: path,
           contentHash: "hash",
           excerpt: "let title = \"Old\"\n",
           fullContentAvailable: true
@@ -115,7 +114,6 @@ struct FocusedFileStateReducerTests {
       recentPaths: [],
       snapshots: [
         path: FocusedFileSnapshot(
-          path: path,
           contentHash: "hash",
           excerpt: "let title = \"Old\"\n",
           fullContentAvailable: false

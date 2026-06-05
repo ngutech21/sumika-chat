@@ -80,7 +80,6 @@ struct ChatModelContextBuilderTests {
       ],
       snapshots: [
         path: FocusedFileSnapshot(
-          path: path,
           contentHash: "hash",
           excerpt: "<h1>Hello</h1>",
           fullContentAvailable: true
