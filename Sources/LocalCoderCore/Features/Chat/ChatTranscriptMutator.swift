@@ -368,7 +368,7 @@ public struct ChatTranscriptMutator: Sendable {
           )
         )
       )
-    case .assistantOutput, .terminalToolResult, .legacy:
+    case .assistantOutput, .terminalToolResult:
       return
     }
 

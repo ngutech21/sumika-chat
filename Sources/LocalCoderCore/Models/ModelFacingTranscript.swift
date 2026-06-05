@@ -112,7 +112,6 @@ public enum ModelContextEntryBody: Codable, Equatable, Sendable {
   case assistantOutput(AssistantOutputContext)
   case toolObservation(ToolObservationContext)
   case terminalToolResult(TerminalToolResultContext)
-  case legacy(LegacyModelContext)
 
   public var modelRole: ModelContextRole {
     switch self {
@@ -120,8 +119,6 @@ public enum ModelContextEntryBody: Codable, Equatable, Sendable {
       return .user
     case .assistantOutput, .terminalToolResult:
       return .assistant
-    case .legacy(let context):
-      return context.role
     }
   }
 
@@ -131,7 +128,6 @@ public enum ModelContextEntryBody: Codable, Equatable, Sendable {
     case assistantOutput
     case toolObservation
     case terminalToolResult
-    case legacy
   }
 
   private enum Kind: String, Codable {
@@ -139,7 +135,6 @@ public enum ModelContextEntryBody: Codable, Equatable, Sendable {
     case assistantOutput
     case toolObservation
     case terminalToolResult
-    case legacy
   }
 
   public init(from decoder: Decoder) throws {
@@ -159,8 +154,6 @@ public enum ModelContextEntryBody: Codable, Equatable, Sendable {
       self = .terminalToolResult(
         try container.decode(TerminalToolResultContext.self, forKey: .terminalToolResult)
       )
-    case .legacy:
-      self = .legacy(try container.decode(LegacyModelContext.self, forKey: .legacy))
     }
   }
 
@@ -179,9 +172,6 @@ public enum ModelContextEntryBody: Codable, Equatable, Sendable {
     case .terminalToolResult(let context):
       try container.encode(Kind.terminalToolResult, forKey: .kind)
       try container.encode(context, forKey: .terminalToolResult)
-    case .legacy(let context):
-      try container.encode(Kind.legacy, forKey: .kind)
-      try container.encode(context, forKey: .legacy)
     }
   }
 }
@@ -331,16 +321,6 @@ public struct ToolReceiptSummary: Codable, Equatable, Sendable {
   }
 }
 
-public struct LegacyModelContext: Codable, Equatable, Sendable {
-  public let role: ModelContextRole
-  public let content: String
-
-  public init(role: ModelContextRole, content: String) {
-    self.role = role
-    self.content = content
-  }
-}
-
 public struct FrozenModelContent: Codable, Equatable, Sendable {
   public let role: ModelContextRole
   public let content: String
@@ -415,7 +395,7 @@ extension ModelContextEntry {
         role: .assistant,
         content: ToolReceiptRenderer.render(toolReceipt)
       )
-    case .userPrompt, .assistantOutput, .legacy:
+    case .userPrompt, .assistantOutput:
       return ProjectedModelContextEntry(
         role: frozenContent.role,
         content: frozenContent.content

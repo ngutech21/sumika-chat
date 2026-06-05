@@ -139,22 +139,6 @@ public enum ModelFacingPromptRenderer {
     )
   }
 
-  public static func legacyEntry(
-    id: UUID = UUID(),
-    turnID: ChatTurnRecord.ID? = nil,
-    sourceMessageID: ChatMessage.ID? = nil,
-    role: ModelContextRole,
-    content: String
-  ) throws -> ModelContextEntry {
-    try ModelContextEntry(
-      id: id,
-      turnID: turnID,
-      sourceMessageID: sourceMessageID,
-      body: .legacy(LegacyModelContext(role: role, content: content)),
-      frozenContent: FrozenModelContent(role: role, content: content)
-    )
-  }
-
   public static func userContent(
     _ content: String,
     systemContext: [String]

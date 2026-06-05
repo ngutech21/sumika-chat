@@ -5,10 +5,10 @@ import Testing
 
 struct ChatModelContextBuilderTests {
   @Test
-  func filtersTranscriptEntriesFromExcludedTurnsButKeepsLegacyEntries() throws {
+  func filtersTranscriptEntriesFromExcludedTurnsButKeepsEntriesWithoutTurnID() throws {
     let includedTurnID = UUID()
     let excludedTurnID = UUID()
-    let legacyEntry = try ModelFacingPromptRenderer.legacyEntry(role: .user, content: "legacy")
+    let unscopedEntry = try ModelFacingPromptRenderer.userPromptEntry(prompt: "unscoped")
     let includedEntry = try ModelFacingPromptRenderer.assistantOutputEntry(
       turnID: includedTurnID,
       content: "included"
@@ -20,7 +20,7 @@ struct ChatModelContextBuilderTests {
     let state = ChatSessionState(
       messages: [],
       modelFacingTranscript: ModelFacingTranscript(
-        entries: [legacyEntry, includedEntry, excludedEntry]
+        entries: [unscopedEntry, includedEntry, excludedEntry]
       ),
       turns: [
         ChatTurnRecord(id: includedTurnID, status: .completed),
@@ -37,7 +37,7 @@ struct ChatModelContextBuilderTests {
 
     let transcript = ChatModelContextBuilder().transcript(from: state)
 
-    #expect(transcript.entries == [legacyEntry, includedEntry])
+    #expect(transcript.entries == [unscopedEntry, includedEntry])
   }
 
   @Test
