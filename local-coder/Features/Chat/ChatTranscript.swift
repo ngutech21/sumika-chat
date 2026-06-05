@@ -68,19 +68,22 @@ struct ChatTranscript: View {
   private var transcriptItems: [RenderedChatTurnItem] {
     let recordsByID = Dictionary(toolCalls.map { ($0.id, $0) }) { _, latest in latest }
     return turns.flatMap { turn in
-      turn.items.enumerated().compactMap { offset, item in
+      let turnGenerationMetrics = turn.items.compactMap(\.generationMetrics).last
+      return turn.items.enumerated().compactMap { offset, item in
         switch item {
         case .userMessage(let message):
           return RenderedChatTurnItem(
             id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
             item: item,
-            toolCallRecord: nil
+            toolCallRecord: nil,
+            generationMetrics: nil
           )
         case .assistantMessage(let message):
           return RenderedChatTurnItem(
             id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
             item: item,
-            toolCallRecord: nil
+            toolCallRecord: nil,
+            generationMetrics: message.generationMetrics
           )
         case .toolCall(let id):
           guard let record = recordsByID[id] else {
@@ -89,7 +92,8 @@ struct ChatTranscript: View {
           return RenderedChatTurnItem(
             id: "\(turn.id.uuidString):\(offset):toolCall:\(id.uuidString)",
             item: item,
-            toolCallRecord: record
+            toolCallRecord: record,
+            generationMetrics: turnGenerationMetrics
           )
         case .toolResult(let id):
           guard let record = recordsByID[id] else {
@@ -98,7 +102,8 @@ struct ChatTranscript: View {
           return RenderedChatTurnItem(
             id: "\(turn.id.uuidString):\(offset):toolResult:\(id.uuidString)",
             item: item,
-            toolCallRecord: record
+            toolCallRecord: record,
+            generationMetrics: turnGenerationMetrics
           )
         }
       }
@@ -110,6 +115,7 @@ private struct RenderedChatTurnItem: Identifiable {
   let id: String
   let item: ChatTurnItem
   let toolCallRecord: ToolCallRecord?
+  let generationMetrics: ChatGenerationMetrics?
 }
 
 private struct ChatBubble: View {
@@ -124,10 +130,12 @@ private struct ChatBubble: View {
         Spacer(minLength: 80)
       }
 
-      VStack(alignment: item.isDisplayedAsUser ? .trailing : .leading, spacing: 6) {
-        Label(item.displayTitle, systemImage: item.displaySystemImage)
-          .font(.caption)
-          .foregroundStyle(.secondary)
+      VStack(alignment: item.isDisplayedAsUser ? .trailing : .leading, spacing: item.stackSpacing) {
+        if item.showsAuthorLabel {
+          Label(item.displayTitle, systemImage: item.displaySystemImage)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
 
         if item.shouldShowAssistantPlaceholder {
           Label(
@@ -143,16 +151,17 @@ private struct ChatBubble: View {
             MessageContentText(
               item: item.item,
               toolCallRecord: item.toolCallRecord,
+              generationMetrics: item.generationMetrics,
               onApproveToolCall: onApproveToolCall,
               onDenyToolCall: onDenyToolCall
             )
             .textSelection(.enabled)
 
-            if let metrics = item.generationMetrics {
+            if let metrics = item.visibleGenerationMetrics {
               GenerationMetricsView(metrics: metrics)
             }
           }
-          .padding(10)
+          .padding(item.contentPadding)
           .background(item.messageBubbleBackground)
           .clipShape(RoundedRectangle(cornerRadius: 8))
         }
@@ -175,7 +184,10 @@ private struct ChatBubble: View {
           }
         }
       }
-      .frame(maxWidth: 680, alignment: item.isDisplayedAsUser ? .trailing : .leading)
+      .frame(
+        maxWidth: item.maximumBubbleWidth,
+        alignment: item.isDisplayedAsUser ? .trailing : .leading
+      )
 
       if !item.isDisplayedAsUser {
         Spacer(minLength: 80)
@@ -232,6 +244,7 @@ private struct SentAttachmentList: View {
 private struct MessageContentText: View {
   let item: ChatTurnItem
   let toolCallRecord: ToolCallRecord?
+  let generationMetrics: ChatGenerationMetrics?
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
 
@@ -243,6 +256,7 @@ private struct MessageContentText: View {
         ToolCallSummaryView(
           toolCall: ToolCallModelMessage(request: toolCallRecord.request),
           toolCallRecord: toolCallRecord,
+          generationMetrics: generationMetrics,
           onApprove: onApproveToolCall,
           onDeny: onDenyToolCall
         )
@@ -251,7 +265,8 @@ private struct MessageContentText: View {
       if let toolCallRecord {
         ToolResultSummaryView(
           toolResult: ToolResultModelMessage(record: toolCallRecord),
-          toolCallRecord: toolCallRecord
+          toolCallRecord: toolCallRecord,
+          generationMetrics: generationMetrics
         )
       }
     case .assistantMessage(let message):
@@ -351,6 +366,22 @@ extension RenderedChatTurnItem {
     isDisplayedAsUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
   }
 
+  var stackSpacing: CGFloat {
+    isToolItem ? 2 : 6
+  }
+
+  var contentPadding: CGFloat {
+    isToolItem ? 6 : 10
+  }
+
+  var maximumBubbleWidth: CGFloat {
+    isToolItem ? 520 : 680
+  }
+
+  var showsAuthorLabel: Bool {
+    !isToolItem
+  }
+
   fileprivate var accessibilityIdentifier: String {
     switch item {
     case .assistantMessage:
@@ -405,8 +436,8 @@ extension RenderedChatTurnItem {
     assistantMessage?.assistantPlaceholderSystemImage ?? "sparkles"
   }
 
-  var generationMetrics: ChatGenerationMetrics? {
-    assistantMessage?.generationMetrics
+  var visibleGenerationMetrics: ChatGenerationMetrics? {
+    isToolItem ? nil : generationMetrics
   }
 
   var attachments: [ChatAttachment] {
@@ -436,6 +467,24 @@ extension RenderedChatTurnItem {
       return nil
     }
     return message
+  }
+
+  private var isToolItem: Bool {
+    switch item {
+    case .toolCall, .toolResult:
+      true
+    case .assistantMessage, .userMessage:
+      false
+    }
+  }
+}
+
+extension ChatTurnItem {
+  fileprivate var generationMetrics: ChatGenerationMetrics? {
+    guard case .assistantMessage(let message) = self else {
+      return nil
+    }
+    return message.generationMetrics
   }
 }
 
