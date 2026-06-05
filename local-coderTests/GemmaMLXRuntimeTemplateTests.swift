@@ -96,7 +96,9 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
     ]
 
-    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[...])
+    let history = try GemmaMLXRuntime.generationHistoryMessages(
+      from: projectedEntries(from: entries)[...]
+    )
 
     #expect(history.map(\.role) == [.user, .assistant])
     #expect(history[0].content.contains("System instructions:"))
@@ -127,7 +129,9 @@ struct GemmaMLXRuntimeTemplateTests {
       try ModelFacingPromptRenderer.assistantOutputEntry(content: "Done."),
     ]
 
-    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[...])
+    let history = try GemmaMLXRuntime.generationHistoryMessages(
+      from: projectedEntries(from: entries)[...]
+    )
 
     #expect(history.map(\.role) == [.user, .assistant, .user, .assistant])
     #expect(history[0].content == initialRendered[0].content)
@@ -186,10 +190,7 @@ struct GemmaMLXRuntimeTemplateTests {
         ]
       )
     ]
-    let lastUserIndex = try #require(entries.lastIndex { $0.frozenContent.role == .user })
-
-    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[..<lastUserIndex])
-    let prompt = GemmaMLXRuntime.chatMessage(from: entries[lastUserIndex])
+    let (history, prompt) = try generationHistoryAndPrompt(from: entries)
 
     #expect(history.isEmpty)
     #expect(prompt.content.contains("Use concise coding steps."))
@@ -227,10 +228,7 @@ struct GemmaMLXRuntimeTemplateTests {
         ]
       ),
     ]
-    let lastUserIndex = try #require(entries.lastIndex { $0.frozenContent.role == .user })
-
-    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[..<lastUserIndex])
-    let prompt = GemmaMLXRuntime.chatMessage(from: entries[lastUserIndex])
+    let (history, prompt) = try generationHistoryAndPrompt(from: entries)
 
     #expect(history.map(\.role) == [.user, .assistant])
     #expect(history[0].content == initialRendered[0].content)
@@ -696,10 +694,7 @@ struct GemmaMLXRuntimeTemplateTests {
         systemContext: ["Read-only tools are available."]
       ),
     ]
-    let lastUserIndex = try #require(entries.lastIndex { $0.frozenContent.role == .user })
-
-    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[..<lastUserIndex])
-    let prompt = GemmaMLXRuntime.chatMessage(from: entries[lastUserIndex])
+    let (history, prompt) = try generationHistoryAndPrompt(from: entries)
     let prefix = GemmaMLXRuntime.messageSnapshot(from: history)
     let decision = GemmaMLXRuntime.cacheDecision(
       cachedPrefix: prefix,
@@ -810,10 +805,7 @@ struct GemmaMLXRuntimeTemplateTests {
         systemContext: ["No more tools may run in this response."]
       ),
     ]
-    let lastUserIndex = try #require(entries.lastIndex { $0.frozenContent.role == .user })
-
-    let history = try GemmaMLXRuntime.generationHistoryMessages(from: entries[..<lastUserIndex])
-    let prompt = GemmaMLXRuntime.chatMessage(from: entries[lastUserIndex])
+    let (history, prompt) = try generationHistoryAndPrompt(from: entries)
     let prefix = GemmaMLXRuntime.messageSnapshot(from: history)
     let decision = GemmaMLXRuntime.cacheDecision(
       cachedPrefix: prefix,
@@ -1295,6 +1287,25 @@ struct GemmaMLXRuntimeTemplateTests {
         return
       }
     }
+  }
+
+  private func projectedEntries(
+    from entries: [ModelContextEntry]
+  ) -> [ProjectedModelContextEntry] {
+    ModelFacingTranscript(entries: entries)
+      .projectedEntries(mode: .compactedHistoryForLaterTurns)
+  }
+
+  private func generationHistoryAndPrompt(
+    from entries: [ModelContextEntry]
+  ) throws -> (history: [Chat.Message], prompt: Chat.Message) {
+    let projectedEntries = projectedEntries(from: entries)
+    let lastUserIndex = try #require(projectedEntries.lastIndex { $0.role == .user })
+    let history = try GemmaMLXRuntime.generationHistoryMessages(
+      from: projectedEntries[..<lastUserIndex]
+    )
+    let prompt = GemmaMLXRuntime.chatMessage(from: projectedEntries[lastUserIndex])
+    return (history, prompt)
   }
 
   private func writeFileToolCall(

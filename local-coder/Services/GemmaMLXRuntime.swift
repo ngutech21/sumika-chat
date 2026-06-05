@@ -671,15 +671,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
   }
 
-  nonisolated static func chatMessage(from entry: ModelContextEntry) -> Chat.Message {
-    switch entry.frozenContent.role {
-    case .user:
-      return .user(entry.frozenContent.content)
-    case .assistant:
-      return .assistant(entry.frozenContent.content)
-    }
-  }
-
   nonisolated static func chatMessage(from entry: ProjectedModelContextEntry) -> Chat.Message {
     switch entry.role {
     case .user:
@@ -1227,18 +1218,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
 
     return messages
-  }
-
-  nonisolated static func generationHistoryMessages(
-    from entries: ArraySlice<ModelContextEntry>
-  ) throws -> [Chat.Message] {
-    var history = normalizedChatMessages(entries.map(Self.chatMessage(from:)))
-
-    while history.last?.role == .user {
-      history.removeLast()
-    }
-
-    return try validatedTemplateMessages(history)
   }
 
   nonisolated static func generationHistoryMessages(
