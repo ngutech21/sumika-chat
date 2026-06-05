@@ -200,11 +200,15 @@ flowchart TD
 - Approved execution must re-validate the raw request and re-run
   permission/path evaluation immediately before the side effect.
 - `run_command` is available only in the Agent registry. It executes
-  `/bin/bash -c <command>` in the active workspace root, inside
-  `withSecurityScopedAccess`, after approval. The approval preview and record
-  must preserve the exact command string from the request. The command must
-  never spawn before approval, and denied approval must append a denied result
-  without creating a process.
+  `/bin/bash -c <command>` in the active workspace root after approval. The
+  approval preview and record must preserve the exact command string from the
+  request. The command must never spawn before approval, and denied approval
+  must append a denied result without creating a process.
+- The macOS app target currently builds without App Sandbox so developer
+  toolchains such as Homebrew, `uv`, Python, Git, and project package managers
+  can be launched by `run_command`. The command tool still owns explicit
+  approval, request revalidation, foreground-only execution, timeout handling,
+  output capture, and audit state.
 - `run_command` uses a required timeout that is clamped to the supported range
   before execution. It captures stdout, stderr, exit code, duration, timeout,
   cancellation, and truncation metadata as a structured `RunCommandResult`.
