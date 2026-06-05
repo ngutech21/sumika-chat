@@ -160,6 +160,24 @@ actor GemmaDebugTraceStore: TurnTracing {
     if let currentPromptContextChanged = event.currentPromptContextChanged {
       trace["currentPromptContextChanged"] = currentPromptContextChanged
     }
+    if let toolCallFormat = event.toolCallFormat {
+      trace["toolCallFormat"] = toolCallFormat
+    }
+    if let toolValidationStatus = event.toolValidationStatus {
+      trace["toolValidationStatus"] = toolValidationStatus
+    }
+    if let toolValidationError = event.toolValidationError {
+      trace["toolValidationError"] = toolValidationError
+    }
+    if let toolOriginalName = event.toolOriginalName {
+      trace["toolOriginalName"] = toolOriginalName
+    }
+    if let toolArgumentKeys = event.toolArgumentKeys {
+      trace["toolArgumentKeys"] = toolArgumentKeys
+    }
+    if let toolArguments = event.toolArguments {
+      trace["toolArguments"] = toolArguments.map(traceToolArgument(from:))
+    }
     append(trace)
   }
 
@@ -169,6 +187,15 @@ actor GemmaDebugTraceStore: TurnTracing {
       "role": message.role,
       "content": truncatedContent.value,
       "truncated": truncatedContent.truncated,
+    ]
+  }
+
+  private func traceToolArgument(from argument: ToolArgumentTrace) -> [String: Any] {
+    [
+      "name": argument.name,
+      "valueType": argument.valueType,
+      "preview": argument.preview,
+      "previewTruncated": argument.previewTruncated,
     ]
   }
 

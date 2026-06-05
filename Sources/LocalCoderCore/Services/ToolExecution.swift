@@ -443,6 +443,8 @@ public struct AnyToolExecutor: Sendable {
       return try cast(input, as: inputType, definition: definition, actualToolName: .editFile)
     case .runCommand(let input):
       return try cast(input, as: inputType, definition: definition, actualToolName: .runCommand)
+    case .todoWrite(let input):
+      return try cast(input, as: inputType, definition: definition, actualToolName: .todoWrite)
     case .invalid:
       throw ToolInputDecodingError.payloadMismatch(
         expected: definition.name.rawValue,
@@ -487,6 +489,7 @@ public struct ToolExecutorRegistry: Sendable {
     AnyToolExecutor(EditFileToolExecutor()),
     AnyToolExecutor(WriteFileToolExecutor()),
     AnyToolExecutor(RunCommandToolExecutor()),
+    AnyToolExecutor(TodoWriteToolExecutor()),
   ])
 
   private let orderedExecutors: [AnyToolExecutor]
@@ -517,6 +520,89 @@ public struct ToolExecutorRegistry: Sendable {
 
   public func executor(for toolName: ToolName) -> AnyToolExecutor? {
     executorsByName[toolName]
+  }
+}
+
+public struct TodoWriteInput: Codable, Equatable, Sendable {
+  public let items: [TodoItem]
+
+  private enum CodingKeys: String, CodingKey {
+    case items
+    case id
+    case content
+    case status
+  }
+
+  public init(items: [TodoItem]) {
+    self.items = items
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    if let items = try? container.decode([TodoItem].self, forKey: .items) {
+      self.items = items
+      return
+    }
+
+    if let rawItems = try? container.decode(String.self, forKey: .items) {
+      let data = Data(rawItems.utf8)
+      do {
+        items = try JSONDecoder().decode([TodoItem].self, from: data)
+        return
+      } catch {
+        throw DecodingError.dataCorruptedError(
+          forKey: .items,
+          in: container,
+          debugDescription: "items must be an array of todo objects or a JSON array string."
+        )
+      }
+    }
+
+    let id = try container.decodeIfPresent(String.self, forKey: .id) ?? "todo-1"
+    let content = try container.decode(String.self, forKey: .content)
+    let status = try container.decode(TodoStatus.self, forKey: .status)
+    items = [TodoItem(id: id, content: content, status: status)]
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(items, forKey: .items)
+  }
+}
+
+public struct TodoWriteToolExecutor: TypedToolExecutor {
+  public static let definition = ToolDefinition.todoWrite
+
+  public init() {}
+
+  public func evaluatePermission(
+    _ input: TodoWriteInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    _ = input
+    _ = context
+    return ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Updating Agent todo state is allowed.",
+      riskLevel: .low
+    )
+  }
+
+  public func run(_ input: TodoWriteInput, context: ToolContext) async -> ToolResultPayload {
+    _ = context
+    do {
+      try TodoStateValidator().validate(input.items)
+      return .todoWrite(.success)
+    } catch {
+      let reason =
+        if let validationError = error as? TodoStateValidationError {
+          ToolFailureReason.invalidArguments(
+            .invalidTodoItems(validationError.localizedDescription))
+        } else {
+          ToolFailureReason.executionError(error.localizedDescription)
+        }
+      return .todoWrite(.failed(reason: reason))
+    }
   }
 }
 

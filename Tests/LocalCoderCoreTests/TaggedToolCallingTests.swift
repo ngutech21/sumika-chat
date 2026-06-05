@@ -51,7 +51,9 @@ struct TaggedToolCallingTests {
       prompt.contains("- workspace_diff(path?): Show current workspace changes using Git diff."))
     #expect(
       prompt.contains(
-        #"For content, old_text, and new_text, use delimiter="LC_PAYLOAD_TEST""#))
+        #"For multiline payload parameters, including content, old_text, new_text, and items, use delimiter="LC_PAYLOAD_TEST""#
+      ))
+    #expect(!prompt.contains("For todo_write"))
     #expect(prompt.contains("LC_PAYLOAD_TEST"))
     #expect(prompt.contains(#"<action name="read_file">"#))
     #expect(prompt.contains("<path>Sources/App.swift</path>"))
@@ -76,6 +78,9 @@ struct TaggedToolCallingTests {
       prompt.contains(
         "- run_command(command, timeoutSeconds, reason?): Run an approved foreground shell command in the workspace root."
       ))
+    #expect(
+      prompt.contains(
+        "For todo_write, emit exactly one items parameter containing a JSON array of objects."))
   }
 
   @Test

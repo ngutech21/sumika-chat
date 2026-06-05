@@ -65,6 +65,25 @@ struct ToolCallRequestValidatorTests {
         ]),
       registry: registry
     )
+    let todo = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .array([
+            .object([
+              "id": .string("inspect"),
+              "content": .string("Inspect affected files"),
+              "status": .string("completed"),
+            ]),
+            .object([
+              "id": .string("core"),
+              "content": .string("Add todo state"),
+              "status": .string("inProgress"),
+            ]),
+          ])
+        ]),
+      registry: registry
+    )
 
     guard case .readFile(let readInput) = read.payload else {
       Issue.record("Expected read_file payload")
@@ -91,6 +110,13 @@ struct ToolCallRequestValidatorTests {
         == .runCommand(
           RunCommandInput(command: "just test-core", timeoutSeconds: 120, reason: "Verify tests.")
         ))
+    #expect(
+      todo.payload
+        == .todoWrite(
+          TodoWriteInput(items: [
+            TodoItem(id: "inspect", content: "Inspect affected files", status: .completed),
+            TodoItem(id: "core", content: "Add todo state", status: .inProgress),
+          ])))
   }
 
   @Test
@@ -156,6 +182,133 @@ struct ToolCallRequestValidatorTests {
   }
 
   @Test
+  func todoWriteValidatesItemCountContentAndProgress() {
+    let registry = ToolExecutorRegistry.codingAgent.toolRegistry
+    let oneItem = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .array([
+            .object([
+              "id": .string("one"),
+              "content": .string("Only one item"),
+              "status": .string("pending"),
+            ])
+          ])
+        ]),
+      registry: registry
+    )
+    let emptyContent = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .array([
+            .object(["id": .string("one"), "content": .string(" "), "status": .string("pending")]),
+            .object([
+              "id": .string("two"),
+              "content": .string("Valid item"),
+              "status": .string("pending"),
+            ]),
+          ])
+        ]),
+      registry: registry
+    )
+    let multipleInProgress = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .array([
+            .object([
+              "id": .string("one"),
+              "content": .string("First active"),
+              "status": .string("inProgress"),
+            ]),
+            .object([
+              "id": .string("two"),
+              "content": .string("Second active"),
+              "status": .string("inProgress"),
+            ]),
+          ])
+        ]),
+      registry: registry
+    )
+    let sevenItems = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .array(
+            (0..<7).map { index in
+              .object([
+                "id": .string("\(index)"),
+                "content": .string("Item \(index)"),
+                "status": .string("pending"),
+              ])
+            })
+        ]),
+      registry: registry
+    )
+    let unknownStatus = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .array([
+            .object([
+              "id": .string("one"),
+              "content": .string("Inspect"),
+              "status": .string("started"),
+            ]),
+            .object([
+              "id": .string("two"),
+              "content": .string("Verify"),
+              "status": .string("pending"),
+            ]),
+          ])
+        ]),
+      registry: registry
+    )
+
+    #expect(invalidReason(oneItem)?.message.contains("2 to 6 items") == true)
+    #expect(invalidReason(sevenItems)?.message.contains("2 to 6 items") == true)
+    #expect(invalidReason(emptyContent)?.message.contains("content must not be empty") == true)
+    #expect(invalidReason(multipleInProgress)?.message.contains("at most one inProgress") == true)
+    #expect(invalidReason(unknownStatus) != nil)
+  }
+
+  @Test
+  func todoWriteAcceptsDirectItemFieldsBeforeStateValidation() {
+    let request = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "id": .string("inspect"),
+          "status": .string("inProgress"),
+          "},{content.": .string("Inspect the requested CLI project"),
+        ]),
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(invalidReason(request)?.message.contains("2 to 6 items") == true)
+    #expect(invalidInput(request)?.rawArguments.keys.sorted() == ["content", "id", "status"])
+  }
+
+  @Test
+  func todoWriteNormalizesMalformedNativeItemFieldsWithNonStringValues() {
+    let request = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "id": .string("setup"),
+          "status": .string("pending"),
+          "},{content.": .object(["text": .string("Create project setup")]),
+        ]),
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(invalidReason(request)?.message.contains("2 to 6 items") == true)
+    #expect(invalidInput(request)?.rawArguments.keys.sorted() == ["content", "id", "status"])
+  }
+
+  @Test
   func payloadMatchingAllowsOnlyInvalidPayloadsToKeepOriginalToolName() {
     #expect(ToolCallPayload.readFile(ReadFileInput(path: "README.md")).matches(.readFile))
     #expect(ToolCallPayload.showFile(ReadFileInput(path: "README.md")).matches(.showFile))
@@ -163,6 +316,13 @@ struct ToolCallRequestValidatorTests {
     #expect(
       ToolCallPayload.runCommand(RunCommandInput(command: "date", timeoutSeconds: 1)).matches(
         .runCommand))
+    #expect(
+      ToolCallPayload.todoWrite(
+        TodoWriteInput(items: [
+          TodoItem(id: "one", content: "Plan work", status: .pending),
+          TodoItem(id: "two", content: "Run tests", status: .pending),
+        ])
+      ).matches(.todoWrite))
     #expect(!ToolCallPayload.readFile(ReadFileInput(path: "README.md")).matches(.writeFile))
     #expect(
       ToolCallPayload.invalid(

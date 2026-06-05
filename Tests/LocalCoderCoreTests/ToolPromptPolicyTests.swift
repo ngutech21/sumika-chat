@@ -126,6 +126,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("To find files by name, use glob_files or list_files."))
     #expect(prompt.contains("To search code contents, use search_files."))
     #expect(prompt.contains("To review current workspace changes, use workspace_diff."))
+    #expect(prompt.contains("use todo_write to keep a compact current plan"))
     #expect(prompt.contains("run_command"))
     #expect(prompt.contains("To create a new file, use write_file"))
     #expect(prompt.contains("To modify an existing file, use read_file first"))
@@ -179,7 +180,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("current file content"))
     #expect(
       prompt.contains(
-        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff, edit_file, write_file, run_command."
+        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff, edit_file, write_file, run_command, todo_write."
       ))
     #expect(prompt.contains("edit_file"))
     #expect(!prompt.contains("Tool calling:"))

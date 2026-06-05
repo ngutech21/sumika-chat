@@ -1291,13 +1291,19 @@ extension ChatSessionController {
   }
 
   fileprivate func systemPrompt(toolPromptMode: ToolPromptMode) -> String {
-    toolPromptPolicy.systemPrompt(
+    let renderedPrompt = toolPromptPolicy.systemPrompt(
       basePrompt: chatSession.systemPrompt,
       mode: toolPromptMode,
       toolRegistry: toolRegistry(for: toolPromptMode),
       toolPromptRenderer: toolPromptRenderer,
       toolCallingPolicy: modelRuntime.selectedModel.toolCallingPolicy
     )
+    guard chatSession.interactionMode == .agent,
+      let planBlock = TodoPromptRenderer.compactPlanBlock(for: chatSession.todoState)
+    else {
+      return renderedPrompt
+    }
+    return [renderedPrompt, planBlock].joined(separator: "\n\n")
   }
 
   fileprivate func runtimeToolContext(

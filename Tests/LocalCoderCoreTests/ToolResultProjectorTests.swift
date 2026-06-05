@@ -167,6 +167,27 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func todoWriteObservationIsOnlyPlanUpdated() {
+    let projection = ToolResultProjector.project(
+      payload: .todoWrite(.success),
+      request: request(
+        toolName: .todoWrite,
+        payload: .todoWrite(
+          TodoWriteInput(items: [
+            TodoItem(id: "inspect", content: "Inspect files", status: .completed),
+            TodoItem(id: "verify", content: "Run tests", status: .pending),
+          ]))
+      )
+    )
+    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
+
+    #expect(
+      projection.display == .summary(status: .success, text: "Plan updated.", affectedPaths: []))
+    #expect(rendered == "Plan updated.")
+    #expect(!rendered.contains("Inspect files"))
+  }
+
+  @Test
   func runCommandObservationIncludesExitAndOutput() {
     let result = RunCommandResult(
       command: "just test-core",

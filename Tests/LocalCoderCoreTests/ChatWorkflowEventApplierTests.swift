@@ -182,6 +182,19 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
+  func updatesTodoState() {
+    let todoState = TodoState(items: [
+      TodoItem(id: "inspect", content: "Inspect files", status: .completed),
+      TodoItem(id: "verify", content: "Run tests", status: .inProgress),
+    ])
+    var state = makeState()
+
+    ChatWorkflowEventApplier().apply(.todoStateChanged(todoState), to: &state)
+
+    #expect(state.todoState == todoState)
+  }
+
+  @Test
   func appliesStreamingCancellationAndPlaceholderCleanup() {
     let turnID = UUID()
     let cancelledID = UUID()

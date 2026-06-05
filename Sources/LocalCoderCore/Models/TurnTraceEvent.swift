@@ -39,6 +39,12 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
   public let firstMismatchIndex: Int?
   public let systemPromptChanged: Bool?
   public let currentPromptContextChanged: Bool?
+  public let toolCallFormat: String?
+  public let toolValidationStatus: String?
+  public let toolValidationError: String?
+  public let toolOriginalName: String?
+  public let toolArgumentKeys: [String]?
+  public let toolArguments: [ToolArgumentTrace]?
 
   public init(
     turnID: UUID? = nil,
@@ -63,7 +69,13 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     mismatchReason: String? = nil,
     firstMismatchIndex: Int? = nil,
     systemPromptChanged: Bool? = nil,
-    currentPromptContextChanged: Bool? = nil
+    currentPromptContextChanged: Bool? = nil,
+    toolCallFormat: String? = nil,
+    toolValidationStatus: String? = nil,
+    toolValidationError: String? = nil,
+    toolOriginalName: String? = nil,
+    toolArgumentKeys: [String]? = nil,
+    toolArguments: [ToolArgumentTrace]? = nil
   ) {
     self.turnID = turnID
     self.generationID = generationID
@@ -88,6 +100,31 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.firstMismatchIndex = firstMismatchIndex
     self.systemPromptChanged = systemPromptChanged
     self.currentPromptContextChanged = currentPromptContextChanged
+    self.toolCallFormat = toolCallFormat
+    self.toolValidationStatus = toolValidationStatus
+    self.toolValidationError = toolValidationError
+    self.toolOriginalName = toolOriginalName
+    self.toolArgumentKeys = toolArgumentKeys
+    self.toolArguments = toolArguments
+  }
+}
+
+public struct ToolArgumentTrace: Codable, Equatable, Sendable {
+  public let name: String
+  public let valueType: String
+  public let preview: String
+  public let previewTruncated: Bool
+
+  public init(
+    name: String,
+    valueType: String,
+    preview: String,
+    previewTruncated: Bool
+  ) {
+    self.name = name
+    self.valueType = valueType
+    self.preview = preview
+    self.previewTruncated = previewTruncated
   }
 }
 

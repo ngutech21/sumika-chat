@@ -5,6 +5,8 @@ public enum ToolParameterValueType: String, Codable, Equatable, Sendable {
   case integer
   case number
   case boolean
+  case array
+  case object
 }
 
 public struct ToolParameterDefinition: Codable, Equatable, Sendable {
@@ -16,6 +18,7 @@ public struct ToolParameterDefinition: Codable, Equatable, Sendable {
   public var defaultValue: ToolArgumentValue?
   public var minimum: Double?
   public var maximum: Double?
+  public var arrayItems: ToolJSONSchemaObject?
   public var supportsHeredocPayload: Bool
 
   public init(
@@ -27,6 +30,7 @@ public struct ToolParameterDefinition: Codable, Equatable, Sendable {
     defaultValue: ToolArgumentValue? = nil,
     minimum: Double? = nil,
     maximum: Double? = nil,
+    arrayItems: ToolJSONSchemaObject? = nil,
     supportsHeredocPayload: Bool = false
   ) {
     self.name = name
@@ -37,6 +41,7 @@ public struct ToolParameterDefinition: Codable, Equatable, Sendable {
     self.defaultValue = defaultValue
     self.minimum = minimum
     self.maximum = maximum
+    self.arrayItems = arrayItems
     self.supportsHeredocPayload = supportsHeredocPayload
   }
 }
@@ -133,7 +138,8 @@ public struct ToolJSONSchemaObject: Codable, Equatable, Sendable {
         enumValues: parameter.enumValues,
         defaultValue: parameter.defaultValue,
         minimum: parameter.minimum,
-        maximum: parameter.maximum
+        maximum: parameter.maximum,
+        arrayItems: parameter.arrayItems
       )
 
       if parameter.isRequired {
@@ -152,6 +158,7 @@ public struct ToolJSONSchemaProperty: Codable, Equatable, Sendable {
   public var defaultValue: ToolArgumentValue?
   public var minimum: Double?
   public var maximum: Double?
+  public var arrayItems: ToolJSONSchemaObject?
 
   private enum CodingKeys: String, CodingKey {
     case type
@@ -160,6 +167,7 @@ public struct ToolJSONSchemaProperty: Codable, Equatable, Sendable {
     case defaultValue = "default"
     case minimum
     case maximum
+    case arrayItems = "items"
   }
 
   public init(
@@ -168,7 +176,8 @@ public struct ToolJSONSchemaProperty: Codable, Equatable, Sendable {
     enumValues: [String]? = nil,
     defaultValue: ToolArgumentValue? = nil,
     minimum: Double? = nil,
-    maximum: Double? = nil
+    maximum: Double? = nil,
+    arrayItems: ToolJSONSchemaObject? = nil
   ) {
     self.type = type
     self.description = description
@@ -176,6 +185,7 @@ public struct ToolJSONSchemaProperty: Codable, Equatable, Sendable {
     self.defaultValue = defaultValue
     self.minimum = minimum
     self.maximum = maximum
+    self.arrayItems = arrayItems
   }
 }
 
@@ -483,5 +493,53 @@ nonisolated extension ToolDefinition {
       """,
     capabilities: [.runCommand],
     riskLevel: .high
+  )
+
+  public static let todoWrite = ToolDefinition(
+    name: .todoWrite,
+    description:
+      "Update the current Agent todo plan for multi-step coding tasks. Use only in Agent mode when tracking 2 to 6 short, reviewable steps; keep at most one item inProgress.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "items",
+        description:
+          "Structured todo items. Native calls should pass an array of objects with id, content, and status. Tagged calls should pass the same array as JSON.",
+        isRequired: true,
+        valueType: .array,
+        arrayItems: ToolJSONSchemaObject(
+          properties: [
+            "id": ToolJSONSchemaProperty(
+              type: .string,
+              description: "Stable short id for this todo item, such as inspect or verify."
+            ),
+            "content": ToolJSONSchemaProperty(
+              type: .string,
+              description: "Short todo text, 120 characters or fewer."
+            ),
+            "status": ToolJSONSchemaProperty(
+              type: .string,
+              description: "Todo status.",
+              enumValues: ["pending", "inProgress", "completed", "blocked"]
+            ),
+          ],
+          required: ["id", "content", "status"]
+        ),
+        supportsHeredocPayload: true
+      )
+    ],
+    taggedExample: """
+      <action name="todo_write">
+      <items delimiter="LC_PAYLOAD_V1">
+      [
+        {"id":"inspect","content":"Inspect the affected chat workflow files","status":"completed"},
+        {"id":"core","content":"Add todo state and tool plumbing","status":"inProgress"},
+        {"id":"verify","content":"Run focused tests","status":"pending"}
+      ]
+      LC_PAYLOAD_V1
+      </items>
+      </action>
+      """,
+    capabilities: [],
+    riskLevel: .low
   )
 }

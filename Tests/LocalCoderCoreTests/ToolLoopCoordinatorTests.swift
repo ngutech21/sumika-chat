@@ -76,6 +76,94 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func tracesNativeToolArgumentDiagnosticsAfterValidation() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let turnID = UUID()
+    let tracer = RecordingToolLoopTurnTracer()
+    let coordinator = ToolLoopCoordinator(turnTracer: tracer)
+
+    _ = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: turnID,
+        assistantMessageID: assistantMessageID,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(id: assistantMessageID, content: "")
+          )
+        ],
+        interactionMode: .agent,
+        toolCallingPolicy: .nativeGemma4,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "todo_write",
+            arguments: [
+              "id": .string("setup"),
+              "status": .string("pending"),
+              "},{content.": .string("Create project files"),
+            ]
+          )
+        ]
+      )
+    )
+
+    let event = try #require(await tracer.events.last { $0.phase == .toolExecute })
+    #expect(event.turnID == turnID)
+    #expect(event.toolName == "todo_write")
+    #expect(event.toolCallFormat == "native")
+    #expect(event.toolValidationStatus == "invalid")
+    #expect(event.toolValidationError != nil)
+    #expect(Set(event.toolArgumentKeys ?? []) == Set(["},{content.", "id", "status"]))
+    #expect(Set(event.toolArguments?.map(\.name) ?? []) == Set(["},{content.", "id", "status"]))
+    #expect(
+      event.toolArguments?.first { $0.name == "},{content." }?.preview
+        == "Create project files"
+    )
+  }
+
+  @Test
+  func redactsWritePayloadsFromToolArgumentDiagnostics() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let tracer = RecordingToolLoopTurnTracer()
+    let coordinator = ToolLoopCoordinator(turnTracer: tracer)
+
+    _ = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: UUID(),
+        assistantMessageID: assistantMessageID,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(id: assistantMessageID, content: "")
+          )
+        ],
+        interactionMode: .agent,
+        toolCallingPolicy: .nativeGemma4,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("secret.txt"),
+              "content": .string("secret source content"),
+            ]
+          )
+        ]
+      )
+    )
+
+    let event = try #require(await tracer.events.last { $0.phase == .toolExecute })
+    #expect(event.toolName == "write_file")
+    #expect(event.toolArguments?.first { $0.name == "path" }?.preview == "secret.txt")
+    #expect(event.toolArguments?.first { $0.name == "content" }?.preview == "[redacted]")
+  }
+
+  @Test
   func executesMultipleNativeRuntimeToolCallsWhenModelPolicyAllowsIt() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -884,6 +972,47 @@ struct ToolLoopCoordinatorTests {
     #expect(promptMode == .afterToolResultFinal)
   }
 
+  @Test
+  func todoWriteUpdatesTodoStateAndKeepsObservationMinimal() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: UUID(),
+        assistantMessageID: assistantMessageID,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="todo_write">
+                <items delimiter="LC_PAYLOAD_V1">
+                [
+                  {"id":"inspect","content":"Inspect files","status":"completed"},
+                  {"id":"verify","content":"Run tests","status":"inProgress"}
+                ]
+                LC_PAYLOAD_V1
+                </items>
+                </action>
+                """
+            ))
+        ],
+        interactionMode: .agent
+      )
+    )
+
+    #expect(toolCall(from: result)?.toolName == .todoWrite)
+    #expect(toolCallRecord(from: result)?.status == .completed)
+    #expect(completedToolResult(from: result)?.preview.text == "Plan updated.")
+    let todoState = todoStateChanged(from: result)
+    #expect(todoState?.items.map(\.content) == ["Inspect files", "Run tests"])
+  }
+
   private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
     let rootURL = FileManager.default.temporaryDirectory.appending(
       path: "local-coder-tests-\(UUID().uuidString)",
@@ -997,6 +1126,16 @@ struct ToolLoopCoordinatorTests {
     }
     return nil
   }
+
+  private func todoStateChanged(from step: ChatWorkflowStep?) -> TodoState? {
+    for event in step?.events ?? [] {
+      guard case .todoStateChanged(let todoState) = event else {
+        continue
+      }
+      return todoState
+    }
+    return nil
+  }
 }
 
 private struct NoPreviewToolOrchestrator: ToolOrchestrating {
@@ -1085,5 +1224,13 @@ private struct CompletedWriteFileToolOrchestrator: ToolOrchestrating {
           .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 19)
         ))
     )
+  }
+}
+
+private actor RecordingToolLoopTurnTracer: TurnTracing {
+  private(set) var events: [TurnTraceEvent] = []
+
+  func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+    events.append(event)
   }
 }

@@ -22,6 +22,7 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
   public static let editFile = ToolName(rawValue: "edit_file")
   public static let writeFile = ToolName(rawValue: "write_file")
   public static let runCommand = ToolName(rawValue: "run_command")
+  public static let todoWrite = ToolName(rawValue: "todo_write")
   public static let invalid = ToolName(rawValue: "invalid")
 
   private static func canonicalName(for name: String) -> String {
@@ -48,6 +49,8 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
       return Self.writeFile.rawValue
     case "run", "command":
       return Self.runCommand.rawValue
+    case "todo", "write_todo", "update_todos", "todos":
+      return "todo_write"
     default:
       return normalized
     }
@@ -94,6 +97,7 @@ public enum ToolIntentHeuristics {
       ToolName.editFile.rawValue,
       ToolName.writeFile.rawValue,
       ToolName.runCommand.rawValue,
+      ToolName.todoWrite.rawValue,
     ]
 
     for toolName in knownToolNames {
@@ -240,6 +244,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
   case writeFile(WriteFileInput)
   case editFile(EditFileInput)
   case runCommand(RunCommandInput)
+  case todoWrite(TodoWriteInput)
   case invalid(InvalidToolInput)
 }
 
@@ -264,6 +269,8 @@ nonisolated extension ToolCallPayload {
       .editFile
     case .runCommand:
       .runCommand
+    case .todoWrite:
+      .todoWrite
     case .invalid:
       .invalid
     }
@@ -305,6 +312,7 @@ public enum InvalidToolCallReason: Error, Codable, Equatable, Sendable {
   case invalidPagination(String)
   case invalidTimeout(String)
   case emptyOldText
+  case invalidTodoItems(String)
   case parserError(String)
 }
 
@@ -329,6 +337,8 @@ nonisolated extension InvalidToolCallReason {
       "\(name) must be an integer timeout in seconds."
     case .emptyOldText:
       "edit_file old_text must not be empty."
+    case .invalidTodoItems(let message):
+      "Invalid todo items: \(message)"
     case .parserError(let error):
       error
     }
@@ -373,12 +383,12 @@ public struct ToolCallModelMessage: Codable, Equatable, Sendable {
 
 nonisolated extension ToolCallModelMessage {
   public var modelContextContent: String {
-    if let rawText, !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      return rawText
+    if isPayloadOmittedFromHistory {
+      return terminalWriteModelContextContent
     }
 
-    if isTerminalWrite {
-      return terminalWriteModelContextContent
+    if let rawText, !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return rawText
     }
 
     let argumentLines = arguments.map { argument in
@@ -403,11 +413,18 @@ nonisolated extension ToolCallModelMessage {
     .assistant
   }
 
-  private var isTerminalWrite: Bool {
-    toolName == .writeFile || toolName == .editFile
+  private var isPayloadOmittedFromHistory: Bool {
+    toolName == .writeFile || toolName == .editFile || toolName == .todoWrite
   }
 
   private var terminalWriteModelContextContent: String {
+    if toolName == .todoWrite {
+      return """
+        Tool call todo_write requested.
+        Payload omitted from history.
+        """
+    }
+
     let path = arguments.first { $0.name == "path" }?.value ?? "unknown"
     return """
       Tool call \(toolName.rawValue) requested.
@@ -432,6 +449,8 @@ nonisolated extension ToolCallModelMessage {
       return arguments.filter { $0.name != "content" }
     case .editFile:
       return arguments.filter { $0.name != "old_text" && $0.name != "new_text" }
+    case .todoWrite:
+      return []
     default:
       return arguments
     }
@@ -618,8 +637,14 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case writeFile(WriteFileResult)
   case editFile(EditFileResult)
   case runCommand(RunCommandResult)
+  case todoWrite(TodoWriteResult)
   case invalidTool(InvalidToolResult)
   case failure(ToolFailure)
+}
+
+public enum TodoWriteResult: Codable, Equatable, Sendable {
+  case success
+  case failed(reason: ToolFailureReason)
 }
 
 public enum ReadFileResult: Codable, Equatable, Sendable {
@@ -948,6 +973,8 @@ nonisolated extension ToolResultPayload {
       return result.preview
     case .runCommand(let result):
       return result.preview
+    case .todoWrite(let result):
+      return result.preview
     case .invalidTool(let result):
       return ToolResultPreview(
         status: .failed,
@@ -959,6 +986,17 @@ nonisolated extension ToolResultPayload {
         text: failure.previewText,
         affectedPaths: failure.path.map { [$0.rawValue] } ?? []
       )
+    }
+  }
+}
+
+nonisolated extension TodoWriteResult {
+  fileprivate var preview: ToolResultPreview {
+    switch self {
+    case .success:
+      ToolResultPreview(text: "Plan updated.")
+    case .failed(let reason):
+      ToolResultPreview(status: reason.previewStatus, text: reason.message)
     }
   }
 }

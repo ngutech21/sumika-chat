@@ -1386,6 +1386,34 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func nativeGemma4ToolContextIncludesTodoItemSchema() throws {
+    let toolContext = ChatRuntimeToolContext(
+      strategy: .nativeGemma4,
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    let specs = try #require(GemmaMLXRuntime.toolSpecs(from: toolContext))
+    let todoSpec = try #require(
+      specs.first { spec in
+        let function = spec["function"] as? [String: any Sendable]
+        return function?["name"] as? String == "todo_write"
+      })
+    let function = try #require(todoSpec["function"] as? [String: any Sendable])
+    let parameters = try #require(function["parameters"] as? [String: any Sendable])
+    let properties = try #require(parameters["properties"] as? [String: any Sendable])
+    let items = try #require(properties["items"] as? [String: any Sendable])
+    let itemSchema = try #require(items["items"] as? [String: any Sendable])
+    let itemProperties = try #require(itemSchema["properties"] as? [String: any Sendable])
+    let status = try #require(itemProperties["status"] as? [String: any Sendable])
+
+    #expect(items["type"] as? String == "array")
+    #expect(itemSchema["type"] as? String == "object")
+    #expect(itemSchema["required"] as? [String] == ["id", "content", "status"])
+    #expect(itemProperties["content"] != nil)
+    #expect(status["enum"] as? [String] == ["pending", "inProgress", "completed", "blocked"])
+  }
+
+  @Test
   func mlxToolCallMapsToRuntimeToolCallArguments() {
     let mlxToolCall = MLXLMCommon.ToolCall(
       function: .init(

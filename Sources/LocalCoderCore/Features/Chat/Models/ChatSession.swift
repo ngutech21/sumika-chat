@@ -11,6 +11,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   public var systemPrompt: String
   public var generationSettings: ChatGenerationSettings
   public var interactionMode: WorkspaceInteractionMode
+  public var todoState: TodoState?
   public var pendingAttachments: [ChatAttachment]
   public var createdAt: Date
   public var updatedAt: Date
@@ -27,6 +28,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     systemPrompt: String = ChatPromptDefaults.codingSystemPrompt,
     generationSettings: ChatGenerationSettings = .codingDefault,
     interactionMode: WorkspaceInteractionMode = .chat,
+    todoState: TodoState? = nil,
     createdAt: Date = Date(),
     updatedAt: Date = Date()
   ) {
@@ -40,6 +42,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.systemPrompt = systemPrompt
     self.generationSettings = generationSettings
     self.interactionMode = interactionMode
+    self.todoState = todoState
     self.pendingAttachments = pendingAttachments
     self.createdAt = createdAt
     self.updatedAt = updatedAt
@@ -58,6 +61,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       && lhs.systemPrompt == rhs.systemPrompt
       && lhs.generationSettings == rhs.generationSettings
       && lhs.interactionMode == rhs.interactionMode
+      && lhs.todoState == rhs.todoState
       && lhs.createdAt == rhs.createdAt
       && lhs.updatedAt == rhs.updatedAt
   }
@@ -73,6 +77,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     case systemPrompt
     case generationSettings
     case interactionMode
+    case todoState
     case createdAt
     case updatedAt
   }
@@ -98,6 +103,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       WorkspaceInteractionMode.self,
       forKey: .interactionMode
     )
+    todoState = try container.decode(TodoState?.self, forKey: .todoState)
     pendingAttachments = []
     createdAt = try container.decode(Date.self, forKey: .createdAt)
     updatedAt = try container.decode(Date.self, forKey: .updatedAt)
@@ -115,6 +121,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     try container.encode(systemPrompt, forKey: .systemPrompt)
     try container.encode(generationSettings, forKey: .generationSettings)
     try container.encode(interactionMode, forKey: .interactionMode)
+    try container.encode(todoState, forKey: .todoState)
     try container.encode(createdAt, forKey: .createdAt)
     try container.encode(updatedAt, forKey: .updatedAt)
   }

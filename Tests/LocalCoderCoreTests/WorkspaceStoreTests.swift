@@ -153,6 +153,32 @@ struct WorkspaceStoreTests {
   }
 
   @Test
+  func workspaceStorePersistsTodoState() async throws {
+    let libraryURL = temporaryLibraryURL()
+    let store = WorkspaceStore(libraryURL: libraryURL)
+    let todoState = TodoState(items: [
+      TodoItem(id: "inspect", content: "Inspect files", status: .completed),
+      TodoItem(id: "verify", content: "Run tests", status: .inProgress),
+    ])
+    let session = ChatSession(
+      selectedModelID: "gemma3-1b",
+      systemPrompt: "Use short answers.",
+      generationSettings: .codingDefault,
+      todoState: todoState
+    )
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [session]
+    )
+
+    try await store.saveLibrary(WorkspaceLibrary(workspaces: [workspace]))
+
+    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary()
+    #expect(reloaded.workspaces.first?.sessions.first?.todoState == todoState)
+  }
+
+  @Test
   func chatSessionDecodeRequiresModelContextSnapshot() throws {
     let legacySession = LegacyChatSession(
       id: UUID(),

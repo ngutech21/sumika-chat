@@ -34,6 +34,7 @@ struct ToolResultPayloadTests {
           stdout: ToolTextOutput(text: ""),
           stderr: ToolTextOutput(text: "failed")
         )),
+      .todoWrite(.success),
       .invalidTool(
         InvalidToolResult(
           originalName: "deploy",
@@ -94,6 +95,17 @@ struct ToolResultPayloadTests {
     #expect(preview.text.contains("matched more than once"))
     #expect(preview.text.contains("Retry with a larger exact old_text block"))
     #expect(preview.affectedPaths == ["Sources/App.swift"])
+  }
+
+  @Test
+  func todoWritePreviewStaysMinimal() {
+    let payload = ToolResultPayload.todoWrite(.success)
+
+    let preview = payload.preview
+
+    #expect(preview.status == .success)
+    #expect(preview.text == "Plan updated.")
+    #expect(preview.affectedPaths.isEmpty)
   }
 
   @Test

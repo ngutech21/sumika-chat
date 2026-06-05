@@ -144,6 +144,7 @@ public struct ToolPromptPolicy: Sendable {
         - Use workspace-relative paths.
 
         File workflow:
+        - For multi-step Agent tasks, use todo_write to keep a compact current plan with 2 to 6 short items.
         - To display file contents directly to the user, use show_file.
         - To inspect, explain, summarize, search within, reason about, or modify a file, use read_file.
         - To find files by name, use glob_files or list_files.
@@ -221,6 +222,7 @@ public struct ToolPromptPolicy: Sendable {
       \(nativeMultipleToolCallInstruction(policy: toolCallingPolicy))
 
       File workflow:
+      - For multi-step Agent tasks, use todo_write to keep a compact current plan with 2 to 6 short items.
       - To display file contents directly to the user, use show_file.
       - To inspect, explain, summarize, search within, reason about, or modify a file, use read_file.
       - To find files by name, use glob_files or list_files.

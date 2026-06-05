@@ -596,6 +596,32 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func todoWriteDefinitionIsAvailableOnlyInCodingAgentRegistry() async throws {
+    let definition = ToolDefinition.todoWrite
+    let workspace = try makeWorkspace()
+    let input = TodoWriteInput(items: [
+      TodoItem(id: "inspect", content: "Inspect affected files", status: .completed),
+      TodoItem(id: "core", content: "Add todo state", status: .inProgress),
+    ])
+
+    let result = await TodoWriteToolExecutor().run(
+      input, context: ToolContext(workspace: workspace))
+
+    #expect(definition.name == .todoWrite)
+    #expect(definition.parameters.map(\.name) == ["items"])
+    #expect(definition.parameters.first?.valueType == .array)
+    #expect(definition.capabilities.isEmpty)
+    #expect(definition.riskLevel == .low)
+    #expect(!ToolExecutorRegistry.readOnly.definitions.map(\.name).contains(.todoWrite))
+    #expect(ToolExecutorRegistry.codingAgent.definitions.map(\.name).contains(.todoWrite))
+    #expect(result.preview.text == "Plan updated.")
+    guard case .todoWrite(.success) = result else {
+      Issue.record("Expected todo_write success payload.")
+      return
+    }
+  }
+
+  @Test
   func workspaceDiffReturnsCleanWorkspaceMessage() async throws {
     let workspace = try makeWorkspace()
     try initializeGitRepository(in: workspace)
@@ -1393,6 +1419,7 @@ struct ToolExecutionTests {
         .editFile,
         .writeFile,
         .runCommand,
+        .todoWrite,
       ])
   }
 

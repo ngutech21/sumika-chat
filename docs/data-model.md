@@ -37,6 +37,7 @@ flowchart TD
   SearchFileMatch --> WorkspaceRelativePath
   SearchFilesResult --> SearchFileMatch
   SearchFilesResult --> WorkspaceRelativePath
+  TodoWriteResult --> ToolFailureReason
   ToolCallArguments --> ToolArgumentValue
   ToolCallEvent --> ToolCallActor
   ToolCallEvent --> ToolCallEventKind
@@ -71,6 +72,7 @@ flowchart TD
   ToolFailureReason --> WorkspaceRelativePath
   ToolJSONSchemaObject --> ToolJSONSchemaProperty
   ToolJSONSchemaProperty --> ToolArgumentValue
+  ToolJSONSchemaProperty --> ToolJSONSchemaObject
   ToolJSONSchemaProperty --> ToolParameterValueType
   ToolModelObservation --> ToolName
   ToolModelObservation --> ToolObservationBlock
@@ -83,6 +85,7 @@ flowchart TD
   ToolObservationBlock --> WorkspaceFileEntry
   ToolObservationBlock --> WorkspaceRelativePath
   ToolParameterDefinition --> ToolArgumentValue
+  ToolParameterDefinition --> ToolJSONSchemaObject
   ToolParameterDefinition --> ToolParameterValueType
   ToolPermissionEvaluation --> ToolPermissionDecision
   ToolPermissionEvaluation --> ToolRiskLevel
@@ -97,6 +100,7 @@ flowchart TD
   ToolResultPayload --> ReadFileResult
   ToolResultPayload --> RunCommandResult
   ToolResultPayload --> SearchFilesResult
+  ToolResultPayload --> TodoWriteResult
   ToolResultPayload --> ToolFailure
   ToolResultPayload --> WorkspaceDiffResult
   ToolResultPayload --> WriteFileResult
@@ -104,6 +108,7 @@ flowchart TD
   ToolResultProjection -. derives .-> ToolDisplayPayload
   ToolResultProjection -. derives .-> ToolModelObservation
   TurnTraceContext --> TurnTraceMetadata
+  TurnTraceEvent --> ToolArgumentTrace
   TurnTraceEvent --> TurnTracePhase
   TurnTraceMetadata --> TurnTracing
   WorkspaceDiffResult --> ToolFailureReason
@@ -227,6 +232,7 @@ Cases:
 - `invalidArgumentType(name: String, expected: String)`
 - `invalidPagination(String)`
 - `invalidTimeout(String)`
+- `invalidTodoItems(String)`
 - `missingRequiredArgument(String)`
 - `parserError(String)`
 - `unavailableToolName(String)`
@@ -551,6 +557,34 @@ Relations:
 - `SearchFileMatch`
 - `WorkspaceRelativePath`
 
+### TodoWriteResult
+
+- Kind: `enum`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Cases:
+
+- `failed(reason: ToolFailureReason)`
+- `success`
+
+Relations:
+
+- `ToolFailureReason`
+
+### ToolArgumentTrace
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/TurnTraceEvent.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `name: String`
+- `preview: String`
+- `previewTruncated: Bool`
+- `valueType: String`
+
 ### ToolArgumentValue
 
 - Kind: `enum`
@@ -670,6 +704,7 @@ Cases:
 - `runCommand(RunCommandInput)`
 - `searchFiles(SearchFilesInput)`
 - `showFile(ReadFileInput)`
+- `todoWrite(TodoWriteInput)`
 - `workspaceDiff(WorkspaceDiffInput)`
 - `writeFile(WriteFileInput)`
 
@@ -912,6 +947,7 @@ Relations:
 
 Properties:
 
+- `arrayItems: ToolJSONSchemaObject?`
 - `defaultValue: ToolArgumentValue?`
 - `description: String`
 - `enumValues: [String]?`
@@ -922,6 +958,7 @@ Properties:
 Relations:
 
 - `ToolArgumentValue`
+- `ToolJSONSchemaObject`
 - `ToolParameterValueType`
 
 ### ToolModelObservation
@@ -988,6 +1025,7 @@ Relations:
 
 Properties:
 
+- `arrayItems: ToolJSONSchemaObject?`
 - `defaultValue: ToolArgumentValue?`
 - `description: String`
 - `enumValues: [String]?`
@@ -1001,6 +1039,7 @@ Properties:
 Relations:
 
 - `ToolArgumentValue`
+- `ToolJSONSchemaObject`
 - `ToolParameterValueType`
 
 ### ToolParameterValueType
@@ -1011,9 +1050,11 @@ Relations:
 
 Cases:
 
+- `array`
 - `boolean`
 - `integer`
 - `number`
+- `object`
 - `string`
 
 ### ToolPermissionDecision
@@ -1095,6 +1136,7 @@ Cases:
 - `readFile(ReadFileResult)`
 - `runCommand(RunCommandResult)`
 - `searchFiles(SearchFilesResult)`
+- `todoWrite(TodoWriteResult)`
 - `workspaceDiff(WorkspaceDiffResult)`
 - `writeFile(WriteFileResult)`
 
@@ -1107,6 +1149,7 @@ Relations:
 - `ReadFileResult`
 - `RunCommandResult`
 - `SearchFilesResult`
+- `TodoWriteResult`
 - `ToolFailure`
 - `WorkspaceDiffResult`
 - `WriteFileResult`
@@ -1239,13 +1282,20 @@ Properties:
 - `reusedMessageCount: Int?`
 - `systemPromptChanged: Bool?`
 - `tokensPerSecond: Double?`
+- `toolArgumentKeys: [String]?`
+- `toolArguments: [ToolArgumentTrace]?`
+- `toolCallFormat: String?`
 - `toolLoopIteration: Int?`
 - `toolName: String?`
+- `toolOriginalName: String?`
+- `toolValidationError: String?`
+- `toolValidationStatus: String?`
 - `ttftMs: Double?`
 - `turnID: UUID?`
 
 Relations:
 
+- `ToolArgumentTrace`
 - `TurnTracePhase`
 
 ### TurnTraceMetadata

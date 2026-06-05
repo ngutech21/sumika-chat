@@ -61,7 +61,28 @@ struct WorkspaceChatView: View {
         onSend: onSend,
         onCancel: controller.cancelGeneration
       )
+      .overlay(alignment: .top) {
+        if let todoState = visibleTodoState {
+          TodoPlanPanel(todoState: todoState)
+            .padding(.horizontal, 16)
+            .alignmentGuide(.top) { dimensions in
+              dimensions[.bottom] + 8
+            }
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+      }
+      .zIndex(1)
     }
+  }
+
+  private var visibleTodoState: TodoState? {
+    guard controller.chatSession.interactionMode == .agent,
+      let todoState = controller.chatSession.todoState,
+      !todoState.items.isEmpty
+    else {
+      return nil
+    }
+    return todoState
   }
 
   private func selectModel(_ model: ManagedModel) {

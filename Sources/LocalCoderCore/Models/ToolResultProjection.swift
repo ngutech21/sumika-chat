@@ -232,6 +232,8 @@ public enum ToolResultProjector {
       return projectEditFile(result, request: request)
     case .runCommand(let result):
       return projectRunCommand(result, request: request)
+    case .todoWrite(let result):
+      return projectTodoWrite(result, request: request)
     case .invalidTool(let result):
       let text = "The tool call was invalid: \(result.reason.message)"
       return summaryProjection(
@@ -431,6 +433,28 @@ public enum ToolResultProjector {
         blocks: [.commandResult(result)]
       )
     )
+  }
+
+  private static func projectTodoWrite(
+    _ result: TodoWriteResult,
+    request: ToolCallRequest
+  ) -> ToolResultProjection {
+    switch result {
+    case .success:
+      return summaryProjection(
+        toolName: request.toolName,
+        status: .success,
+        text: "Plan updated.",
+        affectedPaths: []
+      )
+    case .failed(let reason):
+      return summaryProjection(
+        toolName: request.toolName,
+        status: reason.projectedStatus,
+        text: reason.message,
+        affectedPaths: []
+      )
+    }
   }
 
   private static func summaryProjection(

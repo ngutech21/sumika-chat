@@ -82,6 +82,9 @@ flowchart TD
 - `ToolResultModelMessage` stores only `callID`, `toolName`, and
   `ToolResultPayload`. It does not persist UI display output or model
   observations.
+- `todo_write` is an Agent-only state tool. It updates `ChatSession.todoState`
+  through workflow events instead of writing a full plan into transcript text.
+  Its model observation is intentionally limited to `Plan updated.`.
 - `ToolResultProjector` derives transient projections from
   `payload + ToolCallRequest + ToolResultProjectionPolicy`: `ToolDisplayPayload`
   for transcript UI and `ToolModelObservation` for model-facing context.
@@ -100,6 +103,13 @@ flowchart TD
   provider-neutral function-tool schema projection. Provider-specific wire
   shapes should adapt from this model instead of becoming the core runtime
   representation.
+- When `LOCAL_CODER_DEBUG_TRACE=1`, `tool_execute` `turn_trace` rows include
+  compact tool-call diagnostics: `toolCallFormat`, `toolValidationStatus`,
+  optional `toolValidationError`, optional `toolOriginalName`,
+  `toolArgumentKeys`, and short typed `toolArguments` previews. These fields
+  are for parser/provider debugging and must stay compact; large write/edit
+  payloads remain omitted from model history and should not be dumped into
+  traces.
 
 ## Adding A Tool
 
@@ -220,6 +230,15 @@ flowchart TD
   workspace and session. Awaiting-approval or denied command requests must not
   overwrite this state. Future read-only diagnostics tools may parse this
   runtime state, but command execution remains owned by `run_command`.
+- `todo_write` is available only in the Agent registry. It accepts 2 to 6
+  short todo items, allows at most one `inProgress` item, and never requires
+  approval because it mutates only session state. Chat and Inspect prompts must
+  not render the todo tool or current todo plan. Tagged `todo_write` calls pass
+  the structured item array as JSON in the `items` payload; provider-native
+  tool calls pass the same shape as an array with an item object schema. The
+  validator also tolerates direct `id`/`content`/`status` arguments for this
+  Agent-only state tool so small models get a todo validation error instead of
+  an unrelated unknown-argument failure.
 - `write_file` writes the model-provided `content` directly. The model should
   not generate helper scripts to create files. Missing-path suggestions do not
   apply to `write_file`, because creating a new file is a normal write case.

@@ -72,6 +72,10 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
     payloadDelimiter: String
   ) -> String {
     let renderedTools = registry.tools.map(renderedSignature(for:)).joined(separator: "\n")
+    let todoWriteInstruction =
+      registry.definition(for: .todoWrite) == nil
+      ? ""
+      : "\n- For todo_write, emit exactly one items parameter containing a JSON array of objects. Do not emit id, content, or status as top-level parameters."
 
     return """
       Tool calling:
@@ -79,9 +83,9 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
       - Do not include text before or after an <action>.
       - Do not wrap actions in Markdown fences.
       - Use workspace-relative paths.
-      - For content, old_text, and new_text, use delimiter="\(payloadDelimiter)" with the delimiter on its own line.
+      - For multiline payload parameters, including content, old_text, new_text, and items, use delimiter="\(payloadDelimiter)" with the delimiter on its own line.
       - Payload contents are raw text; do not escape HTML, XML, JSON, or code inside payloads.
-      - If a payload would contain the delimiter as its own line, do not call a tool. Ask for a new delimiter.
+      - If a payload would contain the delimiter as its own line, do not call a tool. Ask for a new delimiter.\(todoWriteInstruction)
 
       Tools:
       \(renderedTools)
@@ -131,6 +135,8 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
       "Replace one exact old_text span in an existing workspace file."
     case .runCommand:
       "Run an approved foreground shell command in the workspace root."
+    case .todoWrite:
+      "Update the current Agent todo plan."
     case .invalid:
       "Invalid tool-call observation."
     default:

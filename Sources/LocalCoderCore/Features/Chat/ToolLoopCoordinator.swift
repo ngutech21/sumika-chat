@@ -214,11 +214,11 @@ public struct ToolLoopCoordinator: Sendable {
         request: output.request,
         workspace: request.workspace
       )
-      await traceToolPhase(
-        .toolExecute,
+      await traceToolExecution(
         startedAt: executeStartedAt,
-        request: request,
-        toolName: output.request.toolName.rawValue
+        loopRequest: request,
+        rawRequest: output.request,
+        record: record
       )
       appendRecoveryEventIfNeeded(
         to: &record,
@@ -242,6 +242,10 @@ public struct ToolLoopCoordinator: Sendable {
             modelContextPolicy: nil
           ))
         return ChatWorkflowStep(events: events, continuation: .awaitingApproval)
+      }
+
+      if let todoState = todoState(from: record) {
+        events.append(.todoStateChanged(todoState))
       }
 
       let toolResult = toolResultMessage(output: output, record: record)
@@ -305,6 +309,107 @@ public struct ToolLoopCoordinator: Sendable {
             )
           ))
     )
+  }
+
+  private func todoState(from record: ToolCallRecord) -> TodoState? {
+    guard record.status == .completed,
+      case .todoWrite(.success) = record.resultPayload,
+      case .todoWrite(let input) = record.request.payload
+    else {
+      return nil
+    }
+    return TodoState(items: input.items)
+  }
+
+  private func traceToolExecution(
+    startedAt: Date,
+    loopRequest: ToolLoopRequest,
+    rawRequest: RawToolCallRequest,
+    record: ToolCallRecord
+  ) async {
+    let invalidInput: InvalidToolInput?
+    if case .invalid(let input) = record.request.payload {
+      invalidInput = input
+    } else {
+      invalidInput = nil
+    }
+
+    await turnTracer.recordTurnTraceEvent(
+      TurnTraceEvent(
+        turnID: loopRequest.turnID,
+        generationID: nil,
+        phase: .toolExecute,
+        durationMs: Date().timeIntervalSince(startedAt) * 1000,
+        messageCount: loopRequest.items.count,
+        toolLoopIteration: loopRequest.toolLoopIteration,
+        toolName: rawRequest.toolName.rawValue,
+        interactionMode: loopRequest.interactionMode,
+        toolCallFormat: loopRequest.nativeToolCalls.isEmpty ? "tagged" : "native",
+        toolValidationStatus: invalidInput == nil ? "valid" : "invalid",
+        toolValidationError: invalidInput?.reason.message,
+        toolOriginalName: invalidInput?.originalName,
+        toolArgumentKeys: rawRequest.arguments.keys.sorted(),
+        toolArguments: toolArgumentTraces(
+          from: rawRequest.arguments,
+          toolName: rawRequest.toolName
+        )
+      )
+    )
+  }
+
+  private func toolArgumentTraces(
+    from arguments: ToolCallArguments,
+    toolName: ToolName
+  ) -> [ToolArgumentTrace] {
+    arguments.keys.sorted().map { name in
+      let value = arguments[name] ?? .null
+      let preview =
+        shouldRedactToolArgument(name, toolName: toolName)
+        ? (value: "[redacted]", truncated: false)
+        : truncatedToolArgumentPreview(value.displayValue)
+      return ToolArgumentTrace(
+        name: name,
+        valueType: toolArgumentTypeName(value),
+        preview: preview.value,
+        previewTruncated: preview.truncated
+      )
+    }
+  }
+
+  private func shouldRedactToolArgument(_ name: String, toolName: ToolName) -> Bool {
+    switch toolName {
+    case .writeFile:
+      name == "content"
+    case .editFile:
+      name == "old_text" || name == "new_text"
+    default:
+      false
+    }
+  }
+
+  private func toolArgumentTypeName(_ value: ToolArgumentValue) -> String {
+    switch value {
+    case .string:
+      return "string"
+    case .number:
+      return "number"
+    case .bool:
+      return "bool"
+    case .array:
+      return "array"
+    case .object:
+      return "object"
+    case .null:
+      return "null"
+    }
+  }
+
+  private func truncatedToolArgumentPreview(_ value: String) -> (value: String, truncated: Bool) {
+    let limit = 500
+    guard value.count > limit else {
+      return (value, false)
+    }
+    return (String(value.prefix(limit)), true)
   }
 
   private func completedStep(

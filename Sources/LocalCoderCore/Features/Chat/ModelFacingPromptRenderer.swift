@@ -244,6 +244,13 @@ public enum ToolReceiptRenderer {
 
 public enum ToolModelObservationRenderer {
   public static func render(_ observation: ToolModelObservation, callID: UUID) -> String {
+    if observation.toolName == .todoWrite,
+      observation.status == .success,
+      observation.blocks == [.summary("Plan updated.")]
+    {
+      return "Plan updated."
+    }
+
     let paths =
       observation.affectedPaths.isEmpty
       ? "none"

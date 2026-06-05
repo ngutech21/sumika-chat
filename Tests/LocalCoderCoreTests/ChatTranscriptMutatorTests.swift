@@ -120,6 +120,45 @@ struct ChatTranscriptMutatorTests {
   }
 
   @Test
+  func annotateTodoToolCallOmitsPayloadFromModelHistory() throws {
+    let assistantID = UUID()
+    let rawText = """
+      <action name="todo_write">
+      <items>[{"id":"inspect","content":"Inspect affected files","status":"inProgress"},{"id":"verify","content":"Run tests","status":"pending"}]</items>
+      </action>
+      """
+    let toolCall = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .todoWrite,
+      arguments: [
+        ToolCallModelArgument(
+          name: "items",
+          value:
+            #"[{"id":"inspect","content":"Inspect affected files","status":"inProgress"},{"id":"verify","content":"Run tests","status":"pending"}]"#
+        )
+      ],
+      rawText: rawText
+    )
+    var state = makeState(items: [
+      .assistantMessage(AssistantTurnMessage(id: assistantID, content: rawText))
+    ])
+    try ChatTranscriptMutator().appendModelContextEntry(
+      ModelFacingPromptRenderer.assistantOutputEntry(
+        sourceMessageID: assistantID,
+        content: rawText
+      ),
+      to: &state
+    )
+
+    ChatTranscriptMutator().annotateToolCall(toolCall, for: assistantID, in: &state)
+
+    let content = try #require(state.modelContextSnapshot.entries.first?.frozenContent.content)
+    #expect(content.contains("Tool call todo_write requested."))
+    #expect(content.contains("Payload omitted from history."))
+    #expect(!content.contains("Inspect affected files"))
+  }
+
+  @Test
   func appendToolResultCreatesToolResultMessage() {
     var state = makeState()
     let toolResult = ToolResultModelMessage(
@@ -207,7 +246,7 @@ struct ChatTranscriptMutatorTests {
   }
 
   @Test
-  func clearTranscriptClearsMessagesToolsTurnsAndAttachmentsOnly() {
+  func clearTranscriptClearsMessagesToolsTurnsAttachmentsAndTodoStateOnly() {
     let attachment = makeAttachment(name: "notes.txt")
     let settings = ChatGenerationSettings(temperature: 0.2, topP: 0.8, topK: 10, maxTokens: 256)
     let turn = ChatTurn(status: .completed)
@@ -217,6 +256,10 @@ struct ChatTranscriptMutatorTests {
       toolCalls: [toolCall],
       turns: [turn],
       attachments: [attachment],
+      todoState: TodoState(items: [
+        TodoItem(id: "inspect", content: "Inspect files", status: .completed),
+        TodoItem(id: "verify", content: "Run tests", status: .pending),
+      ]),
       systemPrompt: "Keep this prompt",
       generationSettings: settings
     )
@@ -228,6 +271,7 @@ struct ChatTranscriptMutatorTests {
     #expect(state.toolCalls.isEmpty)
     #expect(state.turns.isEmpty)
     #expect(state.pendingAttachments.isEmpty)
+    #expect(state.todoState == nil)
     #expect(state.systemPrompt == "Keep this prompt")
     #expect(state.generationSettings == settings)
   }
@@ -253,6 +297,7 @@ private func makeState(
   toolCalls: [ToolCallRecord] = [],
   turns: [ChatTurn] = [],
   attachments: [ChatAttachment] = [],
+  todoState: TodoState? = nil,
   systemPrompt: String = "System",
   generationSettings: ChatGenerationSettings = .codingDefault
 ) -> ChatSession {
@@ -265,7 +310,8 @@ private func makeState(
     turns: resolvedTurns,
     pendingAttachments: attachments,
     systemPrompt: systemPrompt,
-    generationSettings: generationSettings
+    generationSettings: generationSettings,
+    todoState: todoState
   )
 }
 

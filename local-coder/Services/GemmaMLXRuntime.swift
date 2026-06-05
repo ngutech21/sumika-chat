@@ -1132,6 +1132,50 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     if let maximum = parameter.maximum {
       schema["maximum"] = maximum
     }
+    if let arrayItems = parameter.arrayItems {
+      schema["items"] = jsonSchemaObjectValue(for: arrayItems)
+    }
+    return schema
+  }
+
+  nonisolated private static func jsonSchemaObjectValue(
+    for object: ToolJSONSchemaObject
+  ) -> [String: any Sendable] {
+    var properties: [String: any Sendable] = [:]
+    for (name, property) in object.properties {
+      properties[name] = jsonSchemaPropertyValue(for: property)
+    }
+
+    return [
+      "type": object.type,
+      "properties": properties,
+      "required": object.required,
+      "additionalProperties": object.additionalProperties,
+    ] as [String: any Sendable]
+  }
+
+  nonisolated private static func jsonSchemaPropertyValue(
+    for property: ToolJSONSchemaProperty
+  ) -> [String: any Sendable] {
+    var schema: [String: any Sendable] = [
+      "type": property.type.rawValue,
+      "description": property.description,
+    ]
+    if let enumValues = property.enumValues {
+      schema["enum"] = enumValues
+    }
+    if let defaultValue = property.defaultValue {
+      schema["default"] = sendableValue(from: defaultValue)
+    }
+    if let minimum = property.minimum {
+      schema["minimum"] = minimum
+    }
+    if let maximum = property.maximum {
+      schema["maximum"] = maximum
+    }
+    if let arrayItems = property.arrayItems {
+      schema["items"] = jsonSchemaObjectValue(for: arrayItems)
+    }
     return schema
   }
 

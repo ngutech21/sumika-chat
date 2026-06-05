@@ -94,6 +94,25 @@ struct ToolDefinitionSchemaTests {
   }
 
   @Test
+  func todoWriteDefinitionExposesStructuredItemsParameter() {
+    let definition = ToolDefinition.todoWrite
+    let schema = definition.functionSchema
+
+    #expect(definition.description.contains("Agent todo plan"))
+    #expect(definition.riskLevel == .low)
+    #expect(definition.capabilities.isEmpty)
+    #expect(schema.parameters.required == ["items"])
+    let items = schema.parameters.properties["items"]
+    #expect(items?.type == .array)
+    #expect(items?.arrayItems?.required == ["id", "content", "status"])
+    #expect(items?.arrayItems?.properties["content"]?.type == .string)
+    #expect(
+      items?.arrayItems?.properties["status"]?.enumValues
+        == ["pending", "inProgress", "completed", "blocked"])
+    #expect(definition.parameters.first { $0.name == "items" }?.supportsHeredocPayload == true)
+  }
+
+  @Test
   func functionSchemaEncodesProviderNeutralFunctionToolShape() throws {
     let data = try JSONEncoder().encode(ToolDefinition.readFile.functionSchema)
     let object = try #require(

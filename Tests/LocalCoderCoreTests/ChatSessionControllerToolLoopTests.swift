@@ -137,6 +137,53 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func todoWriteUpdatesSessionStateAndRendersPlanOnlyInAgentPrompt() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let todoAction = """
+      <action name="todo_write">
+      <items delimiter="LC_PAYLOAD_V1">
+      [
+        {"id":"inspect","content":"Inspect files","status":"completed"},
+        {"id":"verify","content":"Run tests","status":"inProgress"}
+      ]
+      LC_PAYLOAD_V1
+      </items>
+      </action>
+      """
+    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+      [todoAction],
+      ["Continuing with the plan."],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.draft = "make a focused change"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(
+      controller.chatSession.todoState?.items.map(\.content) == ["Inspect files", "Run tests"])
+    #expect(controller.chatSession.testMessages.last?.content == "Continuing with the plan.")
+    let capturedSystemPrompts = await runtime.capturedSystemPrompts
+    #expect(capturedSystemPrompts.count == 2)
+    #expect(!capturedSystemPrompts[0].contains("Current plan:"))
+    #expect(capturedSystemPrompts[1].contains("Current plan:"))
+    #expect(capturedSystemPrompts[1].contains("- [inProgress] Run tests"))
+
+    controller.setInteractionMode(.inspect)
+    controller.draft = "inspect without plan"
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntil { !controller.isGenerating }
+
+    let promptsAfterInspect = await runtime.capturedSystemPrompts
+    #expect(promptsAfterInspect.last?.contains("Current plan:") == false)
+    #expect(controller.chatSession.todoState?.items.count == 2)
+  }
+
+  @Test
   func failedEditFileResultLetsModelRecoverWithReadFile() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

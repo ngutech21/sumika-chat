@@ -87,6 +87,12 @@ public struct ToolPermissionEvaluator: Sendable {
         riskLevel: .high,
         successReason: "Running commands inside the workspace requires approval."
       )
+    case .todoWrite:
+      return ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Updating Agent todo state is allowed.",
+        riskLevel: .low
+      )
     case .invalid(let input):
       return ToolPermissionEvaluation(
         decision: .denied,

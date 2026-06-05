@@ -48,7 +48,20 @@ struct GemmaDebugTraceStoreTests {
         mismatchReason: "history_prefix_mismatch",
         firstMismatchIndex: 2,
         systemPromptChanged: false,
-        currentPromptContextChanged: true
+        currentPromptContextChanged: true,
+        toolCallFormat: "native",
+        toolValidationStatus: "invalid",
+        toolValidationError: "Unknown argument(s): id, status.",
+        toolOriginalName: "todo_write",
+        toolArgumentKeys: ["id", "status"],
+        toolArguments: [
+          ToolArgumentTrace(
+            name: "id",
+            valueType: "string",
+            preview: "setup-project",
+            previewTruncated: false
+          )
+        ]
       )
     )
 
@@ -76,6 +89,18 @@ struct GemmaDebugTraceStoreTests {
     #expect(object["firstMismatchIndex"] as? Int == 2)
     #expect(object["systemPromptChanged"] as? Bool == false)
     #expect(object["currentPromptContextChanged"] as? Bool == true)
+    #expect(object["toolCallFormat"] as? String == "native")
+    #expect(object["toolValidationStatus"] as? String == "invalid")
+    #expect(object["toolValidationError"] as? String == "Unknown argument(s): id, status.")
+    #expect(object["toolOriginalName"] as? String == "todo_write")
+    #expect(object["toolArgumentKeys"] as? [String] == ["id", "status"])
+
+    let toolArguments = try #require(object["toolArguments"] as? [[String: Any]])
+    #expect(toolArguments.count == 1)
+    #expect(toolArguments.first?["name"] as? String == "id")
+    #expect(toolArguments.first?["valueType"] as? String == "string")
+    #expect(toolArguments.first?["preview"] as? String == "setup-project")
+    #expect(toolArguments.first?["previewTruncated"] as? Bool == false)
   }
 
   @Test

@@ -47,7 +47,20 @@ struct TurnTraceEventTests {
       mismatchReason: "history_prefix_mismatch",
       firstMismatchIndex: 1,
       systemPromptChanged: true,
-      currentPromptContextChanged: false
+      currentPromptContextChanged: false,
+      toolCallFormat: "native",
+      toolValidationStatus: "invalid",
+      toolValidationError: "Unknown argument(s): id, status.",
+      toolOriginalName: "todo_write",
+      toolArgumentKeys: ["id", "status"],
+      toolArguments: [
+        ToolArgumentTrace(
+          name: "id",
+          valueType: "string",
+          preview: "setup",
+          previewTruncated: false
+        )
+      ]
     )
 
     let data = try JSONEncoder().encode(event)
@@ -78,5 +91,17 @@ struct TurnTraceEventTests {
     #expect(object["firstMismatchIndex"] as? Int == 1)
     #expect(object["systemPromptChanged"] as? Bool == true)
     #expect(object["currentPromptContextChanged"] as? Bool == false)
+    #expect(object["toolCallFormat"] as? String == "native")
+    #expect(object["toolValidationStatus"] as? String == "invalid")
+    #expect(object["toolValidationError"] as? String == "Unknown argument(s): id, status.")
+    #expect(object["toolOriginalName"] as? String == "todo_write")
+    #expect(object["toolArgumentKeys"] as? [String] == ["id", "status"])
+
+    let toolArguments = try #require(object["toolArguments"] as? [[String: Any]])
+    #expect(toolArguments.count == 1)
+    #expect(toolArguments.first?["name"] as? String == "id")
+    #expect(toolArguments.first?["valueType"] as? String == "string")
+    #expect(toolArguments.first?["preview"] as? String == "setup")
+    #expect(toolArguments.first?["previewTruncated"] as? Bool == false)
   }
 }
