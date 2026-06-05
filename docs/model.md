@@ -21,7 +21,7 @@ classDiagram
     selectedModelID
     turns: [ChatTurn]
     toolCalls: [ToolCallRecord]
-    modelFacingTranscript: ModelFacingTranscript
+    modelContextSnapshot: ModelContextSnapshot
     focusedFileState: FocusedFileState
     systemPrompt
     generationSettings
@@ -83,7 +83,7 @@ classDiagram
     cancelled
   }
 
-  class ModelFacingTranscript {
+  class ModelContextSnapshot {
     entries: [ModelContextEntry]
     prompt snapshot
   }
@@ -99,7 +99,7 @@ classDiagram
 
   ChatSession "1" --> "*" ChatTurn : canonical order
   ChatSession "1" --> "*" ToolCallRecord : canonical tool lifecycle
-  ChatSession "1" --> "1" ModelFacingTranscript : persisted prompt snapshot
+  ChatSession "1" --> "1" ModelContextSnapshot : persisted prompt snapshot
   ChatSession "1" --> "1" FocusedFileState
 
   ChatTurn "1" --> "*" ChatTurnItem

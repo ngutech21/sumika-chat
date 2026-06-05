@@ -79,7 +79,7 @@ public struct ModelLifecycleCoordinator: Sendable {
   }
 
   public func contextUsage(
-    for transcript: ModelFacingTranscript,
+    for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String,
     operationID: UUID

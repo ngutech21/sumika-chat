@@ -4,7 +4,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   public let id: UUID
   public var title: String
   public var selectedModelID: ManagedModel.ID
-  public var modelFacingTranscript: ModelFacingTranscript
+  public var modelContextSnapshot: ModelContextSnapshot
   public var toolCalls: [ToolCallRecord]
   public var turns: [ChatTurn]
   public var focusedFileState: FocusedFileState
@@ -19,7 +19,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     id: UUID = UUID(),
     title: String = "New Session",
     selectedModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID,
-    modelFacingTranscript: ModelFacingTranscript = ModelFacingTranscript(),
+    modelContextSnapshot: ModelContextSnapshot = ModelContextSnapshot(),
     toolCalls: [ToolCallRecord] = [],
     turns: [ChatTurn] = [],
     pendingAttachments: [ChatAttachment] = [],
@@ -33,7 +33,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.id = id
     self.title = title
     self.selectedModelID = selectedModelID
-    self.modelFacingTranscript = modelFacingTranscript
+    self.modelContextSnapshot = modelContextSnapshot
     self.toolCalls = toolCalls
     self.turns = turns
     self.focusedFileState = focusedFileState
@@ -51,7 +51,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     lhs.id == rhs.id
       && lhs.title == rhs.title
       && lhs.selectedModelID == rhs.selectedModelID
-      && lhs.modelFacingTranscript == rhs.modelFacingTranscript
+      && lhs.modelContextSnapshot == rhs.modelContextSnapshot
       && lhs.toolCalls == rhs.toolCalls
       && lhs.turns == rhs.turns
       && lhs.focusedFileState == rhs.focusedFileState
@@ -66,7 +66,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     case id
     case title
     case selectedModelID
-    case modelFacingTranscript
+    case modelContextSnapshot
     case toolCalls
     case turns
     case focusedFileState
@@ -82,9 +82,9 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     id = try container.decode(UUID.self, forKey: .id)
     title = try container.decode(String.self, forKey: .title)
     selectedModelID = try container.decode(ManagedModel.ID.self, forKey: .selectedModelID)
-    modelFacingTranscript = try container.decode(
-      ModelFacingTranscript.self,
-      forKey: .modelFacingTranscript
+    modelContextSnapshot = try container.decode(
+      ModelContextSnapshot.self,
+      forKey: .modelContextSnapshot
     )
     toolCalls = try container.decode([ToolCallRecord].self, forKey: .toolCalls)
     turns = try container.decode([ChatTurn].self, forKey: .turns)
@@ -108,7 +108,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     try container.encode(id, forKey: .id)
     try container.encode(title, forKey: .title)
     try container.encode(selectedModelID, forKey: .selectedModelID)
-    try container.encode(modelFacingTranscript, forKey: .modelFacingTranscript)
+    try container.encode(modelContextSnapshot, forKey: .modelContextSnapshot)
     try container.encode(toolCalls, forKey: .toolCalls)
     try container.encode(turns, forKey: .turns)
     try container.encode(focusedFileState, forKey: .focusedFileState)

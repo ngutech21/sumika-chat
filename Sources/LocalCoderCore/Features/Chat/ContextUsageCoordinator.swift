@@ -4,7 +4,7 @@ public struct ContextUsageSnapshot: Sendable {
   public let modelState: ModelLoadState
   public let operationID: UUID
   public let turnID: ChatTurn.ID?
-  public let transcript: ModelFacingTranscript
+  public let transcript: ModelContextSnapshot
   public let attachments: [ChatAttachment]
   public let systemPrompt: String
   public let contextTokenLimit: Int?
@@ -15,7 +15,7 @@ public struct ContextUsageSnapshot: Sendable {
     modelState: ModelLoadState,
     operationID: UUID,
     turnID: ChatTurn.ID? = nil,
-    transcript: ModelFacingTranscript,
+    transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String,
     contextTokenLimit: Int? = nil,

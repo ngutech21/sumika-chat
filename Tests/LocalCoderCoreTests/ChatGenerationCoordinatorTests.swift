@@ -33,7 +33,7 @@ struct ChatGenerationCoordinatorTests {
 
     let assistantContent = try await coordinator.streamAssistantReply(
       turnID: turnID,
-      transcript: ModelFacingTranscript(),
+      transcript: ModelContextSnapshot(),
       systemPrompt: "Use tools.",
       settings: .codingDefault,
       stopAfterCompleteToolAction: true,
@@ -81,7 +81,7 @@ struct ChatGenerationCoordinatorTests {
     var contextUsageUpdateCount = 0
 
     let assistantContent = try await coordinator.streamAssistantReply(
-      transcript: ModelFacingTranscript(),
+      transcript: ModelContextSnapshot(),
       systemPrompt: "Use tools.",
       settings: .codingDefault,
       stopAfterCompleteToolAction: true,
@@ -113,7 +113,7 @@ struct ChatGenerationCoordinatorTests {
     var updatedMetrics: ChatGenerationMetrics?
 
     let assistantContent = try await coordinator.streamAssistantReply(
-      transcript: ModelFacingTranscript(),
+      transcript: ModelContextSnapshot(),
       systemPrompt: "Answer normally.",
       settings: .codingDefault,
       stopAfterCompleteToolAction: false,
@@ -142,7 +142,7 @@ struct ChatGenerationCoordinatorTests {
 
     await #expect(throws: ChatGenerationError.streamInterrupted) {
       try await coordinator.streamAssistantReply(
-        transcript: ModelFacingTranscript(),
+        transcript: ModelContextSnapshot(),
         systemPrompt: "Answer normally.",
         settings: .codingDefault,
         stopAfterCompleteToolAction: false,
@@ -166,7 +166,7 @@ struct ChatGenerationCoordinatorTests {
     var chunks: [String] = []
 
     _ = try await coordinator.streamAssistantReply(
-      transcript: ModelFacingTranscript(),
+      transcript: ModelContextSnapshot(),
       systemPrompt: "Answer normally.",
       settings: .codingDefault,
       stopAfterCompleteToolAction: false,
@@ -193,7 +193,7 @@ struct ChatGenerationCoordinatorTests {
     _ = try await coordinator.streamAssistantReply(
       turnID: turnID,
       toolLoopIteration: 2,
-      transcript: ModelFacingTranscript(entries: [
+      transcript: ModelContextSnapshot(entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "hi")
       ]),
       systemPrompt: "Answer normally.",

@@ -121,7 +121,7 @@ private actor AppStateTestRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func contextUsage(
-    for transcript: ModelFacingTranscript,
+    for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -132,7 +132,7 @@ private actor AppStateTestRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelFacingTranscript,
+    for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings

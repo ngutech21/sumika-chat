@@ -18,7 +18,7 @@ struct ChatModelContextBuilderTests {
       prompt: "large listing"
     )
     let state = ChatSession(
-      modelFacingTranscript: ModelFacingTranscript(
+      modelContextSnapshot: ModelContextSnapshot(
         entries: [unscopedEntry, includedEntry, excludedEntry]
       ),
       turns: [
@@ -47,7 +47,7 @@ struct ChatModelContextBuilderTests {
       prompt: "README.md"
     )
     let state = ChatSession(
-      modelFacingTranscript: ModelFacingTranscript(entries: [toolResult]),
+      modelContextSnapshot: ModelContextSnapshot(entries: [toolResult]),
       turns: [
         ChatTurn(
           id: turnID,
@@ -189,7 +189,7 @@ struct ChatModelContextBuilderTests {
       content: "<action name=\"read_file\"></action>"
     )
     var state = ChatSession(
-      modelFacingTranscript: ModelFacingTranscript(entries: [firstEntry]),
+      modelContextSnapshot: ModelContextSnapshot(entries: [firstEntry]),
       turns: [
         ChatTurn(
           id: turnID,
@@ -214,7 +214,7 @@ struct ChatModelContextBuilderTests {
       for: sourceMessageID,
       in: &state
     )
-    ChatTranscriptMutator().appendModelFacingEntry(
+    ChatTranscriptMutator().appendModelContextEntry(
       try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: "observation"),
       to: &state
     )

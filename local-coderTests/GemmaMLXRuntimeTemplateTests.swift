@@ -10,7 +10,7 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func templateMessagesUseFrozenTranscriptContent() throws {
     let callID = UUID()
-    let transcript = ModelFacingTranscript(
+    let transcript = ModelContextSnapshot(
       entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "create index.htm"),
         try ModelFacingPromptRenderer.assistantOutputEntry(
@@ -114,7 +114,7 @@ struct GemmaMLXRuntimeTemplateTests {
       systemContext: ["When tools are available, use them."]
     )
     let initialRendered = try GemmaMLXRuntime.templateMessages(
-      from: ModelFacingTranscript(entries: [initialUser]),
+      from: ModelContextSnapshot(entries: [initialUser]),
       attachments: [],
       systemPrompt: "When tools are available, use them."
     )
@@ -141,7 +141,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func templateMessagesPreserveFocusedFileSystemContextInsideUserMessage() throws {
-    let transcript = ModelFacingTranscript(
+    let transcript = ModelContextSnapshot(
       entries: [
         try ModelFacingPromptRenderer.userPromptEntry(
           prompt: "change the background color to green",
@@ -207,7 +207,7 @@ struct GemmaMLXRuntimeTemplateTests {
       systemContext: ["Use concise coding steps."]
     )
     let initialRendered = try GemmaMLXRuntime.templateMessages(
-      from: ModelFacingTranscript(entries: [initialUser]),
+      from: ModelContextSnapshot(entries: [initialUser]),
       attachments: [],
       systemPrompt: "Use concise coding steps."
     )
@@ -243,7 +243,7 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func templateMessagesDoNotTeachGemmaInternalInvalidToolActions() throws {
     let callID = UUID()
-    let transcript = ModelFacingTranscript(
+    let transcript = ModelContextSnapshot(
       entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "change the table heading"),
         try ModelFacingPromptRenderer.toolResultEntry(
@@ -718,7 +718,7 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func laterUserTurnHistoryCompactsPreviousToolObservationToReceipt() throws {
     let callID = UUID()
-    let transcript = ModelFacingTranscript(entries: [
+    let transcript = ModelContextSnapshot(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         content: """
@@ -1292,7 +1292,7 @@ struct GemmaMLXRuntimeTemplateTests {
   private func projectedEntries(
     from entries: [ModelContextEntry]
   ) -> [ProjectedModelContextEntry] {
-    ModelFacingTranscript(entries: entries)
+    ModelContextSnapshot(entries: entries)
       .projectedEntries(mode: .compactedHistoryForLaterTurns)
   }
 

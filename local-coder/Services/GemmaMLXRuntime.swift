@@ -359,7 +359,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   func contextUsage(
-    for transcript: ModelFacingTranscript,
+    for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -382,7 +382,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelFacingTranscript,
+    for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -1172,7 +1172,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   nonisolated static func templateMessages(
-    from transcript: ModelFacingTranscript,
+    from transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) throws -> [Chat.Message] {
@@ -1233,7 +1233,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   nonisolated static func generationHistoryMessages(
-    from transcript: ModelFacingTranscript
+    from transcript: ModelContextSnapshot
   ) throws -> [Chat.Message] {
     let entries = transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
     guard let lastUserIndex = entries.lastIndex(where: { $0.role == .user }) else {

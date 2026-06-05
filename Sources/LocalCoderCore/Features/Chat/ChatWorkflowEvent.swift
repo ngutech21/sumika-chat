@@ -127,7 +127,7 @@ public struct ChatWorkflowEventApplier: Sendable {
           toolResult: toolResult,
           request: request
         ) {
-          mutator.appendModelFacingEntry(entry, to: &state)
+          mutator.appendModelContextEntry(entry, to: &state)
         }
       }
     case .assistantPlaceholderAppended(let messageID, let turnID):
@@ -144,7 +144,7 @@ public struct ChatWorkflowEventApplier: Sendable {
         sourceMessageID: messageID,
         content: modelContextContent
       ) {
-        mutator.appendModelFacingEntry(entry, to: &state)
+        mutator.appendModelContextEntry(entry, to: &state)
       }
     case .turnStatusChanged(let turnID, let status, let modelContextPolicy):
       mutator.updateTurnStatus(

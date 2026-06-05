@@ -74,7 +74,7 @@ public final class ChatSessionController {
       modelPath: selectedModel.localPath,
       modelContextTokenLimit: storedSettings.contextTokenLimit,
       chatSession: ChatSession(
-        modelFacingTranscript: ModelFacingTranscript(),
+        modelContextSnapshot: ModelContextSnapshot(),
         toolCalls: [],
         turns: [],
         pendingAttachments: [],
@@ -240,7 +240,7 @@ extension ChatSessionController {
   public func sessionSnapshot(updating session: ChatSession) -> ChatSession {
     var snapshot = session
     snapshot.selectedModelID = modelRuntime.selectedModelID
-    snapshot.modelFacingTranscript = chatSession.modelFacingTranscript
+    snapshot.modelContextSnapshot = chatSession.modelContextSnapshot
     snapshot.toolCalls = chatSession.toolCalls
     snapshot.turns = chatSession.turns
     snapshot.focusedFileState = chatSession.focusedFileState
@@ -342,7 +342,7 @@ extension ChatSessionController {
       systemContext: [initialSystemPromptSnapshot] + currentPromptContext.renderedBlocks,
       currentPromptContext: currentPromptContext.consumedContext
     ) {
-      transcriptMutator.appendModelFacingEntry(entry, to: &chatSession)
+      transcriptMutator.appendModelContextEntry(entry, to: &chatSession)
     }
     transcriptMutator.appendAssistantPlaceholder(
       id: assistantMessageID,
@@ -1089,12 +1089,12 @@ extension ChatSessionController {
       turnID: turnID,
       generationID: nil,
       promptBytes: renderedSystemPrompt.utf8.count,
-      messageCount: chatSession.modelFacingTranscript.entries.count,
+      messageCount: chatSession.modelContextSnapshot.entries.count,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
     let contextBuildStartedAt = Date()
-    let modelFacingTranscript = modelContextBuilder.transcript(
+    let modelContextSnapshot = modelContextBuilder.transcript(
       from: chatSession,
       includingTurnID: turnID
     )
@@ -1103,7 +1103,7 @@ extension ChatSessionController {
       startedAt: contextBuildStartedAt,
       turnID: turnID,
       generationID: nil,
-      messageCount: modelFacingTranscript.entries.count,
+      messageCount: modelContextSnapshot.entries.count,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
@@ -1111,7 +1111,7 @@ extension ChatSessionController {
       turnID: turnID,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode,
-      transcript: modelFacingTranscript,
+      transcript: modelContextSnapshot,
       systemPrompt: renderedSystemPrompt,
       settings: chatSession.generationSettings,
       stopAfterCompleteToolAction: toolPromptMode.shouldStopAfterCompleteToolAction,
@@ -1141,7 +1141,7 @@ extension ChatSessionController {
       sourceMessageID: assistantMessageID,
       content: assistantModelContent
     ) {
-      transcriptMutator.appendModelFacingEntry(entry, to: &chatSession)
+      transcriptMutator.appendModelContextEntry(entry, to: &chatSession)
     }
     refreshContextUsage(toolPromptMode: toolPromptMode)
   }

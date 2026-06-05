@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ModelFacingTranscript: Codable, Equatable, Sendable {
+public struct ModelContextSnapshot: Codable, Equatable, Sendable {
   public var entries: [ModelContextEntry]
 
   public init(entries: [ModelContextEntry] = []) {

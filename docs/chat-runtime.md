@@ -55,8 +55,8 @@ flowchart TD
   Tool-call and tool-result items store only `ToolCallRecord.ID`.
 - `AssistantTurnMessage.deliveryStatus` distinguishes complete assistant
   messages from streaming or cancelled partial output.
-- `ChatModelContextBuilder` turns `ChatSession` into the model-facing
-  `ModelFacingTranscript`. It excludes entries belonging to turns whose
+- `ChatModelContextBuilder` turns `ChatSession` into the model context
+  `ModelContextSnapshot`. It excludes entries belonging to turns whose
   `modelContextPolicy` is `.excluded`, except while that same turn is actively
   generating its direct follow-up response.
 - `ChatGenerationCoordinator` streams model events into transcript chunks and
@@ -142,7 +142,7 @@ flowchart TD
 
 - Always build model input through `ChatModelContextBuilder`; do not pass the
   raw transcript directly to the model runtime from new code.
-- `ModelFacingTranscript` is the source for runtime generation and context
+- `ModelContextSnapshot` is the source for runtime generation and context
   usage. Each `ModelContextEntry` stores typed intent in `body` and the
   byte-stable rendered role/content in `frozenContent`.
 - Derive model role from the ADT body. Persisted entries whose body role and
@@ -152,7 +152,7 @@ flowchart TD
   observations, and terminal tool results. Do not reconstruct old model-facing
   history from mutable UI state, focused context, current tool prompt mode, or
   attachments.
-- `ModelFacingTranscript` is the only persisted model-facing prompt ledger.
+- `ModelContextSnapshot` is the only persisted model context ledger.
   Runtime calls consume `ModelContextEntry.frozenContent` directly.
 - Legacy model-context messages are not stored or backfilled.
 - Completed turns are included by default.
@@ -199,9 +199,9 @@ The intended long-term fast path for tool loops is either:
 
 ## Persistence Rules
 
-- `ChatSession` persists `messages`, `modelFacingTranscript`, `toolCalls`,
+- `ChatSession` persists `messages`, `modelContextSnapshot`, `toolCalls`,
   and `turns`.
-- Sessions without a stored `modelFacingTranscript` do not decode.
+- Sessions without a stored `modelContextSnapshot` do not decode.
 - New Codable fields use defaults so sessions saved before turn metadata decode
   successfully.
 - `ChatTurn.messageIDs` and `toolCallIDs` are audit links. They should be

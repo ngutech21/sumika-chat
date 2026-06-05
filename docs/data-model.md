@@ -15,7 +15,7 @@ flowchart TD
   ChatSession --> ChatTurn
   ChatSession --> FocusedFileState
   ChatSession --> ManagedModel
-  ChatSession --> ModelFacingTranscript
+  ChatSession --> ModelContextSnapshot
   ChatSession --> ToolCallRecord
   ChatSession --> WorkspaceInteractionMode
   ChatTurn --> ChatTurnItem
@@ -54,7 +54,7 @@ flowchart TD
   ModelContextEntryBody --> ToolObservationContext
   ModelContextEntryBody --> UserPromptContext
   ModelContextEntryError --> ModelContextRole
-  ModelFacingTranscript --> ModelContextEntry
+  ModelContextSnapshot --> ModelContextEntry
   NoopTurnTracer --> TurnTracing
   ProjectedModelContextEntry --> ModelContextRole
   RawToolCallRequest --> ChatSession
@@ -162,7 +162,7 @@ flowchart TD
 ### AssistantOutputContext
 
 - Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -321,7 +321,7 @@ Properties:
 - `generationSettings: ChatGenerationSettings`
 - `id: UUID`
 - `interactionMode: WorkspaceInteractionMode`
-- `modelFacingTranscript: ModelFacingTranscript`
+- `modelContextSnapshot: ModelContextSnapshot`
 - `pendingAttachments: [ChatAttachment]`
 - `selectedModelID: ManagedModel.ID`
 - `systemPrompt: String`
@@ -337,7 +337,7 @@ Relations:
 - `ChatTurn`
 - `FocusedFileState`
 - `ManagedModel`
-- `ModelFacingTranscript`
+- `ModelContextSnapshot`
 - `ToolCallRecord`
 - `WorkspaceInteractionMode`
 
@@ -520,7 +520,7 @@ Cases:
 ### FrozenModelContent
 
 - Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -699,7 +699,7 @@ Relations:
 ### ModelContextEntry
 
 - Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
 
 Properties:
@@ -719,7 +719,7 @@ Relations:
 ### ModelContextEntryBody
 
 - Kind: `enum`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
@@ -739,7 +739,7 @@ Relations:
 ### ModelContextEntryError
 
 - Kind: `enum`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Equatable`, `LocalizedError`, `Sendable`
 
 Cases:
@@ -753,7 +753,7 @@ Relations:
 ### ModelContextProjectionMode
 
 - Kind: `enum`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -764,13 +764,27 @@ Cases:
 ### ModelContextRole
 
 - Kind: `enum`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
 
 - `assistant`
 - `user`
+
+### ModelContextSnapshot
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `entries: [ModelContextEntry]`
+
+Relations:
+
+- `ModelContextEntry`
 
 ### ModelDownloadState
 
@@ -784,20 +798,6 @@ Cases:
 - `downloading(progress: Double?)`
 - `failed(String)`
 - `idle`
-
-### ModelFacingTranscript
-
-- Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
-- Conforms to: `Codable`, `Equatable`, `Sendable`
-
-Properties:
-
-- `entries: [ModelContextEntry]`
-
-Relations:
-
-- `ModelContextEntry`
 
 ### ModelLoadState
 
@@ -852,7 +852,7 @@ Properties:
 ### ProjectedModelContextEntry
 
 - Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -977,7 +977,7 @@ Relations:
 ### TerminalToolResultContext
 
 - Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1394,7 +1394,7 @@ Relations:
 ### ToolObservationContext
 
 - Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1482,7 +1482,7 @@ Relations:
 ### ToolReceipt
 
 - Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1505,7 +1505,7 @@ Relations:
 ### ToolReceiptSummary
 
 - Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1759,7 +1759,7 @@ Cases:
 ### UserPromptContext
 
 - Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ModelFacingTranscript.swift`
+- Source: `Sources/LocalCoderCore/Models/ModelContextSnapshot.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:

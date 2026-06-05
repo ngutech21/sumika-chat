@@ -27,7 +27,7 @@ struct WorkspaceStoreTests {
     let store = WorkspaceStore(libraryURL: libraryURL)
     let session = ChatSession(
       selectedModelID: "gemma3-1b",
-      modelFacingTranscript: ModelFacingTranscript(
+      modelContextSnapshot: ModelContextSnapshot(
         entries: [
           try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello"),
           try ModelFacingPromptRenderer.assistantOutputEntry(content: "hi"),
@@ -154,7 +154,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func chatSessionDecodeRequiresModelFacingTranscript() throws {
+  func chatSessionDecodeRequiresModelContextSnapshot() throws {
     let legacySession = LegacyChatSession(
       id: UUID(),
       title: "Legacy",
@@ -179,7 +179,7 @@ struct WorkspaceStoreTests {
       title: "Wrapped",
       selectedModelID: "gemma3-1b",
       transcript: LegacyTranscriptWrapper(
-        modelFacingTranscript: ModelFacingTranscript(
+        modelContextSnapshot: ModelContextSnapshot(
           entries: [
             try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
           ]
@@ -205,7 +205,7 @@ struct WorkspaceStoreTests {
   func chatSessionEncodingOmitsPendingAttachmentsAndTranscriptWrapper() throws {
     let session = ChatSession(
       selectedModelID: "gemma3-1b",
-      modelFacingTranscript: ModelFacingTranscript(
+      modelContextSnapshot: ModelContextSnapshot(
         entries: [
           try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
         ]
@@ -227,7 +227,7 @@ struct WorkspaceStoreTests {
 
     #expect(object["transcript"] == nil)
     #expect(object["pendingAttachments"] == nil)
-    #expect(object["modelFacingTranscript"] != nil)
+    #expect(object["modelContextSnapshot"] != nil)
     #expect(decoded.pendingAttachments.isEmpty)
     #expect(decoded == session)
   }
@@ -316,7 +316,7 @@ private struct TranscriptWrappedChatSession: Codable {
 }
 
 private struct LegacyTranscriptWrapper: Codable {
-  let modelFacingTranscript: ModelFacingTranscript
+  let modelContextSnapshot: ModelContextSnapshot
   let toolCalls: [ToolCallRecord]
   let turns: [ChatTurn]
   let focusedFileState: FocusedFileState

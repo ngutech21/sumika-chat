@@ -6,12 +6,12 @@ public protocol ChatModelRuntime: Sendable {
   func clearContext() async
   func generatedTokenCount(for text: String) async throws -> Int
   func contextUsage(
-    for transcript: ModelFacingTranscript,
+    for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage
   func streamReply(
-    for transcript: ModelFacingTranscript,
+    for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -51,7 +51,7 @@ public struct MockChatRuntime: ChatModelRuntime {
   }
 
   public func contextUsage(
-    for transcript: ModelFacingTranscript,
+    for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
@@ -65,7 +65,7 @@ public struct MockChatRuntime: ChatModelRuntime {
   }
 
   public func streamReply(
-    for transcript: ModelFacingTranscript,
+    for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings

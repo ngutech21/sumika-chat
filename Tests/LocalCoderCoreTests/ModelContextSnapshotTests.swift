@@ -3,7 +3,7 @@ import Testing
 
 @testable import LocalCoderCore
 
-struct ModelFacingTranscriptTests {
+struct ModelContextSnapshotTests {
   @Test
   func entryInitRejectsRoleBodyMismatch() {
     #expect(throws: ModelContextEntryError.roleMismatch(expected: .user, actual: .assistant)) {
@@ -174,10 +174,10 @@ struct ModelFacingTranscriptTests {
   }
 
   @Test
-  func chatSessionDecodeRequiresModelFacingTranscript() throws {
+  func chatSessionDecodeRequiresModelContextSnapshot() throws {
     let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
-      modelFacingTranscript: ModelFacingTranscript(
+      modelContextSnapshot: ModelContextSnapshot(
         entries: [
           try ModelFacingPromptRenderer.userPromptEntry(prompt: "summarize the file")
         ]
@@ -187,7 +187,7 @@ struct ModelFacingTranscriptTests {
     )
     let data = try JSONEncoder().encode(session)
     var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    object.removeValue(forKey: "modelFacingTranscript")
+    object.removeValue(forKey: "modelContextSnapshot")
     let legacyData = try JSONSerialization.data(withJSONObject: object)
 
     #expect(throws: DecodingError.self) {
@@ -201,7 +201,7 @@ struct ModelFacingTranscriptTests {
     let callID = UUID()
     let mutator = ChatTranscriptMutator()
     var state = ChatSession.codingDefault
-    mutator.appendModelFacingEntry(
+    mutator.appendModelContextEntry(
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
         prompt: "create movies.html",
@@ -209,14 +209,14 @@ struct ModelFacingTranscriptTests {
       ),
       to: &state
     )
-    mutator.appendModelFacingEntry(
+    mutator.appendModelContextEntry(
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
         content: "Tool call write_file requested."
       ),
       to: &state
     )
-    mutator.appendModelFacingEntry(
+    mutator.appendModelContextEntry(
       try ModelFacingPromptRenderer.toolResultEntry(
         turnID: turnID,
         toolResult: ToolResultModelMessage(
@@ -247,17 +247,17 @@ struct ModelFacingTranscriptTests {
     )
 
     #expect(
-      state.modelFacingTranscript.entries.map(\.frozenContent.role) == [
+      state.modelContextSnapshot.entries.map(\.frozenContent.role) == [
         .user, .assistant, .user,
       ])
     #expect(
-      !state.modelFacingTranscript.entries.contains { entry in
+      !state.modelContextSnapshot.entries.contains { entry in
         if case .terminalToolResult = entry.body {
           return true
         }
         return false
       })
-    let finalEntry = try #require(state.modelFacingTranscript.entries.last)
+    let finalEntry = try #require(state.modelContextSnapshot.entries.last)
     guard case .toolObservation(let context) = finalEntry.body else {
       Issue.record("Expected the terminal result to become the current tool observation prompt.")
       return
@@ -317,7 +317,7 @@ struct ModelFacingTranscriptTests {
       callID: UUID(),
       content: "Very large file body that should not remain in later history."
     )
-    let transcript = ModelFacingTranscript(entries: [
+    let transcript = ModelContextSnapshot(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
       try ModelFacingPromptRenderer.assistantOutputEntry(content: "I will read it."),
       toolEntry,
@@ -339,7 +339,7 @@ struct ModelFacingTranscriptTests {
       callID: UUID(),
       content: "Project overview"
     )
-    let transcript = ModelFacingTranscript(entries: [
+    let transcript = ModelContextSnapshot(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
       try ModelFacingPromptRenderer.assistantOutputEntry(content: "I will read it."),
       toolEntry,
@@ -389,10 +389,10 @@ struct ModelFacingTranscriptTests {
   @Test
   func toolReceiptMetadataCodableRoundTripsInTranscript() throws {
     let entry = try readFileToolResultEntry(callID: UUID(), content: "Project overview")
-    let transcript = ModelFacingTranscript(entries: [entry])
+    let transcript = ModelContextSnapshot(entries: [entry])
 
     let decoded = try JSONDecoder().decode(
-      ModelFacingTranscript.self,
+      ModelContextSnapshot.self,
       from: JSONEncoder().encode(transcript)
     )
 

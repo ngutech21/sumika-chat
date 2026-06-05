@@ -88,7 +88,7 @@ struct ChatWorkflowEventApplierTests {
     #expect(items.compactMap(\.messageID) == [result.callID])
     #expect(items[0].toolResultForTesting(records: state.toolCalls) == result)
     #expect(state.turns[0].items == [.toolResult(result.callID)])
-    #expect(state.modelFacingTranscript.entries[0].sourceMessageID == result.callID)
+    #expect(state.modelContextSnapshot.entries[0].sourceMessageID == result.callID)
   }
 
   @Test
@@ -133,9 +133,9 @@ struct ChatWorkflowEventApplierTests {
     #expect(items[0].contentForTesting.contains("1: project notes"))
     #expect(items[0].deliveryStatusForTesting == .complete)
     #expect(state.turns[0].items == items)
-    #expect(state.modelFacingTranscript.entries.map(\.frozenContent.role) == [.assistant])
+    #expect(state.modelContextSnapshot.entries.map(\.frozenContent.role) == [.assistant])
     #expect(
-      state.modelFacingTranscript.entries[0].frozenContent.content
+      state.modelContextSnapshot.entries[0].frozenContent.content
         == "Displayed show_file result for README.md directly to the user.")
   }
 
