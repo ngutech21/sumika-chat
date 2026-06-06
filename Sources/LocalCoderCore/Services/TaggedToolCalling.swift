@@ -139,6 +139,10 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
       "Run an approved foreground shell command in the workspace root."
     case .todoWrite:
       "Update the current Agent todo plan."
+    case .webSearch:
+      "Search public web pages without sending workspace contents."
+    case .webFetch:
+      "Fetch public text content from an http or https URL."
     case .invalid:
       "Invalid tool-call observation."
     default:

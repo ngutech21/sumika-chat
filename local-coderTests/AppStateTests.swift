@@ -31,6 +31,7 @@ struct AppStateTests {
     )
     let workspaceStore = InMemoryWorkspaceStore(initialLibrary: initialLibrary)
     let modelSettingsStore = InMemoryModelSettingsStore()
+    let webAccessSettingsStore = InMemoryWebAccessSettingsStore()
     let controller = ChatSessionController(
       modelSettingsStore: modelSettingsStore,
       runtime: AppStateTestRuntime()
@@ -38,6 +39,7 @@ struct AppStateTests {
     let appState = AppState(
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: webAccessSettingsStore,
       chatController: controller
     )
 
@@ -60,6 +62,90 @@ struct AppStateTests {
     )
 
     #expect(savedSession.interactionMode == .agent)
+  }
+
+  @Test
+  func webAccessSettingsAreGlobalAndPersistIndependentlyFromWorkspace() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: sessionID
+      )
+    )
+    let modelSettingsStore = InMemoryModelSettingsStore()
+    let webAccessSettingsStore = InMemoryWebAccessSettingsStore(
+      settings: WebAccessSettings(policy: .askEachTime, provider: .duckDuckGo)
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: webAccessSettingsStore,
+      chatController: ChatSessionController(
+        modelSettingsStore: modelSettingsStore,
+        runtime: AppStateTestRuntime()
+      )
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+        && appState.activeWebAccessSettings.policy == .askEachTime
+    }
+
+    let updated = WebAccessSettings(
+      policy: .allow,
+      provider: .searxng,
+      searxngBaseURL: "https://search.example"
+    )
+    appState.updateActiveWebAccessSettings(updated)
+
+    try await waitUntil {
+      await webAccessSettingsStore.settings() == updated
+    }
+    #expect(appState.activeWebAccessSettings == updated)
+  }
+
+  @Test
+  func webAccessSettingsSavesRemainOrderedWhenUpdatesHappenQuickly() async throws {
+    let workspaceStore = InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary())
+    let modelSettingsStore = InMemoryModelSettingsStore()
+    let webAccessSettingsStore = SlowFirstWebAccessSettingsStore()
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: webAccessSettingsStore,
+      chatController: ChatSessionController(
+        modelSettingsStore: modelSettingsStore,
+        runtime: AppStateTestRuntime()
+      )
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+
+    let first = WebAccessSettings(policy: .allow, provider: .duckDuckGo)
+    let second = WebAccessSettings(
+      policy: .askEachTime,
+      provider: .searxng,
+      searxngBaseURL: "https://search.example"
+    )
+    appState.updateActiveWebAccessSettings(first)
+    appState.updateActiveWebAccessSettings(second)
+
+    try await waitUntil(timeout: 3) {
+      await webAccessSettingsStore.saveCount() == 2
+    }
+    #expect(await webAccessSettingsStore.settings() == second)
+    #expect(appState.activeWebAccessSettings == second)
   }
 }
 
@@ -109,6 +195,43 @@ private actor InMemoryModelSettingsStore: ModelSettingsStoring {
 
   func save(settings: StoredModelSettings, for model: ManagedModel) async throws {
     settingsByModelID[model.id] = settings
+  }
+}
+
+private actor InMemoryWebAccessSettingsStore: WebAccessSettingsStoring {
+  private var storedSettings: WebAccessSettings
+
+  init(settings: WebAccessSettings = .disabled) {
+    self.storedSettings = settings
+  }
+
+  func settings() async -> WebAccessSettings {
+    storedSettings
+  }
+
+  func save(settings: WebAccessSettings) async throws {
+    storedSettings = settings
+  }
+}
+
+private actor SlowFirstWebAccessSettingsStore: WebAccessSettingsStoring {
+  private var storedSettings = WebAccessSettings.disabled
+  private var saves = 0
+
+  func settings() async -> WebAccessSettings {
+    storedSettings
+  }
+
+  func save(settings: WebAccessSettings) async throws {
+    saves += 1
+    if saves == 1 {
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    storedSettings = settings
+  }
+
+  func saveCount() -> Int {
+    saves
   }
 }
 

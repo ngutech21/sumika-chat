@@ -35,6 +35,14 @@ struct ContentView: View {
     } detail: {
       if let selection {
         switch selection {
+        case .settings:
+          AppSettingsView(
+            webAccessSettings: Binding(
+              get: { appState.activeWebAccessSettings },
+              set: { appState.updateActiveWebAccessSettings($0) }
+            )
+          )
+          .navigationTitle("Settings")
         case .models:
           ModelsView(
             modelRuntime: controller.modelRuntime,
@@ -110,7 +118,7 @@ struct ContentView: View {
     .onChange(of: appState.activeSessionID) {
       if let sessionID = appState.activeSessionID {
         selection = .session(sessionID)
-      } else if selection != .models {
+      } else if selection != .models && selection != .settings {
         selection = nil
       }
     }

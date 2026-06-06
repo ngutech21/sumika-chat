@@ -44,6 +44,8 @@ flowchart TD
   ToolCallModelMessage --> ToolCallModelArgument
   ToolCallModelMessage --> ToolName
   ToolCallPayload --> InvalidToolInput
+  ToolCallPayload --> WebFetchInput
+  ToolCallPayload --> WebSearchInput
   ToolCallPayload --> WorkspaceDiagnosticsInput
   ToolCallRecord --> ToolCallEvent
   ToolCallRecord --> ToolCallRequest
@@ -83,6 +85,7 @@ flowchart TD
   ToolObservationBlock --> RunCommandResult
   ToolObservationBlock --> SearchFileMatch
   ToolObservationBlock --> ToolTextOutput
+  ToolObservationBlock --> WebSearchResult
   ToolObservationBlock --> WorkspaceDiagnosticsResult
   ToolObservationBlock --> WorkspaceFileEntry
   ToolObservationBlock --> WorkspaceRelativePath
@@ -104,6 +107,8 @@ flowchart TD
   ToolResultPayload --> SearchFilesResult
   ToolResultPayload --> TodoWriteResult
   ToolResultPayload --> ToolFailure
+  ToolResultPayload --> WebFetchToolResult
+  ToolResultPayload --> WebSearchToolResult
   ToolResultPayload --> WorkspaceDiagnosticsResult
   ToolResultPayload --> WorkspaceDiffResult
   ToolResultPayload --> WriteFileResult
@@ -114,6 +119,10 @@ flowchart TD
   TurnTraceEvent --> ToolArgumentTrace
   TurnTraceEvent --> TurnTracePhase
   TurnTraceMetadata --> TurnTracing
+  WebFetchToolResult --> ToolFailureReason
+  WebFetchToolResult --> ToolTextOutput
+  WebSearchToolResult --> ToolFailureReason
+  WebSearchToolResult --> WebSearchResult
   WorkspaceDiagnostic --> WorkspaceDiagnosticSeverity
   WorkspaceDiagnostic --> WorkspaceDiagnosticSource
   WorkspaceDiagnostic --> WorkspaceRelativePath
@@ -715,6 +724,8 @@ Cases:
 - `searchFiles(SearchFilesInput)`
 - `showFile(ReadFileInput)`
 - `todoWrite(TodoWriteInput)`
+- `webFetch(WebFetchInput)`
+- `webSearch(WebSearchInput)`
 - `workspaceDiagnostics(WorkspaceDiagnosticsInput)`
 - `workspaceDiff(WorkspaceDiffInput)`
 - `writeFile(WriteFileInput)`
@@ -722,6 +733,8 @@ Cases:
 Relations:
 
 - `InvalidToolInput`
+- `WebFetchInput`
+- `WebSearchInput`
 - `WorkspaceDiagnosticsInput`
 
 ### ToolCallRecord
@@ -834,6 +847,7 @@ Cases:
 
 Cases:
 
+- `accessWeb`
 - `readWorkspace`
 - `runCommand`
 - `writeWorkspace`
@@ -1020,6 +1034,8 @@ Cases:
 - `fileList(root: WorkspaceRelativePath, entries: [WorkspaceFileEntry], totalCount: Int, truncated: Bool)`
 - `searchSnippets(root: WorkspaceRelativePath, pattern: String, matches: [SearchFileMatch], totalCount: Int, truncated: Bool)`
 - `summary(String)`
+- `webFetch(url: String, finalURL: String, statusCode: Int, contentType: String?, content: ToolTextOutput, byteCount: Int)`
+- `webSearch(query: String, provider: WebSearchProvider, results: [WebSearchResult], truncated: Bool)`
 
 Relations:
 
@@ -1027,6 +1043,7 @@ Relations:
 - `RunCommandResult`
 - `SearchFileMatch`
 - `ToolTextOutput`
+- `WebSearchResult`
 - `WorkspaceDiagnosticsResult`
 - `WorkspaceFileEntry`
 - `WorkspaceRelativePath`
@@ -1151,6 +1168,8 @@ Cases:
 - `runCommand(RunCommandResult)`
 - `searchFiles(SearchFilesResult)`
 - `todoWrite(TodoWriteResult)`
+- `webFetch(WebFetchToolResult)`
+- `webSearch(WebSearchToolResult)`
 - `workspaceDiagnostics(WorkspaceDiagnosticsResult)`
 - `workspaceDiff(WorkspaceDiffResult)`
 - `writeFile(WriteFileResult)`
@@ -1166,6 +1185,8 @@ Relations:
 - `SearchFilesResult`
 - `TodoWriteResult`
 - `ToolFailure`
+- `WebFetchToolResult`
+- `WebSearchToolResult`
 - `WorkspaceDiagnosticsResult`
 - `WorkspaceDiffResult`
 - `WriteFileResult`
@@ -1359,6 +1380,72 @@ Cases:
 - Kind: `protocol`
 - Source: `Sources/LocalCoderCore/Models/TurnTraceEvent.swift`
 - Conforms to: `Sendable`
+
+### WebFetchInput
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `maxBytes: Int?`
+- `url: String`
+
+### WebFetchToolResult
+
+- Kind: `enum`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Cases:
+
+- `failed(url: String, finalURL: String?, reason: ToolFailureReason)`
+- `success(url: String, finalURL: String, statusCode: Int, contentType: String?, content: ToolTextOutput, byteCount: Int)`
+
+Relations:
+
+- `ToolFailureReason`
+- `ToolTextOutput`
+
+### WebSearchInput
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `maxResults: Int?`
+- `query: String`
+
+### WebSearchResult
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `snippet: String?`
+- `title: String`
+- `url: String`
+
+### WebSearchToolResult
+
+- Kind: `enum`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Cases:
+
+- `failed(query: String, reason: ToolFailureReason)`
+- `success(query: String, provider: WebSearchProvider, results: [WebSearchResult], truncated: Bool)`
+
+Relations:
+
+- `ToolFailureReason`
+- `WebSearchResult`
 
 ### Workspace
 

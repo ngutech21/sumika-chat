@@ -1,0 +1,14 @@
+{
+  "results": [
+    {
+      "title": "Swift.org - Documentation",
+      "url": "https://www.swift.org/documentation/",
+      "content": "Documentation for Swift packages and language features."
+    },
+    {
+      "title": "URLSession",
+      "url": "https://developer.apple.com/documentation/foundation/urlsession",
+      "content": "An object that coordinates network data transfer tasks."
+    }
+  ]
+}

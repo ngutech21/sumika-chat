@@ -16,28 +16,40 @@ final class AppState {
   private var workspaceLibraryController: WorkspaceLibraryController
   @ObservationIgnored private let workspaceStore: any WorkspaceStoring
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
+  @ObservationIgnored private let webAccessSettingsStore: any WebAccessSettingsStoring
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
   @ObservationIgnored private var defaultSessionSystemPrompt =
     ManagedModelCatalog.defaultModel.defaultSystemPrompt
   @ObservationIgnored private var defaultSessionGenerationSettings =
     ManagedModelCatalog.defaultModel.defaultGenerationSettings
   @ObservationIgnored private var saveLibraryTask: Task<Void, Never>?
+  @ObservationIgnored private var saveWebAccessSettingsTask: Task<Void, Never>?
+  var activeWebAccessSettings = WebAccessSettings.disabled
 
   init(
     workspaceStore: any WorkspaceStoring = WorkspaceStore(),
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
+    webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
     chatController: ChatSessionController? = nil
   ) {
     self.workspaceStore = workspaceStore
     self.modelSettingsStore = modelSettingsStore
+    self.webAccessSettingsStore = webAccessSettingsStore
 
     if let chatController {
       self.chatController = chatController
     } else {
+      let webAccessSettingsStore = webAccessSettingsStore
       self.chatController = ChatSessionController(
         modelSettingsStore: modelSettingsStore,
         modelDownloader: HuggingFaceModelDownloader(),
         runtime: GemmaMLXRuntime(),
+        toolOrchestrator: ToolOrchestrator(
+          executorRegistry: .codingAgent,
+          webAccessSettingsProvider: {
+            await webAccessSettingsStore.settings()
+          }
+        ),
         turnTracer: GemmaDebugTraceStore.shared
       )
     }
@@ -122,6 +134,24 @@ final class AppState {
     }
   }
 
+  func updateActiveWebAccessSettings(_ settings: WebAccessSettings) {
+    activeWebAccessSettings = settings
+    let previousSaveTask = saveWebAccessSettingsTask
+    saveWebAccessSettingsTask = Task { [webAccessSettingsStore] in
+      await previousSaveTask?.value
+      do {
+        try await webAccessSettingsStore.save(settings: settings)
+        await MainActor.run {
+          workspaceErrorMessage = nil
+        }
+      } catch {
+        await MainActor.run {
+          workspaceErrorMessage = error.localizedDescription
+        }
+      }
+    }
+  }
+
   func persistActiveSession() {
     guard
       let currentSession = activeSession
@@ -176,6 +206,12 @@ final class AppState {
     }
 
     chatController.loadSession(activeSession)
+  }
+
+  private func loadWebAccessSettings() {
+    Task { [webAccessSettingsStore] in
+      activeWebAccessSettings = await webAccessSettingsStore.settings()
+    }
   }
 
   private func refreshDefaultSessionFactory() {
@@ -255,6 +291,7 @@ final class AppState {
       self.workspaceLibraryController.replaceLibrary(library)
       self.normalizeLoadedLibrary()
       self.loadActiveSession()
+      self.loadWebAccessSettings()
       self.isWorkspaceLibraryLoading = false
     }
   }

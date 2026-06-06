@@ -24,6 +24,8 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
   public static let writeFile = ToolName(rawValue: "write_file")
   public static let runCommand = ToolName(rawValue: "run_command")
   public static let todoWrite = ToolName(rawValue: "todo_write")
+  public static let webSearch = ToolName(rawValue: "web_search")
+  public static let webFetch = ToolName(rawValue: "web_fetch")
   public static let invalid = ToolName(rawValue: "invalid")
 
   private static func canonicalName(for name: String) -> String {
@@ -54,6 +56,10 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
       return Self.runCommand.rawValue
     case "todo", "write_todo", "update_todos", "todos":
       return "todo_write"
+    case "search_web", "internet_search":
+      return Self.webSearch.rawValue
+    case "fetch", "fetch_url", "read_url":
+      return Self.webFetch.rawValue
     default:
       return normalized
     }
@@ -102,6 +108,8 @@ public enum ToolIntentHeuristics {
       ToolName.writeFile.rawValue,
       ToolName.runCommand.rawValue,
       ToolName.todoWrite.rawValue,
+      ToolName.webSearch.rawValue,
+      ToolName.webFetch.rawValue,
     ]
 
     for toolName in knownToolNames {
@@ -250,6 +258,8 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
   case editFile(EditFileInput)
   case runCommand(RunCommandInput)
   case todoWrite(TodoWriteInput)
+  case webSearch(WebSearchInput)
+  case webFetch(WebFetchInput)
   case invalid(InvalidToolInput)
 }
 
@@ -278,6 +288,10 @@ nonisolated extension ToolCallPayload {
       .runCommand
     case .todoWrite:
       .todoWrite
+    case .webSearch:
+      .webSearch
+    case .webFetch:
+      .webFetch
     case .invalid:
       .invalid
     }
@@ -646,8 +660,87 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case editFile(EditFileResult)
   case runCommand(RunCommandResult)
   case todoWrite(TodoWriteResult)
+  case webSearch(WebSearchToolResult)
+  case webFetch(WebFetchToolResult)
   case invalidTool(InvalidToolResult)
   case failure(ToolFailure)
+}
+
+public struct WebSearchInput: Codable, Equatable, Sendable {
+  public var query: String
+  public var maxResults: Int?
+
+  public init(query: String, maxResults: Int? = nil) {
+    self.query = query
+    self.maxResults = maxResults
+  }
+}
+
+public struct WebFetchInput: Codable, Equatable, Sendable {
+  public var url: String
+  public var maxBytes: Int?
+
+  public init(url: String, maxBytes: Int? = nil) {
+    self.url = url
+    self.maxBytes = maxBytes
+  }
+}
+
+public struct WebSearchResult: Codable, Equatable, Sendable {
+  public var title: String
+  public var url: String
+  public var snippet: String?
+
+  public init(title: String, url: String, snippet: String? = nil) {
+    self.title = title
+    self.url = url
+    self.snippet = snippet
+  }
+}
+
+public enum WebSearchToolResult: Codable, Equatable, Sendable {
+  case success(
+    query: String, provider: WebSearchProvider, results: [WebSearchResult], truncated: Bool)
+  case failed(query: String, reason: ToolFailureReason)
+
+  public init(
+    query: String,
+    provider: WebSearchProvider,
+    results: [WebSearchResult],
+    truncated: Bool = false
+  ) {
+    self = .success(query: query, provider: provider, results: results, truncated: truncated)
+  }
+}
+
+public enum WebFetchToolResult: Codable, Equatable, Sendable {
+  case success(
+    url: String,
+    finalURL: String,
+    statusCode: Int,
+    contentType: String?,
+    content: ToolTextOutput,
+    byteCount: Int
+  )
+  case failed(url: String, finalURL: String?, reason: ToolFailureReason)
+
+  public init(
+    url: String,
+    finalURL: String,
+    statusCode: Int,
+    contentType: String?,
+    content: ToolTextOutput,
+    byteCount: Int
+  ) {
+    self = .success(
+      url: url,
+      finalURL: finalURL,
+      statusCode: statusCode,
+      contentType: contentType,
+      content: content,
+      byteCount: byteCount
+    )
+  }
 }
 
 public enum TodoWriteResult: Codable, Equatable, Sendable {
@@ -1076,6 +1169,10 @@ nonisolated extension ToolResultPayload {
       return result.preview
     case .todoWrite(let result):
       return result.preview
+    case .webSearch(let result):
+      return result.preview
+    case .webFetch(let result):
+      return result.preview
     case .invalidTool(let result):
       return ToolResultPreview(
         status: .failed,
@@ -1086,6 +1183,55 @@ nonisolated extension ToolResultPayload {
         status: failure.reason.previewStatus,
         text: failure.previewText,
         affectedPaths: failure.path.map { [$0.rawValue] } ?? []
+      )
+    }
+  }
+}
+
+nonisolated extension WebSearchToolResult {
+  fileprivate var preview: ToolResultPreview {
+    switch self {
+    case .success(let query, let provider, let results, let truncated):
+      let resultText =
+        results.isEmpty
+        ? "(no results)"
+        : results.enumerated().map { index, result in
+          let snippet = result.snippet.map { "\n\($0)" } ?? ""
+          return "\(index + 1). \(result.title)\n\(result.url)\(snippet)"
+        }.joined(separator: "\n\n")
+      return ToolResultPreview(
+        text: "Search provider: \(provider.displayName)\nQuery: \(query)\n\n\(resultText)",
+        truncated: truncated
+      )
+    case .failed(_, let reason):
+      return ToolResultPreview(status: reason.previewStatus, text: reason.message)
+    }
+  }
+}
+
+nonisolated extension WebFetchToolResult {
+  fileprivate var preview: ToolResultPreview {
+    switch self {
+    case .success(
+      let url, let finalURL, let statusCode, let contentType, let content, let byteCount):
+      let redirectText = url == finalURL ? "" : "\nFinal URL: \(finalURL)"
+      return ToolResultPreview(
+        text: """
+          URL: \(url)\(redirectText)
+          Status: \(statusCode)
+          Content-Type: \(contentType ?? "unknown")
+          Bytes: \(byteCount)
+
+          \(content.text)
+          """,
+        truncated: content.truncated,
+        redacted: content.redacted
+      )
+    case .failed(let url, let finalURL, let reason):
+      let finalURLText = finalURL.map { "\nFinal URL: \($0)" } ?? ""
+      return ToolResultPreview(
+        status: reason.previewStatus,
+        text: "URL: \(url)\(finalURLText)\n\(reason.message)"
       )
     }
   }

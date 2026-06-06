@@ -1695,6 +1695,8 @@ struct ToolExecutionTests {
         .writeFile,
         .runCommand,
         .todoWrite,
+        .webSearch,
+        .webFetch,
       ])
   }
 

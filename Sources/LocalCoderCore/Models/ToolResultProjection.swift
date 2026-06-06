@@ -125,6 +125,16 @@ public enum ToolObservationBlock: Equatable, Sendable {
   )
   case commandResult(RunCommandResult)
   case diagnostics(WorkspaceDiagnosticsResult)
+  case webSearch(
+    query: String, provider: WebSearchProvider, results: [WebSearchResult], truncated: Bool)
+  case webFetch(
+    url: String,
+    finalURL: String,
+    statusCode: Int,
+    contentType: String?,
+    content: ToolTextOutput,
+    byteCount: Int
+  )
   case failure(String)
 }
 
@@ -237,6 +247,10 @@ public enum ToolResultProjector {
       return projectRunCommand(result, request: request)
     case .todoWrite(let result):
       return projectTodoWrite(result, request: request)
+    case .webSearch(let result):
+      return projectWebSearch(result, request: request, policy: policy)
+    case .webFetch(let result):
+      return projectWebFetch(result, request: request)
     case .invalidTool(let result):
       let text = "The tool call was invalid: \(result.reason.message)"
       return summaryProjection(
@@ -490,6 +504,123 @@ public enum ToolResultProjector {
         affectedPaths: []
       )
     }
+  }
+
+  private static func projectWebSearch(
+    _ result: WebSearchToolResult,
+    request: ToolCallRequest,
+    policy: ToolResultProjectionPolicy
+  ) -> ToolResultProjection {
+    switch result {
+    case .success(let query, let provider, let results, let truncated):
+      let projectedResults = Array(results.prefix(WebAccessLimits.maxSearchObservationResults))
+      return ToolResultProjection(
+        display: .summary(
+          status: .success,
+          text: webSearchDisplayText(query: query, provider: provider, results: results),
+          affectedPaths: []
+        ),
+        observation: ToolModelObservation.success(
+          toolName: request.toolName,
+          affectedPaths: [],
+          blocks: [
+            .webSearch(
+              query: query,
+              provider: provider,
+              results: projectedResults,
+              truncated: truncated || results.count > projectedResults.count
+                || results.count > policy.maxSearchObservationSnippets
+            )
+          ]
+        )
+      )
+    case .failed(_, let reason):
+      return summaryProjection(
+        toolName: request.toolName,
+        status: reason.projectedStatus,
+        text: reason.message,
+        affectedPaths: []
+      )
+    }
+  }
+
+  private static func projectWebFetch(
+    _ result: WebFetchToolResult,
+    request: ToolCallRequest
+  ) -> ToolResultProjection {
+    switch result {
+    case .success(
+      let url, let finalURL, let statusCode, let contentType, let content, let byteCount):
+      return ToolResultProjection(
+        display: .summary(
+          status: .success,
+          text: webFetchDisplayText(
+            url: url,
+            finalURL: finalURL,
+            statusCode: statusCode,
+            contentType: contentType,
+            content: content,
+            byteCount: byteCount
+          ),
+          affectedPaths: []
+        ),
+        observation: ToolModelObservation.success(
+          toolName: request.toolName,
+          affectedPaths: [],
+          blocks: [
+            .webFetch(
+              url: url,
+              finalURL: finalURL,
+              statusCode: statusCode,
+              contentType: contentType,
+              content: content,
+              byteCount: byteCount
+            )
+          ]
+        )
+      )
+    case .failed(_, _, let reason):
+      return summaryProjection(
+        toolName: request.toolName,
+        status: reason.projectedStatus,
+        text: reason.message,
+        affectedPaths: []
+      )
+    }
+  }
+
+  private static func webSearchDisplayText(
+    query: String,
+    provider: WebSearchProvider,
+    results: [WebSearchResult]
+  ) -> String {
+    let resultText =
+      results.isEmpty
+      ? "(no results)"
+      : results.enumerated().map { index, result in
+        let snippet = result.snippet.map { "\n\($0)" } ?? ""
+        return "\(index + 1). \(result.title)\n\(result.url)\(snippet)"
+      }.joined(separator: "\n\n")
+    return "Search provider: \(provider.displayName)\nQuery: \(query)\n\n\(resultText)"
+  }
+
+  private static func webFetchDisplayText(
+    url: String,
+    finalURL: String,
+    statusCode: Int,
+    contentType: String?,
+    content: ToolTextOutput,
+    byteCount: Int
+  ) -> String {
+    let redirectText = url == finalURL ? "" : "\nFinal URL: \(finalURL)"
+    return """
+      URL: \(url)\(redirectText)
+      Status: \(statusCode)
+      Content-Type: \(contentType ?? "unknown")
+      Bytes: \(byteCount)
+
+      \(content.text)
+      """
   }
 
   private static func summaryProjection(

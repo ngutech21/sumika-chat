@@ -100,6 +100,12 @@ public struct ToolPermissionEvaluator: Sendable {
         reason: "Updating Agent todo state is allowed.",
         riskLevel: .low
       )
+    case .webSearch, .webFetch:
+      return ToolPermissionEvaluation(
+        decision: .denied,
+        reason: "Web access policy is evaluated by the web tool executor.",
+        riskLevel: .high
+      )
     case .invalid(let input):
       return ToolPermissionEvaluation(
         decision: .denied,

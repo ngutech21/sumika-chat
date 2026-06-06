@@ -103,6 +103,24 @@ public struct ToolCallRequestValidator: Sendable {
         throw InvalidToolCallReason.invalidTodoItems(validationError.localizedDescription)
       }
       return .todoWrite(input)
+    case .webSearch:
+      let input = try decode(WebSearchInput.self, from: rawRequest.arguments)
+      guard !input.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        throw InvalidToolCallReason.invalidArgumentType(
+          name: "query",
+          expected: "a non-empty public web search query"
+        )
+      }
+      return .webSearch(input)
+    case .webFetch:
+      let input = try decode(WebFetchInput.self, from: rawRequest.arguments)
+      guard !input.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        throw InvalidToolCallReason.invalidArgumentType(
+          name: "url",
+          expected: "a non-empty public http or https URL"
+        )
+      }
+      return .webFetch(input)
     default:
       throw InvalidToolCallReason.unknownToolName(rawRequest.toolName.rawValue)
     }
@@ -310,6 +328,10 @@ nonisolated extension ToolDefinition {
       .runCommand
     case .todoWrite:
       .todoWrite
+    case .webSearch:
+      .webSearch
+    case .webFetch:
+      .webFetch
     default:
       nil
     }

@@ -33,6 +33,10 @@ enum AppLaunchConfiguration {
     let modelSettingsStore = ModelSettingsStore(
       settingsURL: storageRoot.appending(path: "model-settings.json", directoryHint: .notDirectory)
     )
+    let webAccessSettingsStore = WebAccessSettingsStore(
+      settingsURL: storageRoot.appending(
+        path: "web-access-settings.json", directoryHint: .notDirectory)
+    )
     let workspaceStore = UITestWorkspaceStore(
       libraryURL: storageRoot.appending(path: "workspaces.json", directoryHint: .notDirectory),
       initialLibrary: makeUITestWorkspaceLibrary(
@@ -46,11 +50,18 @@ enum AppLaunchConfiguration {
       modelSettingsStore: modelSettingsStore,
       modelDownloader: HuggingFaceModelDownloader(),
       runtime: GemmaMLXRuntime(),
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgent,
+        webAccessSettingsProvider: {
+          await webAccessSettingsStore.settings()
+        }
+      ),
       turnTracer: GemmaDebugTraceStore.shared
     )
     return AppState(
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: webAccessSettingsStore,
       chatController: controller
     )
   }

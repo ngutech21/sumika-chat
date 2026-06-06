@@ -50,6 +50,7 @@ public enum ToolCapability: String, Codable, Equatable, Hashable, Sendable {
   case readWorkspace
   case writeWorkspace
   case runCommand
+  case accessWeb
 }
 
 public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
@@ -525,5 +526,63 @@ nonisolated extension ToolDefinition {
       """,
     capabilities: [],
     riskLevel: .low
+  )
+
+  public static let webSearch = ToolDefinition(
+    name: .webSearch,
+    description: "Search public web pages without sending workspace contents.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "query",
+        description:
+          "Public web search query. Do not include private source code, secrets, or full logs.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "maxResults",
+        description: "Maximum result count.",
+        isRequired: false,
+        valueType: .integer,
+        minimum: 1,
+        maximum: Double(WebAccessLimits.maxSearchResultCount)
+      ),
+    ],
+    taggedExample: """
+      <action name="web_search">
+      <query>Swift URLSession async await timeout</query>
+      <maxResults>5</maxResults>
+      </action>
+      """,
+    capabilities: [.accessWeb],
+    riskLevel: .high
+  )
+
+  public static let webFetch = ToolDefinition(
+    name: .webFetch,
+    description: "Fetch public text content from an http or https URL.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "url",
+        description:
+          "Public http or https URL. Local, private, file, and internal network URLs are blocked.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "maxBytes",
+        description: "Maximum response bytes to read.",
+        isRequired: false,
+        valueType: .integer,
+        minimum: 1,
+        maximum: Double(WebAccessLimits.maxFetchBytes)
+      ),
+    ],
+    taggedExample: """
+      <action name="web_fetch">
+      <url>https://www.swift.org/documentation/server/guides/libraries/concurrency-adoption-guidelines.html</url>
+      <maxBytes>65536</maxBytes>
+      </action>
+      """,
+    capabilities: [.accessWeb],
+    riskLevel: .high
   )
 }

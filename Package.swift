@@ -57,7 +57,8 @@ let package = Package(
     ),
     .testTarget(
       name: "LocalCoderCoreTests",
-      dependencies: ["LocalCoderCore"]
+      dependencies: ["LocalCoderCore"],
+      resources: [.process("Fixtures")]
     ),
     .testTarget(
       name: "DataModelGeneratorTests",

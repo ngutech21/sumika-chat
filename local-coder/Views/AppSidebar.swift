@@ -12,6 +12,11 @@ struct AppSidebar: View {
   var body: some View {
     List(selection: $selection) {
       Section {
+        NavigationLink(value: AppNavigationSelection.settings) {
+          Label("Settings", systemImage: "gearshape")
+        }
+        .accessibilityIdentifier("sidebar.settingsLink")
+
         NavigationLink(value: AppNavigationSelection.models) {
           Label("Models", systemImage: "cpu")
         }

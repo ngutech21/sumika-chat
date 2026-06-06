@@ -360,6 +360,40 @@ public enum ToolModelObservationRenderer {
         return
           "\(diagnostic.path.rawValue):\(diagnostic.line)\(column): \(diagnostic.severity.rawValue): \(diagnostic.message)"
       }.joined(separator: "\n")
+    case .webSearch(let query, let provider, let results, let truncated):
+      let body =
+        results.isEmpty
+        ? "(no results)"
+        : results.enumerated().map { index, result in
+          [
+            "\(index + 1). \(result.title)",
+            result.url,
+            result.snippet,
+          ].compactMap { $0 }.joined(separator: "\n")
+        }.joined(separator: "\n\n")
+      return """
+        Web search provider: \(provider.displayName)
+        Query: \(query)
+        Truncated: \(truncated)
+        Results:
+        \(body)
+        """
+    case .webFetch(
+      let url, let finalURL, let statusCode, let contentType, let content, let byteCount):
+      let flags = [
+        content.truncated ? "truncated" : nil,
+        content.redacted ? "redacted" : nil,
+      ].compactMap { $0 }.joined(separator: ", ")
+      let suffix = flags.isEmpty ? "" : "\nFlags: \(flags)"
+      let redirect = url == finalURL ? "" : "\nFinal URL: \(finalURL)"
+      return """
+        Web fetch URL: \(url)\(redirect)
+        Status: \(statusCode)
+        Content-Type: \(contentType ?? "unknown")
+        Bytes: \(byteCount)\(suffix)
+        Content:
+        \(content.text)
+        """
     case .failure(let text):
       return "Failure: \(text)"
     }
