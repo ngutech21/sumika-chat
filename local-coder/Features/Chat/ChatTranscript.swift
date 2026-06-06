@@ -937,19 +937,75 @@ private struct MessageContentText: View {
         )
       }
     case .assistantMessage(let message):
-      Markdown(AssistantMarkdownPreprocessor.renderableContent(for: message.content))
-        .markdownTheme(.chatMessage)
-        .markdownCodeSyntaxHighlighter(ChatCodeSyntaxHighlighter())
+      AssistantMessageContent(message: message)
     case .userMessage(let message):
       Text(message.content)
     }
   }
 }
 
-private struct ChatCodeSyntaxHighlighter: CodeSyntaxHighlighter {
-  func highlightCode(_ code: String, language: String?) -> Text {
-    _ = language
-    return Text(code)
+private struct AssistantMessageContent: View {
+  let message: AssistantTurnMessage
+
+  private var blocks: [AssistantRenderBlock] {
+    AssistantRenderBlockParser().parse(
+      AssistantMarkdownPreprocessor.renderableContent(for: message.content)
+    )
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      ForEach(blocks) { block in
+        switch block {
+        case .paragraph(let paragraph):
+          Markdown(paragraph.text)
+            .markdownTheme(.chatMessage)
+        case .codeBlock(let codeBlock):
+          CodeBlockView(codeBlock: codeBlock)
+        }
+      }
+    }
+  }
+}
+
+private struct CodeBlockView: View {
+  let codeBlock: AssistantRenderBlock.CodeBlock
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      if let language = codeBlock.language, !language.isEmpty {
+        Text(language)
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 6)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(Color.secondary.opacity(0.12))
+      }
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        Text(visibleCodeText)
+          .font(.system(.body, design: .monospaced))
+          .foregroundStyle(.primary)
+          .textSelection(.enabled)
+          .fixedSize(horizontal: true, vertical: false)
+          .padding(10)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .background(Color.secondary.opacity(0.08))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+    .overlay {
+      RoundedRectangle(cornerRadius: 8)
+        .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+    }
+  }
+
+  private var visibleCodeText: String {
+    if codeBlock.text.isEmpty {
+      return " "
+    }
+    return codeBlock.text
   }
 }
 
