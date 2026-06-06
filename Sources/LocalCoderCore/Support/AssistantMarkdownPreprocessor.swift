@@ -4,8 +4,15 @@ public enum AssistantMarkdownPreprocessor {
   public static func renderableContent(for content: String) -> String {
     let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
 
+    guard !content.contains("```") else {
+      return content
+    }
+
+    if let legacyFileDisplay = normalizedLegacyDirectFileDisplay(content) {
+      return legacyFileDisplay
+    }
+
     guard !trimmedContent.isEmpty,
-      !content.contains("```"),
       let language = inferredCodeLanguage(for: trimmedContent)
     else {
       return content
@@ -18,7 +25,89 @@ public enum AssistantMarkdownPreprocessor {
       """
   }
 
+  private static func normalizedLegacyDirectFileDisplay(_ content: String) -> String? {
+    let lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    guard
+      let firstLine = lines.first?.trimmingCharacters(in: .whitespaces),
+      firstLine.hasPrefix("Here is `"),
+      firstLine.hasSuffix("`:"),
+      let path = legacyDirectFileDisplayPath(from: firstLine)
+    else {
+      return nil
+    }
+
+    var bodyStartIndex = 1
+    while bodyStartIndex < lines.count && lines[bodyStartIndex].isEmpty {
+      bodyStartIndex += 1
+    }
+
+    guard bodyStartIndex < lines.count, lines[bodyStartIndex].hasPrefix("    ") else {
+      return nil
+    }
+
+    var bodyLines: [String] = []
+    var suffixStartIndex = bodyStartIndex
+    while suffixStartIndex < lines.count, lines[suffixStartIndex].hasPrefix("    ") {
+      bodyLines.append(String(lines[suffixStartIndex].dropFirst(4)))
+      suffixStartIndex += 1
+    }
+
+    guard !bodyLines.isEmpty else {
+      return nil
+    }
+
+    let body = bodyLines.joined(separator: "\n")
+    let fence = markdownFence(for: body)
+    let language = CodeLanguage(filePath: path)?.rawValue ?? ""
+    let openingFence = language.isEmpty ? fence : "\(fence)\(language)"
+    var normalized = "\(firstLine)\n\n\(openingFence)\n\(body)"
+    if !normalized.hasSuffix("\n") {
+      normalized += "\n"
+    }
+    normalized += fence
+
+    if suffixStartIndex < lines.count {
+      normalized += "\n"
+      normalized += lines[suffixStartIndex...].joined(separator: "\n")
+    }
+
+    return normalized
+  }
+
+  private static func legacyDirectFileDisplayPath(from firstLine: String) -> String? {
+    guard
+      let firstBacktick = firstLine.firstIndex(of: "`"),
+      let lastBacktick = firstLine.lastIndex(of: "`"),
+      firstBacktick < lastBacktick
+    else {
+      return nil
+    }
+
+    let pathStart = firstLine.index(after: firstBacktick)
+    return String(firstLine[pathStart..<lastBacktick])
+  }
+
+  private static func markdownFence(for body: String) -> String {
+    var longestRun = 0
+    var currentRun = 0
+
+    for character in body {
+      if character == "`" {
+        currentRun += 1
+        longestRun = max(longestRun, currentRun)
+      } else {
+        currentRun = 0
+      }
+    }
+
+    return String(repeating: "`", count: max(3, longestRun + 1))
+  }
+
   private static func inferredCodeLanguage(for content: String) -> String? {
+    guard !looksLikeMarkdownNarrative(content) else {
+      return nil
+    }
+
     let lowercasedContent = content.lowercased()
 
     if lowercasedContent.hasPrefix("<!doctype")
@@ -45,6 +134,19 @@ public enum AssistantMarkdownPreprocessor {
     }
 
     return nil
+  }
+
+  private static func looksLikeMarkdownNarrative(_ content: String) -> Bool {
+    let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+    guard let firstNonEmptyLine = lines.first(where: { !$0.isEmpty }) else {
+      return false
+    }
+
+    return firstNonEmptyLine.contains("`")
+      || firstNonEmptyLine.hasPrefix("# ")
+      || firstNonEmptyLine.hasPrefix("- ")
+      || firstNonEmptyLine.hasPrefix("* ")
   }
 
   private static func looksLikeJSON(_ content: String) -> Bool {

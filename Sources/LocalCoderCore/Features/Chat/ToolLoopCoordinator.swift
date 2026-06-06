@@ -635,9 +635,7 @@ public struct ToolLoopCoordinator: Sendable {
     }
     let body = content.text.isEmpty ? "(empty)" : content.text
     response += "\n\n"
-    response += body.split(separator: "\n", omittingEmptySubsequences: false)
-      .map { "    \($0)" }
-      .joined(separator: "\n")
+    response += fencedCodeBlock(for: body, path: path)
     if content.truncated {
       response += "\n\nResult truncated."
     }
@@ -645,6 +643,34 @@ public struct ToolLoopCoordinator: Sendable {
       response += "\n\nSome content was redacted."
     }
     return response
+  }
+
+  private func fencedCodeBlock(for body: String, path: WorkspaceRelativePath) -> String {
+    let fence = markdownFence(for: body)
+    let language = CodeLanguage(filePath: path.rawValue)?.rawValue ?? ""
+    let openingFence = language.isEmpty ? fence : "\(fence)\(language)"
+    var block = "\(openingFence)\n\(body)"
+    if !block.hasSuffix("\n") {
+      block += "\n"
+    }
+    block += fence
+    return block
+  }
+
+  private func markdownFence(for body: String) -> String {
+    var longestRun = 0
+    var currentRun = 0
+
+    for character in body {
+      if character == "`" {
+        currentRun += 1
+        longestRun = max(longestRun, currentRun)
+      } else {
+        currentRun = 0
+      }
+    }
+
+    return String(repeating: "`", count: max(3, longestRun + 1))
   }
 
   private func directListFilesResponse(

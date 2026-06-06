@@ -246,6 +246,11 @@ struct ToolLoopCoordinatorTests {
   func showFileDisplayStopsWithoutModelFollowUp() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
+    try #"print("Hello, World!")"#.write(
+      to: workspace.rootURL.appending(path: "hello.py"),
+      atomically: true,
+      encoding: .utf8
+    )
     let assistantMessageID = UUID()
     let coordinator = ToolLoopCoordinator()
 
@@ -262,7 +267,7 @@ struct ToolLoopCoordinatorTests {
               id: assistantMessageID,
               content: """
                 <action name="show_file">
-                <path>README.md</path>
+                <path>hello.py</path>
                 </action>
                 """
             )),
@@ -274,11 +279,11 @@ struct ToolLoopCoordinatorTests {
     #expect(result?.continuation == .stopTurn)
     #expect(toolResult(from: result)?.toolName == .showFile)
     let assistant = directAssistantMessage(from: result)
-    #expect(assistant?.content.contains("Here is `README.md`:") == true)
-    #expect(assistant?.content.contains("1: project notes") == true)
+    #expect(assistant?.content.contains("Here is `hello.py`:") == true)
+    #expect(assistant?.content.contains("```python\n1: print(\"Hello, World!\")\n```") == true)
     #expect(
       assistant?.modelContextContent
-        == "Displayed show_file result for README.md directly to the user.")
+        == "Displayed show_file result for hello.py directly to the user.")
   }
 
   @Test
