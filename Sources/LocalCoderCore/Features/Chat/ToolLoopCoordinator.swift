@@ -56,22 +56,18 @@ nonisolated private enum ToolLoopParsedAction: Equatable, Sendable {
 
 public struct ToolLoopCoordinator: Sendable {
   private let toolCallParser: any ToolCallParsing
-  private let readOnlyToolOrchestrator: any ToolOrchestrating
   private let agentToolOrchestrator: any ToolOrchestrating
   private let focusedFileReducer: FocusedFileStateReducer
   private let turnTracer: any TurnTracing
 
   public init(
     toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
-    readOnlyToolOrchestrator: any ToolOrchestrating = ToolOrchestrator(
-      executorRegistry: .readOnly),
     agentToolOrchestrator: any ToolOrchestrating = ToolOrchestrator(
       executorRegistry: .codingAgent),
     focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer(),
     turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
     self.toolCallParser = toolCallParser
-    self.readOnlyToolOrchestrator = readOnlyToolOrchestrator
     self.agentToolOrchestrator = agentToolOrchestrator
     self.focusedFileReducer = focusedFileReducer
     self.turnTracer = turnTracer
@@ -187,8 +183,6 @@ public struct ToolLoopCoordinator: Sendable {
 
   private func toolOrchestrator(for mode: WorkspaceInteractionMode) -> any ToolOrchestrating {
     switch mode {
-    case .inspect:
-      readOnlyToolOrchestrator
     case .chat, .agent:
       agentToolOrchestrator
     }
@@ -586,9 +580,6 @@ public struct ToolLoopCoordinator: Sendable {
     guard record.status == .completed else {
       return defaultMode
     }
-    if interactionMode == .inspect, defaultMode != .afterToolResultFinal {
-      return .afterInspectToolResultCanContinue
-    }
     switch record.request.toolName {
     case .writeFile, .editFile:
       return .afterToolResultFinal
@@ -705,7 +696,7 @@ public struct ToolLoopCoordinator: Sendable {
   }
 
   private func shouldRespondDirectlyToListFiles(_ request: ToolLoopRequest) -> Bool {
-    guard request.interactionMode == .inspect,
+    guard request.interactionMode == .agent,
       let userContent = latestUserRequestContent(for: request)
     else {
       return false

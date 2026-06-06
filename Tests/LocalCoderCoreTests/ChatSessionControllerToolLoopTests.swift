@@ -26,7 +26,7 @@ struct ChatSessionControllerToolLoopTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
     controller.draft = "read the README repeatedly"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -173,13 +173,13 @@ struct ChatSessionControllerToolLoopTests {
     #expect(capturedSystemPrompts[1].contains("Current plan:"))
     #expect(capturedSystemPrompts[1].contains("- [inProgress] Run tests"))
 
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
     controller.draft = "inspect without plan"
     controller.sendMessage(in: workspace, sessionID: sessionID)
     try await waitUntil { !controller.isGenerating }
 
-    let promptsAfterInspect = await runtime.capturedSystemPrompts
-    #expect(promptsAfterInspect.last?.contains("Current plan:") == false)
+    let promptsAfterSecondAgentTurn = await runtime.capturedSystemPrompts
+    #expect(promptsAfterSecondAgentTurn.last?.contains("Current plan:") == true)
     #expect(controller.chatSession.todoState?.items.count == 2)
   }
 
@@ -253,7 +253,7 @@ struct ChatSessionControllerToolLoopTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
 
     controller.draft = "read README.md"
     controller.sendMessage(in: workspace, sessionID: sessionID)

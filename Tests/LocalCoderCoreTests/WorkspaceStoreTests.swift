@@ -214,7 +214,7 @@ struct WorkspaceStoreTests {
         focusedFileState: .empty,
         systemPrompt: "Legacy prompt",
         generationSettings: .codingDefault,
-        interactionMode: .inspect
+        interactionMode: .agent
       ),
       createdAt: Date(),
       updatedAt: Date()

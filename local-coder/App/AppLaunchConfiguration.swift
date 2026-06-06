@@ -28,7 +28,7 @@ enum AppLaunchConfiguration {
         .path(percentEncoded: false),
       directoryHint: .isDirectory
     )
-    let modelID = environment["LOCAL_CODER_UI_TEST_MODEL_ID"] ?? "gemma3-27b"
+    let modelID = environment["LOCAL_CODER_UI_TEST_MODEL_ID"] ?? "gemma4-e4b"
     let selectedModel = ManagedModelCatalog.model(id: modelID) ?? ManagedModelCatalog.defaultModel
     let modelSettingsStore = ModelSettingsStore(
       settingsURL: storageRoot.appending(path: "model-settings.json", directoryHint: .notDirectory)

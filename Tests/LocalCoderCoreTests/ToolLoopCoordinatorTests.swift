@@ -58,7 +58,7 @@ struct ToolLoopCoordinatorTests {
             AssistantTurnMessage(id: assistantMessageID, content: "")
           )
         ],
-        interactionMode: .inspect,
+        interactionMode: .agent,
         toolCallingPolicy: .nativeGemma4,
         nativeToolCalls: [
           ChatRuntimeToolCall(
@@ -181,7 +181,7 @@ struct ToolLoopCoordinatorTests {
             AssistantTurnMessage(id: assistantMessageID, content: "")
           )
         ],
-        interactionMode: .inspect,
+        interactionMode: .agent,
         toolCallingPolicy: .nativeGemma4,
         nativeToolCalls: [
           ChatRuntimeToolCall(
@@ -220,7 +220,7 @@ struct ToolLoopCoordinatorTests {
             AssistantTurnMessage(id: assistantMessageID, content: "")
           )
         ],
-        interactionMode: .inspect,
+        interactionMode: .agent,
         toolCallingPolicy: .taggedAction,
         nativeToolCalls: [
           ChatRuntimeToolCall(
@@ -267,7 +267,7 @@ struct ToolLoopCoordinatorTests {
                 """
             )),
         ],
-        interactionMode: .inspect
+        interactionMode: .agent
       )
     )
 
@@ -339,17 +339,17 @@ struct ToolLoopCoordinatorTests {
                 """
             )),
         ],
-        interactionMode: .inspect
+        interactionMode: .agent
       )
     )
 
     #expect(completedToolResult(from: result)?.toolName == .readFile)
     #expect(directAssistantMessage(from: result) == nil)
-    #expect(resumePromptMode(from: result) == .afterInspectToolResultCanContinue)
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
   }
 
   @Test
-  func directListFilesRequestStopsWithoutModelFollowUpInInspectMode() async throws {
+  func directListFilesRequestStopsWithoutModelFollowUpInAgentMode() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let turnID = UUID()
@@ -374,7 +374,7 @@ struct ToolLoopCoordinatorTests {
                 """
             )),
         ],
-        interactionMode: .inspect
+        interactionMode: .agent
       )
     )
 
@@ -467,7 +467,7 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
-  func listFilesWithFollowUpQuestionKeepsModelFollowUpInInspectMode() async throws {
+  func listFilesWithFollowUpQuestionKeepsModelFollowUpInAgentMode() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let turnID = UUID()
@@ -495,13 +495,13 @@ struct ToolLoopCoordinatorTests {
                 """
             )),
         ],
-        interactionMode: .inspect
+        interactionMode: .agent
       )
     )
 
     #expect(completedToolResult(from: result)?.toolName == .listFiles)
     #expect(directAssistantMessage(from: result) == nil)
-    #expect(resumePromptMode(from: result) == .afterInspectToolResultCanContinue)
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
   }
 
   @Test

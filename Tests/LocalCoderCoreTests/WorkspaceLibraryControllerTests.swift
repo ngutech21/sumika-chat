@@ -161,7 +161,7 @@ struct WorkspaceLibraryControllerTests {
     )
     var snapshot = activeSession
     snapshot.title = "Persisted"
-    snapshot.interactionMode = .inspect
+    snapshot.interactionMode = .agent
 
     controller.persistActiveSessionSnapshot(snapshot)
 
@@ -172,7 +172,7 @@ struct WorkspaceLibraryControllerTests {
     )
     #expect(savedWorkspace.updatedAt == persistedAt)
     #expect(savedActiveSession.title == "Persisted")
-    #expect(savedActiveSession.interactionMode == .inspect)
+    #expect(savedActiveSession.interactionMode == .agent)
     #expect(savedOtherSession == otherSession)
   }
 

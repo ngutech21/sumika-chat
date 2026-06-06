@@ -186,7 +186,7 @@ The repository also has local-only XCUITests in `local-coderUITests/` for end-to
 just ui-test
 ```
 
-`just ui-test` uses the `local-coder-ui-tests` scheme and enables `LOCAL_CODER_DEBUG_TRACE=1`. It is intentionally not part of `just test`, `just test-app`, `just final-check`, or CI. These tests currently use `gemma3-27b` from the existing app model cache and must never download a model. If the local cache is missing, especially `~/Library/Containers/ngutech21.local-coder/Data/Library/Application Support/local-coder/Models/gemma3-27b/config.json`, the UI tests should skip cleanly.
+`just ui-test` uses the `local-coder-ui-tests` scheme and enables `LOCAL_CODER_DEBUG_TRACE=1`. It is intentionally not part of `just test`, `just test-app`, `just final-check`, or CI. The app target currently runs without App Sandbox, so model caches and debug traces live under normal user Application Support, not the container path. These tests currently use `gemma4-e4b` from the existing app model cache and must never download a model. If the local cache is missing, especially `~/Library/Application Support/local-coder/Models/gemma4-e4b/config.json`, the UI tests should skip cleanly.
 
 Choose the narrowest test task that matches the change:
 
@@ -254,7 +254,7 @@ Use the project script for local app debugging before inventing new launch flows
 The debug trace is a single JSONL file:
 
 ```text
-~/Library/Containers/ngutech21.local-coder/Data/Library/Application Support/local-coder/debug/gemma-trace.jsonl
+~/Library/Application Support/local-coder/debug/gemma-trace.jsonl
 ```
 
 Do not create a second trace file for chat/model performance. Extend `GemmaDebugTraceStore` and keep all debug trace rows in `gemma-trace.jsonl`.

@@ -70,7 +70,7 @@ struct CurrentPromptContextSelectorTests {
 
     let context = CurrentPromptContextSelector().selectContext(
       userInput: "explain this",
-      mode: .inspect,
+      mode: .agent,
       focusedFileState: state,
       attachments: [attachment],
       budget: .focusedFileDefault
@@ -136,7 +136,7 @@ struct CurrentPromptContextSelectorTests {
 
     let context = CurrentPromptContextSelector().selectContext(
       userInput: "summarize",
-      mode: .inspect,
+      mode: .agent,
       focusedFileState: .empty,
       attachments: [attachment],
       budget: budget
@@ -178,7 +178,7 @@ struct CurrentPromptContextSelectorTests {
 
     let context = CurrentPromptContextSelector().selectContext(
       userInput: "explain fallback",
-      mode: .inspect,
+      mode: .agent,
       focusedFileState: state,
       attachments: [invalidAttachment],
       budget: .focusedFileDefault
@@ -259,7 +259,7 @@ struct CurrentPromptContextSelectorTests {
 
     let context = CurrentPromptContextSelector().selectContext(
       userInput: "summarize",
-      mode: .inspect,
+      mode: .agent,
       focusedFileState: state,
       budget: budget
     )

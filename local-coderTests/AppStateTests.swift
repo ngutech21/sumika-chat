@@ -47,19 +47,19 @@ struct AppStateTests {
 
     #expect(appState.chatController.chatSession.interactionMode == .chat)
 
-    appState.chatController.setInteractionMode(.inspect)
+    appState.chatController.setInteractionMode(.agent)
 
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
       library.workspaces.first?
         .sessions.first(where: { $0.id == sessionID })?
-        .interactionMode == .inspect
+        .interactionMode == .agent
     }
     let savedSession = try #require(
       savedLibrary.workspaces.first?
         .sessions.first(where: { $0.id == sessionID })
     )
 
-    #expect(savedSession.interactionMode == .inspect)
+    #expect(savedSession.interactionMode == .agent)
   }
 }
 

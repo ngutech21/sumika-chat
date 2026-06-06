@@ -62,7 +62,6 @@ classDiagram
   class WorkspaceInteractionMode {
     <<enum>>
     chat
-    inspect
     agent
   }
 

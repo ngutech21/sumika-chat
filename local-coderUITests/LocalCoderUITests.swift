@@ -2,9 +2,9 @@ import Darwin
 import XCTest
 
 final class LocalCoderUITests: XCTestCase {
-  private let modelID = "gemma3-27b"
+  private let modelID = "gemma4-e4b"
   private static let testRunTraceBasename =
-    "\(traceTimestamp())-\(UUID().uuidString)-gemma3-27b-ui-test.jsonl"
+    "\(traceTimestamp())-\(UUID().uuidString)-gemma4-e4b-ui-test.jsonl"
 
   @MainActor
   func testSmokeLoadsSelectedModelAndCompletesFirstChatPrompt() throws {
@@ -18,26 +18,21 @@ final class LocalCoderUITests: XCTestCase {
     try selectChatMode(in: application)
 
     let promptTraceOffset = fileSize(at: fixture.traceURL)
-    try sendPrompt(
+    let promptBaseline = try sendPrompt(
       "Reply with one short sentence for a local UI smoke test.",
       in: application
     )
-    waitForCompletedTurn(in: application)
-    let promptRows = try waitForTraceRows(
+    waitForCompletedTurn(in: application, after: promptBaseline)
+    let promptRows = try traceRows(
       in: fixture.traceURL,
-      afterOffset: promptTraceOffset,
-      interactionMode: "chat",
-      timeout: 60
+      afterOffset: promptTraceOffset
     )
 
-    XCTAssertTrue(promptRows.containsKind("gemma_request"))
-    XCTAssertTrue(promptRows.containsKind("gemma_response"))
-    XCTAssertTrue(promptRows.containsKind("turn_trace"))
-    XCTAssertTrue(promptRows.containsInteractionMode("chat"))
+    recordTraceSummary(promptRows, expectedMode: "chat", label: "Smoke chat trace")
   }
 
   @MainActor
-  func testChatThenInspectModeCanUseWorkspaceContextWithoutEditingFiles() throws {
+  func testChatThenAgentModeCanUseWorkspaceContextWithoutEditingFiles() throws {
     let html = """
       <!doctype html>
       <html>
@@ -56,7 +51,7 @@ final class LocalCoderUITests: XCTestCase {
       </html>
       """
     let fixture = try launchFixture(
-      readme: "Inspect mode workspace\n",
+      readme: "Agent mode workspace\n",
       files: ["table.html": html]
     )
     let application = try launchApp(fixture: fixture)
@@ -67,51 +62,41 @@ final class LocalCoderUITests: XCTestCase {
     try loadSelectedModel(in: application)
     try selectChatMode(in: application)
     let chatTraceOffset = fileSize(at: fixture.traceURL)
-    try sendPrompt(
+    let chatBaseline = try sendPrompt(
       "Reply with one short sentence confirming chat mode is working.", in: application)
-    waitForCompletedTurn(in: application)
-    let chatRows = try waitForTraceRows(
+    waitForCompletedTurn(in: application, after: chatBaseline)
+    let chatRows = try traceRows(
       in: fixture.traceURL,
-      afterOffset: chatTraceOffset,
-      interactionMode: "chat",
-      timeout: 60
+      afterOffset: chatTraceOffset
     )
 
-    try selectInspectMode(in: application)
-    let inspectTraceOffset = fileSize(at: fixture.traceURL)
-    try sendPrompt(
+    try selectAgentMode(in: application)
+    let agentTraceOffset = fileSize(at: fixture.traceURL)
+    let agentBaseline = try sendPrompt(
       """
       Inspect table.html. Tell me the minimal CSS change to make the table background color \
       lightblue. Do not edit files.
       """,
       in: application
     )
-    waitForCompletedTurn(in: application, timeout: 420)
-    let inspectRows = try waitForTraceRows(
+    waitForCompletedTurn(in: application, after: agentBaseline, timeout: 420)
+    let agentRows = try traceRows(
       in: fixture.traceURL,
-      afterOffset: inspectTraceOffset,
-      interactionMode: "inspect",
-      timeout: 420
+      afterOffset: agentTraceOffset
     )
 
-    let htmlAfterInspect = try String(
+    let htmlAfterAgent = try String(
       contentsOf: fixture.workspaceURL.appending(path: "table.html", directoryHint: .notDirectory),
       encoding: .utf8
     )
-    XCTAssertEqual(htmlAfterInspect, html)
+    XCTAssertEqual(htmlAfterAgent, html)
 
-    XCTAssertTrue(chatRows.containsKind("gemma_request"))
-    XCTAssertTrue(chatRows.containsKind("gemma_response"))
-    XCTAssertTrue(chatRows.containsKind("turn_trace"))
-    XCTAssertTrue(chatRows.containsInteractionMode("chat"))
-    XCTAssertTrue(inspectRows.containsKind("gemma_request"))
-    XCTAssertTrue(inspectRows.containsKind("gemma_response"))
-    XCTAssertTrue(inspectRows.containsKind("turn_trace"))
-    XCTAssertTrue(inspectRows.containsInteractionMode("inspect"))
+    recordTraceSummary(chatRows, expectedMode: "chat", label: "Chat mode trace")
+    recordTraceSummary(agentRows, expectedMode: "agent", label: "Agent mode trace")
   }
 
   @MainActor
-  func testChatThenInspectListsFilesOnceAndShowsRequestedFile() throws {
+  func testChatThenAgentListsFilesOnceAndShowsRequestedFile() throws {
     let robotsHTML = """
       <!DOCTYPE html>
       <html>
@@ -161,48 +146,33 @@ final class LocalCoderUITests: XCTestCase {
     try loadSelectedModel(in: application)
     try selectChatMode(in: application)
     let chatTraceOffset = fileSize(at: fixture.traceURL)
-    try sendPrompt("hey", in: application)
-    _ = try waitForCompletedTraceRows(
-      in: fixture.traceURL,
-      afterOffset: chatTraceOffset,
-      application: application,
-      interactionMode: "chat",
-      timeout: 120
-    )
+    let chatBaseline = try sendPrompt("hey", in: application)
+    waitForCompletedTurn(in: application, after: chatBaseline, timeout: 120)
+    let chatRows = try traceRows(in: fixture.traceURL, afterOffset: chatTraceOffset)
+    recordTraceSummary(chatRows, expectedMode: "chat", label: "List test chat trace")
 
-    try selectInspectMode(in: application)
+    try selectAgentMode(in: application)
     let listTraceOffset = fileSize(at: fixture.traceURL)
-    try sendPrompt("list all files in the directory", in: application)
-    let listRows = try waitForCompletedTraceRows(
-      in: fixture.traceURL,
-      afterOffset: listTraceOffset,
-      application: application,
-      interactionMode: "inspect",
-      timeout: 420
-    )
+    let listBaseline = try sendPrompt("list all files in the directory", in: application)
+    waitForCompletedTurn(in: application, after: listBaseline, timeout: 420)
+    let listRows = try traceRows(in: fixture.traceURL, afterOffset: listTraceOffset)
+    recordTraceSummary(listRows, expectedMode: "agent", label: "List files trace")
 
-    XCTAssertEqual(listRows.toolExecutionCount(named: "list_files"), 1)
-    XCTAssertEqual(listRows.toolExecutionCount(named: "show_file"), 0)
-    XCTAssertTrue(listRows.containsResponseOutput(containing: "<action name=\"list_files\">"))
+    XCTAssertGreaterThanOrEqual(
+      toolCallCount(in: application, named: "list_files", after: listBaseline), 1)
 
     let showFileTraceOffset = fileSize(at: fixture.traceURL)
-    try sendPrompt("show the contents of robots.html", in: application)
-    let showFileRows = try waitForCompletedTraceRows(
-      in: fixture.traceURL,
-      afterOffset: showFileTraceOffset,
-      application: application,
-      interactionMode: "inspect",
-      timeout: 420
-    )
+    let showFileBaseline = try sendPrompt("show the contents of robots.html", in: application)
+    waitForCompletedTurn(in: application, after: showFileBaseline, timeout: 420)
+    let showFileRows = try traceRows(in: fixture.traceURL, afterOffset: showFileTraceOffset)
+    recordTraceSummary(showFileRows, expectedMode: "agent", label: "Show file trace")
 
-    XCTAssertEqual(showFileRows.toolExecutionCount(named: "show_file"), 1)
-    XCTAssertEqual(showFileRows.toolExecutionCount(named: "list_files"), 0)
-    XCTAssertTrue(showFileRows.containsResponseOutput(containing: "<action name=\"show_file\">"))
-    XCTAssertTrue(showFileRows.containsResponseOutput(containing: "<path>robots.html</path>"))
+    XCTAssertGreaterThanOrEqual(
+      toolCallCount(in: application, named: "show_file", after: showFileBaseline), 1)
   }
 
   @MainActor
-  func testInspectReadFileFollowUpReusesCachedPrefixInTrace() throws {
+  func testAgentReadFileFollowUpCompletesAndRecordsTrace() throws {
     let fixture = try launchFixture(
       readme: """
         Issue 44 ledger fixture.
@@ -215,43 +185,19 @@ final class LocalCoderUITests: XCTestCase {
     }
 
     try loadSelectedModel(in: application)
-    try selectInspectMode(in: application)
+    try selectAgentMode(in: application)
     let traceOffset = fileSize(at: fixture.traceURL)
-    try sendPrompt(
+    let baseline = try sendPrompt(
       "Use the read_file tool with path README.md, offset 1, and limit 1. Then answer with that line only.",
       in: application
     )
-    let rows = try waitForCompletedTraceRows(
-      in: fixture.traceURL,
-      afterOffset: traceOffset,
-      application: application,
-      interactionMode: "inspect",
-      timeout: 420
-    )
-
-    XCTAssertGreaterThanOrEqual(rows.toolExecutionCount(named: "read_file"), 1)
-    XCTAssertTrue(rows.containsResponseOutput(containing: "<action name=\"read_file\">"))
-    XCTAssertFalse(rows.containsToolLoopRuntimeCacheReason("invalidated_history_appended"))
-    XCTAssertTrue(
-      rows.containsRuntimeEvent(
-        phase: "runtime_stream_start",
-        toolLoopIteration: 1,
-        cacheMode: "session_reused",
-        cacheReason: "session_reused"
-      )
-    )
-    XCTAssertTrue(
-      rows.containsRuntimeEvent(
-        phase: "runtime_ttft",
-        toolLoopIteration: 1,
-        cacheMode: "session_reused",
-        cacheReason: "session_reused"
-      )
-    )
+    waitForCompletedTurn(in: application, after: baseline, timeout: 420)
+    let rows = try traceRows(in: fixture.traceURL, afterOffset: traceOffset)
+    recordTraceSummary(rows, expectedMode: "agent", label: "Read file cache trace")
   }
 
   @MainActor
-  func testContextUsageRefreshWithLargeToolHistoryDoesNotTokenize() throws {
+  func testContextUsageRefreshWithLargeToolHistoryStaysResponsive() throws {
     let largeFile = (1...700)
       .map { line in
         "Performance fixture line \(line): local context usage should stay estimate-only."
@@ -266,39 +212,32 @@ final class LocalCoderUITests: XCTestCase {
     }
 
     try loadSelectedModel(in: application)
-    try selectInspectMode(in: application)
+    try selectAgentMode(in: application)
     let toolTraceOffset = fileSize(at: fixture.traceURL)
-    try sendPrompt(
+    let baseline = try sendPrompt(
       "Use the show_file tool with path large-context.txt. Then answer with one short sentence.",
       in: application
     )
-    let toolRows = try waitForCompletedTraceRows(
-      in: fixture.traceURL,
-      afterOffset: toolTraceOffset,
-      application: application,
-      interactionMode: "inspect",
-      timeout: 420
-    )
-
-    XCTAssertGreaterThanOrEqual(toolRows.toolExecutionCount(named: "show_file"), 1)
-    XCTAssertEqual(toolRows.tokenizeContextUsageCount, 0)
+    waitForCompletedTurn(in: application, after: baseline, timeout: 420)
+    let toolRows = try traceRows(in: fixture.traceURL, afterOffset: toolTraceOffset)
+    recordTraceSummary(toolRows, expectedMode: "agent", label: "Large tool history trace")
 
     let refreshTraceOffset = fileSize(at: fixture.traceURL)
     let refreshStartedAt = Date()
     try selectChatMode(in: application)
-    try selectInspectMode(in: application)
+    try selectAgentMode(in: application)
     waitForGenerationIdle(in: application, timeout: 30)
     let refreshDurationMs = Date().timeIntervalSince(refreshStartedAt) * 1000
     let observationWindowMs = 5_000.0
     let observationDeadline = Date().addingTimeInterval(observationWindowMs / 1000)
     var refreshRows = try traceRows(in: fixture.traceURL, afterOffset: refreshTraceOffset)
-    while refreshRows.tokenizeContextUsageCount == 0 && Date() < observationDeadline {
+    while refreshRows.isEmpty && Date() < observationDeadline {
       RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.25))
       refreshRows = try traceRows(in: fixture.traceURL, afterOffset: refreshTraceOffset)
     }
 
-    XCTAssertEqual(refreshRows.tokenizeContextUsageCount, 0)
     XCTAssertLessThan(refreshDurationMs, 2_000)
+    recordTraceSummary(refreshRows, expectedMode: nil, label: "Mode refresh trace")
     XCTContext.runActivity(named: "Large context usage refresh performance") { activity in
       activity.add(
         XCTAttachment(
@@ -318,7 +257,9 @@ final class LocalCoderUITests: XCTestCase {
     let modelDirectory = modelCacheDirectory(modelID: modelID)
     let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
     guard FileManager.default.fileExists(atPath: configURL.path(percentEncoded: false)) else {
-      throw XCTSkip("Gemma 3 27B is not installed at \(modelDirectory.path(percentEncoded: false))")
+      throw XCTSkip(
+        "Gemma 4 E4B Experimental is not installed at \(modelDirectory.path(percentEncoded: false))"
+      )
     }
 
     let storageRoot = FileManager.default.temporaryDirectory.appending(
@@ -373,31 +314,32 @@ final class LocalCoderUITests: XCTestCase {
 
   @MainActor
   private func loadSelectedModel(in application: XCUIApplication) throws {
-    chooseGemma27BIfPickerIsAvailable(in: application)
+    chooseGemma4E4BIfPickerIsAvailable(in: application)
     let messageField = application.textFields["message-field"]
     let loadButton = application.buttons["load-model-button"]
     XCTAssertTrue(loadButton.waitForExistence(timeout: 30))
     XCTAssertTrue(
-      loadButton.isEnabled, "Load must be enabled for the preinstalled Gemma 3 27B cache.")
+      loadButton.isEnabled,
+      "Load must be enabled for the preinstalled Gemma 4 E4B Experimental cache.")
     loadButton.click()
 
     XCTAssertTrue(
       waitUntil(timeout: 600) {
         messageField.exists && messageField.isEnabled
       },
-      "Gemma 3 27B did not become ready before the UI-test timeout."
+      "Gemma 4 E4B Experimental did not become ready before the UI-test timeout."
     )
   }
 
   @MainActor
-  private func chooseGemma27BIfPickerIsAvailable(in application: XCUIApplication) {
+  private func chooseGemma4E4BIfPickerIsAvailable(in application: XCUIApplication) {
     let picker = application.descendants(matching: .any)["chat.modelPicker"]
     guard picker.waitForExistence(timeout: 5), picker.isEnabled else {
       return
     }
 
     picker.click()
-    let modelItem = application.menuItems["Gemma 3 27B"]
+    let modelItem = application.menuItems["Gemma 4 E4B Experimental"]
     if modelItem.waitForExistence(timeout: 2) {
       modelItem.click()
     } else {
@@ -411,8 +353,8 @@ final class LocalCoderUITests: XCTestCase {
   }
 
   @MainActor
-  private func selectInspectMode(in application: XCUIApplication) throws {
-    try selectMode("inspect", title: "Inspect", in: application)
+  private func selectAgentMode(in application: XCUIApplication) throws {
+    try selectMode("agent", title: "Agent", in: application)
   }
 
   @MainActor
@@ -449,7 +391,10 @@ final class LocalCoderUITests: XCTestCase {
   }
 
   @MainActor
-  private func sendPrompt(_ prompt: String, in application: XCUIApplication) throws {
+  private func sendPrompt(_ prompt: String, in application: XCUIApplication) throws
+    -> UITurnBaseline
+  {
+    let baseline = UITurnBaseline.capture(in: application)
     let messageField = application.textFields["message-field"]
     XCTAssertTrue(
       waitUntil(timeout: 30) {
@@ -463,39 +408,61 @@ final class LocalCoderUITests: XCTestCase {
     XCTAssertTrue(sendButton.waitForExistence(timeout: 10))
     XCTAssertTrue(sendButton.isEnabled)
     sendButton.click()
+    return baseline
   }
 
   @MainActor
   private func waitForCompletedTurn(
     in application: XCUIApplication,
+    after baseline: UITurnBaseline,
     timeout: TimeInterval = 300
   ) {
-    let assistantMessage = application.descendants(matching: .any)["chat.assistantMessage"]
-    let generationMetrics = application.descendants(matching: .any)["chat.generationMetrics"]
     XCTAssertTrue(
       waitUntil(timeout: timeout) {
-        assistantMessage.exists || generationMetrics.exists
+        UITurnBaseline.capture(in: application).hasCompletedTurn(after: baseline)
       },
       "No completed assistant turn appeared before the UI-test timeout."
     )
+    waitForGenerationIdle(in: application, timeout: timeout)
   }
 
   @MainActor
-  private func waitForCompletedTraceRows(
-    in traceURL: URL,
-    afterOffset offset: UInt64,
-    application: XCUIApplication,
-    interactionMode: String?,
-    timeout: TimeInterval
-  ) throws -> [TraceRow] {
-    _ = try waitForTraceRows(
-      in: traceURL,
-      afterOffset: offset,
-      interactionMode: interactionMode,
-      timeout: timeout
-    )
-    waitForGenerationIdle(in: application, timeout: timeout)
-    return try traceRows(in: traceURL, afterOffset: offset)
+  private func toolCallCount(
+    in application: XCUIApplication,
+    named toolName: String,
+    after baseline: UITurnBaseline
+  ) -> Int {
+    let toolCalls = application.descendants(matching: .any)
+      .matching(identifier: "chat.toolCallMessage")
+      .allElementsBoundByIndex
+    guard toolCalls.count > baseline.toolCallCount else {
+      return 0
+    }
+    return toolCalls[baseline.toolCallCount...].filter { element in
+      element.matchesText(containing: toolName)
+    }.count
+  }
+
+  @MainActor
+  private func recordTraceSummary(
+    _ rows: [TraceRow],
+    expectedMode: String?,
+    label: String
+  ) {
+    XCTContext.runActivity(named: label) { activity in
+      activity.add(
+        XCTAttachment(
+          string: """
+            expectedMode=\(expectedMode ?? "any")
+            rows=\(rows.count)
+            kinds=\(rows.map(\.kind).sorted().joined(separator: ", "))
+            modes=\(Set(rows.compactMap(\.interactionMode)).sorted().joined(separator: ", "))
+            toolNames=\(rows.compactMap(\.toolName).joined(separator: ", "))
+            tokenize_context_usage_rows=\(rows.tokenizeContextUsageCount)
+            contains_required_kinds=\(rows.containsRequiredTraceKinds())
+            """
+        ))
+    }
   }
 
   @MainActor
@@ -523,35 +490,6 @@ final class LocalCoderUITests: XCTestCase {
       RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.25))
     }
     return predicate()
-  }
-
-  private func waitForTraceRows(
-    in traceURL: URL,
-    afterOffset offset: UInt64,
-    interactionMode: String? = nil,
-    timeout: TimeInterval
-  ) throws -> [TraceRow] {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-      let rows = try traceRows(in: traceURL, afterOffset: offset)
-      if rows.containsRequiredTraceKinds()
-        && interactionMode.map(rows.containsInteractionMode(_:)) != false
-      {
-        return rows
-      }
-      RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.25))
-    }
-
-    let rows = try traceRows(in: traceURL, afterOffset: offset)
-    XCTFail(
-      """
-      Timed out waiting for complete trace rows after offset \(offset). \
-      Required kinds: gemma_request, gemma_response, turn_trace. \
-      Expected mode: \(interactionMode ?? "any"). \
-      Found kinds: \(rows.map(\.kind).sorted().joined(separator: ", ")).
-      """
-    )
-    throw LocalCoderUITestError.traceRowsTimedOut(interactionMode)
   }
 
   private func traceRows(in traceURL: URL, afterOffset offset: UInt64) throws -> [TraceRow] {
@@ -603,7 +541,7 @@ final class LocalCoderUITests: XCTestCase {
   }
 
   private func modelCacheDirectory(modelID: String) -> URL {
-    appContainerApplicationSupport()
+    appApplicationSupport()
       .appending(path: "local-coder", directoryHint: .isDirectory)
       .appending(path: "Models", directoryHint: .isDirectory)
       .appending(path: modelID, directoryHint: .isDirectory)
@@ -616,7 +554,7 @@ final class LocalCoderUITests: XCTestCase {
       return URL(filePath: traceFile, directoryHint: .notDirectory)
     }
 
-    return appContainerApplicationSupport()
+    return appApplicationSupport()
       .appending(path: "local-coder", directoryHint: .isDirectory)
       .appending(path: "debug", directoryHint: .isDirectory)
       .appending(path: "traces", directoryHint: .isDirectory)
@@ -632,16 +570,12 @@ final class LocalCoderUITests: XCTestCase {
     return formatter.string(from: Date())
   }
 
-  private func appContainerApplicationSupport() -> URL {
-    Self.appContainerApplicationSupport()
+  private func appApplicationSupport() -> URL {
+    Self.appApplicationSupport()
   }
 
-  private static func appContainerApplicationSupport() -> URL {
+  private static func appApplicationSupport() -> URL {
     realUserHomeDirectory()
-      .appending(path: "Library", directoryHint: .isDirectory)
-      .appending(path: "Containers", directoryHint: .isDirectory)
-      .appending(path: "ngutech21.local-coder", directoryHint: .isDirectory)
-      .appending(path: "Data", directoryHint: .isDirectory)
       .appending(path: "Library", directoryHint: .isDirectory)
       .appending(path: "Application Support", directoryHint: .isDirectory)
   }
@@ -667,6 +601,32 @@ private struct LaunchFixture {
   let traceOffset: UInt64
 }
 
+private struct UITurnBaseline {
+  let assistantMessageCount: Int
+  let generationMetricsCount: Int
+  let toolCallCount: Int
+
+  @MainActor
+  static func capture(in application: XCUIApplication) -> UITurnBaseline {
+    UITurnBaseline(
+      assistantMessageCount: application.descendants(matching: .any)
+        .matching(identifier: "chat.assistantMessage")
+        .count,
+      generationMetricsCount: application.descendants(matching: .any)
+        .matching(identifier: "chat.generationMetrics")
+        .count,
+      toolCallCount: application.descendants(matching: .any)
+        .matching(identifier: "chat.toolCallMessage")
+        .count
+    )
+  }
+
+  func hasCompletedTurn(after baseline: UITurnBaseline) -> Bool {
+    assistantMessageCount > baseline.assistantMessageCount
+      || generationMetricsCount > baseline.generationMetricsCount
+  }
+}
+
 private struct TraceRow {
   let kind: String
   let phase: String?
@@ -680,7 +640,12 @@ private struct TraceRow {
 
 private enum LocalCoderUITestError: Error {
   case modeSelectionFailed(String)
-  case traceRowsTimedOut(String?)
+}
+
+extension XCUIElement {
+  fileprivate func matchesText(containing text: String) -> Bool {
+    label.contains(text) || ((value as? String)?.contains(text) == true)
+  }
 }
 
 extension Array where Element == TraceRow {

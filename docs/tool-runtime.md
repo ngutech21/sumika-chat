@@ -193,8 +193,8 @@ flowchart TD
   directories, and cap returned results. `search_files` treats a valid pattern
   as a regular expression; invalid regular expressions fall back to literal
   substring matching.
-- `workspace_diff` is a read-only review tool available in Inspect and Agent
-  registries. It validates the optional workspace-relative `path`, then runs
+- `workspace_diff` is a read-only review tool available in the Agent registry.
+  It validates the optional workspace-relative `path`, then runs
   Git through `Process` argv, not shell interpolation. The first version is
   Git-only: it returns `git status --short`, `git diff --stat`, and unified
   `git diff` output for tracked changes. Untracked files are reported in status
@@ -232,8 +232,8 @@ flowchart TD
   runtime state, but command execution remains owned by `run_command`.
 - `todo_write` is available only in the Agent registry. It accepts 2 to 6
   short todo items, allows at most one `inProgress` item, and never requires
-  approval because it mutates only session state. Chat and Inspect prompts must
-  not render the todo tool or current todo plan. `todo_write` calls pass
+  approval because it mutates only session state. Chat prompts must not render
+  the todo tool or current todo plan. `todo_write` calls pass
   `items` as a JSON array string containing objects with `id`, `content`, and
   `status`; this avoids provider-native `array<object>` argument splitting in
   small Gemma/MLX tool calls. The validator also tolerates direct

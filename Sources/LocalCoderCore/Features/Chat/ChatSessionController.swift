@@ -1331,8 +1331,6 @@ extension ChatSessionController {
     switch interactionMode {
     case .chat:
       return .disabled
-    case .inspect:
-      return .inspect
     case .agent:
       return .enabled(true)
     }
@@ -1349,8 +1347,6 @@ extension ChatSessionController {
     switch interactionMode {
     case .chat:
       return .disabled
-    case .inspect:
-      return .inspect
     case .agent:
       return .afterToolResultCanContinue
     }
@@ -1378,7 +1374,7 @@ extension ChatSessionController {
   }
 
   private func unsupportedInteractionModeMessage(for model: ManagedModel) -> String {
-    "\(model.displayName) supports plain chat only. Select a model with workspace tool support to use Inspect or Agent tools."
+    "\(model.displayName) supports plain chat only. Select a model with workspace tool support to use Agent tools."
   }
 }
 
@@ -1408,7 +1404,7 @@ extension WorkspaceInteractionMode {
     switch self {
     case .chat:
       false
-    case .inspect, .agent:
+    case .agent:
       true
     }
   }

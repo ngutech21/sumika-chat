@@ -40,7 +40,7 @@ struct ChatSessionControllerTests {
       focusedFileState: focusedFileState,
       systemPrompt: "System",
       generationSettings: .codingDefault,
-      interactionMode: .inspect
+      interactionMode: .agent
     )
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
@@ -51,9 +51,9 @@ struct ChatSessionControllerTests {
     let snapshot = controller.sessionSnapshot(updating: session)
 
     #expect(controller.chatSession.focusedFileState == focusedFileState)
-    #expect(controller.chatSession.interactionMode == .inspect)
+    #expect(controller.chatSession.interactionMode == .agent)
     #expect(snapshot.focusedFileState == focusedFileState)
-    #expect(snapshot.interactionMode == .inspect)
+    #expect(snapshot.interactionMode == .agent)
   }
 
   @Test
@@ -63,7 +63,7 @@ struct ChatSessionControllerTests {
       selectedModelID: ManagedModelCatalog.defaultModelID,
       systemPrompt: "System",
       generationSettings: .codingDefault,
-      interactionMode: .inspect
+      interactionMode: .agent
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
 
@@ -109,9 +109,9 @@ struct ChatSessionControllerTests {
     )
     controller.loadSession(session)
 
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
 
-    #expect(controller.chatSession.interactionMode == .inspect)
+    #expect(controller.chatSession.interactionMode == .agent)
     #expect(controller.errorMessage == nil)
   }
 
@@ -137,7 +137,7 @@ struct ChatSessionControllerTests {
     let runtime = CountingClearContextRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
 
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
 
     try await waitUntilAsync { await runtime.clearContextCount == 1 }
   }
@@ -149,7 +149,7 @@ struct ChatSessionControllerTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
 
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
     try await waitUntilAsync { await runtime.didStartClearContext }
 
     controller.draft = "hello"
@@ -342,7 +342,7 @@ struct ChatSessionControllerTests {
     defer { Task { await runtime.releaseStream(callIndex: 1) } }
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
     controller.draft = "read README.md before answering"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -581,7 +581,7 @@ struct ChatSessionControllerTests {
   }
 
   @Test
-  func sendMessageRunsReadOnlyToolCallAndContinuesWithToolResultContext() async throws {
+  func sendMessageRunsAgentReadOnlyToolCallAndContinuesWithToolResultContext() async throws {
     let rootURL = FileManager.default.temporaryDirectory.appending(
       path: "local-coder-tests-\(UUID().uuidString)",
       directoryHint: .isDirectory
@@ -617,7 +617,7 @@ struct ChatSessionControllerTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
     controller.draft = "lies die projektbeschreibung"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -691,11 +691,11 @@ struct ChatSessionControllerTests {
     #expect(capturedSystemPrompts[0].contains("list_files"))
     #expect(capturedSystemPrompts[0].contains("glob_files"))
     #expect(capturedSystemPrompts[0].contains("search_files"))
-    #expect(!capturedSystemPrompts[0].contains("- write_file("))
-    #expect(!capturedSystemPrompts[0].contains("- edit_file("))
-    #expect(capturedSystemPrompts[1].contains("You received a read-only tool result."))
+    #expect(capturedSystemPrompts[0].contains("- write_file("))
+    #expect(capturedSystemPrompts[0].contains("- edit_file("))
+    #expect(capturedSystemPrompts[1].contains("You received a tool result."))
     #expect(capturedSystemPrompts[1].contains("Available tools: read_file"))
-    #expect(!capturedSystemPrompts[1].contains("edit_file"))
+    #expect(capturedSystemPrompts[1].contains("edit_file"))
     #expect(!capturedSystemPrompts[1].contains("Tool calling:"))
   }
 
@@ -735,7 +735,7 @@ struct ChatSessionControllerTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
     controller.draft = "show the content of README.md"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -808,7 +808,7 @@ struct ChatSessionControllerTests {
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
     controller.draft = "Read the README"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -847,7 +847,7 @@ struct ChatSessionControllerTests {
       ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
     controller.draft = "Read the README"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)
@@ -888,7 +888,7 @@ struct ChatSessionControllerTests {
       ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.inspect)
+    controller.setInteractionMode(.agent)
     controller.draft = "list the files in the current directory"
 
     controller.sendMessage(in: workspace, sessionID: sessionID)

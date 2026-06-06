@@ -81,7 +81,7 @@ struct ModelContextSnapshotTests {
     )
     let currentPromptContext = ChatModelContextBuilder().currentPromptContext(
       userInput: "explain",
-      mode: .inspect,
+      mode: .agent,
       focusedFileState: focusedState
     )
     let entry = try ModelFacingPromptRenderer.userPromptEntry(

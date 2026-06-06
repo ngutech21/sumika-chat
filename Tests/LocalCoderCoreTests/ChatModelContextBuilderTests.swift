@@ -139,7 +139,7 @@ struct ChatModelContextBuilderTests {
 
     let currentPromptContext = ChatModelContextBuilder().currentPromptContext(
       userInput: "explain attached",
-      mode: .inspect,
+      mode: .agent,
       focusedFileState: .empty,
       attachments: [attachment],
       workspace: workspace
