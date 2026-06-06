@@ -1,6 +1,7 @@
 import Foundation
 import SwiftTreeSitter
 import TreeSitterBash
+import TreeSitterHTML
 import TreeSitterJSON
 import TreeSitterPython
 import TreeSitterTypeScript
@@ -15,6 +16,7 @@ public protocol CodeHighlightingBackend: Sendable {
 
 public enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
   case bash
+  case html
   case javascript
   case json
   case python
@@ -35,6 +37,8 @@ public enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
     switch normalizedLanguage {
     case "bash", "sh", "shell", "zsh":
       self = .bash
+    case "html", "htm":
+      self = .html
     case "js", "javascript", "mjs", "cjs":
       self = .javascript
     case "json":
@@ -69,6 +73,8 @@ public enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
     switch self {
     case .bash:
       "Bash"
+    case .html:
+      "HTML"
     case .javascript:
       "JavaScript"
     case .json:
@@ -150,7 +156,7 @@ public enum CodeHighlightStyle: String, Equatable, Hashable, Sendable {
   case variable
 }
 
-public struct CodeHighlightTheme: Equatable, Sendable {
+public struct CodeHighlightTheme: Equatable, Hashable, Sendable {
   public var stylesByCapturePrefix: [String: CodeHighlightStyle]
 
   public init(stylesByCapturePrefix: [String: CodeHighlightStyle]) {
@@ -175,6 +181,7 @@ public struct CodeHighlightTheme: Equatable, Sendable {
       "comment": .comment,
       "constant": .constant,
       "constructor": .function,
+      "doctype": .keyword,
       "function": .function,
       "keyword": .keyword,
       "label": .property,
@@ -183,10 +190,212 @@ public struct CodeHighlightTheme: Equatable, Sendable {
       "property": .property,
       "punctuation": .punctuation,
       "string": .string,
+      "tag": .type,
+      "tag.delimiter": .punctuation,
       "type": .type,
       "variable": .variable,
     ]
   )
+}
+
+public struct CodeHighlightBlockID: Equatable, Hashable, Sendable {
+  public var rawValue: String
+
+  public init(rawValue: String) {
+    self.rawValue = rawValue
+  }
+}
+
+public struct CodeHighlightRequest: Equatable, Sendable {
+  public var blockID: CodeHighlightBlockID
+  public var version: Int
+  public var code: String
+  public var language: CodeLanguage?
+  public var theme: CodeHighlightTheme
+  public var isClosed: Bool
+
+  public init(
+    blockID: CodeHighlightBlockID,
+    version: Int,
+    code: String,
+    language: CodeLanguage?,
+    theme: CodeHighlightTheme = .chat,
+    isClosed: Bool
+  ) {
+    self.blockID = blockID
+    self.version = version
+    self.code = code
+    self.language = language
+    self.theme = theme
+    self.isClosed = isClosed
+  }
+}
+
+public struct CodeHighlightResult: Equatable, Sendable {
+  public var blockID: CodeHighlightBlockID
+  public var version: Int
+  public var highlightedCode: HighlightedCode
+  public var cacheHit: Bool
+
+  public init(
+    blockID: CodeHighlightBlockID,
+    version: Int,
+    highlightedCode: HighlightedCode,
+    cacheHit: Bool
+  ) {
+    self.blockID = blockID
+    self.version = version
+    self.highlightedCode = highlightedCode
+    self.cacheHit = cacheHit
+  }
+}
+
+public actor StreamingCodeHighlighter {
+  private let backend: any CodeHighlightingBackend
+  private let debounce: Duration
+  private let highlighterVersion: String
+  private var latestVersionsByBlockID: [CodeHighlightBlockID: Int] = [:]
+  private var cache: [CodeHighlightCacheKey: HighlightedCode] = [:]
+
+  public init(
+    backend: any CodeHighlightingBackend,
+    debounce: Duration = .milliseconds(150),
+    highlighterVersion: String = "tree-sitter-v1"
+  ) {
+    self.backend = backend
+    self.debounce = debounce
+    self.highlighterVersion = highlighterVersion
+  }
+
+  public func highlight(_ request: CodeHighlightRequest) async -> CodeHighlightResult? {
+    latestVersionsByBlockID[request.blockID] = request.version
+
+    guard !request.code.isEmpty, request.language != nil else {
+      return currentResult(
+        for: request,
+        highlightedCode: .plain(code: request.code, language: request.language),
+        cacheHit: false
+      )
+    }
+
+    if request.isClosed {
+      let cacheKey = CodeHighlightCacheKey(
+        code: request.code,
+        language: request.language,
+        theme: request.theme,
+        highlighterVersion: highlighterVersion
+      )
+      if let cachedHighlight = cache[cacheKey] {
+        return currentResult(for: request, highlightedCode: cachedHighlight, cacheHit: true)
+      }
+
+      let highlightedCode = await highlightCode(
+        request.code,
+        language: request.language,
+        theme: request.theme
+      )
+      cache[cacheKey] = highlightedCode
+      return currentResult(for: request, highlightedCode: highlightedCode, cacheHit: false)
+    }
+
+    guard let stablePrefixEndIndex = request.code.lastStableLineEndIndex else {
+      return currentResult(
+        for: request,
+        highlightedCode: .plain(code: request.code, language: request.language),
+        cacheHit: false
+      )
+    }
+
+    do {
+      try await Task.sleep(for: debounce)
+    } catch {
+      return nil
+    }
+
+    guard isCurrent(request) else {
+      return nil
+    }
+
+    let stablePrefix = String(request.code[..<stablePrefixEndIndex])
+    let highlightedPrefix = await highlightCode(
+      stablePrefix,
+      language: request.language,
+      theme: request.theme
+    )
+    let highlightedCode = HighlightedCode(
+      code: request.code,
+      language: request.language,
+      spans: highlightedPrefix.spans
+    )
+
+    return currentResult(for: request, highlightedCode: highlightedCode, cacheHit: false)
+  }
+
+  private func highlightCode(
+    _ code: String,
+    language: CodeLanguage?,
+    theme: CodeHighlightTheme
+  ) async -> HighlightedCode {
+    do {
+      return try await backend.highlight(code: code, language: language, theme: theme)
+    } catch {
+      return .plain(code: code, language: language)
+    }
+  }
+
+  private func currentResult(
+    for request: CodeHighlightRequest,
+    highlightedCode: HighlightedCode,
+    cacheHit: Bool
+  ) -> CodeHighlightResult? {
+    guard isCurrent(request) else {
+      return nil
+    }
+
+    return CodeHighlightResult(
+      blockID: request.blockID,
+      version: request.version,
+      highlightedCode: highlightedCode,
+      cacheHit: cacheHit
+    )
+  }
+
+  private func isCurrent(_ request: CodeHighlightRequest) -> Bool {
+    latestVersionsByBlockID[request.blockID] == request.version
+  }
+}
+
+public struct CodeHighlightCacheKey: Equatable, Hashable, Sendable {
+  public var language: CodeLanguage?
+  public var codeHash: UInt64
+  public var theme: CodeHighlightTheme
+  public var highlighterVersion: String
+
+  public init(
+    language: CodeLanguage?,
+    codeHash: UInt64,
+    theme: CodeHighlightTheme,
+    highlighterVersion: String
+  ) {
+    self.language = language
+    self.codeHash = codeHash
+    self.theme = theme
+    self.highlighterVersion = highlighterVersion
+  }
+
+  public init(
+    code: String,
+    language: CodeLanguage?,
+    theme: CodeHighlightTheme,
+    highlighterVersion: String
+  ) {
+    self.init(
+      language: language,
+      codeHash: code.stableUTF8Hash,
+      theme: theme,
+      highlighterVersion: highlighterVersion
+    )
+  }
 }
 
 public actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
@@ -302,6 +511,7 @@ public actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
 
 private enum ParserLanguage: Hashable {
   case bash
+  case html
   case json
   case python
   case typescript
@@ -310,6 +520,8 @@ private enum ParserLanguage: Hashable {
     switch codeLanguage {
     case .bash:
       self = .bash
+    case .html:
+      self = .html
     case .javascript, .typescript:
       self = .typescript
     case .json:
@@ -329,6 +541,10 @@ private enum ParserLanguage: Hashable {
       language = Language(language: tree_sitter_bash())
       name = "Bash"
       bundleName = "TreeSitterBash_TreeSitterBash"
+    case .html:
+      language = Language(language: tree_sitter_html())
+      name = "HTML"
+      bundleName = "TreeSitterHTML_TreeSitterHTML"
     case .json:
       language = Language(language: tree_sitter_json())
       name = "JSON"
@@ -484,4 +700,22 @@ private enum ParserLanguage: Hashable {
     (required_parameter (identifier) @variable.parameter)
     (optional_parameter (identifier) @variable.parameter)
     """#
+}
+
+extension String {
+  fileprivate var lastStableLineEndIndex: String.Index? {
+    guard let newlineIndex = lastIndex(of: "\n") else {
+      return nil
+    }
+    return index(after: newlineIndex)
+  }
+
+  fileprivate var stableUTF8Hash: UInt64 {
+    var hash: UInt64 = 14_695_981_039_346_656_037
+    for byte in utf8 {
+      hash ^= UInt64(byte)
+      hash = hash &* 1_099_511_628_211
+    }
+    return hash
+  }
 }

@@ -1,3 +1,4 @@
+import Combine
 import LocalCoderCore
 import MarkdownUI
 import SwiftUI
@@ -12,14 +13,15 @@ enum AssistantMessageRenderBlocks {
 
 struct AssistantMessageContent: View {
   let blocks: [AssistantRenderBlock]
-  let highlightingBackend: any CodeHighlightingBackend
+  let codeHighlighter: StreamingCodeHighlighter
 
   init(
     blocks: [AssistantRenderBlock],
-    highlightingBackend: any CodeHighlightingBackend = ChatCodeHighlightingBackend.shared
+    codeHighlighter: StreamingCodeHighlighter = ChatCodeHighlightingBackend
+      .sharedStreamingHighlighter
   ) {
     self.blocks = blocks
-    self.highlightingBackend = highlightingBackend
+    self.codeHighlighter = codeHighlighter
   }
 
   var body: some View {
@@ -33,7 +35,7 @@ struct AssistantMessageContent: View {
         case .codeBlock(let codeBlock):
           CodeBlockView(
             codeBlock: codeBlock,
-            highlightingBackend: highlightingBackend
+            codeHighlighter: codeHighlighter
           )
         }
       }
@@ -44,20 +46,23 @@ struct AssistantMessageContent: View {
 }
 
 private enum ChatCodeHighlightingBackend {
-  static let shared: any CodeHighlightingBackend = SwiftTreeSitterCodeHighlightingBackend()
+  private static let sharedBackend: any CodeHighlightingBackend =
+    SwiftTreeSitterCodeHighlightingBackend()
+  static let sharedStreamingHighlighter = StreamingCodeHighlighter(backend: sharedBackend)
 }
 
 struct CodeBlockView: View {
   let codeBlock: AssistantRenderBlock.CodeBlock
-  let highlightingBackend: any CodeHighlightingBackend
-  @State private var highlightedCode: HighlightedCode?
+  let codeHighlighter: StreamingCodeHighlighter
+  @StateObject private var highlightModel = CodeBlockHighlightModel()
 
   init(
     codeBlock: AssistantRenderBlock.CodeBlock,
-    highlightingBackend: any CodeHighlightingBackend = ChatCodeHighlightingBackend.shared
+    codeHighlighter: StreamingCodeHighlighter = ChatCodeHighlightingBackend
+      .sharedStreamingHighlighter
   ) {
     self.codeBlock = codeBlock
-    self.highlightingBackend = highlightingBackend
+    self.codeHighlighter = codeHighlighter
   }
 
   var body: some View {
@@ -90,7 +95,10 @@ struct CodeBlockView: View {
     }
     .accessibilityIdentifier("chat.assistantCodeBlock")
     .task(id: highlightRequest) {
-      await updateHighlightedCode()
+      await highlightModel.update(
+        codeBlock: codeBlock,
+        highlighter: codeHighlighter
+      )
     }
   }
 
@@ -108,18 +116,19 @@ struct CodeBlockView: View {
   private var highlightRequest: HighlightRequest {
     HighlightRequest(
       code: codeBlock.text,
-      language: codeBlock.language ?? ""
+      language: codeBlock.language ?? "",
+      isClosed: codeBlock.isClosed
     )
   }
 
   private var highlightedText: Text {
     let currentHighlight =
-      highlightedCode
+      highlightModel.highlightedCode
       ?? .plain(
         code: codeBlock.text,
         language: normalizedLanguage
       )
-    let code = currentHighlight.code.isEmpty ? visibleCodeText : currentHighlight.code
+    let code = codeBlock.text.isEmpty ? visibleCodeText : codeBlock.text
     guard !currentHighlight.spans.isEmpty else {
       return Text(code)
     }
@@ -155,36 +164,6 @@ struct CodeBlockView: View {
     return segments.reduce(Text(""), +)
   }
 
-  @MainActor
-  private func updateHighlightedCode() async {
-    let language = normalizedLanguage
-    let code = codeBlock.text
-    highlightedCode = .plain(code: code, language: language)
-
-    guard !codeBlock.text.isEmpty else {
-      return
-    }
-
-    let backend = highlightingBackend
-
-    do {
-      let highlightedCode = try await backend.highlight(
-        code: code,
-        language: language,
-        theme: .chat
-      )
-      guard !Task.isCancelled else {
-        return
-      }
-      self.highlightedCode = highlightedCode
-    } catch {
-      guard !Task.isCancelled else {
-        return
-      }
-      highlightedCode = .plain(code: code, language: language)
-    }
-  }
-
   private func color(for style: CodeHighlightStyle) -> Color {
     switch style {
     case .attribute:
@@ -215,9 +194,73 @@ struct CodeBlockView: View {
   }
 }
 
+@MainActor
+private final class CodeBlockHighlightModel: ObservableObject {
+  @Published var highlightedCode: HighlightedCode?
+
+  private var currentBlockID: CodeHighlightBlockID?
+  private var currentVersion = 0
+  private var currentCode = ""
+  private var currentLanguage: CodeLanguage?
+
+  func update(
+    codeBlock: AssistantRenderBlock.CodeBlock,
+    highlighter: StreamingCodeHighlighter
+  ) async {
+    let blockID = CodeHighlightBlockID(rawValue: codeBlock.id.rawValue)
+    let language = CodeLanguage(fenceLanguage: codeBlock.language)
+    currentVersion += 1
+    let version = currentVersion
+
+    if shouldResetHighlight(blockID: blockID, code: codeBlock.text, language: language) {
+      highlightedCode = .plain(code: codeBlock.text, language: language)
+    }
+
+    currentBlockID = blockID
+    currentCode = codeBlock.text
+    currentLanguage = language
+
+    let request = CodeHighlightRequest(
+      blockID: blockID,
+      version: version,
+      code: codeBlock.text,
+      language: language,
+      theme: .chat,
+      isClosed: codeBlock.isClosed
+    )
+
+    guard let result = await highlighter.highlight(request) else {
+      return
+    }
+
+    guard
+      !Task.isCancelled,
+      currentBlockID == result.blockID,
+      currentVersion == result.version
+    else {
+      return
+    }
+
+    highlightedCode = result.highlightedCode
+  }
+
+  private func shouldResetHighlight(
+    blockID: CodeHighlightBlockID,
+    code: String,
+    language: CodeLanguage?
+  ) -> Bool {
+    guard currentBlockID == blockID, currentLanguage == language else {
+      return true
+    }
+
+    return !code.hasPrefix(currentCode)
+  }
+}
+
 private struct HighlightRequest: Equatable, Hashable {
   var code: String
   var language: String
+  var isClosed: Bool
 }
 
 extension Theme {
