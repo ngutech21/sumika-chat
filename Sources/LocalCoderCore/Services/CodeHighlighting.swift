@@ -572,7 +572,7 @@ private enum ParserLanguage: Hashable {
   }
 
   private static func queriesURL(forBundleNamed bundleName: String) -> URL? {
-    candidateBundleContainers()
+    let bundledQueriesURL = candidateBundleContainers()
       .lazy
       .map { $0.appendingPathComponent("\(bundleName).bundle", isDirectory: true) }
       .flatMap { bundleURL in
@@ -581,11 +581,64 @@ private enum ParserLanguage: Hashable {
           bundleURL.appendingPathComponent("queries", isDirectory: true),
         ]
       }
-      .first { url in
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
-          && isDirectory.boolValue
+      .first(where: isDirectory)
+
+    if let bundledQueriesURL {
+      return bundledQueriesURL
+    }
+
+    return checkoutQueriesURL(forBundleNamed: bundleName)
+  }
+
+  private static func checkoutQueriesURL(forBundleNamed bundleName: String) -> URL? {
+    guard let checkoutName = checkoutName(forBundleNamed: bundleName) else {
+      return nil
+    }
+
+    var roots = candidateBundleContainers()
+    roots.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true))
+
+    for root in roots {
+      var candidate = root.standardizedFileURL
+      for _ in 0..<10 {
+        let queriesURL = candidate
+          .appendingPathComponent(".build", isDirectory: true)
+          .appendingPathComponent("checkouts", isDirectory: true)
+          .appendingPathComponent(checkoutName, isDirectory: true)
+          .appendingPathComponent("queries", isDirectory: true)
+        if isDirectory(queriesURL) {
+          return queriesURL
+        }
+        let parent = candidate.deletingLastPathComponent()
+        if parent.path == candidate.path {
+          break
+        }
+        candidate = parent
       }
+    }
+
+    return nil
+  }
+
+  private static func checkoutName(forBundleNamed bundleName: String) -> String? {
+    switch bundleName {
+    case "TreeSitterBash_TreeSitterBash":
+      return "tree-sitter-bash"
+    case "TreeSitterHTML_TreeSitterHTML":
+      return "tree-sitter-html"
+    case "TreeSitterJSON_TreeSitterJSON":
+      return "tree-sitter-json"
+    case "TreeSitterPython_TreeSitterPython":
+      return "tree-sitter-python"
+    default:
+      return nil
+    }
+  }
+
+  private static func isDirectory(_ url: URL) -> Bool {
+    var isDirectory: ObjCBool = false
+    return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+      && isDirectory.boolValue
   }
 
   private static func candidateBundleContainers() -> [URL] {
