@@ -138,12 +138,7 @@ struct ToolResultSummaryView: View {
 
       if !display.text.isEmpty {
         if isResultExpanded {
-          Text(display.text)
-            .font(.system(.caption2, design: .monospaced))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .lineLimit(12)
-            .padding(6)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+          ToolDetailTextView(text: display.text)
         }
       }
     }
@@ -245,16 +240,24 @@ private struct ToolCallDetailsView: View {
       }
 
       if let preview = toolCallRecord.resultPreview, !preview.text.isEmpty {
-        Text(preview.text)
-          .font(.system(.caption2, design: .monospaced))
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .lineLimit(12)
-          .padding(6)
-          .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        ToolDetailTextView(text: preview.text)
       }
     }
     .font(.caption2)
     .foregroundStyle(.secondary)
+  }
+}
+
+private struct ToolDetailTextView: View {
+  let text: String
+
+  var body: some View {
+    Text(text)
+      .font(.system(.caption2, design: .monospaced))
+      .frame(maxWidth: .infinity, alignment: .topLeading)
+      .fixedSize(horizontal: false, vertical: true)
+      .padding(6)
+      .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
   }
 }
 
