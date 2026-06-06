@@ -578,6 +578,7 @@ struct ToolExecutionTests {
         .globFiles,
         .searchFiles,
         .workspaceDiff,
+        .workspaceDiagnostics,
       ])
   }
 
@@ -1177,7 +1178,278 @@ struct ToolExecutionTests {
     #expect(payload.cancelled)
     #expect(payload.stdout.truncated)
     #expect(payload.outputTruncated)
-    #expect(payload.stdout.text.contains("[run_command stdout truncated]"))
+    #expect(payload.stdout.text.contains("... truncated"))
+    #expect(payload.stdoutOmittedChars > 0)
+  }
+
+  @Test
+  func runCommandStoresFullOutputBehindOutputRefAndReturnsHeadTailPreview() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    let stdout = String(repeating: "A", count: 20) + "middle" + String(repeating: "Z", count: 20)
+    let runner = SpyCommandProcessRunner(
+      result: CommandProcessResult(
+        exitCode: 1,
+        durationMs: 10,
+        stdout: stdout,
+        stderr: ""
+      )
+    )
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(
+        RunCommandToolExecutor(
+          maxOutputBytes: 32,
+          outputRefGenerator: { "cmd_test123" },
+          processRunner: runner
+        ))
+    ])
+
+    let result = await ToolOrchestrator(
+      executorRegistry: registry,
+      latestCommandResultStore: store
+    ).executeApproved(
+      request: request(
+        .runCommand,
+        workspace: workspace,
+        sessionID: sessionID,
+        arguments: [
+          "command": .string("make test"),
+          "timeoutSeconds": .number(10),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    guard case .runCommand(let payload) = result.resultPayload else {
+      Issue.record("Expected run_command result payload.")
+      return
+    }
+    #expect(payload.outputRef == "cmd_test123")
+    #expect(payload.stdout.truncated)
+    #expect(payload.stdout.text.contains("... truncated"))
+    #expect(payload.stdout.text.hasPrefix("A"))
+    #expect(payload.stdout.text.hasSuffix("Z"))
+    #expect(!payload.stdout.text.contains("middle"))
+    #expect(payload.stdoutOmittedChars > 0)
+    #expect(
+      await store.output(outputRef: "cmd_test123", workspaceID: workspace.id, sessionID: sessionID)?
+        .stdout == stdout)
+  }
+
+  @Test
+  func workspaceDiagnosticsParsesGenericDiagnosticsFromStoredCommandOutput() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    let sourceURL = workspace.rootURL.appending(path: "Sources/App.code")
+    try FileManager.default.createDirectory(
+      at: sourceURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try "".write(to: sourceURL, atomically: true, encoding: .utf8)
+    let outsideURL = try makeTemporaryDirectory().appending(path: "Other.code")
+    let stdout = """
+      Sources/App.code:12:4: error: broken value
+      noise line
+      Sources/App.code:13: warning: unused value
+      \(outsideURL.path(percentEncoded: false)):1:1: error: outside
+      """
+    let stderr = "Sources/App.code:14:2: note: declared here\n"
+    await store.record(
+      RunCommandResult(
+        command: "build",
+        timeoutSeconds: 10,
+        exitCode: 1,
+        durationMs: 10,
+        stdout: ToolTextOutput(text: "preview", truncated: true),
+        stderr: ToolTextOutput(text: ""),
+        outputRef: "cmd_diag"
+      ),
+      output: CommandOutputRecord(outputRef: "cmd_diag", stdout: stdout, stderr: stderr),
+      workspaceID: workspace.id,
+      sessionID: sessionID
+    )
+
+    let result = await ToolOrchestrator(
+      executorRegistry: ToolExecutorRegistry([
+        AnyToolExecutor(WorkspaceDiagnosticsToolExecutor())
+      ]),
+      latestCommandResultStore: store
+    ).execute(
+      request: request(
+        .workspaceDiagnostics,
+        workspace: workspace,
+        sessionID: sessionID,
+        arguments: ["outputRef": .string("cmd_diag")]
+      ),
+      workspace: workspace
+    )
+
+    guard case .workspaceDiagnostics(let payload) = result.resultPayload else {
+      Issue.record("Expected workspace_diagnostics result payload.")
+      return
+    }
+    #expect(payload.diagnostics.count == 3)
+    #expect(
+      payload.diagnostics[0]
+        == WorkspaceDiagnostic(
+          path: WorkspaceRelativePath(rawValue: "Sources/App.code"),
+          line: 12,
+          column: 4,
+          severity: .error,
+          message: "broken value"
+        ))
+    #expect(payload.diagnostics[1].column == nil)
+    #expect(payload.diagnostics[1].severity == .warning)
+    #expect(payload.diagnostics[2].severity == .note)
+  }
+
+  @Test
+  func workspaceDiagnosticsReturnsEmptyResultForNoMatches() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore()
+    await store.record(
+      RunCommandResult(
+        command: "build",
+        timeoutSeconds: 10,
+        exitCode: 0,
+        durationMs: 10,
+        stdout: ToolTextOutput(text: "ok"),
+        stderr: ToolTextOutput(text: ""),
+        outputRef: "cmd_empty"
+      ),
+      output: CommandOutputRecord(outputRef: "cmd_empty", stdout: "ok", stderr: ""),
+      workspaceID: workspace.id,
+      sessionID: sessionID
+    )
+
+    let result = await ToolOrchestrator(
+      executorRegistry: ToolExecutorRegistry([
+        AnyToolExecutor(WorkspaceDiagnosticsToolExecutor())
+      ]),
+      latestCommandResultStore: store
+    ).execute(
+      request: request(
+        .workspaceDiagnostics,
+        workspace: workspace,
+        sessionID: sessionID,
+        arguments: ["outputRef": .string("cmd_empty")]
+      ),
+      workspace: workspace
+    )
+
+    guard case .workspaceDiagnostics(let payload) = result.resultPayload else {
+      Issue.record("Expected workspace_diagnostics result payload.")
+      return
+    }
+    #expect(payload.diagnostics.isEmpty)
+    #expect(result.resultPreview?.text == "No diagnostics found for cmd_empty.")
+  }
+
+  @Test
+  func latestCommandResultStorePrunesOldOutputRefs() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore(maxOutputRefsPerSession: 2)
+
+    for index in 1...3 {
+      await store.record(
+        RunCommandResult(
+          command: "cmd \(index)",
+          timeoutSeconds: 10,
+          exitCode: 0,
+          durationMs: 1,
+          stdout: ToolTextOutput(text: "preview"),
+          stderr: ToolTextOutput(text: ""),
+          outputRef: "cmd_\(index)"
+        ),
+        output: CommandOutputRecord(
+          outputRef: "cmd_\(index)", stdout: "stdout \(index)", stderr: ""),
+        workspaceID: workspace.id,
+        sessionID: sessionID
+      )
+    }
+
+    #expect(
+      await store.output(outputRef: "cmd_1", workspaceID: workspace.id, sessionID: sessionID) == nil
+    )
+    #expect(
+      await store.output(outputRef: "cmd_2", workspaceID: workspace.id, sessionID: sessionID) != nil
+    )
+    #expect(
+      await store.output(outputRef: "cmd_3", workspaceID: workspace.id, sessionID: sessionID) != nil
+    )
+    #expect(
+      await store.result(workspaceID: workspace.id, sessionID: sessionID)?.outputRef == "cmd_3")
+  }
+
+  @Test
+  func latestCommandResultStorePrunesOutputRefsByByteBudget() async throws {
+    let workspace = try makeWorkspace()
+    let sessionID = UUID()
+    let store = LatestCommandResultStore(maxOutputRefsPerSession: 10, maxOutputBytesPerSession: 30)
+
+    await store.record(
+      RunCommandResult(
+        command: "first",
+        timeoutSeconds: 10,
+        exitCode: 0,
+        durationMs: 1,
+        stdout: ToolTextOutput(text: "preview"),
+        stderr: ToolTextOutput(text: ""),
+        outputRef: "cmd_1"
+      ),
+      output: CommandOutputRecord(outputRef: "cmd_1", stdout: "1234567890", stderr: ""),
+      workspaceID: workspace.id,
+      sessionID: sessionID
+    )
+    await store.record(
+      RunCommandResult(
+        command: "second",
+        timeoutSeconds: 10,
+        exitCode: 0,
+        durationMs: 1,
+        stdout: ToolTextOutput(text: "preview"),
+        stderr: ToolTextOutput(text: ""),
+        outputRef: "cmd_2"
+      ),
+      output: CommandOutputRecord(outputRef: "cmd_2", stdout: "12345678901234567890", stderr: ""),
+      workspaceID: workspace.id,
+      sessionID: sessionID
+    )
+
+    #expect(
+      await store.output(outputRef: "cmd_1", workspaceID: workspace.id, sessionID: sessionID) == nil
+    )
+    #expect(
+      await store.output(outputRef: "cmd_2", workspaceID: workspace.id, sessionID: sessionID) != nil
+    )
+  }
+
+  @Test
+  func workspaceDiagnosticsFailsForMissingOutputRefWithoutRunningCommands() async throws {
+    let workspace = try makeWorkspace()
+    let result = await ToolOrchestrator(
+      executorRegistry: ToolExecutorRegistry([
+        AnyToolExecutor(WorkspaceDiagnosticsToolExecutor())
+      ])
+    ).execute(
+      request: request(
+        .workspaceDiagnostics,
+        workspace: workspace,
+        arguments: ["outputRef": .string("cmd_missing")]
+      ),
+      workspace: workspace
+    )
+
+    guard case .failure(let failure) = result.resultPayload else {
+      Issue.record("Expected missing output ref failure.")
+      return
+    }
+    #expect(result.evaluation.decision == .allowed)
+    #expect(failure.message.contains("Command output not found: cmd_missing."))
   }
 
   @Test
@@ -1403,10 +1675,12 @@ struct ToolExecutionTests {
     #expect(
       registry.definitions == [
         .readFile, .showFile, .listFiles, .globFiles, .searchFiles, .workspaceDiff,
+        .workspaceDiagnostics,
       ])
     #expect(
       registry.toolRegistry.tools == [
         .readFile, .showFile, .listFiles, .globFiles, .searchFiles, .workspaceDiff,
+        .workspaceDiagnostics,
       ])
     #expect(
       ToolExecutorRegistry.codingAgent.definitions == [
@@ -1416,6 +1690,7 @@ struct ToolExecutionTests {
         .globFiles,
         .searchFiles,
         .workspaceDiff,
+        .workspaceDiagnostics,
         .editFile,
         .writeFile,
         .runCommand,

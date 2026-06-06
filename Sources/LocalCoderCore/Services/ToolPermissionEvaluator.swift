@@ -63,6 +63,13 @@ public struct ToolPermissionEvaluator: Sendable {
         riskLevel: .low,
         successReason: "Showing workspace diff is allowed."
       )
+    case .workspaceDiagnostics:
+      return ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Reading command diagnostics is allowed.",
+        riskLevel: .low,
+        workspaceRelativePaths: [WorkspaceRelativePath(rawValue: ".")]
+      )
     case .writeFile(let input):
       return evaluatePathTool(
         paths: [input.path],

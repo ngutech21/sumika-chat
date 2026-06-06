@@ -153,6 +153,7 @@ flowchart TD
      AnyToolExecutor(GlobFilesToolExecutor()),
      AnyToolExecutor(SearchFilesToolExecutor()),
      AnyToolExecutor(WorkspaceDiffToolExecutor()),
+     AnyToolExecutor(WorkspaceDiagnosticsToolExecutor()),
    ])
    ```
 
@@ -221,15 +222,20 @@ flowchart TD
   output capture, and audit state.
 - `run_command` uses a required timeout that is clamped to the supported range
   before execution. It captures stdout, stderr, exit code, duration, timeout,
-  cancellation, and truncation metadata as a structured `RunCommandResult`.
-  A non-zero process exit is still a completed tool execution so the model can
-  inspect compiler/test output and repair; it must not become a controller
-  error.
-- After an actual `run_command` process is started, the capped
-  `RunCommandResult` is recorded in ephemeral latest-command state keyed by
-  workspace and session. Awaiting-approval or denied command requests must not
-  overwrite this state. Future read-only diagnostics tools may parse this
-  runtime state, but command execution remains owned by `run_command`.
+  cancellation, preview truncation metadata, and an `outputRef` as a structured
+  `RunCommandResult`. A non-zero process exit is still a completed tool
+  execution so the model can inspect output and repair; it must not become a
+  controller error.
+- After an actual `run_command` process is started, the full stdout/stderr is
+  recorded in ephemeral latest-command state keyed by workspace, session, and
+  `outputRef`. The model-facing `RunCommandResult` contains only command
+  metadata plus head/tail stdout/stderr previews. Awaiting-approval or denied
+  command requests must not overwrite this state.
+- `workspace_diagnostics` is a read-only tool available in Inspect and Agent
+  registries. It takes `outputRef`, reads the stored full command output, and
+  returns generic `path:line[:column]: error|warning|note: message`
+  diagnostics for paths inside the workspace. It does not run commands or
+  return raw stdout/stderr.
 - `todo_write` is available only in the Agent registry. It accepts 2 to 6
   short todo items, allows at most one `inProgress` item, and never requires
   approval because it mutates only session state. Chat prompts must not render

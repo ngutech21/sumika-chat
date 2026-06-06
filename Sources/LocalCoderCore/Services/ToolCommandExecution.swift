@@ -45,14 +45,27 @@ public enum RunCommandInputValidationError: LocalizedError, Equatable {
 }
 
 public actor LatestCommandResultStore {
+  public static let defaultMaxOutputRefsPerSession = 4
+  public static let defaultMaxOutputBytesPerSession = 2 * 1024 * 1024
+
   private struct Key: Hashable, Sendable {
     var workspaceID: Workspace.ID
     var sessionID: ChatSession.ID
   }
 
+  private let maxOutputRefsPerSession: Int
+  private let maxOutputBytesPerSession: Int
   private var results: [Key: RunCommandResult] = [:]
+  private var outputs: [Key: [String: CommandOutputRecord]] = [:]
+  private var outputOrder: [Key: [String]] = [:]
 
-  public init() {}
+  public init(
+    maxOutputRefsPerSession: Int = LatestCommandResultStore.defaultMaxOutputRefsPerSession,
+    maxOutputBytesPerSession: Int = LatestCommandResultStore.defaultMaxOutputBytesPerSession
+  ) {
+    self.maxOutputRefsPerSession = max(maxOutputRefsPerSession, 1)
+    self.maxOutputBytesPerSession = max(maxOutputBytesPerSession, 1)
+  }
 
   public func result(workspaceID: Workspace.ID, sessionID: ChatSession.ID) -> RunCommandResult? {
     results[Key(workspaceID: workspaceID, sessionID: sessionID)]
@@ -64,6 +77,201 @@ public actor LatestCommandResultStore {
     sessionID: ChatSession.ID
   ) {
     results[Key(workspaceID: workspaceID, sessionID: sessionID)] = result
+  }
+
+  public func record(
+    _ result: RunCommandResult,
+    output: CommandOutputRecord,
+    workspaceID: Workspace.ID,
+    sessionID: ChatSession.ID
+  ) {
+    let key = Key(workspaceID: workspaceID, sessionID: sessionID)
+    results[key] = result
+    outputs[key, default: [:]][output.outputRef] = output
+    var order = outputOrder[key, default: []].filter { $0 != output.outputRef }
+    order.append(output.outputRef)
+    outputOrder[key] = order
+    pruneOutputs(for: key)
+  }
+
+  public func output(
+    outputRef: String,
+    workspaceID: Workspace.ID,
+    sessionID: ChatSession.ID
+  ) -> CommandOutputRecord? {
+    outputs[Key(workspaceID: workspaceID, sessionID: sessionID)]?[outputRef]
+  }
+
+  private func pruneOutputs(for key: Key) {
+    guard var order = outputOrder[key], var records = outputs[key] else {
+      return
+    }
+
+    var totalBytes = order.reduce(0) { partialResult, outputRef in
+      partialResult + (records[outputRef]?.byteCount ?? 0)
+    }
+
+    while order.count > maxOutputRefsPerSession || totalBytes > maxOutputBytesPerSession {
+      guard let removedRef = order.first else {
+        break
+      }
+      order.removeFirst()
+      if let removedRecord = records.removeValue(forKey: removedRef) {
+        totalBytes -= removedRecord.byteCount
+      }
+    }
+
+    outputs[key] = records
+    outputOrder[key] = order
+  }
+}
+
+public struct CommandOutputRecord: Equatable, Sendable {
+  public var outputRef: String
+  public var stdout: String
+  public var stderr: String
+
+  public init(outputRef: String, stdout: String, stderr: String) {
+    self.outputRef = outputRef
+    self.stdout = stdout
+    self.stderr = stderr
+  }
+
+  public var byteCount: Int {
+    outputRef.utf8.count + stdout.utf8.count + stderr.utf8.count
+  }
+}
+
+public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
+  public static let definition = ToolDefinition.workspaceDiagnostics
+
+  public init() {}
+
+  public func evaluatePermission(
+    _ input: WorkspaceDiagnosticsInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Reading command diagnostics is allowed.",
+      riskLevel: .low,
+      workspaceRelativePaths: [WorkspaceRelativePath(rawValue: ".")]
+    )
+  }
+
+  public func run(
+    _ input: WorkspaceDiagnosticsInput,
+    context: ToolContext
+  ) async -> ToolResultPayload {
+    guard let sessionID = context.sessionID else {
+      return .failure(
+        ToolFailure(
+          toolName: .workspaceDiagnostics,
+          path: nil,
+          reason: .executionError("workspace_diagnostics requires a session.")
+        )
+      )
+    }
+
+    guard
+      let output = await context.latestCommandResultStore?.output(
+        outputRef: input.outputRef,
+        workspaceID: context.workspace.id,
+        sessionID: sessionID
+      )
+    else {
+      return .failure(
+        ToolFailure(
+          toolName: .workspaceDiagnostics,
+          path: nil,
+          reason: .executionError("Command output not found: \(input.outputRef).")
+        )
+      )
+    }
+
+    let diagnostics = Self.parseDiagnostics(
+      text: output.stdout + "\n" + output.stderr,
+      workspace: context.workspace
+    )
+    return .workspaceDiagnostics(
+      WorkspaceDiagnosticsResult(outputRef: input.outputRef, diagnostics: diagnostics)
+    )
+  }
+
+  public static func parseDiagnostics(text: String, workspace: Workspace) -> [WorkspaceDiagnostic] {
+    text.split(whereSeparator: \.isNewline).compactMap { line in
+      parseDiagnosticLine(String(line), workspace: workspace)
+    }
+  }
+
+  private static func parseDiagnosticLine(
+    _ line: String,
+    workspace: Workspace
+  ) -> WorkspaceDiagnostic? {
+    for severity in [
+      WorkspaceDiagnosticSeverity.error,
+      .warning,
+      .note,
+    ] {
+      let marker = ": \(severity.rawValue): "
+      guard let markerRange = line.range(of: marker, options: [.caseInsensitive]) else {
+        continue
+      }
+
+      let location = String(line[..<markerRange.lowerBound])
+      let message = line[markerRange.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !message.isEmpty,
+        let parsed = parseLocation(location)
+      else {
+        return nil
+      }
+
+      do {
+        let resolvedURL = try workspace.resolveAllowedPath(parsed.path)
+        return WorkspaceDiagnostic(
+          path: workspace.relativePath(for: resolvedURL),
+          line: parsed.line,
+          column: parsed.column,
+          severity: severity,
+          message: message
+        )
+      } catch {
+        return nil
+      }
+    }
+
+    return nil
+  }
+
+  private static func parseLocation(_ location: String) -> (
+    path: String, line: Int, column: Int?
+  )? {
+    let parts = location.split(separator: ":", omittingEmptySubsequences: false)
+    guard parts.count >= 2,
+      let lastNumber = Int(parts[parts.count - 1]),
+      lastNumber > 0
+    else {
+      return nil
+    }
+
+    if parts.count >= 3,
+      let line = Int(parts[parts.count - 2]),
+      line > 0
+    {
+      let path = parts.dropLast(2).joined(separator: ":")
+      guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        lastNumber > 0
+      else {
+        return nil
+      }
+      return (path: path, line: line, column: lastNumber)
+    }
+
+    let path = parts.dropLast(1).joined(separator: ":")
+    guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      return nil
+    }
+    return (path: path, line: lastNumber, column: nil)
   }
 }
 
@@ -215,6 +423,7 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
   private let environment: [String: String]
   private let pathPrefixDirectories: [URL]
   private let maxOutputBytes: Int
+  private let outputRefGenerator: @Sendable () -> String
   private let processRunner: any CommandProcessRunning
 
   public init(
@@ -226,12 +435,17 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
       URL(filePath: "/opt/local/bin"),
     ],
     maxOutputBytes: Int = 48 * 1024,
+    outputRefGenerator: @escaping @Sendable () -> String = {
+      let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8).lowercased()
+      return "cmd_" + String(id)
+    },
     processRunner: any CommandProcessRunning = DefaultCommandProcessRunner()
   ) {
     self.bashExecutableURL = bashExecutableURL
     self.environment = environment
     self.pathPrefixDirectories = pathPrefixDirectories
     self.maxOutputBytes = maxOutputBytes
+    self.outputRefGenerator = outputRefGenerator
     self.processRunner = processRunner
   }
 
@@ -286,19 +500,37 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
           timeoutSeconds: timeoutSeconds
         )
         let processResult = try await processRunner.run(request)
+        let outputRef = outputRefGenerator()
+        let limits = previewLimits(exitCode: processResult.exitCode)
+        let stdoutPreview = previewOutput(
+          processResult.stdout,
+          maxBytes: min(limits.stdoutBytes, maxOutputBytes)
+        )
+        let stderrPreview = previewOutput(
+          processResult.stderr,
+          maxBytes: min(limits.stderrBytes, maxOutputBytes)
+        )
         let result = RunCommandResult(
           command: input.command,
           timeoutSeconds: timeoutSeconds,
           exitCode: processResult.exitCode,
           durationMs: processResult.durationMs,
-          stdout: cappedOutput(processResult.stdout, marker: "run_command stdout truncated"),
-          stderr: cappedOutput(processResult.stderr, marker: "run_command stderr truncated"),
+          stdout: stdoutPreview.output,
+          stderr: stderrPreview.output,
+          outputRef: outputRef,
+          stdoutOmittedChars: stdoutPreview.omittedChars,
+          stderrOmittedChars: stderrPreview.omittedChars,
           timedOut: processResult.timedOut,
           cancelled: processResult.cancelled
         )
         if let sessionID = context.sessionID {
           await context.latestCommandResultStore?.record(
             result,
+            output: CommandOutputRecord(
+              outputRef: outputRef,
+              stdout: processResult.stdout,
+              stderr: processResult.stderr
+            ),
             workspaceID: context.workspace.id,
             sessionID: sessionID
           )
@@ -333,17 +565,29 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
     min(max(timeoutSeconds, Self.minimumTimeoutSeconds), Self.maximumTimeoutSeconds)
   }
 
-  private func cappedOutput(_ text: String, marker: String) -> ToolTextOutput {
-    guard text.utf8.count > maxOutputBytes else {
-      return ToolTextOutput(text: text)
+  private func previewLimits(exitCode: Int32?) -> (stdoutBytes: Int, stderrBytes: Int) {
+    if exitCode == 0 {
+      return (stdoutBytes: 8 * 1024, stderrBytes: 4 * 1024)
+    }
+    return (stdoutBytes: 16 * 1024, stderrBytes: 16 * 1024)
+  }
+
+  private func previewOutput(_ text: String, maxBytes: Int) -> (
+    output: ToolTextOutput, omittedChars: Int
+  ) {
+    guard text.utf8.count > maxBytes else {
+      return (ToolTextOutput(text: text), 0)
     }
 
-    let marker = "\n[\(marker)]"
-    let markerBytes = marker.utf8.count
-    let prefixByteCount = max(maxOutputBytes - markerBytes, 0)
-    let prefixData = Data(text.utf8.prefix(prefixByteCount))
-    let prefix = utf8StringDroppingPartialSuffix(from: prefixData)
-    return ToolTextOutput(text: prefix + marker, truncated: true)
+    let placeholder = "\n... truncated 0 chars ...\n"
+    let availableBytes = max(maxBytes - placeholder.utf8.count, 0)
+    let headBytes = Int(Double(availableBytes) * 0.4)
+    let tailBytes = max(availableBytes - headBytes, 0)
+    let head = utf8StringDroppingPartialSuffix(from: Data(text.utf8.prefix(headBytes)))
+    let tail = utf8StringDroppingPartialPrefix(from: Data(text.utf8.suffix(tailBytes)))
+    let omittedChars = max(text.count - head.count - tail.count, 0)
+    let marker = "\n... truncated \(omittedChars) chars ...\n"
+    return (ToolTextOutput(text: head + marker + tail, truncated: true), omittedChars)
   }
 
   private func utf8StringDroppingPartialSuffix(from data: Data) -> String {
@@ -357,6 +601,25 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
 
     for droppedByteCount in 1...min(3, data.count) {
       let shortenedData = data.dropLast(droppedByteCount)
+      if let string = String(bytes: shortenedData, encoding: .utf8) {
+        return string
+      }
+    }
+
+    return ""
+  }
+
+  private func utf8StringDroppingPartialPrefix(from data: Data) -> String {
+    if let string = String(bytes: data, encoding: .utf8) {
+      return string
+    }
+
+    guard !data.isEmpty else {
+      return ""
+    }
+
+    for droppedByteCount in 1...min(3, data.count) {
+      let shortenedData = data.dropFirst(droppedByteCount)
       if let string = String(bytes: shortenedData, encoding: .utf8) {
         return string
       }

@@ -11,6 +11,7 @@ struct TaggedToolCallingTests {
     #expect(
       registry.tools.map(\.name) == [
         .readFile, .showFile, .listFiles, .globFiles, .searchFiles, .workspaceDiff,
+        .workspaceDiagnostics,
       ])
     #expect(registry.definition(canonicalizing: "Read")?.name == .readFile)
     #expect(registry.definition(canonicalizing: "READ")?.name == .readFile)
@@ -22,6 +23,7 @@ struct TaggedToolCallingTests {
     #expect(registry.definition(canonicalizing: "glob-files")?.name == .globFiles)
     #expect(registry.definition(canonicalizing: "search files")?.name == .searchFiles)
     #expect(registry.definition(canonicalizing: "diff")?.name == .workspaceDiff)
+    #expect(registry.definition(canonicalizing: "diagnostics")?.name == .workspaceDiagnostics)
     #expect(registry.definition(canonicalizing: "run_command") == nil)
     #expect(
       ToolExecutorRegistry.codingAgent.toolRegistry.definition(canonicalizing: "run command")?.name
@@ -49,6 +51,9 @@ struct TaggedToolCallingTests {
       prompt.contains("- search_files(pattern, path?, include?): Search workspace text files."))
     #expect(
       prompt.contains("- workspace_diff(path?): Show current workspace changes using Git diff."))
+    #expect(
+      prompt.contains(
+        "- workspace_diagnostics(outputRef): Parse diagnostics from command output."))
     #expect(
       prompt.contains(
         #"For multiline payload parameters, including content, old_text, new_text, and items, use delimiter="LC_PAYLOAD_TEST""#

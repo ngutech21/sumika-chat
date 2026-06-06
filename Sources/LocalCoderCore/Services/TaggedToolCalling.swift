@@ -129,6 +129,8 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
       "Search workspace text files."
     case .workspaceDiff:
       "Show current workspace changes using Git diff."
+    case .workspaceDiagnostics:
+      "Parse diagnostics from command output."
     case .writeFile:
       "Create or fully overwrite a workspace text file."
     case .editFile:

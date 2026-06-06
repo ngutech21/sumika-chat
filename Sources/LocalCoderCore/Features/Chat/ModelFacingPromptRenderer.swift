@@ -332,17 +332,34 @@ public enum ToolModelObservationRenderer {
         diffSummary.map { "Diff summary:\n\($0)" },
       ].compactMap { $0 }.joined(separator: "\n")
     case .commandResult(let result):
-      return [
+      var lines = [
         "Command: \(result.command)",
         "Exit code: \(result.exitCode.map(String.init) ?? "none")",
         "Duration ms: \(result.durationMs)",
         "Timed out: \(result.timedOut)",
         "Cancelled: \(result.cancelled)",
+        result.outputRef.map { "Output ref: \($0)" },
         "Stdout truncated: \(result.stdout.truncated)",
-        result.stdout.text.isEmpty ? nil : "Stdout:\n\(result.stdout.text)",
+        result.stdoutOmittedChars > 0 ? "Stdout omitted chars: \(result.stdoutOmittedChars)" : nil,
+        result.stdout.text.isEmpty ? nil : "Stdout preview:\n\(result.stdout.text)",
         "Stderr truncated: \(result.stderr.truncated)",
-        result.stderr.text.isEmpty ? nil : "Stderr:\n\(result.stderr.text)",
-      ].compactMap { $0 }.joined(separator: "\n")
+        result.stderrOmittedChars > 0 ? "Stderr omitted chars: \(result.stderrOmittedChars)" : nil,
+        result.stderr.text.isEmpty ? nil : "Stderr preview:\n\(result.stderr.text)",
+      ].compactMap { $0 }
+      if let outputRef = result.outputRef {
+        lines.append(
+          "Hint: Run workspace_diagnostics(outputRef: \(outputRef)) for structured errors.")
+      }
+      return lines.joined(separator: "\n")
+    case .diagnostics(let result):
+      guard !result.diagnostics.isEmpty else {
+        return "No diagnostics found for \(result.outputRef)."
+      }
+      return result.diagnostics.map { diagnostic in
+        let column = diagnostic.column.map { ":\($0)" } ?? ""
+        return
+          "\(diagnostic.path.rawValue):\(diagnostic.line)\(column): \(diagnostic.severity.rawValue): \(diagnostic.message)"
+      }.joined(separator: "\n")
     case .failure(let text):
       return "Failure: \(text)"
     }

@@ -81,6 +81,37 @@ struct ToolResultPayloadTests {
   }
 
   @Test
+  func runCommandResultDecodesStoredResultsBeforeOutputRefs() throws {
+    let json = """
+      {
+        "command": "just test-core",
+        "timeoutSeconds": 120,
+        "exitCode": 1,
+        "durationMs": 42,
+        "stdout": {
+          "text": "building",
+          "truncated": false,
+          "redacted": false
+        },
+        "stderr": {
+          "text": "failed",
+          "truncated": false,
+          "redacted": false
+        }
+      }
+      """
+
+    let decoded = try JSONDecoder().decode(RunCommandResult.self, from: Data(json.utf8))
+
+    #expect(decoded.command == "just test-core")
+    #expect(decoded.outputRef == nil)
+    #expect(decoded.stdoutOmittedChars == 0)
+    #expect(decoded.stderrOmittedChars == 0)
+    #expect(!decoded.timedOut)
+    #expect(!decoded.cancelled)
+  }
+
+  @Test
   func previewRendersFromStructuredPayload() {
     let payload = ToolResultPayload.editFile(
       .multipleMatches(

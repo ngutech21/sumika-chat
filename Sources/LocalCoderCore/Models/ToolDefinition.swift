@@ -378,6 +378,25 @@ nonisolated extension ToolDefinition {
     riskLevel: .low
   )
 
+  public static let workspaceDiagnostics = ToolDefinition(
+    name: .workspaceDiagnostics,
+    description: "Parse diagnostics from command output.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "outputRef",
+        description: "Command output ref.",
+        isRequired: true
+      )
+    ],
+    taggedExample: """
+      <action name="workspace_diagnostics">
+      <outputRef>cmd_abc123</outputRef>
+      </action>
+      """,
+    capabilities: [.readWorkspace],
+    riskLevel: .low
+  )
+
   public static let writeFile = ToolDefinition(
     name: .writeFile,
     description: "Create or fully overwrite a workspace text file.",

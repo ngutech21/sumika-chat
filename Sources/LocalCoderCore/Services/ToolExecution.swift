@@ -437,6 +437,9 @@ public struct AnyToolExecutor: Sendable {
       return try cast(input, as: inputType, definition: definition, actualToolName: .searchFiles)
     case .workspaceDiff(let input):
       return try cast(input, as: inputType, definition: definition, actualToolName: .workspaceDiff)
+    case .workspaceDiagnostics(let input):
+      return try cast(
+        input, as: inputType, definition: definition, actualToolName: .workspaceDiagnostics)
     case .writeFile(let input):
       return try cast(input, as: inputType, definition: definition, actualToolName: .writeFile)
     case .editFile(let input):
@@ -477,6 +480,7 @@ public struct ToolExecutorRegistry: Sendable {
     AnyToolExecutor(GlobFilesToolExecutor()),
     AnyToolExecutor(SearchFilesToolExecutor()),
     AnyToolExecutor(WorkspaceDiffToolExecutor()),
+    AnyToolExecutor(WorkspaceDiagnosticsToolExecutor()),
   ])
 
   public static let codingAgent = ToolExecutorRegistry([
@@ -486,6 +490,7 @@ public struct ToolExecutorRegistry: Sendable {
     AnyToolExecutor(GlobFilesToolExecutor()),
     AnyToolExecutor(SearchFilesToolExecutor()),
     AnyToolExecutor(WorkspaceDiffToolExecutor()),
+    AnyToolExecutor(WorkspaceDiagnosticsToolExecutor()),
     AnyToolExecutor(EditFileToolExecutor()),
     AnyToolExecutor(WriteFileToolExecutor()),
     AnyToolExecutor(RunCommandToolExecutor()),

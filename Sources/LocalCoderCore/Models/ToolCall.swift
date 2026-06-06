@@ -19,6 +19,7 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
   public static let showFile = ToolName(rawValue: "show_file")
   public static let searchFiles = ToolName(rawValue: "search_files")
   public static let workspaceDiff = ToolName(rawValue: "workspace_diff")
+  public static let workspaceDiagnostics = ToolName(rawValue: "workspace_diagnostics")
   public static let editFile = ToolName(rawValue: "edit_file")
   public static let writeFile = ToolName(rawValue: "write_file")
   public static let runCommand = ToolName(rawValue: "run_command")
@@ -43,6 +44,8 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
       return Self.searchFiles.rawValue
     case "diff", "git_diff":
       return Self.workspaceDiff.rawValue
+    case "diagnostics", "workspace_diag", "workspace_diags":
+      return Self.workspaceDiagnostics.rawValue
     case "edit":
       return Self.editFile.rawValue
     case "write":
@@ -94,6 +97,7 @@ public enum ToolIntentHeuristics {
       ToolName.globFiles.rawValue,
       ToolName.searchFiles.rawValue,
       ToolName.workspaceDiff.rawValue,
+      ToolName.workspaceDiagnostics.rawValue,
       ToolName.editFile.rawValue,
       ToolName.writeFile.rawValue,
       ToolName.runCommand.rawValue,
@@ -241,6 +245,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
   case globFiles(GlobFilesInput)
   case searchFiles(SearchFilesInput)
   case workspaceDiff(WorkspaceDiffInput)
+  case workspaceDiagnostics(WorkspaceDiagnosticsInput)
   case writeFile(WriteFileInput)
   case editFile(EditFileInput)
   case runCommand(RunCommandInput)
@@ -263,6 +268,8 @@ nonisolated extension ToolCallPayload {
       .searchFiles
     case .workspaceDiff:
       .workspaceDiff
+    case .workspaceDiagnostics:
+      .workspaceDiagnostics
     case .writeFile:
       .writeFile
     case .editFile:
@@ -634,6 +641,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case globFiles(GlobFilesResult)
   case searchFiles(SearchFilesResult)
   case workspaceDiff(WorkspaceDiffResult)
+  case workspaceDiagnostics(WorkspaceDiagnosticsResult)
   case writeFile(WriteFileResult)
   case editFile(EditFileResult)
   case runCommand(RunCommandResult)
@@ -713,6 +721,59 @@ public enum WorkspaceDiffResult: Codable, Equatable, Sendable {
   case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
 }
 
+public struct WorkspaceDiagnosticsInput: Codable, Equatable, Sendable {
+  public var outputRef: String
+
+  public init(outputRef: String) {
+    self.outputRef = outputRef
+  }
+}
+
+public struct WorkspaceDiagnosticsResult: Codable, Equatable, Sendable {
+  public var outputRef: String
+  public var diagnostics: [WorkspaceDiagnostic]
+
+  public init(outputRef: String, diagnostics: [WorkspaceDiagnostic]) {
+    self.outputRef = outputRef
+    self.diagnostics = diagnostics
+  }
+}
+
+public struct WorkspaceDiagnostic: Codable, Equatable, Sendable {
+  public var path: WorkspaceRelativePath
+  public var line: Int
+  public var column: Int?
+  public var severity: WorkspaceDiagnosticSeverity
+  public var message: String
+  public var source: WorkspaceDiagnosticSource
+
+  public init(
+    path: WorkspaceRelativePath,
+    line: Int,
+    column: Int?,
+    severity: WorkspaceDiagnosticSeverity,
+    message: String,
+    source: WorkspaceDiagnosticSource = .lastCommandOutput
+  ) {
+    self.path = path
+    self.line = line
+    self.column = column
+    self.severity = severity
+    self.message = message
+    self.source = source
+  }
+}
+
+public enum WorkspaceDiagnosticSeverity: String, Codable, Equatable, Sendable {
+  case error
+  case warning
+  case note
+}
+
+public enum WorkspaceDiagnosticSource: String, Codable, Equatable, Sendable {
+  case lastCommandOutput
+}
+
 public enum WriteFileResult: Codable, Equatable, Sendable {
   case success(path: WorkspaceRelativePath, bytesWritten: Int)
   case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
@@ -737,8 +798,25 @@ public struct RunCommandResult: Codable, Equatable, Sendable {
   public var durationMs: Int
   public var stdout: ToolTextOutput
   public var stderr: ToolTextOutput
+  public var outputRef: String?
+  public var stdoutOmittedChars: Int
+  public var stderrOmittedChars: Int
   public var timedOut: Bool
   public var cancelled: Bool
+
+  private enum CodingKeys: String, CodingKey {
+    case command
+    case timeoutSeconds
+    case exitCode
+    case durationMs
+    case stdout
+    case stderr
+    case outputRef
+    case stdoutOmittedChars
+    case stderrOmittedChars
+    case timedOut
+    case cancelled
+  }
 
   public init(
     command: String,
@@ -747,6 +825,9 @@ public struct RunCommandResult: Codable, Equatable, Sendable {
     durationMs: Int,
     stdout: ToolTextOutput,
     stderr: ToolTextOutput,
+    outputRef: String? = nil,
+    stdoutOmittedChars: Int = 0,
+    stderrOmittedChars: Int = 0,
     timedOut: Bool = false,
     cancelled: Bool = false
   ) {
@@ -756,8 +837,26 @@ public struct RunCommandResult: Codable, Equatable, Sendable {
     self.durationMs = durationMs
     self.stdout = stdout
     self.stderr = stderr
+    self.outputRef = outputRef
+    self.stdoutOmittedChars = stdoutOmittedChars
+    self.stderrOmittedChars = stderrOmittedChars
     self.timedOut = timedOut
     self.cancelled = cancelled
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    command = try container.decode(String.self, forKey: .command)
+    timeoutSeconds = try container.decode(Int.self, forKey: .timeoutSeconds)
+    exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
+    durationMs = try container.decode(Int.self, forKey: .durationMs)
+    stdout = try container.decode(ToolTextOutput.self, forKey: .stdout)
+    stderr = try container.decode(ToolTextOutput.self, forKey: .stderr)
+    outputRef = try container.decodeIfPresent(String.self, forKey: .outputRef)
+    stdoutOmittedChars = try container.decodeIfPresent(Int.self, forKey: .stdoutOmittedChars) ?? 0
+    stderrOmittedChars = try container.decodeIfPresent(Int.self, forKey: .stderrOmittedChars) ?? 0
+    timedOut = try container.decodeIfPresent(Bool.self, forKey: .timedOut) ?? false
+    cancelled = try container.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
   }
 
   public var outputTruncated: Bool {
@@ -967,6 +1066,8 @@ nonisolated extension ToolResultPayload {
       )
     case .workspaceDiff(let result):
       return result.preview
+    case .workspaceDiagnostics(let result):
+      return result.preview
     case .writeFile(let result):
       return result.preview
     case .editFile(let result):
@@ -1054,6 +1155,24 @@ nonisolated extension WorkspaceDiffResult {
   }
 }
 
+nonisolated extension WorkspaceDiagnosticsResult {
+  fileprivate var preview: ToolResultPreview {
+    guard !diagnostics.isEmpty else {
+      return ToolResultPreview(text: "No diagnostics found for \(outputRef).")
+    }
+
+    let lines = diagnostics.map { diagnostic in
+      let column = diagnostic.column.map { ":\($0)" } ?? ""
+      return
+        "\(diagnostic.path.rawValue):\(diagnostic.line)\(column): \(diagnostic.severity.rawValue): \(diagnostic.message)"
+    }
+    return ToolResultPreview(
+      text: lines.joined(separator: "\n"),
+      affectedPaths: diagnostics.map(\.path.rawValue)
+    )
+  }
+}
+
 nonisolated extension WriteFileResult {
   fileprivate var preview: ToolResultPreview {
     switch self {
@@ -1134,14 +1253,27 @@ nonisolated extension RunCommandResult {
       "Timed out: \(timedOut)",
       "Cancelled: \(cancelled)",
     ]
+    if let outputRef {
+      lines.append("Output ref: \(outputRef)")
+    }
     if outputTruncated {
       lines.append("Output truncated: true")
+    }
+    if stdoutOmittedChars > 0 {
+      lines.append("Stdout omitted chars: \(stdoutOmittedChars)")
+    }
+    if stderrOmittedChars > 0 {
+      lines.append("Stderr omitted chars: \(stderrOmittedChars)")
     }
     if !stdout.text.isEmpty {
       lines.append("stdout:\n\(stdout.text)")
     }
     if !stderr.text.isEmpty {
       lines.append("stderr:\n\(stderr.text)")
+    }
+    if let outputRef {
+      lines.append(
+        "Hint: Run workspace_diagnostics(outputRef: \(outputRef)) for structured errors.")
     }
     return lines.joined(separator: "\n")
   }

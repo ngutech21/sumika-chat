@@ -66,6 +66,15 @@ public struct ToolCallRequestValidator: Sendable {
       let input = try decode(WorkspaceDiffInput.self, from: rawRequest.arguments)
       try input.path.map(validatePath)
       return .workspaceDiff(input)
+    case .workspaceDiagnostics:
+      let input = try decode(WorkspaceDiagnosticsInput.self, from: rawRequest.arguments)
+      guard !input.outputRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        throw InvalidToolCallReason.invalidArgumentType(
+          name: "outputRef",
+          expected: "a non-empty command output ref"
+        )
+      }
+      return .workspaceDiagnostics(input)
     case .writeFile:
       let input = try decode(WriteFileInput.self, from: rawRequest.arguments)
       try validatePath(input.path)
@@ -291,6 +300,8 @@ nonisolated extension ToolDefinition {
       .searchFiles
     case .workspaceDiff:
       .workspaceDiff
+    case .workspaceDiagnostics:
+      .workspaceDiagnostics
     case .writeFile:
       .writeFile
     case .editFile:

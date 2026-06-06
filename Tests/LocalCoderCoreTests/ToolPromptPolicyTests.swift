@@ -182,7 +182,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("current file content"))
     #expect(
       prompt.contains(
-        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff, edit_file, write_file, run_command, todo_write."
+        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff, workspace_diagnostics, edit_file, write_file, run_command, todo_write."
       ))
     #expect(prompt.contains("edit_file"))
     #expect(!prompt.contains("Tool calling:"))
@@ -209,7 +209,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("same action format"))
     #expect(
       prompt.contains(
-        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff."
+        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff, workspace_diagnostics."
       ))
     #expect(prompt.contains("read_file"))
     #expect(prompt.contains("list_files"))
@@ -241,7 +241,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("read-only tools using the native tool interface"))
     #expect(
       prompt.contains(
-        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff."
+        "Available tools: read_file, show_file, list_files, glob_files, search_files, workspace_diff, workspace_diagnostics."
       ))
     #expect(!prompt.contains("todo_write"))
     #expect(!prompt.contains("Plan updated."))

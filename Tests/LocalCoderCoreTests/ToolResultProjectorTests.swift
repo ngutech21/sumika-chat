@@ -209,8 +209,36 @@ struct ToolResultProjectorTests {
     let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
     #expect(rendered.contains("Command: just test-core"))
     #expect(rendered.contains("Exit code: 1"))
-    #expect(rendered.contains("Stdout:\nbuild started"))
-    #expect(rendered.contains("Stderr:\nTests failed"))
+    #expect(rendered.contains("Stdout preview:\nbuild started"))
+    #expect(rendered.contains("Stderr preview:\nTests failed"))
+  }
+
+  @Test
+  func workspaceDiagnosticsObservationStaysStructuredAndCompact() {
+    let result = WorkspaceDiagnosticsResult(
+      outputRef: "cmd_diag",
+      diagnostics: [
+        WorkspaceDiagnostic(
+          path: WorkspaceRelativePath(rawValue: "Sources/App.code"),
+          line: 7,
+          column: 2,
+          severity: .error,
+          message: "broken"
+        )
+      ]
+    )
+    let projection = ToolResultProjector.project(
+      payload: .workspaceDiagnostics(result),
+      request: request(
+        toolName: .workspaceDiagnostics,
+        payload: .workspaceDiagnostics(WorkspaceDiagnosticsInput(outputRef: "cmd_diag"))
+      )
+    )
+
+    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
+    #expect(rendered.contains("Sources/App.code:7:2: error: broken"))
+    #expect(!rendered.contains("stdout"))
+    #expect(!rendered.contains("stderr"))
   }
 
   @Test

@@ -44,6 +44,7 @@ flowchart TD
   ToolCallModelMessage --> ToolCallModelArgument
   ToolCallModelMessage --> ToolName
   ToolCallPayload --> InvalidToolInput
+  ToolCallPayload --> WorkspaceDiagnosticsInput
   ToolCallRecord --> ToolCallEvent
   ToolCallRecord --> ToolCallRequest
   ToolCallRecord --> ToolCallState
@@ -82,6 +83,7 @@ flowchart TD
   ToolObservationBlock --> RunCommandResult
   ToolObservationBlock --> SearchFileMatch
   ToolObservationBlock --> ToolTextOutput
+  ToolObservationBlock --> WorkspaceDiagnosticsResult
   ToolObservationBlock --> WorkspaceFileEntry
   ToolObservationBlock --> WorkspaceRelativePath
   ToolParameterDefinition --> ToolArgumentValue
@@ -102,6 +104,7 @@ flowchart TD
   ToolResultPayload --> SearchFilesResult
   ToolResultPayload --> TodoWriteResult
   ToolResultPayload --> ToolFailure
+  ToolResultPayload --> WorkspaceDiagnosticsResult
   ToolResultPayload --> WorkspaceDiffResult
   ToolResultPayload --> WriteFileResult
   ToolResultPreview --> ToolResultStatus
@@ -111,6 +114,10 @@ flowchart TD
   TurnTraceEvent --> ToolArgumentTrace
   TurnTraceEvent --> TurnTracePhase
   TurnTraceMetadata --> TurnTracing
+  WorkspaceDiagnostic --> WorkspaceDiagnosticSeverity
+  WorkspaceDiagnostic --> WorkspaceDiagnosticSource
+  WorkspaceDiagnostic --> WorkspaceRelativePath
+  WorkspaceDiagnosticsResult --> WorkspaceDiagnostic
   WorkspaceDiffResult --> ToolFailureReason
   WorkspaceDiffResult --> ToolTextOutput
   WorkspaceDiffResult --> WorkspaceRelativePath
@@ -514,8 +521,11 @@ Properties:
 - `command: String`
 - `durationMs: Int`
 - `exitCode: Int32?`
+- `outputRef: String?`
 - `stderr: ToolTextOutput`
+- `stderrOmittedChars: Int`
 - `stdout: ToolTextOutput`
+- `stdoutOmittedChars: Int`
 - `timedOut: Bool`
 - `timeoutSeconds: Int`
 
@@ -705,12 +715,14 @@ Cases:
 - `searchFiles(SearchFilesInput)`
 - `showFile(ReadFileInput)`
 - `todoWrite(TodoWriteInput)`
+- `workspaceDiagnostics(WorkspaceDiagnosticsInput)`
 - `workspaceDiff(WorkspaceDiffInput)`
 - `writeFile(WriteFileInput)`
 
 Relations:
 
 - `InvalidToolInput`
+- `WorkspaceDiagnosticsInput`
 
 ### ToolCallRecord
 
@@ -1000,6 +1012,7 @@ Properties:
 Cases:
 
 - `commandResult(RunCommandResult)`
+- `diagnostics(WorkspaceDiagnosticsResult)`
 - `editReceipt(path: WorkspaceRelativePath, diffSummary: String?, matchStrategy: EditMatchStrategy?)`
 - `failure(String)`
 - `fileContent(path: WorkspaceRelativePath, content: ToolTextOutput)`
@@ -1014,6 +1027,7 @@ Relations:
 - `RunCommandResult`
 - `SearchFileMatch`
 - `ToolTextOutput`
+- `WorkspaceDiagnosticsResult`
 - `WorkspaceFileEntry`
 - `WorkspaceRelativePath`
 
@@ -1137,6 +1151,7 @@ Cases:
 - `runCommand(RunCommandResult)`
 - `searchFiles(SearchFilesResult)`
 - `todoWrite(TodoWriteResult)`
+- `workspaceDiagnostics(WorkspaceDiagnosticsResult)`
 - `workspaceDiff(WorkspaceDiffResult)`
 - `writeFile(WriteFileResult)`
 
@@ -1151,6 +1166,7 @@ Relations:
 - `SearchFilesResult`
 - `TodoWriteResult`
 - `ToolFailure`
+- `WorkspaceDiagnosticsResult`
 - `WorkspaceDiffResult`
 - `WriteFileResult`
 
@@ -1359,6 +1375,74 @@ Properties:
 - `rootURL: URL`
 - `sessions: [ChatSession]`
 - `updatedAt: Date`
+
+### WorkspaceDiagnostic
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `column: Int?`
+- `line: Int`
+- `message: String`
+- `path: WorkspaceRelativePath`
+- `severity: WorkspaceDiagnosticSeverity`
+- `source: WorkspaceDiagnosticSource`
+
+Relations:
+
+- `WorkspaceDiagnosticSeverity`
+- `WorkspaceDiagnosticSource`
+- `WorkspaceRelativePath`
+
+### WorkspaceDiagnosticSeverity
+
+- Kind: `enum`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
+
+Cases:
+
+- `error`
+- `note`
+- `warning`
+
+### WorkspaceDiagnosticSource
+
+- Kind: `enum`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
+
+Cases:
+
+- `lastCommandOutput`
+
+### WorkspaceDiagnosticsInput
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `outputRef: String`
+
+### WorkspaceDiagnosticsResult
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `diagnostics: [WorkspaceDiagnostic]`
+- `outputRef: String`
+
+Relations:
+
+- `WorkspaceDiagnostic`
 
 ### WorkspaceDiffResult
 

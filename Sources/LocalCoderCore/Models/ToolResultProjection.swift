@@ -124,6 +124,7 @@ public enum ToolObservationBlock: Equatable, Sendable {
     matchStrategy: EditMatchStrategy?
   )
   case commandResult(RunCommandResult)
+  case diagnostics(WorkspaceDiagnosticsResult)
   case failure(String)
 }
 
@@ -226,6 +227,8 @@ public enum ToolResultProjector {
       )
     case .workspaceDiff(let result):
       return projectWorkspaceDiff(result, request: request)
+    case .workspaceDiagnostics(let result):
+      return projectWorkspaceDiagnostics(result, request: request)
     case .writeFile(let result):
       return projectWriteFile(result, request: request)
     case .editFile(let result):
@@ -433,6 +436,38 @@ public enum ToolResultProjector {
         blocks: [.commandResult(result)]
       )
     )
+  }
+
+  private static func projectWorkspaceDiagnostics(
+    _ result: WorkspaceDiagnosticsResult,
+    request: ToolCallRequest
+  ) -> ToolResultProjection {
+    let affectedPaths = result.diagnostics.map(\.path)
+    let text = renderedDiagnosticsText(result)
+    return ToolResultProjection(
+      display: .summary(
+        status: .success,
+        text: text,
+        affectedPaths: affectedPaths
+      ),
+      observation: ToolModelObservation.success(
+        toolName: request.toolName,
+        affectedPaths: affectedPaths,
+        blocks: [.diagnostics(result)]
+      )
+    )
+  }
+
+  private static func renderedDiagnosticsText(_ result: WorkspaceDiagnosticsResult) -> String {
+    guard !result.diagnostics.isEmpty else {
+      return "No diagnostics found for \(result.outputRef)."
+    }
+
+    return result.diagnostics.map { diagnostic in
+      let column = diagnostic.column.map { ":\($0)" } ?? ""
+      return
+        "\(diagnostic.path.rawValue):\(diagnostic.line)\(column): \(diagnostic.severity.rawValue): \(diagnostic.message)"
+    }.joined(separator: "\n")
   }
 
   private static func projectTodoWrite(
