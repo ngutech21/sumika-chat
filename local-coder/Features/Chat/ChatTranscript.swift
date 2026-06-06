@@ -139,7 +139,7 @@ private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
   func makeNSView(context: Context) -> NSScrollView {
     let scrollView = ChatTranscriptScrollView()
     scrollView.onLayout = { [weak coordinator = context.coordinator] in
-      coordinator?.updateColumnWidth()
+      coordinator?.scrollViewDidLayout()
     }
     scrollView.hasVerticalScroller = true
     scrollView.hasHorizontalScroller = false
@@ -171,6 +171,7 @@ private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
     scrollView.documentView = tableView
     context.coordinator.tableView = tableView
     context.coordinator.scrollView = scrollView
+    context.coordinator.observeClipViewBounds(scrollView.contentView)
     context.coordinator.updateColumnWidth()
     context.coordinator.reloadAllRows()
     context.coordinator.scrollToBottom(animated: false)
@@ -199,6 +200,9 @@ private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
     var onDenyToolCall: (ToolCallRecord.ID) -> Void
     weak var tableView: NSTableView?
     weak var scrollView: NSScrollView?
+    private let scrollAnchorManager = TranscriptScrollAnchorManager()
+    private var bottomScrollScheduled = false
+    private var scheduledBottomScrollAnimated = false
 
     init(
       items: [RenderedChatTurnItem],
@@ -210,6 +214,10 @@ private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
       self.showsGenerationIndicator = showsGenerationIndicator
       self.onApproveToolCall = onApproveToolCall
       self.onDenyToolCall = onDenyToolCall
+    }
+
+    deinit {
+      NotificationCenter.default.removeObserver(self)
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -246,28 +254,46 @@ private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
       }
 
       let oldRows = rows
+      let wasPinnedToBottom = scrollAnchorManager.isPinnedToBottom(in: scrollView)
+      let visibleAnchor =
+        wasPinnedToBottom
+        ? nil
+        : scrollAnchorManager.captureVisibleAnchor(
+          in: tableView,
+          rows: oldRows
+        )
       let newRows = Self.rows(
         items: newItems,
         showsGenerationIndicator: newShowsGenerationIndicator
+      )
+      let scrollAction = scrollAction(
+        oldRows: oldRows,
+        newRows: newRows,
+        wasPinnedToBottom: wasPinnedToBottom,
+        visibleAnchor: visibleAnchor
       )
       items = newItems
       showsGenerationIndicator = newShowsGenerationIndicator
 
       if oldRows == newRows {
+        applyScrollAction(scrollAction, animated: false)
         return
       }
 
-      let shouldScrollToBottom = shouldScrollToBottom(
-        oldRows: oldRows,
-        newRows: newRows
-      )
-
-      if isAppendOnly(from: oldRows, to: newRows) {
+      if isAppendAtEnd(from: oldRows, to: newRows) {
         let insertedRange = oldRows.count..<newRows.count
-        tableView.insertRows(
-          at: IndexSet(integersIn: insertedRange),
-          withAnimation: .effectFade
-        )
+        let reloadedIndexes = changedIndexes(in: oldRows, comparedTo: newRows)
+        tableView.beginUpdates()
+        if !reloadedIndexes.isEmpty {
+          tableView.reloadData(forRowIndexes: reloadedIndexes, columnIndexes: [0])
+        }
+        if !insertedRange.isEmpty {
+          tableView.insertRows(
+            at: IndexSet(integersIn: insertedRange),
+            withAnimation: .effectFade
+          )
+        }
+        tableView.endUpdates()
       } else if let diff = simpleRowDiff(from: oldRows, to: newRows) {
         tableView.beginUpdates()
         if !diff.deletedIndexes.isEmpty {
@@ -284,13 +310,33 @@ private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
         reloadAllRows()
       }
 
-      if shouldScrollToBottom {
-        scrollToBottom(animated: true)
-      }
+      tableView.layoutSubtreeIfNeeded()
+      applyScrollAction(scrollAction, animated: true)
     }
 
     func reloadAllRows() {
       tableView?.reloadData()
+    }
+
+    func observeClipViewBounds(_ clipView: NSClipView) {
+      clipView.postsBoundsChangedNotifications = true
+      scrollAnchorManager.updatePinnedState(in: scrollView)
+      NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(clipViewBoundsDidChange(_:)),
+        name: NSView.boundsDidChangeNotification,
+        object: clipView
+      )
+    }
+
+    func scrollViewDidLayout() {
+      let wasPinnedToBottom = scrollAnchorManager.pinnedToBottom
+      updateColumnWidth()
+      if wasPinnedToBottom {
+        scrollToBottom(animated: false)
+      } else {
+        scrollAnchorManager.updatePinnedState(in: scrollView)
+      }
     }
 
     func updateColumnWidth() {
@@ -304,23 +350,36 @@ private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
     }
 
     func scrollToBottom(animated: Bool) {
+      scheduledBottomScrollAnimated = scheduledBottomScrollAnimated || animated
+      guard !bottomScrollScheduled else {
+        return
+      }
+      bottomScrollScheduled = true
+      DispatchQueue.main.async { [weak self] in
+        self?.performScheduledBottomScroll()
+      }
+    }
+
+    @objc private func clipViewBoundsDidChange(_ notification: Notification) {
+      scrollAnchorManager.updatePinnedState(in: scrollView)
+    }
+
+    private func performScheduledBottomScroll() {
+      bottomScrollScheduled = false
+      let animated = scheduledBottomScrollAnimated
+      scheduledBottomScrollAnimated = false
+
       guard let tableView, rowCount > 0 else {
         return
       }
 
-      DispatchQueue.main.async {
-        let lastRow = tableView.numberOfRows - 1
-        guard lastRow >= 0 else {
-          return
+      if animated {
+        NSAnimationContext.runAnimationGroup { context in
+          context.duration = 0.18
+          scrollAnchorManager.scrollToBottom(in: tableView.enclosingScrollView)
         }
-        if animated {
-          NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            tableView.scrollRowToVisible(lastRow)
-          }
-        } else {
-          tableView.scrollRowToVisible(lastRow)
-        }
+      } else {
+        scrollAnchorManager.scrollToBottom(in: tableView.enclosingScrollView)
       }
     }
 
@@ -375,29 +434,79 @@ private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
       }
     }
 
-    private func shouldScrollToBottom(
+    private func scrollAction(
       oldRows: [RowModel],
-      newRows: [RowModel]
-    ) -> Bool {
+      newRows: [RowModel],
+      wasPinnedToBottom: Bool,
+      visibleAnchor: TranscriptScrollAnchorManager.VisibleAnchor?
+    ) -> ScrollAction {
       guard !newRows.isEmpty else {
-        return false
+        return .none
+      }
+      if oldRows == newRows {
+        return .none
       }
       if oldRows.isEmpty {
-        return true
+        return .scrollToBottom
       }
-      if newRows.count > oldRows.count, isAppendOnly(from: oldRows, to: newRows) {
-        return true
+      if isAppendAtEnd(from: oldRows, to: newRows) {
+        let appendedRows = Array(newRows.dropFirst(oldRows.count))
+        if appendedRows.contains(where: \.isUserMessage) {
+          return .scrollToBottom
+        }
+        if wasPinnedToBottom {
+          return .scrollToBottom
+        }
+        return restoreAction(for: visibleAnchor)
       }
-      return oldRows.last?.id != newRows.last?.id
+      if wasPinnedToBottom {
+        return .scrollToBottom
+      }
+      return restoreAction(for: visibleAnchor)
     }
 
-    private func isAppendOnly(from oldRows: [RowModel], to newRows: [RowModel]) -> Bool {
+    private func restoreAction(
+      for visibleAnchor: TranscriptScrollAnchorManager.VisibleAnchor?
+    ) -> ScrollAction {
+      guard let visibleAnchor else {
+        return .none
+      }
+      return .restoreAnchor(visibleAnchor)
+    }
+
+    private func applyScrollAction(_ action: ScrollAction, animated: Bool) {
+      switch action {
+      case .none:
+        scrollAnchorManager.updatePinnedState(in: scrollView)
+      case .scrollToBottom:
+        scrollToBottom(animated: animated)
+      case .restoreAnchor(let anchor):
+        guard let tableView else {
+          return
+        }
+        scrollAnchorManager.restore(anchor, in: tableView, rows: rows)
+      }
+    }
+
+    private func isAppendAtEnd(from oldRows: [RowModel], to newRows: [RowModel]) -> Bool {
       guard newRows.count >= oldRows.count else {
         return false
       }
       return zip(oldRows, newRows).allSatisfy { oldRow, newRow in
-        oldRow == newRow
+        oldRow.id == newRow.id
       }
+    }
+
+    private func changedIndexes(in oldRows: [RowModel], comparedTo newRows: [RowModel]) -> IndexSet
+    {
+      IndexSet(
+        oldRows.enumerated().compactMap { index, oldRow in
+          guard index < newRows.count, oldRow != newRows[index] else {
+            return nil
+          }
+          return index
+        }
+      )
     }
 
     private func simpleRowDiff(
@@ -443,13 +552,19 @@ private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
     }
   }
 
+  fileprivate enum ScrollAction {
+    case none
+    case scrollToBottom
+    case restoreAnchor(TranscriptScrollAnchorManager.VisibleAnchor)
+  }
+
   private struct RowDiff {
     let insertedIndexes: IndexSet
     let deletedIndexes: IndexSet
     let reloadedIndexes: IndexSet
   }
 
-  private enum RowModel: Equatable {
+  fileprivate enum RowModel: Equatable {
     case item(RenderedChatTurnItem)
     case generationIndicator
 
@@ -461,6 +576,119 @@ private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
         "chat.transcript.generationIndicator"
       }
     }
+
+    var isUserMessage: Bool {
+      guard case .item(let item) = self,
+        case .userMessage = item.item
+      else {
+        return false
+      }
+      return true
+    }
+  }
+}
+
+private final class TranscriptScrollAnchorManager {
+  struct VisibleAnchor {
+    let rowID: String
+    let rowIndex: Int
+    let offsetY: CGFloat
+    let fallbackY: CGFloat
+  }
+
+  private static let bottomThreshold: CGFloat = 50
+
+  private(set) var pinnedToBottom = true
+
+  func isPinnedToBottom(in scrollView: NSScrollView?) -> Bool {
+    guard let scrollView else {
+      return pinnedToBottom
+    }
+    let pinned = distanceFromBottom(in: scrollView) <= Self.bottomThreshold
+    pinnedToBottom = pinned
+    return pinned
+  }
+
+  func updatePinnedState(in scrollView: NSScrollView?) {
+    _ = isPinnedToBottom(in: scrollView)
+  }
+
+  func captureVisibleAnchor(
+    in tableView: NSTableView,
+    rows: [ChatTranscriptTableRepresentable.RowModel]
+  ) -> VisibleAnchor? {
+    guard let scrollView = tableView.enclosingScrollView else {
+      return nil
+    }
+    let visibleRect = scrollView.contentView.bounds
+    let visibleRows = tableView.rows(in: visibleRect)
+    guard visibleRows.location != NSNotFound, visibleRows.length > 0 else {
+      return nil
+    }
+
+    let rowIndex = visibleRows.location
+    guard rowIndex >= 0, rowIndex < rows.count else {
+      return nil
+    }
+
+    let rowRect = tableView.rect(ofRow: rowIndex)
+    return VisibleAnchor(
+      rowID: rows[rowIndex].id,
+      rowIndex: rowIndex,
+      offsetY: visibleRect.minY - rowRect.minY,
+      fallbackY: visibleRect.minY
+    )
+  }
+
+  func restore(
+    _ anchor: VisibleAnchor,
+    in tableView: NSTableView,
+    rows: [ChatTranscriptTableRepresentable.RowModel]
+  ) {
+    guard let scrollView = tableView.enclosingScrollView, !rows.isEmpty else {
+      updatePinnedState(in: tableView.enclosingScrollView)
+      return
+    }
+
+    tableView.layoutSubtreeIfNeeded()
+    let rowIndex =
+      rows.firstIndex { $0.id == anchor.rowID }
+      ?? min(anchor.rowIndex, rows.count - 1)
+    let targetY: CGFloat
+    if rowIndex >= 0, rowIndex < tableView.numberOfRows {
+      targetY = tableView.rect(ofRow: rowIndex).minY + anchor.offsetY
+    } else {
+      targetY = anchor.fallbackY
+    }
+    scroll(toY: targetY, in: scrollView)
+  }
+
+  func scrollToBottom(in scrollView: NSScrollView?) {
+    guard let scrollView else {
+      return
+    }
+    let clipView = scrollView.contentView
+    let documentHeight = scrollView.documentView?.bounds.height ?? 0
+    scroll(toY: documentHeight - clipView.bounds.height, in: scrollView)
+  }
+
+  private func scroll(toY targetY: CGFloat, in scrollView: NSScrollView) {
+    let clipView = scrollView.contentView
+    let documentHeight = scrollView.documentView?.bounds.height ?? 0
+    let maxY = max(0, documentHeight - clipView.bounds.height)
+    let clampedTargetY = min(max(0, targetY), maxY)
+    clipView.scroll(to: NSPoint(x: clipView.bounds.minX, y: clampedTargetY))
+    scrollView.reflectScrolledClipView(clipView)
+    updatePinnedState(in: scrollView)
+  }
+
+  private func distanceFromBottom(in scrollView: NSScrollView) -> CGFloat {
+    let clipBounds = scrollView.contentView.bounds
+    let documentHeight = scrollView.documentView?.bounds.height ?? 0
+    guard documentHeight > clipBounds.height else {
+      return 0
+    }
+    return max(0, documentHeight - clipBounds.maxY)
   }
 }
 
