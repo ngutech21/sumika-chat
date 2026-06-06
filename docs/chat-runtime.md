@@ -174,15 +174,19 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   exact history and render the new observation or final tool result as the
   current prompt. That path should trace `session_reused` instead of
   `invalidated_history_appended` when the cached prefix is clean.
-- Append-only history is not automatically reusable. If current history is the
-  cached prefix plus new model-facing messages, the runtime must either rebuild
-  the `ChatSession` or use a real MLX append/prefill path that advances the KV
-  cache through those appended messages. Until such an append/prefill path
-  exists, append-only history is traced as `invalidated_history_appended`.
+- Append-only history is reusable only through the MLX structured-message append
+  path. If current history is the cached prefix plus new model-facing messages,
+  `GemmaMLXRuntime` reuses the existing `ChatSession`, sends only the appended
+  history delta plus the current prompt through `streamDetails(to messages:)`,
+  and traces `append_only_delta_reused`.
 - A complete tagged `<action>` emitted by the assistant is a valid committed
   assistant output even when the app stops reading the stream early to execute
   the tool. This path must mark the cached session clean rather than dirtying it
   as `downstreamTerminated`.
+- Native Gemma 4 tool calls are not equivalent to tagged `<action>` text. Until
+  MLX exposes an exact replayable assistant tool-call message, native tool-call
+  completions conservatively mark the cache as
+  `invalidated_native_tool_call_boundary` instead of synthesizing pseudo-XML.
 - Dirty states stay conservative. Cancelled turns, interrupted streams, runtime
   errors, and non-tool downstream termination invalidate reuse.
 - Trace fields such as `cacheMode`, `cacheReason`, `appendOnly`,
@@ -193,12 +197,9 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   the rendered context signature. Reuse across different tool registries is
   invalid even when the visible frozen history is unchanged.
 
-The intended long-term fast path for tool loops is either:
-
-1. Keep the same `ChatSession` alive and send only the next prompt/observation
-   that MLX has not consumed yet.
-2. Add a real MLX append/prefill capability and trace that path distinctly from
-   exact reuse.
+The intended long-term fast path for native Gemma 4 tool loops is to preserve
+the structured assistant tool-call boundary exactly, not to map it onto the
+tagged Gemma 3 prompt format.
 
 ## Persistence Rules
 

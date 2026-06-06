@@ -37,6 +37,7 @@ nonisolated enum GemmaSessionCacheMode: String, Equatable, Sendable {
   case invalidatedDownstreamTerminated = "invalidated_downstream_terminated"
   case invalidatedRuntimeError = "invalidated_runtime_error"
   case invalidatedModelChanged = "invalidated_model_changed"
+  case invalidatedNativeToolCallBoundary = "invalidated_native_tool_call_boundary"
 }
 
 nonisolated enum GemmaSessionInvalidationReason: Equatable, Sendable {
@@ -46,6 +47,7 @@ nonisolated enum GemmaSessionInvalidationReason: Equatable, Sendable {
   case downstreamTerminated
   case runtimeError
   case modelChanged
+  case nativeToolCallBoundary
 
   var cacheMode: GemmaSessionCacheMode {
     switch self {
@@ -61,6 +63,8 @@ nonisolated enum GemmaSessionInvalidationReason: Equatable, Sendable {
       .invalidatedRuntimeError
     case .modelChanged:
       .invalidatedModelChanged
+    case .nativeToolCallBoundary:
+      .invalidatedNativeToolCallBoundary
     }
   }
 }
@@ -81,13 +85,16 @@ nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
   case invalidatedToolPromptChanged = "invalidated_tool_prompt_changed"
   case invalidatedToolSchemaChanged = "invalidated_tool_schema_changed"
   case invalidatedModelChanged = "invalidated_model_changed"
+  case invalidatedRuntimeContextCleared = "invalidated_runtime_context_cleared"
+  case invalidatedNativeToolCallBoundary = "invalidated_native_tool_call_boundary"
+  case appendOnlyDeltaReused = "append_only_delta_reused"
 
   static func generationInvalidationReason(
     from reason: GemmaSessionInvalidationReason
   ) -> GemmaSessionCacheReason {
     switch reason {
     case .signatureMismatch:
-      .invalidatedRenderedContextChanged
+      .invalidatedRuntimeContextCleared
     case .cancelled:
       .invalidatedGenCancelled
     case .interrupted:
@@ -98,6 +105,8 @@ nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
       .invalidatedGenRuntimeError
     case .modelChanged:
       .invalidatedModelChanged
+    case .nativeToolCallBoundary:
+      .invalidatedNativeToolCallBoundary
     }
   }
 }
@@ -285,8 +294,18 @@ nonisolated struct GemmaSessionCacheTrace: Equatable, Sendable {
 }
 
 nonisolated struct GemmaSessionCacheDecision: Equatable, Sendable {
-  let shouldReuse: Bool
+  let reuseStrategy: GemmaSessionReuseStrategy
   let trace: GemmaSessionCacheTrace
+
+  var shouldReuse: Bool {
+    reuseStrategy != .none
+  }
+}
+
+nonisolated enum GemmaSessionReuseStrategy: Equatable, Sendable {
+  case none
+  case exactPrompt
+  case appendHistoryDelta(startIndex: Int)
 }
 
 nonisolated private struct CachedGemmaSession {
@@ -300,6 +319,23 @@ nonisolated private struct CachedGemmaSession {
 nonisolated private struct GemmaSessionCachePlan {
   let session: MLXLMCommon.ChatSession
   let trace: GemmaSessionCacheTrace
+  let streamInput: GemmaSessionStreamInput
+}
+
+nonisolated private enum GemmaSessionStreamInput {
+  case prompt(String)
+  case messages([Chat.Message])
+
+  var contentByteCount: Int {
+    switch self {
+    case .prompt(let prompt):
+      return prompt.utf8.count
+    case .messages(let messages):
+      return messages.reduce(0) { byteCount, message in
+        byteCount + message.content.utf8.count
+      }
+    }
+  }
 }
 
 nonisolated struct GemmaModelStreamPlan {
@@ -441,6 +477,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       modelContainer: modelContainer,
       history: history,
       historySnapshot: historySnapshot,
+      promptMessage: promptMessage,
       settings: settings,
       generateParameters: generateParameters,
       projectionMode: projectionMode,
@@ -462,7 +499,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       contextTokenLimit: contextTokenLimit
     )
 
-    let stream = cachePlan.session.streamDetails(to: finalPrompt, images: [], videos: [])
+    let stream =
+      switch cachePlan.streamInput {
+      case .prompt(let prompt):
+        cachePlan.session.streamDetails(to: prompt, images: [], videos: [])
+      case .messages(let messages):
+        cachePlan.session.streamDetails(to: messages)
+      }
     if let traceMetadata {
       await traceMetadata.tracer.recordTurnTraceEvent(
         TurnTraceEvent(
@@ -470,7 +513,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           generationID: traceID,
           phase: .runtimeStreamStart,
           durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
-          promptBytes: finalPrompt.utf8.count,
+          promptBytes: cachePlan.streamInput.contentByteCount,
           messageCount: entries.count,
           toolLoopIteration: traceMetadata.toolLoopIteration,
           cacheMode: cachePlan.trace.cacheMode.rawValue,
@@ -552,6 +595,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     modelContainer: ModelContainer,
     history: [Chat.Message],
     historySnapshot: [GemmaMessageSnapshot],
+    promptMessage: Chat.Message,
     settings: ChatGenerationSettings,
     generateParameters: GenerateParameters,
     projectionMode: ModelContextProjectionMode,
@@ -585,7 +629,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         contextSignature: cached.contextSignature,
         state: .inFlight(generationID: generationID)
       )
-      return GemmaSessionCachePlan(session: cached.session, trace: decision.trace)
+      return GemmaSessionCachePlan(
+        session: cached.session,
+        trace: decision.trace,
+        streamInput: Self.streamInput(
+          for: decision.reuseStrategy,
+          history: history,
+          promptMessage: promptMessage
+        )
+      )
     }
 
     let session = MLXLMCommon.ChatSession(
@@ -601,7 +653,11 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       contextSignature: contextSignature,
       state: .inFlight(generationID: generationID)
     )
-    return GemmaSessionCachePlan(session: session, trace: decision.trace)
+    return GemmaSessionCachePlan(
+      session: session,
+      trace: decision.trace,
+      streamInput: .prompt(promptMessage.content)
+    )
   }
 
   private func markSessionCompleted(
@@ -711,6 +767,20 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
   }
 
+  nonisolated private static func streamInput(
+    for reuseStrategy: GemmaSessionReuseStrategy,
+    history: [Chat.Message],
+    promptMessage: Chat.Message
+  ) -> GemmaSessionStreamInput {
+    switch reuseStrategy {
+    case .none, .exactPrompt:
+      return .prompt(promptMessage.content)
+    case .appendHistoryDelta(let startIndex):
+      let boundedStartIndex = min(max(0, startIndex), history.count)
+      return .messages(Array(history[boundedStartIndex...]) + [promptMessage])
+    }
+  }
+
   nonisolated static func cacheDecision(
     cachedPrefix: [GemmaMessageSnapshot]?,
     cachedSettings: ChatGenerationSettings?,
@@ -763,34 +833,34 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
     let cacheMode: GemmaSessionCacheMode
     let cacheReason: GemmaSessionCacheReason
-    let shouldReuse: Bool
+    let reuseStrategy: GemmaSessionReuseStrategy
     let mismatchReason: String?
     if cachedPrefix == nil, let invalidationReason = cachedState?.invalidationReason {
       cacheMode = invalidationReason.cacheMode
       cacheReason = .generationInvalidationReason(from: invalidationReason)
-      shouldReuse = false
+      reuseStrategy = .none
       mismatchReason = nil
     } else if cachedPrefix == nil {
       cacheMode = .newSessionHistory
       cacheReason = .newSessionNoCache
-      shouldReuse = false
+      reuseStrategy = .none
       mismatchReason = nil
     } else if cachedState?.isReusable != true {
       let invalidationReason = cachedState?.invalidationReason ?? .interrupted
       cacheMode = invalidationReason.cacheMode
       cacheReason = .generationInvalidationReason(from: invalidationReason)
-      shouldReuse = false
+      reuseStrategy = .none
       mismatchReason = nil
     } else if cachedSettings != currentSettings {
       cacheMode = .invalidatedSignatureMismatch
       cacheReason = .invalidatedSettingsChanged
-      shouldReuse = false
+      reuseStrategy = .none
       mismatchReason = "settings_changed"
     } else if cachedPrefix == currentHistory {
       if previousSignature == currentSignature {
         cacheMode = .sessionReused
         cacheReason = .sessionReused
-        shouldReuse = true
+        reuseStrategy = .exactPrompt
         mismatchReason = nil
       } else {
         cacheMode = .invalidatedSignatureMismatch
@@ -798,26 +868,39 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           previousSignature: previousSignature,
           currentSignature: currentSignature
         )
-        shouldReuse = false
+        reuseStrategy = .none
         mismatchReason = "rendered_context_signature_changed"
       }
     } else if appendOnly {
-      cacheMode = .invalidatedSignatureMismatch
-      cacheReason = .invalidatedHistoryAppended
-      shouldReuse = false
-      mismatchReason = "history_appended"
+      if Self.canReuseAppendOnlyDelta(
+        previousSignature: previousSignature,
+        currentSignature: currentSignature
+      ) {
+        cacheMode = .sessionReused
+        cacheReason = .appendOnlyDeltaReused
+        reuseStrategy = .appendHistoryDelta(startIndex: cachedPrefix?.count ?? 0)
+        mismatchReason = nil
+      } else {
+        cacheMode = .invalidatedSignatureMismatch
+        cacheReason = Self.signatureMismatchReason(
+          previousSignature: previousSignature,
+          currentSignature: currentSignature
+        )
+        reuseStrategy = .none
+        mismatchReason = "rendered_context_signature_changed"
+      }
     } else {
       cacheMode = .invalidatedSignatureMismatch
       cacheReason = Self.historyMismatchReason(
         systemPromptChanged: systemPromptChanged,
         currentPromptContextChanged: currentPromptContextChanged
       )
-      shouldReuse = false
+      reuseStrategy = .none
       mismatchReason = "history_prefix_mismatch"
     }
 
     return GemmaSessionCacheDecision(
-      shouldReuse: shouldReuse,
+      reuseStrategy: reuseStrategy,
       trace: GemmaSessionCacheTrace(
         cacheMode: cacheMode,
         cacheReason: cacheReason,
@@ -867,6 +950,19 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       return .invalidatedToolSchemaChanged
     }
     return .invalidatedRenderedContextChanged
+  }
+
+  nonisolated private static func canReuseAppendOnlyDelta(
+    previousSignature: GemmaRenderedContextSignature?,
+    currentSignature: GemmaRenderedContextSignature
+  ) -> Bool {
+    guard let previousSignature else {
+      return false
+    }
+    return previousSignature.rendererVersion == currentSignature.rendererVersion
+      && previousSignature.projectionMode == currentSignature.projectionMode
+      && previousSignature.generationSettingsHash == currentSignature.generationSettingsHash
+      && previousSignature.nativeToolSchemaHash == currentSignature.nativeToolSchemaHash
   }
 
   nonisolated private static func historyMismatchReason(
@@ -1261,6 +1357,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       var firstChunkAt: Date?
       var didCompleteNaturally = false
       var didTerminateDownstream = false
+      var didEmitNativeToolCall = false
       defer {
         let memoryClearStartedAt = Date()
         Memory.clearCache()
@@ -1334,6 +1431,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           }
 
           if let toolCall = generation.toolCall {
+            didEmitNativeToolCall = true
             if case .terminated = continuation.yield(
               .toolCall(Self.chatRuntimeToolCall(from: toolCall))
             ) {
@@ -1402,7 +1500,11 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           return
         }
 
-        await markCompleted(output)
+        if didEmitNativeToolCall {
+          await markCancelled(.nativeToolCallBoundary)
+        } else {
+          await markCompleted(output)
+        }
         await GemmaDebugTraceStore.shared.traceResponse(
           id: traceID,
           output: output,

@@ -956,7 +956,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func cacheDecisionInvalidatesCleanAppendOnlyHistory() {
+  func cacheDecisionReusesCleanAppendOnlyHistoryAsDelta() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [
       .user("hello"),
@@ -976,14 +976,59 @@ struct GemmaMLXRuntimeTemplateTests {
       currentSettings: settings
     )
 
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedHistoryAppended)
+    #expect(decision.shouldReuse)
+    #expect(decision.reuseStrategy == .appendHistoryDelta(startIndex: 2))
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .appendOnlyDeltaReused)
     #expect(decision.trace.appendOnly)
     #expect(decision.trace.reusedMessageCount == 2)
     #expect(decision.trace.appendedMessageCount == 1)
-    #expect(decision.trace.mismatchReason == "history_appended")
-    #expect(decision.trace.firstMismatchIndex == 2)
+    #expect(decision.trace.mismatchReason == nil)
+    #expect(decision.trace.firstMismatchIndex == nil)
+  }
+
+  @Test
+  func cacheDecisionInvalidatesAppendOnlyHistoryWhenNativeToolSchemaChanges() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let appendedHistory = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+      .user("tool observation"),
+    ])
+    let readOnlyToolSchemaHash = GemmaMLXRuntime.nativeToolSchemaSignature(
+      for: ToolExecutorRegistry.readOnly.toolRegistry.tools
+    )
+    let codingToolSchemaHash = GemmaMLXRuntime.nativeToolSchemaSignature(
+      for: ToolExecutorRegistry.codingAgent.toolRegistry.tools
+    )
+    let cachedSignature = GemmaMLXRuntime.renderedContextSignature(
+      for: prefix,
+      settings: settings,
+      nativeToolSchemaHash: readOnlyToolSchemaHash
+    )
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedContextSignature: cachedSignature,
+      cachedState: .clean,
+      currentHistory: appendedHistory,
+      currentSettings: settings,
+      currentNativeToolSchemaHash: codingToolSchemaHash
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.reuseStrategy == .none)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.cacheReason == .invalidatedToolSchemaChanged)
+    #expect(decision.trace.appendOnly)
+    #expect(decision.trace.reusedMessageCount == 2)
+    #expect(decision.trace.appendedMessageCount == 1)
+    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
   }
 
   @Test
@@ -1013,6 +1058,28 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(decision.trace.appendOnly)
     #expect(decision.trace.reusedMessageCount == 2)
     #expect(decision.trace.appendedMessageCount == 1)
+    #expect(decision.trace.mismatchReason == nil)
+  }
+
+  @Test
+  func cacheDecisionReportsNativeToolCallBoundaryInvalidation() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("call a native tool")
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedState: .dirty(reason: .nativeToolCallBoundary),
+      currentHistory: prefix,
+      currentSettings: settings
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.reuseStrategy == .none)
+    #expect(decision.trace.cacheMode == .invalidatedNativeToolCallBoundary)
+    #expect(decision.trace.cacheReason == .invalidatedNativeToolCallBoundary)
     #expect(decision.trace.mismatchReason == nil)
   }
 
@@ -1355,6 +1422,55 @@ struct GemmaMLXRuntimeTemplateTests {
     try await waitUntilAsync {
       let firstReason = await recorder.firstReason
       return upstreamTask.isCancelled && firstReason == .downstreamTerminated
+    }
+  }
+
+  @Test
+  func modelStreamMarksNativeToolCallCompletionAsCacheBoundary() async throws {
+    let recorder = GemmaStreamInvalidationRecorder()
+    let toolCall = MLXLMCommon.ToolCall(
+      function: .init(
+        name: "read_file",
+        arguments: ["path": "README.md"]
+      )
+    )
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.toolCall(toolCall))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 1,
+            promptTime: 0.1,
+            generationTime: 0.1
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = GemmaMLXRuntime.modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { _ in
+        await recorder.record(.signatureMismatch)
+      },
+      markCancelled: { reason in
+        await recorder.record(reason)
+      }
+    )
+
+    var iterator = stream.makeAsyncIterator()
+    let firstEvent = try await iterator.next()
+    guard case .toolCall(let runtimeToolCall) = firstEvent else {
+      Issue.record("Expected native tool call to be forwarded to the chat runtime.")
+      return
+    }
+    #expect(runtimeToolCall.name == "read_file")
+
+    _ = try await iterator.next()
+    try await waitUntilAsync {
+      await recorder.firstReason == .nativeToolCallBoundary
     }
   }
 

@@ -32,6 +32,44 @@ final class LocalCoderUITests: XCTestCase {
   }
 
   @MainActor
+  func testChatFollowUpReusesRuntimeCache() throws {
+    let fixture = try launchFixture(readme: "Chat cache workspace\n")
+    let application = try launchApp(fixture: fixture)
+    defer {
+      application.terminate()
+    }
+
+    try loadSelectedModel(in: application)
+    try selectChatMode(in: application)
+
+    let firstBaseline = try sendPrompt(
+      "Reply with one short sentence about cache warmup.",
+      in: application
+    )
+    waitForCompletedTurn(in: application, after: firstBaseline)
+
+    let followUpTraceOffset = fileSize(at: fixture.traceURL)
+    let followUpBaseline = try sendPrompt(
+      "Reply with one short sentence confirming the follow-up.",
+      in: application
+    )
+    waitForCompletedTurn(in: application, after: followUpBaseline)
+    let followUpRows = try traceRows(
+      in: fixture.traceURL,
+      afterOffset: followUpTraceOffset
+    )
+
+    recordTraceSummary(followUpRows, expectedMode: "chat", label: "Chat cache reuse trace")
+    XCTAssertTrue(
+      followUpRows.containsRuntimeCacheMode(
+        cacheMode: "session_reused",
+        cacheReason: "session_reused"
+      ),
+      "A plain chat follow-up should reuse the loaded Gemma ChatSession cache."
+    )
+  }
+
+  @MainActor
   func testChatThenAgentModeCanUseWorkspaceContextWithoutEditingFiles() throws {
     let html = """
       <!doctype html>
@@ -194,6 +232,14 @@ final class LocalCoderUITests: XCTestCase {
     waitForCompletedTurn(in: application, after: baseline, timeout: 420)
     let rows = try traceRows(in: fixture.traceURL, afterOffset: traceOffset)
     recordTraceSummary(rows, expectedMode: "agent", label: "Read file cache trace")
+    XCTAssertFalse(
+      rows.containsToolLoopRuntimeCacheReason("invalidated_history_prefix_mismatch"),
+      "Gemma 4 native tool follow-ups should not be diagnosed as history prefix mismatches."
+    )
+    XCTAssertTrue(
+      rows.containsToolLoopRuntimeCacheReason("invalidated_native_tool_call_boundary"),
+      "Gemma 4 native tool calls should use a native tool-call cache boundary, not pseudo-XML."
+    )
   }
 
   @MainActor
@@ -458,11 +504,26 @@ final class LocalCoderUITests: XCTestCase {
             kinds=\(rows.map(\.kind).sorted().joined(separator: ", "))
             modes=\(Set(rows.compactMap(\.interactionMode)).sorted().joined(separator: ", "))
             toolNames=\(rows.compactMap(\.toolName).joined(separator: ", "))
+            cacheModes=\(traceCounts(rows.compactMap(\.cacheMode)))
+            cacheReasons=\(traceCounts(rows.compactMap(\.cacheReason)))
             tokenize_context_usage_rows=\(rows.tokenizeContextUsageCount)
             contains_required_kinds=\(rows.containsRequiredTraceKinds())
             """
         ))
     }
+  }
+
+  private func traceCounts(_ values: [String]) -> String {
+    Dictionary(grouping: values, by: { $0 })
+      .mapValues(\.count)
+      .sorted { lhs, rhs in
+        if lhs.value == rhs.value {
+          return lhs.key < rhs.key
+        }
+        return lhs.value > rhs.value
+      }
+      .map { "\($0.key)=\($0.value)" }
+      .joined(separator: ", ")
   }
 
   @MainActor
@@ -683,6 +744,18 @@ extension Array where Element == TraceRow {
       row.kind == "turn_trace"
         && row.phase == phase
         && row.toolLoopIteration == toolLoopIteration
+        && row.cacheMode == cacheMode
+        && row.cacheReason == cacheReason
+    }
+  }
+
+  fileprivate func containsRuntimeCacheMode(
+    cacheMode: String,
+    cacheReason: String
+  ) -> Bool {
+    contains { row in
+      row.kind == "turn_trace"
+        && row.phase?.hasPrefix("runtime_") == true
         && row.cacheMode == cacheMode
         && row.cacheReason == cacheReason
     }
