@@ -1,6 +1,5 @@
 import AppKit
 import LocalCoderCore
-import MarkdownUI
 import SwiftUI
 
 struct ChatTranscript: View {
@@ -74,14 +73,16 @@ struct ChatTranscript: View {
             id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
             item: item,
             toolCallRecord: nil,
-            generationMetrics: nil
+            generationMetrics: nil,
+            assistantRenderBlocks: []
           )
         case .assistantMessage(let message):
           return RenderedChatTurnItem(
             id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
             item: item,
             toolCallRecord: nil,
-            generationMetrics: message.generationMetrics
+            generationMetrics: message.generationMetrics,
+            assistantRenderBlocks: AssistantMessageRenderBlocks.blocks(for: message.content)
           )
         case .toolCall(let id):
           guard let record = recordsByID[id] else {
@@ -91,7 +92,8 @@ struct ChatTranscript: View {
             id: "\(turn.id.uuidString):\(offset):toolCall:\(id.uuidString)",
             item: item,
             toolCallRecord: record,
-            generationMetrics: turnGenerationMetrics
+            generationMetrics: turnGenerationMetrics,
+            assistantRenderBlocks: []
           )
         case .toolResult(let id):
           guard let record = recordsByID[id] else {
@@ -101,7 +103,8 @@ struct ChatTranscript: View {
             id: "\(turn.id.uuidString):\(offset):toolResult:\(id.uuidString)",
             item: item,
             toolCallRecord: record,
-            generationMetrics: turnGenerationMetrics
+            generationMetrics: turnGenerationMetrics,
+            assistantRenderBlocks: []
           )
         }
       }
@@ -118,6 +121,7 @@ private struct RenderedChatTurnItem: Identifiable, Equatable {
   let item: ChatTurnItem
   let toolCallRecord: ToolCallRecord?
   let generationMetrics: ChatGenerationMetrics?
+  let assistantRenderBlocks: [AssistantRenderBlock]
 }
 
 private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
@@ -762,6 +766,7 @@ private struct ChatBubble: View {
               item: item.item,
               toolCallRecord: item.toolCallRecord,
               generationMetrics: item.generationMetrics,
+              assistantRenderBlocks: item.assistantRenderBlocks,
               onApproveToolCall: onApproveToolCall,
               onDenyToolCall: onDenyToolCall
             )
@@ -912,6 +917,7 @@ private struct MessageContentText: View {
   let item: ChatTurnItem
   let toolCallRecord: ToolCallRecord?
   let generationMetrics: ChatGenerationMetrics?
+  let assistantRenderBlocks: [AssistantRenderBlock]
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
 
@@ -936,130 +942,12 @@ private struct MessageContentText: View {
           generationMetrics: generationMetrics
         )
       }
-    case .assistantMessage(let message):
-      AssistantMessageContent(message: message)
+    case .assistantMessage:
+      AssistantMessageContent(blocks: assistantRenderBlocks)
     case .userMessage(let message):
       Text(message.content)
     }
   }
-}
-
-private struct AssistantMessageContent: View {
-  let message: AssistantTurnMessage
-
-  private var blocks: [AssistantRenderBlock] {
-    AssistantRenderBlockParser().parse(
-      AssistantMarkdownPreprocessor.renderableContent(for: message.content)
-    )
-  }
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      ForEach(blocks) { block in
-        switch block {
-        case .paragraph(let paragraph):
-          Markdown(paragraph.text)
-            .markdownTheme(.chatMessage)
-        case .codeBlock(let codeBlock):
-          CodeBlockView(codeBlock: codeBlock)
-        }
-      }
-    }
-  }
-}
-
-private struct CodeBlockView: View {
-  let codeBlock: AssistantRenderBlock.CodeBlock
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      if let language = codeBlock.language, !language.isEmpty {
-        Text(language)
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-          .padding(.horizontal, 10)
-          .padding(.vertical, 6)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .background(Color.secondary.opacity(0.12))
-      }
-
-      ScrollView(.horizontal, showsIndicators: false) {
-        Text(visibleCodeText)
-          .font(.system(.body, design: .monospaced))
-          .foregroundStyle(.primary)
-          .textSelection(.enabled)
-          .fixedSize(horizontal: true, vertical: false)
-          .padding(10)
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    .background(Color.secondary.opacity(0.08))
-    .clipShape(RoundedRectangle(cornerRadius: 8))
-    .overlay {
-      RoundedRectangle(cornerRadius: 8)
-        .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-    }
-  }
-
-  private var visibleCodeText: String {
-    if codeBlock.text.isEmpty {
-      return " "
-    }
-    return codeBlock.text
-  }
-}
-
-extension Theme {
-  static let chatMessage = Theme()
-    .text {
-      ForegroundColor(.primary)
-      FontSize(13)
-    }
-    .code {
-      FontFamilyVariant(.monospaced)
-      FontSize(.em(0.92))
-      ForegroundColor(.primary)
-      BackgroundColor(.secondary.opacity(0.16))
-    }
-    .link {
-      ForegroundColor(.accentColor)
-      UnderlineStyle(.single)
-    }
-    .paragraph { configuration in
-      configuration.label
-        .relativeLineSpacing(.em(0.2))
-        .markdownMargin(top: 0, bottom: 8)
-    }
-    .listItem { configuration in
-      configuration.label
-        .markdownMargin(top: 2, bottom: 2)
-    }
-    .blockquote { configuration in
-      HStack(spacing: 0) {
-        Rectangle()
-          .fill(Color.secondary.opacity(0.45))
-          .frame(width: 3)
-        configuration.label
-          .padding(.leading, 8)
-          .markdownTextStyle {
-            ForegroundColor(.secondary)
-          }
-      }
-      .markdownMargin(top: 4, bottom: 8)
-    }
-    .codeBlock { configuration in
-      ScrollView(.horizontal, showsIndicators: true) {
-        configuration.label
-          .markdownTextStyle {
-            FontFamilyVariant(.monospaced)
-            FontSize(.em(0.92))
-            BackgroundColor(nil)
-          }
-          .padding(10)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-      .markdownMargin(top: 4, bottom: 8)
-    }
 }
 
 extension ChatGenerationMetrics {
