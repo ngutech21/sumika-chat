@@ -1426,8 +1426,149 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func modelStreamMemoryClearPolicyClearsOnlyDirtyRuntimeState() {
+    #expect(GemmaMLXRuntime.memoryClearReason(for: .completed) == nil)
+    #expect(GemmaMLXRuntime.memoryClearReason(for: .downstreamTerminated) == nil)
+    #expect(GemmaMLXRuntime.memoryClearReason(for: .cancelled) == nil)
+    #expect(GemmaMLXRuntime.memoryClearReason(for: .nativeToolCallBoundary) == nil)
+    #expect(GemmaMLXRuntime.memoryClearReason(for: .runtimeError) == .runtimeError)
+    #expect(GemmaMLXRuntime.memoryClearReason(for: .interruptedStream) == .interruptedStream)
+  }
+
+  @Test
+  func completedModelStreamDoesNotClearMemoryCache() async throws {
+    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("done"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 1,
+            promptTime: 0.1,
+            generationTime: 0.1
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = GemmaMLXRuntime.modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    try await drainModelStream(stream)
+
+    #expect(await memoryClearRecorder.reasons.isEmpty)
+  }
+
+  @Test
+  func cancellationModelStreamDoesNotClearMemoryCache() async throws {
+    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("partial"))
+      continuation.finish(throwing: CancellationError())
+    }
+    let stream = GemmaMLXRuntime.modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    do {
+      try await drainModelStream(stream)
+      Issue.record("Expected cancellation to propagate from model stream.")
+    } catch is CancellationError {
+      #expect(await memoryClearRecorder.reasons.isEmpty)
+    }
+  }
+
+  @Test
+  func runtimeErrorModelStreamClearsMemoryCache() async throws {
+    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("partial"))
+      continuation.finish(throwing: GemmaTestStreamError())
+    }
+    let stream = GemmaMLXRuntime.modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    do {
+      try await drainModelStream(stream)
+      Issue.record("Expected runtime error to propagate from model stream.")
+    } catch is GemmaTestStreamError {
+      #expect(await memoryClearRecorder.reasons == [.runtimeError])
+    }
+  }
+
+  @Test
+  func interruptedModelStreamClearsMemoryCache() async throws {
+    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("partial"))
+      continuation.finish()
+    }
+    let stream = GemmaMLXRuntime.modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    do {
+      try await drainModelStream(stream)
+      Issue.record("Expected interrupted stream to throw.")
+    } catch GemmaMLXRuntimeError.interruptedStream {
+      #expect(await memoryClearRecorder.reasons == [.interruptedStream])
+    } catch {
+      Issue.record("Expected interrupted stream error, got \(error).")
+    }
+  }
+
+  @Test
+  func unloadAndClearContextClearMemoryCacheWithExplicitReasons() async {
+    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let runtime = GemmaMLXRuntime(
+      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      })
+
+    await runtime.unload()
+    await runtime.clearContext()
+
+    #expect(await memoryClearRecorder.reasons == [.unload, .clearContext])
+  }
+
+  @Test
   func modelStreamMarksNativeToolCallCompletionAsCacheBoundary() async throws {
     let recorder = GemmaStreamInvalidationRecorder()
+    let memoryClearRecorder = GemmaMemoryClearRecorder()
     let toolCall = MLXLMCommon.ToolCall(
       function: .init(
         name: "read_file",
@@ -1457,6 +1598,9 @@ struct GemmaMLXRuntimeTemplateTests {
       },
       markCancelled: { reason in
         await recorder.record(reason)
+      },
+      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
       }
     )
 
@@ -1472,6 +1616,7 @@ struct GemmaMLXRuntimeTemplateTests {
     try await waitUntilAsync {
       await recorder.firstReason == .nativeToolCallBoundary
     }
+    #expect(await memoryClearRecorder.reasons.isEmpty)
   }
 
   @Test
@@ -1604,6 +1749,13 @@ struct GemmaMLXRuntimeTemplateTests {
     }
   }
 
+  private func drainModelStream(
+    _ stream: AsyncThrowingStream<ChatModelStreamEvent, Error>
+  ) async throws {
+    var iterator = stream.makeAsyncIterator()
+    while try await iterator.next() != nil {}
+  }
+
   private func projectedEntries(
     from entries: [ModelContextEntry]
   ) -> [ProjectedModelContextEntry] {
@@ -1683,6 +1835,20 @@ private actor GemmaStreamInvalidationRecorder {
     reasons.append(reason)
   }
 }
+
+private actor GemmaMemoryClearRecorder {
+  private var recordedReasons: [GemmaMemoryClearReason] = []
+
+  var reasons: [GemmaMemoryClearReason] {
+    recordedReasons
+  }
+
+  func record(_ reason: GemmaMemoryClearReason) {
+    recordedReasons.append(reason)
+  }
+}
+
+private struct GemmaTestStreamError: Error {}
 
 private struct GemmaStreamWaitTimeoutError: Error {}
 

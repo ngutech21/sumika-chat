@@ -1273,6 +1273,7 @@ Properties:
 - `firstMismatchIndex: Int?`
 - `generationID: UUID?`
 - `interactionMode: WorkspaceInteractionMode?`
+- `memoryClearReason: String?`
 - `messageCount: Int?`
 - `mismatchReason: String?`
 - `phase: TurnTracePhase`

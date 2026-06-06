@@ -28,6 +28,34 @@ nonisolated enum GemmaMLXRuntimeError: LocalizedError {
   }
 }
 
+nonisolated enum GemmaMemoryClearReason: String, Equatable, Sendable {
+  case unload
+  case clearContext = "clear_context"
+  case runtimeError = "runtime_error"
+  case interruptedStream = "interrupted_stream"
+}
+
+nonisolated enum GemmaModelStreamTermination: Equatable, Sendable {
+  case completed
+  case downstreamTerminated
+  case cancelled
+  case nativeToolCallBoundary
+  case runtimeError
+  case interruptedStream
+}
+
+nonisolated struct GemmaMemoryCacheClearer: Sendable {
+  static let live = GemmaMemoryCacheClearer { _ in
+    Memory.clearCache()
+  }
+
+  let clearCache: @Sendable (GemmaMemoryClearReason) async -> Void
+
+  init(_ clearCache: @escaping @Sendable (GemmaMemoryClearReason) async -> Void) {
+    self.clearCache = clearCache
+  }
+}
+
 nonisolated enum GemmaSessionCacheMode: String, Equatable, Sendable {
   case newSessionHistory = "new_session_history"
   case sessionReused = "session_reused"
@@ -351,6 +379,11 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   private var generationOwnership = GemmaGenerationOwnership()
   private var activeGenerationRegistry = GemmaActiveGenerationRegistry()
   private var activeCompletionContext: ActiveGemmaCompletionContext?
+  private let memoryCacheClearer: GemmaMemoryCacheClearer
+
+  init(memoryCacheClearer: GemmaMemoryCacheClearer = .live) {
+    self.memoryCacheClearer = memoryCacheClearer
+  }
 
   func load(configuration: ChatModelConfiguration) async throws {
     #if !arch(arm64)
@@ -379,12 +412,24 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     invalidateCachedSession(reason: .modelChanged)
     modelContainer = nil
     contextTokenLimit = nil
-    Memory.clearCache()
+    await Self.clearMemoryCache(
+      reason: .unload,
+      traceID: nil,
+      traceMetadata: TurnTraceContext.current,
+      cacheTrace: nil,
+      memoryCacheClearer: memoryCacheClearer
+    )
   }
 
   func clearContext() async {
     invalidateCachedSession(reason: .signatureMismatch)
-    Memory.clearCache()
+    await Self.clearMemoryCache(
+      reason: .clearContext,
+      traceID: nil,
+      traceMetadata: TurnTraceContext.current,
+      cacheTrace: nil,
+      memoryCacheClearer: memoryCacheClearer
+    )
   }
 
   func generatedTokenCount(for text: String) async throws -> Int {
@@ -1328,7 +1373,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: GemmaSessionCacheTrace,
     markCompleted: @escaping @Sendable (String) async -> Void,
-    markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void
+    markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void,
+    memoryCacheClearer: GemmaMemoryCacheClearer = .live
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     modelStreamPlan(
       from: stream,
@@ -1336,7 +1382,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       traceMetadata: traceMetadata,
       cacheTrace: cacheTrace,
       markCompleted: markCompleted,
-      markCancelled: markCancelled
+      markCancelled: markCancelled,
+      memoryCacheClearer: memoryCacheClearer
     ).stream
   }
 
@@ -1346,7 +1393,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: GemmaSessionCacheTrace,
     markCompleted: @escaping @Sendable (String) async -> Void,
-    markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void
+    markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void,
+    memoryCacheClearer: GemmaMemoryCacheClearer = .live
   ) -> GemmaModelStreamPlan {
     let (outputStream, continuation) = AsyncThrowingStream<ChatModelStreamEvent, Error>
       .makeStream(bufferingPolicy: .unbounded)
@@ -1358,36 +1406,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       var didCompleteNaturally = false
       var didTerminateDownstream = false
       var didEmitNativeToolCall = false
-      defer {
-        let memoryClearStartedAt = Date()
-        Memory.clearCache()
-        if let traceMetadata {
-          let durationMs = Date().timeIntervalSince(memoryClearStartedAt) * 1000
-          Task {
-            await traceMetadata.tracer.recordTurnTraceEvent(
-              TurnTraceEvent(
-                turnID: traceMetadata.turnID,
-                generationID: traceID,
-                phase: .memoryClear,
-                durationMs: durationMs,
-                toolLoopIteration: traceMetadata.toolLoopIteration,
-                cacheMode: cacheTrace.cacheMode.rawValue,
-                cacheReason: cacheTrace.cacheReason.rawValue,
-                interactionMode: traceMetadata.interactionMode,
-                contextSignature: cacheTrace.contextSignature,
-                previousContextSignature: cacheTrace.previousContextSignature,
-                appendOnly: cacheTrace.appendOnly,
-                reusedMessageCount: cacheTrace.reusedMessageCount,
-                appendedMessageCount: cacheTrace.appendedMessageCount,
-                mismatchReason: cacheTrace.mismatchReason,
-                firstMismatchIndex: cacheTrace.firstMismatchIndex,
-                systemPromptChanged: cacheTrace.systemPromptChanged,
-                currentPromptContextChanged: cacheTrace.currentPromptContextChanged
-              )
-            )
-          }
-        }
-      }
 
       do {
         generationLoop: for try await generation in stream {
@@ -1490,6 +1508,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         if !didCompleteNaturally {
           let error = GemmaMLXRuntimeError.interruptedStream
           await markCancelled(.interrupted)
+          if let memoryClearReason = memoryClearReason(for: .interruptedStream) {
+            await clearMemoryCache(
+              reason: memoryClearReason,
+              traceID: traceID,
+              traceMetadata: traceMetadata,
+              cacheTrace: cacheTrace,
+              memoryCacheClearer: memoryCacheClearer
+            )
+          }
           await GemmaDebugTraceStore.shared.traceResponse(
             id: traceID,
             output: output,
@@ -1522,6 +1549,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         continuation.finish(throwing: CancellationError())
       } catch {
         await markCancelled(.runtimeError)
+        if let memoryClearReason = memoryClearReason(for: .runtimeError) {
+          await clearMemoryCache(
+            reason: memoryClearReason,
+            traceID: traceID,
+            traceMetadata: traceMetadata,
+            cacheTrace: cacheTrace,
+            memoryCacheClearer: memoryCacheClearer
+          )
+        }
         await GemmaDebugTraceStore.shared.traceResponse(
           id: traceID,
           output: output,
@@ -1544,6 +1580,56 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
 
     return GemmaModelStreamPlan(stream: outputStream, task: task)
+  }
+
+  nonisolated static func memoryClearReason(
+    for termination: GemmaModelStreamTermination
+  ) -> GemmaMemoryClearReason? {
+    switch termination {
+    case .runtimeError:
+      .runtimeError
+    case .interruptedStream:
+      .interruptedStream
+    case .completed, .downstreamTerminated, .cancelled, .nativeToolCallBoundary:
+      nil
+    }
+  }
+
+  nonisolated private static func clearMemoryCache(
+    reason: GemmaMemoryClearReason,
+    traceID: UUID?,
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: GemmaSessionCacheTrace?,
+    memoryCacheClearer: GemmaMemoryCacheClearer
+  ) async {
+    let memoryClearStartedAt = Date()
+    await memoryCacheClearer.clearCache(reason)
+    let durationMs = Date().timeIntervalSince(memoryClearStartedAt) * 1000
+    let event = TurnTraceEvent(
+      turnID: traceMetadata?.turnID,
+      generationID: traceID ?? traceMetadata?.generationID,
+      phase: .memoryClear,
+      durationMs: durationMs,
+      toolLoopIteration: traceMetadata?.toolLoopIteration,
+      cacheMode: cacheTrace?.cacheMode.rawValue,
+      cacheReason: cacheTrace?.cacheReason.rawValue,
+      memoryClearReason: reason.rawValue,
+      interactionMode: traceMetadata?.interactionMode,
+      contextSignature: cacheTrace?.contextSignature,
+      previousContextSignature: cacheTrace?.previousContextSignature,
+      appendOnly: cacheTrace?.appendOnly,
+      reusedMessageCount: cacheTrace?.reusedMessageCount,
+      appendedMessageCount: cacheTrace?.appendedMessageCount,
+      mismatchReason: cacheTrace?.mismatchReason,
+      firstMismatchIndex: cacheTrace?.firstMismatchIndex,
+      systemPromptChanged: cacheTrace?.systemPromptChanged,
+      currentPromptContextChanged: cacheTrace?.currentPromptContextChanged
+    )
+    if let traceMetadata {
+      await traceMetadata.tracer.recordTurnTraceEvent(event)
+    } else {
+      await GemmaDebugTraceStore.shared.traceTurnEvent(event)
+    }
   }
 
   nonisolated static func templateMessages(

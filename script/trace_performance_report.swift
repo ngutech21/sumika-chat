@@ -28,6 +28,7 @@ struct GenerationReport: Codable {
   var decodeMs: Double?
   var partialDecodeMs: Double?
   var memoryClearMs: Double?
+  var memoryClearReason: String?
   var uiFlushCount: Int
   var uiFlushMs: Double
   var generatedTokenCount: Int?
@@ -177,6 +178,8 @@ func mergeTraceFields(_ object: [String: Any], into report: inout GenerationRepo
     report.cacheReason
     ?? value(object, "cacheReason", as: String.self)
     ?? value(object, "mismatchReason", as: String.self)
+  report.memoryClearReason =
+    report.memoryClearReason ?? value(object, "memoryClearReason", as: String.self)
   report.contextSignature =
     report.contextSignature ?? value(object, "contextSignature", as: String.self)
   report.previousContextSignature =
@@ -209,8 +212,8 @@ func markdown(_ report: PerformanceReport) -> String {
     "- Rows: \(report.rowCount)",
     "- Generations: \(report.generationCount)",
     "",
-    "| # | Mode | Iter | Cache | Reason | TTFT ms | Decode ms | tok/s | Prompt bytes | Error |",
-    "|---:|---|---:|---|---|---:|---:|---:|---:|---|",
+    "| # | Mode | Iter | Cache | Reason | Memory clear | TTFT ms | Decode ms | tok/s | Prompt bytes | Error |",
+    "|---:|---|---:|---|---|---|---:|---:|---:|---:|---|",
   ]
 
   for (index, generation) in report.generations.enumerated() {
@@ -221,6 +224,7 @@ func markdown(_ report: PerformanceReport) -> String {
         generation.toolLoopIteration.map(String.init) ?? "-",
         generation.cacheMode ?? "-",
         generation.cacheReason ?? "-",
+        generation.memoryClearReason ?? "-",
         formatted(generation.ttftMs),
         formatted(generation.decodeMs),
         formatted(generation.tokensPerSecond),
