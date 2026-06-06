@@ -60,15 +60,19 @@ struct ToolDefinitionSchemaTests {
     let editDefinition = ToolDefinition.editFile
 
     #expect(writeDefinition.description.contains("fully overwrite"))
-    #expect(writeDefinition.description.contains("not for small targeted edits"))
     #expect(writeDefinition.parameters.first { $0.name == "content" }?.valueType == .string)
+    #expect(
+      writeDefinition.parameters.first { $0.name == "content" }?.description.contains(
+        "Replaces the entire file") == true)
     #expect(
       writeDefinition.parameters.first { $0.name == "content" }?.supportsHeredocPayload == true)
 
-    #expect(editDefinition.description.contains("after reading the current file content"))
-    #expect(editDefinition.description.contains("old_text must be copied exactly"))
+    #expect(editDefinition.description.contains("exact text span"))
     #expect(editDefinition.functionSchema.parameters.required == ["path", "old_text", "new_text"])
     #expect(editDefinition.parameters.first { $0.name == "old_text" }?.valueType == .string)
+    #expect(
+      editDefinition.parameters.first { $0.name == "old_text" }?.description.contains(
+        "Must match once") == true)
     #expect(
       editDefinition.parameters.first { $0.name == "old_text" }?.supportsHeredocPayload == true)
   }
@@ -78,13 +82,9 @@ struct ToolDefinitionSchemaTests {
     let definition = ToolDefinition.runCommand
     let schema = definition.functionSchema
 
-    #expect(definition.description.contains("after explicit user approval"))
+    #expect(definition.description.contains("approved foreground shell command"))
     #expect(definition.capabilities == [.runCommand])
     #expect(definition.riskLevel == .high)
-    #expect(
-      definition.parameters.first { $0.name == "command" }?.description.contains("./tmp") == true)
-    #expect(
-      definition.parameters.first { $0.name == "command" }?.description.contains("--") == true)
     #expect(schema.parameters.required == ["command", "timeoutSeconds"])
     #expect(schema.parameters.properties["command"]?.type == .string)
     #expect(schema.parameters.properties["timeoutSeconds"]?.type == .integer)
@@ -147,7 +147,43 @@ struct ToolDefinitionSchemaTests {
     #expect(schema.parameters.required == ["path"])
     #expect(
       schema.parameters.properties["path"]?.description
-        == "Workspace-relative path to the text file to read, e.g. Sources/App.swift.")
+        == "Workspace-relative file path.")
+  }
+
+  @Test
+  func functionSchemaDescriptionsStayCompactAndNativeOnly() {
+    let definitions = ToolExecutorRegistry.codingAgent.definitions
+    let forbiddenFragments = ["<action", "delimiter", "heredoc", "LC_PAYLOAD_V1"]
+
+    for definition in definitions {
+      let schema = definition.functionSchema
+      #expect(schema.description.count <= 80)
+      for fragment in forbiddenFragments {
+        #expect(!schema.description.contains(fragment))
+      }
+
+      for property in schema.parameters.properties.values {
+        #expect(property.description.count <= 90)
+        for fragment in forbiddenFragments {
+          #expect(!property.description.contains(fragment))
+        }
+      }
+    }
+  }
+
+  @Test
+  func optionalRootScopedPathDescriptionsExposeDefaults() {
+    let rootDefaultTools = [
+      ToolDefinition.listFiles,
+      ToolDefinition.globFiles,
+      ToolDefinition.searchFiles,
+      ToolDefinition.workspaceDiff,
+    ]
+
+    for definition in rootDefaultTools {
+      let path = definition.functionSchema.parameters.properties["path"]
+      #expect(path?.description.contains("Defaults to root") == true)
+    }
   }
 
   @Test

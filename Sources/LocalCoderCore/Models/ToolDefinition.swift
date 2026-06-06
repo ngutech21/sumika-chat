@@ -216,24 +216,23 @@ nonisolated extension ToolDefinition {
 
   public static let readFile = ToolDefinition(
     name: .readFile,
-    description:
-      "Read a workspace text file into model context and return its current content with line numbers. Use this when you need the file content to answer, analyze, or edit. Use workspace-relative paths.",
+    description: "Read workspace file lines into context.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
-        description: "Workspace-relative path to the text file to read, e.g. Sources/App.swift.",
+        description: "Workspace-relative file path.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "offset",
-        description: "Optional 1-based start line for reading a focused window.",
+        description: "1-based start line.",
         isRequired: false,
         valueType: .integer,
         minimum: 1
       ),
       ToolParameterDefinition(
         name: "limit",
-        description: "Optional maximum number of lines to return.",
+        description: "Maximum lines to return.",
         isRequired: false,
         valueType: .integer,
         minimum: 1
@@ -252,24 +251,23 @@ nonisolated extension ToolDefinition {
 
   public static let showFile = ToolDefinition(
     name: .showFile,
-    description:
-      "Display a workspace text file directly to the user. Use this only when the user asks to show, open, print, or display file contents without asking for explanation or analysis. Use workspace-relative paths.",
+    description: "Display workspace file lines to the user.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
-        description: "Workspace-relative path to the text file to display, e.g. Sources/App.swift.",
+        description: "Workspace-relative file path.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "offset",
-        description: "Optional 1-based start line for displaying a focused window.",
+        description: "1-based start line.",
         isRequired: false,
         valueType: .integer,
         minimum: 1
       ),
       ToolParameterDefinition(
         name: "limit",
-        description: "Optional maximum number of lines to display.",
+        description: "Maximum lines to display.",
         isRequired: false,
         valueType: .integer,
         minimum: 1
@@ -288,12 +286,11 @@ nonisolated extension ToolDefinition {
 
   public static let listFiles = ToolDefinition(
     name: .listFiles,
-    description:
-      "List files inside a workspace directory. Use this to inspect nearby files before choosing a path.",
+    description: "List files in a workspace directory.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
-        description: "Workspace-relative directory path. Defaults to the workspace root.",
+        description: "Workspace-relative directory path. Defaults to root.",
         isRequired: false
       )
     ],
@@ -308,18 +305,16 @@ nonisolated extension ToolDefinition {
 
   public static let globFiles = ToolDefinition(
     name: .globFiles,
-    description:
-      "Find workspace files matching a glob pattern. Use this when the file name or extension is known.",
+    description: "Find workspace files by glob.",
     parameters: [
       ToolParameterDefinition(
         name: "pattern",
-        description: "Glob pattern to match workspace-relative paths, such as **/*.swift.",
+        description: "Glob pattern for workspace-relative paths.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "path",
-        description:
-          "Optional workspace-relative directory path to search. Defaults to the workspace root.",
+        description: "Workspace-relative search directory. Defaults to root.",
         isRequired: false
       ),
     ],
@@ -335,24 +330,21 @@ nonisolated extension ToolDefinition {
 
   public static let searchFiles = ToolDefinition(
     name: .searchFiles,
-    description:
-      "Search workspace text files for a regex or literal pattern. Use this to find code content before reading or editing a file.",
+    description: "Search workspace text files.",
     parameters: [
       ToolParameterDefinition(
         name: "pattern",
-        description:
-          "Regex pattern to search for. Invalid regex values are treated as literal text.",
+        description: "Regex or literal search pattern.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "path",
-        description:
-          "Optional workspace-relative directory path to search. Defaults to the workspace root.",
+        description: "Workspace-relative search directory. Defaults to root.",
         isRequired: false
       ),
       ToolParameterDefinition(
         name: "include",
-        description: "Optional glob filter for file names, such as *.swift.",
+        description: "Glob file-name filter.",
         isRequired: false
       ),
     ],
@@ -369,13 +361,11 @@ nonisolated extension ToolDefinition {
 
   public static let workspaceDiff = ToolDefinition(
     name: .workspaceDiff,
-    description:
-      "Show current workspace changes using Git status and diff. Read-only. Use this after edits to review what changed. Optionally scope to one workspace-relative path.",
+    description: "Show current Git status and diff.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
-        description:
-          "Optional workspace-relative path to scope the diff, e.g. Sources/App.swift. Defaults to the whole workspace.",
+        description: "Workspace-relative path to scope the diff. Defaults to root.",
         isRequired: false
       )
     ],
@@ -390,17 +380,16 @@ nonisolated extension ToolDefinition {
 
   public static let writeFile = ToolDefinition(
     name: .writeFile,
-    description:
-      "Create or fully overwrite a workspace text file with complete UTF-8 content. Use this for new files or intentional full-file replacement, not for small targeted edits to existing files.",
+    description: "Create or fully overwrite a workspace text file.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
-        description: "Workspace-relative path to create or fully overwrite.",
+        description: "Workspace-relative file path.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "content",
-        description: "Complete UTF-8 file content to write. This replaces the entire file.",
+        description: "Complete UTF-8 content. Replaces the entire file.",
         isRequired: true,
         supportsHeredocPayload: true
       ),
@@ -420,24 +409,22 @@ nonisolated extension ToolDefinition {
 
   public static let editFile = ToolDefinition(
     name: .editFile,
-    description:
-      "Edit an existing workspace text file by replacing one exact old_text span with new_text. Use this for targeted changes after reading the current file content; old_text must be copied exactly and match once.",
+    description: "Replace one exact text span in an existing workspace file.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
-        description: "Workspace-relative path to the existing file to edit.",
+        description: "Workspace-relative existing file path.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "old_text",
-        description:
-          "Exact UTF-8 text copied from the current file content. Include enough surrounding context so it matches exactly once.",
+        description: "Exact current text. Must match once.",
         isRequired: true,
         supportsHeredocPayload: true
       ),
       ToolParameterDefinition(
         name: "new_text",
-        description: "Replacement UTF-8 text. Must be different from old_text.",
+        description: "Replacement UTF-8 text.",
         isRequired: true,
         supportsHeredocPayload: true
       ),
@@ -461,18 +448,16 @@ nonisolated extension ToolDefinition {
 
   public static let runCommand = ToolDefinition(
     name: .runCommand,
-    description:
-      "Run a foreground shell command in the active workspace root after explicit user approval. Use this for build, test, lint, and project scripts when structured file tools are not sufficient.",
+    description: "Run an approved foreground shell command in the workspace root.",
     parameters: [
       ToolParameterDefinition(
         name: "command",
-        description:
-          "Exact shell command to run from the workspace root. For destructive commands, prefer explicit workspace-relative operands such as ./tmp and use -- before path operands when supported.",
+        description: "Exact shell command to run.",
         isRequired: true
       ),
       ToolParameterDefinition(
         name: "timeoutSeconds",
-        description: "Required timeout in seconds. Values are clamped to the supported range.",
+        description: "Timeout in seconds.",
         isRequired: true,
         valueType: .integer,
         minimum: 1,
@@ -480,7 +465,7 @@ nonisolated extension ToolDefinition {
       ),
       ToolParameterDefinition(
         name: "reason",
-        description: "Optional short reason for running this command.",
+        description: "Short reason.",
         isRequired: false
       ),
     ],
@@ -497,13 +482,11 @@ nonisolated extension ToolDefinition {
 
   public static let todoWrite = ToolDefinition(
     name: .todoWrite,
-    description:
-      "Update the current Agent todo plan for multi-step coding tasks. Use only in Agent mode when tracking 2 to 6 short, reviewable steps; keep at most one item inProgress.",
+    description: "Update the Agent todo plan.",
     parameters: [
       ToolParameterDefinition(
         name: "items",
-        description:
-          "JSON array string with 2 to 6 todo objects. Do not send a single object or a one-item array. Each object must have id, content, and status, for example [{\"id\":\"setup\",\"content\":\"Create project structure\",\"status\":\"inProgress\"},{\"id\":\"verify\",\"content\":\"Run tests\",\"status\":\"pending\"}].",
+        description: "JSON array string with 2 to 6 todo objects: id, content, status.",
         isRequired: true,
         valueType: .string,
         supportsHeredocPayload: true
