@@ -13,53 +13,29 @@ struct ChatTranscript: View {
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
 
   var body: some View {
-    ScrollViewReader { scrollProxy in
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 12) {
-          if transcriptItems.isEmpty {
-            ContentUnavailableView(
-              emptyStateTitle,
-              systemImage: "bubble.left.and.bubble.right",
-              description: Text(emptyStateDescription)
-            )
-            .frame(maxWidth: .infinity, minHeight: 360)
-            .accessibilityIdentifier("chat.emptyState")
-          } else {
-            ForEach(transcriptItems) { item in
-              ChatBubble(
-                item: item,
-                onApproveToolCall: onApproveToolCall,
-                onDenyToolCall: onDenyToolCall
-              )
-            }
-
-            if shouldShowTranscriptGenerationIndicator {
-              TranscriptGenerationIndicator()
-            }
-          }
-
-          Color.clear
-            .frame(height: 1)
-            .id(Self.bottomAnchorID)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    if transcriptItems.isEmpty {
+      ZStack {
+        ContentUnavailableView(
+          emptyStateTitle,
+          systemImage: "bubble.left.and.bubble.right",
+          description: Text(emptyStateDescription)
+        )
+        .frame(maxWidth: .infinity, minHeight: 360)
+        .accessibilityIdentifier("chat.emptyState")
       }
       .accessibilityIdentifier("chat.transcript")
       .accessibilityValue(modelState.accessibilityValue)
-      .onAppear {
-        scrollToBottom(with: scrollProxy, animated: false)
-      }
-      .onChange(of: scrollSignature) {
-        scrollToBottom(with: scrollProxy)
-      }
-      .onChange(of: isGenerating) {
-        scrollToBottom(with: scrollProxy)
-      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else {
+      ChatTranscriptTableRepresentable(
+        items: transcriptItems,
+        showsGenerationIndicator: shouldShowTranscriptGenerationIndicator,
+        accessibilityValue: modelState.accessibilityValue,
+        onApproveToolCall: onApproveToolCall,
+        onDenyToolCall: onDenyToolCall
+      )
     }
   }
-
-  private static let bottomAnchorID = "chat.transcript.bottom"
 
   private var emptyStateTitle: String {
     switch modelState {
@@ -135,59 +111,400 @@ struct ChatTranscript: View {
   private var shouldShowTranscriptGenerationIndicator: Bool {
     isGenerating && !transcriptItems.contains { $0.shouldShowAssistantPlaceholder }
   }
+}
 
-  private var scrollSignature: String {
-    let turnSignature = turns.map { turn in
-      let itemSignature = turn.items.map { item in
-        switch item {
-        case .userMessage(let message):
-          return
-            "user:\(message.id.uuidString):\(message.content.count):\(message.attachments.count)"
-        case .assistantMessage(let message):
-          return [
-            "assistant",
-            message.id.uuidString,
-            "\(message.content.count)",
-            message.deliveryStatus.rawValue,
-            "\(message.generationMetrics?.generatedTokenCount ?? 0)",
-          ].joined(separator: ":")
-        case .toolCall(let id):
-          return "toolCall:\(id.uuidString)"
-        case .toolResult(let id):
-          return "toolResult:\(id.uuidString)"
-        }
-      }
-      .joined(separator: ",")
-      return "\(turn.id.uuidString):\(turn.status.rawValue):\(itemSignature)"
-    }
-    .joined(separator: "|")
+private struct RenderedChatTurnItem: Identifiable, Equatable {
+  let id: String
+  let item: ChatTurnItem
+  let toolCallRecord: ToolCallRecord?
+  let generationMetrics: ChatGenerationMetrics?
+}
 
-    let toolSignature = toolCalls.map { record in
-      "\(record.id.uuidString):\(record.status.rawValue)"
-    }
-    .joined(separator: "|")
+private struct ChatTranscriptTableRepresentable: NSViewRepresentable {
+  let items: [RenderedChatTurnItem]
+  let showsGenerationIndicator: Bool
+  let accessibilityValue: String
+  let onApproveToolCall: (ToolCallRecord.ID) -> Void
+  let onDenyToolCall: (ToolCallRecord.ID) -> Void
 
-    return "\(turnSignature)#\(toolSignature)#generating:\(isGenerating)"
+  func makeCoordinator() -> Coordinator {
+    Coordinator(
+      items: items,
+      showsGenerationIndicator: showsGenerationIndicator,
+      onApproveToolCall: onApproveToolCall,
+      onDenyToolCall: onDenyToolCall
+    )
   }
 
-  private func scrollToBottom(with scrollProxy: ScrollViewProxy, animated: Bool = true) {
-    Task { @MainActor in
-      if animated {
-        withAnimation(.easeOut(duration: 0.18)) {
-          scrollProxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+  func makeNSView(context: Context) -> NSScrollView {
+    let scrollView = ChatTranscriptScrollView()
+    scrollView.onLayout = { [weak coordinator = context.coordinator] in
+      coordinator?.updateColumnWidth()
+    }
+    scrollView.hasVerticalScroller = true
+    scrollView.hasHorizontalScroller = false
+    scrollView.drawsBackground = false
+    scrollView.autohidesScrollers = true
+    scrollView.borderType = .noBorder
+    scrollView.translatesAutoresizingMaskIntoConstraints = false
+    scrollView.setAccessibilityIdentifier("chat.transcript")
+    scrollView.setAccessibilityValue(accessibilityValue)
+
+    let tableView = NSTableView()
+    tableView.headerView = nil
+    tableView.backgroundColor = .clear
+    tableView.gridStyleMask = []
+    tableView.allowsColumnResizing = false
+    tableView.allowsColumnSelection = false
+    tableView.allowsEmptySelection = true
+    tableView.allowsMultipleSelection = false
+    tableView.selectionHighlightStyle = .none
+    tableView.intercellSpacing = NSSize(width: 0, height: 0)
+    tableView.usesAutomaticRowHeights = true
+    tableView.dataSource = context.coordinator
+    tableView.delegate = context.coordinator
+
+    let column = NSTableColumn(identifier: Self.columnIdentifier)
+    column.resizingMask = .autoresizingMask
+    tableView.addTableColumn(column)
+
+    scrollView.documentView = tableView
+    context.coordinator.tableView = tableView
+    context.coordinator.scrollView = scrollView
+    context.coordinator.updateColumnWidth()
+    context.coordinator.reloadAllRows()
+    context.coordinator.scrollToBottom(animated: false)
+    return scrollView
+  }
+
+  func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    scrollView.setAccessibilityValue(accessibilityValue)
+    context.coordinator.onApproveToolCall = onApproveToolCall
+    context.coordinator.onDenyToolCall = onDenyToolCall
+    context.coordinator.updateColumnWidth()
+    context.coordinator.apply(
+      items: items,
+      showsGenerationIndicator: showsGenerationIndicator
+    )
+  }
+
+  private static let columnIdentifier = NSUserInterfaceItemIdentifier(
+    "chat.transcript.column"
+  )
+
+  final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    var items: [RenderedChatTurnItem]
+    var showsGenerationIndicator: Bool
+    var onApproveToolCall: (ToolCallRecord.ID) -> Void
+    var onDenyToolCall: (ToolCallRecord.ID) -> Void
+    weak var tableView: NSTableView?
+    weak var scrollView: NSScrollView?
+
+    init(
+      items: [RenderedChatTurnItem],
+      showsGenerationIndicator: Bool,
+      onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
+      onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void
+    ) {
+      self.items = items
+      self.showsGenerationIndicator = showsGenerationIndicator
+      self.onApproveToolCall = onApproveToolCall
+      self.onDenyToolCall = onDenyToolCall
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+      rowCount
+    }
+
+    func tableView(
+      _ tableView: NSTableView,
+      viewFor tableColumn: NSTableColumn?,
+      row: Int
+    ) -> NSView? {
+      guard let rowModel = model(for: row) else {
+        return nil
+      }
+
+      let view =
+        tableView.makeView(
+          withIdentifier: ChatTranscriptHostingCell.reuseIdentifier,
+          owner: self
+        ) as? ChatTranscriptHostingCell
+        ?? ChatTranscriptHostingCell()
+      view.update(rootView: viewContent(for: rowModel))
+      return view
+    }
+
+    func apply(
+      items newItems: [RenderedChatTurnItem],
+      showsGenerationIndicator newShowsGenerationIndicator: Bool
+    ) {
+      guard let tableView else {
+        items = newItems
+        showsGenerationIndicator = newShowsGenerationIndicator
+        return
+      }
+
+      let oldRows = rows
+      let newRows = Self.rows(
+        items: newItems,
+        showsGenerationIndicator: newShowsGenerationIndicator
+      )
+      items = newItems
+      showsGenerationIndicator = newShowsGenerationIndicator
+
+      if oldRows == newRows {
+        return
+      }
+
+      let shouldScrollToBottom = shouldScrollToBottom(
+        oldRows: oldRows,
+        newRows: newRows
+      )
+
+      if isAppendOnly(from: oldRows, to: newRows) {
+        let insertedRange = oldRows.count..<newRows.count
+        tableView.insertRows(
+          at: IndexSet(integersIn: insertedRange),
+          withAnimation: .effectFade
+        )
+      } else if let diff = simpleRowDiff(from: oldRows, to: newRows) {
+        tableView.beginUpdates()
+        if !diff.deletedIndexes.isEmpty {
+          tableView.removeRows(at: diff.deletedIndexes, withAnimation: .effectFade)
         }
+        if !diff.insertedIndexes.isEmpty {
+          tableView.insertRows(at: diff.insertedIndexes, withAnimation: .effectFade)
+        }
+        if !diff.reloadedIndexes.isEmpty {
+          tableView.reloadData(forRowIndexes: diff.reloadedIndexes, columnIndexes: [0])
+        }
+        tableView.endUpdates()
       } else {
-        scrollProxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+        reloadAllRows()
+      }
+
+      if shouldScrollToBottom {
+        scrollToBottom(animated: true)
+      }
+    }
+
+    func reloadAllRows() {
+      tableView?.reloadData()
+    }
+
+    func updateColumnWidth() {
+      guard let tableView,
+        let scrollView,
+        let column = tableView.tableColumns.first
+      else {
+        return
+      }
+      column.width = max(0, scrollView.contentView.bounds.width)
+    }
+
+    func scrollToBottom(animated: Bool) {
+      guard let tableView, rowCount > 0 else {
+        return
+      }
+
+      DispatchQueue.main.async {
+        let lastRow = tableView.numberOfRows - 1
+        guard lastRow >= 0 else {
+          return
+        }
+        if animated {
+          NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            tableView.scrollRowToVisible(lastRow)
+          }
+        } else {
+          tableView.scrollRowToVisible(lastRow)
+        }
+      }
+    }
+
+    private var rowCount: Int {
+      items.count + (showsGenerationIndicator ? 1 : 0)
+    }
+
+    private var rows: [RowModel] {
+      Self.rows(items: items, showsGenerationIndicator: showsGenerationIndicator)
+    }
+
+    private static func rows(
+      items: [RenderedChatTurnItem],
+      showsGenerationIndicator: Bool
+    ) -> [RowModel] {
+      var rows = items.map(RowModel.item)
+      if showsGenerationIndicator {
+        rows.append(.generationIndicator)
+      }
+      return rows
+    }
+
+    private func model(for row: Int) -> RowModel? {
+      guard row >= 0 else {
+        return nil
+      }
+      if row < items.count {
+        return .item(items[row])
+      }
+      if row == items.count, showsGenerationIndicator {
+        return .generationIndicator
+      }
+      return nil
+    }
+
+    private func viewContent(for rowModel: RowModel) -> AnyView {
+      switch rowModel {
+      case .item(let item):
+        AnyView(
+          ChatBubble(
+            item: item,
+            onApproveToolCall: onApproveToolCall,
+            onDenyToolCall: onDenyToolCall
+          )
+          .padding(.vertical, 6)
+        )
+      case .generationIndicator:
+        AnyView(
+          TranscriptGenerationIndicator()
+            .padding(.vertical, 6)
+        )
+      }
+    }
+
+    private func shouldScrollToBottom(
+      oldRows: [RowModel],
+      newRows: [RowModel]
+    ) -> Bool {
+      guard !newRows.isEmpty else {
+        return false
+      }
+      if oldRows.isEmpty {
+        return true
+      }
+      if newRows.count > oldRows.count, isAppendOnly(from: oldRows, to: newRows) {
+        return true
+      }
+      return oldRows.last?.id != newRows.last?.id
+    }
+
+    private func isAppendOnly(from oldRows: [RowModel], to newRows: [RowModel]) -> Bool {
+      guard newRows.count >= oldRows.count else {
+        return false
+      }
+      return zip(oldRows, newRows).allSatisfy { oldRow, newRow in
+        oldRow == newRow
+      }
+    }
+
+    private func simpleRowDiff(
+      from oldRows: [RowModel],
+      to newRows: [RowModel]
+    ) -> RowDiff? {
+      let oldIDs = oldRows.map(\.id)
+      let newIDs = newRows.map(\.id)
+      let oldIDSet = Set(oldIDs)
+      let newIDSet = Set(newIDs)
+
+      let commonIDs = oldIDSet.intersection(newIDSet)
+      let oldCommonOrder = oldIDs.filter { commonIDs.contains($0) }
+      let newCommonOrder = newIDs.filter { commonIDs.contains($0) }
+      guard oldCommonOrder == newCommonOrder else {
+        return nil
+      }
+
+      let deletedIndexes = IndexSet(
+        oldIDs.enumerated().compactMap { index, id in
+          newIDSet.contains(id) ? nil : index
+        }
+      )
+      let insertedIndexes = IndexSet(
+        newIDs.enumerated().compactMap { index, id in
+          oldIDSet.contains(id) ? nil : index
+        }
+      )
+      let oldRowsByID = Dictionary(uniqueKeysWithValues: oldRows.map { ($0.id, $0) })
+      let reloadedIndexes = IndexSet(
+        newRows.enumerated().compactMap { index, row in
+          guard let oldRow = oldRowsByID[row.id], oldRow != row else {
+            return nil
+          }
+          return index
+        }
+      )
+      return RowDiff(
+        insertedIndexes: insertedIndexes,
+        deletedIndexes: deletedIndexes,
+        reloadedIndexes: reloadedIndexes
+      )
+    }
+  }
+
+  private struct RowDiff {
+    let insertedIndexes: IndexSet
+    let deletedIndexes: IndexSet
+    let reloadedIndexes: IndexSet
+  }
+
+  private enum RowModel: Equatable {
+    case item(RenderedChatTurnItem)
+    case generationIndicator
+
+    var id: String {
+      switch self {
+      case .item(let item):
+        item.id
+      case .generationIndicator:
+        "chat.transcript.generationIndicator"
       }
     }
   }
 }
 
-private struct RenderedChatTurnItem: Identifiable {
-  let id: String
-  let item: ChatTurnItem
-  let toolCallRecord: ToolCallRecord?
-  let generationMetrics: ChatGenerationMetrics?
+private final class ChatTranscriptScrollView: NSScrollView {
+  var onLayout: (() -> Void)?
+
+  override func layout() {
+    super.layout()
+    onLayout?()
+  }
+}
+
+private final class ChatTranscriptHostingCell: NSTableCellView {
+  static let reuseIdentifier = NSUserInterfaceItemIdentifier("chat.transcript.hostingCell")
+
+  private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
+
+  override init(frame frameRect: NSRect) {
+    super.init(frame: frameRect)
+    identifier = Self.reuseIdentifier
+    wantsLayer = true
+    layer?.backgroundColor = NSColor.clear.cgColor
+
+    hostingView.translatesAutoresizingMaskIntoConstraints = false
+    hostingView.setContentHuggingPriority(.required, for: .vertical)
+    hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
+    addSubview(hostingView)
+
+    NSLayoutConstraint.activate([
+      hostingView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+      hostingView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+      hostingView.topAnchor.constraint(equalTo: topAnchor),
+      hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  func update(rootView: AnyView) {
+    hostingView.rootView = rootView
+  }
 }
 
 private struct ChatBubble: View {
@@ -254,7 +571,10 @@ private struct ChatBubble: View {
         alignment: item.isDisplayedAsUser ? .trailing : .leading
       )
 
-      if !item.isDisplayedAsUser {
+      if item.isDisplayedAsUser {
+        Color.clear
+          .frame(width: 24)
+      } else {
         Spacer(minLength: 80)
       }
     }
