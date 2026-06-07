@@ -48,6 +48,7 @@ public struct ChatGenerationCoordinator {
     toolLoopIteration: Int? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
     transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment] = [],
     systemPrompt: String,
     settings: ChatGenerationSettings,
     stopAfterCompleteToolAction: Bool = false,
@@ -60,6 +61,7 @@ public struct ChatGenerationCoordinator {
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode,
       transcript: transcript,
+      attachments: attachments,
       systemPrompt: systemPrompt,
       settings: settings,
       stopAfterCompleteToolAction: stopAfterCompleteToolAction,
@@ -76,6 +78,7 @@ public struct ChatGenerationCoordinator {
     toolLoopIteration: Int? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
     transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment] = [],
     systemPrompt: String,
     settings: ChatGenerationSettings,
     stopAfterCompleteToolAction: Bool = false,
@@ -99,6 +102,7 @@ public struct ChatGenerationCoordinator {
         generationID: generationID,
         interactionMode: interactionMode,
         transcript: transcript,
+        attachments: attachments,
         systemPrompt: systemPrompt,
         settings: settings,
         stopAfterCompleteToolAction: stopAfterCompleteToolAction,
@@ -115,6 +119,7 @@ public struct ChatGenerationCoordinator {
     generationID: UUID,
     interactionMode: WorkspaceInteractionMode?,
     transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,
     stopAfterCompleteToolAction: Bool,
@@ -126,7 +131,7 @@ public struct ChatGenerationCoordinator {
     let generationStartedAt = Date()
     let stream = try await runtime.streamReply(
       for: transcript,
-      attachments: [],
+      attachments: attachments,
       systemPrompt: systemPrompt,
       settings: settings,
       toolContext: toolContext

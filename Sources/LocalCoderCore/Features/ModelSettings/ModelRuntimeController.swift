@@ -290,6 +290,7 @@ public final class ModelRuntimeController {
     let lifecycleCoordinator = modelLifecycleCoordinator
     let runtimeOperations = runtimeOperations
     let requestedContextTokenLimit = modelContextTokenLimit
+    let supportsImageInput = selectedModel.supportsImageInput
 
     loadTask = Task {
       await runtimeOperations.setCurrentOperation(operationID)
@@ -299,6 +300,7 @@ public final class ModelRuntimeController {
         _ = try await lifecycleCoordinator.loadModel(
           from: directoryURL,
           requestedContextTokenLimit: requestedContextTokenLimit,
+          supportsImageInput: supportsImageInput,
           operationID: operationID
         )
         try Task.checkCancellation()

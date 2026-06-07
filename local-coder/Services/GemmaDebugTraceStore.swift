@@ -21,7 +21,8 @@ actor GemmaDebugTraceStore: TurnTracing {
     history: [(role: String, content: String)],
     prompt: String,
     settings: ChatGenerationSettings,
-    contextTokenLimit: Int?
+    contextTokenLimit: Int?,
+    imageAttachments: [ChatAttachment] = []
   ) async {
     guard Self.isEnabled else {
       return
@@ -48,6 +49,12 @@ actor GemmaDebugTraceStore: TurnTracing {
     ]
     if let contextTokenLimit {
       request["contextTokenLimit"] = contextTokenLimit
+    }
+    let imageMetadata = traceImageAttachments(from: imageAttachments)
+    if !imageMetadata.isEmpty {
+      request["imageInputs"] = imageMetadata
+      request["imageCount"] = imageMetadata.count
+      request["imageByteCount"] = imageAttachments.imageByteCount
     }
     append(request)
   }
@@ -130,6 +137,12 @@ actor GemmaDebugTraceStore: TurnTracing {
     if let cacheReason = event.cacheReason {
       trace["cacheReason"] = cacheReason
     }
+    if let cacheEligibility = event.cacheEligibility {
+      trace["cacheEligibility"] = cacheEligibility
+    }
+    if let cacheEligibilityReason = event.cacheEligibilityReason {
+      trace["cacheEligibilityReason"] = cacheEligibilityReason
+    }
     if let memoryClearReason = event.memoryClearReason {
       trace["memoryClearReason"] = memoryClearReason
     }
@@ -181,6 +194,15 @@ actor GemmaDebugTraceStore: TurnTracing {
     if let toolArguments = event.toolArguments {
       trace["toolArguments"] = toolArguments.map(traceToolArgument(from:))
     }
+    if let imageCount = event.imageCount {
+      trace["imageCount"] = imageCount
+    }
+    if let imageTypes = event.imageTypes {
+      trace["imageTypes"] = imageTypes
+    }
+    if let imageByteCount = event.imageByteCount {
+      trace["imageByteCount"] = imageByteCount
+    }
     append(trace)
   }
 
@@ -200,6 +222,21 @@ actor GemmaDebugTraceStore: TurnTracing {
       "preview": argument.preview,
       "previewTruncated": argument.previewTruncated,
     ]
+  }
+
+  private func traceImageAttachments(from attachments: [ChatAttachment]) -> [[String: Any]] {
+    attachments.filter { $0.kind == .image }.map { attachment in
+      var trace: [String: Any] = [
+        "attachmentID": attachment.id.uuidString,
+        "name": attachment.displayName,
+        "byteCount": attachment.byteSize,
+        "sha256": attachment.contentSHA256,
+      ]
+      if let mimeType = attachment.mimeType {
+        trace["mimeType"] = mimeType
+      }
+      return trace
+    }
   }
 
   private func truncated(_ value: String) -> (value: String, truncated: Bool) {
@@ -263,5 +300,13 @@ actor GemmaDebugTraceStore: TurnTracing {
     URL.applicationSupportDirectory
       .appending(path: "local-coder", directoryHint: .isDirectory)
       .appending(path: "debug", directoryHint: .isDirectory)
+  }
+}
+
+extension Array where Element == ChatAttachment {
+  fileprivate nonisolated var imageByteCount: Int {
+    filter { $0.kind == .image }.reduce(0) { total, attachment in
+      total + attachment.byteSize
+    }
   }
 }

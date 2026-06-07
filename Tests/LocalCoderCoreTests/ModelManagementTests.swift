@@ -15,11 +15,12 @@ struct ModelManagementTests {
         "gemma3-27b",
         "gemma4-e2b",
         "gemma4-e4b",
+        "gemma4-12b-4bit",
       ])
     #expect(ManagedModelCatalog.defaultModelID == "gemma3-4b")
     #expect(ManagedModelCatalog.defaultModel.id == "gemma3-4b")
     #expect(ManagedModelCatalog.defaultModel.defaultContextTokenLimit == 16_384)
-    #expect(ManagedModelCatalog.defaultModel.isRecommended)
+    #expect(!ManagedModelCatalog.defaultModel.isRecommended)
     #expect(ManagedModelCatalog.defaultModel.stability == .stable)
     #expect(ManagedModelCatalog.defaultModel.supportsWorkspaceTools)
     #expect(ManagedModelCatalog.defaultModel.toolCallingStrategy == .taggedAction)
@@ -33,16 +34,20 @@ struct ModelManagementTests {
         == "mlx-community/gemma-4-e2b-it-4bit")
     #expect(ManagedModelCatalog.model(id: "gemma4-e2b")?.stability == .experimental)
     #expect(ManagedModelCatalog.model(id: "gemma4-e2b")?.supportsWorkspaceTools == true)
+    #expect(ManagedModelCatalog.model(id: "gemma4-e2b")?.supportsImageInput == true)
     #expect(ManagedModelCatalog.model(id: "gemma4-e2b")?.toolCallingStrategy == .nativeGemma4)
     #expect(
       ManagedModelCatalog.model(id: "gemma4-e2b")?.toolCallingPolicy.allowsMultipleToolCalls == true
     )
     #expect(ManagedModelCatalog.model(id: "gemma4-e4b")?.stability == .experimental)
     #expect(ManagedModelCatalog.model(id: "gemma4-e4b")?.supportsWorkspaceTools == true)
+    #expect(ManagedModelCatalog.model(id: "gemma4-e4b")?.supportsImageInput == true)
     #expect(ManagedModelCatalog.model(id: "gemma4-e4b")?.toolCallingStrategy == .nativeGemma4)
     #expect(
       ManagedModelCatalog.model(id: "gemma4-e4b")?.toolCallingPolicy.allowsMultipleToolCalls == true
     )
+    #expect(ManagedModelCatalog.model(id: "gemma4-12b-4bit")?.supportsImageInput == true)
+    #expect(ManagedModelCatalog.model(id: "gemma3-4b")?.supportsImageInput == false)
   }
 
   @Test

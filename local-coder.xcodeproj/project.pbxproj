@@ -12,6 +12,7 @@
 		F9071F182FCD7946000A270C /* MLXRandom in Frameworks */ = {isa = PBXBuildFile; productRef = F9071F172FCD7946000A270C /* MLXRandom */; };
 		F9081F142FCE1000000A270C /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F132FCE1000000A270C /* MLXLLM */; };
 		F9081F162FCE1000000A270C /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F152FCE1000000A270C /* MLXLMCommon */; };
+		F9081F182FCE1000000A270C /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F172FCE1000000A270C /* MLXVLM */; };
 		F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1B2FCE1000000A270C /* Tokenizers */; };
 		F9081F202FCE1000000A270C /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1F2FCE1000000A270C /* HuggingFace */; };
 		F92000012FD2000000A270C /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = F92000032FD2000000A270C /* MarkdownUI */; };
@@ -84,6 +85,7 @@
 				F9071F142FCD7946000A270C /* MLX in Frameworks */,
 				F9081F142FCE1000000A270C /* MLXLLM in Frameworks */,
 				F9081F162FCE1000000A270C /* MLXLMCommon in Frameworks */,
+				F9081F182FCE1000000A270C /* MLXVLM in Frameworks */,
 				F9081F202FCE1000000A270C /* HuggingFace in Frameworks */,
 				F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */,
 				F92000012FD2000000A270C /* MarkdownUI in Frameworks */,
@@ -186,6 +188,7 @@
 				F9071F172FCD7946000A270C /* MLXRandom */,
 				F9081F132FCE1000000A270C /* MLXLLM */,
 				F9081F152FCE1000000A270C /* MLXLMCommon */,
+				F9081F172FCE1000000A270C /* MLXVLM */,
 				F9081F1F2FCE1000000A270C /* HuggingFace */,
 				F9081F1B2FCE1000000A270C /* Tokenizers */,
 				F92000032FD2000000A270C /* MarkdownUI */,
@@ -731,6 +734,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F9081F122FCE1000000A270C /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXLMCommon;
+		};
+		F9081F172FCE1000000A270C /* MLXVLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F9081F122FCE1000000A270C /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXVLM;
 		};
 		F9081F1B2FCE1000000A270C /* Tokenizers */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -51,6 +51,7 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
   public let requiresLargeMemory: Bool
   public let stability: ManagedModelStability
   public let toolCallingPolicy: ToolCallingPolicy
+  public let supportsImageInput: Bool
   public let defaultSystemPrompt: String
   public let defaultGenerationSettings: ChatGenerationSettings
   public let defaultContextTokenLimit: Int
@@ -92,6 +93,7 @@ public enum ManagedModelCatalog {
       requiresLargeMemory: false,
       stability: .stable,
       toolCallingPolicy: .taggedAction,
+      supportsImageInput: false,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -110,6 +112,7 @@ public enum ManagedModelCatalog {
       requiresLargeMemory: false,
       stability: .stable,
       toolCallingPolicy: .taggedAction,
+      supportsImageInput: false,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -128,6 +131,7 @@ public enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .stable,
       toolCallingPolicy: .taggedAction,
+      supportsImageInput: false,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -137,7 +141,7 @@ public enum ManagedModelCatalog {
       displayName: "Gemma 4 E2B",
       shortName: "E2B",
       summary: "Experimental small model",
-      detail: "Experimental Gemma 4 text model for plain chat testing.",
+      detail: "Experimental Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-e2b-it-4bit",
       localDirectoryName: "gemma4-e2b",
       parameterSize: "E2B",
@@ -146,6 +150,7 @@ public enum ManagedModelCatalog {
       requiresLargeMemory: false,
       stability: .experimental,
       toolCallingPolicy: .nativeGemma4,
+      supportsImageInput: true,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -155,7 +160,7 @@ public enum ManagedModelCatalog {
       displayName: "Gemma 4 E4B",
       shortName: "E4B",
       summary: "Experimental coding model",
-      detail: "Experimental Gemma 4 text model for plain chat testing on capable Macs.",
+      detail: "Experimental Gemma 4 coding model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-4bit",
       localDirectoryName: "gemma4-e4b",
       parameterSize: "E4B",
@@ -164,6 +169,7 @@ public enum ManagedModelCatalog {
       requiresLargeMemory: false,
       stability: .experimental,
       toolCallingPolicy: .nativeGemma4,
+      supportsImageInput: true,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit
@@ -173,7 +179,7 @@ public enum ManagedModelCatalog {
       displayName: "Gemma 4 12b 4bit",
       shortName: "412b",
       summary: "Larger coding model",
-      detail: "Experimental larger Gemma 4 text model for plain chat testing on capable Macs.",
+      detail: "Experimental larger Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-12B-it-4bit",
       localDirectoryName: "gemma-4-12B-it-4bit",
       parameterSize: "12B",
@@ -182,6 +188,7 @@ public enum ManagedModelCatalog {
       requiresLargeMemory: true,
       stability: .experimental,
       toolCallingPolicy: .nativeGemma4,
+      supportsImageInput: true,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
       defaultGenerationSettings: .codingDefault,
       defaultContextTokenLimit: defaultContextTokenLimit

@@ -14,7 +14,7 @@ struct ChatAttachmentLoaderTests {
     let attachment = try #require(attachments.first)
     #expect(attachments.count == 1)
     #expect(attachment.displayName == "Source.swift")
-    #expect(attachment.displayPath == fileURL.path(percentEncoded: false))
+    #expect(attachment.displayPath == "Source.swift")
     #expect(attachment.kind == .text)
     #expect(attachment.content == "let value = 1")
   }
@@ -22,16 +22,59 @@ struct ChatAttachmentLoaderTests {
   @Test
   func loadAttachmentsRejectsUnsupportedExtensions() throws {
     let loader = ChatAttachmentLoader()
-    let fileURL = try write("binary", to: "image.png")
+    let fileURL = try write("binary", to: "image.gif")
 
     do {
       _ = try loader.loadAttachments(from: [fileURL], existingAttachments: [])
       Issue.record("Expected unsupported file type error")
     } catch ChatAttachmentError.unsupportedFileType(let name) {
-      #expect(name == "image.png")
+      #expect(name == "image.gif")
     } catch {
       Issue.record("Unexpected error: \(error)")
     }
+  }
+
+  @Test
+  func loadAttachmentsReadsSupportedImageFilesWithoutBinaryContent() throws {
+    let loader = ChatAttachmentLoader()
+    let imageData = try tinyPNGData()
+    let fileURL = try write(imageData, to: "screenshot.png")
+
+    let attachments = try loader.loadAttachments(from: [fileURL], existingAttachments: [])
+
+    let attachment = try #require(attachments.first)
+    #expect(attachments.count == 1)
+    #expect(attachment.displayName == "screenshot.png")
+    #expect(attachment.kind == .image)
+    #expect(attachment.content.contains("Image attachment: screenshot.png"))
+    #expect(!attachment.content.contains("iVBOR"))
+    #expect(attachment.metadata?.mimeType == "image/png")
+    #expect(attachment.metadata?.byteCount == imageData.count)
+    #expect(attachment.metadata?.contentSHA256 != nil)
+    guard case .image(let payload) = attachment.payload else {
+      Issue.record("Expected image payload.")
+      return
+    }
+    #expect(payload.mimeType == "image/png")
+    #expect(payload.byteSize == imageData.count)
+    #expect(!payload.contentSHA256.isEmpty)
+    let storedURL = try ChatAttachmentStore().localURL(for: attachment.id)
+    #expect(try Data(contentsOf: storedURL) == imageData)
+  }
+
+  @Test
+  func loadAttachmentsAcceptsJPEGAndWebPExtensionsWhenImageDataIsReadable() throws {
+    let loader = ChatAttachmentLoader()
+    let jpegURL = try write(try tinyPNGData(), to: "mock.jpg")
+    let webpURL = try write(try tinyPNGData(), to: "mock.webp")
+
+    let attachments = try loader.loadAttachments(
+      from: [jpegURL, webpURL],
+      existingAttachments: []
+    )
+
+    #expect(attachments.map(\.kind) == [.image, .image])
+    #expect(attachments.map { $0.metadata?.mimeType } == ["image/jpeg", "image/webp"])
   }
 
   @Test
@@ -48,6 +91,25 @@ struct ChatAttachmentLoaderTests {
     } catch ChatAttachmentError.fileTooLarge(let name, let limit) {
       #expect(name == "large.txt")
       #expect(limit == ChatAttachmentLimits.maxTextFileBytes)
+    } catch {
+      Issue.record("Unexpected error: \(error)")
+    }
+  }
+
+  @Test
+  func loadAttachmentsRejectsImagesOverTheImageSizeLimit() throws {
+    let loader = ChatAttachmentLoader()
+    let fileURL = try write(
+      Data(repeating: 0x89, count: ChatAttachmentLimits.maxImageFileBytes + 1),
+      to: "large.png"
+    )
+
+    do {
+      _ = try loader.loadAttachments(from: [fileURL], existingAttachments: [])
+      Issue.record("Expected image file too large error")
+    } catch ChatAttachmentError.fileTooLarge(let name, let limit) {
+      #expect(name == "large.png")
+      #expect(limit == ChatAttachmentLimits.maxImageFileBytes)
     } catch {
       Issue.record("Unexpected error: \(error)")
     }
@@ -141,7 +203,7 @@ struct ChatAttachmentLoaderTests {
     let loader = ChatAttachmentLoader()
     let rootURL = try makeTemporaryDirectory()
     let missingSupportedPath = rootURL.appending(path: "Missing.swift").path(percentEncoded: false)
-    let unsupportedURL = try write("not supported", to: "image.png")
+    let unsupportedURL = try write("not supported", to: "image.gif")
     let draft = "Review \(missingSupportedPath) and \(unsupportedURL.path(percentEncoded: false))"
 
     let extraction = loader.extractDroppedAttachments(from: draft)
@@ -167,5 +229,14 @@ struct ChatAttachmentLoaderTests {
       .appending(path: "local-coder-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return URL(filePath: Workspace.normalizedPath(for: url))
+  }
+
+  private func tinyPNGData() throws -> Data {
+    try #require(
+      Data(
+        base64Encoded:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+      )
+    )
   }
 }

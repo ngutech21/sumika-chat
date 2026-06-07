@@ -3,10 +3,16 @@ import Foundation
 public struct ChatModelConfiguration: Equatable, Sendable {
   public let localModelDirectory: URL
   public let contextTokenLimit: Int?
+  public let supportsImageInput: Bool
 
-  public init(localModelDirectory: URL, contextTokenLimit: Int? = nil) {
+  public init(
+    localModelDirectory: URL,
+    contextTokenLimit: Int? = nil,
+    supportsImageInput: Bool = false
+  ) {
     self.localModelDirectory = localModelDirectory
     self.contextTokenLimit = contextTokenLimit
+    self.supportsImageInput = supportsImageInput
   }
 
   public var displayPath: String {

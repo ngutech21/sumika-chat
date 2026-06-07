@@ -39,6 +39,9 @@ public struct ContextUsageSnapshot: Sendable {
       byteCount += entry.content.utf8.count
     }
     for attachment in attachments {
+      guard attachment.kind == .text else {
+        continue
+      }
       byteCount += attachment.content.utf8.count
     }
 

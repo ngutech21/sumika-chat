@@ -210,6 +210,7 @@ struct ChatSessionControllerTests {
     #expect(generationMetrics.tokensPerSecond == 100)
     #expect(generationMetrics.durationMs > 0)
     let capturedMessages = await runtime.capturedMessages
+    #expect(await runtime.capturedAttachments == [[attachment]])
     #expect(
       capturedMessages.first?.contains(where: { message in
         message.role == .user && message.content.contains("Attached file: source.swift")
@@ -247,6 +248,66 @@ struct ChatSessionControllerTests {
     #expect(
       controller.chatSession.modelContextSnapshot.entries[1].frozenContent.content == "hello world"
     )
+  }
+
+  @Test
+  func sendMessageBlocksImageAttachmentsForTextOnlyModels() async throws {
+    let attachment = ChatAttachment(
+      url: URL(filePath: "/tmp/screenshot.png"),
+      displayName: "screenshot.png",
+      kind: .image,
+      content: "[Image attachment: screenshot.png, image/png, 128 bytes, 1x1]",
+      metadata: ChatAttachmentMetadata(
+        mimeType: "image/png",
+        byteCount: 128,
+        pixelWidth: 1,
+        pixelHeight: 1
+      )
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello"])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "What is in this screenshot?"
+    controller.chatSession.pendingAttachments = [attachment]
+
+    controller.sendMessage()
+    await Task.yield()
+
+    #expect(await runtime.capturedAttachments.isEmpty)
+    #expect(controller.draft == "What is in this screenshot?")
+    #expect(controller.chatSession.pendingAttachments == [attachment])
+    #expect(controller.chatSession.testMessages.isEmpty)
+    #expect(controller.errorMessage?.contains("cannot analyze images") == true)
+  }
+
+  @Test
+  func sendMessageForVisionModelForwardsImageAttachmentsToRuntime() async throws {
+    let attachment = ChatAttachment(
+      url: URL(filePath: "/tmp/screenshot.png"),
+      displayName: "screenshot.png",
+      kind: .image,
+      content: "[Image attachment: screenshot.png, image/png, 128 bytes, 1x1]",
+      metadata: ChatAttachmentMetadata(
+        mimeType: "image/png",
+        byteCount: 128,
+        pixelWidth: 1,
+        pixelHeight: 1
+      )
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["looks like a screenshot"])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.loadSession(ChatSession(selectedModelID: "gemma4-e4b"))
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "What is in this screenshot?"
+    controller.chatSession.pendingAttachments = [attachment]
+
+    controller.sendMessage()
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(await runtime.capturedAttachments == [[attachment]])
+    #expect(controller.chatSession.pendingAttachments.isEmpty)
+    #expect(controller.chatSession.testMessages[0].attachments == [attachment])
   }
 
   @Test

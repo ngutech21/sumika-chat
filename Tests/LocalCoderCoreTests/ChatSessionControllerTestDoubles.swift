@@ -537,6 +537,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private let failingStreamReplyCalls: Set<Int>
   private var streamReplyCount = 0
   private(set) var capturedMessages: [[ProjectedModelContextEntry]] = []
+  private(set) var capturedAttachments: [[ChatAttachment]] = []
   private(set) var capturedSystemPrompts: [String] = []
   private(set) var capturedContextUsageSystemPrompts: [String] = []
   private(set) var completedPartialReplies: [String] = []
@@ -584,11 +585,11 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = attachments
     _ = settings
 
     capturedMessages.append(
       try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns))
+    capturedAttachments.append(attachments)
     capturedSystemPrompts.append(systemPrompt)
     let callIndex = streamReplyCount
     let events = turns[min(callIndex, turns.count - 1)]

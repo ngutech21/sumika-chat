@@ -601,7 +601,8 @@ private enum ParserLanguage: Hashable {
     for root in roots {
       var candidate = root.standardizedFileURL
       for _ in 0..<10 {
-        let queriesURL = candidate
+        let queriesURL =
+          candidate
           .appendingPathComponent(".build", isDirectory: true)
           .appendingPathComponent("checkouts", isDirectory: true)
           .appendingPathComponent(checkoutName, isDirectory: true)

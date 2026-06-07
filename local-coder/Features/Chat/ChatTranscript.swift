@@ -347,14 +347,10 @@ private struct SentAttachmentList: View {
   var body: some View {
     VStack(alignment: .trailing, spacing: 4) {
       ForEach(attachments) { attachment in
-        Label(attachment.displayName, systemImage: "doc.text")
-          .font(.caption)
-          .lineLimit(1)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 5)
-          .background(Color.secondary.opacity(0.12))
-          .clipShape(RoundedRectangle(cornerRadius: 8))
-          .help(attachment.displayPath)
+        AttachmentPreview(
+          attachment: attachment,
+          style: .sent
+        )
       }
     }
   }

@@ -162,6 +162,27 @@ struct ModelRuntimeControllerTests {
     let configuration = await runtime.loadedConfiguration
     #expect(configuration?.localModelDirectory == modelDirectory)
     #expect(configuration?.contextTokenLimit == 2048)
+    #expect(configuration?.supportsImageInput == false)
+  }
+
+  @Test
+  func loadModelPassesSelectedModelImageCapability() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = RuntimeControllerRecordingRuntime()
+    let store = RuntimeFakeModelSettingsStore()
+    store.selectedModelIDValue = "gemma4-e4b"
+    let controller = await makeController(
+      modelSettingsStore: store,
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+
+    try await waitUntil { controller.modelState == .ready }
+
+    let configuration = await runtime.loadedConfiguration
+    #expect(configuration?.supportsImageInput == true)
   }
 
   @Test

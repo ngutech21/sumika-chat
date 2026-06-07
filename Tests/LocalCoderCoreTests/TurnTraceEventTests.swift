@@ -61,7 +61,10 @@ struct TurnTraceEventTests {
           preview: "setup",
           previewTruncated: false
         )
-      ]
+      ],
+      imageCount: 2,
+      imageTypes: ["image/png", "image/jpeg"],
+      imageByteCount: 4096
     )
 
     let data = try JSONEncoder().encode(event)
@@ -98,6 +101,9 @@ struct TurnTraceEventTests {
     #expect(object["toolValidationError"] as? String == "Unknown argument(s): id, status.")
     #expect(object["toolOriginalName"] as? String == "todo_write")
     #expect(object["toolArgumentKeys"] as? [String] == ["id", "status"])
+    #expect(object["imageCount"] as? Int == 2)
+    #expect(object["imageTypes"] as? [String] == ["image/png", "image/jpeg"])
+    #expect(object["imageByteCount"] as? Int == 4096)
 
     let toolArguments = try #require(object["toolArguments"] as? [[String: Any]])
     #expect(toolArguments.count == 1)

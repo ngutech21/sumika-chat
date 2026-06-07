@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct ChatComposer: View {
   @Binding var draft: String
   let attachments: [ChatAttachment]
+  let activeAttachments: [ChatAttachment]
   let availableModels: [ManagedModel]
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
@@ -37,9 +38,19 @@ struct ChatComposer: View {
           .font(.callout)
       }
 
-      if !attachments.isEmpty {
+      if shouldShowActiveAttachments {
         AttachmentList(
-          attachments: attachments,
+          title: "Active image context",
+          attachments: activeAttachments,
+          canRemove: !isGenerating,
+          onRemoveAttachment: onRemoveAttachment
+        )
+      }
+
+      if !visiblePendingAttachments.isEmpty {
+        AttachmentList(
+          title: nil,
+          attachments: visiblePendingAttachments,
           canRemove: !isGenerating,
           onRemoveAttachment: onRemoveAttachment
         )
@@ -175,6 +186,16 @@ struct ChatComposer: View {
         onSelectInteractionMode(mode)
       }
     )
+  }
+
+  private var visiblePendingAttachments: [ChatAttachment] {
+    let activeAttachmentIDs = Set(activeAttachments.map(\.id))
+    return attachments.filter { !activeAttachmentIDs.contains($0.id) }
+  }
+
+  private var shouldShowActiveAttachments: Bool {
+    let hasDraftText = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    return !activeAttachments.isEmpty && (hasDraftText || !attachments.isEmpty)
   }
 
   private var canLoadSelectedModel: Bool {
@@ -326,41 +347,32 @@ private struct ComposerMetric: View {
 }
 
 private struct AttachmentList: View {
+  var title: String?
   let attachments: [ChatAttachment]
   let canRemove: Bool
   let onRemoveAttachment: (ChatAttachment.ID) -> Void
 
   var body: some View {
-    ScrollView(.horizontal) {
-      HStack(spacing: 8) {
-        ForEach(attachments) { attachment in
-          HStack(spacing: 6) {
-            Image(systemName: "doc.text")
-              .foregroundStyle(.secondary)
-
-            Text(attachment.displayName)
-              .lineLimit(1)
-
-            Button {
-              onRemoveAttachment(attachment.id)
-            } label: {
-              Image(systemName: "xmark")
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .disabled(!canRemove)
-            .help("Remove")
-            .accessibilityLabel("Remove \(attachment.displayName)")
-          }
-          .font(.caption)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 5)
-          .background(Color.secondary.opacity(0.12))
-          .clipShape(RoundedRectangle(cornerRadius: 8))
-          .help(attachment.displayPath)
-        }
+    VStack(alignment: .leading, spacing: 4) {
+      if let title {
+        Text(title)
+          .font(.caption2)
+          .foregroundStyle(.secondary)
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
+
+      ScrollView(.horizontal) {
+        HStack(spacing: 8) {
+          ForEach(attachments) { attachment in
+            AttachmentPreview(
+              attachment: attachment,
+              style: .pending,
+              canRemove: canRemove,
+              onRemove: onRemoveAttachment
+            )
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
     }
   }
 }

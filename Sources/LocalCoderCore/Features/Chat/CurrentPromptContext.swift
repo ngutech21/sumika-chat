@@ -624,7 +624,7 @@ public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
     workspace: Workspace?,
     budget: ContextBudget
   ) -> CurrentPromptContext? {
-    let validAttachments = attachments.compactMap {
+    let validAttachments = attachments.filter { $0.kind == .text }.compactMap {
       attachmentContextInput($0, workspace: workspace)
     }
     guard !validAttachments.isEmpty else {
@@ -736,16 +736,8 @@ public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
     for attachment: ChatAttachment,
     workspace: Workspace?
   ) -> WorkspaceRelativePath {
-    guard let workspace else {
-      return WorkspaceRelativePath(rawValue: attachment.displayName)
-    }
-
-    let resolvedURL = attachment.url.standardizedFileURL.resolvingSymlinksInPath()
-    let path = workspace.relativePath(for: resolvedURL)
-    if path.rawValue.hasPrefix("/") {
-      return WorkspaceRelativePath(rawValue: attachment.displayName)
-    }
-    return path
+    _ = workspace
+    return WorkspaceRelativePath(rawValue: attachment.displayName)
   }
 
   private static func contentHash(for content: String) -> String {

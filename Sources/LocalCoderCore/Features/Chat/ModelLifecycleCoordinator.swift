@@ -54,6 +54,7 @@ public struct ModelLifecycleCoordinator: Sendable {
   public func loadModel(
     from directoryURL: URL,
     requestedContextTokenLimit: Int,
+    supportsImageInput: Bool,
     operationID: UUID
   ) async throws -> LoadModelResult {
     try validateModelDirectory(directoryURL)
@@ -64,7 +65,8 @@ public struct ModelLifecycleCoordinator: Sendable {
       contextTokenLimit: effectiveContextTokenLimit(
         for: directoryURL,
         requestedContextTokenLimit: requestedContextTokenLimit
-      )
+      ),
+      supportsImageInput: supportsImageInput
     )
     try await runtimeOperations.load(configuration: configuration, operationID: operationID)
     return LoadModelResult(configuration: configuration, contextUsage: nil)

@@ -36,7 +36,7 @@ struct CurrentPromptContextSelectorTests {
       Issue.record("Expected attached file context block.")
       return
     }
-    #expect(attachedFile.path == WorkspaceRelativePath(rawValue: "Sources/Foo.swift"))
+    #expect(attachedFile.path == WorkspaceRelativePath(rawValue: "Foo.swift"))
     #expect(attachedFile.displayName == "Foo.swift")
     #expect(!attachedFile.contentHash.isEmpty)
     #expect(attachedFile.excerpt?.text == "let value = 1")
@@ -343,8 +343,7 @@ struct CurrentPromptContextRendererTests {
 
     #expect(rendered.count == 1)
     #expect(rendered.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
-    #expect(rendered[0].contains("Attached file: Sources/Foo.swift"))
-    #expect(rendered[0].contains("Display name: Foo.swift"))
+    #expect(rendered[0].contains("Attached file: Foo.swift"))
     #expect(rendered[0].contains("Content hash:"))
     #expect(rendered[0].contains("Attached content excerpt:"))
     #expect(rendered[0].contains("let value = 1"))
@@ -384,7 +383,7 @@ struct CurrentPromptContextRendererTests {
     }
     #expect(selection.budget.maxCharacters == ContextBudget.focusedFileDefault.maxCharacters)
     #expect(selection.truncation == .none)
-    #expect(consumedAttachment.path == WorkspaceRelativePath(rawValue: "Sources/Foo.swift"))
+    #expect(consumedAttachment.path == WorkspaceRelativePath(rawValue: "Foo.swift"))
     #expect(consumedAttachment.displayName == "Foo.swift")
     #expect(!consumedAttachment.contentHash.isEmpty)
     #expect(consumedAttachment.excerpt?.text == "let value = 1")

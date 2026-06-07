@@ -301,6 +301,12 @@ extension ChatSessionController {
       errorMessage = unsupportedInteractionModeMessage(for: modelRuntime.selectedModel)
       return
     }
+    let attachmentsForTurn = attachmentsForCurrentTurn()
+    guard modelRuntime.selectedModel.supportsImageInput || !attachmentsForTurn.hasImages
+    else {
+      errorMessage = unsupportedImageInputMessage(for: modelRuntime.selectedModel)
+      return
+    }
 
     let toolAvailability = toolPromptPolicy.toolAvailability(
       workspace: workspace,
@@ -315,13 +321,15 @@ extension ChatSessionController {
       toolsAvailable: toolsAvailable
     )
     let initialSystemPromptSnapshot = systemPrompt(toolPromptMode: initialToolPromptMode)
-    let sentAttachments = chatSession.pendingAttachments
+    let sentAttachments = attachmentsForTurn
     let turnID = UUID()
     let userMessageID = UUID()
     let assistantMessageID = UUID()
     draft = ""
     errorMessage = nil
     chatSession.pendingAttachments.removeAll()
+    chatSession.activeAttachmentContext = .empty
+    chatSession.focusedFileState.focusedAttachments = []
     applyWorkflowEvents(focusEventsForAttachments(sentAttachments, workspace: workspace))
     transcriptMutator.appendTurn(
       ChatTurn(
@@ -374,7 +382,8 @@ extension ChatSessionController {
           to: assistantMessageID,
           interactionMode: interactionMode,
           toolPromptMode: initialToolPromptMode,
-          turnID: turnID
+          turnID: turnID,
+          attachments: sentAttachments
         )
         guard isCurrentTurn(turnID) else {
           return
@@ -572,7 +581,7 @@ extension ChatSessionController {
       operationID: modelRuntime.currentOperationID(),
       turnID: turnID,
       transcript: transcript,
-      attachments: chatSession.pendingAttachments,
+      attachments: attachmentsForCurrentTurn(),
       systemPrompt: renderedSystemPrompt,
       contextTokenLimit: modelRuntime.modelContextTokenLimit,
       runtimeIsBusy: isGenerating || pendingRuntimeContextClear != nil,
@@ -620,10 +629,17 @@ extension ChatSessionController {
       draft = cleanedDraft
     case .removeAttachment(let id):
       chatSession.pendingAttachments.removeAll { $0.id == id }
+      chatSession.activeAttachmentContext.remove(id)
+      chatSession.focusedFileState.focusedAttachments =
+        chatSession.activeAttachmentContext.attachmentIDs
       refreshContextUsage()
     case .error(let message):
       errorMessage = message
     }
+  }
+
+  public var activeAttachmentContextAttachments: [ChatAttachment] {
+    []
   }
 
   private func notifySessionDidChange() {
@@ -1007,6 +1023,20 @@ extension ChatSessionController {
     return [.focusedFileStateChanged(updatedState)]
   }
 
+  private func attachmentsForCurrentTurn() -> [ChatAttachment] {
+    uniqueAttachments(chatSession.pendingAttachments)
+  }
+
+  private func uniqueAttachments(_ attachments: [ChatAttachment]) -> [ChatAttachment] {
+    var seen: Set<AttachmentID> = []
+    var unique: [ChatAttachment] = []
+    for attachment in attachments where !seen.contains(attachment.id) {
+      seen.insert(attachment.id)
+      unique.append(attachment)
+    }
+    return unique
+  }
+
   private func deniedToolResultMessage(
     for deniedRecord: ToolCallRecord,
     message: String
@@ -1076,7 +1106,8 @@ extension ChatSessionController {
     interactionMode: WorkspaceInteractionMode,
     toolPromptMode: ToolPromptMode,
     turnID: ChatTurn.ID,
-    toolLoopIteration: Int? = nil
+    toolLoopIteration: Int? = nil,
+    attachments: [ChatAttachment] = []
   )
     async throws
     -> ChatGenerationResult
@@ -1118,6 +1149,7 @@ extension ChatSessionController {
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode,
       transcript: modelContextSnapshot,
+      attachments: attachments,
       systemPrompt: renderedSystemPrompt,
       settings: chatSession.generationSettings,
       stopAfterCompleteToolAction: toolPromptMode.shouldStopAfterCompleteToolAction(
@@ -1379,11 +1411,21 @@ extension ChatSessionController {
   private func unsupportedInteractionModeMessage(for model: ManagedModel) -> String {
     "\(model.displayName) supports plain chat only. Select a model with workspace tool support to use Agent tools."
   }
+
+  private func unsupportedImageInputMessage(for model: ManagedModel) -> String {
+    "\(model.displayName) cannot analyze images. Select a Gemma 4 vision-capable model or remove the image attachment."
+  }
 }
 
 extension ManagedModel {
   fileprivate func supports(interactionMode: WorkspaceInteractionMode) -> Bool {
     interactionMode == .chat || supportsWorkspaceTools
+  }
+}
+
+extension Array where Element == ChatAttachment {
+  fileprivate var hasImages: Bool {
+    contains { $0.kind == .image }
   }
 }
 

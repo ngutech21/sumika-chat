@@ -14,7 +14,7 @@ struct ChatAttachmentCoordinatorTests {
     var events: [ChatAttachmentEvent] = []
 
     coordinator.addAttachments(
-      from: [attachment.url],
+      from: [URL(filePath: "/tmp/README.md")],
       existingAttachments: [],
       onEvent: { events.append($0) }
     )
@@ -81,7 +81,7 @@ struct ChatAttachmentCoordinatorTests {
     let loader = AttachmentFakeLoader(
       result: .success([attachment]),
       droppedExtraction: DroppedAttachmentExtraction(
-        urls: [attachment.url],
+        urls: [URL(filePath: "/tmp/Dropped.swift")],
         cleanedDraft: "please inspect this"
       )
     )
@@ -109,7 +109,7 @@ struct ChatAttachmentCoordinatorTests {
     let loader = AttachmentFakeLoader(
       result: .success([attachment]),
       droppedExtraction: DroppedAttachmentExtraction(
-        urls: [attachment.url],
+        urls: [URL(filePath: "/tmp/Dropped.swift")],
         cleanedDraft: "cleaned"
       )
     )

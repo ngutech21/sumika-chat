@@ -163,6 +163,7 @@ Properties:
 
 - `contextTokenLimit: Int?`
 - `localModelDirectory: URL`
+- `supportsImageInput: Bool`
 
 ### EditFileResult
 
@@ -332,6 +333,7 @@ Properties:
 - `shortName: String`
 - `stability: ManagedModelStability`
 - `summary: String`
+- `supportsImageInput: Bool`
 - `toolCallingPolicy: ToolCallingPolicy`
 
 Relations:
@@ -1303,6 +1305,8 @@ Properties:
 
 - `appendOnly: Bool?`
 - `appendedMessageCount: Int?`
+- `cacheEligibility: String?`
+- `cacheEligibilityReason: String?`
 - `cacheMode: String?`
 - `cacheReason: String?`
 - `contextSignature: String?`
@@ -1310,6 +1314,9 @@ Properties:
 - `durationMs: Double`
 - `firstMismatchIndex: Int?`
 - `generationID: UUID?`
+- `imageByteCount: Int?`
+- `imageCount: Int?`
+- `imageTypes: [String]?`
 - `interactionMode: WorkspaceInteractionMode?`
 - `memoryClearReason: String?`
 - `messageCount: Int?`

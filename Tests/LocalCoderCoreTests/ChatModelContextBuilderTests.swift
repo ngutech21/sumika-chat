@@ -168,10 +168,10 @@ struct ChatModelContextBuilderTests {
       Issue.record("Expected typed attached file context snapshot.")
       return
     }
-    #expect(consumedAttachment.path == WorkspaceRelativePath(rawValue: "Sources/Foo.swift"))
+    #expect(consumedAttachment.path == WorkspaceRelativePath(rawValue: "Foo.swift"))
     #expect(consumedAttachment.displayName == "Foo.swift")
     #expect(consumedAttachment.excerpt?.text == "func attached() {}")
-    #expect(entry.frozenContent.content.contains("Attached file: Sources/Foo.swift"))
+    #expect(entry.frozenContent.content.contains("Attached file: Foo.swift"))
     #expect(entry.frozenContent.content.contains("Attached content excerpt:"))
     #expect(entry.frozenContent.content.contains("func attached() {}"))
     #expect(entry.frozenContent.content.contains("Attached context:") == false)

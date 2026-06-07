@@ -38,6 +38,7 @@ struct WorkspaceChatView: View {
       ChatComposer(
         draft: $controller.draft,
         attachments: controller.chatSession.pendingAttachments,
+        activeAttachments: controller.activeAttachmentContextAttachments,
         availableModels: controller.modelRuntime.availableModels,
         selectedModel: controller.modelRuntime.selectedModel,
         modelState: controller.modelRuntime.modelState,

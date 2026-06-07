@@ -29,6 +29,8 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
   public let tokensPerSecond: Double?
   public let cacheMode: String?
   public let cacheReason: String?
+  public let cacheEligibility: String?
+  public let cacheEligibilityReason: String?
   public let memoryClearReason: String?
   public let interactionMode: WorkspaceInteractionMode?
   public let contextSignature: String?
@@ -46,6 +48,9 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
   public let toolOriginalName: String?
   public let toolArgumentKeys: [String]?
   public let toolArguments: [ToolArgumentTrace]?
+  public let imageCount: Int?
+  public let imageTypes: [String]?
+  public let imageByteCount: Int?
 
   public init(
     turnID: UUID? = nil,
@@ -61,6 +66,8 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     tokensPerSecond: Double? = nil,
     cacheMode: String? = nil,
     cacheReason: String? = nil,
+    cacheEligibility: String? = nil,
+    cacheEligibilityReason: String? = nil,
     memoryClearReason: String? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
     contextSignature: String? = nil,
@@ -77,7 +84,10 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     toolValidationError: String? = nil,
     toolOriginalName: String? = nil,
     toolArgumentKeys: [String]? = nil,
-    toolArguments: [ToolArgumentTrace]? = nil
+    toolArguments: [ToolArgumentTrace]? = nil,
+    imageCount: Int? = nil,
+    imageTypes: [String]? = nil,
+    imageByteCount: Int? = nil
   ) {
     self.turnID = turnID
     self.generationID = generationID
@@ -92,6 +102,8 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.tokensPerSecond = tokensPerSecond
     self.cacheMode = cacheMode
     self.cacheReason = cacheReason
+    self.cacheEligibility = cacheEligibility
+    self.cacheEligibilityReason = cacheEligibilityReason
     self.memoryClearReason = memoryClearReason
     self.interactionMode = interactionMode
     self.contextSignature = contextSignature
@@ -109,6 +121,9 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.toolOriginalName = toolOriginalName
     self.toolArgumentKeys = toolArgumentKeys
     self.toolArguments = toolArguments
+    self.imageCount = imageCount
+    self.imageTypes = imageTypes
+    self.imageByteCount = imageByteCount
   }
 }
 

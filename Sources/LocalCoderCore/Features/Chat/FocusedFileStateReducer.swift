@@ -196,16 +196,8 @@ public struct FocusedFileStateReducer: Sendable {
     for attachment: ChatAttachment,
     workspace: Workspace?
   ) -> WorkspaceRelativePath {
-    guard let workspace else {
-      return WorkspaceRelativePath(rawValue: attachment.displayName)
-    }
-
-    let resolvedURL = attachment.url.standardizedFileURL.resolvingSymlinksInPath()
-    let path = workspace.relativePath(for: resolvedURL)
-    if path.rawValue.hasPrefix("/") {
-      return WorkspaceRelativePath(rawValue: attachment.displayName)
-    }
-    return path
+    _ = workspace
+    return WorkspaceRelativePath(rawValue: attachment.displayName)
   }
 
   private static func contentHash(for content: String) -> String {

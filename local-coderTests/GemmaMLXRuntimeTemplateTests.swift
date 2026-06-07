@@ -8,6 +8,65 @@ import Testing
 @Suite
 struct GemmaMLXRuntimeTemplateTests {
   @Test
+  func imageInputsUseAttachmentFileURLs() throws {
+    let directoryURL = FileManager.default.temporaryDirectory
+      .appending(
+        path: "local-coder-runtime-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    let url = directoryURL.appending(path: "screenshot.png", directoryHint: .notDirectory)
+    let data = Data([0x89, 0x50, 0x4e, 0x47])
+    try data.write(to: url)
+    let store = ChatAttachmentStore(baseURL: directoryURL.appending(path: "attachments"))
+    let id = AttachmentID()
+    let storedURL = try store.storeFile(from: url, id: id, displayName: "screenshot.png")
+    let attachment = ChatAttachment(
+      id: id,
+      displayName: "screenshot.png",
+      payload: .image(
+        ImageAttachmentPayload(
+          mimeType: "image/png",
+          byteSize: data.count,
+          contentSHA256: ChatAttachmentStore.contentSHA256(for: data)
+        )
+      )
+    )
+
+    let images = try GemmaMLXRuntime.imageInputs(from: [attachment], attachmentStore: store)
+
+    #expect(images.count == 1)
+    guard case .url(let imageURL) = try #require(images.first) else {
+      Issue.record("Expected URL-backed image input.")
+      return
+    }
+    #expect(imageURL.lastPathComponent == storedURL.lastPathComponent)
+    #expect(try Data(contentsOf: imageURL) == data)
+  }
+
+  @Test
+  func imageInputBoundaryDisablesCacheEligibility() throws {
+    let decision = GemmaMLXRuntime.disabledCacheDecision(
+      cachedPrefix: [
+        GemmaMessageSnapshot(role: "user", content: "previous"),
+        GemmaMessageSnapshot(role: "assistant", content: "answer"),
+      ],
+      currentHistory: [
+        GemmaMessageSnapshot(role: "user", content: "previous"),
+        GemmaMessageSnapshot(role: "assistant", content: "answer"),
+      ],
+      currentSettings: .codingDefault,
+      projectionMode: .compactedHistoryForLaterTurns,
+      currentNativeToolSchemaHash: "none",
+      cacheEligibility: .disabled(reason: .imageInputBoundary)
+    )
+
+    #expect(decision.shouldReuse == false)
+    #expect(decision.trace.cacheEligibility == "disabled")
+    #expect(decision.trace.cacheEligibilityReason == "image_input_boundary")
+    #expect(decision.trace.cacheMode == .invalidatedImageInputBoundary)
+    #expect(decision.trace.cacheReason == .invalidatedImageInputBoundary)
+  }
+
+  @Test
   func templateMessagesUseFrozenTranscriptContent() throws {
     let callID = UUID()
     let transcript = ModelContextSnapshot(
@@ -1832,7 +1891,9 @@ struct GemmaMLXRuntimeTemplateTests {
       mismatchReason: nil,
       firstMismatchIndex: nil,
       systemPromptChanged: nil,
-      currentPromptContextChanged: nil
+      currentPromptContextChanged: nil,
+      cacheEligibility: "enabled",
+      cacheEligibilityReason: nil
     )
   }
 }

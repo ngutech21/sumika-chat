@@ -4,15 +4,18 @@ public struct FocusedFileState: Codable, Equatable, Sendable {
   public var activePath: WorkspaceRelativePath?
   public var recentPaths: [FocusedPath]
   public var snapshots: [WorkspaceRelativePath: FocusedFileSnapshot]
+  public var focusedAttachments: [AttachmentID]
 
   public init(
     activePath: WorkspaceRelativePath? = nil,
     recentPaths: [FocusedPath] = [],
-    snapshots: [WorkspaceRelativePath: FocusedFileSnapshot] = [:]
+    snapshots: [WorkspaceRelativePath: FocusedFileSnapshot] = [:],
+    focusedAttachments: [AttachmentID] = []
   ) {
     self.activePath = activePath
     self.recentPaths = recentPaths
     self.snapshots = snapshots
+    self.focusedAttachments = focusedAttachments
   }
 
   public static let empty = FocusedFileState()

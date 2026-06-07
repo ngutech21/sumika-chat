@@ -30,6 +30,7 @@ classDiagram
     generationSettings: ChatGenerationSettings
     interactionMode: WorkspaceInteractionMode
     pendingAttachments: [ChatAttachment] transient
+    activeAttachmentContext: ActiveAttachmentContext
     createdAt
     updatedAt
   }
@@ -49,6 +50,8 @@ classDiagram
     defaultSystemPrompt
     defaultGenerationSettings
     defaultContextTokenLimit
+    toolCallingPolicy
+    supportsImageInput
   }
 
   class ChatGenerationSettings {
@@ -112,11 +115,37 @@ classDiagram
   }
 
   class ChatAttachment {
-    id
-    url
+    id: AttachmentID
     displayName
-    kind
+    payload: ChatAttachmentPayload
+    createdAt
+    kind derived
+  }
+
+  class ChatAttachmentPayload {
+    <<enum>>
+    text(TextAttachmentPayload)
+    image(ImageAttachmentPayload)
+  }
+
+  class TextAttachmentPayload {
     content
+    byteSize
+    contentSHA256
+  }
+
+  class ImageAttachmentPayload {
+    mimeType
+    byteSize
+    contentSHA256
+  }
+
+  class ActiveAttachmentContext {
+    attachmentIDs: [AttachmentID]
+  }
+
+  class AttachmentID {
+    UUID
   }
 
   class ChatGenerationMetrics {
@@ -286,6 +315,7 @@ classDiagram
     activePath: WorkspaceRelativePath
     recentPaths: [FocusedPath]
     snapshots: [WorkspaceRelativePath: FocusedFileSnapshot]
+    focusedAttachments: [AttachmentID]
   }
 
   class FocusedPath {
@@ -313,6 +343,7 @@ classDiagram
   ChatSession "1" --> "*" ToolCallRecord : canonical tool lifecycle
   ChatSession "1" --> "1" ModelContextSnapshot : persisted prompt snapshot
   ChatSession "1" --> "1" FocusedFileState
+  ChatSession "1" --> "1" ActiveAttachmentContext
   ChatSession --> ManagedModel : selected model ID
   ChatSession --> ChatGenerationSettings
   ChatSession --> WorkspaceInteractionMode
@@ -327,6 +358,11 @@ classDiagram
   UserTurnMessage --> ChatAttachment
   AssistantTurnMessage --> ChatAttachment
   AssistantTurnMessage --> ChatGenerationMetrics
+  ChatAttachment --> AttachmentID
+  ChatAttachment --> ChatAttachmentPayload
+  ChatAttachmentPayload --> TextAttachmentPayload
+  ChatAttachmentPayload --> ImageAttachmentPayload
+  ActiveAttachmentContext --> AttachmentID
 
   ToolCallRecord "1" --> "1" ToolCallRequest
   ToolCallRecord "1" --> "1" ToolPermissionEvaluation
@@ -349,5 +385,6 @@ classDiagram
   FocusedFileState --> WorkspaceRelativePath
   FocusedFileState --> FocusedPath
   FocusedFileState --> FocusedFileSnapshot
+  FocusedFileState --> AttachmentID
   FocusedPath --> WorkspaceRelativePath
 ```
