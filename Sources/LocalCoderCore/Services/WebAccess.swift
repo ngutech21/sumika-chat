@@ -697,6 +697,13 @@ public struct DefaultWebFetchService: WebFetching {
           url: request.url.absoluteString, finalURL: finalURL.absoluteString,
           reason: .executionError(error.localizedDescription))
       }
+      guard (200..<300).contains(httpResponse.statusCode) else {
+        return .failed(
+          url: request.url.absoluteString,
+          finalURL: finalURL.absoluteString,
+          reason: .executionError("Fetch returned HTTP \(httpResponse.statusCode).")
+        )
+      }
 
       let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")
       guard Self.isSupportedTextContentType(contentType) else {

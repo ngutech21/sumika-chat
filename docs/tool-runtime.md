@@ -242,8 +242,9 @@ flowchart TD
   must not include private source code, secrets, full logs, or local paths in
   search queries. `web_fetch` accepts only public `http` and `https` URLs,
   rejects local/private/internal targets, validates resolved host addresses
-  before requests, validates final redirect URLs, rejects binary content, caps
-  fetched text, and marks truncation in the stored result payload.
+  before requests, validates final redirect URLs, rejects non-2xx HTTP
+  responses, rejects binary content, caps fetched text, and marks truncation in
+  the stored result payload.
 - `todo_write` is available only in the Agent registry. It accepts 2 to 6
   short todo items, allows at most one `inProgress` item, and never requires
   approval because it mutates only session state. Chat prompts must not render

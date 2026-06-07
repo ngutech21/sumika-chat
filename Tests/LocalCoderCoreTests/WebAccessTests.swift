@@ -1,12 +1,11 @@
 import Foundation
+import Testing
+
+@testable import LocalCoderCore
 
 #if canImport(FoundationNetworking)
   import FoundationNetworking
 #endif
-
-import Testing
-
-@testable import LocalCoderCore
 
 struct WebAccessTests {
   @Test
@@ -163,6 +162,54 @@ struct WebAccessTests {
   }
 
   @Test
+  func webFetchRejects404HTMLResponseWithoutExposingBody() async throws {
+    let httpClient = CapturingHTTPClient(
+      data: Data("<html><body>Missing page evidence</body></html>".utf8),
+      statusCode: 404,
+      contentType: "text/html"
+    )
+    let service = DefaultWebFetchService(
+      httpClient: httpClient,
+      hostResolver: FakeResolver(addresses: ["93.184.216.34"])
+    )
+    let url = try #require(URL(string: "https://docs.example/missing"))
+
+    let result = await service.fetch(WebFetchRequest(url: url))
+
+    guard case .failed(let requestedURL, let finalURL, let reason) = result else {
+      Issue.record("Expected 404 web_fetch response to fail.")
+      return
+    }
+    #expect(requestedURL == url.absoluteString)
+    #expect(finalURL == url.absoluteString)
+    #expect(reason.message == "Fetch returned HTTP 404.")
+    #expect(!reason.message.contains("Missing page evidence"))
+  }
+
+  @Test
+  func webFetchRejects500PlainTextResponse() async throws {
+    let httpClient = CapturingHTTPClient(
+      data: Data("server error body".utf8),
+      statusCode: 500,
+      contentType: "text/plain"
+    )
+    let service = DefaultWebFetchService(
+      httpClient: httpClient,
+      hostResolver: FakeResolver(addresses: ["93.184.216.34"])
+    )
+
+    let result = await service.fetch(
+      WebFetchRequest(url: try #require(URL(string: "https://docs.example/failure")))
+    )
+
+    guard case .failed(_, _, let reason) = result else {
+      Issue.record("Expected 500 web_fetch response to fail.")
+      return
+    }
+    #expect(reason.message == "Fetch returned HTTP 500.")
+  }
+
+  @Test
   func urlSessionHTTPClientBlocksPrivateRedirectBeforeSecondRequest() async throws {
     PrivateRedirectURLProtocol.state.reset()
     let configuration = URLSessionConfiguration.ephemeral
@@ -306,11 +353,13 @@ private func makeWorkspace() throws -> Workspace {
 
 private actor CapturingHTTPClient: WebHTTPClient {
   let data: Data
+  let statusCode: Int
   let contentType: String
   private(set) var requests: [URLRequest] = []
 
-  init(data: Data, contentType: String) {
+  init(data: Data, statusCode: Int = 200, contentType: String) {
     self.data = data
+    self.statusCode = statusCode
     self.contentType = contentType
   }
 
@@ -319,7 +368,7 @@ private actor CapturingHTTPClient: WebHTTPClient {
     requests.append(request)
     let response = HTTPURLResponse(
       url: try #require(request.url),
-      statusCode: 200,
+      statusCode: statusCode,
       httpVersion: "HTTP/1.1",
       headerFields: ["Content-Type": contentType]
     )
