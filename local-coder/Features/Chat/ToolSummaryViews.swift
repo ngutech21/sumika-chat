@@ -1,3 +1,4 @@
+import AppKit
 import LocalCoderCore
 import SwiftUI
 
@@ -252,12 +253,15 @@ private struct ToolDetailTextView: View {
   let text: String
 
   var body: some View {
-    Text(text)
-      .font(.system(.caption2, design: .monospaced))
-      .frame(maxWidth: .infinity, alignment: .topLeading)
-      .fixedSize(horizontal: false, vertical: true)
-      .padding(6)
-      .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+    LinkedText(
+      text: text,
+      font: .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular),
+      textColor: .secondaryLabelColor
+    )
+    .frame(maxWidth: .infinity, alignment: .topLeading)
+    .fixedSize(horizontal: false, vertical: true)
+    .padding(6)
+    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
   }
 }
 

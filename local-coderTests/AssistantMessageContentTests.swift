@@ -6,6 +6,22 @@ import Testing
 @MainActor
 struct AssistantMessageContentTests {
   @Test
+  func bareAssistantURLStaysInMarkdownParagraphForAutolinking() {
+    let blocks = AssistantMessageRenderBlocks.blocks(
+      for: "Source: https://example.com/path?q=1"
+    )
+
+    #expect(
+      blocks == [
+        .paragraph(
+          .init(
+            id: .init(rawValue: "assistant-render-block-0"),
+            text: "Source: https://example.com/path?q=1"
+          ))
+      ])
+  }
+
+  @Test
   func openFenceProjectsToCodeBlockBeforeClosingFenceExists() {
     let blocks = AssistantMessageRenderBlocks.blocks(
       for: """

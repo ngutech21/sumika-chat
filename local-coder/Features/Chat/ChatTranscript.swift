@@ -388,7 +388,132 @@ private struct MessageContentText: View {
     case .assistantMessage:
       AssistantMessageContent(blocks: assistantRenderBlocks)
     case .userMessage(let message):
-      Text(message.content)
+      LinkedText(text: message.content, font: .preferredFont(forTextStyle: .body))
+    }
+  }
+}
+
+struct LinkedText: NSViewRepresentable {
+  let text: String
+  let font: NSFont
+  var textColor: NSColor = .labelColor
+  var linkColor: NSColor = .linkColor
+
+  func makeNSView(context: Context) -> LinkTextView {
+    let textView = LinkTextView()
+    textView.delegate = context.coordinator
+    textView.drawsBackground = false
+    textView.isEditable = false
+    textView.isSelectable = true
+    textView.isAutomaticLinkDetectionEnabled = false
+    textView.textContainerInset = .zero
+    textView.textContainer?.lineFragmentPadding = 0
+    textView.textContainer?.widthTracksTextView = true
+    textView.textContainer?.heightTracksTextView = false
+    textView.minSize = .zero
+    textView.maxSize = NSSize(
+      width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+    textView.isHorizontallyResizable = false
+    textView.isVerticallyResizable = true
+    return textView
+  }
+
+  func updateNSView(_ textView: LinkTextView, context _: Context) {
+    textView.linkColor = linkColor
+    textView.textStorage?.setAttributedString(attributedString)
+    textView.invalidateIntrinsicContentSize()
+    textView.window?.invalidateCursorRects(for: textView)
+  }
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator()
+  }
+
+  private var attributedString: NSAttributedString {
+    let attributedString = NSMutableAttributedString(
+      string: text,
+      attributes: [
+        .font: font,
+        .foregroundColor: textColor,
+      ]
+    )
+    for link in URLTextLinkifier.links(in: text) {
+      let range = NSRange(link.range, in: text)
+      attributedString.addAttributes(
+        [
+          .link: link.url,
+          .foregroundColor: linkColor,
+          .underlineStyle: NSUnderlineStyle.single.rawValue,
+        ],
+        range: range
+      )
+    }
+    return attributedString
+  }
+
+  final class Coordinator: NSObject, NSTextViewDelegate {
+    func textView(
+      _: NSTextView,
+      clickedOnLink link: Any,
+      at _: Int
+    ) -> Bool {
+      guard let url = link as? URL else {
+        return false
+      }
+      NSWorkspace.shared.open(url)
+      return true
+    }
+  }
+}
+
+final class LinkTextView: NSTextView {
+  var linkColor: NSColor = .linkColor
+
+  override var intrinsicContentSize: NSSize {
+    guard let layoutManager, let textContainer else {
+      return super.intrinsicContentSize
+    }
+
+    layoutManager.ensureLayout(for: textContainer)
+    let usedRect = layoutManager.usedRect(for: textContainer)
+    return NSSize(width: NSView.noIntrinsicMetric, height: ceil(usedRect.height))
+  }
+
+  override func setFrameSize(_ newSize: NSSize) {
+    super.setFrameSize(newSize)
+    textContainer?.containerSize = NSSize(
+      width: newSize.width,
+      height: CGFloat.greatestFiniteMagnitude
+    )
+    invalidateIntrinsicContentSize()
+  }
+
+  override func resetCursorRects() {
+    super.resetCursorRects()
+    guard let textStorage, let layoutManager, let textContainer else {
+      return
+    }
+
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    textStorage.enumerateAttribute(.link, in: fullRange) { value, range, _ in
+      guard value != nil else {
+        return
+      }
+
+      let glyphRange = layoutManager.glyphRange(
+        forCharacterRange: range,
+        actualCharacterRange: nil
+      )
+      layoutManager.enumerateEnclosingRects(
+        forGlyphRange: glyphRange,
+        withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+        in: textContainer
+      ) { rect, _ in
+        self.addCursorRect(
+          rect.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y),
+          cursor: .pointingHand
+        )
+      }
     }
   }
 }
