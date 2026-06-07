@@ -256,12 +256,10 @@ struct ChatSessionControllerTests {
       url: URL(filePath: "/tmp/screenshot.png"),
       displayName: "screenshot.png",
       kind: .image,
-      content: "[Image attachment: screenshot.png, image/png, 128 bytes, 1x1]",
+      content: "[Image attachment: screenshot.png, image/png, 128 bytes]",
       metadata: ChatAttachmentMetadata(
         mimeType: "image/png",
-        byteCount: 128,
-        pixelWidth: 1,
-        pixelHeight: 1
+        byteCount: 128
       )
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello"])
@@ -286,12 +284,10 @@ struct ChatSessionControllerTests {
       url: URL(filePath: "/tmp/screenshot.png"),
       displayName: "screenshot.png",
       kind: .image,
-      content: "[Image attachment: screenshot.png, image/png, 128 bytes, 1x1]",
+      content: "[Image attachment: screenshot.png, image/png, 128 bytes]",
       metadata: ChatAttachmentMetadata(
         mimeType: "image/png",
-        byteCount: 128,
-        pixelWidth: 1,
-        pixelHeight: 1
+        byteCount: 128
       )
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["looks like a screenshot"])
