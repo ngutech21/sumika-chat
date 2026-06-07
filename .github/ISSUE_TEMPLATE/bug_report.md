@@ -27,7 +27,6 @@ Which model was selected when the problem happened?
 **Interaction mode**
 
 - [ ] Chat
-- [ ] Inspect
 - [ ] Agent
 
 **Environment**
