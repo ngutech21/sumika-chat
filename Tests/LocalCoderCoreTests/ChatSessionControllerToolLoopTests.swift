@@ -184,6 +184,55 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func askUserPausesThenAnswerResumesSameTurn() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let askAction = """
+      <action name="ask_user">
+      <question>Which implementation should I use?</question>
+      <option1>Minimal fix</option1>
+      <option2>Broader refactor</option2>
+      </action>
+      """
+    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+      [askAction],
+      ["I'll make the minimal fix."],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.draft = "implement the feature"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingUserAnswer }
+
+    #expect(!controller.isGenerating)
+    #expect(controller.hasPendingUserAnswer)
+    #expect(controller.isInputBlocked)
+    let record = try #require(controller.chatSession.toolCalls.first)
+    #expect(record.request.toolName == .askUser)
+    #expect(record.status == .awaitingUserAnswer)
+
+    controller.answerAskUserToolCall(id: record.id, answer: "Minimal fix", in: workspace)
+
+    try await waitUntil { !controller.isGenerating && !controller.hasPendingUserAnswer }
+
+    #expect(controller.chatSession.turns.first?.status == .completed)
+    let answeredRecord = try #require(controller.chatSession.toolCalls.first)
+    #expect(answeredRecord.status == .completed)
+    #expect(answeredRecord.resultPayload == .askUser(AskUserResult(answer: "Minimal fix")))
+    #expect(controller.chatSession.testMessages.last?.content == "I'll make the minimal fix.")
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 2)
+    #expect(
+      capturedMessages[1].contains { message in
+        message.role == .user && message.content.contains("User answered: Minimal fix")
+      })
+  }
+
+  @Test
   func failedEditFileResultLetsModelRecoverWithReadFile() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

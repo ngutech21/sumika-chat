@@ -37,14 +37,23 @@ public final class ChatSessionController {
       && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && !isGenerating
       && !hasPendingApproval
+      && !hasPendingUserAnswer
   }
 
   public var hasPendingApproval: Bool {
     chatSession.toolCalls.contains { $0.status == .awaitingApproval }
   }
 
+  public var hasPendingUserAnswer: Bool {
+    chatSession.toolCalls.contains { $0.status == .awaitingUserAnswer }
+  }
+
+  public var isInputBlocked: Bool {
+    hasPendingApproval || hasPendingUserAnswer
+  }
+
   public var canChangeInteractionMode: Bool {
-    !isGenerating && !hasPendingApproval
+    !isGenerating && !isInputBlocked
   }
 
   public convenience init() {
@@ -908,6 +917,92 @@ extension ChatSessionController {
     notifySessionDidChange()
   }
 
+  public func answerAskUserToolCall(
+    id toolCallID: ToolCallRecord.ID,
+    answer rawAnswer: String,
+    in workspace: Workspace
+  ) {
+    guard !isGenerating else {
+      return
+    }
+    guard let existingRecord = chatSession.toolCalls.first(where: { $0.id == toolCallID }) else {
+      return
+    }
+    guard existingRecord.status == .awaitingUserAnswer else {
+      return
+    }
+    guard let turnID = chatSession.turnID(containingToolCall: toolCallID) else {
+      return
+    }
+    guard case .askUser(let input) = existingRecord.request.payload else {
+      return
+    }
+
+    let answer = rawAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !answer.isEmpty else {
+      return
+    }
+    if !input.options.contains(answer) {
+      errorMessage = "Choose one of the provided answers."
+      return
+    }
+
+    var answeredRecord = existingRecord
+    answeredRecord.state = .completed(.askUser(AskUserResult(answer: answer)))
+    answeredRecord.events.append(
+      ToolCallEvent(actor: .user, kind: .answered, message: "Answered: \(answer)"))
+    let nextAssistantMessageID = UUID()
+    applyWorkflowEvents([
+      .toolCallReplaced(answeredRecord),
+      .toolResultAppended(
+        toolResultMessage(for: answeredRecord),
+        turnID: turnID
+      ),
+      .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
+      .turnStatusChanged(
+        turnID: turnID,
+        status: .running,
+        modelContextPolicy: nil
+      ),
+    ])
+    isGenerating = true
+    errorMessage = nil
+    refreshContextUsage(toolPromptMode: .afterToolResultCanContinue)
+    notifySessionDidChange()
+
+    chatTurnCoordinator.startTurn(id: turnID) { [weak self] turnID in
+      guard let self else {
+        return
+      }
+      do {
+        let generationResult = try await streamAssistantReply(
+          to: nextAssistantMessageID,
+          interactionMode: chatSession.interactionMode,
+          toolPromptMode: .afterToolResultCanContinue,
+          turnID: turnID,
+          toolLoopIteration: 1
+        )
+        try await runToolLoop(
+          workspace: workspace,
+          sessionID: existingRecord.request.sessionID,
+          lastAssistantMessageID: nextAssistantMessageID,
+          turnID: turnID,
+          interactionMode: chatSession.interactionMode,
+          remainingIterations: maxToolLoopIterations - 1,
+          lastNativeToolCalls: generationResult.nativeToolCalls
+        )
+      } catch is CancellationError {
+        finishCancelledApprovedToolTurn(turnID)
+        return
+      } catch {
+        finishFailedApprovedToolTurn(turnID, error: error)
+        return
+      }
+
+      finishCompletedApprovedToolTurn(turnID)
+    }
+  }
+
   public func denyToolCall(id toolCallID: ToolCallRecord.ID) {
     guard !isGenerating else {
       return
@@ -1245,6 +1340,12 @@ extension ChatSessionController {
 
       switch step.continuation {
       case .awaitingApproval:
+        isGenerating = false
+        chatTurnCoordinator.finishTurn(turnID)
+        flushPendingContextUsageRefresh(defaultMode: .disabled)
+        notifySessionDidChange()
+        return
+      case .awaitingUserAnswer:
         isGenerating = false
         chatTurnCoordinator.finishTurn(turnID)
         flushPendingContextUsageRefresh(defaultMode: .disabled)

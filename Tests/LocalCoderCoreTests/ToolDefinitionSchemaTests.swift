@@ -110,6 +110,27 @@ struct ToolDefinitionSchemaTests {
   }
 
   @Test
+  func askUserDefinitionExposesPlainStringOptions() {
+    let definition = ToolDefinition.askUser
+    let schema = definition.functionSchema
+
+    #expect(definition.description.contains("blocking clarification"))
+    #expect(definition.riskLevel == .low)
+    #expect(definition.capabilities.isEmpty)
+    #expect(schema.parameters.required == ["question", "option1", "option2"])
+    #expect(schema.parameters.properties["question"]?.type == .string)
+    #expect(schema.parameters.properties["option1"]?.type == .string)
+    #expect(schema.parameters.properties["option2"]?.type == .string)
+    #expect(schema.parameters.properties["option3"]?.type == .string)
+    #expect(schema.parameters.properties["option4"]?.type == .string)
+    #expect(schema.parameters.properties["option1"]?.arrayItems == nil)
+    #expect(
+      schema.parameters.properties.keys.sorted() == [
+        "option1", "option2", "option3", "option4", "question",
+      ])
+  }
+
+  @Test
   func functionSchemaEncodesProviderNeutralFunctionToolShape() throws {
     let data = try JSONEncoder().encode(ToolDefinition.readFile.functionSchema)
     let object = try #require(

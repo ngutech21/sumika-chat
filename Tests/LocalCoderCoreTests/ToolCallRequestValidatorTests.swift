@@ -84,6 +84,16 @@ struct ToolCallRequestValidatorTests {
         ]),
       registry: registry
     )
+    let askUser = validator.validate(
+      raw(
+        .askUser,
+        arguments: [
+          "question": .string("Which implementation should I use?"),
+          "option1": .string("Minimal fix"),
+          "option2": .string("Broader refactor"),
+        ]),
+      registry: registry
+    )
 
     guard case .readFile(let readInput) = read.payload else {
       Issue.record("Expected read_file payload")
@@ -117,6 +127,13 @@ struct ToolCallRequestValidatorTests {
             TodoItem(id: "inspect", content: "Inspect affected files", status: .completed),
             TodoItem(id: "core", content: "Add todo state", status: .inProgress),
           ])))
+    #expect(
+      askUser.payload
+        == .askUser(
+          AskUserInput(
+            question: "Which implementation should I use?",
+            options: ["Minimal fix", "Broader refactor"]
+          )))
   }
 
   @Test
@@ -179,6 +196,80 @@ struct ToolCallRequestValidatorTests {
     )
 
     #expect(invalidReason(request) == .missingRequiredArgument("path"))
+  }
+
+  @Test
+  func askUserRejectsLegacyOptionsMissingRequiredOptionAndEmptyOptions() {
+    let registry = ToolExecutorRegistry.codingAgent.toolRegistry
+    let legacyOptions = validator.validate(
+      raw(
+        .askUser,
+        arguments: [
+          "question": .string("Choose?"),
+          "options": .string(#"["Minimal fix","Broader refactor"]"#),
+        ]),
+      registry: registry
+    )
+    let missingOption2 = validator.validate(
+      raw(
+        .askUser,
+        arguments: [
+          "question": .string("Choose?"),
+          "option1": .string("Only one"),
+        ]),
+      registry: registry
+    )
+    let emptyOption1 = validator.validate(
+      raw(
+        .askUser,
+        arguments: [
+          "question": .string("Choose?"),
+          "option1": .string(" "),
+          "option2": .string("Broader refactor"),
+        ]),
+      registry: registry
+    )
+    let emptyOption3 = validator.validate(
+      raw(
+        .askUser,
+        arguments: [
+          "question": .string("Choose?"),
+          "option1": .string("Minimal fix"),
+          "option2": .string("Broader refactor"),
+          "option3": .string(" "),
+        ]),
+      registry: registry
+    )
+    let duplicateOptions = validator.validate(
+      raw(
+        .askUser,
+        arguments: [
+          "question": .string("Choose?"),
+          "option1": .string(" Turtle "),
+          "option2": .string("turtle"),
+        ]),
+      registry: registry
+    )
+    #expect(invalidReason(legacyOptions) == .unknownArguments(["options"]))
+    #expect(invalidReason(missingOption2) == .missingRequiredArgument("option2"))
+    #expect(
+      invalidReason(emptyOption1)
+        == .invalidArgumentType(
+          name: "option1",
+          expected: "a non-empty answer option string"
+        ))
+    #expect(
+      invalidReason(emptyOption3)
+        == .invalidArgumentType(
+          name: "option3",
+          expected: "omit it or provide a non-empty answer option string"
+        ))
+    #expect(
+      invalidReason(duplicateOptions)
+        == .invalidArgumentType(
+          name: "options",
+          expected: "unique answer option strings"
+        ))
   }
 
   @Test

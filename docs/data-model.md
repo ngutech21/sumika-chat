@@ -43,6 +43,7 @@ flowchart TD
   ToolCallEvent --> ToolCallEventKind
   ToolCallModelMessage --> ToolCallModelArgument
   ToolCallModelMessage --> ToolName
+  ToolCallPayload --> AskUserInput
   ToolCallPayload --> InvalidToolInput
   ToolCallPayload --> WebFetchInput
   ToolCallPayload --> WebSearchInput
@@ -98,6 +99,7 @@ flowchart TD
   ToolRegistry --> ToolDefinition
   ToolResultModelMessage --> ToolName
   ToolResultModelMessage --> ToolResultPayload
+  ToolResultPayload --> AskUserResult
   ToolResultPayload --> EditFileResult
   ToolResultPayload --> GlobFilesResult
   ToolResultPayload --> InvalidToolResult
@@ -138,6 +140,30 @@ flowchart TD
 ```
 
 ## Models
+
+### AskUserInput
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `option1: String`
+- `option2: String`
+- `option3: String?`
+- `option4: String?`
+- `question: String`
+
+### AskUserResult
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `answer: String`
 
 ### ChatGenerationSettings
 
@@ -671,8 +697,10 @@ Relations:
 
 Cases:
 
+- `answered`
 - `approved`
 - `awaitingApproval`
+- `awaitingUserAnswer`
 - `cancelled`
 - `completed`
 - `denied`
@@ -717,6 +745,7 @@ Relations:
 
 Cases:
 
+- `askUser(AskUserInput)`
 - `editFile(EditFileInput)`
 - `globFiles(GlobFilesInput)`
 - `invalid(InvalidToolInput)`
@@ -734,6 +763,7 @@ Cases:
 
 Relations:
 
+- `AskUserInput`
 - `InvalidToolInput`
 - `WebFetchInput`
 - `WebSearchInput`
@@ -786,6 +816,7 @@ Cases:
 
 - `approved`
 - `awaitingApproval(preview: ToolResultPreview?)`
+- `awaitingUserAnswer`
 - `cancelled`
 - `completed(ToolResultPayload)`
 - `denied(ToolResultPayload)`
@@ -808,6 +839,7 @@ Cases:
 
 - `approved`
 - `awaitingApproval`
+- `awaitingUserAnswer`
 - `cancelled`
 - `completed`
 - `denied`
@@ -1162,6 +1194,7 @@ Relations:
 
 Cases:
 
+- `askUser(AskUserResult)`
 - `editFile(EditFileResult)`
 - `failure(ToolFailure)`
 - `globFiles(GlobFilesResult)`
@@ -1179,6 +1212,7 @@ Cases:
 
 Relations:
 
+- `AskUserResult`
 - `EditFileResult`
 - `GlobFilesResult`
 - `InvalidToolResult`

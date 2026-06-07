@@ -528,6 +528,52 @@ nonisolated extension ToolDefinition {
     riskLevel: .low
   )
 
+  public static let askUser = ToolDefinition(
+    name: .askUser,
+    description:
+      "Ask the user a blocking clarification with predefined answer options.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "question",
+        description: "One concise question for the user. Do not include the answer choices here.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "option1",
+        description: "First answer option. Plain short string; no numbering or markdown.",
+        isRequired: true,
+        valueType: .string
+      ),
+      ToolParameterDefinition(
+        name: "option2",
+        description: "Second answer option. Plain short string; no numbering or markdown.",
+        isRequired: true,
+        valueType: .string
+      ),
+      ToolParameterDefinition(
+        name: "option3",
+        description: "Optional third answer option. Plain short string.",
+        isRequired: false,
+        valueType: .string
+      ),
+      ToolParameterDefinition(
+        name: "option4",
+        description: "Optional fourth answer option. Plain short string.",
+        isRequired: false,
+        valueType: .string
+      ),
+    ],
+    taggedExample: """
+      <action name="ask_user">
+      <question>Which implementation should I use?</question>
+      <option1>Minimal fix</option1>
+      <option2>Broader refactor</option2>
+      </action>
+      """,
+    capabilities: [],
+    riskLevel: .low
+  )
+
   public static let webSearch = ToolDefinition(
     name: .webSearch,
     description: "Search public web pages without sending workspace contents.",

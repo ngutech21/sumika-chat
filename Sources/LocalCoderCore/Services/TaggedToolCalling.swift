@@ -76,6 +76,10 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
       registry.definition(for: .todoWrite) == nil
       ? ""
       : "\n- For todo_write, emit exactly one items parameter containing a JSON array string with the full current plan as 2 to 6 objects. Never send only the next step. Do not emit id, content, or status as top-level parameters."
+    let askUserInstruction =
+      registry.definition(for: .askUser) == nil
+      ? ""
+      : "\n- For ask_user, always include option1 and option2 as plain strings. Add option3 and option4 only when needed. Do not put alternatives only in question. Use ask_user only when a user decision truly blocks progress; never use it for open-ended questions, routine confirmation, or side-effect approval."
 
     return """
       Tool calling:
@@ -85,7 +89,7 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
       - Use workspace-relative paths.
       - For multiline payload parameters, including content, old_text, new_text, and items, use delimiter="\(payloadDelimiter)" with the delimiter on its own line.
       - Payload contents are raw text; do not escape HTML, XML, JSON, or code inside payloads.
-      - If a payload would contain the delimiter as its own line, do not call a tool. Ask for a new delimiter.\(todoWriteInstruction)
+      - If a payload would contain the delimiter as its own line, do not call a tool. Ask for a new delimiter.\(todoWriteInstruction)\(askUserInstruction)
 
       Tools:
       \(renderedTools)
@@ -139,6 +143,8 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
       "Run an approved foreground shell command in the workspace root."
     case .todoWrite:
       "Update the current Agent todo plan."
+    case .askUser:
+      "Ask the user a blocking clarification."
     case .webSearch:
       "Search public web pages without sending workspace contents."
     case .webFetch:

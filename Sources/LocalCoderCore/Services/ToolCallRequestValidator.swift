@@ -103,6 +103,53 @@ public struct ToolCallRequestValidator: Sendable {
         throw InvalidToolCallReason.invalidTodoItems(validationError.localizedDescription)
       }
       return .todoWrite(input)
+    case .askUser:
+      let input = try decode(AskUserInput.self, from: rawRequest.arguments)
+      guard !input.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        throw InvalidToolCallReason.invalidArgumentType(
+          name: "question",
+          expected: "a non-empty blocking question"
+        )
+      }
+      let optionFields = [
+        ("option1", input.option1),
+        ("option2", input.option2),
+        ("option3", input.option3),
+        ("option4", input.option4),
+      ]
+      let missingRequiredOption = optionFields.prefix(2).first {
+        ($0.1 ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }
+      if let missingRequiredOption {
+        throw InvalidToolCallReason.invalidArgumentType(
+          name: missingRequiredOption.0,
+          expected: "a non-empty answer option string"
+        )
+      }
+      let optionalOptionIsEmpty = optionFields.dropFirst(2).first {
+        guard let value = $0.1 else {
+          return false
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }
+      if let optionalOptionIsEmpty {
+        throw InvalidToolCallReason.invalidArgumentType(
+          name: optionalOptionIsEmpty.0,
+          expected: "omit it or provide a non-empty answer option string"
+        )
+      }
+      var uniqueOptions = Set<String>()
+      let duplicateOption = input.options.first { option in
+        let normalizedOption = option.lowercased()
+        return !uniqueOptions.insert(normalizedOption).inserted
+      }
+      if duplicateOption != nil {
+        throw InvalidToolCallReason.invalidArgumentType(
+          name: "options",
+          expected: "unique answer option strings"
+        )
+      }
+      return .askUser(input)
     case .webSearch:
       let input = try decode(WebSearchInput.self, from: rawRequest.arguments)
       guard !input.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -328,6 +375,8 @@ nonisolated extension ToolDefinition {
       .runCommand
     case .todoWrite:
       .todoWrite
+    case .askUser:
+      .askUser
     case .webSearch:
       .webSearch
     case .webFetch:

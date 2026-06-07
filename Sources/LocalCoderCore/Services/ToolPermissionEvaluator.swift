@@ -100,6 +100,12 @@ public struct ToolPermissionEvaluator: Sendable {
         reason: "Updating Agent todo state is allowed.",
         riskLevel: .low
       )
+    case .askUser:
+      return ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Asking the user a blocking clarification is allowed.",
+        riskLevel: .low
+      )
     case .webSearch, .webFetch:
       return ToolPermissionEvaluation(
         decision: .denied,

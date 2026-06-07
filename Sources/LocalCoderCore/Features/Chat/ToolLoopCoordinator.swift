@@ -240,6 +240,16 @@ public struct ToolLoopCoordinator: Sendable {
         return ChatWorkflowStep(events: events, continuation: .awaitingApproval)
       }
 
+      guard record.status != .awaitingUserAnswer else {
+        events.append(
+          .turnStatusChanged(
+            turnID: request.turnID,
+            status: .awaitingUserAnswer,
+            modelContextPolicy: nil
+          ))
+        return ChatWorkflowStep(events: events, continuation: .awaitingUserAnswer)
+      }
+
       if let todoState = todoState(from: record) {
         events.append(.todoStateChanged(todoState))
       }

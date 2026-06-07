@@ -28,6 +28,9 @@ struct TaggedToolCallingTests {
     #expect(
       ToolExecutorRegistry.codingAgent.toolRegistry.definition(canonicalizing: "run command")?.name
         == .runCommand)
+    #expect(
+      ToolExecutorRegistry.codingAgent.toolRegistry.definition(canonicalizing: "ask user")?.name
+        == .askUser)
   }
 
   @Test
@@ -88,6 +91,17 @@ struct TaggedToolCallingTests {
         "For todo_write, emit exactly one items parameter containing a JSON array string with the full current plan as 2 to 6 objects."
       ))
     #expect(prompt.contains("Never send only the next step."))
+    #expect(
+      prompt.contains(
+        "- ask_user(question, option1, option2, option3?, option4?): Ask the user a blocking clarification."
+      ))
+    #expect(
+      prompt.contains(
+        "For ask_user, always include option1 and option2 as plain strings."
+      ))
+    #expect(
+      prompt.contains(
+        "never use it for open-ended questions"))
   }
 
   @Test
@@ -171,6 +185,27 @@ struct TaggedToolCallingTests {
 
     #expect(request.toolName == .listFiles)
     #expect(request.arguments == ["path": .string(".")])
+  }
+
+  @Test
+  func parserParsesAskUserActionWithPlainStringOptions() throws {
+    let request = try parsedRequest(
+      """
+      <action name="ask_user">
+      <question>Which implementation should I use?</question>
+      <option1>Minimal fix</option1>
+      <option2>Broader refactor</option2>
+      </action>
+      """
+    )
+
+    #expect(request.toolName == .askUser)
+    #expect(
+      request.arguments == [
+        "question": .string("Which implementation should I use?"),
+        "option1": .string("Minimal fix"),
+        "option2": .string("Broader refactor"),
+      ])
   }
 
   @Test

@@ -38,6 +38,7 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
 public enum ChatWorkflowContinuation: Equatable, Sendable {
   case none
   case awaitingApproval
+  case awaitingUserAnswer
   case resumeGeneration(
     assistantMessageID: UUID,
     promptMode: ToolPromptMode

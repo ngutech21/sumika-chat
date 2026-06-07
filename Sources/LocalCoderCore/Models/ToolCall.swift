@@ -24,6 +24,7 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
   public static let writeFile = ToolName(rawValue: "write_file")
   public static let runCommand = ToolName(rawValue: "run_command")
   public static let todoWrite = ToolName(rawValue: "todo_write")
+  public static let askUser = ToolName(rawValue: "ask_user")
   public static let webSearch = ToolName(rawValue: "web_search")
   public static let webFetch = ToolName(rawValue: "web_fetch")
   public static let invalid = ToolName(rawValue: "invalid")
@@ -56,6 +57,8 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
       return Self.runCommand.rawValue
     case "todo", "write_todo", "update_todos", "todos":
       return "todo_write"
+    case "ask", "ask_user", "clarify", "clarification":
+      return "ask_user"
     case "search_web", "internet_search":
       return Self.webSearch.rawValue
     case "fetch", "fetch_url", "read_url":
@@ -108,6 +111,7 @@ public enum ToolIntentHeuristics {
       ToolName.writeFile.rawValue,
       ToolName.runCommand.rawValue,
       ToolName.todoWrite.rawValue,
+      ToolName.askUser.rawValue,
       ToolName.webSearch.rawValue,
       ToolName.webFetch.rawValue,
     ]
@@ -258,6 +262,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
   case editFile(EditFileInput)
   case runCommand(RunCommandInput)
   case todoWrite(TodoWriteInput)
+  case askUser(AskUserInput)
   case webSearch(WebSearchInput)
   case webFetch(WebFetchInput)
   case invalid(InvalidToolInput)
@@ -288,6 +293,8 @@ nonisolated extension ToolCallPayload {
       .runCommand
     case .todoWrite:
       .todoWrite
+    case .askUser:
+      .askUser
     case .webSearch:
       .webSearch
     case .webFetch:
@@ -540,6 +547,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
 public enum ToolCallState: Codable, Equatable, Sendable {
   case pending
   case awaitingApproval(preview: ToolResultPreview?)
+  case awaitingUserAnswer
   case approved
   case running
   case completed(ToolResultPayload)
@@ -555,6 +563,8 @@ nonisolated extension ToolCallState {
       .pending
     case .awaitingApproval:
       .awaitingApproval
+    case .awaitingUserAnswer:
+      .awaitingUserAnswer
     case .approved:
       .approved
     case .running:
@@ -574,7 +584,7 @@ nonisolated extension ToolCallState {
     switch self {
     case .completed(let payload), .denied(let payload), .failed(let payload):
       payload
-    case .pending, .awaitingApproval, .approved, .running, .cancelled:
+    case .pending, .awaitingApproval, .awaitingUserAnswer, .approved, .running, .cancelled:
       nil
     }
   }
@@ -583,7 +593,8 @@ nonisolated extension ToolCallState {
     switch self {
     case .awaitingApproval(let preview):
       preview
-    case .pending, .approved, .running, .completed, .denied, .failed, .cancelled:
+    case .pending, .awaitingUserAnswer, .approved, .running, .completed, .denied, .failed,
+      .cancelled:
       nil
     }
   }
@@ -596,6 +607,7 @@ nonisolated extension ToolCallState {
 public enum ToolCallStatus: String, Codable, Equatable, Sendable {
   case pending
   case awaitingApproval
+  case awaitingUserAnswer
   case approved
   case denied
   case running
@@ -636,6 +648,8 @@ public enum ToolCallActor: String, Codable, Equatable, Sendable {
 public enum ToolCallEventKind: String, Codable, Equatable, Sendable {
   case requested
   case awaitingApproval
+  case awaitingUserAnswer
+  case answered
   case approved
   case denied
   case started
@@ -663,6 +677,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case editFile(EditFileResult)
   case runCommand(RunCommandResult)
   case todoWrite(TodoWriteResult)
+  case askUser(AskUserResult)
   case webSearch(WebSearchToolResult)
   case webFetch(WebFetchToolResult)
   case invalidTool(InvalidToolResult)
@@ -749,6 +764,78 @@ public enum WebFetchToolResult: Codable, Equatable, Sendable {
 public enum TodoWriteResult: Codable, Equatable, Sendable {
   case success
   case failed(reason: ToolFailureReason)
+}
+
+public struct AskUserInput: Codable, Equatable, Sendable {
+  public let question: String
+  public let option1: String
+  public let option2: String
+  public let option3: String?
+  public let option4: String?
+
+  public var options: [String] {
+    [option1, option2, option3, option4]
+      .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case question
+    case option1
+    case option2
+    case option3
+    case option4
+  }
+
+  public init(
+    question: String,
+    option1: String,
+    option2: String,
+    option3: String? = nil,
+    option4: String? = nil
+  ) {
+    self.question = question
+    self.option1 = option1
+    self.option2 = option2
+    self.option3 = option3
+    self.option4 = option4
+  }
+
+  public init(question: String, options: [String]) {
+    self.init(
+      question: question,
+      option1: options.indices.contains(0) ? options[0] : "",
+      option2: options.indices.contains(1) ? options[1] : "",
+      option3: options.indices.contains(2) ? options[2] : nil,
+      option4: options.indices.contains(3) ? options[3] : nil
+    )
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    question = try container.decode(String.self, forKey: .question)
+    option1 = try container.decode(String.self, forKey: .option1)
+    option2 = try container.decode(String.self, forKey: .option2)
+    option3 = try container.decodeIfPresent(String.self, forKey: .option3)
+    option4 = try container.decodeIfPresent(String.self, forKey: .option4)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(question, forKey: .question)
+    try container.encode(option1, forKey: .option1)
+    try container.encode(option2, forKey: .option2)
+    try container.encodeIfPresent(option3, forKey: .option3)
+    try container.encodeIfPresent(option4, forKey: .option4)
+  }
+}
+
+public struct AskUserResult: Codable, Equatable, Sendable {
+  public let answer: String
+
+  public init(answer: String) {
+    self.answer = answer
+  }
 }
 
 public enum ReadFileResult: Codable, Equatable, Sendable {
@@ -1172,6 +1259,8 @@ nonisolated extension ToolResultPayload {
       return result.preview
     case .todoWrite(let result):
       return result.preview
+    case .askUser(let result):
+      return result.preview
     case .webSearch(let result):
       return result.preview
     case .webFetch(let result):
@@ -1248,6 +1337,12 @@ nonisolated extension TodoWriteResult {
     case .failed(let reason):
       ToolResultPreview(status: reason.previewStatus, text: reason.message)
     }
+  }
+}
+
+nonisolated extension AskUserResult {
+  fileprivate var preview: ToolResultPreview {
+    ToolResultPreview(text: "User answered: \(answer)")
   }
 }
 

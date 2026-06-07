@@ -247,6 +247,8 @@ public enum ToolResultProjector {
       return projectRunCommand(result, request: request)
     case .todoWrite(let result):
       return projectTodoWrite(result, request: request)
+    case .askUser(let result):
+      return projectAskUser(result, request: request)
     case .webSearch(let result):
       return projectWebSearch(result, request: request, policy: policy)
     case .webFetch(let result):
@@ -504,6 +506,18 @@ public enum ToolResultProjector {
         affectedPaths: []
       )
     }
+  }
+
+  private static func projectAskUser(
+    _ result: AskUserResult,
+    request: ToolCallRequest
+  ) -> ToolResultProjection {
+    summaryProjection(
+      toolName: request.toolName,
+      status: .success,
+      text: "User answered: \(result.answer)",
+      affectedPaths: []
+    )
   }
 
   private static func projectWebSearch(

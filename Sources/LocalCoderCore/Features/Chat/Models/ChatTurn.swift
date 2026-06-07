@@ -79,6 +79,7 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
 public enum ChatTurnStatus: String, Codable, Equatable, Sendable {
   case running
   case awaitingApproval
+  case awaitingUserAnswer
   case completed
   case cancelled
   case failed

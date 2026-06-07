@@ -1719,7 +1719,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func nativeGemma4ToolContextDefinesTodoItemsAsJSONString() throws {
+  func nativeGemma4ToolContextDefinesSimpleParametersAsStrings() throws {
     let toolContext = ChatRuntimeToolContext(
       strategy: .nativeGemma4,
       registry: ToolExecutorRegistry.codingAgent.toolRegistry
@@ -1735,10 +1735,24 @@ struct GemmaMLXRuntimeTemplateTests {
     let parameters = try #require(function["parameters"] as? [String: any Sendable])
     let properties = try #require(parameters["properties"] as? [String: any Sendable])
     let items = try #require(properties["items"] as? [String: any Sendable])
+    let askSpec = try #require(
+      specs.first { spec in
+        let function = spec["function"] as? [String: any Sendable]
+        return function?["name"] as? String == "ask_user"
+      })
+    let askFunction = try #require(askSpec["function"] as? [String: any Sendable])
+    let askParameters = try #require(askFunction["parameters"] as? [String: any Sendable])
+    let askProperties = try #require(askParameters["properties"] as? [String: any Sendable])
+    let option1 = try #require(askProperties["option1"] as? [String: any Sendable])
+    let option2 = try #require(askProperties["option2"] as? [String: any Sendable])
 
     #expect(items["type"] as? String == "string")
     #expect((items["description"] as? String)?.contains("JSON array string") == true)
     #expect(items["items"] == nil)
+    #expect(option1["type"] as? String == "string")
+    #expect(option1["items"] == nil)
+    #expect(option2["type"] as? String == "string")
+    #expect(option2["items"] == nil)
   }
 
   @Test

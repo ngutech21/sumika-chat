@@ -367,6 +367,8 @@ private func toolCallState(status: ToolCallStatus) -> ToolCallState {
     return .pending
   case .awaitingApproval:
     return .awaitingApproval(preview: nil)
+  case .awaitingUserAnswer:
+    return .awaitingUserAnswer
   case .approved:
     return .approved
   case .running:

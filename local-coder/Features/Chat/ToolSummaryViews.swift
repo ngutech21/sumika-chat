@@ -8,6 +8,7 @@ struct ToolCallSummaryView: View {
   let generationMetrics: ChatGenerationMetrics?
   let onApprove: (ToolCallRecord.ID) -> Void
   let onDeny: (ToolCallRecord.ID) -> Void
+  let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
   @State private var isDetailsExpanded = false
 
   var body: some View {
@@ -49,6 +50,16 @@ struct ToolCallSummaryView: View {
             .controlSize(.small)
           }
         }
+
+        if toolCallRecord.status == .awaitingUserAnswer,
+          let input = toolCallRecord.askUserInput
+        {
+          AskUserAnswerView(
+            toolCallID: toolCallRecord.id,
+            input: input,
+            onAnswer: onAnswerAskUser
+          )
+        }
       }
     }
     .font(.caption)
@@ -79,6 +90,8 @@ extension ToolCallStatus {
       "pending"
     case .awaitingApproval:
       "awaiting approval"
+    case .awaitingUserAnswer:
+      "awaiting user answer"
     case .approved:
       "approved"
     case .denied:
@@ -100,7 +113,7 @@ extension ToolCallStatus {
       "checkmark"
     case .failed, .denied, .cancelled:
       "xmark"
-    case .awaitingApproval, .approved, .pending, .running:
+    case .awaitingApproval, .awaitingUserAnswer, .approved, .pending, .running:
       "ellipsis"
     }
   }
@@ -111,9 +124,89 @@ extension ToolCallStatus {
       .green
     case .failed, .denied, .cancelled:
       .orange
-    case .awaitingApproval, .approved, .pending, .running:
+    case .awaitingApproval, .awaitingUserAnswer, .approved, .pending, .running:
       .secondary
     }
+  }
+}
+
+private struct AskUserAnswerView: View {
+  let toolCallID: ToolCallRecord.ID
+  let input: AskUserInput
+  let onAnswer: (ToolCallRecord.ID, String) -> Void
+  @State private var selectedOption = ""
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(input.question)
+        .font(.caption)
+        .foregroundStyle(.primary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      let options = input.options
+      if !options.isEmpty {
+        HStack(spacing: 6) {
+          Picker("Answer", selection: selectedOptionBinding(options: options)) {
+            ForEach(options, id: \.self) { option in
+              Text(option)
+                .tag(option)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .controlSize(.small)
+          .frame(minWidth: 180, maxWidth: 320, alignment: .leading)
+          .accessibilityIdentifier("askUser.optionPicker")
+
+          Button {
+            submitSelectedOption(options: options)
+          } label: {
+            Image(systemName: "arrow.up.circle.fill")
+          }
+          .buttonStyle(.borderless)
+          .disabled(selectedAnswer(options: options).isEmpty)
+          .help("Send answer")
+          .accessibilityLabel("Send selected answer")
+        }
+      }
+
+    }
+    .padding(.top, 3)
+  }
+
+  private func selectedOptionBinding(options: [String]) -> Binding<String> {
+    Binding(
+      get: {
+        selectedAnswer(options: options)
+      },
+      set: { value in
+        selectedOption = value
+      }
+    )
+  }
+
+  private func selectedAnswer(options: [String]) -> String {
+    guard !options.isEmpty else {
+      return ""
+    }
+    return options.contains(selectedOption) ? selectedOption : options[0]
+  }
+
+  private func submitSelectedOption(options: [String]) {
+    let answer = selectedAnswer(options: options)
+    guard !answer.isEmpty else {
+      return
+    }
+    onAnswer(toolCallID, answer)
+  }
+}
+
+extension ToolCallRecord {
+  fileprivate var askUserInput: AskUserInput? {
+    guard case .askUser(let input) = request.payload else {
+      return nil
+    }
+    return input
   }
 }
 

@@ -76,6 +76,46 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func askUserActionPausesForUserAnswerWithoutToolResult() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let assistantMessageID = UUID()
+    let turnID = UUID()
+    let coordinator = ToolLoopCoordinator()
+
+    let result = try await coordinator.run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: turnID,
+        assistantMessageID: assistantMessageID,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantMessageID,
+              content: """
+                <action name="ask_user">
+                <question>Which implementation should I use?</question>
+                <option1>Minimal fix</option1>
+                <option2>Broader refactor</option2>
+                </action>
+                """
+            ))
+        ]
+      )
+    )
+
+    #expect(annotatedAssistantMessageID(from: result) == assistantMessageID)
+    #expect(toolCall(from: result)?.toolName == .askUser)
+    let record = try #require(toolCallRecord(from: result))
+    #expect(record.turnID == turnID)
+    #expect(record.status == .awaitingUserAnswer)
+    #expect(result?.continuation == .awaitingUserAnswer)
+    #expect(toolResult(from: result) == nil)
+    #expect(record.events.map(\.kind).contains(.awaitingUserAnswer))
+  }
+
+  @Test
   func tracesNativeToolArgumentDiagnosticsAfterValidation() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

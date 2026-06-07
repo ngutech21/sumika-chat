@@ -241,6 +241,20 @@ public struct AnyToolExecutor: Sendable {
       let evaluation = tool.evaluatePermission(input, context: context)
       record.evaluation = evaluation
 
+      if T.definition.name == .askUser && !isApproved {
+        guard shouldRun(evaluation: evaluation, isApproved: isApproved, record: &record) else {
+          return record
+        }
+        record.state = .awaitingUserAnswer
+        record.events.append(
+          ToolCallEvent(
+            actor: .system,
+            kind: .awaitingUserAnswer,
+            message: "Waiting for the user to answer."
+          ))
+        return record
+      }
+
       if evaluation.decision == .requiresApproval && !isApproved {
         guard
           await prepareApprovalPreview(
@@ -457,6 +471,8 @@ public struct AnyToolExecutor: Sendable {
       return try cast(input, as: inputType, definition: definition, actualToolName: .runCommand)
     case .todoWrite(let input):
       return try cast(input, as: inputType, definition: definition, actualToolName: .todoWrite)
+    case .askUser(let input):
+      return try cast(input, as: inputType, definition: definition, actualToolName: .askUser)
     case .webSearch(let input):
       return try cast(input, as: inputType, definition: definition, actualToolName: .webSearch)
     case .webFetch(let input):
@@ -508,6 +524,7 @@ public struct ToolExecutorRegistry: Sendable {
     AnyToolExecutor(WriteFileToolExecutor()),
     AnyToolExecutor(RunCommandToolExecutor()),
     AnyToolExecutor(TodoWriteToolExecutor()),
+    AnyToolExecutor(AskUserToolExecutor()),
     AnyToolExecutor(WebSearchToolExecutor()),
     AnyToolExecutor(WebFetchToolExecutor()),
   ])
@@ -623,6 +640,37 @@ public struct TodoWriteToolExecutor: TypedToolExecutor {
         }
       return .todoWrite(.failed(reason: reason))
     }
+  }
+}
+
+public struct AskUserToolExecutor: TypedToolExecutor {
+  public static let definition = ToolDefinition.askUser
+
+  public init() {}
+
+  public func evaluatePermission(
+    _ input: AskUserInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    _ = input
+    _ = context
+    return ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Asking the user a blocking clarification is allowed.",
+      riskLevel: .low
+    )
+  }
+
+  public func run(_ input: AskUserInput, context: ToolContext) async -> ToolResultPayload {
+    _ = input
+    _ = context
+    return .failure(
+      ToolFailure(
+        toolName: .askUser,
+        path: nil,
+        reason: .executionError("ask_user must be answered by the user before it completes.")
+      )
+    )
   }
 }
 

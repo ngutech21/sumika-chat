@@ -340,6 +340,31 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func askUserProjectionUsesCompactAnswerReceipt() {
+    let projection = ToolResultProjector.project(
+      payload: .askUser(AskUserResult(answer: "Minimal fix")),
+      request: request(
+        toolName: .askUser,
+        payload: .askUser(
+          AskUserInput(
+            question: "Which implementation should I use?",
+            options: ["Minimal fix", "Broader refactor"]
+          ))
+      )
+    )
+
+    guard case .summary(let status, let text, let affectedPaths) = projection.display else {
+      Issue.record("Expected ask_user display summary.")
+      return
+    }
+    #expect(status == .success)
+    #expect(text == "User answered: Minimal fix")
+    #expect(affectedPaths.isEmpty)
+    #expect(projection.observation.status == .success)
+    #expect(projection.observation.blocks == [.summary("User answered: Minimal fix")])
+  }
+
+  @Test
   func deniedFailureProjectionPreservesRecoveryMessage() {
     let projection = ToolResultProjector.project(
       payload: .failure(

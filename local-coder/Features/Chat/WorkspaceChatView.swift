@@ -30,6 +30,9 @@ struct WorkspaceChatView: View {
         },
         onDenyToolCall: { toolCallID in
           controller.denyToolCall(id: toolCallID)
+        },
+        onAnswerAskUser: { toolCallID, answer in
+          controller.answerAskUserToolCall(id: toolCallID, answer: answer, in: workspace)
         }
       )
 
@@ -51,7 +54,7 @@ struct WorkspaceChatView: View {
           controller.modelRuntime.selectedModel),
         canSend: controller.canSend,
         isGenerating: controller.isGenerating,
-        isInputBlocked: controller.hasPendingApproval,
+        isInputBlocked: controller.isInputBlocked,
         errorMessage: controller.errorMessage,
         onSelectInteractionMode: controller.setInteractionMode,
         onSelectModel: selectModel(_:),

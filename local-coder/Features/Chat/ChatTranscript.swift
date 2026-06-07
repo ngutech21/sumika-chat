@@ -10,6 +10,7 @@ struct ChatTranscript: View {
   let isGenerating: Bool
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
+  let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
 
   var body: some View {
     if transcriptItems.isEmpty {
@@ -31,7 +32,8 @@ struct ChatTranscript: View {
         showsGenerationIndicator: shouldShowTranscriptGenerationIndicator,
         accessibilityValue: modelState.accessibilityValue,
         onApproveToolCall: onApproveToolCall,
-        onDenyToolCall: onDenyToolCall
+        onDenyToolCall: onDenyToolCall,
+        onAnswerAskUser: onAnswerAskUser
       )
     }
   }
@@ -130,6 +132,7 @@ private struct ChatTranscriptScrollContent: View {
   let accessibilityValue: String
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
+  let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
 
   var body: some View {
     ScrollViewReader { scrollProxy in
@@ -139,7 +142,8 @@ private struct ChatTranscriptScrollContent: View {
             ChatBubble(
               item: item,
               onApproveToolCall: onApproveToolCall,
-              onDenyToolCall: onDenyToolCall
+              onDenyToolCall: onDenyToolCall,
+              onAnswerAskUser: onAnswerAskUser
             )
             .padding(.vertical, 6)
             .id(item.id)
@@ -191,6 +195,7 @@ private struct ChatBubble: View {
   let item: RenderedChatTurnItem
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
+  let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
   @State private var didCopy = false
 
   var body: some View {
@@ -216,7 +221,8 @@ private struct ChatBubble: View {
               generationMetrics: item.generationMetrics,
               assistantRenderBlocks: item.assistantRenderBlocks,
               onApproveToolCall: onApproveToolCall,
-              onDenyToolCall: onDenyToolCall
+              onDenyToolCall: onDenyToolCall,
+              onAnswerAskUser: onAnswerAskUser
             )
             .textSelection(.enabled)
 
@@ -363,6 +369,7 @@ private struct MessageContentText: View {
   let assistantRenderBlocks: [AssistantRenderBlock]
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
+  let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
 
   @ViewBuilder
   var body: some View {
@@ -374,7 +381,8 @@ private struct MessageContentText: View {
           toolCallRecord: toolCallRecord,
           generationMetrics: generationMetrics,
           onApprove: onApproveToolCall,
-          onDeny: onDenyToolCall
+          onDeny: onDenyToolCall,
+          onAnswerAskUser: onAnswerAskUser
         )
       }
     case .toolResult:
