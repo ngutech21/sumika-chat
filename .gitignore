@@ -12,3 +12,4 @@ DerivedData/
 
 # Local performance reports
 .perf/
+tmp/
