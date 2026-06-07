@@ -669,7 +669,7 @@
 			repositoryURL = "https://github.com/ml-explore/mlx-swift/";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.31.3;
+				minimumVersion = 0.31.4;
 			};
 		};
 		F9081F122FCE1000000A270C /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
@@ -677,7 +677,7 @@
 			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
 			requirement = {
 				kind = revision;
-				revision = de2fed7f084cbed6bf9d58c014ab20385478842b;
+				revision = a47894a1e7e963b24bd48c030f5fc1d1627e60e9;
 			};
 		};
 		F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
