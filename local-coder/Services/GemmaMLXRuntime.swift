@@ -454,7 +454,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
 
     let rawMessages = try Self.validatedTemplateMessages(
-      transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
+      transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
         .map(Self.chatMessage(from:))
     )
     .map { ["role": $0.role.rawValue, "content": $0.content] as [String: any Sendable] }
@@ -494,14 +494,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       throw GemmaMLXRuntimeError.modelNotLoaded
     }
 
-    let entries = transcript.entries
-    guard let lastUserIndex = entries.lastIndex(where: { $0.frozenContent.role == .user }) else {
+    let projectionMode = ModelContextProjectionMode.compactedHistoryForLaterTurns
+    let projectedEntries = try transcript.runtimeProjectedEntries(mode: projectionMode)
+    guard let currentPromptIndex = projectedEntries.lastIndex(where: { $0.role == .user }) else {
       throw GemmaMLXRuntimeError.missingUserMessage
     }
 
-    let projectionMode = ModelContextProjectionMode.compactedHistoryForLaterTurns
-    let projectedEntries = transcript.projectedEntries(mode: projectionMode)
-    let promptMessage = Self.chatMessage(from: projectedEntries[lastUserIndex])
+    let promptMessage = Self.chatMessage(from: projectedEntries[currentPromptIndex])
     let generateParameters = GenerateParameters(
       maxTokens: settings.maxTokens,
       maxKVSize: settings.maxKVSize,
@@ -512,7 +511,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let toolSpecs = Self.toolSpecs(from: toolContext)
     let nativeToolSchemaHash = Self.nativeToolSchemaSignature(from: toolContext)
     let history = try Self.generationHistoryMessages(
-      from: projectedEntries[..<lastUserIndex]
+      from: projectedEntries[..<currentPromptIndex]
     )
     let historySnapshot = Self.messageSnapshot(from: history)
     let finalPrompt = promptMessage.content
@@ -559,7 +558,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           phase: .runtimeStreamStart,
           durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
           promptBytes: cachePlan.streamInput.contentByteCount,
-          messageCount: entries.count,
+          messageCount: projectedEntries.count,
           toolLoopIteration: traceMetadata.toolLoopIteration,
           cacheMode: cachePlan.trace.cacheMode.rawValue,
           cacheReason: cachePlan.trace.cacheReason.rawValue,
@@ -1641,7 +1640,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     _ = systemPrompt
     return try validatedTemplateMessages(
       normalizedChatMessages(
-        transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
+        try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
           .map(Self.chatMessage(from:))
       )
     )
@@ -1696,7 +1695,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated static func generationHistoryMessages(
     from transcript: ModelContextSnapshot
   ) throws -> [Chat.Message] {
-    let entries = transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
+    let entries = try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
     guard let lastUserIndex = entries.lastIndex(where: { $0.role == .user }) else {
       return []
     }

@@ -128,11 +128,12 @@ public struct ToolLoopCoordinator: Sendable {
         workspaceID: request.workspace.id,
         sessionID: request.sessionID
       )
-      let record = invalidToolCallRecord(
+      var record = invalidToolCallRecord(
         request: output.request,
         originalToolName: originalToolName,
         error: error
       )
+      record.turnID = request.turnID
       return completedStep(
         assistantMessageID: request.assistantMessageID,
         turnID: request.turnID,
@@ -208,6 +209,7 @@ public struct ToolLoopCoordinator: Sendable {
         request: output.request,
         workspace: request.workspace
       )
+      record.turnID = request.turnID
       await traceToolExecution(
         startedAt: executeStartedAt,
         loopRequest: request,

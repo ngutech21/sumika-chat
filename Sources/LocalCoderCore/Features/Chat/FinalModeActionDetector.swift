@@ -88,18 +88,20 @@ public struct FinalModeActionDetector: Sendable {
         workspaceID: workspaceID,
         sessionID: request.sessionID
       )
-      let record = blockedRecord(
+      var record = blockedRecord(
         request: output.request,
         requestedTool: ToolName(canonicalizing: originalToolName),
         reason: request.reason
       )
+      record.turnID = request.turnID
       return blockedStep(request: request, toolCall: output.modelMessage, record: record)
     case .toolCall(let output):
-      let record = blockedRecord(
+      var record = blockedRecord(
         request: output.request,
         requestedTool: output.request.toolName,
         reason: request.reason
       )
+      record.turnID = request.turnID
       return blockedStep(request: request, toolCall: output.modelMessage, record: record)
     }
   }

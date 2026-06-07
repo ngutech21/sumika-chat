@@ -153,7 +153,12 @@ flowchart TD
   history from mutable UI state, focused context, current tool prompt mode, or
   attachments.
 - `ModelContextSnapshot` is the only persisted model context ledger.
-  Runtime calls consume `ModelContextEntry.frozenContent` directly.
+  Runtime calls consume the typed runtime projection of that ledger.
+- Same-turn tool follow-ups must not treat `toolObservation` entries as new user
+  instructions. The runtime projection renders them with the original user
+  request, an assistant tool-call marker, the untrusted tool observation, and a
+  continue instruction. Tool observations without a turn ID are invalid instead
+  of being attached to the last user message heuristically.
 - Legacy model-context messages are not stored or backfilled.
 - Completed turns are included by default.
 - Cancelled and failed turns with `modelContextPolicy == .excluded` are omitted

@@ -352,6 +352,116 @@ struct ModelContextSnapshotTests {
   }
 
   @Test
+  func runtimeProjectionRendersSameTurnToolObservationWithOriginalUserRequest() throws {
+    let turnID = UUID()
+    let callID = UUID()
+    let transcript = ModelContextSnapshot(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
+        prompt: "run the smoke test"
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .runCommand,
+          payload: .runCommand(
+            RunCommandResult(
+              command: "just smoke",
+              timeoutSeconds: 10,
+              exitCode: 0,
+              durationMs: 12,
+              stdout: ToolTextOutput(text: "passed"),
+              stderr: ToolTextOutput(text: "")
+            ))
+        ),
+        request: runCommandRequest(callID: callID)
+      ),
+    ])
+
+    let projected = try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
+
+    #expect(projected.last?.content.contains("Original user request:") == true)
+    #expect(projected.last?.content.contains("run the smoke test") == true)
+    #expect(projected.last?.content.contains("Assistant tool call:") == true)
+    #expect(projected.last?.content.contains("tool=\"run_command\"") == true)
+    #expect(projected.last?.content.contains("Tool observation:") == true)
+    #expect(projected.last?.content.contains("passed") == true)
+  }
+
+  @Test
+  func runtimeProjectionKeepsConsecutiveNativeToolObservationsInCurrentPrompt() throws {
+    let turnID = UUID()
+    let readCallID = UUID()
+    let commandCallID = UUID()
+    let transcript = ModelContextSnapshot(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
+        prompt: "read the README and run the smoke test"
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: readCallID,
+          toolName: .readFile,
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            ))
+        ),
+        request: readFileRequest(callID: readCallID)
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: commandCallID,
+          toolName: .runCommand,
+          payload: .runCommand(
+            RunCommandResult(
+              command: "just smoke",
+              timeoutSeconds: 10,
+              exitCode: 0,
+              durationMs: 12,
+              stdout: ToolTextOutput(text: "passed"),
+              stderr: ToolTextOutput(text: "")
+            ))
+        ),
+        request: runCommandRequest(callID: commandCallID)
+      ),
+    ])
+
+    let projected = try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
+
+    #expect(projected.count == 1)
+    let prompt = try #require(projected.last?.content)
+    #expect(prompt.contains("Original user request:"))
+    #expect(prompt.contains("read the README and run the smoke test"))
+    #expect(prompt.contains("tool=\"read_file\""))
+    #expect(prompt.contains("Project overview"))
+    #expect(prompt.contains("tool=\"run_command\""))
+    #expect(prompt.contains("passed"))
+  }
+
+  @Test
+  func runtimeProjectionRejectsToolObservationWithoutTurnID() throws {
+    let callID = UUID()
+    let transcript = ModelContextSnapshot(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
+      try readFileToolResultEntry(callID: callID, content: "Project overview"),
+    ])
+
+    #expect(
+      throws: ModelContextProjectionError.missingToolObservationTurn(
+        callID: callID,
+        toolName: .readFile
+      )
+    ) {
+      _ = try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
+    }
+  }
+
+  @Test
   func finalToolResultFollowUpPreservesToolReceiptMetadata() throws {
     let callID = UUID()
     let terminalEntry = try ModelFacingPromptRenderer.toolResultEntry(
@@ -432,6 +542,19 @@ struct ModelContextSnapshotTests {
         toolName: .readFile
       ),
       payload: .readFile(ReadFileInput(path: "README.md"))
+    )
+  }
+
+  private func runCommandRequest(callID: UUID) -> ToolCallRequest {
+    ToolCallRequest.validated(
+      raw: RawToolCallRequest(
+        id: callID,
+        workspaceID: UUID(),
+        sessionID: UUID(),
+        toolName: .runCommand,
+        arguments: ["command": .string("just smoke")]
+      ),
+      payload: .runCommand(RunCommandInput(command: "just smoke", timeoutSeconds: 10))
     )
   }
 

@@ -42,7 +42,9 @@ struct ChatWorkflowEventApplierTests {
       to: &state
     )
 
-    #expect(state.toolCalls == [record])
+    var expectedRecord = record
+    expectedRecord.turnID = turnID
+    #expect(state.toolCalls == [expectedRecord])
     #expect(state.turns[0].items == [.toolCall(record.id)])
   }
 

@@ -700,6 +700,109 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func nativeReadFileFollowUpIncludesOriginalUserRequestAndToolObservation() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          ))
+      ],
+      [.chunk("The README says project notes.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.loadSession(
+      ChatSession(
+        id: sessionID,
+        selectedModelID: "gemma4-e2b",
+        interactionMode: .agent
+      ))
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "summarize the README"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 2)
+    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .user }))
+    #expect(followUp.content.contains("Original user request:"))
+    #expect(followUp.content.contains("summarize the README"))
+    #expect(followUp.content.contains("Assistant tool call:"))
+    #expect(followUp.content.contains("tool=\"read_file\""))
+    #expect(followUp.content.contains("Tool observation:"))
+    #expect(followUp.content.contains("1: project notes"))
+    #expect(
+      controller.chatSession.toolCalls.first?.turnID == controller.chatSession.turns.first?.id)
+  }
+
+  @Test
+  func nativeWebFetchFollowUpIncludesOriginalUserRequestAndToolObservation() async throws {
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: Workspace.normalizedPath(for: FileManager.default.temporaryDirectory)),
+      sessions: [
+        ChatSession(
+          id: sessionID,
+          selectedModelID: "gemma4-e2b",
+          interactionMode: .agent
+        )
+      ]
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "web_fetch",
+            arguments: ["url": .string("https://example.com/article")]
+          ))
+      ],
+      [.chunk("The article says fetched fixture text.")],
+    ])
+    let orchestrator = ToolOrchestrator(
+      executorRegistry: .codingAgent,
+      webFetcher: ChatControllerFakeFetcher(),
+      webAccessSettingsProvider: {
+        WebAccessSettings(policy: .allow, provider: .duckDuckGo)
+      }
+    )
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: orchestrator
+    )
+    controller.loadSession(
+      ChatSession(
+        id: sessionID,
+        selectedModelID: "gemma4-e2b",
+        interactionMode: .agent
+      ))
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "read and summarize this article https://example.com/article"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 2)
+    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .user }))
+    #expect(followUp.content.contains("Original user request:"))
+    #expect(followUp.content.contains("read and summarize this article"))
+    #expect(followUp.content.contains("Assistant tool call:"))
+    #expect(followUp.content.contains("tool=\"web_fetch\""))
+    #expect(followUp.content.contains("Tool observation:"))
+    #expect(followUp.content.contains("Fetched fixture text."))
+    #expect(
+      controller.chatSession.toolCalls.first?.turnID == controller.chatSession.turns.first?.id)
+  }
+
+  @Test
   func sendMessageDisplaysShowFileResultDirectlyWithoutModelFollowUp() async throws {
     let rootURL = FileManager.default.temporaryDirectory.appending(
       path: "local-coder-tests-\(UUID().uuidString)",
@@ -1087,5 +1190,18 @@ struct ChatSessionControllerTests {
     case .toolCall, .toolResult:
       nil
     }
+  }
+}
+
+private struct ChatControllerFakeFetcher: WebFetching {
+  func fetch(_ request: WebFetchRequest) async -> WebFetchToolResult {
+    WebFetchToolResult(
+      url: request.url.absoluteString,
+      finalURL: request.url.absoluteString,
+      statusCode: 200,
+      contentType: "text/plain",
+      content: ToolTextOutput(text: "Fetched fixture text."),
+      byteCount: 21
+    )
   }
 }

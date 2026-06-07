@@ -192,6 +192,12 @@ public struct ChatTranscriptMutator: Sendable {
     to state: inout ChatSession
   ) {
     ensureToolCallRecord(for: toolResult, in: &state)
+    if let turnID,
+      let index = state.toolCalls.firstIndex(where: { $0.id == toolResult.callID }),
+      state.toolCalls[index].turnID == nil
+    {
+      state.toolCalls[index].turnID = turnID
+    }
     appendItem(.toolResult(toolResult.callID), toTurn: turnID, in: &state)
   }
 
@@ -490,7 +496,16 @@ public struct ChatTranscriptMutator: Sendable {
         id: entry.id,
         turnID: entry.turnID,
         sourceMessageID: entry.sourceMessageID,
-        body: entry.body,
+        body: .toolObservation(
+          ToolObservationContext(
+            callID: context.callID,
+            toolName: context.toolName,
+            status: context.status,
+            content: context.content,
+            toolReceipt: context.toolReceipt,
+            toolCall: context.toolCall,
+            systemContext: [systemPromptSnapshot]
+          )),
         frozenContent: FrozenModelContent(
           role: .user,
           content: ModelFacingPromptRenderer.userContent(

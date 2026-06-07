@@ -106,10 +106,10 @@ public struct MockChatRuntime: ChatModelRuntime {
     systemPrompt: String
   ) async throws -> ChatContextUsage {
     _ = systemPrompt
-    let content =
-      (attachments.map(\.content)
-      + transcript.projectedEntries(mode: .compactedHistoryForLaterTurns).map(\.content))
-      .joined(separator: "\n")
+    let projectedContent =
+      (try? transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns).map(\.content))
+      ?? transcript.projectedEntries(mode: .compactedHistoryForLaterTurns).map(\.content)
+    let content = (attachments.map(\.content) + projectedContent).joined(separator: "\n")
     let tokenEstimate = content.split(whereSeparator: \.isWhitespace).count
     return ChatContextUsage(usedTokens: tokenEstimate, tokenLimit: nil)
   }
@@ -124,7 +124,7 @@ public struct MockChatRuntime: ChatModelRuntime {
     _ = systemPrompt
     _ = settings
 
-    let lastMessage = transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
+    let lastMessage = try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
       .last(where: { $0.role == .user })
     let attachmentSummary = attachments.map(\.displayName).joined(separator: ", ")
     let lastPrompt = lastMessage?.content ?? ""

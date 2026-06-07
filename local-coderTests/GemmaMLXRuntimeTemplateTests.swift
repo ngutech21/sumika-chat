@@ -97,7 +97,7 @@ struct GemmaMLXRuntimeTemplateTests {
     ]
 
     let history = try GemmaMLXRuntime.generationHistoryMessages(
-      from: projectedEntries(from: entries)[...]
+      from: try projectedEntries(from: entries)[...]
     )
 
     #expect(history.map(\.role) == [.user, .assistant])
@@ -130,7 +130,7 @@ struct GemmaMLXRuntimeTemplateTests {
     ]
 
     let history = try GemmaMLXRuntime.generationHistoryMessages(
-      from: projectedEntries(from: entries)[...]
+      from: try projectedEntries(from: entries)[...]
     )
 
     #expect(history.map(\.role) == [.user, .assistant, .user, .assistant])
@@ -243,10 +243,15 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func templateMessagesDoNotTeachGemmaInternalInvalidToolActions() throws {
     let callID = UUID()
+    let turnID = UUID()
     let transcript = ModelContextSnapshot(
       entries: [
-        try ModelFacingPromptRenderer.userPromptEntry(prompt: "change the table heading"),
+        try ModelFacingPromptRenderer.userPromptEntry(
+          turnID: turnID,
+          prompt: "change the table heading"
+        ),
         try ModelFacingPromptRenderer.toolResultEntry(
+          turnID: turnID,
           toolResult: ToolResultModelMessage(
             callID: callID,
             toolName: .invalid,
@@ -792,12 +797,15 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func toolObservationFollowUpUsesCachedPrefixAsHistoryAndObservationAsPrompt() throws {
     let callID = UUID()
+    let turnID = UUID()
     let entries = [
       try ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
         prompt: "read README.md",
         systemContext: ["Read-only tools are available."]
       ),
       try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
         content: """
           <action name="read_file">
           <path>README.md</path>
@@ -805,6 +813,7 @@ struct GemmaMLXRuntimeTemplateTests {
           """
       ),
       try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
         toolResult: ToolResultModelMessage(
           callID: callID,
           toolName: .readFile,
@@ -887,6 +896,7 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func terminalToolResultFollowUpUsesCachedPrefixAsHistoryAndResultAsPrompt() throws {
     let callID = UUID()
+    let turnID = UUID()
     let terminalResult = ToolResultModelMessage(
       callID: callID,
       toolName: .writeFile,
@@ -907,10 +917,12 @@ struct GemmaMLXRuntimeTemplateTests {
     ).observation
     let entries = [
       try ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
         prompt: "create movies.html",
         systemContext: ["Tools are available."]
       ),
       try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
         content: writeFileToolCall(
           callID: callID,
           arguments: [
@@ -920,6 +932,7 @@ struct GemmaMLXRuntimeTemplateTests {
         ).modelContextContent
       ),
       try ModelFacingPromptRenderer.finalToolResultPromptEntry(
+        turnID: turnID,
         terminalToolResult: TerminalToolResultContext(
           callID: callID,
           toolName: terminalResult.toolName,
@@ -1758,15 +1771,15 @@ struct GemmaMLXRuntimeTemplateTests {
 
   private func projectedEntries(
     from entries: [ModelContextEntry]
-  ) -> [ProjectedModelContextEntry] {
-    ModelContextSnapshot(entries: entries)
-      .projectedEntries(mode: .compactedHistoryForLaterTurns)
+  ) throws -> [ProjectedModelContextEntry] {
+    try ModelContextSnapshot(entries: entries)
+      .runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
   }
 
   private func generationHistoryAndPrompt(
     from entries: [ModelContextEntry]
   ) throws -> (history: [Chat.Message], prompt: Chat.Message) {
-    let projectedEntries = projectedEntries(from: entries)
+    let projectedEntries = try projectedEntries(from: entries)
     let lastUserIndex = try #require(projectedEntries.lastIndex { $0.role == .user })
     let history = try GemmaMLXRuntime.generationHistoryMessages(
       from: projectedEntries[..<lastUserIndex]

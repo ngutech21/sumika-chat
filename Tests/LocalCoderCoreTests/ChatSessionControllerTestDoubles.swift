@@ -254,7 +254,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   private var streamReplyCount = 0
   private var contextUsageCount = 0
   private(set) var completedCallIndexes: Set<Int> = []
-  private(set) var capturedMessages: [[FrozenModelContent]] = []
+  private(set) var capturedMessages: [[ProjectedModelContextEntry]] = []
   private(set) var capturedSystemPrompts: [String] = []
 
   init(turns: [[String]], blockedCallIndexes: Set<Int>) {
@@ -303,7 +303,8 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
     _ = attachments
     _ = settings
 
-    capturedMessages.append(transcript.entries.map(\.frozenContent))
+    capturedMessages.append(
+      try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns))
     capturedSystemPrompts.append(systemPrompt)
     let callIndex = streamReplyCount
     streamReplyCount += 1
@@ -532,21 +533,26 @@ final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sen
 }
 
 actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
-  private let turns: [[String]]
+  private let turns: [[ChatModelStreamEvent]]
   private let failingStreamReplyCalls: Set<Int>
   private var streamReplyCount = 0
-  private(set) var capturedMessages: [[FrozenModelContent]] = []
+  private(set) var capturedMessages: [[ProjectedModelContextEntry]] = []
   private(set) var capturedSystemPrompts: [String] = []
   private(set) var capturedContextUsageSystemPrompts: [String] = []
   private(set) var completedPartialReplies: [String] = []
 
   init(chunks: [String] = []) {
-    self.turns = [chunks]
+    self.turns = [chunks.map(ChatModelStreamEvent.chunk)]
     self.failingStreamReplyCalls = []
   }
 
   init(turns: [[String]], failingStreamReplyCalls: Set<Int> = []) {
-    self.turns = turns
+    self.turns = turns.map { $0.map(ChatModelStreamEvent.chunk) }
+    self.failingStreamReplyCalls = failingStreamReplyCalls
+  }
+
+  init(eventTurns: [[ChatModelStreamEvent]], failingStreamReplyCalls: Set<Int> = []) {
+    self.turns = eventTurns
     self.failingStreamReplyCalls = failingStreamReplyCalls
   }
 
@@ -581,10 +587,11 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
     _ = attachments
     _ = settings
 
-    capturedMessages.append(transcript.entries.map(\.frozenContent))
+    capturedMessages.append(
+      try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns))
     capturedSystemPrompts.append(systemPrompt)
     let callIndex = streamReplyCount
-    let chunks = turns[min(callIndex, turns.count - 1)]
+    let events = turns[min(callIndex, turns.count - 1)]
     streamReplyCount += 1
 
     if failingStreamReplyCalls.contains(callIndex) {
@@ -594,15 +601,15 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
     }
 
     return AsyncThrowingStream { continuation in
-      for chunk in chunks {
-        continuation.yield(.chunk(chunk))
+      for event in events {
+        continuation.yield(event)
       }
       continuation.yield(
         .completed(
           ChatGenerationMetrics(
-            generatedTokenCount: chunks.count,
+            generatedTokenCount: events.count,
             tokensPerSecond: 100,
-            durationMs: Double(chunks.count) * 10
+            durationMs: Double(events.count) * 10
           )
         )
       )

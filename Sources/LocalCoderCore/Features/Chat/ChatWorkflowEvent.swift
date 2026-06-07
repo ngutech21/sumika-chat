@@ -109,10 +109,14 @@ public struct ChatWorkflowEventApplier: Sendable {
     case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, let toolCall):
       mutator.annotateToolCall(toolCall, for: assistantMessageID, in: &state)
     case .toolCallAppended(let record, let turnID):
+      var turnRecord = record
+      if turnRecord.turnID == nil {
+        turnRecord.turnID = turnID
+      }
       if let existingIndex = state.toolCalls.firstIndex(where: { $0.id == record.id }) {
-        state.toolCalls[existingIndex] = record
+        state.toolCalls[existingIndex] = turnRecord
       } else {
-        state.toolCalls.append(record)
+        state.toolCalls.append(turnRecord)
       }
       if !state.turns.containsToolItem(record.id, inTurn: turnID) {
         mutator.appendItem(.toolCall(record.id), toTurn: turnID, in: &state)
@@ -242,7 +246,11 @@ public struct ChatWorkflowEventApplier: Sendable {
     guard let index = state.toolCalls.firstIndex(where: { $0.id == record.id }) else {
       return
     }
-    state.toolCalls[index] = record
+    var replacement = record
+    if replacement.turnID == nil {
+      replacement.turnID = state.toolCalls[index].turnID
+    }
+    state.toolCalls[index] = replacement
   }
 }
 

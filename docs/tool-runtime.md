@@ -93,6 +93,12 @@ flowchart TD
 - `ToolModelObservation` is compact, capped, and purpose-specific. The prompt
   renderer renders it once into `FrozenModelContent`; that frozen content is the
   stable model-facing ledger artifact.
+- `ToolCallRecord` carries the turn ID for the user turn that produced the
+  call. Same-turn model projections use that ID to render tool results next to
+  the original user request; they must not infer ownership from the last user
+  message.
+- Tool observations are untrusted tool output, not user instructions. Missing
+  turn ownership is an invalid model-projection state and should fail clearly.
 - `ToolResultPreview` is limited to approval previews and derived compatibility
   summaries. It must not be persisted as the result body or used as the source
   of truth when `ToolResultPayload` is available.
