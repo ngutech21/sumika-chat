@@ -2,6 +2,10 @@
 
 import PackageDescription
 
+let concurrencyChecking: [SwiftSetting] = [
+  .unsafeFlags(["-strict-concurrency=complete"])
+]
+
 let package = Package(
   name: "LocalCoderCore",
   platforms: [
@@ -37,7 +41,8 @@ let package = Package(
         .product(name: "TreeSitterPython", package: "tree-sitter-python"),
         .product(name: "TreeSitterTypeScript", package: "tree-sitter-typescript"),
         "TreeSitterPythonScanner",
-      ]
+      ],
+      swiftSettings: concurrencyChecking
     ),
     .target(
       name: "TreeSitterPythonScanner",
@@ -51,20 +56,24 @@ let package = Package(
       dependencies: [
         .product(name: "SwiftParser", package: "swift-syntax"),
         .product(name: "SwiftSyntax", package: "swift-syntax"),
-      ]
+      ],
+      swiftSettings: concurrencyChecking
     ),
     .executableTarget(
       name: "DataModelGenerator",
-      dependencies: ["DataModelGeneratorCore"]
+      dependencies: ["DataModelGeneratorCore"],
+      swiftSettings: concurrencyChecking
     ),
     .testTarget(
       name: "LocalCoderCoreTests",
       dependencies: ["LocalCoderCore"],
-      resources: [.process("Fixtures")]
+      resources: [.process("Fixtures")],
+      swiftSettings: concurrencyChecking
     ),
     .testTarget(
       name: "DataModelGeneratorTests",
-      dependencies: ["DataModelGeneratorCore"]
+      dependencies: ["DataModelGeneratorCore"],
+      swiftSettings: concurrencyChecking
     ),
   ]
 )
