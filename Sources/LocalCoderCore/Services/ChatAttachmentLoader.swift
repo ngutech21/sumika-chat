@@ -1,5 +1,4 @@
 import Foundation
-import ImageIO
 
 public protocol ChatAttachmentLoading: Sendable {
   func loadAttachments(
@@ -136,23 +135,12 @@ public struct ChatAttachmentLoader: ChatAttachmentLoading {
       throw ChatAttachmentError.fileTooLarge(fileName, ChatAttachmentLimits.maxImageFileBytes)
     }
 
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-      throw ChatAttachmentError.unreadableImage(fileName)
-    }
-
-    let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-    let pixelWidth = imageDimension(properties?[kCGImagePropertyPixelWidth])
-    let pixelHeight = imageDimension(properties?[kCGImagePropertyPixelHeight])
-    guard pixelWidth != nil || pixelHeight != nil else {
-      throw ChatAttachmentError.unreadableImage(fileName)
-    }
+    let imageData = try Data(contentsOf: url)
 
     let metadata = ChatAttachmentMetadata(
       mimeType: mimeType(forExtension: fileExtension),
       byteCount: fileSize,
-      pixelWidth: pixelWidth,
-      pixelHeight: pixelHeight,
-      contentSHA256: ChatAttachmentStore.contentSHA256(for: try Data(contentsOf: url))
+      contentSHA256: ChatAttachmentStore.contentSHA256(for: imageData)
     )
     let id = AttachmentID()
     _ = try attachmentStore.storeFile(from: url, id: id, displayName: fileName)
@@ -213,17 +201,6 @@ public struct ChatAttachmentLoader: ChatAttachmentLoading {
       "application/yaml"
     default:
       fileExtension.isEmpty ? nil : "text/plain"
-    }
-  }
-
-  private func imageDimension(_ value: Any?) -> Int? {
-    switch value {
-    case let number as NSNumber:
-      number.intValue
-    case let int as Int:
-      int
-    default:
-      nil
     }
   }
 

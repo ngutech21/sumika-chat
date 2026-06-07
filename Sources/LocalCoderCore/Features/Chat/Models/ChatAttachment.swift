@@ -170,33 +170,21 @@ public struct ImageAttachmentPayload: Codable, Equatable, Sendable {
 public struct ChatAttachmentMetadata: Codable, Equatable, Sendable {
   public let mimeType: String?
   public let byteCount: Int
-  public let pixelWidth: Int?
-  public let pixelHeight: Int?
   public let contentSHA256: String?
 
   public init(
     mimeType: String?,
     byteCount: Int,
-    pixelWidth: Int? = nil,
-    pixelHeight: Int? = nil,
     contentSHA256: String? = nil
   ) {
     self.mimeType = mimeType
     self.byteCount = byteCount
-    self.pixelWidth = pixelWidth
-    self.pixelHeight = pixelHeight
     self.contentSHA256 = contentSHA256
   }
 
   public var imageSummary: String {
     let type = mimeType ?? "image"
-    let dimensions =
-      if let pixelWidth, let pixelHeight {
-        ", \(pixelWidth)x\(pixelHeight)"
-      } else {
-        ""
-      }
-    return "\(type), \(byteCount) bytes\(dimensions)"
+    return "\(type), \(byteCount) bytes"
   }
 }
 

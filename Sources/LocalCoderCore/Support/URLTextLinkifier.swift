@@ -19,16 +19,17 @@ public enum URLTextLinkifier {
   }
 
   public static func links(in text: String) -> [DetectedURLTextLink] {
-    guard !text.isEmpty, let detector = makeLinkDetector() else {
+    guard !text.isEmpty else {
       return []
     }
 
     let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
-    return detector.matches(in: text, options: [], range: nsRange).compactMap { match in
-      guard
-        match.resultType == .link,
-        let candidateRange = Range(match.range, in: text)
-      else {
+    guard let regex = try? NSRegularExpression(pattern: #"https?://[^\s<>\"]+"#) else {
+      return []
+    }
+
+    return regex.matches(in: text, options: [], range: nsRange).compactMap { match in
+      guard let candidateRange = Range(match.range, in: text) else {
         return nil
       }
 
@@ -48,10 +49,6 @@ public enum URLTextLinkifier {
 
       return DetectedURLTextLink(url: url, range: sanitizedRange)
     }
-  }
-
-  private static func makeLinkDetector() -> NSDataDetector? {
-    try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
   }
 
   private static func sanitizedURLRange(
