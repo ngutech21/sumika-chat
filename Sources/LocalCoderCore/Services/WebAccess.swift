@@ -220,6 +220,17 @@ public struct WebURLValidator: Sendable {
   public init() {}
 
   public func validatePublicHTTPURL(_ url: URL) -> WebAccessError? {
+    validateHTTPURL(url, profile: .publicWebURL)
+  }
+
+  public func validateConfiguredSearchProviderHTTPURL(_ url: URL) -> WebAccessError? {
+    validateHTTPURL(url, profile: .configuredSearchProviderURL)
+  }
+
+  public func validateHTTPURL(
+    _ url: URL,
+    profile: WebURLValidationProfile
+  ) -> WebAccessError? {
     guard let scheme = url.scheme?.lowercased() else {
       return .invalidURL(url.absoluteString)
     }
@@ -232,33 +243,40 @@ public struct WebURLValidator: Sendable {
     guard let host = url.host(percentEncoded: false), !host.isEmpty else {
       return .invalidURL(url.absoluteString)
     }
+    guard profile == .publicWebURL else {
+      return nil
+    }
     return validatePublicHost(host)
   }
 
   public func validatePublicHost(_ host: String) -> WebAccessError? {
-    let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    guard !normalizedHost.isEmpty else {
+    guard !normalizedPublicHost(host) else {
       return .blockedHost(host)
     }
 
-    if normalizedHost == "localhost" || normalizedHost.hasSuffix(".localhost")
-      || normalizedHost.hasSuffix(".local")
-    {
-      return .blockedHost(host)
-    }
-
-    if let ipv4 = IPv4Address(normalizedHost), ipv4.isPrivateOrLocal {
-      return .blockedAddress(host)
-    }
-
-    if normalizedHost == "::1" || normalizedHost.hasPrefix("fe80:")
-      || normalizedHost.hasPrefix("fc") || normalizedHost.hasPrefix("fd")
-    {
+    if WebAddressClassifier.isPrivateOrLocal(host) {
       return .blockedAddress(host)
     }
 
     return nil
   }
+
+  public func isLocalOrPrivateHost(_ host: String) -> Bool {
+    normalizedPublicHost(host) || WebAddressClassifier.isPrivateOrLocal(host)
+  }
+
+  private func normalizedPublicHost(_ host: String) -> Bool {
+    let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return normalizedHost.isEmpty
+      || normalizedHost == "localhost"
+      || normalizedHost.hasSuffix(".localhost")
+      || normalizedHost.hasSuffix(".local")
+  }
+}
+
+public enum WebURLValidationProfile: Sendable {
+  case publicWebURL
+  case configuredSearchProviderURL
 }
 
 private struct IPv4Address: Equatable {
@@ -296,7 +314,24 @@ private struct IPv4Address: Equatable {
 }
 
 public protocol WebHTTPClient: Sendable {
-  func data(for request: URLRequest, maxRedirects: Int) async throws -> (Data, URLResponse)
+  func data(
+    for request: URLRequest,
+    maxRedirects: Int,
+    validationProfile: WebURLValidationProfile
+  ) async throws -> (Data, URLResponse)
+}
+
+extension WebHTTPClient {
+  public func data(
+    for request: URLRequest,
+    maxRedirects: Int
+  ) async throws -> (Data, URLResponse) {
+    try await data(
+      for: request,
+      maxRedirects: maxRedirects,
+      validationProfile: .publicWebURL
+    )
+  }
 }
 
 public protocol WebHostResolving: Sendable {
@@ -386,8 +421,16 @@ public struct SystemWebHostResolver: WebHostResolving {
 }
 
 extension URLSession: WebHTTPClient {
-  public func data(for request: URLRequest, maxRedirects: Int) async throws -> (Data, URLResponse) {
-    try await URLSessionWebHTTPClient(session: self).data(for: request, maxRedirects: maxRedirects)
+  public func data(
+    for request: URLRequest,
+    maxRedirects: Int,
+    validationProfile: WebURLValidationProfile = .publicWebURL
+  ) async throws -> (Data, URLResponse) {
+    try await URLSessionWebHTTPClient(session: self).data(
+      for: request,
+      maxRedirects: maxRedirects,
+      validationProfile: validationProfile
+    )
   }
 }
 
@@ -406,7 +449,11 @@ public struct URLSessionWebHTTPClient: WebHTTPClient {
     self.hostResolver = hostResolver
   }
 
-  public func data(for request: URLRequest, maxRedirects: Int) async throws -> (Data, URLResponse) {
+  public func data(
+    for request: URLRequest,
+    maxRedirects: Int,
+    validationProfile: WebURLValidationProfile = .publicWebURL
+  ) async throws -> (Data, URLResponse) {
     var currentRequest = request
     var remainingRedirects = max(0, maxRedirects)
 
@@ -414,15 +461,22 @@ public struct URLSessionWebHTTPClient: WebHTTPClient {
       guard let currentURL = currentRequest.url else {
         throw WebAccessError.invalidURL("")
       }
-      if let error = urlValidator.validatePublicHTTPURL(currentURL) {
+      if let error = urlValidator.validateHTTPURL(currentURL, profile: validationProfile) {
         throw error
       }
-      if let error = await resolvedHostValidationError(for: currentURL) {
+      if validationProfile == .publicWebURL,
+        let error = await resolvedHostValidationError(for: currentURL)
+      {
         throw error
       }
 
-      let delegate = WebRedirectBlockingDelegate()
+      let delegate = WebHTTPClientTaskDelegate()
       let (data, response) = try await session.data(for: currentRequest, delegate: delegate)
+      if validationProfile == .publicWebURL,
+        let error = Self.connectedRemoteAddressValidationError(delegate.remoteAddresses)
+      {
+        throw error
+      }
       guard
         let httpResponse = response as? HTTPURLResponse,
         (300..<400).contains(httpResponse.statusCode)
@@ -442,15 +496,26 @@ public struct URLSessionWebHTTPClient: WebHTTPClient {
         throw WebAccessError.requestFailed("Redirect response was missing a Location header.")
       }
 
-      if let error = urlValidator.validatePublicHTTPURL(nextURL) {
+      if let error = urlValidator.validateHTTPURL(nextURL, profile: validationProfile) {
         throw error
       }
-      if let error = await resolvedHostValidationError(for: nextURL) {
+      if validationProfile == .publicWebURL,
+        let error = await resolvedHostValidationError(for: nextURL)
+      {
         throw error
       }
 
       currentRequest.url = nextURL
     }
+  }
+
+  static func connectedRemoteAddressValidationError(
+    _ remoteAddresses: [String]
+  ) -> WebAccessError? {
+    for address in remoteAddresses where WebAddressClassifier.isPrivateOrLocal(address) {
+      return .blockedAddress(address)
+    }
+    return nil
   }
 
   private func resolvedHostValidationError(for url: URL) async -> WebAccessError? {
@@ -471,9 +536,18 @@ public struct URLSessionWebHTTPClient: WebHTTPClient {
   }
 }
 
-private final class WebRedirectBlockingDelegate: NSObject, URLSessionTaskDelegate,
+private final class WebHTTPClientTaskDelegate: NSObject, URLSessionTaskDelegate,
   @unchecked Sendable
 {
+  private let lock = NSLock()
+  private var collectedRemoteAddresses: [String] = []
+
+  var remoteAddresses: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return collectedRemoteAddresses
+  }
+
   func urlSession(
     _ session: URLSession,
     task: URLSessionTask,
@@ -486,6 +560,23 @@ private final class WebRedirectBlockingDelegate: NSObject, URLSessionTaskDelegat
     _ = response
     _ = request
     completionHandler(nil)
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    task: URLSessionTask,
+    didFinishCollecting metrics: URLSessionTaskMetrics
+  ) {
+    _ = session
+    _ = task
+    let addresses = metrics.transactionMetrics.compactMap(\.remoteAddress)
+    guard !addresses.isEmpty else {
+      return
+    }
+
+    lock.lock()
+    collectedRemoteAddresses.append(contentsOf: addresses)
+    lock.unlock()
   }
 }
 
@@ -543,6 +634,7 @@ public struct DefaultWebSearchService: WebSearching {
       url: url,
       query: query,
       provider: .duckDuckGo,
+      validationProfile: .publicWebURL,
       queryTruncated: queryTruncated,
       maxResults: maxResults
     ) { data in
@@ -563,9 +655,19 @@ public struct DefaultWebSearchService: WebSearching {
         query: query,
         reason: .executionError(WebAccessError.missingSearXNGBaseURL.localizedDescription))
     }
-    if let error = urlValidator.validatePublicHTTPURL(baseURL) {
+    if let error = urlValidator.validateConfiguredSearchProviderHTTPURL(baseURL) {
       return .failed(query: query, reason: .executionError(error.localizedDescription))
     }
+    guard let baseHost = baseURL.host(percentEncoded: false) else {
+      return .failed(
+        query: query,
+        reason: .executionError(
+          WebAccessError.invalidURL(baseURL.absoluteString).localizedDescription))
+    }
+    let validationProfile: WebURLValidationProfile =
+      urlValidator.isLocalOrPrivateHost(baseHost)
+      ? .configuredSearchProviderURL
+      : .publicWebURL
     guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
       return .failed(query: query, reason: .executionError("Could not build SearXNG search URL."))
     }
@@ -590,6 +692,7 @@ public struct DefaultWebSearchService: WebSearching {
       url: url,
       query: query,
       provider: .searxng,
+      validationProfile: validationProfile,
       queryTruncated: queryTruncated,
       maxResults: maxResults
     ) { data in
@@ -601,14 +704,17 @@ public struct DefaultWebSearchService: WebSearching {
     url: URL,
     query: String,
     provider: WebSearchProvider,
+    validationProfile: WebURLValidationProfile,
     queryTruncated: Bool,
     maxResults: Int,
     parser: (Data) throws -> [WebSearchResult]
   ) async -> WebSearchToolResult {
-    if let error = urlValidator.validatePublicHTTPURL(url) {
+    if let error = urlValidator.validateHTTPURL(url, profile: validationProfile) {
       return .failed(query: query, reason: .executionError(error.localizedDescription))
     }
-    if let error = await resolvedHostValidationError(for: url) {
+    if validationProfile == .publicWebURL,
+      let error = await resolvedHostValidationError(for: url)
+    {
       return .failed(query: query, reason: .executionError(error.localizedDescription))
     }
 
@@ -618,7 +724,8 @@ public struct DefaultWebSearchService: WebSearching {
       urlRequest.setValue("LocalCoder/1.0", forHTTPHeaderField: "User-Agent")
       let (data, response) = try await httpClient.data(
         for: urlRequest,
-        maxRedirects: WebAccessLimits.maxRedirects
+        maxRedirects: WebAccessLimits.maxRedirects,
+        validationProfile: validationProfile
       )
       guard let httpResponse = response as? HTTPURLResponse else {
         return .failed(
@@ -679,7 +786,8 @@ public struct DefaultWebFetchService: WebFetching {
       urlRequest.setValue("LocalCoder/1.0", forHTTPHeaderField: "User-Agent")
       let (data, response) = try await httpClient.data(
         for: urlRequest,
-        maxRedirects: request.maxRedirects
+        maxRedirects: request.maxRedirects,
+        validationProfile: .publicWebURL
       )
       guard let httpResponse = response as? HTTPURLResponse else {
         return .failed(
@@ -810,14 +918,33 @@ extension DefaultWebSearchService {
 
 private enum WebAddressClassifier {
   static func isPrivateOrLocal(_ address: String) -> Bool {
-    if let ipv4 = IPv4Address(address) {
+    let normalized = normalizedAddress(address)
+    if let ipv4 = IPv4Address(normalized) {
       return ipv4.isPrivateOrLocal
     }
-    let normalized = address.lowercased()
+    if normalized.hasPrefix("::ffff:") {
+      let mappedAddress = String(normalized.dropFirst("::ffff:".count))
+      if let ipv4 = IPv4Address(mappedAddress) {
+        return ipv4.isPrivateOrLocal
+      }
+    }
     return normalized == "::1"
       || normalized.hasPrefix("fe80:")
       || normalized.hasPrefix("fc")
       || normalized.hasPrefix("fd")
+  }
+
+  private static func normalizedAddress(_ address: String) -> String {
+    var normalized = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if normalized.hasPrefix("["),
+      let endIndex = normalized.firstIndex(of: "]")
+    {
+      normalized = String(normalized[normalized.index(after: normalized.startIndex)..<endIndex])
+    }
+    if let zoneIndex = normalized.firstIndex(of: "%") {
+      normalized = String(normalized[..<zoneIndex])
+    }
+    return normalized
   }
 }
 

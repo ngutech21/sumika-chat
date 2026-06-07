@@ -47,6 +47,65 @@ struct WebAccessTests {
   }
 
   @Test
+  func publicURLValidatorBlocksPrivateAddressClasses() throws {
+    let validator = WebURLValidator()
+    let blockedURLs = [
+      "http://localhost:8000",
+      "http://127.0.0.1:8000",
+      "http://10.0.0.5",
+      "http://172.16.0.1",
+      "http://172.31.255.255",
+      "http://192.168.1.10",
+      "http://169.254.1.2",
+      "http://224.0.0.1",
+      "http://[::1]/",
+      "http://[fe80::1]/",
+      "http://[fc00::1]/",
+      "http://[fd00::1]/",
+    ]
+
+    for value in blockedURLs {
+      #expect(
+        validator.validatePublicHTTPURL(try #require(URL(string: value))) != nil,
+        "Expected \(value) to be blocked."
+      )
+    }
+
+    #expect(validator.validatePublicHTTPURL(try #require(URL(string: "http://172.32.0.1"))) == nil)
+    #expect(
+      validator.validatePublicHTTPURL(try #require(URL(string: "http://93.184.216.34"))) == nil)
+    #expect(
+      validator.validatePublicHTTPURL(try #require(URL(string: "http://[2001:db8::1]/"))) == nil)
+  }
+
+  @Test
+  func configuredSearchProviderValidatorAllowsLocalAndPrivateHTTPURLs() throws {
+    let validator = WebURLValidator()
+    let allowedURLs = [
+      "http://localhost:8080",
+      "http://127.0.0.1:8080",
+      "http://192.168.1.10:8888",
+      "http://[::1]:8080",
+    ]
+
+    for value in allowedURLs {
+      #expect(
+        validator.validateConfiguredSearchProviderHTTPURL(try #require(URL(string: value))) == nil,
+        "Expected configured provider URL \(value) to be allowed."
+      )
+    }
+
+    #expect(
+      validator.validateConfiguredSearchProviderHTTPURL(
+        try #require(URL(string: "file:///tmp/search"))
+      ) != nil)
+    #expect(
+      validator.validateConfiguredSearchProviderHTTPURL(
+        try #require(URL(string: "http://user:pass@localhost:8080"))
+      ) != nil)
+  }
+
+  @Test
   func searxngProviderUsesJSONEndpointFromConfiguredBaseURL() async throws {
     let httpClient = CapturingHTTPClient(
       data: try fixtureData("searxng-basic.json"),
@@ -73,6 +132,7 @@ struct WebAccessTests {
     #expect(requests.count == 1)
     #expect(requests[0].url?.absoluteString.contains("https://search.example/search?") == true)
     #expect(requests[0].url?.query?.contains("format=json") == true)
+    #expect(await httpClient.validationProfiles == [.publicWebURL])
     guard case .success(_, .searxng, let results, _) = result else {
       Issue.record("Expected successful SearXNG search.")
       return
@@ -106,6 +166,70 @@ struct WebAccessTests {
     let url = try #require(await httpClient.requests.first?.url?.absoluteString)
     #expect(url.contains("https://search.example/search?"))
     #expect(!url.contains("/search/search"))
+  }
+
+  @Test
+  func publicSearxngProviderBlocksPrivateResolvedAddressBeforeHTTPRequest() async throws {
+    let httpClient = CapturingHTTPClient(
+      data: try fixtureData("searxng-basic.json"),
+      contentType: "application/json"
+    )
+    let service = DefaultWebSearchService(
+      httpClient: httpClient,
+      hostResolver: FakeResolver(addresses: ["127.0.0.1"])
+    )
+
+    let result = await service.search(
+      WebSearchRequest(
+        query: "Swift URLSession",
+        maxResults: 5,
+        settings: WebAccessSettings(
+          policy: .allow,
+          provider: .searxng,
+          searxngBaseURL: "https://search.example"
+        )
+      )
+    )
+
+    guard case .failed(_, let reason) = result else {
+      Issue.record("Expected public SearXNG private DNS resolution to fail.")
+      return
+    }
+    #expect(reason.message.contains("Blocked non-public network address"))
+    #expect(await httpClient.requests.isEmpty)
+  }
+
+  @Test
+  func searxngProviderAllowsConfiguredLocalBaseURL() async throws {
+    let httpClient = CapturingHTTPClient(
+      data: try fixtureData("searxng-basic.json"),
+      contentType: "application/json"
+    )
+    let service = DefaultWebSearchService(
+      httpClient: httpClient,
+      hostResolver: FakeResolver(addresses: ["127.0.0.1"])
+    )
+
+    let result = await service.search(
+      WebSearchRequest(
+        query: "Swift URLSession",
+        maxResults: 5,
+        settings: WebAccessSettings(
+          policy: .allow,
+          provider: .searxng,
+          searxngBaseURL: "http://127.0.0.1:8080"
+        )
+      )
+    )
+
+    guard case .success(_, .searxng, let results, _) = result else {
+      Issue.record("Expected local SearXNG search to run.")
+      return
+    }
+    #expect(results.count == 2)
+    let requests = await httpClient.requests
+    #expect(requests.first?.url?.absoluteString.contains("http://127.0.0.1:8080/search?") == true)
+    #expect(await httpClient.validationProfiles == [.configuredSearchProviderURL])
   }
 
   @Test
@@ -159,6 +283,84 @@ struct WebAccessTests {
     }
     #expect(reason.message.contains("Blocked non-public network address"))
     #expect(await httpClient.requests.isEmpty)
+  }
+
+  @Test
+  func webFetchRejectsLocalhostBeforeRequest() async throws {
+    let httpClient = CapturingHTTPClient(data: Data("local".utf8), contentType: "text/plain")
+    let service = DefaultWebFetchService(
+      httpClient: httpClient,
+      hostResolver: FakeResolver(addresses: ["93.184.216.34"])
+    )
+
+    let result = await service.fetch(
+      WebFetchRequest(url: try #require(URL(string: "http://localhost:8000/private")))
+    )
+
+    guard case .failed(_, _, let reason) = result else {
+      Issue.record("Expected localhost web_fetch to fail.")
+      return
+    }
+    #expect(reason.message.contains("Blocked non-public host"))
+    #expect(await httpClient.requests.isEmpty)
+  }
+
+  @Test
+  func urlSessionHTTPClientBlocksPrivateConnectedRemoteAddress() throws {
+    let error = URLSessionWebHTTPClient.connectedRemoteAddressValidationError([
+      "93.184.216.34",
+      "127.0.0.1",
+    ])
+
+    guard case .blockedAddress(let address) = error else {
+      Issue.record("Expected private connected remote address to be blocked.")
+      return
+    }
+    #expect(address == "127.0.0.1")
+  }
+
+  @Test
+  func urlSessionHTTPClientAllowsPublicConnectedRemoteAddresses() throws {
+    let error = URLSessionWebHTTPClient.connectedRemoteAddressValidationError([
+      "93.184.216.34",
+      "2001:db8::1",
+      "[2001:db8::2]",
+    ])
+
+    #expect(error == nil)
+  }
+
+  @Test
+  func urlSessionHTTPClientBlocksIPv4MappedPrivateRemoteAddress() throws {
+    let error = URLSessionWebHTTPClient.connectedRemoteAddressValidationError([
+      "::ffff:192.168.1.10"
+    ])
+
+    guard case .blockedAddress(let address) = error else {
+      Issue.record("Expected IPv4-mapped private address to be blocked.")
+      return
+    }
+    #expect(address == "::ffff:192.168.1.10")
+  }
+
+  @Test
+  func webFetchRemoteAddressFailureKeepsCompactToolReason() async throws {
+    let service = DefaultWebFetchService(
+      httpClient: ThrowingHTTPClient(error: WebAccessError.blockedAddress("127.0.0.1")),
+      hostResolver: FakeResolver(addresses: ["93.184.216.34"])
+    )
+
+    let result = await service.fetch(
+      WebFetchRequest(url: try #require(URL(string: "https://docs.example/page")))
+    )
+
+    guard case .failed(_, _, let reason) = result else {
+      Issue.record("Expected remote address block to fail web_fetch.")
+      return
+    }
+    #expect(reason.message.contains("Blocked non-public network address: 127.0.0.1."))
+    #expect(!reason.message.contains("URLSessionTaskMetrics"))
+    #expect(!reason.message.contains("remoteAddress"))
   }
 
   @Test
@@ -356,6 +558,7 @@ private actor CapturingHTTPClient: WebHTTPClient {
   let statusCode: Int
   let contentType: String
   private(set) var requests: [URLRequest] = []
+  private(set) var validationProfiles: [WebURLValidationProfile] = []
 
   init(data: Data, statusCode: Int = 200, contentType: String) {
     self.data = data
@@ -364,8 +567,17 @@ private actor CapturingHTTPClient: WebHTTPClient {
   }
 
   func data(for request: URLRequest, maxRedirects: Int) async throws -> (Data, URLResponse) {
+    try await data(for: request, maxRedirects: maxRedirects, validationProfile: .publicWebURL)
+  }
+
+  func data(
+    for request: URLRequest,
+    maxRedirects: Int,
+    validationProfile: WebURLValidationProfile
+  ) async throws -> (Data, URLResponse) {
     _ = maxRedirects
     requests.append(request)
+    validationProfiles.append(validationProfile)
     let response = HTTPURLResponse(
       url: try #require(request.url),
       statusCode: statusCode,
@@ -382,6 +594,21 @@ private struct FakeResolver: WebHostResolving {
   func addresses(for host: String) async throws -> [String] {
     _ = host
     return addresses
+  }
+}
+
+private struct ThrowingHTTPClient: WebHTTPClient {
+  var error: Error
+
+  func data(
+    for request: URLRequest,
+    maxRedirects: Int,
+    validationProfile: WebURLValidationProfile
+  ) async throws -> (Data, URLResponse) {
+    _ = request
+    _ = maxRedirects
+    _ = validationProfile
+    throw error
   }
 }
 

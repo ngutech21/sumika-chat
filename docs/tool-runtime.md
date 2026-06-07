@@ -244,7 +244,15 @@ flowchart TD
   rejects local/private/internal targets, validates resolved host addresses
   before requests, validates final redirect URLs, rejects non-2xx HTTP
   responses, rejects binary content, caps fetched text, and marks truncation in
-  the stored result payload.
+  the stored result payload. `web_search` keeps the same public-host boundary
+  for model-provided data and DuckDuckGo, but the user-configured SearXNG base
+  URL may point at localhost or a private network address because it is an
+  explicit provider setting rather than model-supplied input. Public web
+  requests also inspect `URLSessionTaskMetrics` remote addresses after the
+  connection and discard responses connected to local/private addresses. This
+  narrows DNS-rebinding and DNS TOCTOU exposure but does not fully pin DNS
+  validation to the pre-connect endpoint because `URLSession` still opens the
+  actual connection.
 - `todo_write` is available only in the Agent registry. It accepts 2 to 6
   short todo items, allows at most one `inProgress` item, and never requires
   approval because it mutates only session state. Chat prompts must not render
