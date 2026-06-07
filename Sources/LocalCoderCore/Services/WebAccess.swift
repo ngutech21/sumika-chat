@@ -754,146 +754,26 @@ public struct DefaultWebSearchService: WebSearching {
 }
 
 public struct DefaultWebFetchService: WebFetching {
-  private let httpClient: any WebHTTPClient
-  private let urlValidator: WebURLValidator
-  private let hostResolver: any WebHostResolving
+  private let extractor: any WebPageExtracting
 
   public init(
     httpClient: any WebHTTPClient = URLSessionWebHTTPClient(),
     urlValidator: WebURLValidator = WebURLValidator(),
     hostResolver: any WebHostResolving = SystemWebHostResolver()
   ) {
-    self.httpClient = httpClient
-    self.urlValidator = urlValidator
-    self.hostResolver = hostResolver
+    self.extractor = BuiltInWebPageExtractor(
+      httpClient: httpClient,
+      urlValidator: urlValidator,
+      hostResolver: hostResolver
+    )
+  }
+
+  public init(extractor: any WebPageExtracting) {
+    self.extractor = extractor
   }
 
   public func fetch(_ request: WebFetchRequest) async -> WebFetchToolResult {
-    if let error = urlValidator.validatePublicHTTPURL(request.url) {
-      return .failed(
-        url: request.url.absoluteString, finalURL: nil,
-        reason: .executionError(error.localizedDescription))
-    }
-    if let error = await resolvedHostValidationError(for: request.url) {
-      return .failed(
-        url: request.url.absoluteString, finalURL: nil,
-        reason: .executionError(error.localizedDescription))
-    }
-
-    do {
-      var urlRequest = URLRequest(url: request.url)
-      urlRequest.timeoutInterval = TimeInterval(request.timeoutSeconds)
-      urlRequest.setValue("LocalCoder/1.0", forHTTPHeaderField: "User-Agent")
-      let (data, response) = try await httpClient.data(
-        for: urlRequest,
-        maxRedirects: request.maxRedirects,
-        validationProfile: .publicWebURL
-      )
-      guard let httpResponse = response as? HTTPURLResponse else {
-        return .failed(
-          url: request.url.absoluteString, finalURL: nil,
-          reason: .executionError(WebAccessError.nonHTTPResponse.localizedDescription))
-      }
-      let finalURL = httpResponse.url ?? request.url
-      if let error = urlValidator.validatePublicHTTPURL(finalURL) {
-        return .failed(
-          url: request.url.absoluteString, finalURL: finalURL.absoluteString,
-          reason: .executionError(error.localizedDescription))
-      }
-      if let error = await resolvedHostValidationError(for: finalURL) {
-        return .failed(
-          url: request.url.absoluteString, finalURL: finalURL.absoluteString,
-          reason: .executionError(error.localizedDescription))
-      }
-      guard (200..<300).contains(httpResponse.statusCode) else {
-        return .failed(
-          url: request.url.absoluteString,
-          finalURL: finalURL.absoluteString,
-          reason: .executionError("Fetch returned HTTP \(httpResponse.statusCode).")
-        )
-      }
-
-      let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")
-      guard Self.isSupportedTextContentType(contentType) else {
-        return .failed(
-          url: request.url.absoluteString,
-          finalURL: finalURL.absoluteString,
-          reason: .unsupportedFileType(contentType ?? "unknown")
-        )
-      }
-
-      let maxBytes = WebAccessLimits.cappedFetchBytes(request.maxBytes)
-      let truncated = data.count > maxBytes
-      let limitedData = Data(data.prefix(maxBytes))
-      guard !Self.looksBinary(limitedData) else {
-        return .failed(
-          url: request.url.absoluteString,
-          finalURL: finalURL.absoluteString,
-          reason: .unsupportedFileType(contentType ?? "binary")
-        )
-      }
-      guard let rawText = String(data: limitedData, encoding: .utf8) else {
-        return .failed(
-          url: request.url.absoluteString,
-          finalURL: finalURL.absoluteString,
-          reason: .executionError(WebAccessError.invalidResponseEncoding.localizedDescription)
-        )
-      }
-
-      let text = WebTextExtractor.extractText(from: rawText, contentType: contentType)
-      let cappedText = String(text.prefix(WebAccessLimits.maxFetchObservationCharacters))
-      return WebFetchToolResult(
-        url: request.url.absoluteString,
-        finalURL: finalURL.absoluteString,
-        statusCode: httpResponse.statusCode,
-        contentType: contentType,
-        content: ToolTextOutput(
-          text: cappedText,
-          truncated: truncated || text.count > cappedText.count
-        ),
-        byteCount: data.count
-      )
-    } catch {
-      return .failed(
-        url: request.url.absoluteString,
-        finalURL: nil,
-        reason: .executionError(error.localizedDescription)
-      )
-    }
-  }
-
-  private func resolvedHostValidationError(for url: URL) async -> WebAccessError? {
-    guard let host = url.host(percentEncoded: false) else {
-      return .blockedHost(url.absoluteString)
-    }
-    do {
-      let addresses = try await hostResolver.addresses(for: host)
-      for address in addresses where WebAddressClassifier.isPrivateOrLocal(address) {
-        return .blockedAddress(address)
-      }
-      return nil
-    } catch let error as WebAccessError {
-      return error
-    } catch {
-      return .requestFailed(error.localizedDescription)
-    }
-  }
-
-  private static func isSupportedTextContentType(_ contentType: String?) -> Bool {
-    guard let contentType else {
-      return true
-    }
-    let normalized = contentType.lowercased()
-    return normalized.hasPrefix("text/")
-      || normalized.contains("application/json")
-      || normalized.contains("application/xml")
-      || normalized.contains("application/xhtml+xml")
-      || normalized.contains("application/javascript")
-      || normalized.contains("application/x-javascript")
-  }
-
-  private static func looksBinary(_ data: Data) -> Bool {
-    data.prefix(512).contains(0)
+    await extractor.extract(WebPageExtractionRequest(request))
   }
 }
 
@@ -916,7 +796,7 @@ extension DefaultWebSearchService {
   }
 }
 
-private enum WebAddressClassifier {
+enum WebAddressClassifier {
   static func isPrivateOrLocal(_ address: String) -> Bool {
     let normalized = normalizedAddress(address)
     if let ipv4 = IPv4Address(normalized) {

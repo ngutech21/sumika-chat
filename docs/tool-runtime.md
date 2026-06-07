@@ -250,8 +250,10 @@ flowchart TD
   rejects local/private/internal targets, validates resolved host addresses
   before requests, validates final redirect URLs, rejects non-2xx HTTP
   responses, rejects binary content, caps fetched text, and marks truncation in
-  the stored result payload. `web_search` keeps the same public-host boundary
-  for model-provided data and DuckDuckGo, but the user-configured SearXNG base
+  the stored result payload. For HTML responses, `web_fetch` returns extracted
+  main page content from the built-in extractor instead of raw page text.
+  `web_search` keeps the same public-host boundary for model-provided data and
+  DuckDuckGo, but the user-configured SearXNG base
   URL may point at localhost or a private network address because it is an
   explicit provider setting rather than model-supplied input. Public web
   requests also inspect `URLSessionTaskMetrics` remote addresses after the

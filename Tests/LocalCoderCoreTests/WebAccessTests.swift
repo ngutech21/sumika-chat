@@ -515,6 +515,237 @@ struct WebAccessTests {
   }
 
   @Test
+  func swiftSoupExtractorRemovesPageChromeAndKeepsArticleText() throws {
+    let html = """
+      <html>
+        <body>
+          <nav>Home Docs Pricing</nav>
+          <article>
+            <h1>Local Model Coding</h1>
+            <p>Small local models work best when coding tasks are broken into focused steps with inspectable context and clear review points.</p>
+            <p>The extractor should keep these article paragraphs while removing navigation, forms, sidebars, and footer copy.</p>
+          </article>
+          <aside>Related promo links should disappear.</aside>
+          <footer>Copyright and legal links.</footer>
+        </body>
+      </html>
+      """
+
+    let text = SwiftSoupMainContentExtractor().extractText(
+      fromHTML: html,
+      baseURL: try #require(URL(string: "https://docs.example/article"))
+    )
+
+    #expect(text.contains("Local Model Coding"))
+    #expect(text.contains("Small local models work best"))
+    #expect(!text.contains("Home Docs Pricing"))
+    #expect(!text.contains("Copyright and legal links"))
+  }
+
+  @Test
+  func swiftSoupExtractorPrefersArticleOverLinkHeavyRelatedContent() throws {
+    let relatedLinks = (0..<20)
+      .map { "<a href=\"/related-\($0)\">Related navigation link \($0)</a>" }
+      .joined(separator: " ")
+    let html = """
+      <html>
+        <body>
+          <div class="related">\(relatedLinks)</div>
+          <article class="post-content">
+            <h1>Focused Context</h1>
+            <p>Useful extraction prefers dense article paragraphs over long blocks that are mostly links and repeated recommendations.</p>
+            <p>This paragraph gives the article enough real text to win against boilerplate and related content areas.</p>
+          </article>
+        </body>
+      </html>
+      """
+
+    let text = SwiftSoupMainContentExtractor().extractText(
+      fromHTML: html,
+      baseURL: try #require(URL(string: "https://docs.example/context"))
+    )
+
+    #expect(text.contains("Focused Context"))
+    #expect(text.contains("Useful extraction prefers dense article paragraphs"))
+    #expect(!text.contains("Related navigation link"))
+  }
+
+  @Test
+  func swiftSoupExtractorPrefersMainRoleCandidate() throws {
+    let html = """
+      <html>
+        <body>
+          <div>
+            <p>Generic page text can be present, but the main region should be preferred when it contains coherent paragraphs.</p>
+          </div>
+          <main>
+            <h1>Installation Guide</h1>
+            <p>The main element contains the actual documentation page and should be selected as the best readable content block.</p>
+            <p>Keeping this content gives the model the useful instructions instead of surrounding layout copy.</p>
+          </main>
+        </body>
+      </html>
+      """
+
+    let text = SwiftSoupMainContentExtractor().extractText(
+      fromHTML: html,
+      baseURL: try #require(URL(string: "https://docs.example/install"))
+    )
+
+    #expect(text.contains("Installation Guide"))
+    #expect(text.contains("actual documentation page"))
+    #expect(!text.contains("Generic page text can be present"))
+  }
+
+  @Test
+  func swiftSoupExtractorHandlesRelativeLinksWithBaseURL() throws {
+    let html = """
+      <html>
+        <body>
+          <article>
+            <h1>API Reference</h1>
+            <p>Read the <a href="/reference">reference guide</a> before using the command examples in production workflows.</p>
+            <p>Relative links and image paths should not prevent readable text extraction from the page body.</p>
+          </article>
+        </body>
+      </html>
+      """
+
+    let text = SwiftSoupMainContentExtractor().extractText(
+      fromHTML: html,
+      baseURL: try #require(URL(string: "https://docs.example/base/path"))
+    )
+
+    #expect(text.contains("reference guide"))
+    #expect(text.contains("Relative links and image paths"))
+  }
+
+  @Test
+  func swiftSoupExtractorFallsBackToBodyTextWhenNoCandidateIsStrong() throws {
+    let html = """
+      <html>
+        <body>
+          <p>Short standalone page.</p>
+          <p>No large article wrapper exists.</p>
+        </body>
+      </html>
+      """
+
+    let text = SwiftSoupMainContentExtractor().extractText(
+      fromHTML: html,
+      baseURL: try #require(URL(string: "https://docs.example/simple"))
+    )
+
+    #expect(text.contains("Short standalone page."))
+    #expect(text.contains("No large article wrapper exists."))
+  }
+
+  @Test
+  func swiftSoupExtractorDoesNotDuplicateNestedBlockText() throws {
+    let html = """
+      <html>
+        <body>
+          <article>
+            <h1>Nested Blocks</h1>
+            <blockquote>
+              <p>Quoted guidance should appear once even when nested inside a blockquote element.</p>
+            </blockquote>
+            <ul>
+              <li><p>List guidance should also appear once even when wrapped in a paragraph.</p></li>
+            </ul>
+            <p>The final paragraph gives the article enough standalone content for extraction.</p>
+          </article>
+        </body>
+      </html>
+      """
+
+    let text = SwiftSoupMainContentExtractor().extractText(
+      fromHTML: html,
+      baseURL: try #require(URL(string: "https://docs.example/nested"))
+    )
+
+    #expect(text.components(separatedBy: "Quoted guidance should appear once").count == 2)
+    #expect(text.components(separatedBy: "List guidance should also appear once").count == 2)
+  }
+
+  @Test
+  func webFetchUsesBuiltInHTMLExtractor() async throws {
+    let html = """
+      <html>
+        <body>
+          <nav>Top navigation should be removed.</nav>
+          <main>
+            <h1>Fetched Article</h1>
+            <p>The default fetch service should return the extracted main content for HTML pages instead of raw page chrome.</p>
+            <p>This keeps web observations smaller and more relevant for the model context.</p>
+          </main>
+        </body>
+      </html>
+      """
+    let httpClient = CapturingHTTPClient(data: Data(html.utf8), contentType: "text/html")
+    let service = DefaultWebFetchService(
+      httpClient: httpClient,
+      hostResolver: FakeResolver(addresses: ["93.184.216.34"])
+    )
+
+    let result = await service.fetch(
+      WebFetchRequest(url: try #require(URL(string: "https://docs.example/fetched")))
+    )
+
+    guard case .success(_, _, 200, _, let content, _) = result else {
+      Issue.record("Expected successful HTML fetch.")
+      return
+    }
+    #expect(content.text.contains("Fetched Article"))
+    #expect(content.text.contains("extracted main content"))
+    #expect(!content.text.contains("Top navigation should be removed"))
+  }
+
+  @Test
+  func defaultWebFetchServiceDelegatesToInjectedExtractor() async throws {
+    let extractor = RecordingPageExtractor()
+    let service = DefaultWebFetchService(extractor: extractor)
+    let url = try #require(URL(string: "https://docs.example/delegated"))
+
+    let result = await service.fetch(
+      WebFetchRequest(url: url, maxBytes: 123, timeoutSeconds: 7, maxRedirects: 2)
+    )
+
+    guard case .success(_, _, 200, _, let content, _) = result else {
+      Issue.record("Expected injected extractor result.")
+      return
+    }
+    #expect(content.text == "delegated")
+    let requests = await extractor.requests
+    #expect(
+      requests == [
+        WebPageExtractionRequest(url: url, maxBytes: 123, timeoutSeconds: 7, maxRedirects: 2)
+      ])
+  }
+
+  @Test
+  func webFetchKeepsPlainTextNormalizationForNonHTML() async throws {
+    let httpClient = CapturingHTTPClient(
+      data: Data("alpha\t\tbeta\n\n\n\ngamma".utf8),
+      contentType: "text/plain"
+    )
+    let service = DefaultWebFetchService(
+      httpClient: httpClient,
+      hostResolver: FakeResolver(addresses: ["93.184.216.34"])
+    )
+
+    let result = await service.fetch(
+      WebFetchRequest(url: try #require(URL(string: "https://docs.example/plain")))
+    )
+
+    guard case .success(_, _, 200, _, let content, _) = result else {
+      Issue.record("Expected successful plain-text fetch.")
+      return
+    }
+    #expect(content.text == "alpha beta\n\ngamma")
+  }
+
+  @Test
   func webAccessSettingsStorePersistsGlobalSettings() async throws {
     let url = FileManager.default.temporaryDirectory
       .appending(path: "web-access-\(UUID().uuidString).json", directoryHint: .notDirectory)
@@ -621,6 +852,22 @@ private struct FakeFetcher: WebFetching {
       contentType: "text/plain",
       content: ToolTextOutput(text: "Fetched fixture text."),
       byteCount: 21
+    )
+  }
+}
+
+private actor RecordingPageExtractor: WebPageExtracting {
+  private(set) var requests: [WebPageExtractionRequest] = []
+
+  func extract(_ request: WebPageExtractionRequest) async -> WebFetchToolResult {
+    requests.append(request)
+    return WebFetchToolResult(
+      url: request.url.absoluteString,
+      finalURL: request.url.absoluteString,
+      statusCode: 200,
+      contentType: "text/plain",
+      content: ToolTextOutput(text: "delegated"),
+      byteCount: 9
     )
   }
 }
