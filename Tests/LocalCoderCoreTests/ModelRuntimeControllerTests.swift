@@ -52,6 +52,17 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func selectingModelRefreshesSelectedModelAvailability() async throws {
+    let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma3-1b"))
+    let controller = await makeController(modelAvailability: { $0.id == selectedModel.id })
+    controller.modelAvailabilitySnapshot[selectedModel.id] = false
+
+    controller.selectModel(selectedModel)
+
+    #expect(controller.isModelDownloaded(selectedModel))
+  }
+
+  @Test
   func downloadSelectedModelUpdatesDownloadState() async throws {
     let downloader = RuntimeControllerFakeModelDownloader()
     let controller = await makeController(modelDownloader: downloader)
@@ -277,7 +288,8 @@ struct ModelRuntimeControllerTests {
       RuntimeFakeModelSettingsStore(),
     modelDownloader: RuntimeControllerFakeModelDownloader = RuntimeControllerFakeModelDownloader(),
     runtime: any ChatModelRuntime = RuntimeControllerRecordingRuntime(),
-    modelPath: String? = nil
+    modelPath: String? = nil,
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool = { _ in false }
   ) async -> ModelRuntimeController {
     let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
     let selectedModelID = await modelSettingsStore.selectedModelID(
@@ -288,7 +300,8 @@ struct ModelRuntimeControllerTests {
     let runtimeOperations = RuntimeOperationCoordinator(runtime: runtime)
     let lifecycleCoordinator = ModelLifecycleCoordinator(
       modelDownloader: modelDownloader,
-      runtimeOperations: runtimeOperations
+      runtimeOperations: runtimeOperations,
+      modelAvailability: modelAvailability
     )
     return ModelRuntimeController(
       selectedModelID: selectedModel.id,
@@ -343,6 +356,7 @@ struct ModelRuntimeControllerTests {
     )
     return modelDirectory
   }
+
 }
 
 private final class RuntimeFakeModelSettingsStore: ModelSettingsStoring, @unchecked Sendable {

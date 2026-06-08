@@ -23,13 +23,16 @@ public enum LocalModelDirectoryError: LocalizedError {
 public struct ModelLifecycleCoordinator: Sendable {
   private let modelDownloader: any ModelDownloading
   private let runtimeOperations: RuntimeOperationCoordinator
+  private let modelAvailability: @Sendable (ManagedModel) -> Bool
 
   public init(
     modelDownloader: any ModelDownloading,
-    runtimeOperations: RuntimeOperationCoordinator
+    runtimeOperations: RuntimeOperationCoordinator,
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool = Self.defaultModelAvailability
   ) {
     self.modelDownloader = modelDownloader
     self.runtimeOperations = runtimeOperations
+    self.modelAvailability = modelAvailability
   }
 
   public func ensureDefaultModelDirectoryExists() throws -> URL {
@@ -94,7 +97,11 @@ public struct ModelLifecycleCoordinator: Sendable {
     )
   }
 
-  private func isModelDownloaded(_ model: ManagedModel) -> Bool {
+  func isModelDownloaded(_ model: ManagedModel) -> Bool {
+    modelAvailability(model)
+  }
+
+  public static func defaultModelAvailability(_ model: ManagedModel) -> Bool {
     let modelDirectory = model.localDirectoryURL
     let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
     var isDirectory: ObjCBool = false

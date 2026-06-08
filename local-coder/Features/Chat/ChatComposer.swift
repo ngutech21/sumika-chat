@@ -14,7 +14,6 @@ struct ChatComposer: View {
   let processUsage: ProcessResourceUsage?
   let canChangeModel: Bool
   let canChangeInteractionMode: Bool
-  let isSelectedModelDownloaded: Bool
   let canSend: Bool
   let isGenerating: Bool
   let isInputBlocked: Bool
@@ -63,7 +62,7 @@ struct ChatComposer: View {
           .frame(minHeight: 36, alignment: .topLeading)
           .accessibilityIdentifier("message-field")
           .focused($messageFieldFocused)
-          .disabled(modelState != .ready || isInputBlocked)
+          .disabled(isInputBlocked)
           .onSubmit(sendMessage)
           .onDrop(
             of: [UTType.fileURL.identifier],
@@ -82,21 +81,35 @@ struct ChatComposer: View {
           .accessibilityLabel("Add context files")
 
           Picker("Model", selection: modelSelection) {
-            ForEach(availableModels) { model in
-              Text(model.displayName)
-                .tag(model.id)
+            if availableModels.isEmpty {
+              Text("No local models")
+                .tag(selectedModel.id)
+            } else {
+              ForEach(availableModels) { model in
+                Text(model.displayName)
+                  .tag(model.id)
+              }
             }
           }
           .labelsHidden()
           .frame(width: 150)
           .controlSize(.small)
           .disabled(!canChangeModel)
-          .help("Select model for this workspace")
+          .help(modelPickerHelp)
           .accessibilityIdentifier("chat.modelPicker")
 
           if modelState != .ready {
             Button(action: onLoadModel) {
-              Label(modelLoadActionTitle, systemImage: "play.fill")
+              if modelState == .loading {
+                HStack(spacing: 6) {
+                  ProgressView()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("load-model-progress")
+                  Text(modelLoadActionTitle)
+                }
+              } else {
+                Label(modelLoadActionTitle, systemImage: "play.fill")
+              }
             }
             .controlSize(.small)
             .disabled(!canLoadSelectedModel)
@@ -128,10 +141,12 @@ struct ChatComposer: View {
 
           Button(action: isGenerating ? onCancel : sendMessage) {
             Image(systemName: isGenerating ? "stop.fill" : "paperplane.fill")
+              .frame(width: 16, height: 16)
           }
           .accessibilityIdentifier(isGenerating ? "cancel-generation-button" : "send-button")
           .keyboardShortcut(.return, modifiers: .command)
           .disabled(!isGenerating && !canSend)
+          .frame(width: 28, height: 24)
           .help(isGenerating ? "Cancel" : "Send")
         }
       }
@@ -199,7 +214,7 @@ struct ChatComposer: View {
   }
 
   private var canLoadSelectedModel: Bool {
-    modelState != .loading && !isGenerating && isSelectedModelDownloaded
+    !availableModels.isEmpty && modelState != .loading && !isGenerating
   }
 
   private var modelLoadActionTitle: String {
@@ -207,9 +222,15 @@ struct ChatComposer: View {
   }
 
   private var modelLoadHelp: String {
-    isSelectedModelDownloaded
-      ? "Load selected model"
-      : "Download this model from Models first"
+    availableModels.isEmpty
+      ? "Download a model from Models first"
+      : "Load selected model"
+  }
+
+  private var modelPickerHelp: String {
+    availableModels.isEmpty
+      ? "Download a model from Models first"
+      : "Select model for this workspace"
   }
 
   private func sendMessage() {

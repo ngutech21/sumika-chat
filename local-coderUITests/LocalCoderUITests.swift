@@ -363,18 +363,28 @@ final class LocalCoderUITests: XCTestCase {
     chooseGemma4E4BIfPickerIsAvailable(in: application)
     let messageField = application.textFields["message-field"]
     let loadButton = application.buttons["load-model-button"]
+    let sendButton = application.buttons["send-button"]
     XCTAssertTrue(loadButton.waitForExistence(timeout: 30))
+    XCTAssertTrue(messageField.waitForExistence(timeout: 30))
+    XCTAssertTrue(messageField.isEnabled)
+    XCTAssertFalse(sendButton.isEnabled)
     XCTAssertTrue(
       loadButton.isEnabled,
       "Load must be enabled for the preinstalled Gemma 4 E4B Experimental cache.")
     loadButton.click()
 
     XCTAssertTrue(
+      application.progressIndicators["load-model-progress"].waitForExistence(timeout: 5))
+    messageField.click()
+    messageField.typeText("Model load readiness probe")
+    XCTAssertTrue(
       waitUntil(timeout: 600) {
-        messageField.exists && messageField.isEnabled
+        sendButton.exists && sendButton.isEnabled
       },
       "Gemma 4 E4B Experimental did not become ready before the UI-test timeout."
     )
+    messageField.typeKey("a", modifierFlags: .command)
+    messageField.typeKey(.delete, modifierFlags: [])
   }
 
   @MainActor

@@ -42,16 +42,15 @@ struct WorkspaceChatView: View {
         draft: $controller.draft,
         attachments: controller.chatSession.pendingAttachments,
         activeAttachments: controller.activeAttachmentContextAttachments,
-        availableModels: controller.modelRuntime.availableModels,
-        selectedModel: controller.modelRuntime.selectedModel,
+        availableModels: downloadedModels,
+        selectedModel: composerSelectedModel,
         modelState: controller.modelRuntime.modelState,
         interactionMode: controller.chatSession.interactionMode,
         contextUsage: controller.contextUsage,
         processUsage: controller.modelRuntime.processUsage,
-        canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
+        canChangeModel: !downloadedModels.isEmpty && !controller.isGenerating
+          && controller.modelRuntime.canChangeModel,
         canChangeInteractionMode: controller.canChangeInteractionMode,
-        isSelectedModelDownloaded: controller.modelRuntime.isModelDownloaded(
-          controller.modelRuntime.selectedModel),
         canSend: controller.canSend,
         isGenerating: controller.isGenerating,
         isInputBlocked: controller.isInputBlocked,
@@ -89,6 +88,18 @@ struct WorkspaceChatView: View {
     return todoState
   }
 
+  private var downloadedModels: [ManagedModel] {
+    controller.modelRuntime.availableModels.filter { controller.modelRuntime.isModelDownloaded($0) }
+  }
+
+  private var composerSelectedModel: ManagedModel {
+    if downloadedModels.contains(controller.modelRuntime.selectedModel) {
+      return controller.modelRuntime.selectedModel
+    }
+
+    return downloadedModels.first ?? controller.modelRuntime.selectedModel
+  }
+
   private func selectModel(_ model: ManagedModel) {
     guard !controller.isGenerating, controller.modelRuntime.canChangeModel else {
       return
@@ -100,6 +111,16 @@ struct WorkspaceChatView: View {
 
   private func loadSelectedModel() {
     controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
+    guard !downloadedModels.isEmpty else {
+      controller.errorMessage = "Download a model from Models first."
+      return
+    }
+
+    if !downloadedModels.contains(controller.modelRuntime.selectedModel),
+      let downloadedModel = downloadedModels.first
+    {
+      controller.modelRuntime.selectModel(downloadedModel)
+    }
     controller.modelRuntime.loadSelectedModel()
   }
 }

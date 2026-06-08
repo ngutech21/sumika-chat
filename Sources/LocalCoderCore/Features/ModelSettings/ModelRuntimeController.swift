@@ -136,6 +136,7 @@ public final class ModelRuntimeController {
     downloadState = .idle
     downloadProgress = nil
     modelContextTokenLimit = model.defaultContextTokenLimit
+    modelAvailabilitySnapshot[model.id] = modelLifecycleCoordinator.isModelDownloaded(model)
 
     Task { [modelSettingsStore] in
       await modelSettingsStore.setSelectedModelID(model.id)

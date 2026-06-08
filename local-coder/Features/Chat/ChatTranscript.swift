@@ -56,11 +56,11 @@ struct ChatTranscript: View {
     case .ready:
       "Send a prompt with \(selectedModel.displayName) to start chatting."
     case .loading:
-      "Loading \(selectedModel.displayName). You can write a prompt once it is ready."
+      "Loading \(selectedModel.displayName). You can write a prompt while it loads."
     case .failed:
-      "Loading failed. Select or load a model below before writing a prompt."
+      "Loading failed. You can revise your prompt, then load a model below."
     case .notLoaded:
-      "Select and load a Gemma model below before writing a prompt."
+      "Write a prompt anytime, then load a Gemma model below before sending."
     }
   }
 
