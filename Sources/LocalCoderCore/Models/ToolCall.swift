@@ -709,65 +709,11 @@ public enum TodoWriteResult: Codable, Equatable, Sendable {
 
 public struct AskUserInput: Codable, Equatable, Sendable {
   public let question: String
-  public let option1: String
-  public let option2: String
-  public let option3: String?
-  public let option4: String?
-
-  public var options: [String] {
-    [option1, option2, option3, option4]
-      .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case question
-    case option1
-    case option2
-    case option3
-    case option4
-  }
-
-  public init(
-    question: String,
-    option1: String,
-    option2: String,
-    option3: String? = nil,
-    option4: String? = nil
-  ) {
-    self.question = question
-    self.option1 = option1
-    self.option2 = option2
-    self.option3 = option3
-    self.option4 = option4
-  }
+  public let options: [String]
 
   public init(question: String, options: [String]) {
-    self.init(
-      question: question,
-      option1: options.indices.contains(0) ? options[0] : "",
-      option2: options.indices.contains(1) ? options[1] : "",
-      option3: options.indices.contains(2) ? options[2] : nil,
-      option4: options.indices.contains(3) ? options[3] : nil
-    )
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    question = try container.decode(String.self, forKey: .question)
-    option1 = try container.decode(String.self, forKey: .option1)
-    option2 = try container.decode(String.self, forKey: .option2)
-    option3 = try container.decodeIfPresent(String.self, forKey: .option3)
-    option4 = try container.decodeIfPresent(String.self, forKey: .option4)
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(question, forKey: .question)
-    try container.encode(option1, forKey: .option1)
-    try container.encode(option2, forKey: .option2)
-    try container.encodeIfPresent(option3, forKey: .option3)
-    try container.encodeIfPresent(option4, forKey: .option4)
+    self.question = question
+    self.options = options
   }
 }
 

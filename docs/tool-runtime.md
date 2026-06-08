@@ -196,10 +196,12 @@ flowchart TD
   tool for genuinely blocking clarification, not routine confirmation and not
   side-effect approval. Its model-facing answer options are plain string
   parameters: `option1` and `option2` are required, `option3` and `option4` are
-  optional. Do not expose arrays, nested option objects, JSON-in-string, or a
-  free-text parameter. Executing `ask_user` pauses the tool loop with
-  `awaitingUserAnswer`. When the user answers, the turn resumes with a compact
-  model-facing receipt containing only the answer.
+  optional. The model-facing adapter parses those fields into
+  `AskUserInput.options: [String]`; validated tool payloads and persisted input
+  state must not store fixed `option1`/`option2` fields. Do not expose nested
+  option objects, JSON-in-string, or a free-text parameter. Executing `ask_user`
+  pauses the tool loop with `awaitingUserAnswer`. When the user answers, the turn
+  resumes with a compact model-facing receipt containing only the answer.
 - A tool that returns `.requiresApproval` must move to
   `ToolCallStatus.awaitingApproval`. It must not be marked as denied, failed,
   completed, or executed automatically.

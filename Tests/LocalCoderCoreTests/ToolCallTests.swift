@@ -47,6 +47,26 @@ struct ToolCallTests {
   }
 
   @Test
+  func askUserInputCodableUsesOptionsArray() throws {
+    let input = AskUserInput(
+      question: "Which implementation should I use?",
+      options: ["Minimal fix", "Broader refactor", "Defer"]
+    )
+
+    let data = try JSONEncoder().encode(input)
+    let object = try #require(
+      JSONSerialization.jsonObject(with: data) as? [String: Any]
+    )
+    let decoded = try JSONDecoder().decode(AskUserInput.self, from: data)
+
+    #expect(object["question"] as? String == "Which implementation should I use?")
+    #expect(object["options"] as? [String] == ["Minimal fix", "Broader refactor", "Defer"])
+    #expect(object["option1"] == nil)
+    #expect(object["option2"] == nil)
+    #expect(decoded == input)
+  }
+
+  @Test
   func toolArgumentValueDisplayValueFormatsModelFacingArguments() {
     #expect(ToolArgumentValue.string("Sources/App.swift").displayValue == "Sources/App.swift")
     #expect(ToolArgumentValue.number(42).displayValue == "42")

@@ -102,19 +102,14 @@ public struct ToolCallRequestValidator: Sendable {
       }
       return .todoWrite(input)
     case .askUser:
-      let input = try decode(AskUserInput.self, from: rawRequest.arguments)
+      let input = try decodeModelFacingAskUserInput(from: rawRequest.arguments)
       guard !input.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
         throw InvalidToolCallReason.invalidArgumentType(
           name: "question",
           expected: "a non-empty blocking question"
         )
       }
-      let optionFields = [
-        ("option1", input.option1),
-        ("option2", input.option2),
-        ("option3", input.option3),
-        ("option4", input.option4),
-      ]
+      let optionFields = try modelFacingAskUserOptionFields(from: rawRequest.arguments)
       let missingRequiredOption = optionFields.prefix(2).first {
         ($0.1 ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       }
@@ -138,7 +133,8 @@ public struct ToolCallRequestValidator: Sendable {
       }
       var uniqueOptions = Set<String>()
       let duplicateOption = input.options.first { option in
-        let normalizedOption = option.lowercased()
+        let normalizedOption = option.trimmingCharacters(in: .whitespacesAndNewlines)
+          .lowercased()
         return !uniqueOptions.insert(normalizedOption).inserted
       }
       if duplicateOption != nil {
@@ -202,6 +198,56 @@ public struct ToolCallRequestValidator: Sendable {
       return .unknownArguments(unknownArguments.sorted())
     }
     return arguments["items"] == nil ? .missingRequiredArgument("items") : nil
+  }
+
+  private func decodeModelFacingAskUserInput(
+    from arguments: ToolCallArguments
+  ) throws -> AskUserInput {
+    let question = try stringArgument("question", from: arguments)
+    let options = try modelFacingAskUserOptionFields(from: arguments)
+      .compactMap(\.1)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    return AskUserInput(question: question, options: options)
+  }
+
+  private func modelFacingAskUserOptionFields(
+    from arguments: ToolCallArguments
+  ) throws -> [(String, String?)] {
+    [
+      ("option1", try stringArgumentIfPresent("option1", from: arguments)),
+      ("option2", try stringArgumentIfPresent("option2", from: arguments)),
+      ("option3", try stringArgumentIfPresent("option3", from: arguments)),
+      ("option4", try stringArgumentIfPresent("option4", from: arguments)),
+    ]
+  }
+
+  private func stringArgument(
+    _ name: String,
+    from arguments: ToolCallArguments
+  ) throws -> String {
+    guard let value = try stringArgumentIfPresent(name, from: arguments) else {
+      throw InvalidToolCallReason.invalidArgumentType(
+        name: name,
+        expected: "a string"
+      )
+    }
+    return value
+  }
+
+  private func stringArgumentIfPresent(
+    _ name: String,
+    from arguments: ToolCallArguments
+  ) throws -> String? {
+    guard let argument = arguments[name] else {
+      return nil
+    }
+    guard case .string(let value) = argument else {
+      throw InvalidToolCallReason.invalidArgumentType(
+        name: name,
+        expected: "a string"
+      )
+    }
+    return value
   }
 
   private func decode<Input: Decodable>(
