@@ -5,30 +5,23 @@ import Testing
 
 struct ModelManagementTests {
   @Test
-  func catalogContainsCuratedGemmaModelsAndDefaultsToStable4B() {
+  func catalogContainsCuratedGemma4ModelsAndDefaultsToE4B() {
     let models = ManagedModelCatalog.models
 
     #expect(
       models.map(\.id) == [
-        "gemma3-1b",
-        "gemma3-4b",
-        "gemma3-27b",
         "gemma4-e2b",
         "gemma4-e4b",
         "gemma4-12b-4bit",
       ])
-    #expect(ManagedModelCatalog.defaultModelID == "gemma3-4b")
-    #expect(ManagedModelCatalog.defaultModel.id == "gemma3-4b")
+    #expect(ManagedModelCatalog.defaultModelID == "gemma4-e4b")
+    #expect(ManagedModelCatalog.defaultModel.id == "gemma4-e4b")
     #expect(ManagedModelCatalog.defaultModel.defaultContextTokenLimit == 16_384)
-    #expect(!ManagedModelCatalog.defaultModel.isRecommended)
-    #expect(ManagedModelCatalog.defaultModel.stability == .stable)
+    #expect(ManagedModelCatalog.defaultModel.isRecommended)
+    #expect(ManagedModelCatalog.defaultModel.stability == .experimental)
     #expect(ManagedModelCatalog.defaultModel.supportsWorkspaceTools)
-    #expect(ManagedModelCatalog.defaultModel.toolCallingStrategy == .taggedAction)
-    #expect(!ManagedModelCatalog.defaultModel.toolCallingPolicy.allowsMultipleToolCalls)
-    #expect(ManagedModelCatalog.model(id: "gemma3-27b")?.requiresLargeMemory == true)
-    #expect(
-      ManagedModelCatalog.model(id: "gemma3-4b")?.huggingFaceRepoID
-        == "mlx-community/gemma-3-4b-it-qat-4bit")
+    #expect(ManagedModelCatalog.defaultModel.toolCallingStrategy == .nativeGemma4)
+    #expect(ManagedModelCatalog.defaultModel.toolCallingPolicy.allowsMultipleToolCalls)
     #expect(
       ManagedModelCatalog.model(id: "gemma4-e2b")?.huggingFaceRepoID
         == "mlx-community/gemma-4-e2b-it-4bit")
@@ -47,11 +40,10 @@ struct ModelManagementTests {
       ManagedModelCatalog.model(id: "gemma4-e4b")?.toolCallingPolicy.allowsMultipleToolCalls == true
     )
     #expect(ManagedModelCatalog.model(id: "gemma4-12b-4bit")?.supportsImageInput == true)
-    #expect(ManagedModelCatalog.model(id: "gemma3-4b")?.supportsImageInput == false)
   }
 
   @Test
-  func settingsStoreDefaultsSelectedModelTo4B() async {
+  func settingsStoreDefaultsSelectedModelToE4B() async {
     let userDefaults = makeUserDefaults()
     let store = ModelSettingsStore(
       userDefaults: userDefaults,
@@ -61,7 +53,7 @@ struct ModelManagementTests {
     let selectedModelID = await store.selectedModelID(
       availableModelIDs: Set(ManagedModelCatalog.models.map(\.id)))
 
-    #expect(selectedModelID == "gemma3-4b")
+    #expect(selectedModelID == "gemma4-e4b")
   }
 
   @Test
@@ -72,7 +64,7 @@ struct ModelManagementTests {
       userDefaults: makeUserDefaults(suiteName: userDefaultsSuiteName),
       settingsURL: settingsURL
     )
-    let model = try #require(ManagedModelCatalog.model(id: "gemma3-1b"))
+    let model = try #require(ManagedModelCatalog.model(id: "gemma4-e2b"))
     let settings = StoredModelSettings(
       systemPrompt: "Use short answers.",
       generationSettings: ChatGenerationSettings(
@@ -116,8 +108,8 @@ struct ModelManagementTests {
   func settingsStorePreservesConcurrentSavesForDifferentModels() async throws {
     let settingsURL = temporarySettingsURL()
     let store = ModelSettingsStore(userDefaults: makeUserDefaults(), settingsURL: settingsURL)
-    let firstModel = try #require(ManagedModelCatalog.model(id: "gemma3-1b"))
-    let secondModel = try #require(ManagedModelCatalog.model(id: "gemma3-27b"))
+    let firstModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b"))
+    let secondModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-4bit"))
     let firstSettings = StoredModelSettings(
       systemPrompt: "Use tiny-model defaults.",
       generationSettings: ChatGenerationSettings(

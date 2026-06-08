@@ -7,7 +7,6 @@ public enum ManagedModelStability: Equatable, Sendable {
 
 public enum ToolCallingStrategy: String, Codable, Equatable, Sendable {
   case unsupported
-  case taggedAction
   case nativeGemma4
 }
 
@@ -25,10 +24,6 @@ public struct ToolCallingPolicy: Codable, Equatable, Sendable {
 
   public static let unsupported = ToolCallingPolicy(
     strategy: .unsupported,
-    allowsMultipleToolCalls: false
-  )
-  public static let taggedAction = ToolCallingPolicy(
-    strategy: .taggedAction,
     allowsMultipleToolCalls: false
   )
   public static let nativeGemma4 = ToolCallingPolicy(
@@ -75,80 +70,23 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
 }
 
 public enum ManagedModelCatalog {
-  public static let defaultModelID = "gemma3-4b"
+  public static let defaultModelID = "gemma4-e4b"
   public static let defaultContextTokenLimit = 16_384
 
   public static let models: [ManagedModel] = [
     ManagedModel(
-      id: "gemma3-1b",
-      displayName: "Gemma 3 1B",
-      shortName: "1B",
-      summary: "Fast and light",
-      detail: "Good for short answers and Macs with limited free memory.",
-      huggingFaceRepoID: "mlx-community/gemma-3-1b-it-qat-4bit",
-      localDirectoryName: "gemma3-1b",
-      parameterSize: "1B",
-      estimatedDownloadSize: "733 MB",
-      isRecommended: false,
-      requiresLargeMemory: false,
-      stability: .stable,
-      toolCallingPolicy: .taggedAction,
-      supportsImageInput: false,
-      defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
-      defaultGenerationSettings: .codingDefault,
-      defaultContextTokenLimit: defaultContextTokenLimit
-    ),
-    ManagedModel(
-      id: "gemma3-4b",
-      displayName: "Gemma 3 4B",
-      shortName: "4B",
-      summary: "Balanced",
-      detail: "Recommended for local coding tasks with good speed.",
-      huggingFaceRepoID: "mlx-community/gemma-3-4b-it-qat-4bit",
-      localDirectoryName: "gemma3-4b",
-      parameterSize: "4B",
-      estimatedDownloadSize: "3 GB",
-      isRecommended: false,
-      requiresLargeMemory: false,
-      stability: .stable,
-      toolCallingPolicy: .taggedAction,
-      supportsImageInput: false,
-      defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
-      defaultGenerationSettings: .codingDefault,
-      defaultContextTokenLimit: defaultContextTokenLimit
-    ),
-    ManagedModel(
-      id: "gemma3-27b",
-      displayName: "Gemma 3 27B",
-      shortName: "27B",
-      summary: "Best quality",
-      detail: "Large model for powerful Macs. It will not run well on every machine.",
-      huggingFaceRepoID: "mlx-community/gemma-3-27b-it-qat-4bit",
-      localDirectoryName: "gemma3-27b",
-      parameterSize: "27B",
-      estimatedDownloadSize: "16.8 GB",
-      isRecommended: false,
-      requiresLargeMemory: true,
-      stability: .stable,
-      toolCallingPolicy: .taggedAction,
-      supportsImageInput: false,
-      defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
-      defaultGenerationSettings: .codingDefault,
-      defaultContextTokenLimit: defaultContextTokenLimit
-    ),
-    ManagedModel(
       id: "gemma4-e2b",
       displayName: "Gemma 4 E2B",
       shortName: "E2B",
-      summary: "Experimental small model",
-      detail: "Experimental Gemma 4 model with local vision support.",
+      summary: "Small model",
+      detail: "Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-e2b-it-4bit",
       localDirectoryName: "gemma4-e2b",
       parameterSize: "E2B",
       estimatedDownloadSize: "3.6 GB",
       isRecommended: false,
       requiresLargeMemory: false,
-      stability: .experimental,
+      stability: .stable,
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
@@ -159,15 +97,15 @@ public enum ManagedModelCatalog {
       id: "gemma4-e4b",
       displayName: "Gemma 4 E4B",
       shortName: "E4B",
-      summary: "Experimental coding model",
-      detail: "Experimental Gemma 4 coding model with local vision support.",
+      summary: "Coding model",
+      detail: "Gemma 4 coding model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-4bit",
       localDirectoryName: "gemma4-e4b",
       parameterSize: "E4B",
       estimatedDownloadSize: "4.5 GB",
       isRecommended: true,
       requiresLargeMemory: false,
-      stability: .experimental,
+      stability: .stable,
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
@@ -179,14 +117,14 @@ public enum ManagedModelCatalog {
       displayName: "Gemma 4 12b 4bit",
       shortName: "412b",
       summary: "Larger coding model",
-      detail: "Experimental larger Gemma 4 model with local vision support.",
+      detail: "Larger Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-12B-it-4bit",
       localDirectoryName: "gemma-4-12B-it-4bit",
       parameterSize: "12B",
       estimatedDownloadSize: "12.7 GB",
       isRecommended: false,
       requiresLargeMemory: true,
-      stability: .experimental,
+      stability: .stable,
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
       defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,

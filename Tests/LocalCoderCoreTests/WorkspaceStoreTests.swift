@@ -26,7 +26,7 @@ struct WorkspaceStoreTests {
     let libraryURL = temporaryLibraryURL()
     let store = WorkspaceStore(libraryURL: libraryURL)
     let session = ChatSession(
-      selectedModelID: "gemma3-1b",
+      selectedModelID: "gemma4-e4b",
       modelContextSnapshot: ModelContextSnapshot(
         entries: [
           try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello"),
@@ -74,7 +74,7 @@ struct WorkspaceStoreTests {
     )
     let session = ChatSession(
       id: sessionID,
-      selectedModelID: "gemma3-1b",
+      selectedModelID: "gemma4-e4b",
       toolCalls: [toolCall],
       turns: [turn],
       systemPrompt: "Use short answers.",
@@ -134,7 +134,7 @@ struct WorkspaceStoreTests {
       ]
     )
     let session = ChatSession(
-      selectedModelID: "gemma3-1b",
+      selectedModelID: "gemma4-e4b",
       focusedFileState: focusedFileState,
       systemPrompt: "Use short answers.",
       generationSettings: .codingDefault
@@ -161,7 +161,7 @@ struct WorkspaceStoreTests {
       TodoItem(id: "verify", content: "Run tests", status: .inProgress),
     ])
     let session = ChatSession(
-      selectedModelID: "gemma3-1b",
+      selectedModelID: "gemma4-e4b",
       systemPrompt: "Use short answers.",
       generationSettings: .codingDefault,
       todoState: todoState
@@ -183,7 +183,7 @@ struct WorkspaceStoreTests {
     let legacySession = LegacyChatSession(
       id: UUID(),
       title: "Legacy",
-      selectedModelID: "gemma3-1b",
+      selectedModelID: "gemma4-e4b",
       messages: [LegacyStoredMessage(content: "hello")],
       systemPrompt: "Legacy prompt",
       generationSettings: .codingDefault,
@@ -202,7 +202,7 @@ struct WorkspaceStoreTests {
     let wrappedSession = TranscriptWrappedChatSession(
       id: UUID(),
       title: "Wrapped",
-      selectedModelID: "gemma3-1b",
+      selectedModelID: "gemma4-e4b",
       transcript: LegacyTranscriptWrapper(
         modelContextSnapshot: ModelContextSnapshot(
           entries: [
@@ -229,7 +229,7 @@ struct WorkspaceStoreTests {
   @Test
   func chatSessionEncodingOmitsPendingAttachmentsAndTranscriptWrapper() throws {
     let session = ChatSession(
-      selectedModelID: "gemma3-1b",
+      selectedModelID: "gemma4-e4b",
       modelContextSnapshot: ModelContextSnapshot(
         entries: [
           try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")

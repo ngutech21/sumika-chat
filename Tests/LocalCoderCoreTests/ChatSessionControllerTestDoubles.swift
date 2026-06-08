@@ -247,7 +247,7 @@ actor InterruptedStreamingRuntime: ChatModelRuntime {
 }
 
 actor ControlledStreamingRuntime: ChatModelRuntime {
-  private let turns: [[String]]
+  private let turns: [[ChatModelStreamEvent]]
   private let blockedCallIndexes: Set<Int>
   private var streamContinuations: [Int: CheckedContinuation<Void, Never>] = [:]
   private var releasedCallIndexes: Set<Int> = []
@@ -258,7 +258,12 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   private(set) var capturedSystemPrompts: [String] = []
 
   init(turns: [[String]], blockedCallIndexes: Set<Int>) {
-    self.turns = turns
+    self.turns = turns.map { $0.map(ChatModelStreamEvent.chunk) }
+    self.blockedCallIndexes = blockedCallIndexes
+  }
+
+  init(eventTurns: [[ChatModelStreamEvent]], blockedCallIndexes: Set<Int>) {
+    self.turns = eventTurns
     self.blockedCallIndexes = blockedCallIndexes
   }
 
@@ -308,7 +313,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
     capturedSystemPrompts.append(systemPrompt)
     let callIndex = streamReplyCount
     streamReplyCount += 1
-    let chunks = turns[min(callIndex, turns.count - 1)]
+    let events = turns[min(callIndex, turns.count - 1)]
     let shouldBlock = blockedCallIndexes.contains(callIndex)
 
     return AsyncThrowingStream { continuation in
@@ -327,15 +332,15 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
           return
         }
 
-        for chunk in chunks {
-          continuation.yield(.chunk(chunk))
+        for event in events {
+          continuation.yield(event)
         }
         continuation.yield(
           .completed(
             ChatGenerationMetrics(
-              generatedTokenCount: chunks.count,
+              generatedTokenCount: events.count,
               tokensPerSecond: 100,
-              durationMs: Double(chunks.count) * 10
+              durationMs: Double(events.count) * 10
             )
           )
         )

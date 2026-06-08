@@ -5,29 +5,6 @@ import Testing
 
 struct AssistantTurnMessageTests {
   @Test
-  func detectsStreamingToolCallMarkupPrefixes() {
-    let partialMessages = [
-      "<",
-      "<act",
-      "<action",
-      "<action name=\"list_files\">",
-    ]
-
-    for content in partialMessages {
-      let message = AssistantTurnMessage(content: content)
-
-      #expect(message.containsStreamingToolCallMarkup)
-    }
-  }
-
-  @Test
-  func ignoresPlainAssistantContentWhenDetectingStreamingToolCallMarkup() {
-    let message = AssistantTurnMessage(content: "Here are the files:")
-
-    #expect(!message.containsStreamingToolCallMarkup)
-  }
-
-  @Test
   func assistantPlaceholderIsNotShownForEmptyCompletedMessages() {
     let message = AssistantTurnMessage(content: "")
 
@@ -36,17 +13,22 @@ struct AssistantTurnMessageTests {
 
   @Test
   func showsAssistantPlaceholderOnlyForStreamingMessages() {
-    let streamingPartialToolCall = AssistantTurnMessage(
-      content: "<action name=\"list_files\">",
+    let streamingEmptyMessage = AssistantTurnMessage(
+      content: "",
       deliveryStatus: .streaming
     )
-    let cancelledPartialToolCall = AssistantTurnMessage(
-      content: "<action name=\"list_files\">",
+    let streamingContent = AssistantTurnMessage(
+      content: "Generating a normal response.",
+      deliveryStatus: .streaming
+    )
+    let cancelledEmptyMessage = AssistantTurnMessage(
+      content: "",
       deliveryStatus: .cancelled
     )
 
-    #expect(streamingPartialToolCall.shouldShowAssistantPlaceholder)
-    #expect(!cancelledPartialToolCall.shouldShowAssistantPlaceholder)
+    #expect(streamingEmptyMessage.shouldShowAssistantPlaceholder)
+    #expect(!streamingContent.shouldShowAssistantPlaceholder)
+    #expect(!cancelledEmptyMessage.shouldShowAssistantPlaceholder)
   }
 
   @Test

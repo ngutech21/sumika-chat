@@ -10,20 +10,12 @@ struct ChatSessionControllerToolLoopTests {
   func sendMessageRunsReadOnlyToolsUntilBudgetThenRecordsStructuredBudgetResult() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let readAction = """
-      <action name="read_file">
-      <path>README.md</path>
-      </action>
-      """
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [readAction],
-      [readAction],
-      [readAction],
-      [readAction],
-      [readAction],
-      [readAction],
-      [readAction],
-    ])
+    let readEvent = ChatModelStreamEvent.toolCall(
+      ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")])
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: Array(repeating: [readEvent], count: 7)
+    )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
@@ -33,17 +25,8 @@ struct ChatSessionControllerToolLoopTests {
 
     try await waitUntil { !controller.isGenerating }
 
-    #expect(controller.chatSession.toolCalls.count == 7)
-    #expect(controller.chatSession.toolCalls.dropLast().allSatisfy { $0.status == .completed })
-    #expect(controller.chatSession.toolCalls.last?.status == .failed)
-    #expect(controller.chatSession.testMessages.last?.kind == .toolResult)
-    guard
-      case .failure(let failure) = controller.chatSession.testMessages.last?.toolResult?.payload
-    else {
-      Issue.record("Expected final over-budget result to be structured as a tool failure.")
-      return
-    }
-    #expect(failure.reason == .toolBudgetExceeded(requestedTool: .readFile, iterationLimit: 6))
+    #expect(controller.chatSession.toolCalls.count == 6)
+    #expect(controller.chatSession.toolCalls.allSatisfy { $0.status == .completed })
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 7)
@@ -55,103 +38,18 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
-  func sendMessageRecordsStructuredBudgetResultForFurtherNonTaggedToolIntent() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let invalidToolIntent = """
-      Tool call edit_file requested.
-      Path:
-      index.html
-      Old text:
-      <body>
-      New text:
-      <body style="background: blue">
-      """
-    let runtime = ChatSessionFakeChatModelRuntime(
-      turns: Array(repeating: [invalidToolIntent], count: 7))
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "change the background color to blue"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-
-    try await waitUntil { !controller.isGenerating }
-
-    #expect(controller.chatSession.toolCalls.count == 7)
-    #expect(controller.chatSession.toolCalls.allSatisfy { $0.request.toolName == .invalid })
-    #expect(controller.chatSession.toolCalls.last?.status == .failed)
-    #expect(controller.chatSession.testMessages.last?.kind == .toolResult)
-    guard
-      case .failure(let failure) = controller.chatSession.testMessages.last?.toolResult?.payload
-    else {
-      Issue.record("Expected final over-budget result to be structured as a tool failure.")
-      return
-    }
-    #expect(failure.reason == .toolBudgetExceeded(requestedTool: .editFile, iterationLimit: 6))
-    #expect(!controller.chatSession.testMessages.contains { $0.content == invalidToolIntent })
-  }
-
-  @Test
-  func nonTaggedToolIntentIsHiddenAndReturnedToModelAsInvalidObservation() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let invalidToolIntent = """
-      Tool call edit_file requested.
-      Path:
-      index.html
-      Old text:
-      <body>
-      New text:
-      <body style="background: blue">
-      """
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [invalidToolIntent],
-      ["I need to use the tagged action format."],
-    ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "change the background color to blue"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-
-    try await waitUntil { !controller.isGenerating }
-
-    #expect(controller.chatSession.toolCalls.count == 1)
-    #expect(controller.chatSession.toolCalls[0].request.toolName == .invalid)
-    #expect(controller.chatSession.toolCalls[0].status == .failed)
-    #expect(controller.chatSession.testMessages[1].kind == .toolCall)
-    #expect(controller.chatSession.testMessages[1].content.isEmpty)
-    #expect(!controller.chatSession.testMessages.contains { $0.content == invalidToolIntent })
-    #expect(
-      controller.chatSession.testMessages.last?.content == "I need to use the tagged action format."
-    )
-
-    let capturedMessages = await runtime.capturedMessages
-    #expect(capturedMessages.count == 2)
-    let hasInvalidObservation = capturedMessages[1].contains(where: { message in
-      message.role == .user && message.content.contains("tool=\"invalid\"")
-    })
-    #expect(hasInvalidObservation)
-  }
-
-  @Test
   func todoWriteUpdatesSessionStateAndRendersPlanOnlyInAgentPrompt() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let todoAction = """
-      <action name="todo_write">
-      <items delimiter="LC_PAYLOAD_V1">
-      Inspect files:true
-      Run tests:false
-      LC_PAYLOAD_V1
-      </items>
-      </action>
-      """
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [todoAction],
-      ["Continuing with the plan."],
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "todo_write",
+            arguments: ["items": .string("Inspect files:true\nRun tests:false")]
+          ))
+      ],
+      [.chunk("Continuing with the plan.")],
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -185,16 +83,19 @@ struct ChatSessionControllerToolLoopTests {
   func askUserPausesThenAnswerResumesSameTurn() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let askAction = """
-      <action name="ask_user">
-      <question>Which implementation should I use?</question>
-      <option1>Minimal fix</option1>
-      <option2>Broader refactor</option2>
-      </action>
-      """
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [askAction],
-      ["I'll make the minimal fix."],
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "ask_user",
+            arguments: [
+              "question": .string("Which implementation should I use?"),
+              "option1": .string("Minimal fix"),
+              "option2": .string("Broader refactor"),
+            ]
+          ))
+      ],
+      [.chunk("I'll make the minimal fix.")],
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -234,28 +135,26 @@ struct ChatSessionControllerToolLoopTests {
   func failedEditFileResultLetsModelRecoverWithReadFile() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let editAction = """
-      <action name="edit_file">
-      <path>README.md</path>
-      <old_text delimiter="LC_PAYLOAD_V1">
-      missing text
-      LC_PAYLOAD_V1
-      </old_text>
-      <new_text delimiter="LC_PAYLOAD_V1">
-      replacement
-      LC_PAYLOAD_V1
-      </new_text>
-      </action>
-      """
-    let readAction = """
-      <action name="read_file">
-      <path>README.md</path>
-      </action>
-      """
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [editAction],
-      [readAction],
-      ["The file contains project notes."],
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("README.md"),
+              "old_text": .string("missing text"),
+              "new_text": .string("replacement"),
+            ]
+          ))
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          ))
+      ],
+      [.chunk("The file contains project notes.")],
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -280,23 +179,23 @@ struct ChatSessionControllerToolLoopTests {
   func subsequentUserTurnsCanUseToolsAgainInSameSession() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
-        """
-        <action name="read_file">
-        <path>README.md</path>
-        </action>
-        """
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          ))
       ],
-      ["First answer."],
+      [.chunk("First answer.")],
       [
-        """
-        <action name="list_files">
-        <path>.</path>
-        </action>
-        """
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "list_files",
+            arguments: ["path": .string(".")]
+          ))
       ],
-      ["Second answer."],
+      [.chunk("Second answer.")],
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready

@@ -12,7 +12,7 @@ struct ToolDefinitionSchemaTests {
 
     for definition in definitions {
       #expect(!definition.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-      #expect(!definition.taggedExample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      #expect(!definition.exampleArguments.isEmpty)
       #expect(!definition.parameters.isEmpty)
 
       for parameter in definition.parameters {

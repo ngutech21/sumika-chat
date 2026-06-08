@@ -9,10 +9,8 @@ or provider-specific payloads.
 
 ```mermaid
 flowchart TD
-  A["Assistant output"] --> B["ToolCallParser"]
-  B --> Z{"Malformed or non-tagged tool intent?"}
-  Z -- "yes" --> Y["Failed invalid tool observation"]
-  Z -- "no" --> C["RawToolCallRequest(name, arguments, rawText)"]
+  A["Native ChatRuntimeToolCall event"] --> B["ToolLoopCoordinator"]
+  B --> C["RawToolCallRequest(name, arguments, rawText)"]
   C --> D["ToolCallRequestValidator"]
   D --> E["ToolCallRequest(payload: ToolCallPayload)"]
   E --> F["ToolExecutorRegistry lookup"]
@@ -32,30 +30,16 @@ flowchart TD
 
 ## Roles
 
-- `ToolCallParser` understands the model-facing format, currently tagged
-  action text. A future JSON or provider-native parser should still emit the
-  same `RawToolCallRequest`. The tagged parser prefers explicit delimiter lines
-  for multiline payloads. For `content`, `old_text`, and `new_text` payloads,
-  it also accepts a bounded closing-tag fallback so small local models that omit
-  delimiter lines can still produce auditable `write_file` and `edit_file`
-  calls instead of raw transcript text.
-- A syntactically complete tagged action is a committed assistant output for
-  model-runtime cache purposes. The app may stop streaming immediately after
-  that action so the tool loop can execute it, but this clean tool-action stop
-  must not be treated as cancelled, interrupted, or downstream-terminated.
-- Malformed tagged tool attempts and strong non-tagged tool intent are not
-  executed or reparsed as alternate protocols. The tool loop records an internal
-  failed `invalid` tool observation containing the original tool name when it
-  can be inferred and the parse/protocol error, then asks the model to continue
-  within the normal tool-round budget.
-- Final no-tools responses are enforced by `FinalModeActionDetector`, not by
-  routing back through `ToolLoopCoordinator`. After terminal follow-up prompts,
-  such as approved write/edit follow-ups, denied-tool follow-ups, and budget
-  exhaustion, the detector parses the assistant text, blocks any further tool
-  attempt before execution, annotates the assistant message as a tool call, and
-  appends a structured failure observation. Final-mode failures use
-  `finalModeToolAttempt`; budget failures use `toolBudgetExceeded`.
-- `RawToolCallRequest` is the parser handoff model: tool name,
+- Native Gemma 4 tool-call events are the only supported model-facing tool
+  protocol. `ToolLoopCoordinator` converts those native events into the same
+  neutral `RawToolCallRequest` execution boundary used by the rest of Core.
+- Native tool-call boundaries are committed to model history as canonical
+  Gemma 4 boundary text generated from the tool name and sorted arguments. The
+  boundary must stay stable so MLX append-only cache reuse can compare prefixes.
+- Terminal follow-up prompts, such as approved write/edit follow-ups and denied
+  tool follow-ups, do not expose tools to the runtime. If more work is needed,
+  the model must ask the user for another turn rather than emitting more tools.
+- `RawToolCallRequest` is the runtime handoff model: tool name,
   workspace/session, raw argument values, and optional raw text for debugging.
 - `ToolCallRequest` is the validated execution-boundary model. It preserves the
   raw request and carries a typed `ToolCallPayload` for the built-in tool or an
@@ -113,7 +97,7 @@ flowchart TD
   compact tool-call diagnostics: `toolCallFormat`, `toolValidationStatus`,
   optional `toolValidationError`, optional `toolOriginalName`,
   `toolArgumentKeys`, and short typed `toolArguments` previews. These fields
-  are for parser/provider debugging and must stay compact; large write/edit
+  are for native provider and validation debugging and must stay compact; large write/edit
   payloads remain omitted from model history and should not be dumped into
   traces.
 

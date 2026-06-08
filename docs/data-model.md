@@ -43,6 +43,8 @@ flowchart TD
   ToolCallEvent --> ToolCallEventKind
   ToolCallModelMessage --> ToolCallModelArgument
   ToolCallModelMessage --> ToolName
+  ToolCallParseOutput --> RawToolCallRequest
+  ToolCallParseOutput --> ToolCallModelMessage
   ToolCallPayload --> AskUserInput
   ToolCallPayload --> InvalidToolInput
   ToolCallPayload --> WebFetchInput
@@ -57,6 +59,7 @@ flowchart TD
   ToolCallState --> ToolResultPayload
   ToolCallState --> ToolResultPreview
   ToolCallingPolicy --> ToolCallingStrategy
+  ToolDefinition --> ToolCallArguments
   ToolDefinition --> ToolCapability
   ToolDefinition --> ToolName
   ToolDefinition --> ToolParameterDefinition
@@ -737,6 +740,22 @@ Relations:
 - `ToolCallModelArgument`
 - `ToolName`
 
+### ToolCallParseOutput
+
+- Kind: `struct`
+- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
+- Conforms to: `Equatable`, `Sendable`
+
+Properties:
+
+- `modelMessage: ToolCallModelMessage`
+- `request: RawToolCallRequest`
+
+Relations:
+
+- `RawToolCallRequest`
+- `ToolCallModelMessage`
+
 ### ToolCallPayload
 
 - Kind: `enum`
@@ -871,7 +890,6 @@ Relations:
 Cases:
 
 - `nativeGemma4`
-- `taggedAction`
 - `unsupported`
 
 ### ToolCapability
@@ -897,13 +915,14 @@ Properties:
 
 - `capabilities: Set<ToolCapability>`
 - `description: String`
+- `exampleArguments: ToolCallArguments`
 - `name: ToolName`
 - `parameters: [ToolParameterDefinition]`
 - `riskLevel: ToolRiskLevel`
-- `taggedExample: String`
 
 Relations:
 
+- `ToolCallArguments`
 - `ToolCapability`
 - `ToolName`
 - `ToolParameterDefinition`
@@ -977,11 +996,6 @@ Relations:
 - `MissingPathSuggestion`
 - `ToolName`
 - `WorkspaceRelativePath`
-
-### ToolIntentHeuristics
-
-- Kind: `enum`
-- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
 
 ### ToolJSONSchemaObject
 

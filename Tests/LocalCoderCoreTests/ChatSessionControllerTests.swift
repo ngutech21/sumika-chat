@@ -270,34 +270,6 @@ struct ChatSessionControllerTests {
   }
 
   @Test
-  func sendMessageBlocksImageAttachmentsForTextOnlyModels() async throws {
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/screenshot.png"),
-      displayName: "screenshot.png",
-      kind: .image,
-      content: "[Image attachment: screenshot.png, image/png, 128 bytes]",
-      metadata: ChatAttachmentMetadata(
-        mimeType: "image/png",
-        byteCount: 128
-      )
-    )
-    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello"])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.draft = "What is in this screenshot?"
-    controller.chatSession.pendingAttachments = [attachment]
-
-    controller.sendMessage()
-    await Task.yield()
-
-    #expect(await runtime.capturedAttachments.isEmpty)
-    #expect(controller.draft == "What is in this screenshot?")
-    #expect(controller.chatSession.pendingAttachments == [attachment])
-    #expect(controller.chatSession.testMessages.isEmpty)
-    #expect(controller.errorMessage?.contains("cannot analyze images") == true)
-  }
-
-  @Test
   func sendMessageForVisionModelForwardsImageAttachmentsToRuntime() async throws {
     let attachment = ChatAttachment(
       url: URL(filePath: "/tmp/screenshot.png"),
@@ -402,16 +374,16 @@ struct ChatSessionControllerTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ControlledStreamingRuntime(
-      turns: [
+      eventTurns: [
         [
-          """
-          <action name="read_file">
-          <path>README.md</path>
-          </action>
-          """
+          .toolCall(
+            ChatRuntimeToolCall(
+              name: "read_file",
+              arguments: ["path": .string("README.md")]
+            ))
         ],
-        ["This follow-up should be cancelled."],
-        ["Yes, I'm here."],
+        [.chunk("This follow-up should be cancelled.")],
+        [.chunk("Yes, I'm here.")],
       ],
       blockedCallIndexes: [1]
     )
@@ -535,7 +507,7 @@ struct ChatSessionControllerTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 1)
-    #expect(capturedSystemPrompts[0].contains("Tools:"))
+    #expect(capturedSystemPrompts[0].contains("Available tools:"))
     #expect(capturedSystemPrompts[0].contains("read_file"))
     #expect(capturedSystemPrompts[0].contains("edit_file"))
     #expect(capturedSystemPrompts[0].contains("write_file"))
@@ -681,15 +653,15 @@ struct ChatSessionControllerTests {
         )
       ]
     )
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
-        """
-        <action name="read_file">
-        <path>README.md</path>
-        </action>
-        """
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          ))
       ],
-      ["The README says project notes."],
+      [.chunk("The README says project notes.")],
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -738,7 +710,7 @@ struct ChatSessionControllerTests {
         .contains("lies die projektbeschreibung"))
     #expect(
       controller.chatSession.modelContextSnapshot.entries[1].frozenContent.content.contains(
-        "<action name=\"read_file\">")
+        "<|tool_call>call:read_file")
     )
     #expect(
       controller.chatSession.modelContextSnapshot.entries[2].frozenContent.content.contains(
@@ -767,8 +739,8 @@ struct ChatSessionControllerTests {
     #expect(capturedSystemPrompts[0].contains("list_files"))
     #expect(capturedSystemPrompts[0].contains("glob_files"))
     #expect(capturedSystemPrompts[0].contains("search_files"))
-    #expect(capturedSystemPrompts[0].contains("- write_file("))
-    #expect(capturedSystemPrompts[0].contains("- edit_file("))
+    #expect(capturedSystemPrompts[0].contains("write_file"))
+    #expect(capturedSystemPrompts[0].contains("edit_file"))
     #expect(capturedSystemPrompts[1].contains("You received a tool result."))
     #expect(capturedSystemPrompts[1].contains("Available tools: read_file"))
     #expect(capturedSystemPrompts[1].contains("edit_file"))
@@ -903,13 +875,13 @@ struct ChatSessionControllerTests {
         )
       ]
     )
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
-        """
-        <action name="show_file">
-        <path>README.md</path>
-        </action>
-        """
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "show_file",
+            arguments: ["path": .string("README.md")]
+          ))
       ]
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -973,13 +945,13 @@ struct ChatSessionControllerTests {
       ]
     )
     let runtime = ChatSessionFakeChatModelRuntime(
-      turns: [
+      eventTurns: [
         [
-          """
-          <action name="read_file">
-          <path>README.md</path>
-          </action>
-          """
+          .toolCall(
+            ChatRuntimeToolCall(
+              name: "read_file",
+              arguments: ["path": .string("README.md")]
+            ))
         ],
         [],
       ],
@@ -1006,94 +978,6 @@ struct ChatSessionControllerTests {
       !controller.chatSession.testMessages.contains { message in
         message.kind == .assistant && message.content.isEmpty
       })
-  }
-
-  @Test
-  func sendMessageExecutesToolCallWhenModelEmitsExtraneousToolMarkup() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(
-      turns: [
-        [
-          """
-          I should inspect this.
-          <action name="read_file">
-          <path>README.md</path>
-          </action>
-          """
-        ],
-        ["The README says project notes."],
-      ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "Read the README"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-
-    try await waitUntil { !controller.isGenerating }
-
-    #expect(controller.errorMessage == nil)
-    #expect(controller.chatSession.toolCalls.count == 1)
-    #expect(controller.chatSession.testMessages.count == 4)
-    #expect(controller.chatSession.testMessages[1].content.isEmpty)
-    #expect(controller.chatSession.testMessages[1].kind == .toolCall)
-    #expect(controller.chatSession.testMessages[1].toolCall?.toolName == .readFile)
-    #expect(controller.chatSession.testMessages[2].kind == .toolResult)
-    #expect(controller.chatSession.testMessages[2].toolResult?.toolName == .readFile)
-    #expect(
-      controller.chatSession.testMessages[1].toolCall?.callID
-        == controller.chatSession.testMessages[2].toolResult?.callID
-    )
-    #expect(controller.chatSession.testMessages[3].content == "The README says project notes.")
-  }
-
-  @Test
-  func sendMessageExecutesToolCallWhenModelWrapsActionInMarkdownFence() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(
-      turns: [
-        [
-          """
-          ```xml
-          <action name="list_files">
-          <path>.</path>
-          </action>
-          ```
-          """
-        ],
-        ["The current directory contains README.md."],
-      ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "list the files in the current directory"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-
-    try await waitUntil { !controller.isGenerating }
-
-    #expect(controller.errorMessage == nil)
-    #expect(controller.chatSession.toolCalls.count == 1)
-    #expect(controller.chatSession.toolCalls[0].request.toolName == .listFiles)
-    #expect(controller.chatSession.toolCalls[0].resultPreview?.text.contains("README.md") == true)
-    #expect(controller.chatSession.testMessages.count == 4)
-    #expect(controller.chatSession.testMessages[1].content.isEmpty)
-    #expect(controller.chatSession.testMessages[1].kind == .toolCall)
-    #expect(controller.chatSession.testMessages[1].toolCall?.toolName == .listFiles)
-    #expect(controller.chatSession.testMessages[2].kind == .toolResult)
-    #expect(controller.chatSession.testMessages[2].toolResult?.toolName == .listFiles)
-    #expect(
-      controller.chatSession.testMessages[1].toolCall?.callID
-        == controller.chatSession.testMessages[2].toolResult?.callID
-    )
-    #expect(
-      controller.chatSession.testMessages[3].content.contains("Files in `.`:"))
-    #expect(controller.chatSession.testMessages[3].content.contains("README.md"))
-
-    let capturedSystemPrompts = await runtime.capturedSystemPrompts
-    #expect(capturedSystemPrompts.count == 1)
   }
 
   @Test

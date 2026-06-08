@@ -59,7 +59,7 @@ public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
   public var name: ToolName
   public var description: String
   public var parameters: [ToolParameterDefinition]
-  public var taggedExample: String
+  public var exampleArguments: ToolCallArguments
   public var capabilities: Set<ToolCapability>
   public var riskLevel: ToolRiskLevel
 
@@ -67,7 +67,7 @@ public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
     name: ToolName,
     description: String,
     parameters: [ToolParameterDefinition],
-    taggedExample: String,
+    exampleArguments: ToolCallArguments,
     capabilities: Set<ToolCapability> = [],
     riskLevel: ToolRiskLevel = .low
   ) {
@@ -78,7 +78,7 @@ public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
     self.name = name
     self.description = description
     self.parameters = parameters
-    self.taggedExample = taggedExample
+    self.exampleArguments = exampleArguments
     self.capabilities = capabilities
     self.riskLevel = riskLevel
   }
@@ -239,13 +239,11 @@ nonisolated extension ToolDefinition {
         minimum: 1
       ),
     ],
-    taggedExample: """
-      <action name="read_file">
-      <path>Sources/AppState.swift</path>
-      <offset>1</offset>
-      <limit>200</limit>
-      </action>
-      """,
+    exampleArguments: [
+      "path": .string("Sources/AppState.swift"),
+      "offset": .number(1),
+      "limit": .number(200),
+    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )
@@ -274,13 +272,11 @@ nonisolated extension ToolDefinition {
         minimum: 1
       ),
     ],
-    taggedExample: """
-      <action name="show_file">
-      <path>Sources/AppState.swift</path>
-      <offset>1</offset>
-      <limit>200</limit>
-      </action>
-      """,
+    exampleArguments: [
+      "path": .string("Sources/AppState.swift"),
+      "offset": .number(1),
+      "limit": .number(200),
+    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )
@@ -295,11 +291,9 @@ nonisolated extension ToolDefinition {
         isRequired: false
       )
     ],
-    taggedExample: """
-      <action name="list_files">
-      <path>.</path>
-      </action>
-      """,
+    exampleArguments: [
+      "path": .string(".")
+    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )
@@ -319,12 +313,10 @@ nonisolated extension ToolDefinition {
         isRequired: false
       ),
     ],
-    taggedExample: """
-      <action name="glob_files">
-      <pattern>**/*.swift</pattern>
-      <path>.</path>
-      </action>
-      """,
+    exampleArguments: [
+      "pattern": .string("**/*.swift"),
+      "path": .string("."),
+    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )
@@ -349,13 +341,11 @@ nonisolated extension ToolDefinition {
         isRequired: false
       ),
     ],
-    taggedExample: """
-      <action name="search_files">
-      <pattern>ToolDefinition</pattern>
-      <path>.</path>
-      <include>*.swift</include>
-      </action>
-      """,
+    exampleArguments: [
+      "pattern": .string("ToolDefinition"),
+      "path": .string("."),
+      "include": .string("*.swift"),
+    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )
@@ -370,11 +360,9 @@ nonisolated extension ToolDefinition {
         isRequired: false
       )
     ],
-    taggedExample: """
-      <action name="workspace_diff">
-      <path>Sources/App.swift</path>
-      </action>
-      """,
+    exampleArguments: [
+      "path": .string("Sources/App.swift")
+    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )
@@ -389,11 +377,9 @@ nonisolated extension ToolDefinition {
         isRequired: true
       )
     ],
-    taggedExample: """
-      <action name="workspace_diagnostics">
-      <outputRef>cmd_abc123</outputRef>
-      </action>
-      """,
+    exampleArguments: [
+      "outputRef": .string("cmd_abc123")
+    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )
@@ -414,15 +400,10 @@ nonisolated extension ToolDefinition {
         supportsHeredocPayload: true
       ),
     ],
-    taggedExample: """
-      <action name="write_file">
-      <path>Sources/AppState.swift</path>
-      <content delimiter="LC_PAYLOAD_V1">
-      import Foundation
-      LC_PAYLOAD_V1
-      </content>
-      </action>
-      """,
+    exampleArguments: [
+      "path": .string("Sources/AppState.swift"),
+      "content": .string("import Foundation\n"),
+    ],
     capabilities: [.writeWorkspace],
     riskLevel: .high
   )
@@ -449,19 +430,11 @@ nonisolated extension ToolDefinition {
         supportsHeredocPayload: true
       ),
     ],
-    taggedExample: """
-      <action name="edit_file">
-      <path>Sources/AppState.swift</path>
-      <old_text delimiter="LC_PAYLOAD_V1">
-      let title = "Old"
-      LC_PAYLOAD_V1
-      </old_text>
-      <new_text delimiter="LC_PAYLOAD_V1">
-      let title = "New"
-      LC_PAYLOAD_V1
-      </new_text>
-      </action>
-      """,
+    exampleArguments: [
+      "path": .string("Sources/AppState.swift"),
+      "old_text": .string("let title = \"Old\""),
+      "new_text": .string("let title = \"New\""),
+    ],
     capabilities: [.writeWorkspace],
     riskLevel: .high
   )
@@ -489,13 +462,11 @@ nonisolated extension ToolDefinition {
         isRequired: false
       ),
     ],
-    taggedExample: """
-      <action name="run_command">
-      <command>just test-core</command>
-      <timeoutSeconds>120</timeoutSeconds>
-      <reason>Verify the core test suite after the code change.</reason>
-      </action>
-      """,
+    exampleArguments: [
+      "command": .string("just test-core"),
+      "timeoutSeconds": .number(120),
+      "reason": .string("Verify the core test suite after the code change."),
+    ],
     capabilities: [.runCommand],
     riskLevel: .high
   )
@@ -513,16 +484,13 @@ nonisolated extension ToolDefinition {
         supportsHeredocPayload: true
       )
     ],
-    taggedExample: """
-      <action name="todo_write">
-      <items delimiter="LC_PAYLOAD_V1">
-      Inspect the affected chat workflow files:true
-      Add todo state and tool plumbing:false
-      Run focused tests:false
-      LC_PAYLOAD_V1
-      </items>
-      </action>
-      """,
+    exampleArguments: [
+      "items": .string(
+        "Inspect the affected chat workflow files:true\n"
+          + "Add todo state and tool plumbing:false\n"
+          + "Run focused tests:false"
+      )
+    ],
     capabilities: [],
     riskLevel: .low
   )
@@ -562,13 +530,11 @@ nonisolated extension ToolDefinition {
         valueType: .string
       ),
     ],
-    taggedExample: """
-      <action name="ask_user">
-      <question>Which implementation should I use?</question>
-      <option1>Minimal fix</option1>
-      <option2>Broader refactor</option2>
-      </action>
-      """,
+    exampleArguments: [
+      "question": .string("Which implementation should I use?"),
+      "option1": .string("Minimal fix"),
+      "option2": .string("Broader refactor"),
+    ],
     capabilities: [],
     riskLevel: .low
   )
@@ -592,12 +558,10 @@ nonisolated extension ToolDefinition {
         maximum: Double(WebAccessLimits.maxSearchResultCount)
       ),
     ],
-    taggedExample: """
-      <action name="web_search">
-      <query>Swift URLSession async await timeout</query>
-      <maxResults>5</maxResults>
-      </action>
-      """,
+    exampleArguments: [
+      "query": .string("Swift URLSession async await timeout"),
+      "maxResults": .number(5),
+    ],
     capabilities: [.accessWeb],
     riskLevel: .high
   )
@@ -621,12 +585,12 @@ nonisolated extension ToolDefinition {
         maximum: Double(WebAccessLimits.maxFetchBytes)
       ),
     ],
-    taggedExample: """
-      <action name="web_fetch">
-      <url>https://www.swift.org/documentation/server/guides/libraries/concurrency-adoption-guidelines.html</url>
-      <maxBytes>65536</maxBytes>
-      </action>
-      """,
+    exampleArguments: [
+      "url": .string(
+        "https://www.swift.org/documentation/server/guides/libraries/concurrency-adoption-guidelines.html"
+      ),
+      "maxBytes": .number(65536),
+    ],
     capabilities: [.accessWeb],
     riskLevel: .high
   )

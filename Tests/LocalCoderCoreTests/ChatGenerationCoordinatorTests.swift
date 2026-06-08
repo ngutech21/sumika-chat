@@ -7,103 +7,6 @@ import Testing
 @MainActor
 struct ChatGenerationCoordinatorTests {
   @Test
-  func toolActionStreamingStopsAfterCompleteActionAndDropsSurroundingText() async throws {
-    let turnID = UUID()
-    let tracer = RecordingTurnTracer()
-    let action = """
-      <action name="read_file">
-      <path>README.md</path>
-      </action>
-      """
-    let runtime = ChatSessionFakeChatModelRuntime(
-      chunks: [
-        "I will inspect the file first.\n",
-        action,
-        "\nNow I will read it.",
-      ]
-    )
-    let coordinator = ChatGenerationCoordinator(
-      runtime: runtime,
-      turnTracer: tracer,
-      streamingFlushInterval: 0,
-      streamingFlushCharacterLimit: 1
-    )
-    var streamedContent = ""
-    var updatedMetrics: ChatGenerationMetrics?
-    var contextUsageUpdateCount = 0
-
-    let assistantContent = try await coordinator.streamAssistantReply(
-      turnID: turnID,
-      transcript: ModelContextSnapshot(),
-      systemPrompt: "Use tools.",
-      settings: .codingDefault,
-      stopAfterCompleteToolAction: true,
-      appendChunk: { streamedContent += $0 },
-      updateGenerationMetrics: { metrics in
-        updatedMetrics = metrics
-      },
-      updateContextUsage: {
-        contextUsageUpdateCount += 1
-      }
-    )
-
-    #expect(streamedContent == action)
-    #expect(assistantContent == action)
-    #expect(await runtime.completedPartialReplies == [action])
-    #expect(updatedMetrics?.generatedTokenCount == 4)
-    #expect(try #require(updatedMetrics).durationMs > 0)
-    #expect(contextUsageUpdateCount == 1)
-    let event = try #require(await tracer.events.first { $0.phase == .runtimePartialDecode })
-    #expect(event.turnID == turnID)
-    #expect(event.generationID != nil)
-  }
-
-  @Test
-  func toolActionStreamingDoesNotSilentlyDropSecondActionInSameChunk() async throws {
-    let firstAction = """
-      <action name="read_file">
-      <path>README.md</path>
-      </action>
-      """
-    let secondAction = """
-      <action name="list_files">
-      <path>.</path>
-      </action>
-      """
-    let combined = firstAction + "\n" + secondAction
-    let runtime = ChatSessionFakeChatModelRuntime(chunks: [combined])
-    let coordinator = ChatGenerationCoordinator(
-      runtime: runtime,
-      streamingFlushInterval: 0,
-      streamingFlushCharacterLimit: 1
-    )
-    var streamedContent = ""
-    var updatedMetrics: ChatGenerationMetrics?
-    var contextUsageUpdateCount = 0
-
-    let assistantContent = try await coordinator.streamAssistantReply(
-      transcript: ModelContextSnapshot(),
-      systemPrompt: "Use tools.",
-      settings: .codingDefault,
-      stopAfterCompleteToolAction: true,
-      appendChunk: { streamedContent += $0 },
-      updateGenerationMetrics: { metrics in
-        updatedMetrics = metrics
-      },
-      updateContextUsage: {
-        contextUsageUpdateCount += 1
-      }
-    )
-
-    #expect(streamedContent == combined)
-    #expect(assistantContent == combined)
-    #expect(updatedMetrics?.generatedTokenCount == 1)
-    #expect(updatedMetrics?.tokensPerSecond == 100)
-    #expect(try #require(updatedMetrics).durationMs > 0)
-    #expect(contextUsageUpdateCount == 1)
-  }
-
-  @Test
   func regularAssistantStreamingAddsDurationToCompletedMetrics() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
     let coordinator = ChatGenerationCoordinator(
@@ -117,7 +20,6 @@ struct ChatGenerationCoordinatorTests {
       transcript: ModelContextSnapshot(),
       systemPrompt: "Answer normally.",
       settings: .codingDefault,
-      stopAfterCompleteToolAction: false,
       appendChunk: { _ in },
       updateGenerationMetrics: { metrics in
         updatedMetrics = metrics
@@ -146,7 +48,6 @@ struct ChatGenerationCoordinatorTests {
         transcript: ModelContextSnapshot(),
         systemPrompt: "Answer normally.",
         settings: .codingDefault,
-        stopAfterCompleteToolAction: false,
         appendChunk: { chunks.append($0) },
         updateGenerationMetrics: { _ in },
         updateContextUsage: {}
@@ -170,7 +71,6 @@ struct ChatGenerationCoordinatorTests {
       transcript: ModelContextSnapshot(),
       systemPrompt: "Answer normally.",
       settings: .codingDefault,
-      stopAfterCompleteToolAction: false,
       appendChunk: { chunks.append($0) },
       updateGenerationMetrics: { _ in },
       updateContextUsage: {}
@@ -199,7 +99,6 @@ struct ChatGenerationCoordinatorTests {
       ]),
       systemPrompt: "Answer normally.",
       settings: .codingDefault,
-      stopAfterCompleteToolAction: false,
       appendChunk: { _ in },
       updateGenerationMetrics: { _ in },
       updateContextUsage: {}

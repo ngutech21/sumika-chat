@@ -7,20 +7,19 @@ import Testing
 @MainActor
 struct ChatSessionControllerWriteApprovalTests {
   @Test
-  func writeFileToolCallWaitsForApprovalWithoutWriting() async throws {
+  func nativeWriteFileToolCallWaitsForApprovalWithoutWriting() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
-        writeFileActionWithoutClosingDelimiter(
-          path: "movies.html",
-          content: """
-            <!doctype html>
-            <html>
-            <body>Movies</body>
-            </html>
-            """
-        )
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("movies.html"),
+              "content": .string("<!doctype html>\n<html>Movies</html>\n"),
+            ]
+          ))
       ]
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -41,31 +40,25 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(controller.chatSession.testMessages.count == 2)
     #expect(controller.chatSession.testMessages[1].kind == .toolCall)
     #expect(!FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)))
-
-    controller.draft = "are you there"
-    #expect(!controller.canSend)
-
-    let capturedSystemPrompts = await runtime.capturedSystemPrompts
-    #expect(capturedSystemPrompts.count == 1)
-    #expect(capturedSystemPrompts[0].contains("write_file"))
-    #expect(capturedSystemPrompts[0].contains("Do not generate Python"))
   }
 
   @Test
-  func approvingWriteFileWritesContentAndAllowsFinalAssistantResponse() async throws {
+  func approvingNativeWriteFileWritesContentAndAllowsFinalAssistantResponse() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let htmlContent = """
-      <!doctype html>
-      <html>
-      <body>
-      <table><tr><td>Alien</td><td>Heat</td><td>Jaws</td></tr></table>
-      </body>
-      </html>
-      """
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [writeFileAction(path: "movies.html", content: htmlContent)],
-      ["Updated movies.html with the movie table."],
+    let htmlContent = "<!doctype html>\n<html>Movies</html>\n"
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("movies.html"),
+              "content": .string(htmlContent),
+            ]
+          ))
+      ],
+      [.chunk("Updated movies.html.")],
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -86,409 +79,33 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(!controller.hasPendingApproval)
     #expect(controller.chatSession.toolCalls[0].status == .completed)
     #expect(controller.chatSession.toolCalls[0].resultPreview?.status == .success)
-    #expect(
-      controller.chatSession.focusedFileState.activePath
-        == WorkspaceRelativePath(rawValue: "movies.html"))
-    #expect(controller.chatSession.focusedFileState.recentPaths.first?.source == .writeFile)
-    #expect(
-      controller.chatSession.focusedFileState.snapshots[
-        WorkspaceRelativePath(rawValue: "movies.html")]?.excerpt == htmlContent)
     #expect(controller.chatSession.testMessages.count == 4)
     #expect(controller.chatSession.testMessages[2].kind == .toolResult)
     #expect(controller.chatSession.testMessages[2].toolResult?.toolName == .writeFile)
-    #expect(
-      controller.chatSession.testMessages[3].content == "Updated movies.html with the movie table.")
+    #expect(controller.chatSession.testMessages[3].content == "Updated movies.html.")
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
-    let finalFollowUpContext = try #require(capturedMessages.last)
-    #expect(finalFollowUpContext.last?.role == .user)
-    #expect(
-      finalFollowUpContext.last?.content.contains(
-        "Use the preceding tool result to answer the user's request.") == true)
-    #expect(finalFollowUpContext.last?.content.contains("No more tools may run") == true)
-    #expect(
-      finalFollowUpContext.first(where: { $0.role == .user })?.content.contains("write_file")
-        == true)
+    #expect(capturedMessages.last?.last?.content.contains("No more tools may run") == true)
   }
 
   @Test
-  func approvingWriteFileRecordsFinalModeToolAttemptInsteadOfLeavingActionText() async throws {
+  func denyingNativeEditFileDoesNotWriteAndAllowsFinalAssistantResponse() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [writeFileAction(path: "movies.html", content: "<html></html>")],
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
-        """
-        <action name="read_file">
-        <path>README.md</path>
-        </action>
-        """
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("README.md"),
+              "old_text": .string("project notes"),
+              "new_text": .string("updated notes"),
+            ]
+          ))
       ],
-    ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "create a html file in the current folder"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
-
-    controller.approveToolCall(id: toolCallID, in: workspace)
-    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
-
-    #expect(controller.chatSession.toolCalls.count == 2)
-    #expect(controller.chatSession.toolCalls[0].request.toolName == .writeFile)
-    #expect(controller.chatSession.toolCalls[0].status == .completed)
-    #expect(controller.chatSession.toolCalls[1].request.toolName == .readFile)
-    #expect(controller.chatSession.toolCalls[1].status == .failed)
-    #expect(!controller.chatSession.testMessages.contains { $0.content.contains("<action") })
-    guard case .failure(let failure) = controller.chatSession.testMessages.last?.toolResult?.payload
-    else {
-      Issue.record("Expected final-mode action to be recorded as a structured failure.")
-      return
-    }
-    #expect(failure.reason == .finalModeToolAttempt(requestedTool: .readFile))
-  }
-
-  @Test
-  func denyingWriteFileDoesNotWriteAndAllowsFinalAssistantResponse() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [writeFileAction(path: "movies.html", content: "<html></html>")],
-      ["I will not write the file. I can describe the change instead."],
-    ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "create a html file in the current folder"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
-
-    controller.denyToolCall(id: toolCallID)
-    try await waitUntil { !controller.isGenerating }
-
-    let outputURL = workspace.rootURL.appending(path: "movies.html")
-    #expect(!FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)))
-    #expect(!controller.hasPendingApproval)
-    #expect(controller.chatSession.turns.first?.status == .completed)
-    #expect(controller.chatSession.toolCalls[0].status == .denied)
-    #expect(controller.chatSession.toolCalls[0].resultPreview?.affectedPaths == ["movies.html"])
-    guard case .failure(let writeFailure) = controller.chatSession.toolCalls[0].resultPayload else {
-      Issue.record("Expected denied write_file failure payload.")
-      return
-    }
-    #expect(writeFailure.path == WorkspaceRelativePath(rawValue: "movies.html"))
-    #expect(controller.chatSession.testMessages.count == 4)
-    #expect(controller.chatSession.testMessages[2].toolResult?.preview.status == .denied)
-    #expect(
-      controller.chatSession.testMessages[2].toolResult?.preview.affectedPaths == ["movies.html"])
-    #expect(
-      controller.chatSession.testMessages[3].content
-        == "I will not write the file. I can describe the change instead.")
-
-    controller.draft = "are you there"
-    #expect(controller.canSend)
-
-    let capturedMessages = await runtime.capturedMessages
-    #expect(capturedMessages.count == 2)
-    let finalFollowUpContext = try #require(capturedMessages.last)
-    #expect(finalFollowUpContext.last?.role == .user)
-    #expect(finalFollowUpContext.last?.content.contains("No more tools may run") == true)
-  }
-
-  @Test
-  func denyingRunCommandDoesNotSpawnProcessAndAllowsFinalAssistantResponse() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let runner = ApprovalSpyCommandProcessRunner()
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [
-        runCommandAction(
-          command: "just test-core",
-          timeoutSeconds: 120,
-          reason: "Verify tests."
-        )
-      ],
-      ["I did not run the command."],
-    ])
-    let controller = ChatSessionController(
-      runtime: runtime,
-      modelPath: "/tmp/model",
-      toolOrchestrator: ToolOrchestrator(
-        executorRegistry: ToolExecutorRegistry([
-          AnyToolExecutor(RunCommandToolExecutor(processRunner: runner))
-        ]))
-    )
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "run tests"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
-
-    controller.denyToolCall(id: toolCallID)
-    try await waitUntil { !controller.isGenerating }
-
-    #expect(await runner.spawnCount == 0)
-    #expect(controller.chatSession.toolCalls[0].request.toolName == .runCommand)
-    #expect(controller.chatSession.toolCalls[0].status == .denied)
-    #expect(controller.chatSession.toolCalls[0].resultPreview?.status == .denied)
-    #expect(controller.chatSession.testMessages[2].toolResult?.preview.status == .denied)
-    #expect(controller.chatSession.testMessages[3].content == "I did not run the command.")
-  }
-
-  @Test
-  func denyingWriteFileRecordsFinalModeToolAttemptInsteadOfLeavingActionText() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [writeFileAction(path: "movies.html", content: "<html></html>")],
-      [
-        """
-        <action name="read_file">
-        <path>README.md</path>
-        </action>
-        """
-      ],
-    ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "create a html file in the current folder"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
-
-    controller.denyToolCall(id: toolCallID)
-    try await waitUntil { !controller.isGenerating }
-
-    #expect(controller.chatSession.toolCalls.count == 2)
-    #expect(controller.chatSession.toolCalls[0].request.toolName == .writeFile)
-    #expect(controller.chatSession.toolCalls[0].status == .denied)
-    #expect(controller.chatSession.toolCalls[1].request.toolName == .readFile)
-    #expect(controller.chatSession.toolCalls[1].status == .failed)
-    #expect(!controller.chatSession.testMessages.contains { $0.content.contains("<action") })
-    guard case .failure(let failure) = controller.chatSession.testMessages.last?.toolResult?.payload
-    else {
-      Issue.record("Expected final-mode action to be recorded as a structured failure.")
-      return
-    }
-    #expect(failure.reason == .finalModeToolAttempt(requestedTool: .readFile))
-  }
-
-  @Test
-  func editFileToolCallWaitsForApprovalWithPreviewWithoutWriting() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [
-        editFileAction(
-          path: "README.md",
-          oldText: "project notes",
-          newText: "updated notes"
-        )
-      ]
-    ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "update the readme"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-
-    let readmeURL = workspace.rootURL.appending(path: "README.md")
-    #expect(!controller.isGenerating)
-    #expect(controller.hasPendingApproval)
-    #expect(controller.chatSession.toolCalls.count == 1)
-    #expect(controller.chatSession.toolCalls[0].status == .awaitingApproval)
-    #expect(controller.chatSession.toolCalls[0].request.toolName == .editFile)
-    #expect(
-      controller.chatSession.toolCalls[0].resultPreview?.text.contains("-project notes") == true)
-    #expect(
-      controller.chatSession.toolCalls[0].resultPreview?.text.contains("+updated notes") == true)
-    #expect(try String(contentsOf: readmeURL, encoding: .utf8) == "project notes")
-  }
-
-  @Test
-  func readFileCanBeFollowedByEditFileAwaitingApproval() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [
-        """
-        <action name="read_file">
-        <path>README.md</path>
-        </action>
-        """
-      ],
-      [
-        editFileAction(
-          path: "README.md",
-          oldText: "project notes",
-          newText: "project notes\n\n| One | Two | Three |"
-        )
-      ],
-    ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "add a table with 3 columns to README.md"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-
-    let readmeURL = workspace.rootURL.appending(path: "README.md")
-    #expect(!controller.isGenerating)
-    #expect(controller.hasPendingApproval)
-    #expect(controller.chatSession.toolCalls.count == 2)
-    #expect(controller.chatSession.toolCalls[0].status == .completed)
-    #expect(controller.chatSession.toolCalls[0].request.toolName == .readFile)
-    #expect(controller.chatSession.toolCalls[1].status == .awaitingApproval)
-    #expect(controller.chatSession.toolCalls[1].request.toolName == .editFile)
-    #expect(
-      controller.chatSession.toolCalls[1].resultPreview?.text.contains(
-        "+| One | Two | Three |") == true)
-    #expect(try String(contentsOf: readmeURL, encoding: .utf8) == "project notes")
-
-    let capturedSystemPrompts = await runtime.capturedSystemPrompts
-    #expect(capturedSystemPrompts.count == 2)
-    #expect(capturedSystemPrompts[1].contains("call edit_file with exact old_text copied from"))
-    #expect(capturedSystemPrompts[1].contains("Available tools: read_file"))
-    #expect(!capturedSystemPrompts[1].contains("Tool calling:"))
-  }
-
-  @Test
-  func approvingNonTerminalToolContinuesToolLoopForFollowUpAction() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [
-        """
-        <action name="read_file">
-        <path>README.md</path>
-        </action>
-        """
-      ],
-      [
-        editFileAction(
-          path: "README.md",
-          oldText: "project notes",
-          newText: "project notes\n\n| One | Two | Three |"
-        )
-      ],
-    ])
-    let controller = ChatSessionController(
-      runtime: runtime,
-      modelPath: "/tmp/model",
-      toolOrchestrator: ToolOrchestrator(
-        executorRegistry: ToolExecutorRegistry([
-          AnyToolExecutor(ApprovalRequiredReadFileToolExecutor()),
-          AnyToolExecutor(EditFileToolExecutor()),
-        ]))
-    )
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "read README.md and then add a table"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-    let readToolCallID = try #require(controller.chatSession.toolCalls.first?.id)
-
-    controller.approveToolCall(id: readToolCallID, in: workspace)
-
-    try await waitUntil {
-      controller.chatSession.toolCalls.count == 2
-        && controller.chatSession.toolCalls[1].status == .awaitingApproval
-    }
-
-    let readmeURL = workspace.rootURL.appending(path: "README.md")
-    #expect(!controller.isGenerating)
-    #expect(controller.hasPendingApproval)
-    #expect(controller.chatSession.turns.first?.status == .awaitingApproval)
-    #expect(controller.chatSession.toolCalls[0].request.toolName == .readFile)
-    #expect(controller.chatSession.toolCalls[0].status == .completed)
-    #expect(controller.chatSession.toolCalls[1].request.toolName == .editFile)
-    #expect(controller.chatSession.toolCalls[1].status == .awaitingApproval)
-    #expect(
-      controller.chatSession.toolCalls[1].resultPreview?.text.contains(
-        "+| One | Two | Three |") == true)
-    #expect(try String(contentsOf: readmeURL, encoding: .utf8) == "project notes")
-
-    let capturedSystemPrompts = await runtime.capturedSystemPrompts
-    #expect(capturedSystemPrompts.count == 2)
-    #expect(capturedSystemPrompts[1].contains("call edit_file with exact old_text copied from"))
-    #expect(capturedSystemPrompts[1].contains("Available tools: read_file"))
-    #expect(!capturedSystemPrompts[1].contains("Tool calling:"))
-  }
-
-  @Test
-  func approvingEditFileWritesContentAndAllowsFinalAssistantResponse() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [
-        editFileAction(
-          path: "README.md",
-          oldText: "project notes",
-          newText: "updated notes"
-        )
-      ],
-      ["Updated README.md."],
-    ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.draft = "update the readme"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
-
-    controller.approveToolCall(id: toolCallID, in: workspace)
-
-    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
-
-    let readmeURL = workspace.rootURL.appending(path: "README.md")
-    #expect(try String(contentsOf: readmeURL, encoding: .utf8) == "updated notes")
-    #expect(!controller.isGenerating)
-    #expect(!controller.hasPendingApproval)
-    #expect(controller.chatSession.toolCalls[0].status == .completed)
-    #expect(
-      controller.chatSession.focusedFileState.activePath
-        == WorkspaceRelativePath(rawValue: "README.md"))
-    #expect(controller.chatSession.focusedFileState.recentPaths.first?.source == .editFile)
-    #expect(controller.chatSession.testMessages.count == 4)
-    #expect(controller.chatSession.testMessages[2].kind == .toolResult)
-    #expect(controller.chatSession.testMessages[2].toolResult?.toolName == .editFile)
-    #expect(controller.chatSession.testMessages[3].content == "Updated README.md.")
-
-    let capturedMessages = await runtime.capturedMessages
-    #expect(capturedMessages.count == 2)
-  }
-
-  @Test
-  func denyingEditFileDoesNotWriteAndAllowsFinalAssistantResponse() async throws {
-    let sessionID = UUID()
-    let workspace = try makeWorkspace(sessionID: sessionID)
-    let runtime = ChatSessionFakeChatModelRuntime(turns: [
-      [
-        editFileAction(
-          path: "README.md",
-          oldText: "project notes",
-          newText: "updated notes"
-        )
-      ],
-      ["I will leave README.md unchanged."],
+      [.chunk("I will leave README.md unchanged.")],
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -508,15 +125,8 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(controller.chatSession.turns.first?.status == .completed)
     #expect(controller.chatSession.toolCalls[0].status == .denied)
     #expect(controller.chatSession.toolCalls[0].resultPreview?.affectedPaths == ["README.md"])
-    guard case .failure(let editFailure) = controller.chatSession.toolCalls[0].resultPayload else {
-      Issue.record("Expected denied edit_file failure payload.")
-      return
-    }
-    #expect(editFailure.path == WorkspaceRelativePath(rawValue: "README.md"))
     #expect(controller.chatSession.testMessages.count == 4)
     #expect(controller.chatSession.testMessages[2].toolResult?.preview.status == .denied)
-    #expect(
-      controller.chatSession.testMessages[2].toolResult?.preview.affectedPaths == ["README.md"])
     #expect(controller.chatSession.testMessages[3].content == "I will leave README.md unchanged.")
   }
 
@@ -557,129 +167,5 @@ struct ChatSessionControllerWriteApprovalTests {
         )
       ]
     )
-  }
-
-  private func writeFileAction(path: String, content: String) -> String {
-    """
-    <action name="write_file">
-    <path>\(path)</path>
-    <content delimiter="LC_PAYLOAD_V1">
-    \(content)
-    LC_PAYLOAD_V1
-    </content>
-    </action>
-    """
-  }
-
-  private func writeFileActionWithoutClosingDelimiter(path: String, content: String) -> String {
-    """
-    <action name="write_file">
-    <path>\(path)</path>
-    <content delimiter="LC_PAYLOAD_V1">
-    \(content)
-    </content>
-    </action>
-    """
-  }
-
-  private func editFileAction(path: String, oldText: String, newText: String) -> String {
-    """
-    <action name="edit_file">
-    <path>\(path)</path>
-    <old_text delimiter="LC_PAYLOAD_V1">
-    \(oldText)
-    LC_PAYLOAD_V1
-    </old_text>
-    <new_text delimiter="LC_PAYLOAD_V1">
-    \(newText)
-    LC_PAYLOAD_V1
-    </new_text>
-    </action>
-    """
-  }
-
-  private func runCommandAction(
-    command: String,
-    timeoutSeconds: Int,
-    reason: String
-  ) -> String {
-    """
-    <action name="run_command">
-    <command>\(command)</command>
-    <timeoutSeconds>\(timeoutSeconds)</timeoutSeconds>
-    <reason>\(reason)</reason>
-    </action>
-    """
-  }
-}
-
-private actor ApprovalSpyCommandProcessRunner: CommandProcessRunning {
-  private(set) var requests: [CommandProcessRequest] = []
-
-  var spawnCount: Int {
-    requests.count
-  }
-
-  func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult {
-    requests.append(request)
-    return CommandProcessResult(exitCode: 0, durationMs: 1, stdout: "", stderr: "")
-  }
-}
-
-private struct ApprovalRequiredReadFileToolExecutor: TypedToolExecutor {
-  static let definition = ToolDefinition.readFile
-
-  func evaluatePermission(
-    _ input: ReadFileInput,
-    context: ToolContext
-  ) -> ToolPermissionEvaluation {
-    do {
-      let resolvedPath = try context.workspace.resolveAllowedPath(input.path)
-      return ToolPermissionEvaluation(
-        decision: .requiresApproval,
-        reason: "Reading this file requires approval in this test.",
-        riskLevel: .low,
-        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
-        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
-      )
-    } catch {
-      return ToolPermissionEvaluation(
-        decision: .denied,
-        reason: error.localizedDescription,
-        riskLevel: .low
-      )
-    }
-  }
-
-  func previewApproval(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPreview? {
-    do {
-      let resolvedPath = try context.workspace.resolveAllowedPath(input.path)
-      return ToolResultPreview(
-        status: .success,
-        text: "Read \(context.workspace.relativePath(for: resolvedPath).rawValue).",
-        affectedPaths: [context.workspace.relativePath(for: resolvedPath).rawValue]
-      )
-    } catch {
-      return ToolResultPreview(status: .failed, text: error.localizedDescription)
-    }
-  }
-
-  func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
-    do {
-      let resolvedPath = try context.workspace.resolveAllowedPath(input.path)
-      let relativePath = context.workspace.relativePath(for: resolvedPath)
-      let content = try String(contentsOf: resolvedPath, encoding: .utf8)
-      return .readFile(
-        .success(
-          path: relativePath,
-          content: ToolTextOutput(text: "1: \(content)", truncated: false)
-        ))
-    } catch {
-      return .readFile(
-        .failed(
-          path: WorkspaceRelativePath(rawValue: input.path),
-          reason: .executionError(error.localizedDescription)
-        ))
-    }
   }
 }

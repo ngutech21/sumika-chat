@@ -66,7 +66,6 @@ public struct ChatGenerationCoordinator {
     attachments: [ChatAttachment] = [],
     systemPrompt: String,
     settings: ChatGenerationSettings,
-    stopAfterCompleteToolAction: Bool = false,
     appendChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateContextUsage: () async -> Void
@@ -80,7 +79,6 @@ public struct ChatGenerationCoordinator {
       attachments: attachments,
       systemPrompt: systemPrompt,
       settings: settings,
-      stopAfterCompleteToolAction: stopAfterCompleteToolAction,
       toolContext: nil,
       appendChunk: appendChunk,
       updateGenerationMetrics: updateGenerationMetrics,
@@ -98,7 +96,6 @@ public struct ChatGenerationCoordinator {
     attachments: [ChatAttachment] = [],
     systemPrompt: String,
     settings: ChatGenerationSettings,
-    stopAfterCompleteToolAction: Bool = false,
     toolContext: ChatRuntimeToolContext? = nil,
     appendChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
@@ -129,7 +126,6 @@ public struct ChatGenerationCoordinator {
         attachments: attachments,
         systemPrompt: systemPrompt,
         settings: settings,
-        stopAfterCompleteToolAction: stopAfterCompleteToolAction,
         toolContext: toolContext,
         appendChunk: appendChunk,
         updateGenerationMetrics: updateGenerationMetrics,
@@ -147,7 +143,6 @@ public struct ChatGenerationCoordinator {
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,
-    stopAfterCompleteToolAction: Bool,
     toolContext: ChatRuntimeToolContext?,
     appendChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
@@ -165,13 +160,10 @@ public struct ChatGenerationCoordinator {
 
     var bufferedChunk = ""
     var generatedContent = ""
-    var displayedPartialToolAction = ""
     var nativeToolCalls: [ChatRuntimeToolCall] = []
     var lastFlushDate = Date()
-    var didStopAfterCompleteToolAction = false
     var didComplete = false
     var shouldFlushBufferedChunksOnExit = true
-    let streamConsumptionStartedAt = Date()
 
     func flushBufferedChunks() {
       guard !bufferedChunk.isEmpty else {
@@ -208,47 +200,21 @@ public struct ChatGenerationCoordinator {
     }
 
     defer {
-      if shouldFlushBufferedChunksOnExit && !didStopAfterCompleteToolAction {
+      if shouldFlushBufferedChunksOnExit {
         flushBufferedChunks()
       }
     }
 
     do {
-      generationLoop: for try await event in stream {
+      for try await event in stream {
         try Task.checkCancellation()
         try await runtimeOperations.checkCurrentOperation(operationID)
         switch event {
         case .chunk(let chunk):
           generatedContent += chunk
           bufferedChunk += chunk
-          if stopAfterCompleteToolAction,
-            let action = CompleteToolActionBoundary.firstCompleteAction(from: bufferedChunk)
-          {
-            let startedAt = Date()
-            appendChunk(action)
-            displayedPartialToolAction = action
-            let durationMs = Date().timeIntervalSince(startedAt) * 1000
-            Task {
-              await turnTracer.recordTurnTraceEvent(
-                TurnTraceEvent(
-                  turnID: turnID,
-                  generationID: generationID,
-                  phase: .uiFlush,
-                  durationMs: durationMs,
-                  messageCount: transcript.entries.count,
-                  toolLoopIteration: TurnTraceContext.current?.toolLoopIteration,
-                  interactionMode: interactionMode
-                )
-              )
-            }
-            bufferedChunk = ""
-            didStopAfterCompleteToolAction = true
-            break generationLoop
-          }
           if shouldFlushBufferedChunks() {
-            if !stopAfterCompleteToolAction {
-              flushBufferedChunks()
-            }
+            flushBufferedChunks()
           }
         case .toolCall(let toolCall):
           flushBufferedChunks()
@@ -273,33 +239,7 @@ public struct ChatGenerationCoordinator {
       throw CancellationError()
     }
 
-    if didStopAfterCompleteToolAction && !didComplete {
-      try await runtimeOperations.completePartialReply(
-        output: displayedPartialToolAction,
-        operationID: operationID
-      )
-      let partialDurationMs = Date().timeIntervalSince(generationStartedAt) * 1000
-      await turnTracer.recordTurnTraceEvent(
-        TurnTraceEvent(
-          turnID: turnID,
-          generationID: generationID,
-          phase: .runtimePartialDecode,
-          durationMs: Date().timeIntervalSince(streamConsumptionStartedAt) * 1000,
-          messageCount: transcript.entries.count,
-          toolLoopIteration: TurnTraceContext.current?.toolLoopIteration,
-          interactionMode: interactionMode
-        )
-      )
-      let partialMetrics = try await partialGenerationMetrics(
-        generatedContent: displayedPartialToolAction,
-        durationMs: partialDurationMs,
-        operationID: operationID
-      )
-      try await runtimeOperations.checkCurrentOperation(operationID)
-      updateGenerationMetrics(partialMetrics)
-      await updateContextUsage()
-      return ChatGenerationResult(assistantContent: displayedPartialToolAction)
-    } else if !didComplete {
+    if !didComplete {
       throw ChatGenerationError.streamInterrupted
     }
     try await runtimeOperations.checkCurrentOperation(operationID)
@@ -350,29 +290,5 @@ public struct ChatGenerationCoordinator {
       tokensPerSecond: Double(generatedTokenCount) / durationSeconds,
       durationMs: durationMs
     )
-  }
-}
-
-private enum CompleteToolActionBoundary {
-  static func firstCompleteAction(from text: String) -> String? {
-    guard let actionStart = text.range(of: "<action")?.lowerBound else {
-      return nil
-    }
-
-    guard
-      let actionEnd = text.range(
-        of: "</action>",
-        range: text.index(after: actionStart)..<text.endIndex
-      )
-    else {
-      return nil
-    }
-
-    let blockEnd = actionEnd.upperBound
-    guard text[blockEnd...].range(of: "<action") == nil else {
-      return nil
-    }
-
-    return String(text[actionStart..<blockEnd])
   }
 }

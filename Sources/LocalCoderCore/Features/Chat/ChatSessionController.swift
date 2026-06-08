@@ -14,11 +14,9 @@ public final class ChatSessionController {
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
   @ObservationIgnored private let contextUsageCoordinator: ContextUsageCoordinator
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
-  @ObservationIgnored private let toolPromptRenderer: any ToolPromptRendering
   @ObservationIgnored private let toolOrchestrator: ToolOrchestrator
   @ObservationIgnored private let toolPromptPolicy: ToolPromptPolicy
   @ObservationIgnored private let toolLoopCoordinator: ToolLoopCoordinator
-  @ObservationIgnored private let finalModeActionDetector: FinalModeActionDetector
   @ObservationIgnored private let turnTracer: any TurnTracing
   @ObservationIgnored private let chatTurnCoordinator = ChatTurnCoordinator()
   @ObservationIgnored private let modelContextBuilder = ChatModelContextBuilder()
@@ -67,8 +65,6 @@ public final class ChatSessionController {
     resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,
-    toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
-    toolPromptRenderer: any ToolPromptRendering = TaggedToolPromptRenderer(),
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     turnTracer: any TurnTracing = NoopTurnTracer()
@@ -96,8 +92,6 @@ public final class ChatSessionController {
       runtime: runtime,
       resourceMonitor: resourceMonitor,
       modelAvailability: modelAvailability,
-      toolCallParser: toolCallParser,
-      toolPromptRenderer: toolPromptRenderer,
       toolOrchestrator: toolOrchestrator,
       chatAttachmentLoader: chatAttachmentLoader,
       turnTracer: turnTracer
@@ -113,8 +107,6 @@ public final class ChatSessionController {
     modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,
-    toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
-    toolPromptRenderer: any ToolPromptRendering = TaggedToolPromptRenderer(),
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     turnTracer: any TurnTracing = NoopTurnTracer()
@@ -129,8 +121,6 @@ public final class ChatSessionController {
       runtime: runtime,
       resourceMonitor: resourceMonitor,
       modelAvailability: modelAvailability,
-      toolCallParser: toolCallParser,
-      toolPromptRenderer: toolPromptRenderer,
       toolOrchestrator: toolOrchestrator,
       chatAttachmentLoader: chatAttachmentLoader,
       turnTracer: turnTracer
@@ -147,8 +137,6 @@ public final class ChatSessionController {
     runtime: any ChatModelRuntime,
     resourceMonitor: any ProcessResourceMonitoring,
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
-    toolCallParser: any ToolCallParsing,
-    toolPromptRenderer: any ToolPromptRendering,
     toolOrchestrator: ToolOrchestrator,
     chatAttachmentLoader: any ChatAttachmentLoading,
     turnTracer: any TurnTracing
@@ -184,16 +172,10 @@ public final class ChatSessionController {
       resourceMonitor: resourceMonitor,
       initialOperationID: modelOperationID
     )
-    self.toolPromptRenderer = toolPromptRenderer
     self.toolOrchestrator = toolOrchestrator
     self.toolPromptPolicy = ToolPromptPolicy()
     self.toolLoopCoordinator = ToolLoopCoordinator(
-      toolCallParser: toolCallParser,
       agentToolOrchestrator: toolOrchestrator,
-      turnTracer: turnTracer
-    )
-    self.finalModeActionDetector = FinalModeActionDetector(
-      toolCallParser: toolCallParser,
       turnTracer: turnTracer
     )
     self.attachmentCoordinator = ChatAttachmentCoordinator(loader: chatAttachmentLoader)
@@ -800,15 +782,7 @@ extension ChatSessionController {
         turnID: turnID,
         toolLoopIteration: 1
       )
-      if isFinalApprovedToolFollowUp(mergedRecord.request.toolName) {
-        try await recordFinalModeToolAttemptIfNeeded(
-          workspaceID: workspace.id,
-          sessionID: existingRecord.request.sessionID,
-          assistantMessageID: nextAssistantMessageID,
-          turnID: turnID,
-          interactionMode: chatSession.interactionMode
-        )
-      } else {
+      if !isFinalApprovedToolFollowUp(mergedRecord.request.toolName) {
         try await runToolLoop(
           workspace: workspace,
           sessionID: existingRecord.request.sessionID,
@@ -1075,13 +1049,6 @@ extension ChatSessionController {
           turnID: turnID,
           toolLoopIteration: 1
         )
-        try await recordFinalModeToolAttemptIfNeeded(
-          workspaceID: deniedRecord.request.workspaceID,
-          sessionID: deniedRecord.request.sessionID,
-          assistantMessageID: nextAssistantMessageID,
-          turnID: turnID,
-          interactionMode: chatSession.interactionMode
-        )
       } catch is CancellationError {
         finishCancelledApprovedToolTurn(turnID)
         return
@@ -1258,8 +1225,6 @@ extension ChatSessionController {
       attachments: attachments,
       systemPrompt: renderedSystemPrompt,
       settings: chatSession.generationSettings,
-      stopAfterCompleteToolAction: toolPromptMode.shouldStopAfterCompleteToolAction(
-        strategy: toolCallingPolicy.strategy),
       toolContext: runtimeToolContext(
         for: toolPromptMode,
         policy: toolCallingPolicy
@@ -1371,70 +1336,12 @@ extension ChatSessionController {
           toolLoopIteration: toolLoopIteration
         )
         currentNativeToolCalls = generationResult.nativeToolCalls
-        guard promptMode != .afterToolResultFinal else {
-          try await recordFinalModeToolAttemptIfNeeded(
-            workspaceID: workspace.id,
-            sessionID: sessionID,
-            assistantMessageID: nextAssistantMessageID,
-            turnID: turnID,
-            interactionMode: interactionMode,
-            reason: finalActionDetectionReason(remainingIterations: remainingIterations)
-          )
-          return
-        }
+        guard promptMode != .afterToolResultFinal else { return }
         currentAssistantMessageID = nextAssistantMessageID
       case .none, .stopTurn:
         return
       }
     }
-
-    try await recordFinalModeToolAttemptIfNeeded(
-      workspaceID: workspace.id,
-      sessionID: sessionID,
-      assistantMessageID: currentAssistantMessageID,
-      turnID: turnID,
-      interactionMode: interactionMode,
-      reason: .toolBudgetExceeded(iterationLimit: maxToolLoopIterations)
-    )
-  }
-
-  private func recordFinalModeToolAttemptIfNeeded(
-    workspaceID: Workspace.ID?,
-    sessionID: ChatSession.ID,
-    assistantMessageID: UUID,
-    turnID: ChatTurn.ID,
-    interactionMode: WorkspaceInteractionMode,
-    reason: FinalModeActionDetectionReason = .finalMode
-  ) async throws {
-    guard isCurrentTurn(turnID) else {
-      return
-    }
-    guard
-      let step = try await finalModeActionDetector.detect(
-        FinalModeActionDetectionRequest(
-          workspaceID: workspaceID,
-          sessionID: sessionID,
-          turnID: turnID,
-          assistantMessageID: assistantMessageID,
-          items: chatSession.turns.flatMap(\.items),
-          interactionMode: interactionMode,
-          reason: reason,
-          toolLoopIteration: maxToolLoopIterations + 1
-        )
-      )
-    else {
-      return
-    }
-    applyWorkflowEvents(step.events)
-    notifySessionDidChange()
-  }
-
-  private func finalActionDetectionReason(
-    remainingIterations: Int
-  ) -> FinalModeActionDetectionReason {
-    remainingIterations == 0
-      ? .toolBudgetExceeded(iterationLimit: maxToolLoopIterations)
-      : .finalMode
   }
 
   fileprivate func systemPrompt(toolPromptMode: ToolPromptMode) -> String {
@@ -1442,7 +1349,6 @@ extension ChatSessionController {
       basePrompt: chatSession.systemPrompt,
       mode: toolPromptMode,
       toolRegistry: toolRegistry(for: toolPromptMode),
-      toolPromptRenderer: toolPromptRenderer,
       toolCallingPolicy: modelRuntime.selectedModel.toolCallingPolicy
     )
     guard chatSession.interactionMode == .agent,
@@ -1538,21 +1444,6 @@ extension ManagedModel {
 extension Array where Element == ChatAttachment {
   fileprivate var hasImages: Bool {
     contains { $0.kind == .image }
-  }
-}
-
-extension ToolPromptMode {
-  fileprivate func shouldStopAfterCompleteToolAction(strategy: ToolCallingStrategy) -> Bool {
-    guard strategy == .taggedAction else {
-      return false
-    }
-    switch self {
-    case .enabled(true), .inspect, .afterInspectToolResultCanContinue,
-      .afterToolResultCanContinue:
-      return true
-    case .disabled, .enabled(false), .afterToolResultFinal:
-      return false
-    }
   }
 }
 

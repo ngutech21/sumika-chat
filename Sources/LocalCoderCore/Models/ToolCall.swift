@@ -79,68 +79,6 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
   }
 }
 
-public enum ToolIntentHeuristics {
-  public static func looksLikeNonTaggedToolIntent(_ content: String) -> Bool {
-    let lowered = content.lowercased()
-    let hasToolCallPhrase = lowered.contains("tool call")
-    let indicatorCount = [
-      "requested",
-      "path:",
-      "old text:",
-      "new text:",
-      "old_text",
-      "new_text",
-    ].filter { lowered.contains($0) }.count
-
-    return (hasToolCallPhrase && indicatorCount > 0)
-      || (lowered.contains("path:") && lowered.contains("old text:")
-        && lowered.contains("new text:"))
-  }
-
-  public static func inferredToolName(from content: String) -> String {
-    let lowered = content.lowercased()
-    let knownToolNames = [
-      ToolName.readFile.rawValue,
-      ToolName.showFile.rawValue,
-      ToolName.listFiles.rawValue,
-      ToolName.globFiles.rawValue,
-      ToolName.searchFiles.rawValue,
-      ToolName.workspaceDiff.rawValue,
-      ToolName.workspaceDiagnostics.rawValue,
-      ToolName.editFile.rawValue,
-      ToolName.writeFile.rawValue,
-      ToolName.runCommand.rawValue,
-      ToolName.todoWrite.rawValue,
-      ToolName.askUser.rawValue,
-      ToolName.webSearch.rawValue,
-      ToolName.webFetch.rawValue,
-    ]
-
-    for toolName in knownToolNames {
-      if lowered.contains(toolName)
-        || lowered.contains(toolName.replacingOccurrences(of: "_", with: " "))
-      {
-        return toolName
-      }
-    }
-
-    guard let phraseRange = lowered.range(of: "tool call") else {
-      return "unknown"
-    }
-
-    let remainder = content[phraseRange.upperBound...].trimmingCharacters(
-      in: .whitespacesAndNewlines)
-    guard let token = remainder.split(whereSeparator: \.isWhitespace).first else {
-      return "unknown"
-    }
-
-    let candidate = token.trimmingCharacters(
-      in: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-")).inverted
-    )
-    return candidate.isEmpty ? "unknown" : ToolName(canonicalizing: candidate).rawValue
-  }
-}
-
 public enum ToolArgumentValue: Codable, Equatable, Sendable {
   case string(String)
   case number(Double)
@@ -409,6 +347,19 @@ public struct ToolCallModelMessage: Codable, Equatable, Sendable {
   }
 }
 
+public struct ToolCallParseOutput: Equatable, Sendable {
+  public var request: RawToolCallRequest
+  public var modelMessage: ToolCallModelMessage
+
+  public init(
+    request: RawToolCallRequest,
+    modelMessage: ToolCallModelMessage
+  ) {
+    self.request = request
+    self.modelMessage = modelMessage
+  }
+}
+
 nonisolated extension ToolCallModelMessage {
   public var modelContextContent: String {
     if isPayloadOmittedFromHistory {
@@ -419,22 +370,12 @@ nonisolated extension ToolCallModelMessage {
       return rawText
     }
 
-    let argumentLines = arguments.map { argument in
-      "<\(argument.name)>\(argument.value)</\(argument.name)>"
-    }
-
-    guard !argumentLines.isEmpty else {
-      return """
-        <action name="\(toolName.rawValue)">
-        </action>
-        """
-    }
-
-    return """
-      <action name="\(toolName.rawValue)">
-      \(argumentLines.joined(separator: "\n"))
-      </action>
-      """
+    return NativeToolCallBoundaryRenderer.renderGemma4(
+      toolName: toolName.rawValue,
+      arguments: Dictionary(
+        uniqueKeysWithValues: arguments.map { ($0.name, ToolArgumentValue.string($0.value)) }
+      )
+    )
   }
 
   public var modelContextRole: ModelContextRole {

@@ -72,7 +72,8 @@ struct ChatComposer: View {
           .focused($messageFieldFocused)
           .disabled(isInputBlocked)
           .onSubmit(sendMessage)
-          .onPasteCommand(of: [UTType.fileURL, UTType.image, UTType.png, UTType.tiff]) { providers in
+          .onPasteCommand(of: [UTType.fileURL, UTType.image, UTType.png, UTType.tiff]) {
+            providers in
             handlePaste(providers)
           }
           .onChange(of: draft) { oldDraft, newDraft in

@@ -17,7 +17,7 @@ flowchart TD
   F --> G["ChatGenerationCoordinator streams initial reply"]
   G --> H{"Assistant emitted a tool call?"}
   H -- "no" --> I["Mark turn completed"]
-  H -- "yes" --> J["ToolLoopCoordinator parses + executes tool"]
+  H -- "yes" --> J["ToolLoopCoordinator converts native event + executes tool"]
   J --> W["ChatWorkflowStep(events + continuation)"]
   W --> X["ChatWorkflowEventApplier"]
   X --> V{"Invalid tool call?"}
@@ -59,21 +59,14 @@ flowchart TD
   `ModelContextSnapshot`. It excludes entries belonging to turns whose
   `modelContextPolicy` is `.excluded`, except while that same turn is actively
   generating its direct follow-up response.
-- `ChatGenerationCoordinator` streams model events into transcript chunks and
-  metrics. When generation stops early because one syntactically complete
-  `<action>` block was found, it commits that assistant output to the runtime as
-  a clean partial reply before the tool loop executes the action.
-- `ToolLoopCoordinator` handles model-emitted tool actions. Read-only tools run
+- `ChatGenerationCoordinator` streams model events into transcript chunks,
+  native tool-call events, and metrics. Native tool calls are carried as
+  structured stream events rather than parsed from assistant text.
+- `ToolLoopCoordinator` handles model-emitted native tool actions. Read-only tools run
   immediately; tools that require approval can attach an approval preview and
   return an awaiting-approval continuation without appending a normal tool
-  result. Malformed tagged tool attempts and strong non-tagged tool intent are
-  converted into failed `invalid` tool observations so the model can recover in
-  the next step instead of exposing protocol drift as normal assistant prose.
-- `FinalModeActionDetector` handles assistant output from final no-tools
-  follow-ups. It is parser/transcript policy only: it does not execute tools or
-  require a workspace execution request. If the final answer still contains a
-  tool attempt, it records a structured blocked observation and removes the raw
-  action from normal assistant prose.
+  result. Text that merely looks like an old tool protocol is normal assistant
+  prose and is not reparsed as a tool call.
 - `ChatWorkflowEventApplier` applies typed workflow events to `ChatSession`
   using `ChatTranscriptMutator`. These events are not persisted; persistence
   stores only the resulting turns, turn items, and tool-call records.
@@ -184,12 +177,8 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   `GemmaMLXRuntime` reuses the existing `ChatSession`, sends only the appended
   history delta plus the current prompt through `streamDetails(to messages:)`,
   and traces `append_only_delta_reused`.
-- A complete tagged `<action>` emitted by the assistant is a valid committed
-  assistant output even when the app stops reading the stream early to execute
-  the tool. This path must mark the cached session clean rather than dirtying it
-  as `downstreamTerminated`.
-- Native Gemma 4 tool calls are not equivalent to tagged `<action>` text. The
-  runtime records them as a canonical non-visible assistant boundary generated
+- Native Gemma 4 tool calls are not assistant prose. The runtime records them
+  as a canonical non-visible assistant boundary generated
   from the native tool name and sorted arguments, with no call IDs or timestamps.
   The cached session may remain clean only when the Core model context projects
   the exact same boundary before the tool observation; the following
@@ -205,7 +194,7 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   invalid even when the visible frozen history is unchanged.
 
 The native Gemma 4 fast path preserves the assistant tool-call boundary as
-Gemma 4 native tool-call text, not as tagged Gemma 3 prompt format.
+Gemma 4 native tool-call text.
 
 ## Persistence Rules
 

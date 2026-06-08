@@ -179,8 +179,8 @@ struct ContentView: View {
   ContentView()
 }
 
-private extension NavigationSplitViewVisibility {
-  init(storageValue: String) {
+extension NavigationSplitViewVisibility {
+  fileprivate init(storageValue: String) {
     switch storageValue {
     case Self.all.storageValue:
       self = .all
@@ -193,7 +193,7 @@ private extension NavigationSplitViewVisibility {
     }
   }
 
-  var storageValue: String {
+  fileprivate var storageValue: String {
     switch self {
     case .automatic:
       "automatic"

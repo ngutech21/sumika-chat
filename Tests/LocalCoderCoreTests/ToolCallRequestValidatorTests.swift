@@ -448,9 +448,12 @@ struct ToolCallRequestValidatorTests {
       registry: registry
     )
 
-    #expect(oneItem.payload == .todoWrite(TodoWriteInput(items: [
-      TodoItem(id: "1", content: "Only one item", status: .pending)
-    ])))
+    #expect(
+      oneItem.payload
+        == .todoWrite(
+          TodoWriteInput(items: [
+            TodoItem(id: "1", content: "Only one item", status: .pending)
+          ])))
     #expect(invalidReason(noItems)?.message.contains("1 to 6 items") == true)
     #expect(invalidReason(sevenItems)?.message.contains("1 to 6 items") == true)
     #expect(invalidReason(emptyContent)?.message.contains("content must not be empty") == true)

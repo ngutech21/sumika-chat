@@ -62,7 +62,7 @@ struct ChatWorkflowEventApplierTests {
           sourceMessageID: assistantID,
           turnID: turnID
         ),
-        .assistantMessageAnnotatedAsNativeToolCall(
+        .assistantAnnotatedAsNativeToolCall(
           assistantMessageID: assistantID,
           toolCall: toolCall
         ),

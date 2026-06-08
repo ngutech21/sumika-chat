@@ -344,7 +344,7 @@ struct GemmaMLXRuntimeTemplateTests {
     )
 
     #expect(rendered.map(\.role) == [.user])
-    #expect(!rendered.contains { $0.content.contains("<action name=\"invalid\">") })
+    #expect(!rendered.contains { $0.content.contains("<|tool_call>call:invalid") })
     #expect(rendered[0].content.contains("The tool call was invalid"))
   }
 
@@ -871,11 +871,10 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
-        content: """
-          <action name="read_file">
-          <path>README.md</path>
-          </action>
-          """
+        content: NativeToolCallBoundaryRenderer.renderGemma4(
+          toolName: ToolName.readFile.rawValue,
+          arguments: ["path": .string("README.md")]
+        )
       ),
       try ModelFacingPromptRenderer.toolResultEntry(
         turnID: turnID,
@@ -923,11 +922,10 @@ struct GemmaMLXRuntimeTemplateTests {
     let transcript = ModelContextSnapshot(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
       try ModelFacingPromptRenderer.assistantOutputEntry(
-        content: """
-          <action name="read_file">
-          <path>README.md</path>
-          </action>
-          """
+        content: NativeToolCallBoundaryRenderer.renderGemma4(
+          toolName: ToolName.readFile.rawValue,
+          arguments: ["path": .string("README.md")]
+        )
       ),
       try ModelFacingPromptRenderer.toolResultEntry(
         toolResult: ToolResultModelMessage(
