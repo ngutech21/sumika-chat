@@ -1638,6 +1638,20 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func unloadWaitsForActiveGenerationToDrainBeforeClearingMemoryCache() async throws {
+    try await assertLifecycleOperationDrainsBeforeMemoryClear(reason: .unload) { runtime in
+      await runtime.unload()
+    }
+  }
+
+  @Test
+  func clearContextWaitsForActiveGenerationToDrainBeforeClearingMemoryCache() async throws {
+    try await assertLifecycleOperationDrainsBeforeMemoryClear(reason: .clearContext) { runtime in
+      await runtime.clearContext()
+    }
+  }
+
+  @Test
   func modelStreamMarksNativeToolCallCompletionAsCacheBoundary() async throws {
     let recorder = GemmaStreamInvalidationRecorder()
     let memoryClearRecorder = GemmaMemoryClearRecorder()
@@ -1842,6 +1856,46 @@ struct GemmaMLXRuntimeTemplateTests {
     while try await iterator.next() != nil {}
   }
 
+  private func assertLifecycleOperationDrainsBeforeMemoryClear(
+    reason: GemmaMemoryClearReason,
+    operation: @escaping @Sendable (GemmaMLXRuntime) async -> Void
+  ) async throws {
+    let recorder = GemmaLifecycleDrainRecorder()
+    let runtime = GemmaMLXRuntime(
+      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+        await recorder.record(.memoryClear(reason))
+      })
+    let task = Task<Void, Never> {
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .milliseconds(10))
+      }
+      await recorder.record(.taskCancelled)
+      await recorder.waitUntilAllowedToFinish()
+      await recorder.record(.taskFinished)
+    }
+    await runtime.registerActiveGenerationForTesting(id: GemmaGenerationID(rawValue: 1), task: task)
+
+    let lifecycleTask = Task {
+      await operation(runtime)
+    }
+    defer {
+      task.cancel()
+      lifecycleTask.cancel()
+    }
+
+    try await waitUntilAsync {
+      await recorder.events.contains(.taskCancelled)
+    }
+    #expect(await recorder.events == [.taskCancelled])
+
+    await recorder.allowTaskToFinish()
+    try await withTestTimeout(.seconds(5)) {
+      await lifecycleTask.value
+    }
+
+    #expect(await recorder.events == [.taskCancelled, .taskFinished, .memoryClear(reason)])
+  }
+
   private func projectedEntries(
     from entries: [ModelContextEntry]
   ) throws -> [ProjectedModelContextEntry] {
@@ -1933,6 +1987,42 @@ private actor GemmaMemoryClearRecorder {
 
   func record(_ reason: GemmaMemoryClearReason) {
     recordedReasons.append(reason)
+  }
+}
+
+private enum GemmaLifecycleDrainEvent: Equatable {
+  case taskCancelled
+  case taskFinished
+  case memoryClear(GemmaMemoryClearReason)
+}
+
+private actor GemmaLifecycleDrainRecorder {
+  private var recordedEvents: [GemmaLifecycleDrainEvent] = []
+  private var shouldFinish = false
+  private var finishContinuation: CheckedContinuation<Void, Never>?
+
+  var events: [GemmaLifecycleDrainEvent] {
+    recordedEvents
+  }
+
+  func record(_ event: GemmaLifecycleDrainEvent) {
+    recordedEvents.append(event)
+  }
+
+  func waitUntilAllowedToFinish() async {
+    if shouldFinish {
+      return
+    }
+
+    await withCheckedContinuation { continuation in
+      finishContinuation = continuation
+    }
+  }
+
+  func allowTaskToFinish() {
+    shouldFinish = true
+    finishContinuation?.resume()
+    finishContinuation = nil
   }
 }
 

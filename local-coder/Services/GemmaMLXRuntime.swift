@@ -422,6 +422,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   private var generationOwnership = GemmaGenerationOwnership()
   private var activeGenerationRegistry = GemmaActiveGenerationRegistry()
   private var activeCompletionContext: ActiveGemmaCompletionContext?
+  private var lifecycleTransitionInProgress = false
   private let memoryCacheClearer: GemmaMemoryCacheClearer
 
   init(memoryCacheClearer: GemmaMemoryCacheClearer = .live) {
@@ -433,6 +434,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       throw GemmaMLXRuntimeError.unsupportedArchitecture
     #endif
 
+    lifecycleTransitionInProgress = true
+    defer { lifecycleTransitionInProgress = false }
+    await cancelAndDrainActiveGeneration(reason: .modelChanged)
     configureMLXMemory()
 
     let modelConfiguration = ModelConfiguration(
@@ -462,6 +466,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   func unload() async {
+    lifecycleTransitionInProgress = true
+    defer { lifecycleTransitionInProgress = false }
+    await cancelAndDrainActiveGeneration(reason: .modelChanged)
     invalidateCachedSession(reason: .modelChanged)
     modelContainer = nil
     loadedModelSupportsImageInput = false
@@ -476,6 +483,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   func clearContext() async {
+    lifecycleTransitionInProgress = true
+    defer { lifecycleTransitionInProgress = false }
+    await cancelAndDrainActiveGeneration(reason: .signatureMismatch)
     invalidateCachedSession(reason: .signatureMismatch)
     await Self.clearMemoryCache(
       reason: .clearContext,
@@ -543,6 +553,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = systemPrompt
     let streamStartStartedAt = Date()
+    guard !lifecycleTransitionInProgress else {
+      throw CancellationError()
+    }
     guard let modelContainer else {
       throw GemmaMLXRuntimeError.modelNotLoaded
     }
@@ -700,11 +713,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   private func supersedeActiveGenerationBeforeStartingNew() async {
+    await cancelAndDrainActiveGeneration(reason: .cancelled)
+  }
+
+  private func cancelAndDrainActiveGeneration(reason: GemmaSessionInvalidationReason) async {
     guard let superseded = activeGenerationRegistry.supersedeActiveGeneration() else {
       return
     }
 
-    markCachedSessionInvalid(generationID: superseded.id, reason: .cancelled)
+    markCachedSessionInvalid(generationID: superseded.id, reason: reason)
     await superseded.task.value
   }
 
@@ -869,12 +886,17 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   private func invalidateCachedSession(reason: GemmaSessionInvalidationReason) {
-    _ = activeGenerationRegistry.supersedeActiveGeneration()
     generationOwnership.invalidateActiveGeneration()
     activeCompletionContext = nil
     cachedSession = nil
     pendingCacheInvalidationReason = reason
   }
+
+  #if DEBUG
+    func registerActiveGenerationForTesting(id: GemmaGenerationID, task: Task<Void, Never>) {
+      activeGenerationRegistry.register(id: id, task: task)
+    }
+  #endif
 
   private func clearActiveCompletionContextIfCurrent(_ generationID: GemmaGenerationID) {
     guard activeCompletionContext?.generationID == generationID else {
