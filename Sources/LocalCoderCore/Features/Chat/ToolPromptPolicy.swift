@@ -122,7 +122,7 @@ public struct ToolPromptPolicy: Sendable {
       \(nativeMultipleToolCallInstruction(policy: toolCallingPolicy))
 
       File workflow:
-      - For multi-step Agent tasks, first call todo_write with newline rows like Inspect files:false. Use false for new todos; true only for done. Never send numbered lists or only the next step.
+      - For multi-step Agent tasks, first call todo_write with 2 to 6 newline rows like Inspect files:false. Use false for new todos; true only for done. Never send numbered lists or only the next step.
       - After completing a planned todo, call todo_write with the full plan and mark only completed items true.
       - To display file contents directly to the user, use show_file.
       - To inspect, explain, summarize, search within, reason about, or modify a file, use read_file.

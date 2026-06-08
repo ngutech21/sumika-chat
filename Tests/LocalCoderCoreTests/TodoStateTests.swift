@@ -32,10 +32,8 @@ struct TodoStateTests {
     } catch {
       Issue.record("Expected valid todo items.")
     }
-    do {
+    #expect(throws: TodoStateValidationError.invalidItemCount(1)) {
       try validator.validate([validItems[0]])
-    } catch {
-      Issue.record("Expected one todo item to be valid.")
     }
     #expect(throws: TodoStateValidationError.invalidItemCount(0)) {
       try validator.validate([])

@@ -255,7 +255,7 @@ flowchart TD
   narrows DNS-rebinding and DNS TOCTOU exposure but does not fully pin DNS
   validation to the pre-connect endpoint because `URLSession` still opens the
   actual connection.
-- `todo_write` is available only in the Agent registry. It accepts 1 to 6
+- `todo_write` is available only in the Agent registry. It accepts 2 to 6
   short todo items and never requires approval because it mutates only session
   state. Chat prompts must not render the todo tool or current todo plan.
   `todo_write` calls pass `items` as simple rows in `content:true|false`

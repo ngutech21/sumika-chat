@@ -650,10 +650,16 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
   }
 
   private static func plainTextRows(from rawItems: String) -> [String] {
-    rawItems
+    normalizedPlainTextRows(from: rawItems)
       .split(whereSeparator: \.isNewline)
       .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
+  }
+
+  private static func normalizedPlainTextRows(from rawItems: String) -> String {
+    rawItems
+      .replacingOccurrences(of: #"\\n"#, with: "\n")
+      .replacingOccurrences(of: #"\n"#, with: "\n")
   }
 
   private static func parseRow(_ row: String, index: Int) throws -> TodoItem {

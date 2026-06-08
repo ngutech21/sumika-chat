@@ -412,6 +412,20 @@ struct ToolCallRequestValidatorTests {
         ]),
       registry: registry
     )
+    let oneDirectItem = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .array([
+            .object([
+              "id": .string("only"),
+              "content": .string("Only one item"),
+              "status": .string("pending"),
+            ])
+          ])
+        ]),
+      registry: registry
+    )
     let emptyContent = validator.validate(
       raw(
         .todoWrite,
@@ -448,17 +462,49 @@ struct ToolCallRequestValidatorTests {
       registry: registry
     )
 
-    #expect(
-      oneItem.payload
-        == .todoWrite(
-          TodoWriteInput(items: [
-            TodoItem(id: "1", content: "Only one item", status: .pending)
-          ])))
-    #expect(invalidReason(noItems)?.message.contains("1 to 6 items") == true)
-    #expect(invalidReason(sevenItems)?.message.contains("1 to 6 items") == true)
+    #expect(invalidReason(noItems)?.message.contains("2 to 6 items") == true)
+    #expect(invalidReason(oneItem)?.message.contains("2 to 6 items") == true)
+    #expect(invalidReason(oneDirectItem)?.message.contains("2 to 6 items") == true)
+    #expect(invalidReason(sevenItems)?.message.contains("2 to 6 items") == true)
     #expect(invalidReason(emptyContent)?.message.contains("content must not be empty") == true)
     #expect(invalidReason(invalidDoneValue)?.message.contains("content:true|false") == true)
     #expect(invalidReason(malformedRow)?.message.contains("content:true|false") == true)
+  }
+
+  @Test
+  func todoWriteAcceptsEscapedRowSeparatorsWhenPlanHasMultipleItems() {
+    let registry = ToolExecutorRegistry.codingAgent.toolRegistry
+    let singleEscaped = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .string(#"Inspect files:false\nRun tests:false"#)
+        ]),
+      registry: registry
+    )
+    let doubleEscaped = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .string(#"Inspect files:true\\nRun tests:false"#)
+        ]),
+      registry: registry
+    )
+
+    #expect(
+      singleEscaped.payload
+        == .todoWrite(
+          TodoWriteInput(items: [
+            TodoItem(id: "1", content: "Inspect files", status: .pending),
+            TodoItem(id: "2", content: "Run tests", status: .pending),
+          ])))
+    #expect(
+      doubleEscaped.payload
+        == .todoWrite(
+          TodoWriteInput(items: [
+            TodoItem(id: "1", content: "Inspect files", status: .completed),
+            TodoItem(id: "2", content: "Run tests", status: .pending),
+          ])))
   }
 
   @Test

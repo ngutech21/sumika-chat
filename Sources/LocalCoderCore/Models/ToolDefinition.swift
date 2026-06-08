@@ -478,7 +478,7 @@ nonisolated extension ToolDefinition {
       ToolParameterDefinition(
         name: "items",
         description:
-          "todo rows: content:true|false. false=new, true=done. No numbering/markdown.",
+          "2 to 6 todo rows: content:true|false. false=new, true=done. No numbering/markdown.",
         isRequired: true,
         valueType: .string,
         supportsHeredocPayload: true
