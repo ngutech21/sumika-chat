@@ -37,6 +37,10 @@ struct ContentView: View {
         switch selection {
         case .settings:
           AppSettingsView(
+            appBehaviorSettings: Binding(
+              get: { appState.activeAppBehaviorSettings },
+              set: { appState.updateActiveAppBehaviorSettings($0) }
+            ),
             webAccessSettings: Binding(
               get: { appState.activeWebAccessSettings },
               set: { appState.updateActiveWebAccessSettings($0) }
@@ -124,8 +128,7 @@ struct ContentView: View {
     }
     .onAppear {
       columnVisibility = .all
-      controller.modelRuntime.prepareDefaultModelDirectory()
-      controller.modelRuntime.startResourceMonitoring()
+      appState.startModelRuntimeServices()
       if let sessionID = appState.activeSessionID {
         selection = .session(sessionID)
       }

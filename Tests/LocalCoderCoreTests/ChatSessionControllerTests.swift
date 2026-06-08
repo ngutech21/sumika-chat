@@ -66,10 +66,29 @@ struct ChatSessionControllerTests {
       interactionMode: .agent
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
 
     controller.loadSession(session)
 
     try await waitUntilAsync { await runtime.clearContextCount == 1 }
+  }
+
+  @Test
+  func loadSessionDoesNotClearRuntimeContextWhileModelIsLoading() async throws {
+    let runtime = CountingClearContextRuntime()
+    let session = ChatSession(
+      selectedModelID: ManagedModelCatalog.defaultModelID,
+      systemPrompt: "System",
+      generationSettings: .codingDefault,
+      interactionMode: .agent
+    )
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .loading
+
+    controller.loadSession(session)
+    await Task.yield()
+
+    #expect(await runtime.clearContextCount == 0)
   }
 
   @Test

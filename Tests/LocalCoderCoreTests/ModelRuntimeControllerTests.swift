@@ -158,6 +158,29 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func applyingSameSessionModelDoesNotCancelInFlightLoad() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = RuntimeControllerRaceLoadingRuntime()
+    defer { Task { await runtime.releaseFirstLoad() } }
+    let controller = await makeController(
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+    try await waitUntilAsync { await runtime.loadCount == 1 }
+    let loadOperationID = controller.currentOperationID()
+
+    let didResetRuntime = controller.applySessionModel(controller.selectedModel)
+
+    #expect(!didResetRuntime)
+    #expect(controller.currentOperationID() == loadOperationID)
+    await runtime.releaseFirstLoad()
+    try await waitUntil { controller.modelState == .ready }
+    #expect(await runtime.loadCount == 1)
+  }
+
+  @Test
   func loadModelUsesDirectoryConfigurationAndUpdatesReadyState() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = RuntimeControllerRecordingRuntime()

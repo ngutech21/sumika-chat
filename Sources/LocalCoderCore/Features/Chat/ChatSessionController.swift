@@ -65,6 +65,8 @@ public final class ChatSessionController {
     modelDownloader downloader: any ModelDownloading = UnavailableModelDownloader(),
     runtime: any ChatModelRuntime = MockChatRuntime(),
     resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
+      ModelLifecycleCoordinator.defaultModelAvailability,
     toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
     toolPromptRenderer: any ToolPromptRendering = TaggedToolPromptRenderer(),
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
@@ -93,6 +95,7 @@ public final class ChatSessionController {
       modelDownloader: downloader,
       runtime: runtime,
       resourceMonitor: resourceMonitor,
+      modelAvailability: modelAvailability,
       toolCallParser: toolCallParser,
       toolPromptRenderer: toolPromptRenderer,
       toolOrchestrator: toolOrchestrator,
@@ -108,6 +111,8 @@ public final class ChatSessionController {
     modelPath: String,
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
     modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
+      ModelLifecycleCoordinator.defaultModelAvailability,
     toolCallParser: any ToolCallParsing = TaggedToolCallParser(),
     toolPromptRenderer: any ToolPromptRendering = TaggedToolPromptRenderer(),
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
@@ -123,6 +128,7 @@ public final class ChatSessionController {
       modelDownloader: modelDownloader,
       runtime: runtime,
       resourceMonitor: resourceMonitor,
+      modelAvailability: modelAvailability,
       toolCallParser: toolCallParser,
       toolPromptRenderer: toolPromptRenderer,
       toolOrchestrator: toolOrchestrator,
@@ -140,6 +146,7 @@ public final class ChatSessionController {
     modelDownloader: any ModelDownloading,
     runtime: any ChatModelRuntime,
     resourceMonitor: any ProcessResourceMonitoring,
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
     toolCallParser: any ToolCallParsing,
     toolPromptRenderer: any ToolPromptRendering,
     toolOrchestrator: ToolOrchestrator,
@@ -154,7 +161,8 @@ public final class ChatSessionController {
     )
     let modelLifecycleCoordinator = ModelLifecycleCoordinator(
       modelDownloader: modelDownloader,
-      runtimeOperations: runtimeOperations
+      runtimeOperations: runtimeOperations,
+      modelAvailability: modelAvailability
     )
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
     self.contextUsageCoordinator = ContextUsageCoordinator(
@@ -240,6 +248,8 @@ extension ChatSessionController {
     disableUnsupportedInteractionModeIfNeeded()
 
     if didResetRuntime {
+      invalidateContextUsage()
+    } else if modelRuntime.modelState == .loading {
       invalidateContextUsage()
     } else {
       clearRuntimeContextForReuse()

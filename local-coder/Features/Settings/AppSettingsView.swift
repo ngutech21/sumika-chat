@@ -2,6 +2,7 @@ import LocalCoderCore
 import SwiftUI
 
 struct AppSettingsView: View {
+  @Binding var appBehaviorSettings: AppBehaviorSettings
   @Binding var webAccessSettings: WebAccessSettings
 
   var body: some View {
@@ -13,6 +14,19 @@ struct AppSettingsView: View {
           Text("Configure app-wide behavior for local-first coding workflows.")
             .foregroundStyle(.secondary)
             .frame(maxWidth: 720, alignment: .leading)
+        }
+
+        VStack(alignment: .leading, spacing: 14) {
+          Text("Startup")
+            .font(.headline)
+
+          Toggle("Load last selected model on app start", isOn: autoloadLastModelBinding)
+
+          Text(
+            "Off by default. When enabled, Local Coder loads the active session model after launch."
+          )
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: 720, alignment: .leading)
         }
 
         VStack(alignment: .leading, spacing: 14) {
@@ -44,6 +58,17 @@ struct AppSettingsView: View {
     }
   }
 
+  private var autoloadLastModelBinding: Binding<Bool> {
+    Binding(
+      get: { appBehaviorSettings.autoloadLastModel },
+      set: { isEnabled in
+        var updatedSettings = appBehaviorSettings
+        updatedSettings.autoloadLastModel = isEnabled
+        appBehaviorSettings = updatedSettings
+      }
+    )
+  }
+
   private var webPolicyBinding: Binding<WebAccessPolicy> {
     Binding(
       get: { webAccessSettings.policy },
@@ -67,5 +92,8 @@ struct AppSettingsView: View {
 }
 
 #Preview {
-  AppSettingsView(webAccessSettings: .constant(WebAccessSettings()))
+  AppSettingsView(
+    appBehaviorSettings: .constant(AppBehaviorSettings()),
+    webAccessSettings: .constant(WebAccessSettings())
+  )
 }

@@ -37,6 +37,10 @@ enum AppLaunchConfiguration {
       settingsURL: storageRoot.appending(
         path: "web-access-settings.json", directoryHint: .notDirectory)
     )
+    let appBehaviorSettingsStore = AppBehaviorSettingsStore(
+      settingsURL: storageRoot.appending(
+        path: "app-behavior-settings.json", directoryHint: .notDirectory)
+    )
     let workspaceStore = UITestWorkspaceStore(
       libraryURL: storageRoot.appending(path: "workspaces.json", directoryHint: .notDirectory),
       initialLibrary: makeUITestWorkspaceLibrary(
@@ -62,6 +66,7 @@ enum AppLaunchConfiguration {
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
+      appBehaviorSettingsStore: appBehaviorSettingsStore,
       chatController: controller
     )
   }

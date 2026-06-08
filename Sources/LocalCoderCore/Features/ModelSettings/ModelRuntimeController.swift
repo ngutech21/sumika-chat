@@ -150,15 +150,20 @@ public final class ModelRuntimeController {
   }
 
   public func applySessionModel(_ model: ManagedModel) -> Bool {
-    let shouldUnloadRuntime = selectedModelID != model.id && modelState != .notLoaded
+    let isModelSwitch = selectedModelID != model.id
+    let shouldUnloadRuntime = isModelSwitch && modelState != .notLoaded
 
-    loadTask?.cancel()
-    loadTask = nil
-    selectedModelID = model.id
-    modelPath = model.localPath
-    downloadState = .idle
-    downloadProgress = nil
-    modelContextTokenLimit = model.defaultContextTokenLimit
+    if isModelSwitch {
+      loadTask?.cancel()
+      loadTask = nil
+      selectedModelID = model.id
+      modelPath = model.localPath
+      downloadState = .idle
+      downloadProgress = nil
+      modelContextTokenLimit = model.defaultContextTokenLimit
+    } else if modelPath.isEmpty {
+      modelPath = model.localPath
+    }
 
     Task { [modelSettingsStore] in
       let settings = await modelSettingsStore.settings(for: model)
@@ -177,6 +182,13 @@ public final class ModelRuntimeController {
 
   public func isModelDownloaded(_ model: ManagedModel) -> Bool {
     modelAvailabilitySnapshot[model.id] ?? false
+  }
+
+  public func isSelectedModelDownloaded() -> Bool {
+    let model = selectedModel
+    let isDownloaded = modelLifecycleCoordinator.isModelDownloaded(model)
+    modelAvailabilitySnapshot[model.id] = isDownloaded
+    return isDownloaded
   }
 
   public func refreshModelAvailability() {

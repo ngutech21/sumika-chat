@@ -17,6 +17,7 @@ final class AppState {
   @ObservationIgnored private let workspaceStore: any WorkspaceStoring
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private let webAccessSettingsStore: any WebAccessSettingsStoring
+  @ObservationIgnored private let appBehaviorSettingsStore: any AppBehaviorSettingsStoring
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
   @ObservationIgnored private var defaultSessionSystemPrompt =
     ManagedModelCatalog.defaultModel.defaultSystemPrompt
@@ -24,17 +25,22 @@ final class AppState {
     ManagedModelCatalog.defaultModel.defaultGenerationSettings
   @ObservationIgnored private var saveLibraryTask: Task<Void, Never>?
   @ObservationIgnored private var saveWebAccessSettingsTask: Task<Void, Never>?
+  @ObservationIgnored private var saveAppBehaviorSettingsTask: Task<Void, Never>?
+  @ObservationIgnored private var didAttemptAutoloadLastModel = false
   var activeWebAccessSettings = WebAccessSettings.disabled
+  var activeAppBehaviorSettings = AppBehaviorSettings()
 
   init(
     workspaceStore: any WorkspaceStoring = WorkspaceStore(),
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
     webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
+    appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
     chatController: ChatSessionController? = nil
   ) {
     self.workspaceStore = workspaceStore
     self.modelSettingsStore = modelSettingsStore
     self.webAccessSettingsStore = webAccessSettingsStore
+    self.appBehaviorSettingsStore = appBehaviorSettingsStore
 
     if let chatController {
       self.chatController = chatController
@@ -150,6 +156,30 @@ final class AppState {
         }
       }
     }
+  }
+
+  func updateActiveAppBehaviorSettings(_ settings: AppBehaviorSettings) {
+    activeAppBehaviorSettings = settings
+    let previousSaveTask = saveAppBehaviorSettingsTask
+    saveAppBehaviorSettingsTask = Task { [appBehaviorSettingsStore] in
+      await previousSaveTask?.value
+      do {
+        try await appBehaviorSettingsStore.save(settings: settings)
+        await MainActor.run {
+          workspaceErrorMessage = nil
+        }
+      } catch {
+        await MainActor.run {
+          workspaceErrorMessage = error.localizedDescription
+        }
+      }
+    }
+  }
+
+  func startModelRuntimeServices() {
+    chatController.modelRuntime.prepareDefaultModelDirectory()
+    chatController.modelRuntime.startResourceMonitoring()
+    attemptAutoloadLastModelIfReady()
   }
 
   func persistActiveSession() {
@@ -275,15 +305,17 @@ final class AppState {
   }
 
   private func loadStoredLibrary() {
-    Task { [modelSettingsStore, workspaceStore] in
+    Task { [modelSettingsStore, workspaceStore, appBehaviorSettingsStore] in
       let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
       let selectedModelID = await modelSettingsStore.selectedModelID(
         availableModelIDs: availableModelIDs)
       let selectedModel =
         ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
       let settings = await modelSettingsStore.settings(for: selectedModel)
+      let appBehaviorSettings = await appBehaviorSettingsStore.settings()
       let library = await workspaceStore.loadLibrary()
 
+      activeAppBehaviorSettings = appBehaviorSettings
       defaultSessionModelID = selectedModel.id
       defaultSessionSystemPrompt = settings.systemPrompt
       defaultSessionGenerationSettings = settings.generationSettings
@@ -293,7 +325,21 @@ final class AppState {
       self.loadActiveSession()
       self.loadWebAccessSettings()
       self.isWorkspaceLibraryLoading = false
+      self.attemptAutoloadLastModelIfReady()
     }
+  }
+
+  private func attemptAutoloadLastModelIfReady() {
+    guard activeAppBehaviorSettings.autoloadLastModel,
+      !didAttemptAutoloadLastModel,
+      chatController.modelRuntime.modelState == .notLoaded,
+      chatController.modelRuntime.isSelectedModelDownloaded()
+    else {
+      return
+    }
+
+    didAttemptAutoloadLastModel = true
+    chatController.modelRuntime.loadSelectedModel()
   }
 
   private func makeSecurityScopedBookmarkData(for url: URL) -> Data? {

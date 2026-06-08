@@ -80,20 +80,35 @@ struct ChatComposer: View {
           .help("Add context files")
           .accessibilityLabel("Add context files")
 
-          Picker("Model", selection: modelSelection) {
-            if availableModels.isEmpty {
-              Text("No local models")
-                .tag(selectedModel.id)
-            } else {
-              ForEach(availableModels) { model in
-                Text(model.displayName)
-                  .tag(model.id)
+          Menu {
+            ForEach(availableModels) { model in
+              Button {
+                onSelectModel(model)
+              } label: {
+                if model.id == selectedModel.id {
+                  Label(model.displayName, systemImage: "checkmark")
+                } else {
+                  Text(model.displayName)
+                }
               }
             }
+          } label: {
+            HStack(spacing: 6) {
+              Text(modelPickerTitle)
+                .lineLimit(1)
+                .truncationMode(.tail)
+              Spacer(minLength: 4)
+              Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .frame(width: 150, height: 22)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
           }
-          .labelsHidden()
-          .frame(width: 150)
-          .controlSize(.small)
+          .buttonStyle(.plain)
           .disabled(!canChangeModel)
           .help(modelPickerHelp)
           .accessibilityIdentifier("chat.modelPicker")
@@ -181,19 +196,6 @@ struct ChatComposer: View {
     }
   }
 
-  private var modelSelection: Binding<ManagedModel.ID> {
-    Binding(
-      get: { selectedModel.id },
-      set: { modelID in
-        guard let model = availableModels.first(where: { $0.id == modelID }) else {
-          return
-        }
-
-        onSelectModel(model)
-      }
-    )
-  }
-
   private var interactionModeSelection: Binding<WorkspaceInteractionMode> {
     Binding(
       get: { interactionMode },
@@ -231,6 +233,10 @@ struct ChatComposer: View {
     availableModels.isEmpty
       ? "Download a model from Models first"
       : "Select model for this workspace"
+  }
+
+  private var modelPickerTitle: String {
+    availableModels.isEmpty ? "No local models" : selectedModel.displayName
   }
 
   private func sendMessage() {

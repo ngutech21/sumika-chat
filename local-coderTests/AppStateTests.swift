@@ -147,6 +147,127 @@ struct AppStateTests {
     #expect(await webAccessSettingsStore.settings() == second)
     #expect(appState.activeWebAccessSettings == second)
   }
+
+  @Test
+  func autoloadLastModelDefaultsOffAndDoesNotLoadOnStartup() async throws {
+    let modelSettingsStore = InMemoryModelSettingsStore()
+    let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()
+    let controller = ChatSessionController(
+      modelSettingsStore: modelSettingsStore,
+      runtime: AppStateTestRuntime()
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: appBehaviorSettingsStore,
+      chatController: controller
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+    appState.startModelRuntimeServices()
+
+    #expect(appState.activeAppBehaviorSettings == AppBehaviorSettings())
+    #expect(controller.modelRuntime.modelState == .notLoaded)
+  }
+
+  @Test
+  func autoloadLastModelSettingPersistsGlobally() async throws {
+    let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()
+    let modelSettingsStore = InMemoryModelSettingsStore()
+    let runtime = AppStateTestRuntime()
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: appBehaviorSettingsStore,
+      chatController: ChatSessionController(
+        modelSettingsStore: modelSettingsStore,
+        runtime: runtime,
+        modelAvailability: { _ in true }
+      )
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+    appState.startModelRuntimeServices()
+
+    let updated = AppBehaviorSettings(autoloadLastModel: true)
+    appState.updateActiveAppBehaviorSettings(updated)
+
+    try await waitUntil {
+      await appBehaviorSettingsStore.settings() == updated
+    }
+    #expect(appState.activeAppBehaviorSettings == updated)
+    #expect(await runtime.loadCount() == 0)
+    #expect(appState.chatController.modelRuntime.modelState == .notLoaded)
+  }
+
+  @Test
+  func autoloadLastModelStartsLoadingWhenEnabled() async throws {
+    let modelSettingsStore = InMemoryModelSettingsStore()
+    let runtime = AppStateTestRuntime()
+    let controller = ChatSessionController(
+      modelSettingsStore: modelSettingsStore,
+      runtime: runtime,
+      modelAvailability: { _ in true }
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(
+        settings: AppBehaviorSettings(autoloadLastModel: true)
+      ),
+      chatController: controller
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+
+    appState.startModelRuntimeServices()
+
+    try await waitUntil {
+      controller.modelRuntime.modelState == .ready
+    }
+
+    #expect(appState.activeAppBehaviorSettings.autoloadLastModel)
+    #expect(await runtime.loadCount() == 1)
+  }
+
+  @Test
+  func autoloadLastModelDoesNotLoadWhenSelectedModelIsNotDownloaded() async throws {
+    let modelSettingsStore = InMemoryModelSettingsStore()
+    let runtime = AppStateTestRuntime()
+    let controller = ChatSessionController(
+      modelSettingsStore: modelSettingsStore,
+      runtime: runtime,
+      modelAvailability: { _ in false }
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(
+        settings: AppBehaviorSettings(autoloadLastModel: true)
+      ),
+      chatController: controller
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+
+    appState.startModelRuntimeServices()
+
+    #expect(appState.activeAppBehaviorSettings.autoloadLastModel)
+    #expect(controller.modelRuntime.modelState == .notLoaded)
+    #expect(await runtime.loadCount() == 0)
+  }
 }
 
 private actor InMemoryWorkspaceStore: WorkspaceStoring {
@@ -214,6 +335,22 @@ private actor InMemoryWebAccessSettingsStore: WebAccessSettingsStoring {
   }
 }
 
+private actor InMemoryAppBehaviorSettingsStore: AppBehaviorSettingsStoring {
+  private var storedSettings: AppBehaviorSettings
+
+  init(settings: AppBehaviorSettings = AppBehaviorSettings()) {
+    self.storedSettings = settings
+  }
+
+  func settings() async -> AppBehaviorSettings {
+    storedSettings
+  }
+
+  func save(settings: AppBehaviorSettings) async throws {
+    storedSettings = settings
+  }
+}
+
 private actor SlowFirstWebAccessSettingsStore: WebAccessSettingsStoring {
   private var storedSettings = WebAccessSettings.disabled
   private var saves = 0
@@ -236,8 +373,14 @@ private actor SlowFirstWebAccessSettingsStore: WebAccessSettingsStoring {
 }
 
 private actor AppStateTestRuntime: ChatModelRuntime {
+  private var loadedConfigurations: [ChatModelConfiguration] = []
+
   func load(configuration: ChatModelConfiguration) async throws {
-    _ = configuration
+    loadedConfigurations.append(configuration)
+  }
+
+  func loadCount() -> Int {
+    loadedConfigurations.count
   }
 
   func unload() async {}
