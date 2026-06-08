@@ -214,6 +214,10 @@ private struct ChatBubble: View {
         if item.shouldShowAssistantPlaceholder {
           AssistantPlaceholderView(item: item)
         } else {
+          if item.isDisplayedAsUser && !item.attachments.isEmpty {
+            SentAttachmentList(attachments: item.attachments)
+          }
+
           VStack(alignment: item.isDisplayedAsUser ? .trailing : .leading, spacing: 8) {
             MessageContentText(
               item: item.item,
@@ -232,10 +236,6 @@ private struct ChatBubble: View {
           }
           .padding(item.contentPadding)
           .background(item.messageBubbleBackground, in: item.messageBubbleShape)
-        }
-
-        if item.isDisplayedAsUser && !item.attachments.isEmpty {
-          SentAttachmentList(attachments: item.attachments)
         }
 
         if item.canCopyMessageContent {
@@ -396,7 +396,9 @@ private struct MessageContentText: View {
     case .assistantMessage:
       AssistantMessageContent(blocks: assistantRenderBlocks)
     case .userMessage(let message):
-      LinkedText(text: message.content, font: .preferredFont(forTextStyle: .body))
+      Text(URLTextLinkifier.attributedString(for: message.content))
+        .font(.body)
+        .fixedSize(horizontal: false, vertical: true)
     }
   }
 }
