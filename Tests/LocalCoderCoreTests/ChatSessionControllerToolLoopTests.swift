@@ -143,10 +143,8 @@ struct ChatSessionControllerToolLoopTests {
     let todoAction = """
       <action name="todo_write">
       <items delimiter="LC_PAYLOAD_V1">
-      [
-        {"id":"inspect","content":"Inspect files","status":"completed"},
-        {"id":"verify","content":"Run tests","status":"inProgress"}
-      ]
+      Inspect files:true
+      Run tests:false
       LC_PAYLOAD_V1
       </items>
       </action>
@@ -171,7 +169,7 @@ struct ChatSessionControllerToolLoopTests {
     #expect(capturedSystemPrompts.count == 2)
     #expect(!capturedSystemPrompts[0].contains("Current plan:"))
     #expect(capturedSystemPrompts[1].contains("Current plan:"))
-    #expect(capturedSystemPrompts[1].contains("- [inProgress] Run tests"))
+    #expect(capturedSystemPrompts[1].contains("- [pending] Run tests"))
 
     controller.setInteractionMode(.agent)
     controller.draft = "inspect without plan"

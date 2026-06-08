@@ -44,6 +44,7 @@ struct WorkspaceChatView: View {
         selectedModel: composerSelectedModel,
         modelState: controller.modelRuntime.modelState,
         interactionMode: controller.chatSession.interactionMode,
+        todoState: visibleTodoState,
         contextUsage: controller.contextUsage,
         processUsage: controller.modelRuntime.processUsage,
         canChangeModel: !downloadedModels.isEmpty && !controller.isGenerating
@@ -62,16 +63,6 @@ struct WorkspaceChatView: View {
         onSend: onSend,
         onCancel: controller.cancelGeneration
       )
-      .overlay(alignment: .top) {
-        if let todoState = visibleTodoState {
-          TodoPlanPanel(todoState: todoState)
-            .padding(.horizontal, 16)
-            .alignmentGuide(.top) { dimensions in
-              dimensions[.bottom] + 8
-            }
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
-        }
-      }
       .zIndex(1)
     }
   }

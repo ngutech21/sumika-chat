@@ -124,7 +124,8 @@ struct ChatTranscriptMutatorTests {
     let assistantID = UUID()
     let rawText = """
       <action name="todo_write">
-      <items>[{"id":"inspect","content":"Inspect affected files","status":"inProgress"},{"id":"verify","content":"Run tests","status":"pending"}]</items>
+      <items>Inspect affected files:false
+      Run tests:false</items>
       </action>
       """
     let toolCall = ToolCallModelMessage(
@@ -133,8 +134,7 @@ struct ChatTranscriptMutatorTests {
       arguments: [
         ToolCallModelArgument(
           name: "items",
-          value:
-            #"[{"id":"inspect","content":"Inspect affected files","status":"inProgress"},{"id":"verify","content":"Run tests","status":"pending"}]"#
+          value: "Inspect affected files:false\nRun tests:false"
         )
       ],
       rawText: rawText

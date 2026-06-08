@@ -7,8 +7,6 @@ public struct ToolCallRequestValidator: Sendable {
     _ rawRequest: RawToolCallRequest,
     registry: ToolRegistry
   ) -> ToolCallRequest {
-    let rawRequest = normalizedTodoWriteRequest(rawRequest)
-
     guard let definition = ToolDefinition.builtInDefinition(for: rawRequest.toolName) else {
       return invalidRequest(
         rawRequest,
@@ -199,72 +197,11 @@ public struct ToolCallRequestValidator: Sendable {
   private func validateTodoWriteArgumentNames(
     _ arguments: ToolCallArguments
   ) -> InvalidToolCallReason? {
-    if arguments["items"] != nil {
-      let unknownArguments = Set(arguments.keys).subtracting(["items"])
-      return unknownArguments.isEmpty ? nil : .unknownArguments(unknownArguments.sorted())
+    let unknownArguments = Set(arguments.keys).subtracting(["items"])
+    guard unknownArguments.isEmpty else {
+      return .unknownArguments(unknownArguments.sorted())
     }
-
-    if todoItemField("content", in: arguments) != nil,
-      todoItemField("status", in: arguments) != nil
-    {
-      return nil
-    }
-
-    guard arguments["content"] != nil else {
-      return .missingRequiredArgument("items")
-    }
-    guard arguments["status"] != nil else {
-      return .missingRequiredArgument("items")
-    }
-    return nil
-  }
-
-  private func normalizedTodoWriteRequest(
-    _ rawRequest: RawToolCallRequest
-  ) -> RawToolCallRequest {
-    guard rawRequest.toolName == .todoWrite,
-      rawRequest.arguments["items"] == nil,
-      let content = todoItemField("content", in: rawRequest.arguments),
-      let status = todoItemField("status", in: rawRequest.arguments)
-    else {
-      return rawRequest
-    }
-
-    var normalized = rawRequest
-    let id = todoItemField("id", in: rawRequest.arguments) ?? "todo-1"
-    normalized.arguments = [
-      "id": .string(id),
-      "content": .string(content),
-      "status": .string(status),
-    ]
-    return normalized
-  }
-
-  private func todoItemField(
-    _ field: String,
-    in arguments: ToolCallArguments
-  ) -> String? {
-    if let value = arguments[field] {
-      guard value != .null else {
-        return nil
-      }
-      return value.displayValue
-    }
-
-    let expected = normalizedTodoItemFieldName(field)
-    for (name, value) in arguments where normalizedTodoItemFieldName(name) == expected {
-      guard value != .null else {
-        return nil
-      }
-      return value.displayValue
-    }
-    return nil
-  }
-
-  private func normalizedTodoItemFieldName(_ name: String) -> String {
-    name
-      .lowercased()
-      .filter { $0.isLetter }
+    return arguments["items"] == nil ? .missingRequiredArgument("items") : nil
   }
 
   private func decode<Input: Decodable>(

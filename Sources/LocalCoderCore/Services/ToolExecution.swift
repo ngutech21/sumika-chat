@@ -565,9 +565,6 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
 
   private enum CodingKeys: String, CodingKey {
     case items
-    case id
-    case content
-    case status
   }
 
   public init(items: [TodoItem]) {
@@ -582,28 +579,115 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
     }
 
     if let rawItems = try? container.decode(String.self, forKey: .items) {
-      let data = Data(rawItems.utf8)
+      if let decodedItems = Self.decodeItems(fromJSONString: rawItems) {
+        items = decodedItems
+        return
+      }
+      if let rows = Self.decodeStringRows(fromJSONString: rawItems) {
+        do {
+          items = try Self.parseRows(rows)
+          return
+        } catch {
+          throw DecodingError.dataCorruptedError(
+            forKey: .items,
+            in: container,
+            debugDescription: error.localizedDescription
+          )
+        }
+      }
       do {
-        items = try JSONDecoder().decode([TodoItem].self, from: data)
+        items = try Self.parseRows(Self.plainTextRows(from: rawItems))
         return
       } catch {
         throw DecodingError.dataCorruptedError(
           forKey: .items,
           in: container,
-          debugDescription: "items must be an array of todo objects or a JSON array string."
+          debugDescription: error.localizedDescription
         )
       }
     }
 
-    let id = try container.decodeIfPresent(String.self, forKey: .id) ?? "todo-1"
-    let content = try container.decode(String.self, forKey: .content)
-    let status = try container.decode(TodoStatus.self, forKey: .status)
-    items = [TodoItem(id: id, content: content, status: status)]
+    if let rows = try? container.decode([String].self, forKey: .items) {
+      do {
+        items = try Self.parseRows(rows)
+        return
+      } catch {
+        throw DecodingError.dataCorruptedError(
+          forKey: .items,
+          in: container,
+          debugDescription: error.localizedDescription
+        )
+      }
+    }
+
+    throw DecodingError.dataCorruptedError(
+      forKey: .items,
+      in: container,
+      debugDescription:
+        "items must be todo rows: content:true|false."
+    )
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(items, forKey: .items)
+  }
+
+  private static func decodeItems(fromJSONString rawItems: String) -> [TodoItem]? {
+    let data = Data(rawItems.utf8)
+    return try? JSONDecoder().decode([TodoItem].self, from: data)
+  }
+
+  private static func decodeStringRows(fromJSONString rawItems: String) -> [String]? {
+    let data = Data(rawItems.utf8)
+    return try? JSONDecoder().decode([String].self, from: data)
+  }
+
+  private static func parseRows(_ rows: [String]) throws -> [TodoItem] {
+    try rows.enumerated().map { index, row in
+      try parseRow(row, index: index)
+    }
+  }
+
+  private static func plainTextRows(from rawItems: String) -> [String] {
+    rawItems
+      .split(whereSeparator: \.isNewline)
+      .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+  }
+
+  private static func parseRow(_ row: String, index: Int) throws -> TodoItem {
+    guard let parsed = parseDoneSuffix(from: row) else {
+      throw TodoRowParsingError.malformedRow(row)
+    }
+
+    let content = parsed.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    let status: TodoStatus = parsed.done ? .completed : .pending
+    return TodoItem(id: String(index + 1), content: content, status: status)
+  }
+
+  private static func parseDoneSuffix(from row: String) -> (content: String, done: Bool)? {
+    let trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines)
+    for suffix in [":true", ":false", ";true", ";false"] {
+      guard trimmed.lowercased().hasSuffix(suffix) else {
+        continue
+      }
+      let contentEnd = trimmed.index(trimmed.endIndex, offsetBy: -suffix.count)
+      let done = suffix.hasSuffix("true")
+      return (String(trimmed[..<contentEnd]), done)
+    }
+    return nil
+  }
+}
+
+private enum TodoRowParsingError: Error, LocalizedError {
+  case malformedRow(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .malformedRow(let row):
+      "todo_write row must be content:true|false: \(row)"
+    }
   }
 }
 

@@ -88,8 +88,10 @@ struct TaggedToolCallingTests {
       ))
     #expect(
       prompt.contains(
-        "For todo_write, emit exactly one items parameter containing a JSON array string with the full current plan as 2 to 6 objects."
+        "For todo_write, emit exactly one items parameter with the full current plan as 1 to 6 rows."
       ))
+    #expect(prompt.contains("Each row is content:true|false"))
+    #expect(prompt.contains("true means done and false means not done"))
     #expect(prompt.contains("Never send only the next step."))
     #expect(
       prompt.contains(

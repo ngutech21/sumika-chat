@@ -47,17 +47,18 @@ struct TodoPlanPanel: View {
         Divider()
           .padding(.vertical, 8)
 
-        ScrollView {
-          VStack(alignment: .leading, spacing: 7) {
-            ForEach(todoState.items) { item in
-              TodoPlanItemRow(item: item)
-            }
+        if todoState.items.count <= 4 {
+          todoItems
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            .accessibilityIdentifier("agent.todoPanel.items")
+        } else {
+          ScrollView {
+            todoItems
           }
-          .frame(maxWidth: .infinity, alignment: .leading)
+          .frame(maxHeight: 132)
+          .transition(.opacity.combined(with: .move(edge: .bottom)))
+          .accessibilityIdentifier("agent.todoPanel.items")
         }
-        .frame(maxHeight: 174)
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
-        .accessibilityIdentifier("agent.todoPanel.items")
       }
     }
     .padding(.horizontal, 12)
@@ -85,6 +86,15 @@ struct TodoPlanPanel: View {
   private var progressSummary: String {
     let completedCount = todoState.items.filter { $0.status == .completed }.count
     return "\(completedCount)/\(todoState.items.count) done"
+  }
+
+  private var todoItems: some View {
+    VStack(alignment: .leading, spacing: 7) {
+      ForEach(todoState.items) { item in
+        TodoPlanItemRow(item: item)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 

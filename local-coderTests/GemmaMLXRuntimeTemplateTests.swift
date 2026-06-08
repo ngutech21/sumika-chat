@@ -1867,7 +1867,8 @@ struct GemmaMLXRuntimeTemplateTests {
     let option2 = try #require(askProperties["option2"] as? [String: any Sendable])
 
     #expect(items["type"] as? String == "string")
-    #expect((items["description"] as? String)?.contains("JSON array string") == true)
+    #expect((items["description"] as? String)?.contains("todo rows") == true)
+    #expect((items["description"] as? String)?.contains("content:true|false") == true)
     #expect(items["items"] == nil)
     #expect(option1["type"] as? String == "string")
     #expect(option1["items"] == nil)

@@ -506,7 +506,8 @@ nonisolated extension ToolDefinition {
     parameters: [
       ToolParameterDefinition(
         name: "items",
-        description: "JSON array string with 2 to 6 todo objects: id, content, status.",
+        description:
+          "todo rows: content:true|false. false=new, true=done. No numbering/markdown.",
         isRequired: true,
         valueType: .string,
         supportsHeredocPayload: true
@@ -515,11 +516,9 @@ nonisolated extension ToolDefinition {
     taggedExample: """
       <action name="todo_write">
       <items delimiter="LC_PAYLOAD_V1">
-      [
-        {"id":"inspect","content":"Inspect the affected chat workflow files","status":"completed"},
-        {"id":"core","content":"Add todo state and tool plumbing","status":"inProgress"},
-        {"id":"verify","content":"Run focused tests","status":"pending"}
-      ]
+      Inspect the affected chat workflow files:true
+      Add todo state and tool plumbing:false
+      Run focused tests:false
       LC_PAYLOAD_V1
       </items>
       </action>

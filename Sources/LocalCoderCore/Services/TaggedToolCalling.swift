@@ -75,7 +75,7 @@ public struct TaggedToolPromptRenderer: ToolPromptRendering {
     let todoWriteInstruction =
       registry.definition(for: .todoWrite) == nil
       ? ""
-      : "\n- For todo_write, emit exactly one items parameter containing a JSON array string with the full current plan as 2 to 6 objects. Never send only the next step. Do not emit id, content, or status as top-level parameters."
+      : "\n- For todo_write, emit exactly one items parameter with the full current plan as 1 to 6 rows. Each row is content:true|false where true means done and false means not done. Never send only the next step. Do not emit id, done, content, or status as top-level parameters."
     let askUserInstruction =
       registry.definition(for: .askUser) == nil
       ? ""

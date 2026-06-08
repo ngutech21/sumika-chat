@@ -1139,10 +1139,8 @@ struct ToolLoopCoordinatorTests {
               content: """
                 <action name="todo_write">
                 <items delimiter="LC_PAYLOAD_V1">
-                [
-                  {"id":"inspect","content":"Inspect files","status":"completed"},
-                  {"id":"verify","content":"Run tests","status":"inProgress"}
-                ]
+                Inspect files:true
+                Run tests:false
                 LC_PAYLOAD_V1
                 </items>
                 </action>

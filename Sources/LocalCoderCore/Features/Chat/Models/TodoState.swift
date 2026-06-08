@@ -51,7 +51,7 @@ public enum TodoStateValidationError: Error, Equatable, LocalizedError, Sendable
   public var errorDescription: String? {
     switch self {
     case .invalidItemCount(let count):
-      "todo_write requires 2 to 6 items; received \(count)."
+      "todo_write requires 1 to 6 items; received \(count)."
     case .emptyContent(let id):
       "todo_write item \(id) content must not be empty."
     case .contentTooLong(let id, let maxCharacters):
@@ -68,7 +68,7 @@ public struct TodoStateValidator: Sendable {
   public var maximumContentCharacters: Int
 
   public init(
-    minimumItemCount: Int = 2,
+    minimumItemCount: Int = 1,
     maximumItemCount: Int = 6,
     maximumContentCharacters: Int = 120
   ) {

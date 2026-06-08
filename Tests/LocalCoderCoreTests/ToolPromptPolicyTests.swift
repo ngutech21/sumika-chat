@@ -126,8 +126,14 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("To find files by name, use glob_files or list_files."))
     #expect(prompt.contains("To search code contents, use search_files."))
     #expect(prompt.contains("To review current workspace changes, use workspace_diff."))
-    #expect(prompt.contains("first call todo_write with the full current plan as 2 to 6 items"))
-    #expect(prompt.contains("Never send only the next step."))
+    #expect(
+      prompt.contains(
+        "first call todo_write with newline rows like Inspect files:false"
+      ))
+    #expect(prompt.contains("Use false for new todos; true only for done."))
+    #expect(prompt.contains("Never send numbered lists or only the next step."))
+    #expect(prompt.contains("After completing a planned todo"))
+    #expect(prompt.contains("mark only completed items true"))
     #expect(prompt.contains("run_command"))
     #expect(prompt.contains("To create a new file, use write_file"))
     #expect(prompt.contains("To modify an existing file, use read_file first"))
@@ -178,6 +184,8 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("call one more tool using"))
     #expect(prompt.contains("same action format"))
     #expect(prompt.contains("do not call todo_write again unless the plan actually changed"))
+    #expect(prompt.contains("After completing a planned todo"))
+    #expect(prompt.contains("mark only completed items true"))
     #expect(prompt.contains("call edit_file with exact old_text copied from"))
     #expect(prompt.contains("current file content"))
     #expect(

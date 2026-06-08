@@ -69,18 +69,8 @@ struct ToolCallRequestValidatorTests {
       raw(
         .todoWrite,
         arguments: [
-          "items": .array([
-            .object([
-              "id": .string("inspect"),
-              "content": .string("Inspect affected files"),
-              "status": .string("completed"),
-            ]),
-            .object([
-              "id": .string("core"),
-              "content": .string("Add todo state"),
-              "status": .string("inProgress"),
-            ]),
-          ])
+          "items": .string(
+            #"["Inspect affected files:true","Add todo state:false"]"#)
         ]),
       registry: registry
     )
@@ -124,8 +114,8 @@ struct ToolCallRequestValidatorTests {
       todo.payload
         == .todoWrite(
           TodoWriteInput(items: [
-            TodoItem(id: "inspect", content: "Inspect affected files", status: .completed),
-            TodoItem(id: "core", content: "Add todo state", status: .inProgress),
+            TodoItem(id: "1", content: "Inspect affected files", status: .completed),
+            TodoItem(id: "2", content: "Add todo state", status: .pending),
           ])))
     #expect(
       askUser.payload
@@ -273,19 +263,152 @@ struct ToolCallRequestValidatorTests {
   }
 
   @Test
-  func todoWriteValidatesItemCountContentAndProgress() {
-    let registry = ToolExecutorRegistry.codingAgent.toolRegistry
-    let oneItem = validator.validate(
+  func todoWriteAcceptsRowStringsAndCommaContainingContent() {
+    let request = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .string(
+            #"["Inspect files, configs, and docs:true","Run tests:false"]"#)
+        ]),
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(
+      request.payload
+        == .todoWrite(
+          TodoWriteInput(items: [
+            TodoItem(
+              id: "1",
+              content: "Inspect files, configs, and docs",
+              status: .completed
+            ),
+            TodoItem(id: "2", content: "Run tests", status: .pending),
+          ])))
+  }
+
+  @Test
+  func todoWriteAcceptsPlainTextRows() {
+    let request = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .string(
+            """
+            Inspect files:true
+            Run tests:false
+            """
+          )
+        ]),
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(
+      request.payload
+        == .todoWrite(
+          TodoWriteInput(items: [
+            TodoItem(id: "1", content: "Inspect files", status: .completed),
+            TodoItem(id: "2", content: "Run tests", status: .pending),
+          ])))
+  }
+
+  @Test
+  func todoWriteSplitsRowsAtTrailingDoneSuffix() {
+    let request = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .string(
+            """
+            Inspect files: configs:true
+            Run tests:false
+            """
+          )
+        ]),
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(
+      request.payload
+        == .todoWrite(
+          TodoWriteInput(items: [
+            TodoItem(id: "1", content: "Inspect files: configs", status: .completed),
+            TodoItem(id: "2", content: "Run tests", status: .pending),
+          ])))
+  }
+
+  @Test
+  func todoWriteAlsoAcceptsSemicolonDoneSuffix() {
+    let request = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .string(
+            """
+            Inspect files;true
+            Run tests;false
+            """
+          )
+        ]),
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(
+      request.payload
+        == .todoWrite(
+          TodoWriteInput(items: [
+            TodoItem(id: "1", content: "Inspect files", status: .completed),
+            TodoItem(id: "2", content: "Run tests", status: .pending),
+          ])))
+  }
+
+  @Test
+  func todoWriteStillAcceptsInternalObjectArrays() {
+    let request = validator.validate(
       raw(
         .todoWrite,
         arguments: [
           "items": .array([
             .object([
-              "id": .string("one"),
-              "content": .string("Only one item"),
-              "status": .string("pending"),
-            ])
+              "id": .string("inspect"),
+              "content": .string("Inspect affected files"),
+              "status": .string("completed"),
+            ]),
+            .object([
+              "id": .string("core"),
+              "content": .string("Add todo state"),
+              "status": .string("inProgress"),
+            ]),
           ])
+        ]),
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(
+      request.payload
+        == .todoWrite(
+          TodoWriteInput(items: [
+            TodoItem(id: "inspect", content: "Inspect affected files", status: .completed),
+            TodoItem(id: "core", content: "Add todo state", status: .inProgress),
+          ])))
+  }
+
+  @Test
+  func todoWriteValidatesItemCountContentAndDoneValue() {
+    let registry = ToolExecutorRegistry.codingAgent.toolRegistry
+    let noItems = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .string("[]")
+        ]),
+      registry: registry
+    )
+    let oneItem = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .string(#"["Only one item:false"]"#)
         ]),
       registry: registry
     )
@@ -293,33 +416,7 @@ struct ToolCallRequestValidatorTests {
       raw(
         .todoWrite,
         arguments: [
-          "items": .array([
-            .object(["id": .string("one"), "content": .string(" "), "status": .string("pending")]),
-            .object([
-              "id": .string("two"),
-              "content": .string("Valid item"),
-              "status": .string("pending"),
-            ]),
-          ])
-        ]),
-      registry: registry
-    )
-    let multipleInProgress = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "items": .array([
-            .object([
-              "id": .string("one"),
-              "content": .string("First active"),
-              "status": .string("inProgress"),
-            ]),
-            .object([
-              "id": .string("two"),
-              "content": .string("Second active"),
-              "status": .string("inProgress"),
-            ]),
-          ])
+          "items": .string(#"[" :false","Valid item:false"]"#)
         ]),
       registry: registry
     )
@@ -329,44 +426,40 @@ struct ToolCallRequestValidatorTests {
         arguments: [
           "items": .array(
             (0..<7).map { index in
-              .object([
-                "id": .string("\(index)"),
-                "content": .string("Item \(index)"),
-                "status": .string("pending"),
-              ])
+              .string("Item \(index):false")
             })
         ]),
       registry: registry
     )
-    let unknownStatus = validator.validate(
+    let invalidDoneValue = validator.validate(
       raw(
         .todoWrite,
         arguments: [
-          "items": .array([
-            .object([
-              "id": .string("one"),
-              "content": .string("Inspect"),
-              "status": .string("started"),
-            ]),
-            .object([
-              "id": .string("two"),
-              "content": .string("Verify"),
-              "status": .string("pending"),
-            ]),
-          ])
+          "items": .string(#"["Inspect:done","Verify:false"]"#)
+        ]),
+      registry: registry
+    )
+    let malformedRow = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .string(#"["one,false","Verify:false"]"#)
         ]),
       registry: registry
     )
 
-    #expect(invalidReason(oneItem)?.message.contains("2 to 6 items") == true)
-    #expect(invalidReason(sevenItems)?.message.contains("2 to 6 items") == true)
+    #expect(oneItem.payload == .todoWrite(TodoWriteInput(items: [
+      TodoItem(id: "1", content: "Only one item", status: .pending)
+    ])))
+    #expect(invalidReason(noItems)?.message.contains("1 to 6 items") == true)
+    #expect(invalidReason(sevenItems)?.message.contains("1 to 6 items") == true)
     #expect(invalidReason(emptyContent)?.message.contains("content must not be empty") == true)
-    #expect(invalidReason(multipleInProgress)?.message.contains("at most one inProgress") == true)
-    #expect(invalidReason(unknownStatus) != nil)
+    #expect(invalidReason(invalidDoneValue)?.message.contains("content:true|false") == true)
+    #expect(invalidReason(malformedRow)?.message.contains("content:true|false") == true)
   }
 
   @Test
-  func todoWriteAcceptsDirectItemFieldsBeforeStateValidation() {
+  func todoWriteRejectsDirectItemFields() {
     let request = validator.validate(
       raw(
         .todoWrite,
@@ -378,25 +471,8 @@ struct ToolCallRequestValidatorTests {
       registry: ToolExecutorRegistry.codingAgent.toolRegistry
     )
 
-    #expect(invalidReason(request)?.message.contains("2 to 6 items") == true)
-    #expect(invalidInput(request)?.rawArguments.keys.sorted() == ["content", "id", "status"])
-  }
-
-  @Test
-  func todoWriteNormalizesMalformedNativeItemFieldsWithNonStringValues() {
-    let request = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "id": .string("setup"),
-          "status": .string("pending"),
-          "},{content.": .object(["text": .string("Create project setup")]),
-        ]),
-      registry: ToolExecutorRegistry.codingAgent.toolRegistry
-    )
-
-    #expect(invalidReason(request)?.message.contains("2 to 6 items") == true)
-    #expect(invalidInput(request)?.rawArguments.keys.sorted() == ["content", "id", "status"])
+    #expect(invalidReason(request) == .unknownArguments(["id", "status", "},{content."]))
+    #expect(invalidInput(request)?.rawArguments.keys.sorted() == ["id", "status", "},{content."])
   }
 
   @Test

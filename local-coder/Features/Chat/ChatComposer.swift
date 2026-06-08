@@ -10,6 +10,7 @@ struct ChatComposer: View {
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
   let interactionMode: WorkspaceInteractionMode
+  let todoState: TodoState?
   let contextUsage: ChatContextUsage?
   let processUsage: ProcessResourceUsage?
   let canChangeModel: Bool
@@ -53,6 +54,12 @@ struct ChatComposer: View {
           canRemove: !isGenerating,
           onRemoveAttachment: onRemoveAttachment
         )
+      }
+
+      if let todoState {
+        TodoPlanPanel(todoState: todoState)
+          .frame(maxWidth: .infinity, alignment: .center)
+          .transition(.opacity.combined(with: .move(edge: .top)))
       }
 
       VStack(spacing: 8) {
