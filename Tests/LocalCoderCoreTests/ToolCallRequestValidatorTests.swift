@@ -396,6 +396,7 @@ struct ToolCallRequestValidatorTests {
   @Test
   func todoWriteValidatesItemCountContentAndDoneValue() {
     let registry = ToolExecutorRegistry.codingAgent.toolRegistry
+    let longContent = String(repeating: "a", count: 121)
     let noItems = validator.validate(
       raw(
         .todoWrite,
@@ -445,6 +446,14 @@ struct ToolCallRequestValidatorTests {
         ]),
       registry: registry
     )
+    let longItem = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "items": .string(#"\#(longContent):false\nVerify:false"#)
+        ]),
+      registry: registry
+    )
     let invalidDoneValue = validator.validate(
       raw(
         .todoWrite,
@@ -467,6 +476,7 @@ struct ToolCallRequestValidatorTests {
     #expect(invalidReason(oneDirectItem)?.message.contains("2 to 6 items") == true)
     #expect(invalidReason(sevenItems)?.message.contains("2 to 6 items") == true)
     #expect(invalidReason(emptyContent)?.message.contains("content must not be empty") == true)
+    #expect(invalidReason(longItem)?.message.contains("120 characters or fewer") == true)
     #expect(invalidReason(invalidDoneValue)?.message.contains("content:true|false") == true)
     #expect(invalidReason(malformedRow)?.message.contains("content:true|false") == true)
   }
