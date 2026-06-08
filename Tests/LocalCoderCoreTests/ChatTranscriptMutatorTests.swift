@@ -120,6 +120,43 @@ struct ChatTranscriptMutatorTests {
   }
 
   @Test
+  func annotateTodoToolCallDoesNotMutateModelHistory() throws {
+    let assistantID = UUID()
+    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(
+      toolName: ToolName.todoWrite.rawValue,
+      arguments: [
+        "items": .string("Inspect affected files:false\nRun tests:false")
+      ]
+    )
+    let toolCall = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .todoWrite,
+      arguments: [
+        ToolCallModelArgument(
+          name: "items",
+          value: "Inspect affected files:false\nRun tests:false"
+        )
+      ],
+      rawText: nativeBoundary
+    )
+    var state = makeState(items: [
+      .assistantMessage(AssistantTurnMessage(id: assistantID, content: "I will update the plan."))
+    ])
+    try ChatTranscriptMutator().appendModelContextEntry(
+      ModelFacingPromptRenderer.assistantOutputEntry(
+        sourceMessageID: assistantID,
+        content: nativeBoundary
+      ),
+      to: &state
+    )
+
+    ChatTranscriptMutator().annotateToolCall(toolCall, for: assistantID, in: &state)
+
+    let content = try #require(state.modelContextSnapshot.entries.first?.frozenContent.content)
+    #expect(content == nativeBoundary)
+  }
+
+  @Test
   func appendToolResultCreatesToolResultMessage() {
     var state = makeState()
     let toolResult = ToolResultModelMessage(

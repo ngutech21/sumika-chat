@@ -127,12 +127,7 @@ public struct ChatWorkflowEventApplier: Sendable {
     case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, let toolCall):
       mutator.annotateToolCall(toolCall, for: assistantMessageID, in: &state)
     case .assistantAnnotatedAsNativeToolCall(let assistantMessageID, let toolCall):
-      mutator.annotateToolCall(
-        toolCall,
-        for: assistantMessageID,
-        in: &state,
-        preserveModelContext: true
-      )
+      mutator.annotateToolCall(toolCall, for: assistantMessageID, in: &state)
     case .toolCallAppended(let record, let turnID):
       var turnRecord = record
       if turnRecord.turnID == nil {

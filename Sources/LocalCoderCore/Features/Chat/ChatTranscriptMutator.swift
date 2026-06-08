@@ -172,22 +172,10 @@ public struct ChatTranscriptMutator: Sendable {
   public func annotateToolCall(
     _ toolCall: ToolCallModelMessage,
     for messageID: UUID,
-    in state: inout ChatSession,
-    preserveModelContext: Bool = false
+    in state: inout ChatSession
   ) {
     ensureToolCallRecord(for: toolCall, in: &state)
     replaceItem(matchingMessageID: messageID, with: .toolCall(toolCall.callID), in: &state)
-    guard !preserveModelContext else {
-      return
-    }
-    guard toolCall.omitsPayloadFromModelHistory else {
-      return
-    }
-    replaceAssistantModelContextEntry(
-      sourceMessageID: messageID,
-      content: toolCall.modelContextContent,
-      in: &state
-    )
   }
 
   public func appendToolResult(
@@ -337,28 +325,6 @@ public struct ChatTranscriptMutator: Sendable {
         return
       }
     }
-  }
-
-  private func replaceAssistantModelContextEntry(
-    sourceMessageID: UUID,
-    content: String,
-    in state: inout ChatSession
-  ) {
-    guard
-      let index = state.modelContextSnapshot.entries.lastIndex(where: { entry in
-        entry.sourceMessageID == sourceMessageID && entry.body.modelRole == .assistant
-      }),
-      let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
-        id: state.modelContextSnapshot.entries[index].id,
-        turnID: state.modelContextSnapshot.entries[index].turnID,
-        sourceMessageID: sourceMessageID,
-        content: content
-      )
-    else {
-      return
-    }
-
-    state.modelContextSnapshot.entries[index] = entry
   }
 
   private func removeItems(matchingMessageID messageID: UUID, from state: inout ChatSession) {
@@ -525,11 +491,5 @@ public struct ChatTranscriptMutator: Sendable {
     if let updatedEntry {
       state.modelContextSnapshot.entries[index] = updatedEntry
     }
-  }
-}
-
-extension ToolCallModelMessage {
-  fileprivate var omitsPayloadFromModelHistory: Bool {
-    toolName == .writeFile || toolName == .editFile || toolName == .todoWrite
   }
 }
