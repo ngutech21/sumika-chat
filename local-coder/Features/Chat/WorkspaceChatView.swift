@@ -36,8 +36,6 @@ struct WorkspaceChatView: View {
         }
       )
 
-      Divider()
-
       ChatComposer(
         draft: $controller.draft,
         attachments: controller.chatSession.pendingAttachments,
