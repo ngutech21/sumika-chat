@@ -1,3 +1,4 @@
+import AppKit
 import LocalCoderCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -71,6 +72,19 @@ struct ChatComposer: View {
           .focused($messageFieldFocused)
           .disabled(isInputBlocked)
           .onSubmit(sendMessage)
+          .onPasteCommand(of: [UTType.fileURL, UTType.image, UTType.png, UTType.tiff]) { providers in
+            handlePaste(providers)
+          }
+          .onChange(of: draft) { oldDraft, newDraft in
+            handleDraftChangeAfterPaste(from: oldDraft, to: newDraft)
+          }
+          .background {
+            ComposerPasteCommandMonitor(
+              isActive: canInterceptPasteCommand,
+              onPaste: handlePasteboardCommand
+            )
+            .frame(width: 0, height: 0)
+          }
           .onDrop(
             of: [UTType.fileURL.identifier],
             isTargeted: $isDropTarget,
@@ -246,6 +260,10 @@ struct ChatComposer: View {
     availableModels.isEmpty ? "No local models" : selectedModel.displayName
   }
 
+  private var canInterceptPasteCommand: Bool {
+    messageFieldFocused && !isGenerating && !isInputBlocked && modelState == .ready
+  }
+
   private func sendMessage() {
     guard canSend else {
       return
@@ -263,6 +281,67 @@ struct ChatComposer: View {
   }
 
   private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+    handleAttachmentProviders(providers)
+  }
+
+  private func handlePaste(_ providers: [NSItemProvider]) {
+    if handleAttachmentProviders(providers) {
+      return
+    }
+
+    handleImagePasteFromPasteboard()
+  }
+
+  private func handlePasteboardCommand() -> Bool {
+    guard !isGenerating, !isInputBlocked, modelState == .ready else {
+      return false
+    }
+
+    let urls = Self.fileURLsFromPasteboard()
+    if !urls.isEmpty {
+      onDropAttachments(urls)
+      return true
+    }
+
+    guard let imageURL = Self.materializePasteboardImage() else {
+      return false
+    }
+
+    onDropAttachments([imageURL])
+    return true
+  }
+
+  private func handleDraftChangeAfterPaste(from oldDraft: String, to newDraft: String) {
+    guard !isGenerating, !isInputBlocked, modelState == .ready else {
+      return
+    }
+    guard let pasteEdit = Self.pasteEdit(from: oldDraft, to: newDraft),
+      Self.insertedTextMatchesPasteboardFiles(pasteEdit.insertedText)
+    else {
+      return
+    }
+
+    let urls = Self.fileURLsFromPasteboard()
+    guard !urls.isEmpty else {
+      return
+    }
+
+    draft = pasteEdit.draftWithoutInsertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    onDropAttachments(urls)
+  }
+
+  private func handleImagePasteFromPasteboard() {
+    guard !isGenerating, !isInputBlocked, modelState == .ready else {
+      return
+    }
+    guard let imageURL = Self.materializePasteboardImage() else {
+      return
+    }
+
+    onDropAttachments([imageURL])
+  }
+
+  private func handleAttachmentProviders(_ providers: [NSItemProvider]) -> Bool {
     guard !isGenerating, !isInputBlocked, modelState == .ready else {
       return false
     }
@@ -273,16 +352,27 @@ struct ChatComposer: View {
       return false
     }
 
+    let group = DispatchGroup()
+    let accumulator = AttachmentURLAccumulator()
+
     for provider in fileProviders {
+      group.enter()
       provider.loadItem(forTypeIdentifier: fileURLType, options: nil) { item, _ in
+        defer { group.leave() }
         guard let url = Self.fileURL(from: item) else {
           return
         }
 
-        Task { @MainActor in
-          onDropAttachments([url])
-        }
+        accumulator.append(url)
       }
+    }
+
+    group.notify(queue: .main) {
+      let urls = accumulator.urls()
+      guard !urls.isEmpty else {
+        return
+      }
+      onDropAttachments(urls)
     }
 
     return true
@@ -302,6 +392,207 @@ struct ChatComposer: View {
     }
 
     return nil
+  }
+
+  nonisolated private static func fileURLsFromPasteboard() -> [URL] {
+    let pasteboard = NSPasteboard.general
+    if let urls = pasteboard.readObjects(
+      forClasses: [NSURL.self],
+      options: [.urlReadingFileURLsOnly: true]
+    ) as? [URL],
+      !urls.isEmpty
+    {
+      return urls
+    }
+
+    let filenamesType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
+    guard let paths = pasteboard.propertyList(forType: filenamesType) as? [String] else {
+      return []
+    }
+
+    return paths.map { URL(filePath: $0).standardizedFileURL }
+  }
+
+  nonisolated private static func materializePasteboardImage() -> URL? {
+    let pasteboard = NSPasteboard.general
+    guard let pngData = pasteboardPNGData(pasteboard) else {
+      return nil
+    }
+
+    do {
+      let directory = FileManager.default.temporaryDirectory
+        .appending(path: "local-coder-pasteboard", directoryHint: .isDirectory)
+      try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+      )
+      let url = directory.appending(path: "clipboard-image-\(UUID().uuidString).png")
+      try pngData.write(to: url, options: .atomic)
+      return url
+    } catch {
+      return nil
+    }
+  }
+
+  nonisolated private static func pasteboardPNGData(_ pasteboard: NSPasteboard) -> Data? {
+    if let data = pasteboard.data(forType: .png) {
+      return data
+    }
+
+    if let data = pasteboard.data(forType: .tiff),
+      let bitmap = NSBitmapImageRep(data: data),
+      let pngData = bitmap.representation(using: .png, properties: [:])
+    {
+      return pngData
+    }
+
+    guard let image = NSImage(pasteboard: pasteboard),
+      let tiffData = image.tiffRepresentation,
+      let bitmap = NSBitmapImageRep(data: tiffData)
+    else {
+      return nil
+    }
+
+    return bitmap.representation(using: .png, properties: [:])
+  }
+
+  nonisolated private static func pasteEdit(from oldDraft: String, to newDraft: String)
+    -> PasteEdit?
+  {
+    guard newDraft.count > oldDraft.count else {
+      return nil
+    }
+
+    var prefix = 0
+    while prefix < oldDraft.count,
+      oldDraft[oldDraft.index(oldDraft.startIndex, offsetBy: prefix)]
+        == newDraft[newDraft.index(newDraft.startIndex, offsetBy: prefix)]
+    {
+      prefix += 1
+    }
+
+    var suffix = 0
+    while suffix < oldDraft.count - prefix,
+      oldDraft[oldDraft.index(oldDraft.endIndex, offsetBy: -suffix - 1)]
+        == newDraft[newDraft.index(newDraft.endIndex, offsetBy: -suffix - 1)]
+    {
+      suffix += 1
+    }
+
+    let start = newDraft.index(newDraft.startIndex, offsetBy: prefix)
+    let end = newDraft.index(newDraft.endIndex, offsetBy: -suffix)
+    let insertedText = String(newDraft[start..<end])
+    var draftWithoutInsertedText = newDraft
+    draftWithoutInsertedText.removeSubrange(start..<end)
+    return PasteEdit(
+      insertedText: insertedText,
+      draftWithoutInsertedText: draftWithoutInsertedText
+    )
+  }
+
+  nonisolated private static func insertedTextMatchesPasteboardFiles(_ insertedText: String)
+    -> Bool
+  {
+    let urls = fileURLsFromPasteboard()
+    guard !urls.isEmpty else {
+      return false
+    }
+
+    let names = urls.map(\.lastPathComponent)
+    let candidates = [
+      names.joined(separator: "\n"),
+      names.joined(separator: " "),
+      names.joined(separator: ", "),
+    ]
+    let trimmedInsertedText = insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    return candidates.contains {
+      $0.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedInsertedText
+    }
+  }
+
+  nonisolated private struct PasteEdit {
+    let insertedText: String
+    let draftWithoutInsertedText: String
+  }
+}
+
+nonisolated private final class AttachmentURLAccumulator: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storedURLs: [URL] = []
+
+  func append(_ url: URL) {
+    lock.lock()
+    storedURLs.append(url)
+    lock.unlock()
+  }
+
+  func urls() -> [URL] {
+    lock.lock()
+    defer { lock.unlock() }
+    return storedURLs
+  }
+}
+
+private struct ComposerPasteCommandMonitor: NSViewRepresentable {
+  let isActive: Bool
+  let onPaste: () -> Bool
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(parent: self)
+  }
+
+  func makeNSView(context: Context) -> NSView {
+    context.coordinator.installMonitor()
+    let view = NSView(frame: .zero)
+    view.isHidden = true
+    return view
+  }
+
+  func updateNSView(_ nsView: NSView, context: Context) {
+    context.coordinator.parent = self
+  }
+
+  static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+    coordinator.uninstallMonitor()
+  }
+
+  final class Coordinator {
+    var parent: ComposerPasteCommandMonitor
+    private var monitor: Any?
+
+    init(parent: ComposerPasteCommandMonitor) {
+      self.parent = parent
+    }
+
+    func installMonitor() {
+      guard monitor == nil else {
+        return
+      }
+
+      monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        guard let self, parent.isActive, Self.isPasteCommand(event) else {
+          return event
+        }
+
+        return parent.onPaste() ? nil : event
+      }
+    }
+
+    func uninstallMonitor() {
+      if let monitor {
+        NSEvent.removeMonitor(monitor)
+        self.monitor = nil
+      }
+    }
+
+    private static func isPasteCommand(_ event: NSEvent) -> Bool {
+      let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+      guard flags == .command else {
+        return false
+      }
+
+      return event.charactersIgnoringModifiers?.lowercased() == "v"
+    }
   }
 }
 
