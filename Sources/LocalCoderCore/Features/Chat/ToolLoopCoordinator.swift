@@ -223,11 +223,19 @@ public struct ToolLoopCoordinator: Sendable {
       )
 
       if index == 0 {
-        events.append(
-          .assistantMessageAnnotatedAsToolCall(
-            assistantMessageID: request.assistantMessageID,
-            toolCall: output.modelMessage
-          ))
+        if request.nativeToolCalls.isEmpty {
+          events.append(
+            .assistantMessageAnnotatedAsToolCall(
+              assistantMessageID: request.assistantMessageID,
+              toolCall: output.modelMessage
+            ))
+        } else {
+          events.append(
+            .assistantMessageAnnotatedAsNativeToolCall(
+              assistantMessageID: request.assistantMessageID,
+              toolCall: output.modelMessage
+            ))
+        }
       }
       events.append(.toolCallAppended(record, turnID: request.turnID))
 

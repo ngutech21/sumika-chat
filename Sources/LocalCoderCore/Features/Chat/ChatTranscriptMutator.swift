@@ -172,10 +172,14 @@ public struct ChatTranscriptMutator: Sendable {
   public func annotateToolCall(
     _ toolCall: ToolCallModelMessage,
     for messageID: UUID,
-    in state: inout ChatSession
+    in state: inout ChatSession,
+    preserveModelContext: Bool = false
   ) {
     ensureToolCallRecord(for: toolCall, in: &state)
     replaceItem(matchingMessageID: messageID, with: .toolCall(toolCall.callID), in: &state)
+    guard !preserveModelContext else {
+      return
+    }
     guard toolCall.omitsPayloadFromModelHistory else {
       return
     }

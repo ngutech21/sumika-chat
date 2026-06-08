@@ -32,6 +32,54 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
+  func nativeToolCallAnnotationPreservesModelContextBoundary() throws {
+    let assistantID = UUID()
+    let turnID = UUID()
+    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(
+      toolName: ToolName.editFile.rawValue,
+      arguments: ["path": .string("index.html")]
+    )
+    let toolCall = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .editFile,
+      arguments: [ToolCallModelArgument(name: "path", value: "index.html")],
+      rawText: nativeBoundary
+    )
+    var state = makeState(turns: [
+      ChatTurn(
+        id: turnID,
+        status: .running,
+        items: [
+          .assistantMessage(AssistantTurnMessage(id: assistantID, content: "I'll edit it."))
+        ]
+      )
+    ])
+
+    ChatWorkflowEventApplier().apply(
+      [
+        .nativeAssistantBoundaryAppended(
+          content: nativeBoundary,
+          sourceMessageID: assistantID,
+          turnID: turnID
+        ),
+        .assistantMessageAnnotatedAsNativeToolCall(
+          assistantMessageID: assistantID,
+          toolCall: toolCall
+        ),
+      ],
+      to: &state
+    )
+
+    let items = state.transcriptItemsForTesting
+    #expect(items[0].kindForTesting == TranscriptItemKindForTesting.toolCall)
+    #expect(items[0].toolCallForTesting(records: state.toolCalls) == toolCall)
+
+    let modelContent = try #require(state.modelContextSnapshot.entries.last?.frozenContent.content)
+    #expect(modelContent == nativeBoundary)
+    #expect(!modelContent.contains("Payload omitted from history."))
+  }
+
+  @Test
   func appendsToolCallAndRegistersItOnTurn() {
     let turnID = UUID()
     let record = makeToolCallRecord(status: .completed)

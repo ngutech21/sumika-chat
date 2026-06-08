@@ -1185,12 +1185,13 @@ struct ToolLoopCoordinatorTests {
 
   private func toolCall(from step: ChatWorkflowStep?) -> ToolCallModelMessage? {
     for event in step?.events ?? [] {
-      guard
-        case .assistantMessageAnnotatedAsToolCall(_, let toolCall) = event
-      else {
+      switch event {
+      case .assistantMessageAnnotatedAsToolCall(_, let toolCall),
+        .assistantMessageAnnotatedAsNativeToolCall(_, let toolCall):
+        return toolCall
+      default:
         continue
       }
-      return toolCall
     }
     return nil
   }
@@ -1225,12 +1226,13 @@ struct ToolLoopCoordinatorTests {
 
   private func annotatedAssistantMessageID(from step: ChatWorkflowStep?) -> UUID? {
     for event in step?.events ?? [] {
-      guard
-        case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, _) = event
-      else {
+      switch event {
+      case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, _),
+        .assistantMessageAnnotatedAsNativeToolCall(let assistantMessageID, _):
+        return assistantMessageID
+      default:
         continue
       }
-      return assistantMessageID
     }
     return nil
   }
