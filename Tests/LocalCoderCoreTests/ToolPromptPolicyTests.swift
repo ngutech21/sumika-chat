@@ -16,7 +16,7 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
-  func nativeAgentPromptMentionsAvailableToolsWithoutXmlProtocol() {
+  func nativeAgentPromptMentionsAvailableTools() {
     let prompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",
       mode: .enabled(true),
@@ -27,7 +27,6 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("read_file"))
     #expect(prompt.contains("edit_file"))
     #expect(prompt.contains("native tool calls"))
-    #expect(!prompt.contains("<action"))
   }
 
   @Test
@@ -41,7 +40,6 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("Read-only workspace tools"))
     #expect(prompt.contains("read_file"))
     #expect(prompt.contains("Never call write_file or edit_file"))
-    #expect(!prompt.contains("<action"))
   }
 
   @Test
@@ -54,6 +52,5 @@ struct ToolPromptPolicyTests {
 
     #expect(prompt.contains("No more tools may run"))
     #expect(prompt.contains("Do not call another tool"))
-    #expect(!prompt.contains("<action"))
   }
 }

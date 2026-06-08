@@ -182,10 +182,14 @@ struct ChatModelContextBuilderTests {
   func toolResultAppendIsPrefixStableWhenTranscriptMutates() throws {
     let turnID = UUID()
     let sourceMessageID = UUID()
+    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(
+      toolName: ToolName.readFile.rawValue,
+      arguments: ["path": .string("README.md")]
+    )
     let firstEntry = try ModelFacingPromptRenderer.assistantOutputEntry(
       turnID: turnID,
       sourceMessageID: sourceMessageID,
-      content: "<action name=\"read_file\"></action>"
+      content: nativeBoundary
     )
     var state = ChatSession(
       modelContextSnapshot: ModelContextSnapshot(entries: [firstEntry]),
@@ -197,7 +201,7 @@ struct ChatModelContextBuilderTests {
             .assistantMessage(
               AssistantTurnMessage(
                 id: sourceMessageID,
-                content: "<action name=\"read_file\"></action>"
+                content: "I will read README.md."
               ))
           ]
         )

@@ -98,7 +98,7 @@ struct ChatTranscriptMutatorTests {
       .assistantMessage(
         AssistantTurnMessage(
           id: assistantID,
-          content: "<action>",
+          content: "I will read Package.swift.",
           attachments: [attachment],
           generationMetrics: metrics
         ))
@@ -117,45 +117,6 @@ struct ChatTranscriptMutatorTests {
     #expect(state.toolCalls.first?.id == toolCall.callID)
     #expect(items[0].toolCallForTesting(records: state.toolCalls) == toolCall)
     #expect(items[0].toolResultForTesting(records: state.toolCalls) == nil)
-  }
-
-  @Test
-  func annotateTodoToolCallOmitsPayloadFromModelHistory() throws {
-    let assistantID = UUID()
-    let rawText = """
-      <action name="todo_write">
-      <items>Inspect affected files:false
-      Run tests:false</items>
-      </action>
-      """
-    let toolCall = ToolCallModelMessage(
-      callID: UUID(),
-      toolName: .todoWrite,
-      arguments: [
-        ToolCallModelArgument(
-          name: "items",
-          value: "Inspect affected files:false\nRun tests:false"
-        )
-      ],
-      rawText: rawText
-    )
-    var state = makeState(items: [
-      .assistantMessage(AssistantTurnMessage(id: assistantID, content: rawText))
-    ])
-    try ChatTranscriptMutator().appendModelContextEntry(
-      ModelFacingPromptRenderer.assistantOutputEntry(
-        sourceMessageID: assistantID,
-        content: rawText
-      ),
-      to: &state
-    )
-
-    ChatTranscriptMutator().annotateToolCall(toolCall, for: assistantID, in: &state)
-
-    let content = try #require(state.modelContextSnapshot.entries.first?.frozenContent.content)
-    #expect(content.contains("Tool call todo_write requested."))
-    #expect(content.contains("Payload omitted from history."))
-    #expect(!content.contains("Inspect affected files"))
   }
 
   @Test

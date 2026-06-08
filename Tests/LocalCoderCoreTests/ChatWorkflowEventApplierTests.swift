@@ -13,7 +13,7 @@ struct ChatWorkflowEventApplierTests {
       arguments: [ToolCallModelArgument(name: "path", value: "README.md")]
     )
     var state = makeState(items: [
-      .assistantMessage(AssistantTurnMessage(id: assistantID, content: "<action>"))
+      .assistantMessage(AssistantTurnMessage(id: assistantID, content: "I will read README.md."))
     ])
 
     ChatWorkflowEventApplier().apply(

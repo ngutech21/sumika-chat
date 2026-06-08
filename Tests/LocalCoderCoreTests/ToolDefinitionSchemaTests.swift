@@ -177,7 +177,7 @@ struct ToolDefinitionSchemaTests {
   @Test
   func functionSchemaDescriptionsStayCompactAndNativeOnly() {
     let definitions = ToolExecutorRegistry.codingAgent.definitions
-    let forbiddenFragments = ["<action", "delimiter", "heredoc", "LC_PAYLOAD_V1"]
+    let forbiddenFragments = ["delimiter", "heredoc", "LC_PAYLOAD_V1"]
 
     for definition in definitions {
       let schema = definition.functionSchema

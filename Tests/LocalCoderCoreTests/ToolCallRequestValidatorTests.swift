@@ -525,7 +525,10 @@ struct ToolCallRequestValidatorTests {
       sessionID: UUID(),
       toolName: toolName,
       arguments: arguments,
-      rawText: "<action name=\"\(toolName.rawValue)\">...</action>",
+      rawText: NativeToolCallBoundaryRenderer.renderGemma4(
+        toolName: toolName.rawValue,
+        arguments: arguments
+      ),
       createdAt: Date(timeIntervalSince1970: 1)
     )
   }
