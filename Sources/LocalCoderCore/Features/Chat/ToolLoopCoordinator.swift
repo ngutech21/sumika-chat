@@ -135,6 +135,7 @@ public struct ToolLoopCoordinator: Sendable {
       )
       record.turnID = request.turnID
       return completedStep(
+        prefixEvents: nativeAssistantBoundaryEvents(for: request),
         assistantMessageID: request.assistantMessageID,
         turnID: request.turnID,
         toolCall: output.modelMessage,
@@ -199,7 +200,7 @@ public struct ToolLoopCoordinator: Sendable {
     }
 
     let nextAssistantMessageID = UUID()
-    var events: [ChatWorkflowEvent] = []
+    var events = nativeAssistantBoundaryEvents(for: request)
     var focusedFileState = request.focusedFileState
     var nextFollowUpPromptMode = request.followUpPromptMode
 
@@ -419,6 +420,7 @@ public struct ToolLoopCoordinator: Sendable {
   }
 
   private func completedStep(
+    prefixEvents: [ChatWorkflowEvent] = [],
     assistantMessageID: UUID,
     turnID: ChatTurn.ID,
     toolCall: ToolCallModelMessage,
@@ -429,14 +431,15 @@ public struct ToolLoopCoordinator: Sendable {
     directResponse: DirectToolResultResponse? = nil
   ) -> ChatWorkflowStep {
     let nextAssistantMessageID = UUID()
-    var events: [ChatWorkflowEvent] = [
-      .assistantMessageAnnotatedAsToolCall(
-        assistantMessageID: assistantMessageID,
-        toolCall: toolCall
-      ),
-      .toolCallAppended(record, turnID: turnID),
-      .toolResultAppended(toolResult, turnID: turnID),
-    ]
+    var events: [ChatWorkflowEvent] =
+      prefixEvents + [
+        .assistantMessageAnnotatedAsToolCall(
+          assistantMessageID: assistantMessageID,
+          toolCall: toolCall
+        ),
+        .toolCallAppended(record, turnID: turnID),
+        .toolResultAppended(toolResult, turnID: turnID),
+      ]
     events.append(contentsOf: focusedFileEvents(record: record, from: focusedFileState))
     if let directResponse {
       events.append(
@@ -457,6 +460,19 @@ public struct ToolLoopCoordinator: Sendable {
         promptMode: followUpPromptMode
       )
     )
+  }
+
+  private func nativeAssistantBoundaryEvents(for request: ToolLoopRequest) -> [ChatWorkflowEvent] {
+    guard !request.nativeToolCalls.isEmpty else {
+      return []
+    }
+    return [
+      .nativeAssistantBoundaryAppended(
+        content: NativeToolCallBoundaryRenderer.renderGemma4(request.nativeToolCalls),
+        sourceMessageID: request.assistantMessageID,
+        turnID: request.turnID
+      )
+    ]
   }
 
   private func focusedFileEvents(
@@ -550,12 +566,17 @@ public struct ToolLoopCoordinator: Sendable {
     }
 
     let outputs = toolCalls.map { toolCall in
+      let canonicalToolName = ToolName(canonicalizing: toolCall.name)
+      let rawText = NativeToolCallBoundaryRenderer.renderGemma4(
+        toolName: canonicalToolName.rawValue,
+        arguments: toolCall.arguments
+      )
       let request = RawToolCallRequest(
         workspaceID: workspaceID,
         sessionID: sessionID,
-        toolName: ToolName(canonicalizing: toolCall.name),
+        toolName: canonicalToolName,
         arguments: toolCall.arguments,
-        rawText: toolCall.rawText,
+        rawText: rawText,
         createdAt: Date()
       )
       return ToolCallParseOutput(

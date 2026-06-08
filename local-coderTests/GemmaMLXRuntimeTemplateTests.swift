@@ -711,9 +711,11 @@ struct GemmaMLXRuntimeTemplateTests {
     let generationID = GemmaGenerationID(rawValue: 1)
 
     #expect(GemmaCachedSessionState.clean.isReusable)
+    #expect(GemmaCachedSessionState.cleanNativeToolCallBoundary.isReusable)
     #expect(!GemmaCachedSessionState.inFlight(generationID: generationID).isReusable)
     #expect(!GemmaCachedSessionState.dirty(reason: .cancelled).isReusable)
     #expect(GemmaCachedSessionState.clean.invalidationReason == nil)
+    #expect(GemmaCachedSessionState.cleanNativeToolCallBoundary.invalidationReason == nil)
     #expect(
       GemmaCachedSessionState.inFlight(generationID: generationID).invalidationReason
         == .interrupted)
@@ -728,8 +730,12 @@ struct GemmaMLXRuntimeTemplateTests {
     let inFlight = GemmaCachedSessionState.inFlight(generationID: second)
 
     #expect(inFlight.completing(generationID: first) == nil)
+    #expect(inFlight.completingNativeToolCallBoundary(generationID: first) == nil)
     #expect(inFlight.invalidating(generationID: first, reason: .cancelled) == nil)
     #expect(inFlight.completing(generationID: second) == .clean)
+    #expect(
+      inFlight.completingNativeToolCallBoundary(generationID: second)
+        == .cleanNativeToolCallBoundary)
     #expect(
       inFlight.invalidating(generationID: second, reason: .downstreamTerminated)
         == .dirty(reason: .downstreamTerminated))
@@ -1057,6 +1063,99 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(decision.trace.appendedMessageCount == 1)
     #expect(decision.trace.mismatchReason == nil)
     #expect(decision.trace.firstMismatchIndex == nil)
+  }
+
+  @Test
+  func cacheDecisionReusesNativeToolCallBoundaryFollowUpDelta() {
+    let settings = ChatGenerationSettings.codingDefault
+    let nativeToolCall = ChatRuntimeToolCall(
+      name: "read_file",
+      arguments: ["path": .string("README.md")]
+    )
+    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(nativeToolCall)
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("read the file"),
+      .assistant(nativeBoundary),
+    ])
+    let appendedHistory = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("read the file"),
+      .assistant(nativeBoundary),
+      .user("Tool observation:\n1: project notes"),
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedState: .clean,
+      currentHistory: appendedHistory,
+      currentSettings: settings
+    )
+
+    #expect(decision.shouldReuse)
+    #expect(decision.reuseStrategy == .appendHistoryDelta(startIndex: 2))
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .appendOnlyDeltaReused)
+  }
+
+  @Test
+  func cacheDecisionTracesSameTurnNativeToolCallBoundaryReuseAsAppendOnly() {
+    let settings = ChatGenerationSettings.codingDefault
+    let nativeToolCall = ChatRuntimeToolCall(
+      name: "read_file",
+      arguments: ["path": .string("README.md")]
+    )
+    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(nativeToolCall)
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("read the file"),
+      .assistant(nativeBoundary),
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedState: .cleanNativeToolCallBoundary,
+      currentHistory: prefix,
+      currentSettings: settings
+    )
+
+    #expect(decision.shouldReuse)
+    #expect(decision.reuseStrategy == .appendHistoryDelta(startIndex: 2))
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .appendOnlyDeltaReused)
+    #expect(decision.trace.appendOnly)
+    #expect(decision.trace.reusedMessageCount == 2)
+    #expect(decision.trace.appendedMessageCount == 0)
+  }
+
+  @Test
+  func cacheDecisionReusesNativeToolCallBoundaryAfterAssistantPreamble() {
+    let settings = ChatGenerationSettings.codingDefault
+    let nativeToolCall = ChatRuntimeToolCall(
+      name: "read_file",
+      arguments: ["path": .string("README.md")]
+    )
+    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(nativeToolCall)
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("read the file"),
+      .assistant("I'll inspect that."),
+      .assistant(nativeBoundary),
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedState: .cleanNativeToolCallBoundary,
+      currentHistory: prefix,
+      currentSettings: settings
+    )
+
+    #expect(decision.shouldReuse)
+    #expect(decision.reuseStrategy == .appendHistoryDelta(startIndex: 3))
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .appendOnlyDeltaReused)
+    #expect(decision.trace.appendOnly)
+    #expect(decision.trace.reusedMessageCount == 3)
+    #expect(decision.trace.appendedMessageCount == 0)
   }
 
   @Test
@@ -1652,8 +1751,9 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func modelStreamMarksNativeToolCallCompletionAsCacheBoundary() async throws {
+  func modelStreamCompletesNativeToolCallAsCleanBoundary() async throws {
     let recorder = GemmaStreamInvalidationRecorder()
+    let boundaryRecorder = GemmaNativeBoundaryRecorder()
     let memoryClearRecorder = GemmaMemoryClearRecorder()
     let toolCall = MLXLMCommon.ToolCall(
       function: .init(
@@ -1682,6 +1782,9 @@ struct GemmaMLXRuntimeTemplateTests {
       markCompleted: { _ in
         await recorder.record(.signatureMismatch)
       },
+      markNativeToolCallBoundary: { output, nativeToolCalls in
+        await boundaryRecorder.record(output: output, nativeToolCalls: nativeToolCalls)
+      },
       markCancelled: { reason in
         await recorder.record(reason)
       },
@@ -1700,8 +1803,11 @@ struct GemmaMLXRuntimeTemplateTests {
 
     _ = try await iterator.next()
     try await waitUntilAsync {
-      await recorder.firstReason == .nativeToolCallBoundary
+      await boundaryRecorder.firstBoundary?.nativeToolCalls.count == 1
     }
+    #expect(await recorder.firstReason == nil)
+    #expect(await boundaryRecorder.firstBoundary?.output == "")
+    #expect(await boundaryRecorder.firstBoundary?.nativeToolCalls.first?.name == "read_file")
     #expect(await memoryClearRecorder.reasons.isEmpty)
   }
 
@@ -1788,6 +1894,7 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(runtimeToolCall.arguments["path"] == .string("README.md"))
     #expect(runtimeToolCall.arguments["limit"] == .number(20))
     #expect(runtimeToolCall.arguments["include_hidden"] == .bool(false))
+    #expect(runtimeToolCall.rawText == NativeToolCallBoundaryRenderer.renderGemma4(runtimeToolCall))
   }
 
   private func consumeFirstEventAndWait(
@@ -1975,6 +2082,18 @@ private actor GemmaStreamInvalidationRecorder {
 
   func record(_ reason: GemmaSessionInvalidationReason) {
     reasons.append(reason)
+  }
+}
+
+private actor GemmaNativeBoundaryRecorder {
+  private var boundaries: [(output: String, nativeToolCalls: [ChatRuntimeToolCall])] = []
+
+  var firstBoundary: (output: String, nativeToolCalls: [ChatRuntimeToolCall])? {
+    boundaries.first
+  }
+
+  func record(output: String, nativeToolCalls: [ChatRuntimeToolCall]) {
+    boundaries.append((output, nativeToolCalls))
   }
 }
 

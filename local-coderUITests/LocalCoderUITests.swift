@@ -236,9 +236,13 @@ final class LocalCoderUITests: XCTestCase {
       rows.containsToolLoopRuntimeCacheReason("invalidated_history_prefix_mismatch"),
       "Gemma 4 native tool follow-ups should not be diagnosed as history prefix mismatches."
     )
-    XCTAssertTrue(
+    XCTAssertFalse(
       rows.containsToolLoopRuntimeCacheReason("invalidated_native_tool_call_boundary"),
-      "Gemma 4 native tool calls should use a native tool-call cache boundary, not pseudo-XML."
+      "Gemma 4 native tool calls should no longer dirty the cache at the native boundary."
+    )
+    XCTAssertTrue(
+      rows.containsToolLoopRuntimeCacheReason("append_only_delta_reused"),
+      "Gemma 4 native tool follow-ups should reuse the appended native tool-call boundary."
     )
   }
 
@@ -373,8 +377,7 @@ final class LocalCoderUITests: XCTestCase {
       "Load must be enabled for the preinstalled Gemma 4 E4B Experimental cache.")
     loadButton.click()
 
-    XCTAssertTrue(
-      application.progressIndicators["load-model-progress"].waitForExistence(timeout: 5))
+    _ = application.progressIndicators["load-model-progress"].waitForExistence(timeout: 5)
     messageField.click()
     messageField.typeText("Model load readiness probe")
     XCTAssertTrue(
@@ -389,7 +392,12 @@ final class LocalCoderUITests: XCTestCase {
 
   @MainActor
   private func chooseGemma4E4BIfPickerIsAvailable(in application: XCUIApplication) {
-    let picker = application.descendants(matching: .any)["chat.modelPicker"]
+    let pickers = application.menuButtons.matching(identifier: "chat.modelPicker")
+    let picker =
+      pickers.allElementsBoundByIndex.first { element in
+        element.exists && element.isEnabled
+          && !element.label.localizedCaseInsensitiveContains("go down")
+      } ?? pickers.element(boundBy: 0)
     guard picker.waitForExistence(timeout: 5), picker.isEnabled else {
       return
     }

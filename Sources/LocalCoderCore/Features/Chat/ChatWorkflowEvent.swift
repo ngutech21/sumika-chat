@@ -1,6 +1,11 @@
 import Foundation
 
 public enum ChatWorkflowEvent: Equatable, Sendable {
+  case nativeAssistantBoundaryAppended(
+    content: String,
+    sourceMessageID: UUID,
+    turnID: ChatTurn.ID
+  )
   case assistantMessageAnnotatedAsToolCall(
     assistantMessageID: UUID,
     toolCall: ToolCallModelMessage
@@ -107,6 +112,14 @@ public struct ChatWorkflowEventApplier: Sendable {
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
     let diagnostics = diagnostics(for: event, in: state)
     switch event {
+    case .nativeAssistantBoundaryAppended(let content, let sourceMessageID, let turnID):
+      if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        sourceMessageID: sourceMessageID,
+        content: content
+      ) {
+        mutator.appendModelContextEntry(entry, to: &state)
+      }
     case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, let toolCall):
       mutator.annotateToolCall(toolCall, for: assistantMessageID, in: &state)
     case .toolCallAppended(let record, let turnID):
@@ -176,6 +189,9 @@ public struct ChatWorkflowEventApplier: Sendable {
     in state: ChatSession
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
     switch event {
+    case .nativeAssistantBoundaryAppended(_, let sourceMessageID, let turnID):
+      return missingMessageDiagnostics([sourceMessageID], event: event, in: state)
+        + missingTurnDiagnostics([turnID], event: event, in: state)
     case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, _):
       return missingMessageDiagnostics([assistantMessageID], event: event, in: state)
     case .toolCallAppended(_, let turnID):

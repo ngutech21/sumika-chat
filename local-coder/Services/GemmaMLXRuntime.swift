@@ -310,16 +310,22 @@ nonisolated struct GemmaActiveGenerationRegistry: Sendable {
 
 nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
   case clean
+  case cleanNativeToolCallBoundary
   case inFlight(generationID: GemmaGenerationID)
   case dirty(reason: GemmaSessionInvalidationReason)
 
   var isReusable: Bool {
-    self == .clean
+    switch self {
+    case .clean, .cleanNativeToolCallBoundary:
+      true
+    case .inFlight, .dirty:
+      false
+    }
   }
 
   var invalidationReason: GemmaSessionInvalidationReason? {
     switch self {
-    case .clean:
+    case .clean, .cleanNativeToolCallBoundary:
       nil
     case .inFlight:
       .interrupted
@@ -333,6 +339,14 @@ nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
       return nil
     }
     return .clean
+  }
+
+  func completingNativeToolCallBoundary(generationID: GemmaGenerationID) -> GemmaCachedSessionState?
+  {
+    guard self == .inFlight(generationID: generationID) else {
+      return nil
+    }
+    return .cleanNativeToolCallBoundary
   }
 
   func invalidating(
@@ -684,6 +698,19 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           cacheEligibility: cacheEligibility
         )
       },
+      markNativeToolCallBoundary: { [weak self] output, nativeToolCalls in
+        await self?.markSessionNativeToolCallBoundary(
+          generationID: generationID,
+          historyPrefix: historySnapshot,
+          prompt: finalPrompt,
+          output: output,
+          nativeToolCalls: nativeToolCalls,
+          settings: settings,
+          projectionMode: projectionMode,
+          nativeToolSchemaHash: nativeToolSchemaHash,
+          cacheEligibility: cacheEligibility
+        )
+      },
       markCancelled: { [weak self] reason in
         await self?.markCachedSessionInvalid(generationID: generationID, reason: reason)
       }
@@ -844,6 +871,64 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         GemmaMessageSnapshot(role: Chat.Message.Role.user.rawValue, content: prompt),
         GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: output),
       ]
+    cachedSession = CachedGemmaSession(
+      session: cached.session,
+      prefix: completedPrefix,
+      settings: settings,
+      contextSignature: Self.renderedContextSignature(
+        for: completedPrefix,
+        settings: settings,
+        projectionMode: projectionMode,
+        nativeToolSchemaHash: nativeToolSchemaHash
+      ),
+      state: completedState
+    )
+    activeGenerationRegistry.clearIfCurrent(generationID)
+  }
+
+  private func markSessionNativeToolCallBoundary(
+    generationID: GemmaGenerationID,
+    historyPrefix: [GemmaMessageSnapshot],
+    prompt: String,
+    output: String,
+    nativeToolCalls: [ChatRuntimeToolCall],
+    settings: ChatGenerationSettings,
+    projectionMode: ModelContextProjectionMode,
+    nativeToolSchemaHash: String,
+    cacheEligibility: GemmaSessionCacheEligibility
+  ) {
+    guard generationOwnership.completeIfCurrent(generationID) else {
+      return
+    }
+    clearActiveCompletionContextIfCurrent(generationID)
+
+    guard let cached = cachedSession,
+      let completedState = cached.state.completingNativeToolCallBoundary(generationID: generationID)
+    else {
+      activeGenerationRegistry.clearIfCurrent(generationID)
+      return
+    }
+
+    if cacheEligibility != .enabled {
+      cachedSession = nil
+      pendingCacheInvalidationReason = .imageInputBoundary
+      activeGenerationRegistry.clearIfCurrent(generationID)
+      return
+    }
+
+    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(nativeToolCalls)
+    let assistantOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+    let assistantSnapshots =
+      assistantOutput.isEmpty
+      ? [GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: nativeBoundary)]
+      : [
+        GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: assistantOutput),
+        GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: nativeBoundary),
+      ]
+    let completedPrefix =
+      historyPrefix
+      + [GemmaMessageSnapshot(role: Chat.Message.Role.user.rawValue, content: prompt)]
+      + assistantSnapshots
     cachedSession = CachedGemmaSession(
       session: cached.session,
       prefix: completedPrefix,
@@ -1046,8 +1131,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     } else if cachedPrefix == currentHistory {
       if previousSignature == currentSignature {
         cacheMode = .sessionReused
-        cacheReason = .sessionReused
-        reuseStrategy = .exactPrompt
+        if cachedState == .cleanNativeToolCallBoundary {
+          cacheReason = .appendOnlyDeltaReused
+          reuseStrategy = .appendHistoryDelta(startIndex: cachedPrefix?.count ?? 0)
+        } else {
+          cacheReason = .sessionReused
+          reuseStrategy = .exactPrompt
+        }
         mismatchReason = nil
       } else {
         cacheMode = .invalidatedSignatureMismatch
@@ -1520,9 +1610,14 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated static func chatRuntimeToolCall(from toolCall: MLXLMCommon.ToolCall)
     -> ChatRuntimeToolCall
   {
-    ChatRuntimeToolCall(
+    let runtimeToolCall = ChatRuntimeToolCall(
       name: toolCall.function.name,
       arguments: toolCall.function.arguments.mapValues(toolArgumentValue(from:))
+    )
+    return ChatRuntimeToolCall(
+      name: runtimeToolCall.name,
+      arguments: runtimeToolCall.arguments,
+      rawText: NativeToolCallBoundaryRenderer.renderGemma4(runtimeToolCall)
     )
   }
 
@@ -1551,6 +1646,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: GemmaSessionCacheTrace,
     markCompleted: @escaping @Sendable (String) async -> Void,
+    markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
+      {
+        _, _ in
+      },
     markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void,
     memoryCacheClearer: GemmaMemoryCacheClearer = .live
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
@@ -1560,6 +1659,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       traceMetadata: traceMetadata,
       cacheTrace: cacheTrace,
       markCompleted: markCompleted,
+      markNativeToolCallBoundary: markNativeToolCallBoundary,
       markCancelled: markCancelled,
       memoryCacheClearer: memoryCacheClearer
     ).stream
@@ -1571,6 +1671,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: GemmaSessionCacheTrace,
     markCompleted: @escaping @Sendable (String) async -> Void,
+    markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
+      {
+        _, _ in
+      },
     markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void,
     memoryCacheClearer: GemmaMemoryCacheClearer = .live
   ) -> GemmaModelStreamPlan {
@@ -1583,7 +1687,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       var firstChunkAt: Date?
       var didCompleteNaturally = false
       var didTerminateDownstream = false
-      var didEmitNativeToolCall = false
+      var nativeToolCalls: [ChatRuntimeToolCall] = []
 
       do {
         generationLoop: for try await generation in stream {
@@ -1627,9 +1731,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           }
 
           if let toolCall = generation.toolCall {
-            didEmitNativeToolCall = true
+            let runtimeToolCall = Self.chatRuntimeToolCall(from: toolCall)
+            nativeToolCalls.append(runtimeToolCall)
             if case .terminated = continuation.yield(
-              .toolCall(Self.chatRuntimeToolCall(from: toolCall))
+              .toolCall(runtimeToolCall)
             ) {
               didTerminateDownstream = true
               break generationLoop
@@ -1705,8 +1810,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           return
         }
 
-        if didEmitNativeToolCall {
-          await markCancelled(.nativeToolCallBoundary)
+        if !nativeToolCalls.isEmpty {
+          await markNativeToolCallBoundary(output, nativeToolCalls)
         } else {
           await markCompleted(output)
         }

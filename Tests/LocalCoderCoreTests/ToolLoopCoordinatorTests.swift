@@ -70,9 +70,111 @@ struct ToolLoopCoordinatorTests {
     )
 
     #expect(annotatedAssistantMessageID(from: result) == assistantMessageID)
+    #expect(
+      nativeBoundaryContent(from: result)
+        == NativeToolCallBoundaryRenderer.renderGemma4(
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          )))
+    let nativeBoundaryIndex = try #require(nativeBoundaryEventIndex(from: result))
+    let toolResultIndex = try #require(toolResultEventIndex(from: result))
+    #expect(nativeBoundaryIndex < toolResultIndex)
     #expect(toolCall(from: result)?.toolName == .readFile)
+    #expect(toolCall(from: result)?.rawText == nativeBoundaryContent(from: result))
     #expect(toolCallRecord(from: result)?.status == .completed)
     #expect(completedToolResult(from: result)?.preview.text == "1: project notes")
+  }
+
+  @Test
+  func nativeBoundaryRendererIsCanonicalAndOmitsRuntimeIdentifiers() {
+    let first = NativeToolCallBoundaryRenderer.renderGemma4(
+      ChatRuntimeToolCall(
+        name: "read-file",
+        arguments: [
+          "limit": .number(20),
+          "path": .string("README.md"),
+        ]
+      ))
+    let second = NativeToolCallBoundaryRenderer.renderGemma4(
+      ChatRuntimeToolCall(
+        name: "read_file",
+        arguments: [
+          "path": .string("README.md"),
+          "limit": .number(20),
+        ]
+      ))
+    #expect(first == second)
+    #expect(first == "<|tool_call>call:read_file{limit:20,path:<|\"|>README.md<|\"|>}<tool_call|>")
+    #expect(!first.contains("callID"))
+    #expect(!first.contains("createdAt"))
+  }
+
+  @Test
+  func nativeBoundaryRendererEscapesEmbeddedStringMarkers() {
+    let rendered = NativeToolCallBoundaryRenderer.renderGemma4(
+      toolName: "read_file",
+      arguments: ["path": .string("abc<|\"|>def")]
+    )
+
+    #expect(rendered == "<|tool_call>call:read_file{path:<|\"|>abc<|\\\"|>def<|\"|>}<tool_call|>")
+    #expect(!rendered.contains("abcdef"))
+  }
+
+  @Test
+  func nativeBoundaryEventAppliesOnlyToModelContext() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let turnID = UUID()
+    let assistantMessageID = UUID()
+    let userEntry = try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: "Read it")
+    var state = ChatSession(
+      modelContextSnapshot: ModelContextSnapshot(entries: [userEntry]),
+      turns: [
+        ChatTurn(
+          id: turnID,
+          status: .running,
+          items: [
+            .assistantMessage(AssistantTurnMessage(id: assistantMessageID, content: ""))
+          ]
+        )
+      ],
+      pendingAttachments: [],
+      systemPrompt: "System",
+      generationSettings: .codingDefault
+    )
+
+    let result = try await ToolLoopCoordinator().run(
+      ToolLoopRequest(
+        workspace: workspace,
+        sessionID: sessionID,
+        turnID: turnID,
+        assistantMessageID: assistantMessageID,
+        items: state.turns.flatMap(\.items),
+        interactionMode: .agent,
+        toolCallingPolicy: .nativeGemma4,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")])
+        ]
+      )
+    )
+    let diagnostics = ChatWorkflowEventApplier().apply(result?.events ?? [], to: &state)
+
+    #expect(diagnostics.isEmpty)
+    #expect(
+      state.turns.flatMap(\.items).map(\.kindForTesting) == [.toolCall, .toolResult, .assistant])
+    #expect(state.modelContextSnapshot.entries.count == 3)
+    #expect(
+      state.modelContextSnapshot.entries[1].body
+        == .assistantOutput(
+          AssistantOutputContext(content: nativeBoundaryContent(from: result) ?? "")
+        ))
+    #expect(state.modelContextSnapshot.entries[2].body.modelRole == .user)
+
+    let projected = try state.modelContextSnapshot.runtimeProjectedEntries(
+      mode: .compactedHistoryForLaterTurns)
+    #expect(projected.map(\.role) == [.user, .assistant, .user])
+    #expect(projected[1].content == nativeBoundaryContent(from: result))
   }
 
   @Test
@@ -1093,6 +1195,34 @@ struct ToolLoopCoordinatorTests {
       return toolCall
     }
     return nil
+  }
+
+  private func nativeBoundaryContent(from step: ChatWorkflowStep?) -> String? {
+    for event in step?.events ?? [] {
+      guard case .nativeAssistantBoundaryAppended(let content, _, _) = event else {
+        continue
+      }
+      return content
+    }
+    return nil
+  }
+
+  private func nativeBoundaryEventIndex(from step: ChatWorkflowStep?) -> Int? {
+    (step?.events ?? []).firstIndex { event in
+      guard case .nativeAssistantBoundaryAppended = event else {
+        return false
+      }
+      return true
+    }
+  }
+
+  private func toolResultEventIndex(from step: ChatWorkflowStep?) -> Int? {
+    (step?.events ?? []).firstIndex { event in
+      guard case .toolResultAppended = event else {
+        return false
+      }
+      return true
+    }
   }
 
   private func annotatedAssistantMessageID(from step: ChatWorkflowStep?) -> UUID? {

@@ -188,10 +188,12 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   assistant output even when the app stops reading the stream early to execute
   the tool. This path must mark the cached session clean rather than dirtying it
   as `downstreamTerminated`.
-- Native Gemma 4 tool calls are not equivalent to tagged `<action>` text. Until
-  MLX exposes an exact replayable assistant tool-call message, native tool-call
-  completions conservatively mark the cache as
-  `invalidated_native_tool_call_boundary` instead of synthesizing pseudo-XML.
+- Native Gemma 4 tool calls are not equivalent to tagged `<action>` text. The
+  runtime records them as a canonical non-visible assistant boundary generated
+  from the native tool name and sorted arguments, with no call IDs or timestamps.
+  The cached session may remain clean only when the Core model context projects
+  the exact same boundary before the tool observation; the following
+  continuation can then trace `append_only_delta_reused`.
 - Dirty states stay conservative. Cancelled turns, interrupted streams, runtime
   errors, and non-tool downstream termination invalidate reuse.
 - Trace fields such as `cacheMode`, `cacheReason`, `appendOnly`,
@@ -202,9 +204,8 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   the rendered context signature. Reuse across different tool registries is
   invalid even when the visible frozen history is unchanged.
 
-The intended long-term fast path for native Gemma 4 tool loops is to preserve
-the structured assistant tool-call boundary exactly, not to map it onto the
-tagged Gemma 3 prompt format.
+The native Gemma 4 fast path preserves the assistant tool-call boundary as
+Gemma 4 native tool-call text, not as tagged Gemma 3 prompt format.
 
 ## Persistence Rules
 
