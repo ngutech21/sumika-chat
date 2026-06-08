@@ -3,9 +3,19 @@ import LocalCoderCore
 import SwiftUI
 
 struct ContentView: View {
-  @State private var columnVisibility: NavigationSplitViewVisibility = .all
+  @AppStorage("contentView.columnVisibility") private var storedColumnVisibility =
+    Self.defaultColumnVisibility.storageValue
   @State private var selection: AppNavigationSelection?
   @State private var appState: AppState
+
+  private static let defaultColumnVisibility = NavigationSplitViewVisibility.all
+
+  private var columnVisibility: Binding<NavigationSplitViewVisibility> {
+    Binding(
+      get: { NavigationSplitViewVisibility(storageValue: storedColumnVisibility) },
+      set: { storedColumnVisibility = $0.storageValue }
+    )
+  }
 
   @MainActor
   init() {
@@ -25,7 +35,7 @@ struct ContentView: View {
   var body: some View {
     let controller = appState.chatController
 
-    NavigationSplitView(columnVisibility: $columnVisibility) {
+    NavigationSplitView(columnVisibility: columnVisibility) {
       AppSidebar(
         appState: appState,
         selection: $selection,
@@ -127,7 +137,6 @@ struct ContentView: View {
       }
     }
     .onAppear {
-      columnVisibility = .all
       appState.startModelRuntimeServices()
       if let sessionID = appState.activeSessionID {
         selection = .session(sessionID)
@@ -168,4 +177,34 @@ struct ContentView: View {
 
 #Preview {
   ContentView()
+}
+
+private extension NavigationSplitViewVisibility {
+  init(storageValue: String) {
+    switch storageValue {
+    case Self.all.storageValue:
+      self = .all
+    case Self.doubleColumn.storageValue:
+      self = .doubleColumn
+    case Self.detailOnly.storageValue:
+      self = .detailOnly
+    default:
+      self = .automatic
+    }
+  }
+
+  var storageValue: String {
+    switch self {
+    case .automatic:
+      "automatic"
+    case .all:
+      "all"
+    case .doubleColumn:
+      "doubleColumn"
+    case .detailOnly:
+      "detailOnly"
+    default:
+      "automatic"
+    }
+  }
 }
