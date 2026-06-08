@@ -28,6 +28,10 @@ public actor RuntimeOperationCoordinator {
     currentOperationID == operationID
   }
 
+  func checkCurrentOperation(_ operationID: UUID) throws {
+    try checkCurrent(operationID)
+  }
+
   public func load(configuration: ChatModelConfiguration, operationID: UUID) async throws {
     if let activeUnloadTask {
       await activeUnloadTask.value
@@ -73,6 +77,57 @@ public actor RuntimeOperationCoordinator {
     )
     try checkCurrent(operationID)
     return usage
+  }
+
+  public func generatedTokenCount(for text: String, operationID: UUID) async throws -> Int {
+    try checkCurrent(operationID)
+    let count = try await runtime.generatedTokenCount(for: text)
+    try checkCurrent(operationID)
+    return count
+  }
+
+  public func streamReply(
+    for transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings,
+    toolContext: ChatRuntimeToolContext?,
+    operationID: UUID
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    try checkCurrent(operationID)
+    let stream = try await runtime.streamReply(
+      for: transcript,
+      attachments: attachments,
+      systemPrompt: systemPrompt,
+      settings: settings,
+      toolContext: toolContext
+    )
+    try checkCurrent(operationID)
+
+    return AsyncThrowingStream { continuation in
+      let task = Task {
+        do {
+          for try await event in stream {
+            try checkCurrent(operationID)
+            continuation.yield(event)
+          }
+          try checkCurrent(operationID)
+          continuation.finish()
+        } catch {
+          continuation.finish(throwing: error)
+        }
+      }
+
+      continuation.onTermination = { _ in
+        task.cancel()
+      }
+    }
+  }
+
+  public func completePartialReply(output: String, operationID: UUID) async throws {
+    try checkCurrent(operationID)
+    await runtime.completePartialReply(output: output)
+    try checkCurrent(operationID)
   }
 
   private func checkCurrent(_ operationID: UUID) throws {

@@ -161,7 +161,7 @@ public final class ChatSessionController {
       modelLifecycleCoordinator: modelLifecycleCoordinator,
       turnTracer: turnTracer)
     self.chatGenerationCoordinator = ChatGenerationCoordinator(
-      runtime: runtime,
+      runtimeOperations: runtimeOperations,
       turnTracer: turnTracer,
       streamingFlushInterval: streamingFlushInterval,
       streamingFlushCharacterLimit: streamingFlushCharacterLimit
@@ -1241,6 +1241,7 @@ extension ChatSessionController {
     )
     let generationResult = try await chatGenerationCoordinator.streamAssistantReplyResult(
       turnID: turnID,
+      operationID: modelRuntime.currentOperationID(),
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode,
       transcript: modelContextSnapshot,

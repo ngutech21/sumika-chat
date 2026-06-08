@@ -215,6 +215,75 @@ struct ChatGenerationCoordinatorTests {
     #expect(event.toolLoopIteration == 2)
   }
 
+  @Test
+  func streamCancelsWhenRuntimeOperationBecomesStale() async throws {
+    let operationID = UUID()
+    let runtime = OperationLaneControlledRuntime()
+    let runtimeOperations = RuntimeOperationCoordinator(
+      runtime: runtime,
+      initialOperationID: operationID
+    )
+    let coordinator = ChatGenerationCoordinator(
+      runtimeOperations: runtimeOperations,
+      streamingFlushInterval: 3600,
+      streamingFlushCharacterLimit: 100
+    )
+    var chunks: [String] = []
+
+    let generationTask = Task {
+      try await coordinator.streamAssistantReply(
+        operationID: operationID,
+        transcript: ModelContextSnapshot(),
+        systemPrompt: "Answer normally.",
+        settings: .codingDefault,
+        appendChunk: { chunks.append($0) },
+        updateGenerationMetrics: { _ in },
+        updateContextUsage: {}
+      )
+    }
+
+    try await waitUntilAsync { await runtime.yieldedChunkCount == 1 }
+    await runtimeOperations.setCurrentOperation(UUID())
+    await runtime.releaseStream()
+
+    await #expect(throws: CancellationError.self) {
+      try await generationTask.value
+    }
+    #expect(chunks.isEmpty)
+  }
+
+  @Test
+  func staleGeneratedTokenCountDoesNotCallRuntime() async throws {
+    let operationID = UUID()
+    let runtime = OperationLaneControlledRuntime()
+    let runtimeOperations = RuntimeOperationCoordinator(
+      runtime: runtime,
+      initialOperationID: UUID()
+    )
+
+    await #expect(throws: CancellationError.self) {
+      _ = try await runtimeOperations.generatedTokenCount(for: "stale", operationID: operationID)
+    }
+
+    #expect(await runtime.generatedTokenCountRequestCount == 0)
+  }
+
+  @Test
+  func staleCompletePartialReplyDoesNotCallRuntime() async throws {
+    let operationID = UUID()
+    let runtime = OperationLaneControlledRuntime()
+    let runtimeOperations = RuntimeOperationCoordinator(
+      runtime: runtime,
+      initialOperationID: UUID()
+    )
+
+    await #expect(throws: CancellationError.self) {
+      try await runtimeOperations.completePartialReply(output: "stale", operationID: operationID)
+    }
+
+    #expect(await runtime.completedPartialReplies.isEmpty)
+  }
+
   private func waitUntilAsync(
     timeout: Duration = .seconds(2),
     _ condition: @escaping () async -> Bool
@@ -225,6 +294,93 @@ struct ChatGenerationCoordinatorTests {
         throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))
+    }
+  }
+}
+
+private actor OperationLaneControlledRuntime: ChatModelRuntime {
+  private var streamContinuation: CheckedContinuation<Void, Never>?
+  private var didReleaseStream = false
+  private(set) var yieldedChunkCount = 0
+  private(set) var generatedTokenCountRequestCount = 0
+  private(set) var completedPartialReplies: [String] = []
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+  }
+
+  func unload() async {}
+  func clearContext() async {}
+
+  func generatedTokenCount(for text: String) async throws -> Int {
+    _ = text
+    generatedTokenCountRequestCount += 1
+    return 1
+  }
+
+  func contextUsage(
+    for transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = transcript
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = transcript
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+
+    return AsyncThrowingStream { continuation in
+      let task = Task {
+        continuation.yield(.chunk("first"))
+        recordYieldedChunk()
+        await waitForStreamRelease()
+        guard !Task.isCancelled else {
+          continuation.finish(throwing: CancellationError())
+          return
+        }
+        continuation.yield(.chunk("second"))
+        continuation.yield(.completed(nil))
+        continuation.finish()
+      }
+
+      continuation.onTermination = { _ in
+        task.cancel()
+      }
+    }
+  }
+
+  func completePartialReply(output: String) async {
+    completedPartialReplies.append(output)
+  }
+
+  func releaseStream() {
+    didReleaseStream = true
+    streamContinuation?.resume()
+    streamContinuation = nil
+  }
+
+  private func recordYieldedChunk() {
+    yieldedChunkCount += 1
+  }
+
+  private func waitForStreamRelease() async {
+    await withCheckedContinuation { continuation in
+      if didReleaseStream {
+        continuation.resume()
+      } else {
+        streamContinuation = continuation
+      }
     }
   }
 }

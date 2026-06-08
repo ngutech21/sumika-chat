@@ -26,10 +26,22 @@ public struct ChatGenerationResult: Equatable, Sendable {
 
 @MainActor
 public struct ChatGenerationCoordinator {
-  private let runtime: any ChatModelRuntime
+  private let runtimeOperations: RuntimeOperationCoordinator
   private let turnTracer: any TurnTracing
   private let streamingFlushInterval: TimeInterval
   private let streamingFlushCharacterLimit: Int
+
+  public init(
+    runtimeOperations: RuntimeOperationCoordinator,
+    turnTracer: any TurnTracing = NoopTurnTracer(),
+    streamingFlushInterval: TimeInterval,
+    streamingFlushCharacterLimit: Int
+  ) {
+    self.runtimeOperations = runtimeOperations
+    self.turnTracer = turnTracer
+    self.streamingFlushInterval = streamingFlushInterval
+    self.streamingFlushCharacterLimit = streamingFlushCharacterLimit
+  }
 
   public init(
     runtime: any ChatModelRuntime,
@@ -37,14 +49,17 @@ public struct ChatGenerationCoordinator {
     streamingFlushInterval: TimeInterval,
     streamingFlushCharacterLimit: Int
   ) {
-    self.runtime = runtime
-    self.turnTracer = turnTracer
-    self.streamingFlushInterval = streamingFlushInterval
-    self.streamingFlushCharacterLimit = streamingFlushCharacterLimit
+    self.init(
+      runtimeOperations: RuntimeOperationCoordinator(runtime: runtime),
+      turnTracer: turnTracer,
+      streamingFlushInterval: streamingFlushInterval,
+      streamingFlushCharacterLimit: streamingFlushCharacterLimit
+    )
   }
 
   public func streamAssistantReply(
     turnID: ChatTurn.ID? = nil,
+    operationID: UUID? = nil,
     toolLoopIteration: Int? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
     transcript: ModelContextSnapshot,
@@ -58,6 +73,7 @@ public struct ChatGenerationCoordinator {
   ) async throws -> String {
     let result = try await streamAssistantReplyResult(
       turnID: turnID,
+      operationID: operationID,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode,
       transcript: transcript,
@@ -75,6 +91,7 @@ public struct ChatGenerationCoordinator {
 
   public func streamAssistantReplyResult(
     turnID: ChatTurn.ID? = nil,
+    operationID requestedOperationID: UUID? = nil,
     toolLoopIteration: Int? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
     transcript: ModelContextSnapshot,
@@ -87,6 +104,12 @@ public struct ChatGenerationCoordinator {
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateContextUsage: () async -> Void
   ) async throws -> ChatGenerationResult {
+    let operationID =
+      if let requestedOperationID {
+        requestedOperationID
+      } else {
+        await runtimeOperations.currentOperation()
+      }
     let generationID = UUID()
     let metadata = TurnTraceMetadata(
       turnID: turnID,
@@ -99,6 +122,7 @@ public struct ChatGenerationCoordinator {
     return try await TurnTraceContext.$current.withValue(metadata) {
       return try await streamAssistantReplyWithTraceContext(
         turnID: turnID,
+        operationID: operationID,
         generationID: generationID,
         interactionMode: interactionMode,
         transcript: transcript,
@@ -116,6 +140,7 @@ public struct ChatGenerationCoordinator {
 
   private func streamAssistantReplyWithTraceContext(
     turnID: ChatTurn.ID?,
+    operationID: UUID,
     generationID: UUID,
     interactionMode: WorkspaceInteractionMode?,
     transcript: ModelContextSnapshot,
@@ -129,12 +154,13 @@ public struct ChatGenerationCoordinator {
     updateContextUsage: () async -> Void
   ) async throws -> ChatGenerationResult {
     let generationStartedAt = Date()
-    let stream = try await runtime.streamReply(
+    let stream = try await runtimeOperations.streamReply(
       for: transcript,
       attachments: attachments,
       systemPrompt: systemPrompt,
       settings: settings,
-      toolContext: toolContext
+      toolContext: toolContext,
+      operationID: operationID
     )
 
     var bufferedChunk = ""
@@ -144,6 +170,7 @@ public struct ChatGenerationCoordinator {
     var lastFlushDate = Date()
     var didStopAfterCompleteToolAction = false
     var didComplete = false
+    var shouldFlushBufferedChunksOnExit = true
     let streamConsumptionStartedAt = Date()
 
     func flushBufferedChunks() {
@@ -181,64 +208,76 @@ public struct ChatGenerationCoordinator {
     }
 
     defer {
-      if !didStopAfterCompleteToolAction {
+      if shouldFlushBufferedChunksOnExit && !didStopAfterCompleteToolAction {
         flushBufferedChunks()
       }
     }
 
-    generationLoop: for try await event in stream {
-      try Task.checkCancellation()
-      switch event {
-      case .chunk(let chunk):
-        generatedContent += chunk
-        bufferedChunk += chunk
-        if stopAfterCompleteToolAction,
-          let action = CompleteToolActionBoundary.firstCompleteAction(from: bufferedChunk)
-        {
-          let startedAt = Date()
-          appendChunk(action)
-          displayedPartialToolAction = action
-          let durationMs = Date().timeIntervalSince(startedAt) * 1000
-          Task {
-            await turnTracer.recordTurnTraceEvent(
-              TurnTraceEvent(
-                turnID: turnID,
-                generationID: generationID,
-                phase: .uiFlush,
-                durationMs: durationMs,
-                messageCount: transcript.entries.count,
-                toolLoopIteration: TurnTraceContext.current?.toolLoopIteration,
-                interactionMode: interactionMode
+    do {
+      generationLoop: for try await event in stream {
+        try Task.checkCancellation()
+        try await runtimeOperations.checkCurrentOperation(operationID)
+        switch event {
+        case .chunk(let chunk):
+          generatedContent += chunk
+          bufferedChunk += chunk
+          if stopAfterCompleteToolAction,
+            let action = CompleteToolActionBoundary.firstCompleteAction(from: bufferedChunk)
+          {
+            let startedAt = Date()
+            appendChunk(action)
+            displayedPartialToolAction = action
+            let durationMs = Date().timeIntervalSince(startedAt) * 1000
+            Task {
+              await turnTracer.recordTurnTraceEvent(
+                TurnTraceEvent(
+                  turnID: turnID,
+                  generationID: generationID,
+                  phase: .uiFlush,
+                  durationMs: durationMs,
+                  messageCount: transcript.entries.count,
+                  toolLoopIteration: TurnTraceContext.current?.toolLoopIteration,
+                  interactionMode: interactionMode
+                )
               )
-            )
+            }
+            bufferedChunk = ""
+            didStopAfterCompleteToolAction = true
+            break generationLoop
           }
-          bufferedChunk = ""
-          didStopAfterCompleteToolAction = true
-          break generationLoop
-        }
-        if shouldFlushBufferedChunks() {
-          if !stopAfterCompleteToolAction {
-            flushBufferedChunks()
+          if shouldFlushBufferedChunks() {
+            if !stopAfterCompleteToolAction {
+              flushBufferedChunks()
+            }
           }
+        case .toolCall(let toolCall):
+          flushBufferedChunks()
+          nativeToolCalls.append(toolCall)
+        case .completed(let metrics):
+          flushBufferedChunks()
+          let completedMetrics = try await generationMetrics(
+            from: metrics,
+            generatedContent: generatedContent,
+            startedAt: generationStartedAt,
+            operationID: operationID
+          )
+          try await runtimeOperations.checkCurrentOperation(operationID)
+          updateGenerationMetrics(completedMetrics)
+          await updateContextUsage()
+          didComplete = true
         }
-      case .toolCall(let toolCall):
-        flushBufferedChunks()
-        nativeToolCalls.append(toolCall)
-      case .completed(let metrics):
-        flushBufferedChunks()
-        let completedMetrics = try await generationMetrics(
-          from: metrics,
-          generatedContent: generatedContent,
-          startedAt: generationStartedAt
-        )
-        updateGenerationMetrics(completedMetrics)
-        await updateContextUsage()
-        didComplete = true
       }
+    } catch is CancellationError {
+      shouldFlushBufferedChunksOnExit = false
+      bufferedChunk = ""
+      throw CancellationError()
     }
 
     if didStopAfterCompleteToolAction && !didComplete {
-      await runtime.completePartialReply(output: displayedPartialToolAction)
+      try await runtimeOperations.completePartialReply(
+        output: displayedPartialToolAction,
+        operationID: operationID
+      )
       let partialDurationMs = Date().timeIntervalSince(generationStartedAt) * 1000
       await turnTracer.recordTurnTraceEvent(
         TurnTraceEvent(
@@ -253,14 +292,17 @@ public struct ChatGenerationCoordinator {
       )
       let partialMetrics = try await partialGenerationMetrics(
         generatedContent: displayedPartialToolAction,
-        durationMs: partialDurationMs
+        durationMs: partialDurationMs,
+        operationID: operationID
       )
+      try await runtimeOperations.checkCurrentOperation(operationID)
       updateGenerationMetrics(partialMetrics)
       await updateContextUsage()
       return ChatGenerationResult(assistantContent: displayedPartialToolAction)
     } else if !didComplete {
       throw ChatGenerationError.streamInterrupted
     }
+    try await runtimeOperations.checkCurrentOperation(operationID)
     return ChatGenerationResult(
       assistantContent: generatedContent,
       nativeToolCalls: nativeToolCalls
@@ -270,7 +312,8 @@ public struct ChatGenerationCoordinator {
   private func generationMetrics(
     from metrics: ChatGenerationMetrics?,
     generatedContent: String,
-    startedAt: Date
+    startedAt: Date,
+    operationID: UUID
   ) async throws -> ChatGenerationMetrics? {
     let durationMs = Date().timeIntervalSince(startedAt) * 1000
     if let metrics {
@@ -283,19 +326,24 @@ public struct ChatGenerationCoordinator {
 
     return try await partialGenerationMetrics(
       generatedContent: generatedContent,
-      durationMs: durationMs
+      durationMs: durationMs,
+      operationID: operationID
     )
   }
 
   private func partialGenerationMetrics(
     generatedContent: String,
-    durationMs: Double
+    durationMs: Double,
+    operationID: UUID
   ) async throws -> ChatGenerationMetrics? {
     guard !generatedContent.isEmpty else {
       return nil
     }
 
-    let generatedTokenCount = try await runtime.generatedTokenCount(for: generatedContent)
+    let generatedTokenCount = try await runtimeOperations.generatedTokenCount(
+      for: generatedContent,
+      operationID: operationID
+    )
     let durationSeconds = max(durationMs / 1000, 0.001)
     return ChatGenerationMetrics(
       generatedTokenCount: generatedTokenCount,
