@@ -696,8 +696,10 @@ struct ChatSessionControllerTests {
     #expect(followUp.content.contains("tool=\"read_file\""))
     #expect(followUp.content.contains("Tool observation:"))
     #expect(followUp.content.contains("1: project notes"))
+    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
     #expect(
-      controller.chatSession.toolCalls.first?.turnID == controller.chatSession.turns.first?.id)
+      controller.chatSession.turnID(containingToolCall: toolCallID)
+        == controller.chatSession.turns.first?.id)
   }
 
   @Test
@@ -758,8 +760,10 @@ struct ChatSessionControllerTests {
     #expect(followUp.content.contains("tool=\"web_fetch\""))
     #expect(followUp.content.contains("Tool observation:"))
     #expect(followUp.content.contains("Fetched fixture text."))
+    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
     #expect(
-      controller.chatSession.toolCalls.first?.turnID == controller.chatSession.turns.first?.id)
+      controller.chatSession.turnID(containingToolCall: toolCallID)
+        == controller.chatSession.turns.first?.id)
   }
 
   @Test

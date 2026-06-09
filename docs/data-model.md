@@ -797,7 +797,6 @@ Properties:
 - `events: [ToolCallEvent]`
 - `request: ToolCallRequest`
 - `state: ToolCallState`
-- `turnID: ChatTurn.ID?`
 
 Relations:
 

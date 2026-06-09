@@ -1132,9 +1132,6 @@ extension ChatSessionController {
     updated: ToolCallRecord
   ) -> ToolCallRecord {
     var merged = updated
-    if merged.turnID == nil {
-      merged.turnID = existing.turnID
-    }
     let appendedEvents = updated.events.filter { newEvent in
       !existing.events.contains { existingEvent in
         existingEvent.actor == newEvent.actor

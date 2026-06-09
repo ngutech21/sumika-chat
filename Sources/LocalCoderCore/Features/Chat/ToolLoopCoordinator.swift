@@ -151,11 +151,10 @@ public struct ToolLoopCoordinator: Sendable {
 
     for (index, output) in outputs.enumerated() {
       let executeStartedAt = Date()
-      var record = await toolOrchestrator(for: request.interactionMode).execute(
+      let record = await toolOrchestrator(for: request.interactionMode).execute(
         request: output.request,
         workspace: request.workspace
       )
-      record.turnID = request.turnID
       await traceToolExecution(
         startedAt: executeStartedAt,
         loopRequest: request,

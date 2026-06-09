@@ -448,7 +448,6 @@ nonisolated extension ToolArgumentValue {
 public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   public var id: UUID { request.id }
 
-  public var turnID: ChatTurn.ID?
   public var request: ToolCallRequest
   public var evaluation: ToolPermissionEvaluation
   public var events: [ToolCallEvent]
@@ -471,13 +470,11 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   }
 
   public init(
-    turnID: ChatTurn.ID? = nil,
     request: ToolCallRequest,
     evaluation: ToolPermissionEvaluation,
     events: [ToolCallEvent] = [],
     state: ToolCallState
   ) {
-    self.turnID = turnID
     self.request = request
     self.evaluation = evaluation
     self.events = events

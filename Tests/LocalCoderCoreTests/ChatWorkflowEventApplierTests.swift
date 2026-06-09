@@ -90,10 +90,9 @@ struct ChatWorkflowEventApplierTests {
       to: &state
     )
 
-    var expectedRecord = record
-    expectedRecord.turnID = turnID
-    #expect(state.toolCalls == [expectedRecord])
+    #expect(state.toolCalls == [record])
     #expect(state.turns[0].items == [.toolCall(record.id)])
+    #expect(state.turnID(containingToolCall: record.id) == turnID)
   }
 
   @Test
@@ -138,6 +137,7 @@ struct ChatWorkflowEventApplierTests {
     #expect(items.compactMap(\.messageID) == [result.callID])
     #expect(items[0].toolResultForTesting(records: state.toolCalls) == result)
     #expect(state.turns[0].items == [.toolResult(result.callID)])
+    #expect(state.turnID(containingToolCall: result.callID) == turnID)
     #expect(state.modelContextSnapshot.entries[0].sourceMessageID == result.callID)
   }
 

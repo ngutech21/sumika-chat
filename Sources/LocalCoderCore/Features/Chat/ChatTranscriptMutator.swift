@@ -184,12 +184,6 @@ public struct ChatTranscriptMutator: Sendable {
     to state: inout ChatSession
   ) {
     ensureToolCallRecord(for: toolResult, in: &state)
-    if let turnID,
-      let index = state.toolCalls.firstIndex(where: { $0.id == toolResult.callID }),
-      state.toolCalls[index].turnID == nil
-    {
-      state.toolCalls[index].turnID = turnID
-    }
     appendItem(.toolResult(toolResult.callID), toTurn: turnID, in: &state)
   }
 
