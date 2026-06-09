@@ -122,8 +122,8 @@ public struct ToolPromptPolicy: Sendable {
       \(nativeMultipleToolCallInstruction(policy: toolCallingPolicy))
 
       File workflow:
-      - For multi-step Agent tasks, first call todo_write with 2 to 6 newline rows like Inspect files:false. Use false for new todos; true only for done. Never send numbered lists or only the next step.
-      - After completing a planned todo, call todo_write with the full plan and mark only completed items true.
+      - For multi-step Agent tasks, first call todo_write with item1 and item2, plus optional item3 through item6. Use done1/done2 booleans only for already completed items; omit done fields for new todos. Never call todo_write once per todo.
+      - After completing a planned todo, call todo_write with the full plan and mark only completed items using done1 through done6.
       - To display file contents directly to the user, use show_file.
       - To inspect, explain, summarize, search within, reason about, or modify a file, use read_file.
       - To find files by name, use glob_files or list_files.
@@ -173,7 +173,7 @@ public struct ToolPromptPolicy: Sendable {
       !readOnly && toolRegistry.definition(for: .todoWrite) != nil
       ? """
       If todo_write already succeeded with "Plan updated.", do not call todo_write again unless the plan actually changed. Continue with the next non-todo tool or answer.
-      After completing a planned todo, call todo_write with the full plan and mark only completed items true.
+      After completing a planned todo, call todo_write with the full plan and mark only completed items using done1 through done6.
       """
       : ""
     return [

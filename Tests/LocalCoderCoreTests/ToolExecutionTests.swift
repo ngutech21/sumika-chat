@@ -609,8 +609,15 @@ struct ToolExecutionTests {
       input, context: ToolContext(workspace: workspace))
 
     #expect(definition.name == .todoWrite)
-    #expect(definition.parameters.map(\.name) == ["items"])
-    #expect(definition.parameters.first?.valueType == .string)
+    #expect(
+      definition.parameters.map(\.name)
+        == [
+          "item1", "item2", "item3", "item4", "item5", "item6",
+          "done1", "done2", "done3", "done4", "done5", "done6",
+        ])
+    #expect(definition.parameters.first { $0.name == "item1" }?.isRequired == true)
+    #expect(definition.parameters.first { $0.name == "item3" }?.isRequired == false)
+    #expect(definition.parameters.first { $0.name == "done1" }?.valueType == .boolean)
     #expect(definition.capabilities.isEmpty)
     #expect(definition.riskLevel == .low)
     #expect(!ToolExecutorRegistry.readOnly.definitions.map(\.name).contains(.todoWrite))

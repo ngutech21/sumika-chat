@@ -566,11 +566,31 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
     case items
   }
 
+  private struct DynamicCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+      self.stringValue = stringValue
+      intValue = nil
+    }
+
+    init?(intValue: Int) {
+      stringValue = String(intValue)
+      self.intValue = intValue
+    }
+  }
+
   public init(items: [TodoItem]) {
     self.items = items
   }
 
   public init(from decoder: Decoder) throws {
+    if let numberedItems = try Self.decodeNumberedItems(from: decoder) {
+      items = numberedItems
+      return
+    }
+
     let container = try decoder.container(keyedBy: CodingKeys.self)
     if let items = try? container.decode([TodoItem].self, forKey: .items) {
       self.items = items
@@ -623,7 +643,7 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
       forKey: .items,
       in: container,
       debugDescription:
-        "items must be todo rows: content:true|false."
+        "todo_write must use item1/item2 fields or legacy items rows."
     )
   }
 
@@ -640,6 +660,76 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
   private static func decodeStringRows(fromJSONString rawItems: String) -> [String]? {
     let data = Data(rawItems.utf8)
     return try? JSONDecoder().decode([String].self, from: data)
+  }
+
+  private static func decodeNumberedItems(from decoder: Decoder) throws -> [TodoItem]? {
+    let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+    let hasNumberedItem = (1...6).contains { index in
+      container.contains(key("item\(index)"))
+    }
+    guard hasNumberedItem else {
+      return nil
+    }
+
+    var decodedItems: [TodoItem] = []
+    for index in 1...6 {
+      let itemKey = key("item\(index)")
+      guard container.contains(itemKey) else {
+        continue
+      }
+
+      let content = try container.decode(String.self, forKey: itemKey)
+      let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+      if trimmedContent.isEmpty && index > 2 {
+        continue
+      }
+
+      let done = try decodeDoneValue(from: container, index: index)
+      decodedItems.append(
+        TodoItem(
+          id: String(index),
+          content: trimmedContent,
+          status: done ? .completed : .pending
+        ))
+    }
+    return decodedItems
+  }
+
+  private static func decodeDoneValue(
+    from container: KeyedDecodingContainer<DynamicCodingKey>,
+    index: Int
+  ) throws -> Bool {
+    let doneKey = key("done\(index)")
+    guard container.contains(doneKey) else {
+      return false
+    }
+
+    if let value = try? container.decode(Bool.self, forKey: doneKey) {
+      return value
+    }
+    if let rawValue = try? container.decode(String.self, forKey: doneKey) {
+      switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+      case "true":
+        return true
+      case "false":
+        return false
+      default:
+        break
+      }
+    }
+
+    throw DecodingError.dataCorruptedError(
+      forKey: doneKey,
+      in: container,
+      debugDescription: "done\(index) must be true or false."
+    )
+  }
+
+  private static func key(_ name: String) -> DynamicCodingKey {
+    guard let key = DynamicCodingKey(stringValue: name) else {
+      preconditionFailure("Invalid todo_write key: \(name)")
+    }
+    return key
   }
 
   private static func parseRows(_ rows: [String]) throws -> [TodoItem] {

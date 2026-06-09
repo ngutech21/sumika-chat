@@ -258,11 +258,12 @@ flowchart TD
 - `todo_write` is available only in the Agent registry. It accepts 2 to 6
   short todo items and never requires approval because it mutates only session
   state. Chat prompts must not render the todo tool or current todo plan.
-  `todo_write` calls pass `items` as simple rows in `content:true|false`
-  form, for example `Inspect files:false`. `true` maps to `completed`; `false`
-  maps to `pending`. The typed runtime may still decode internal `[TodoItem]`
-  object arrays, but model-facing prompts and schemas should present only the
-  boolean row contract.
+  Model-facing `todo_write` calls pass `item1` and `item2` string fields, plus
+  optional `item3` through `item6`. Optional `done1` through `done6` booleans
+  mark completed items; missing `doneN` values map to `pending`. The typed
+  runtime may still decode internal `[TodoItem]` object arrays and legacy
+  `items` row strings, but model-facing prompts and schemas should present only
+  the flat `itemN`/`doneN` contract.
 - `write_file` writes the model-provided `content` directly. The model should
   not generate helper scripts to create files. Missing-path suggestions do not
   apply to `write_file`, because creating a new file is a normal write case.

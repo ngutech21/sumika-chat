@@ -94,22 +94,24 @@ struct ToolDefinitionSchemaTests {
   }
 
   @Test
-  func todoWriteDefinitionExposesItemsAsBooleanRows() {
+  func todoWriteDefinitionExposesNumberedItemsAndDoneFlags() {
     let definition = ToolDefinition.todoWrite
     let schema = definition.functionSchema
 
     #expect(definition.description.contains("Agent todo plan"))
     #expect(definition.riskLevel == .low)
     #expect(definition.capabilities.isEmpty)
-    #expect(schema.parameters.required == ["items"])
-    let items = schema.parameters.properties["items"]
-    #expect(items?.type == .string)
-    #expect(items?.description.contains("todo rows") == true)
-    #expect(items?.description.contains("content:true|false") == true)
-    #expect(items?.description.contains("false=new, true=done") == true)
-    #expect(items?.description.contains("No numbering/markdown") == true)
-    #expect(items?.arrayItems == nil)
-    #expect(definition.parameters.first { $0.name == "items" }?.supportsHeredocPayload == true)
+    #expect(schema.parameters.required == ["item1", "item2"])
+    #expect(schema.parameters.properties["item1"]?.type == .string)
+    #expect(schema.parameters.properties["item2"]?.type == .string)
+    #expect(schema.parameters.properties["item6"]?.type == .string)
+    #expect(schema.parameters.properties["done1"]?.type == .boolean)
+    #expect(schema.parameters.properties["done6"]?.type == .boolean)
+    #expect(schema.parameters.properties["done1"]?.defaultValue == .bool(false))
+    #expect(schema.parameters.properties["item1"]?.description.contains("Required") == true)
+    #expect(schema.parameters.properties["item3"]?.description.contains("Optional") == true)
+    #expect(schema.parameters.properties["item1"]?.arrayItems == nil)
+    #expect(schema.parameters.properties.keys.count == 12)
   }
 
   @Test

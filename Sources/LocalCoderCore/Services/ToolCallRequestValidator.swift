@@ -193,11 +193,31 @@ public struct ToolCallRequestValidator: Sendable {
   private func validateTodoWriteArgumentNames(
     _ arguments: ToolCallArguments
   ) -> InvalidToolCallReason? {
-    let unknownArguments = Set(arguments.keys).subtracting(["items"])
+    if arguments["items"] != nil {
+      let unknownArguments = Set(arguments.keys).subtracting(["items"])
+      guard unknownArguments.isEmpty else {
+        return .unknownArguments(unknownArguments.sorted())
+      }
+      return nil
+    }
+
+    let knownArguments = Set(
+      (1...6).flatMap { index in
+        ["item\(index)", "done\(index)"]
+      }
+    )
+    let unknownArguments = Set(arguments.keys).subtracting(knownArguments)
     guard unknownArguments.isEmpty else {
       return .unknownArguments(unknownArguments.sorted())
     }
-    return arguments["items"] == nil ? .missingRequiredArgument("items") : nil
+
+    guard arguments["item1"] != nil else {
+      return .missingRequiredArgument("item1")
+    }
+    guard arguments["item2"] != nil else {
+      return .missingRequiredArgument("item2")
+    }
+    return nil
   }
 
   private func decodeModelFacingAskUserInput(

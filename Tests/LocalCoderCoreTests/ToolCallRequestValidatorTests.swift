@@ -263,6 +263,32 @@ struct ToolCallRequestValidatorTests {
   }
 
   @Test
+  func todoWriteAcceptsNumberedItemFieldsAndDoneFlags() {
+    let request = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "item1": .string("Inspect files"),
+          "done1": .bool(true),
+          "item2": .string("Run tests"),
+          "done2": .bool(false),
+          "item3": .string(" "),
+          "item4": .string("Summarize results"),
+        ]),
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(
+      request.payload
+        == .todoWrite(
+          TodoWriteInput(items: [
+            TodoItem(id: "1", content: "Inspect files", status: .completed),
+            TodoItem(id: "2", content: "Run tests", status: .pending),
+            TodoItem(id: "4", content: "Summarize results", status: .pending),
+          ])))
+  }
+
+  @Test
   func todoWriteAcceptsRowStringsAndCommaContainingContent() {
     let request = validator.validate(
       raw(
@@ -470,6 +496,23 @@ struct ToolCallRequestValidatorTests {
         ]),
       registry: registry
     )
+    let oneNumberedItem = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "item1": .string("Only one item")
+        ]),
+      registry: registry
+    )
+    let emptyRequiredNumberedItem = validator.validate(
+      raw(
+        .todoWrite,
+        arguments: [
+          "item1": .string(" "),
+          "item2": .string("Valid item"),
+        ]),
+      registry: registry
+    )
 
     #expect(invalidReason(noItems)?.message.contains("2 to 6 items") == true)
     #expect(invalidReason(oneItem)?.message.contains("2 to 6 items") == true)
@@ -479,6 +522,10 @@ struct ToolCallRequestValidatorTests {
     #expect(invalidReason(longItem)?.message.contains("120 characters or fewer") == true)
     #expect(invalidReason(invalidDoneValue)?.message.contains("content:true|false") == true)
     #expect(invalidReason(malformedRow)?.message.contains("content:true|false") == true)
+    #expect(invalidReason(oneNumberedItem) == .missingRequiredArgument("item2"))
+    #expect(
+      invalidReason(emptyRequiredNumberedItem)?.message.contains("content must not be empty")
+        == true)
   }
 
   @Test
@@ -518,20 +565,20 @@ struct ToolCallRequestValidatorTests {
   }
 
   @Test
-  func todoWriteRejectsDirectItemFields() {
+  func todoWriteRejectsUnknownTodoFields() {
     let request = validator.validate(
       raw(
         .todoWrite,
         arguments: [
-          "id": .string("inspect"),
-          "status": .string("inProgress"),
-          "},{content.": .string("Inspect the requested CLI project"),
+          "item1": .string("Inspect files"),
+          "item2": .string("Run tests"),
+          "items_done": .string("false"),
         ]),
       registry: ToolExecutorRegistry.codingAgent.toolRegistry
     )
 
-    #expect(invalidReason(request) == .unknownArguments(["id", "status", "},{content."]))
-    #expect(invalidInput(request)?.rawArguments.keys.sorted() == ["id", "status", "},{content."])
+    #expect(invalidReason(request) == .unknownArguments(["items_done"]))
+    #expect(invalidInput(request)?.rawArguments.keys.sorted() == ["item1", "item2", "items_done"])
   }
 
   @Test

@@ -474,22 +474,33 @@ nonisolated extension ToolDefinition {
   public static let todoWrite = ToolDefinition(
     name: .todoWrite,
     description: "Update the Agent todo plan.",
-    parameters: [
-      ToolParameterDefinition(
-        name: "items",
-        description:
-          "2 to 6 todo rows: content:true|false. false=new, true=done. No numbering/markdown.",
-        isRequired: true,
-        valueType: .string,
-        supportsHeredocPayload: true
-      )
-    ],
+    parameters:
+      (1...6).map { index in
+        ToolParameterDefinition(
+          name: "item\(index)",
+          description:
+            index <= 2
+            ? "Todo item \(index) content. Required; 120 characters or fewer."
+            : "Optional todo item \(index) content. Omit when unused; 120 characters or fewer.",
+          isRequired: index <= 2
+        )
+      }
+      + (1...6).map { index in
+        ToolParameterDefinition(
+          name: "done\(index)",
+          description: "Whether item\(index) is already done. Defaults to false.",
+          isRequired: false,
+          valueType: .boolean,
+          defaultValue: .bool(false)
+        )
+      },
     exampleArguments: [
-      "items": .string(
-        "Inspect the affected chat workflow files:true\n"
-          + "Add todo state and tool plumbing:false\n"
-          + "Run focused tests:false"
-      )
+      "item1": .string("Inspect the affected chat workflow files"),
+      "done1": .bool(true),
+      "item2": .string("Add todo state and tool plumbing"),
+      "done2": .bool(false),
+      "item3": .string("Run focused tests"),
+      "done3": .bool(false),
     ],
     capabilities: [],
     riskLevel: .low
