@@ -92,8 +92,6 @@ extension ToolCallStatus {
       "awaiting approval"
     case .awaitingUserAnswer:
       "awaiting user answer"
-    case .approved:
-      "approved"
     case .denied:
       "denied"
     case .running:
@@ -113,7 +111,7 @@ extension ToolCallStatus {
       "checkmark"
     case .failed, .denied, .cancelled:
       "xmark"
-    case .awaitingApproval, .awaitingUserAnswer, .approved, .pending, .running:
+    case .awaitingApproval, .awaitingUserAnswer, .pending, .running:
       "ellipsis"
     }
   }
@@ -124,7 +122,7 @@ extension ToolCallStatus {
       .green
     case .failed, .denied, .cancelled:
       .orange
-    case .awaitingApproval, .awaitingUserAnswer, .approved, .pending, .running:
+    case .awaitingApproval, .awaitingUserAnswer, .pending, .running:
       .secondary
     }
   }

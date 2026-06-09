@@ -215,7 +215,7 @@ classDiagram
     <<enum>>
     pending
     awaitingApproval(ToolResultPreview?)
-    approved
+    awaitingUserAnswer
     running
     completed(ToolResultPayload)
     denied(ToolResultPayload)

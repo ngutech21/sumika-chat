@@ -336,7 +336,6 @@ public struct AnyToolExecutor: Sendable {
     case .allowed:
       return true
     case .requiresApproval where isApproved:
-      record.state = .approved
       record.events.append(
         ToolCallEvent(actor: .user, kind: .approved, message: "Approved by user."))
       return true

@@ -166,7 +166,13 @@ struct ToolCallTests {
 
   @Test
   func toolCallStateNonResultStatesHaveNoPayload() {
-    let states: [ToolCallState] = [.pending, .running, .cancelled]
+    let states: [ToolCallState] = [
+      .pending,
+      .awaitingApproval(preview: nil),
+      .awaitingUserAnswer,
+      .running,
+      .cancelled,
+    ]
 
     for state in states {
       #expect(state.resultPayload == nil)

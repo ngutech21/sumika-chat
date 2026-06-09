@@ -486,7 +486,6 @@ public enum ToolCallState: Codable, Equatable, Sendable {
   case pending
   case awaitingApproval(preview: ToolResultPreview?)
   case awaitingUserAnswer
-  case approved
   case running
   case completed(ToolResultPayload)
   case denied(ToolResultPayload)
@@ -503,8 +502,6 @@ nonisolated extension ToolCallState {
       .awaitingApproval
     case .awaitingUserAnswer:
       .awaitingUserAnswer
-    case .approved:
-      .approved
     case .running:
       .running
     case .completed:
@@ -522,7 +519,7 @@ nonisolated extension ToolCallState {
     switch self {
     case .completed(let payload), .denied(let payload), .failed(let payload):
       payload
-    case .pending, .awaitingApproval, .awaitingUserAnswer, .approved, .running, .cancelled:
+    case .pending, .awaitingApproval, .awaitingUserAnswer, .running, .cancelled:
       nil
     }
   }
@@ -531,8 +528,7 @@ nonisolated extension ToolCallState {
     switch self {
     case .awaitingApproval(let preview):
       preview
-    case .pending, .awaitingUserAnswer, .approved, .running, .completed, .denied, .failed,
-      .cancelled:
+    case .pending, .awaitingUserAnswer, .running, .completed, .denied, .failed, .cancelled:
       nil
     }
   }
@@ -546,7 +542,6 @@ public enum ToolCallStatus: String, Codable, Equatable, Sendable {
   case pending
   case awaitingApproval
   case awaitingUserAnswer
-  case approved
   case denied
   case running
   case completed

@@ -829,7 +829,6 @@ Relations:
 
 Cases:
 
-- `approved`
 - `awaitingApproval(preview: ToolResultPreview?)`
 - `awaitingUserAnswer`
 - `cancelled`
@@ -852,7 +851,6 @@ Relations:
 
 Cases:
 
-- `approved`
 - `awaitingApproval`
 - `awaitingUserAnswer`
 - `cancelled`
