@@ -213,7 +213,6 @@ public enum ChatAttachmentError: LocalizedError {
   case unsupportedFileType(String)
   case fileTooLarge(String, Int)
   case unreadableText(String)
-  case unreadableImage(String)
   case missingStoredAttachment(String)
   case changedStoredAttachment(String)
 
@@ -227,8 +226,6 @@ public enum ChatAttachmentError: LocalizedError {
       "\(name) is larger than \(limit / 1024) KB."
     case .unreadableText(let name):
       "\(name) is not valid UTF-8 text."
-    case .unreadableImage(let name):
-      "\(name) is not a readable image."
     case .missingStoredAttachment(let name):
       "\(name) is no longer available."
     case .changedStoredAttachment(let name):

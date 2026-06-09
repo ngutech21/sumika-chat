@@ -4,7 +4,7 @@ import Testing
 @testable import LocalCoderCore
 
 struct ModelManagementTests {
-  
+
   @Test
   func settingsStoreDefaultsSelectedModelToE4B() async {
     let userDefaults = makeUserDefaults()
