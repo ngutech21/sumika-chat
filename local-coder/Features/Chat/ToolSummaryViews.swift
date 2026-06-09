@@ -62,7 +62,18 @@ struct ToolExecutionSummaryView: View {
         )
       }
 
-      if toolCallRecord.status == .awaitingApproval {
+      if toolCallRecord.status == .awaitingUserAnswer,
+        let input = toolCallRecord.askUserInput
+      {
+        AskUserAnswerView(
+          toolCallID: toolCallRecord.id,
+          input: input,
+          onAnswer: onAnswerAskUser
+        )
+      }
+
+      if toolCallRecord.status == .awaitingApproval || toolCallRecord.status == .awaitingUserAnswer
+      {
         HStack(spacing: 8) {
           Button {
             onApprove(toolCallRecord.id)
@@ -80,16 +91,6 @@ struct ToolExecutionSummaryView: View {
           .controlSize(.small)
           .accessibilityLabel("Deny tool call")
         }
-      }
-
-      if toolCallRecord.status == .awaitingUserAnswer,
-        let input = toolCallRecord.askUserInput
-      {
-        AskUserAnswerView(
-          toolCallID: toolCallRecord.id,
-          input: input,
-          onAnswer: onAnswerAskUser
-        )
       }
 
       if let resultPayload = toolCallRecord.resultPayload {

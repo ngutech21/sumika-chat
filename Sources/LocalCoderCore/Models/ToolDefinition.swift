@@ -474,17 +474,16 @@ nonisolated extension ToolDefinition {
   public static let todoWrite = ToolDefinition(
     name: .todoWrite,
     description: "Update the Agent todo plan.",
-    parameters:
-      (1...6).map { index in
-        ToolParameterDefinition(
-          name: "item\(index)",
-          description:
-            index <= 2
-            ? "Todo item \(index) content. Required; 120 characters or fewer."
-            : "Optional todo item \(index) content. Omit when unused; 120 characters or fewer.",
-          isRequired: index <= 2
-        )
-      }
+    parameters: (1...6).map { index in
+      ToolParameterDefinition(
+        name: "item\(index)",
+        description:
+          index <= 2
+          ? "Todo item \(index) content. Required; 120 characters or fewer."
+          : "Optional todo item \(index) content. Omit when unused; 120 characters or fewer.",
+        isRequired: index <= 2
+      )
+    }
       + (1...6).map { index in
         ToolParameterDefinition(
           name: "done\(index)",
