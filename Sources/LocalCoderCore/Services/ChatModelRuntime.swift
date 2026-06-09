@@ -23,7 +23,6 @@ public protocol ChatModelRuntime: Sendable {
     settings: ChatGenerationSettings,
     toolContext: ChatRuntimeToolContext?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
-  func completePartialReply(output: String) async
 }
 
 public enum ChatModelStreamEvent: Sendable {
@@ -77,10 +76,6 @@ extension ChatModelRuntime {
 
   public func generatedTokenCount(for text: String) async throws -> Int {
     text.split(whereSeparator: \.isWhitespace).count
-  }
-
-  public func completePartialReply(output: String) async {
-    _ = output
   }
 }
 

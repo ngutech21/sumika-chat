@@ -268,16 +268,6 @@ nonisolated struct ActiveGemmaGeneration: Sendable {
   let task: Task<Void, Never>
 }
 
-nonisolated struct ActiveGemmaCompletionContext: Sendable {
-  let generationID: GemmaGenerationID
-  let historyPrefix: [GemmaMessageSnapshot]
-  let prompt: String
-  let settings: ChatGenerationSettings
-  let projectionMode: ModelContextProjectionMode
-  let nativeToolSchemaHash: String
-  let cacheEligibility: GemmaSessionCacheEligibility
-}
-
 nonisolated struct GemmaActiveGenerationRegistry: Sendable {
   private(set) var activeGeneration: ActiveGemmaGeneration?
 
@@ -435,7 +425,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   private var contextTokenLimit: Int?
   private var generationOwnership = GemmaGenerationOwnership()
   private var activeGenerationRegistry = GemmaActiveGenerationRegistry()
-  private var activeCompletionContext: ActiveGemmaCompletionContext?
   private var lifecycleTransitionInProgress = false
   private let memoryCacheClearer: GemmaMemoryCacheClearer
 
@@ -672,15 +661,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         )
       )
     }
-    activeCompletionContext = ActiveGemmaCompletionContext(
-      generationID: generationID,
-      historyPrefix: historySnapshot,
-      prompt: finalPrompt,
-      settings: settings,
-      projectionMode: projectionMode,
-      nativeToolSchemaHash: nativeToolSchemaHash,
-      cacheEligibility: cacheEligibility
-    )
     let streamPlan = Self.modelStreamPlan(
       from: stream,
       traceID: traceID,
@@ -720,23 +700,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       activeGenerationRegistry.clearIfCurrent(generationID)
     }
     return streamPlan.stream
-  }
-
-  func completePartialReply(output: String) async {
-    guard let context = activeCompletionContext else {
-      return
-    }
-
-    markSessionCompleted(
-      generationID: context.generationID,
-      historyPrefix: context.historyPrefix,
-      prompt: context.prompt,
-      output: output,
-      settings: context.settings,
-      projectionMode: context.projectionMode,
-      nativeToolSchemaHash: context.nativeToolSchemaHash,
-      cacheEligibility: context.cacheEligibility
-    )
   }
 
   private func supersedeActiveGenerationBeforeStartingNew() async {
@@ -849,7 +812,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     guard generationOwnership.completeIfCurrent(generationID) else {
       return
     }
-    clearActiveCompletionContextIfCurrent(generationID)
 
     guard let cached = cachedSession,
       let completedState = cached.state.completing(generationID: generationID)
@@ -900,7 +862,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     guard generationOwnership.completeIfCurrent(generationID) else {
       return
     }
-    clearActiveCompletionContextIfCurrent(generationID)
 
     guard let cached = cachedSession,
       let completedState = cached.state.completingNativeToolCallBoundary(generationID: generationID)
@@ -951,7 +912,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     guard generationOwnership.invalidateIfCurrent(generationID) else {
       return
     }
-    clearActiveCompletionContextIfCurrent(generationID)
 
     guard let cached = cachedSession,
       let dirtyState = cached.state.invalidating(generationID: generationID, reason: reason)
@@ -972,7 +932,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
   private func invalidateCachedSession(reason: GemmaSessionInvalidationReason) {
     generationOwnership.invalidateActiveGeneration()
-    activeCompletionContext = nil
     cachedSession = nil
     pendingCacheInvalidationReason = reason
   }
@@ -982,13 +941,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       activeGenerationRegistry.register(id: id, task: task)
     }
   #endif
-
-  private func clearActiveCompletionContextIfCurrent(_ generationID: GemmaGenerationID) {
-    guard activeCompletionContext?.generationID == generationID else {
-      return
-    }
-    activeCompletionContext = nil
-  }
 
   private func configureMLXMemory() {
     if Memory.cacheLimit > Self.maxMLXCacheBytes {

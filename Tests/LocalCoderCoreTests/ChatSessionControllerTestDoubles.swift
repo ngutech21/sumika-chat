@@ -545,7 +545,6 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private(set) var capturedAttachments: [[ChatAttachment]] = []
   private(set) var capturedSystemPrompts: [String] = []
   private(set) var capturedContextUsageSystemPrompts: [String] = []
-  private(set) var completedPartialReplies: [String] = []
 
   init(chunks: [String] = []) {
     self.turns = [chunks.map(ChatModelStreamEvent.chunk)]
@@ -623,9 +622,6 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
     }
   }
 
-  func completePartialReply(output: String) async {
-    completedPartialReplies.append(output)
-  }
 }
 
 enum ChatSessionFakeChatModelRuntimeError: Error {

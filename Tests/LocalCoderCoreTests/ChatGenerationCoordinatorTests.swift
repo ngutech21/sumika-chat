@@ -167,22 +167,6 @@ struct ChatGenerationCoordinatorTests {
     #expect(await runtime.generatedTokenCountRequestCount == 0)
   }
 
-  @Test
-  func staleCompletePartialReplyDoesNotCallRuntime() async throws {
-    let operationID = UUID()
-    let runtime = OperationLaneControlledRuntime()
-    let runtimeOperations = RuntimeOperationCoordinator(
-      runtime: runtime,
-      initialOperationID: UUID()
-    )
-
-    await #expect(throws: CancellationError.self) {
-      try await runtimeOperations.completePartialReply(output: "stale", operationID: operationID)
-    }
-
-    #expect(await runtime.completedPartialReplies.isEmpty)
-  }
-
   private func waitUntilAsync(
     timeout: Duration = .seconds(2),
     _ condition: @escaping () async -> Bool
@@ -202,7 +186,6 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
   private var didReleaseStream = false
   private(set) var yieldedChunkCount = 0
   private(set) var generatedTokenCountRequestCount = 0
-  private(set) var completedPartialReplies: [String] = []
 
   func load(configuration: ChatModelConfiguration) async throws {
     _ = configuration
@@ -257,10 +240,6 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
         task.cancel()
       }
     }
-  }
-
-  func completePartialReply(output: String) async {
-    completedPartialReplies.append(output)
   }
 
   func releaseStream() {

@@ -124,12 +124,6 @@ public actor RuntimeOperationCoordinator {
     }
   }
 
-  public func completePartialReply(output: String, operationID: UUID) async throws {
-    try checkCurrent(operationID)
-    await runtime.completePartialReply(output: output)
-    try checkCurrent(operationID)
-  }
-
   private func checkCurrent(_ operationID: UUID) throws {
     guard currentOperationID == operationID else {
       throw CancellationError()
