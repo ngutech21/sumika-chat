@@ -2,6 +2,142 @@ import AppKit
 import LocalCoderCore
 import SwiftUI
 
+struct ToolExecutionSummaryView: View {
+  let toolCallRecord: ToolCallRecord
+  let generationMetrics: ChatGenerationMetrics?
+  let onApprove: (ToolCallRecord.ID) -> Void
+  let onDeny: (ToolCallRecord.ID) -> Void
+  let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
+  @State private var isDetailsExpanded = false
+  @State private var isResultExpanded = false
+
+  var body: some View {
+    let toolCall = ToolCallModelMessage(request: toolCallRecord.request)
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 7) {
+        Image(systemName: toolCallRecord.status.executionSystemImage)
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(toolCallRecord.status.executionColor)
+          .accessibilityHidden(true)
+
+        Text("Tool")
+          .foregroundStyle(.secondary)
+
+        Text(toolCall.toolName.rawValue)
+          .fontWeight(.semibold)
+          .lineLimit(1)
+
+        if let headerSummary = toolCall.headerSummary {
+          Text(":")
+            .foregroundStyle(.secondary)
+
+          Text(headerSummary)
+            .fontWeight(.semibold)
+            .lineLimit(1)
+            .truncationMode(.middle)
+        }
+
+        Spacer(minLength: 8)
+
+        if hasDetails {
+          Button {
+            isDetailsExpanded.toggle()
+          } label: {
+            Image(systemName: isDetailsExpanded ? "chevron.down" : "chevron.right")
+              .font(.caption2.weight(.semibold))
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(.secondary)
+          .help(isDetailsExpanded ? "Hide details" : "Show details")
+          .accessibilityLabel(isDetailsExpanded ? "Hide tool details" : "Show tool details")
+        }
+      }
+
+      if showsDetails {
+        ToolCallDetailsView(
+          toolCall: toolCall,
+          toolCallRecord: toolCallRecord,
+          generationMetrics: generationMetrics,
+          showsPreview: toolCallRecord.status == .awaitingApproval
+        )
+      }
+
+      if toolCallRecord.status == .awaitingApproval {
+        HStack(spacing: 8) {
+          Button {
+            onApprove(toolCallRecord.id)
+          } label: {
+            Label("Approve", systemImage: "checkmark")
+          }
+          .controlSize(.small)
+          .accessibilityLabel("Approve tool call")
+
+          Button(role: .destructive) {
+            onDeny(toolCallRecord.id)
+          } label: {
+            Label("Deny", systemImage: "xmark")
+          }
+          .controlSize(.small)
+          .accessibilityLabel("Deny tool call")
+        }
+      }
+
+      if toolCallRecord.status == .awaitingUserAnswer,
+        let input = toolCallRecord.askUserInput
+      {
+        AskUserAnswerView(
+          toolCallID: toolCallRecord.id,
+          input: input,
+          onAnswer: onAnswerAskUser
+        )
+      }
+
+      if let resultPayload = toolCallRecord.resultPayload {
+        Divider()
+
+        ToolExecutionResultView(
+          toolResult: ToolResultModelMessage(record: toolCallRecord),
+          toolCallRecord: toolCallRecord,
+          payload: resultPayload,
+          isExpanded: $isResultExpanded
+        )
+      }
+    }
+    .font(.caption)
+    .padding(.vertical, 8)
+    .padding(.leading, 16)
+    .padding(.trailing, 8)
+    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    .overlay(alignment: .leading) {
+      Capsule()
+        .fill(toolCallRecord.status.executionColor)
+        .frame(width: 3)
+        .padding(.vertical, 7)
+        .padding(.leading, 5)
+    }
+    .accessibilityLabel(accessibilityLabel(toolCall: toolCall))
+  }
+
+  private var hasDetails: Bool {
+    let toolCall = ToolCallModelMessage(request: toolCallRecord.request)
+    return !toolCall.transcriptArguments.isEmpty
+      || toolCallRecord.approvalPreview?.text.isEmpty == false
+      || generationMetrics != nil
+  }
+
+  private var showsDetails: Bool {
+    isDetailsExpanded || toolCallRecord.status == .awaitingApproval
+  }
+
+  private func accessibilityLabel(toolCall: ToolCallModelMessage) -> String {
+    var parts = ["Tool \(toolCall.toolName.rawValue)", toolCallRecord.status.displayName]
+    if let generationMetrics {
+      parts.append(generationMetrics.tokenRateSummary)
+    }
+    return parts.joined(separator: ", ")
+  }
+}
+
 struct ToolCallSummaryView: View {
   let toolCall: ToolCallModelMessage
   let toolCallRecord: ToolCallRecord?
@@ -19,14 +155,17 @@ struct ToolCallSummaryView: View {
         toolName: toolCall.toolName.rawValue,
         statusImage: toolCallRecord?.status.summarySystemImage ?? "ellipsis",
         statusColor: toolCallRecord?.status.summaryColor ?? .secondary,
-        tokensPerSecond: generationMetrics?.tokensPerSecond,
         detailsAvailable: hasDetails,
         isDetailsExpanded: $isDetailsExpanded
       )
 
       if let toolCallRecord {
         if isDetailsExpanded {
-          ToolCallDetailsView(toolCall: toolCall, toolCallRecord: toolCallRecord)
+          ToolCallDetailsView(
+            toolCall: toolCall,
+            toolCallRecord: toolCallRecord,
+            generationMetrics: generationMetrics
+          )
         }
 
         if toolCallRecord.status == .awaitingApproval {
@@ -69,6 +208,7 @@ struct ToolCallSummaryView: View {
   private var hasDetails: Bool {
     !toolCall.transcriptArguments.isEmpty
       || toolCallRecord?.resultPreview?.text.isEmpty == false
+      || generationMetrics != nil
   }
 
   private var accessibilityLabel: String {
@@ -123,6 +263,34 @@ extension ToolCallStatus {
     case .failed, .denied, .cancelled:
       .orange
     case .awaitingApproval, .awaitingUserAnswer, .pending, .running:
+      .secondary
+    }
+  }
+
+  fileprivate var executionSystemImage: String {
+    switch self {
+    case .completed:
+      "checkmark.circle.fill"
+    case .failed, .denied:
+      "xmark.circle.fill"
+    case .cancelled:
+      "minus.circle.fill"
+    case .awaitingApproval, .awaitingUserAnswer:
+      "exclamationmark.circle.fill"
+    case .pending, .running:
+      "ellipsis.circle.fill"
+    }
+  }
+
+  fileprivate var executionColor: Color {
+    switch self {
+    case .completed:
+      .green
+    case .failed, .denied, .cancelled:
+      .orange
+    case .awaitingApproval, .awaitingUserAnswer:
+      .yellow
+    case .pending, .running:
       .secondary
     }
   }
@@ -223,13 +391,14 @@ struct ToolResultSummaryView: View {
         toolName: toolResult.toolName.rawValue,
         statusImage: display.status.summarySystemImage,
         statusColor: display.status.statusColor,
-        tokensPerSecond: generationMetrics?.tokensPerSecond,
-        detailsAvailable: !display.text.isEmpty,
+        detailsAvailable: !display.text.isEmpty || generationMetrics != nil,
         isDetailsExpanded: $isResultExpanded
       )
 
-      if !display.text.isEmpty {
-        if isResultExpanded {
+      if isResultExpanded {
+        ToolGenerationMetricsDetail(generationMetrics: generationMetrics)
+
+        if !display.text.isEmpty {
           ToolDetailTextView(text: display.text)
         }
       }
@@ -239,20 +408,7 @@ struct ToolResultSummaryView: View {
   }
 
   private var displayPayload: ToolDisplayPayload {
-    guard let request = toolCallRecord?.request else {
-      let preview = toolResult.payload.preview
-      return .summary(
-        status: preview.status,
-        text: preview.text,
-        affectedPaths: preview.affectedPaths.map(WorkspaceRelativePath.init(rawValue:))
-      )
-    }
-
-    return ToolResultProjector.project(
-      payload: toolResult.payload,
-      request: request,
-      policy: .default
-    ).display
+    toolResult.displayPayload(for: toolCallRecord)
   }
 
   private func accessibilityLabel(status: ToolResultStatus) -> String {
@@ -261,6 +417,57 @@ struct ToolResultSummaryView: View {
       parts.append(generationMetrics.tokenRateSummary)
     }
     return parts.joined(separator: ", ")
+  }
+}
+
+private struct ToolExecutionResultView: View {
+  let toolResult: ToolResultModelMessage
+  let toolCallRecord: ToolCallRecord
+  let payload: ToolResultPayload
+  @Binding var isExpanded: Bool
+
+  var body: some View {
+    let display = toolResult.displayPayload(for: toolCallRecord)
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 7) {
+        Image(systemName: display.status.summarySystemImage)
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(display.status.statusColor)
+          .accessibilityHidden(true)
+
+        Text("Result")
+          .foregroundStyle(.secondary)
+
+        Text(payload.status.rawValue)
+          .fontWeight(.semibold)
+
+        if !display.metaSummary.isEmpty {
+          Text(display.metaSummary)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+
+        Spacer(minLength: 8)
+
+        if !display.text.isEmpty {
+          Button {
+            isExpanded.toggle()
+          } label: {
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+              .font(.caption2.weight(.semibold))
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(.secondary)
+          .help(isExpanded ? "Hide result" : "Show result")
+          .accessibilityLabel(isExpanded ? "Hide tool result" : "Show tool result")
+        }
+      }
+
+      if isExpanded, !display.text.isEmpty {
+        ToolDetailTextView(text: display.text)
+      }
+    }
   }
 }
 
@@ -276,7 +483,6 @@ private struct ToolSummaryRow: View {
   let toolName: String
   let statusImage: String
   let statusColor: Color
-  let tokensPerSecond: Double?
   let detailsAvailable: Bool
   @Binding var isDetailsExpanded: Bool
 
@@ -298,12 +504,6 @@ private struct ToolSummaryRow: View {
         .foregroundStyle(statusColor)
         .accessibilityHidden(true)
 
-      if let tokensPerSecond {
-        Text(tokensPerSecond.tokenRateSummary)
-          .font(.caption2.monospacedDigit())
-          .foregroundStyle(.secondary)
-      }
-
       if detailsAvailable {
         Button {
           isDetailsExpanded.toggle()
@@ -323,20 +523,81 @@ private struct ToolSummaryRow: View {
 private struct ToolCallDetailsView: View {
   let toolCall: ToolCallModelMessage
   let toolCallRecord: ToolCallRecord
+  let generationMetrics: ChatGenerationMetrics?
+  var showsPreview = true
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
+      ToolGenerationMetricsDetail(generationMetrics: generationMetrics)
+
       ForEach(toolCall.transcriptArguments) { argument in
         Text("\(argument.name): \(argument.value)")
           .lineLimit(2)
       }
 
-      if let preview = toolCallRecord.resultPreview, !preview.text.isEmpty {
+      if showsPreview, let preview = toolCallRecord.resultPreview, !preview.text.isEmpty {
         ToolDetailTextView(text: preview.text)
       }
     }
     .font(.caption2)
     .foregroundStyle(.secondary)
+  }
+}
+
+extension ToolResultModelMessage {
+  fileprivate func displayPayload(for toolCallRecord: ToolCallRecord?) -> ToolDisplayPayload {
+    guard let request = toolCallRecord?.request else {
+      let preview = payload.preview
+      return .summary(
+        status: preview.status,
+        text: preview.text,
+        affectedPaths: preview.affectedPaths.map(WorkspaceRelativePath.init(rawValue:))
+      )
+    }
+
+    return ToolResultProjector.project(
+      payload: payload,
+      request: request,
+      policy: .default
+    ).display
+  }
+}
+
+extension ToolCallModelMessage {
+  fileprivate var headerSummary: String? {
+    switch toolName {
+    case .runCommand:
+      return argumentValue(named: "command")
+    case .writeFile, .editFile, .readFile, .showFile:
+      return argumentValue(named: "path")
+    case .webSearch:
+      return argumentValue(named: "query")
+    case .webFetch:
+      return argumentValue(named: "url")
+    default:
+      return nil
+    }
+  }
+
+  private func argumentValue(named name: String) -> String? {
+    guard let value = arguments.first(where: { $0.name == name })?.value,
+      !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      return nil
+    }
+    return value
+  }
+}
+
+private struct ToolGenerationMetricsDetail: View {
+  let generationMetrics: ChatGenerationMetrics?
+
+  var body: some View {
+    if let generationMetrics {
+      Text(generationMetrics.tokenRateSummary)
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(.secondary)
+    }
   }
 }
 

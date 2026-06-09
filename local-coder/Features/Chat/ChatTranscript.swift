@@ -68,48 +68,62 @@ struct ChatTranscript: View {
     let recordsByID = Dictionary(toolCalls.map { ($0.id, $0) }) { _, latest in latest }
     return turns.flatMap { turn in
       let turnGenerationMetrics = turn.items.compactMap(\.generationMetrics).last
-      return turn.items.enumerated().compactMap { offset, item in
+      var renderedItems: [RenderedChatTurnItem] = []
+      var renderedToolCallIDs = Set<ToolCallRecord.ID>()
+
+      for (offset, item) in turn.items.enumerated() {
         switch item {
         case .userMessage(let message):
-          return RenderedChatTurnItem(
-            id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
-            item: item,
-            toolCallRecord: nil,
-            generationMetrics: nil,
-            assistantRenderBlocks: []
-          )
+          renderedItems.append(
+            RenderedChatTurnItem(
+              id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
+              item: item,
+              toolCallRecord: nil,
+              generationMetrics: nil,
+              assistantRenderBlocks: []
+            ))
         case .assistantMessage(let message):
-          return RenderedChatTurnItem(
-            id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
-            item: item,
-            toolCallRecord: nil,
-            generationMetrics: message.generationMetrics,
-            assistantRenderBlocks: AssistantMessageRenderBlocks.blocks(for: message.content)
-          )
+          renderedItems.append(
+            RenderedChatTurnItem(
+              id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
+              item: item,
+              toolCallRecord: nil,
+              generationMetrics: message.generationMetrics,
+              assistantRenderBlocks: AssistantMessageRenderBlocks.blocks(for: message.content)
+            ))
         case .toolCall(let id):
           guard let record = recordsByID[id] else {
-            return nil
+            continue
           }
-          return RenderedChatTurnItem(
-            id: "\(turn.id.uuidString):\(offset):toolCall:\(id.uuidString)",
-            item: item,
-            toolCallRecord: record,
-            generationMetrics: turnGenerationMetrics,
-            assistantRenderBlocks: []
-          )
+          renderedToolCallIDs.insert(id)
+          renderedItems.append(
+            RenderedChatTurnItem(
+              id: "\(turn.id.uuidString):\(offset):toolCall:\(id.uuidString)",
+              item: item,
+              toolCallRecord: record,
+              generationMetrics: turnGenerationMetrics,
+              assistantRenderBlocks: []
+            ))
         case .toolResult(let id):
-          guard let record = recordsByID[id] else {
-            return nil
+          if renderedToolCallIDs.contains(id) {
+            continue
           }
-          return RenderedChatTurnItem(
-            id: "\(turn.id.uuidString):\(offset):toolResult:\(id.uuidString)",
-            item: item,
-            toolCallRecord: record,
-            generationMetrics: turnGenerationMetrics,
-            assistantRenderBlocks: []
-          )
+
+          guard let record = recordsByID[id] else {
+            continue
+          }
+          renderedItems.append(
+            RenderedChatTurnItem(
+              id: "\(turn.id.uuidString):\(offset):toolResult:\(id.uuidString)",
+              item: item,
+              toolCallRecord: record,
+              generationMetrics: turnGenerationMetrics,
+              assistantRenderBlocks: []
+            ))
         }
       }
+
+      return renderedItems
     }
   }
 
@@ -376,8 +390,7 @@ private struct MessageContentText: View {
     switch item {
     case .toolCall:
       if let toolCallRecord {
-        ToolCallSummaryView(
-          toolCall: ToolCallModelMessage(request: toolCallRecord.request),
+        ToolExecutionSummaryView(
           toolCallRecord: toolCallRecord,
           generationMetrics: generationMetrics,
           onApprove: onApproveToolCall,
@@ -556,7 +569,11 @@ extension RenderedChatTurnItem {
   }
 
   var messageBubbleBackground: Color {
-    isDisplayedAsUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
+    if isToolItem {
+      return .clear
+    }
+
+    return isDisplayedAsUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
   }
 
   var stackSpacing: CGFloat {
@@ -564,11 +581,11 @@ extension RenderedChatTurnItem {
   }
 
   var contentPadding: CGFloat {
-    isToolItem ? 6 : 10
+    isToolItem ? 0 : 10
   }
 
   var maximumBubbleWidth: CGFloat {
-    isToolItem ? 520 : 680
+    isToolItem ? 460 : 680
   }
 
   var showsAuthorLabel: Bool {
@@ -599,8 +616,10 @@ extension RenderedChatTurnItem {
     switch item {
     case .userMessage:
       "You"
-    case .assistantMessage, .toolCall, .toolResult:
+    case .assistantMessage, .toolResult:
       "Local Coder"
+    case .toolCall:
+      ""
     }
   }
 

@@ -415,13 +415,34 @@ nonisolated extension ToolCallModelMessage {
   public var transcriptArguments: [ToolCallModelArgument] {
     switch toolName {
     case .writeFile:
-      return arguments.filter { $0.name != "content" }
+      return arguments.filter {
+        !Self.hiddenTranscriptArgumentNames(for: toolName).contains($0.name)
+      }
     case .editFile:
-      return arguments.filter { $0.name != "old_text" && $0.name != "new_text" }
+      return arguments.filter {
+        !Self.hiddenTranscriptArgumentNames(for: toolName).contains($0.name)
+      }
+    case .runCommand:
+      return arguments.filter {
+        !Self.hiddenTranscriptArgumentNames(for: toolName).contains($0.name)
+      }
     case .todoWrite:
       return []
     default:
       return arguments
+    }
+  }
+
+  private static func hiddenTranscriptArgumentNames(for toolName: ToolName) -> Set<String> {
+    switch toolName {
+    case .writeFile:
+      ["content"]
+    case .editFile:
+      ["old_text", "new_text"]
+    case .runCommand:
+      ["cwd", "working_directory", "workingDirectory"]
+    default:
+      []
     }
   }
 }

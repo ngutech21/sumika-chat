@@ -137,6 +137,32 @@ struct ToolCallTests {
   }
 
   @Test
+  func runCommandTranscriptArgumentsHideWorkingDirectory() {
+    let request = RawToolCallRequest(
+      workspaceID: UUID(),
+      sessionID: UUID(),
+      toolName: .runCommand,
+      arguments: [
+        "command": .string("just test-core"),
+        "cwd": .string("/tmp/project"),
+        "reason": .string("Verify core behavior."),
+        "timeoutSeconds": .number(120),
+        "working_directory": .string("/tmp/project"),
+      ]
+    )
+
+    let message = ToolCallModelMessage(rawRequest: request)
+
+    #expect(message.transcriptArguments.map(\.name) == ["command", "reason", "timeoutSeconds"])
+    #expect(
+      message.transcriptArguments.map(\.value) == [
+        "just test-core",
+        "Verify core behavior.",
+        "120",
+      ])
+  }
+
+  @Test
   func toolCallStateDerivesCompletedStatusPayloadAndPreview() {
     let payload = ToolResultPayload.writeFile(
       .success(path: WorkspaceRelativePath(rawValue: "README.md"), bytesWritten: 12)
