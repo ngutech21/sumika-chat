@@ -200,10 +200,6 @@ public struct ToolRegistry: Equatable, Sendable {
   public func definition(for name: ToolName) -> ToolDefinition? {
     tools.first { $0.name == name }
   }
-
-  public func definition(canonicalizing name: String) -> ToolDefinition? {
-    definition(for: ToolName(canonicalizing: name))
-  }
 }
 
 nonisolated extension ToolDefinition {

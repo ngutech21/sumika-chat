@@ -163,7 +163,7 @@ struct ToolPermissionTests {
     )
     let unknownTool = evaluator.evaluate(
       request(
-        toolName: ToolName(canonicalizing: "shell-exec"),
+        toolName: ToolName(rawValue: "shell-exec"),
         workspace: workspace,
         arguments: ["path": .string(".")]
       ),
@@ -199,19 +199,19 @@ struct ToolPermissionTests {
   }
 
   @Test
-  func toolNameCanonicalizesExternalNames() {
-    #expect(ToolName(canonicalizing: "READ-FILE").rawValue == "read_file")
-    #expect(ToolName(canonicalizing: "run command").rawValue == "run_command")
+  func toolNameKeepsRawValueStable() {
+    #expect(ToolName(rawValue: "READ-FILE").rawValue == "READ-FILE")
+    #expect(ToolName(rawValue: "run command").rawValue == "run command")
   }
 
   @Test
-  func toolNameCodableUsesStableSnakeCaseString() throws {
-    let data = try JSONEncoder().encode(ToolName(canonicalizing: "READ-FILE"))
+  func toolNameCodablePreservesRawValue() throws {
+    let data = try JSONEncoder().encode(ToolName(rawValue: "READ-FILE"))
     let encoded = try #require(String(data: data, encoding: .utf8))
     let decoded = try JSONDecoder().decode(ToolName.self, from: Data(#""write-file""#.utf8))
 
-    #expect(encoded == #""read_file""#)
-    #expect(decoded == .writeFile)
+    #expect(encoded == #""READ-FILE""#)
+    #expect(decoded == ToolName(rawValue: "write-file"))
   }
 
   private func request(

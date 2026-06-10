@@ -132,7 +132,7 @@ struct ToolCallRequestValidatorTests {
     let rawArguments: ToolCallArguments = ["path": .string("README.md")]
 
     let unknown = validator.validate(
-      raw(ToolName(canonicalizing: "shell_exec"), arguments: rawArguments),
+      raw(ToolName(rawValue: "shell_exec"), arguments: rawArguments),
       registry: registry
     )
     let unavailable = validator.validate(
@@ -604,7 +604,7 @@ struct ToolCallRequestValidatorTests {
           rawArguments: [:],
           reason: .unknownToolName("shell_exec")
         )
-      ).matches(ToolName(canonicalizing: "shell_exec"))
+      ).matches(ToolName(rawValue: "shell_exec"))
     )
   }
 

@@ -423,20 +423,33 @@ public struct AnyToolExecutor: Sendable {
   }
 
   private static func makePendingRecord(request: ToolCallRequest) -> ToolCallRecord {
-    ToolCallRecord(
+    var events = [
+      ToolCallEvent(
+        actor: .assistant,
+        kind: .requested,
+        message: "Requested \(request.toolName.rawValue)."
+      )
+    ]
+    if let originalToolName = request.raw.originalToolName,
+      originalToolName != request.toolName.rawValue
+    {
+      events.append(
+        ToolCallEvent(
+          actor: .system,
+          kind: .requested,
+          message: "Tool name normalized: \(originalToolName) -> \(request.toolName.rawValue)."
+        )
+      )
+    }
+
+    return ToolCallRecord(
       request: request,
       evaluation: ToolPermissionEvaluation(
         decision: .denied,
         reason: "Tool call has not been evaluated.",
         riskLevel: .low
       ),
-      events: [
-        ToolCallEvent(
-          actor: .assistant,
-          kind: .requested,
-          message: "Requested \(request.toolName.rawValue)."
-        )
-      ],
+      events: events,
       state: .pending
     )
   }
@@ -1806,12 +1819,24 @@ public struct ToolOrchestrator: Sendable {
   }
 
   private func requestedEvents(request: ToolCallRequest) -> [ToolCallEvent] {
-    [
+    var events = [
       ToolCallEvent(
         actor: .assistant,
         kind: .requested,
         message: "Requested \(request.toolName.rawValue)."
       )
     ]
+    if let originalToolName = request.raw.originalToolName,
+      originalToolName != request.toolName.rawValue
+    {
+      events.append(
+        ToolCallEvent(
+          actor: .system,
+          kind: .requested,
+          message: "Tool name normalized: \(originalToolName) -> \(request.toolName.rawValue)."
+        )
+      )
+    }
+    return events
   }
 }

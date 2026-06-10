@@ -158,9 +158,13 @@ flowchart TD
   before execution.
 - Registry membership controls prompt visibility, but it is not a complete
   security boundary.
-- Tool-name repair is limited to deterministic canonicalization and exact
-  aliases such as `Read` to `read_file`. Unknown names are not guessed; they
-  become failed tool observations.
+- Tool-name repair is explicit at the tool-call boundary and limited to
+  deterministic case, separator, and camelCase spelling variants that resolve
+  to exactly one tool in the active registry. `RawToolCallRequest` preserves the
+  canonical tool name plus the original model name when repair occurred.
+  Unknown names and semantic aliases such as `run`, `write`, `edit`, or
+  `search` are not guessed; they become failed tool observations unless an
+  explicit unambiguous alias is registered.
 - Read-only tools may auto-run only after workspace/path validation.
 - `read_file` returns the current UTF-8 preview on the first read of a
   workspace-relative path/range. Re-reading the same unchanged path/range

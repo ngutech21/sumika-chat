@@ -6,11 +6,7 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
   public let rawValue: String
 
   public init(rawValue: String) {
-    self.rawValue = Self.canonicalName(for: rawValue)
-  }
-
-  public init(canonicalizing name: String) {
-    self.init(rawValue: name)
+    self.rawValue = rawValue
   }
 
   public static let listFiles = ToolName(rawValue: "list_files")
@@ -28,45 +24,6 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
   public static let webSearch = ToolName(rawValue: "web_search")
   public static let webFetch = ToolName(rawValue: "web_fetch")
   public static let invalid = ToolName(rawValue: "invalid")
-
-  private static func canonicalName(for name: String) -> String {
-    let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
-      .replacingOccurrences(of: "-", with: "_")
-      .replacingOccurrences(of: " ", with: "_")
-      .lowercased()
-    switch normalized {
-    case "read":
-      return Self.readFile.rawValue
-    case "show", "open", "display":
-      return Self.showFile.rawValue
-    case "list":
-      return Self.listFiles.rawValue
-    case "glob":
-      return Self.globFiles.rawValue
-    case "search":
-      return Self.searchFiles.rawValue
-    case "diff", "git_diff":
-      return Self.workspaceDiff.rawValue
-    case "diagnostics", "workspace_diag", "workspace_diags":
-      return Self.workspaceDiagnostics.rawValue
-    case "edit":
-      return Self.editFile.rawValue
-    case "write":
-      return Self.writeFile.rawValue
-    case "run", "command":
-      return Self.runCommand.rawValue
-    case "todo", "write_todo", "update_todos", "todos":
-      return "todo_write"
-    case "ask", "ask_user", "clarify", "clarification":
-      return "ask_user"
-    case "search_web", "internet_search":
-      return Self.webSearch.rawValue
-    case "fetch", "fetch_url", "read_url":
-      return Self.webFetch.rawValue
-    default:
-      return normalized
-    }
-  }
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.singleValueContainer()
@@ -131,6 +88,7 @@ public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   public let sessionID: ChatSession.ID
   public var toolName: ToolName
   public var arguments: ToolCallArguments
+  public var originalToolName: String?
   public var rawText: String?
   public var createdAt: Date
 
@@ -140,6 +98,7 @@ public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
     sessionID: ChatSession.ID,
     toolName: ToolName,
     arguments: ToolCallArguments = [:],
+    originalToolName: String? = nil,
     rawText: String? = nil,
     createdAt: Date = Date()
   ) {
@@ -148,6 +107,7 @@ public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
     self.sessionID = sessionID
     self.toolName = toolName
     self.arguments = arguments
+    self.originalToolName = originalToolName
     self.rawText = rawText
     self.createdAt = createdAt
   }

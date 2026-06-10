@@ -482,6 +482,7 @@ Properties:
 - `arguments: ToolCallArguments`
 - `createdAt: Date`
 - `id: UUID`
+- `originalToolName: String?`
 - `rawText: String?`
 - `sessionID: ChatSession.ID`
 - `toolName: ToolName`

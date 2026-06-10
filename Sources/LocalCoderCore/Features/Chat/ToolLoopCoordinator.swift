@@ -87,6 +87,7 @@ public struct ToolLoopCoordinator: Sendable {
         nativeToolActions(
           request.nativeToolCalls,
           policy: request.toolCallingPolicy,
+          registry: toolOrchestrator(for: request.interactionMode).toolRegistry,
           workspaceID: request.workspace.id,
           sessionID: request.sessionID
         )
@@ -294,7 +295,7 @@ public struct ToolLoopCoordinator: Sendable {
         toolCallFormat: "native",
         toolValidationStatus: invalidInput == nil ? "valid" : "invalid",
         toolValidationError: invalidInput?.reason.message,
-        toolOriginalName: invalidInput?.originalName,
+        toolOriginalName: rawRequest.originalToolName ?? invalidInput?.originalName,
         toolArgumentKeys: rawRequest.arguments.keys.sorted(),
         toolArguments: toolArgumentTraces(
           from: rawRequest.arguments,
@@ -375,14 +376,18 @@ public struct ToolLoopCoordinator: Sendable {
   private func nativeToolActions(
     _ toolCalls: [ChatRuntimeToolCall],
     policy: ToolCallingPolicy,
+    registry: ToolRegistry,
     workspaceID: Workspace.ID,
     sessionID: ChatSession.ID
   ) -> ToolLoopParsedAction {
     let acceptedToolCalls =
       policy.allowsMultipleToolCalls ? toolCalls : Array(toolCalls.prefix(1))
+    let resolver = ToolNameResolver()
 
     let outputs = acceptedToolCalls.map { toolCall in
-      let canonicalToolName = ToolName(canonicalizing: toolCall.name)
+      let resolution = resolver.resolve(toolCall.name, registry: registry)
+      let canonicalToolName =
+        resolution.canonicalToolName ?? ToolName(rawValue: toolCall.name)
       let rawText = NativeToolCallBoundaryRenderer.renderGemma4(
         toolName: canonicalToolName.rawValue,
         arguments: toolCall.arguments
@@ -392,6 +397,7 @@ public struct ToolLoopCoordinator: Sendable {
         sessionID: sessionID,
         toolName: canonicalToolName,
         arguments: toolCall.arguments,
+        originalToolName: originalToolName(from: resolution),
         rawText: rawText,
         createdAt: Date()
       )
@@ -404,6 +410,15 @@ public struct ToolLoopCoordinator: Sendable {
       return .none
     }
     return .toolCalls(outputs)
+  }
+
+  private func originalToolName(from resolution: ToolNameResolution) -> String? {
+    switch resolution {
+    case .exact:
+      nil
+    case .repaired(let original, _, _), .unknown(let original), .ambiguous(let original, _):
+      original
+    }
   }
 
   private func followUpPromptMode(

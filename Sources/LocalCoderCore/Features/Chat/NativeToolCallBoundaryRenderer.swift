@@ -3,7 +3,7 @@ import Foundation
 public enum NativeToolCallBoundaryRenderer {
   public static func renderGemma4(_ toolCall: ChatRuntimeToolCall) -> String {
     renderGemma4(
-      toolName: ToolName(canonicalizing: toolCall.name).rawValue,
+      toolName: toolCall.name,
       arguments: toolCall.arguments
     )
   }
@@ -21,8 +21,7 @@ public enum NativeToolCallBoundaryRenderer {
     }
     .joined(separator: ",")
 
-    return
-      "<|tool_call>call:\(ToolName(canonicalizing: toolName).rawValue){\(renderedArguments)}<tool_call|>"
+    return "<|tool_call>call:\(toolName){\(renderedArguments)}<tool_call|>"
   }
 
   private static func renderGemma4Argument(_ value: ToolArgumentValue) -> String {

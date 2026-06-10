@@ -30,6 +30,53 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func nativeToolNameRepairKeepsOriginalName() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "READ-FILE", arguments: ["path": .string("README.md")])
+        ]
+      )
+    )
+
+    let record = try #require(toolCallRecord(from: result))
+    #expect(record.request.toolName == .readFile)
+    #expect(record.request.raw.originalToolName == "READ-FILE")
+    #expect(record.status == .completed)
+    #expect(
+      record.events.contains {
+        $0.message == "Tool name normalized: READ-FILE -> read_file."
+      })
+  }
+
+  @Test
+  func nativeUnknownToolNameFailsWithoutExecution() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "run", arguments: ["command": .string("date")])
+        ]
+      )
+    )
+
+    let record = try #require(toolCallRecord(from: result))
+    #expect(record.request.toolName == ToolName(rawValue: "run"))
+    #expect(record.request.raw.originalToolName == "run")
+    #expect(record.status == .failed)
+    #expect(completedToolResult(from: result)?.preview.text.contains("Unknown tool: run.") == true)
+  }
+
+  @Test
   func nativeMultipleIndependentToolCallsExecuteTogether() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

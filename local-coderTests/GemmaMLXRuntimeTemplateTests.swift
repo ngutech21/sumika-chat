@@ -1852,7 +1852,9 @@ struct GemmaMLXRuntimeTemplateTests {
     let function = try #require(todoSpec["function"] as? [String: any Sendable])
     let parameters = try #require(function["parameters"] as? [String: any Sendable])
     let properties = try #require(parameters["properties"] as? [String: any Sendable])
-    let items = try #require(properties["items"] as? [String: any Sendable])
+    let item1 = try #require(properties["item1"] as? [String: any Sendable])
+    let item2 = try #require(properties["item2"] as? [String: any Sendable])
+    let done1 = try #require(properties["done1"] as? [String: any Sendable])
     let askSpec = try #require(
       specs.first { spec in
         let function = spec["function"] as? [String: any Sendable]
@@ -1864,10 +1866,14 @@ struct GemmaMLXRuntimeTemplateTests {
     let option1 = try #require(askProperties["option1"] as? [String: any Sendable])
     let option2 = try #require(askProperties["option2"] as? [String: any Sendable])
 
-    #expect(items["type"] as? String == "string")
-    #expect((items["description"] as? String)?.contains("todo rows") == true)
-    #expect((items["description"] as? String)?.contains("content:true|false") == true)
-    #expect(items["items"] == nil)
+    #expect(item1["type"] as? String == "string")
+    #expect((item1["description"] as? String)?.contains("Todo item 1 content") == true)
+    #expect(item1["items"] == nil)
+    #expect(item2["type"] as? String == "string")
+    #expect((item2["description"] as? String)?.contains("Todo item 2 content") == true)
+    #expect(item2["items"] == nil)
+    #expect(done1["type"] as? String == "boolean")
+    #expect(done1["items"] == nil)
     #expect(option1["type"] as? String == "string")
     #expect(option1["items"] == nil)
     #expect(option2["type"] as? String == "string")
