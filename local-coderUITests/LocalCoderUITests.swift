@@ -7,6 +7,67 @@ final class LocalCoderUITests: XCTestCase {
     "\(traceTimestamp())-\(UUID().uuidString)-gemma4-e4b-ui-test.jsonl"
 
   @MainActor
+  func testPreviewSlashCommandShowsAndHidesHTMLPreviewWithoutChatTurn() throws {
+    let fixture = try launchFixture(
+      files: [
+        "index.html": """
+        <!doctype html>
+        <html>
+        <head>
+          <title>Preview Fixture</title>
+          <script>
+            window.addEventListener('DOMContentLoaded', () => {
+              document.body.dataset.previewReady = 'true';
+            });
+          </script>
+        </head>
+        <body>
+          <h1>Preview Fixture</h1>
+        </body>
+        </html>
+        """
+      ]
+    )
+    let application = try launchApp(fixture: fixture)
+    defer {
+      application.terminate()
+    }
+
+    let baseline = UITurnBaseline.capture(in: application)
+    let messageField = application.textFields["message-field"]
+    XCTAssertTrue(messageField.waitForExistence(timeout: 30))
+    messageField.click()
+    messageField.typeText("/preview index.html")
+
+    let sendButton = application.buttons["send-button"]
+    XCTAssertTrue(
+      waitUntil(timeout: 10) {
+        sendButton.exists && sendButton.isEnabled
+      },
+      "The local /preview command should be runnable without loading a model."
+    )
+    sendButton.click()
+
+    let previewPane = application.descendants(matching: .any)["html-preview-pane"]
+    XCTAssertTrue(previewPane.waitForExistence(timeout: 10))
+
+    let closeButton = application.buttons["html-preview-close-button"]
+    XCTAssertTrue(closeButton.waitForExistence(timeout: 5))
+    closeButton.click()
+    XCTAssertTrue(
+      waitUntil(timeout: 10) {
+        !previewPane.exists
+      },
+      "The HTML preview pane should hide after pressing close."
+    )
+
+    let afterPreview = UITurnBaseline.capture(in: application)
+    XCTAssertEqual(afterPreview.assistantMessageCount, baseline.assistantMessageCount)
+    XCTAssertEqual(afterPreview.generationMetricsCount, baseline.generationMetricsCount)
+    XCTAssertEqual(afterPreview.toolCallCount, baseline.toolCallCount)
+  }
+
+  @MainActor
   func testSmokeLoadsSelectedModelAndCompletesFirstChatPrompt() throws {
     let fixture = try launchFixture(readme: "Smoke test workspace\n")
     let application = try launchApp(fixture: fixture)
