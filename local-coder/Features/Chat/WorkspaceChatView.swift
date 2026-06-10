@@ -7,6 +7,7 @@ struct WorkspaceChatView: View {
   let sessionID: ChatSession.ID?
   let onAddAttachments: () -> Void
   @State private var htmlPreview: HTMLPreviewState?
+  @State private var htmlPreviewRefreshID = UUID()
   private let slashCommandParser = SlashCommandParser()
   private let htmlPreviewResolver = HTMLPreviewResolver()
 
@@ -76,9 +77,16 @@ struct WorkspaceChatView: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
 
       if let htmlPreview {
-        HTMLPreviewPane(preview: htmlPreview) {
-          self.htmlPreview = nil
-        }
+        HTMLPreviewPane(
+          preview: htmlPreview,
+          refreshID: htmlPreviewRefreshID,
+          onRefresh: {
+            htmlPreviewRefreshID = UUID()
+          },
+          onClose: {
+            self.htmlPreview = nil
+          }
+        )
         .transition(.move(edge: .trailing).combined(with: .opacity))
       }
     }

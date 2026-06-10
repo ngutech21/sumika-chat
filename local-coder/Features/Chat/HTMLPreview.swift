@@ -56,6 +56,8 @@ struct HTMLPreviewResolver: Sendable {
 
 struct HTMLPreviewPane: View {
   let preview: HTMLPreviewState
+  let refreshID: UUID
+  let onRefresh: () -> Void
   let onClose: () -> Void
 
   var body: some View {
@@ -75,6 +77,15 @@ struct HTMLPreviewPane: View {
 
         Spacer()
 
+        Button(action: onRefresh) {
+          Image(systemName: "arrow.clockwise")
+            .frame(width: 16, height: 16)
+        }
+        .buttonStyle(.borderless)
+        .help("Refresh preview")
+        .accessibilityLabel("Refresh preview")
+        .accessibilityIdentifier("html-preview-refresh-button")
+
         Button(action: onClose) {
           Image(systemName: "xmark")
             .frame(width: 16, height: 16)
@@ -89,7 +100,7 @@ struct HTMLPreviewPane: View {
 
       Divider()
 
-      HTMLPreviewWebView(preview: preview)
+      HTMLPreviewWebView(preview: preview, refreshID: refreshID)
         .accessibilityIdentifier("html-preview-webview")
     }
     .frame(minWidth: 360, idealWidth: 460)
@@ -103,6 +114,7 @@ struct HTMLPreviewPane: View {
 
 struct HTMLPreviewWebView: NSViewRepresentable {
   let preview: HTMLPreviewState
+  let refreshID: UUID
 
   func makeNSView(context: Context) -> WKWebView {
     let configuration = WKWebViewConfiguration()
@@ -118,6 +130,13 @@ struct HTMLPreviewWebView: NSViewRepresentable {
 
   func updateNSView(_ webView: WKWebView, context: Context) {
     context.coordinator.preview = preview
+
+    if context.coordinator.lastRefreshID != refreshID {
+      context.coordinator.lastRefreshID = refreshID
+      webView.reload()
+      return
+    }
+
     guard webView.url != preview.url else {
       return
     }
@@ -125,14 +144,16 @@ struct HTMLPreviewWebView: NSViewRepresentable {
   }
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(preview: preview)
+    Coordinator(preview: preview, refreshID: refreshID)
   }
 
   final class Coordinator: NSObject, WKNavigationDelegate {
     var preview: HTMLPreviewState
+    var lastRefreshID: UUID
 
-    init(preview: HTMLPreviewState) {
+    init(preview: HTMLPreviewState, refreshID: UUID) {
       self.preview = preview
+      self.lastRefreshID = refreshID
     }
   }
 }
