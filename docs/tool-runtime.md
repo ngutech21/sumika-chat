@@ -188,6 +188,13 @@ flowchart TD
   directories, and cap returned results. `search_files` treats a valid pattern
   as a regular expression; invalid regular expressions fall back to literal
   substring matching.
+- `browser_refresh` and `browser_inspect` are Agent-only preview tools. They
+  operate only on the current integrated HTML preview target, not arbitrary
+  URLs or file paths. `browser_refresh` reloads the current preview page without
+  approval. `browser_inspect` returns compact page metadata plus body text or a
+  selector-scoped excerpt, with optional HTML when explicitly requested. If no
+  preview page is active yet, both tools fail with a clear instruction to open
+  `/preview <path-to-html-file>` first.
 - `workspace_diff` is a read-only review tool available in the Agent registry.
   It validates the optional workspace-relative `path`, then runs
   Git through `Process` argv, not shell interpolation. The first version is

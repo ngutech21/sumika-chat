@@ -5,9 +5,11 @@ struct WorkspaceChatView: View {
   @Bindable var controller: ChatSessionController
   let workspace: Workspace
   let sessionID: ChatSession.ID?
+  let browserToolService: HTMLPreviewBrowserToolService
   let onAddAttachments: () -> Void
   @State private var htmlPreview: HTMLPreviewState?
   @State private var htmlPreviewRefreshID = UUID()
+  @State private var htmlPreviewConsoleEntries: [HTMLPreviewConsoleEntry] = []
   private let slashCommandParser = SlashCommandParser()
   private let htmlPreviewResolver = HTMLPreviewResolver()
 
@@ -80,14 +82,31 @@ struct WorkspaceChatView: View {
         HTMLPreviewPane(
           preview: htmlPreview,
           refreshID: htmlPreviewRefreshID,
+          browserToolService: browserToolService,
+          consoleEntries: htmlPreviewConsoleEntries,
+          onConsoleMessage: { entry in
+            Task { @MainActor in
+              htmlPreviewConsoleEntries.append(entry)
+            }
+          },
           onRefresh: {
+            htmlPreviewConsoleEntries.removeAll()
             htmlPreviewRefreshID = UUID()
           },
           onClose: {
+            htmlPreviewConsoleEntries.removeAll()
             self.htmlPreview = nil
+            Task {
+              await browserToolService.clear()
+            }
           }
         )
         .transition(.move(edge: .trailing).combined(with: .opacity))
+      }
+    }
+    .onDisappear {
+      Task {
+        await browserToolService.clear()
       }
     }
   }
@@ -157,6 +176,7 @@ struct WorkspaceChatView: View {
 
     do {
       htmlPreview = try htmlPreviewResolver.resolve(path: path, in: workspace)
+      htmlPreviewConsoleEntries.removeAll()
       controller.draft = ""
       controller.errorMessage = nil
     } catch {

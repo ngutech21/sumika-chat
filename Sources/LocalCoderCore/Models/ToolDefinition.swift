@@ -545,6 +545,61 @@ nonisolated extension ToolDefinition {
     riskLevel: .low
   )
 
+  public static let browserRefresh = ToolDefinition(
+    name: .browserRefresh,
+    description: "Reload the current HTML preview page.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "hard",
+        description: "When true, reload from the original preview file. Defaults to false.",
+        isRequired: false,
+        valueType: .boolean,
+        defaultValue: .bool(false)
+      )
+    ],
+    exampleArguments: [
+      "hard": .bool(false)
+    ],
+    capabilities: [],
+    riskLevel: .low
+  )
+
+  public static let browserInspect = ToolDefinition(
+    name: .browserInspect,
+    description: "Inspect text or HTML from the current HTML preview page.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "selector",
+        description: "Optional plain CSS selector. Do not wrap the value in extra quotes.",
+        isRequired: false,
+        valueType: .string
+      ),
+      ToolParameterDefinition(
+        name: "maxLength",
+        description: "Maximum characters to return. Defaults to 4000.",
+        isRequired: false,
+        valueType: .integer,
+        defaultValue: .number(4000),
+        minimum: 1,
+        maximum: 20_000
+      ),
+      ToolParameterDefinition(
+        name: "includeHtml",
+        description: "When true, include HTML for the inspected element.",
+        isRequired: false,
+        valueType: .boolean,
+        defaultValue: .bool(false)
+      ),
+    ],
+    exampleArguments: [
+      "selector": .string("main"),
+      "maxLength": .number(4000),
+      "includeHtml": .bool(false),
+    ],
+    capabilities: [],
+    riskLevel: .low
+  )
+
   public static let webSearch = ToolDefinition(
     name: .webSearch,
     description: "Search public web pages without sending workspace contents.",

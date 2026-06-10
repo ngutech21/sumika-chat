@@ -21,6 +21,8 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
   public static let runCommand = ToolName(rawValue: "run_command")
   public static let todoWrite = ToolName(rawValue: "todo_write")
   public static let askUser = ToolName(rawValue: "ask_user")
+  public static let browserRefresh = ToolName(rawValue: "browser_refresh")
+  public static let browserInspect = ToolName(rawValue: "browser_inspect")
   public static let webSearch = ToolName(rawValue: "web_search")
   public static let webFetch = ToolName(rawValue: "web_fetch")
   public static let invalid = ToolName(rawValue: "invalid")
@@ -161,6 +163,8 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
   case runCommand(RunCommandInput)
   case todoWrite(TodoWriteInput)
   case askUser(AskUserInput)
+  case browserRefresh(BrowserRefreshInput)
+  case browserInspect(BrowserInspectInput)
   case webSearch(WebSearchInput)
   case webFetch(WebFetchInput)
   case invalid(InvalidToolInput)
@@ -193,6 +197,10 @@ nonisolated extension ToolCallPayload {
       .todoWrite
     case .askUser:
       .askUser
+    case .browserRefresh:
+      .browserRefresh
+    case .browserInspect:
+      .browserInspect
     case .webSearch:
       .webSearch
     case .webFetch:
@@ -592,10 +600,202 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case runCommand(RunCommandResult)
   case todoWrite(TodoWriteResult)
   case askUser(AskUserResult)
+  case browserRefresh(BrowserRefreshResult)
+  case browserInspect(BrowserInspectResult)
   case webSearch(WebSearchToolResult)
   case webFetch(WebFetchToolResult)
   case invalidTool(InvalidToolResult)
   case failure(ToolFailure)
+}
+
+public struct BrowserRefreshInput: Codable, Equatable, Sendable {
+  public var hard: Bool?
+
+  private enum CodingKeys: String, CodingKey {
+    case hard
+  }
+
+  public init(hard: Bool? = nil) {
+    self.hard = hard
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    hard = try Self.decodeOptionalBool(from: container, forKey: .hard)
+  }
+
+  private static func decodeOptionalBool(
+    from container: KeyedDecodingContainer<CodingKeys>,
+    forKey key: CodingKeys
+  ) throws -> Bool? {
+    guard container.contains(key) else {
+      return nil
+    }
+    if let value = try? container.decode(Bool.self, forKey: key) {
+      return value
+    }
+    if let rawValue = try? container.decode(String.self, forKey: key) {
+      switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+      case "true":
+        return true
+      case "false":
+        return false
+      default:
+        break
+      }
+    }
+    throw BrowserToolInputValidationError.invalidBooleanArgument("hard")
+  }
+}
+
+public struct BrowserInspectInput: Codable, Equatable, Sendable {
+  public static let defaultMaxLength = 4000
+
+  public var selector: String?
+  public var maxLength: Int?
+  public var includeHTML: Bool?
+
+  private enum CodingKeys: String, CodingKey {
+    case selector
+    case maxLength
+    case includeHTML = "includeHtml"
+  }
+
+  public init(selector: String? = nil, maxLength: Int? = nil, includeHTML: Bool? = nil) {
+    self.selector = selector
+    self.maxLength = maxLength
+    self.includeHTML = includeHTML
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    selector = try container.decodeIfPresent(String.self, forKey: .selector)
+    maxLength = try Self.decodeOptionalInt(from: container, forKey: .maxLength)
+    includeHTML = try Self.decodeOptionalBool(from: container, forKey: .includeHTML)
+
+    if let selector,
+      selector.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      throw BrowserToolInputValidationError.emptySelector
+    }
+    if let maxLength, maxLength < 1 {
+      throw BrowserToolInputValidationError.invalidMaxLength
+    }
+  }
+
+  public var resolvedMaxLength: Int {
+    maxLength ?? Self.defaultMaxLength
+  }
+
+  public var resolvedSelector: String? {
+    Self.normalizedSelector(selector)
+  }
+
+  public var resolvedIncludeHTML: Bool {
+    includeHTML ?? false
+  }
+
+  public static func normalizedSelector(_ selector: String?) -> String? {
+    guard var normalized = selector?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !normalized.isEmpty
+    else {
+      return nil
+    }
+
+    while normalized.count >= 2,
+      let first = normalized.first,
+      let last = normalized.last,
+      first == last,
+      first == "\"" || first == "'"
+    {
+      normalized.removeFirst()
+      normalized.removeLast()
+      normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+      if normalized.isEmpty {
+        return nil
+      }
+    }
+
+    return normalized
+  }
+
+  private static func decodeOptionalInt(
+    from container: KeyedDecodingContainer<CodingKeys>,
+    forKey key: CodingKeys
+  ) throws -> Int? {
+    guard container.contains(key) else {
+      return nil
+    }
+    if let value = try? container.decode(Int.self, forKey: key) {
+      return value
+    }
+    if let stringValue = try? container.decode(String.self, forKey: key),
+      let value = Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
+    {
+      return value
+    }
+    throw BrowserToolInputValidationError.invalidIntegerArgument(key.stringValue)
+  }
+
+  private static func decodeOptionalBool(
+    from container: KeyedDecodingContainer<CodingKeys>,
+    forKey key: CodingKeys
+  ) throws -> Bool? {
+    guard container.contains(key) else {
+      return nil
+    }
+    if let value = try? container.decode(Bool.self, forKey: key) {
+      return value
+    }
+    if let rawValue = try? container.decode(String.self, forKey: key) {
+      switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+      case "true":
+        return true
+      case "false":
+        return false
+      default:
+        break
+      }
+    }
+    throw BrowserToolInputValidationError.invalidBooleanArgument(key.stringValue)
+  }
+}
+
+public enum BrowserToolInputValidationError: LocalizedError, Equatable {
+  case invalidBooleanArgument(String)
+  case invalidIntegerArgument(String)
+  case invalidMaxLength
+  case emptySelector
+
+  public var errorDescription: String? {
+    switch self {
+    case .invalidBooleanArgument(let name):
+      "browser tool argument \(name) must be true or false."
+    case .invalidIntegerArgument(let name):
+      "browser tool argument \(name) must be an integer."
+    case .invalidMaxLength:
+      "browser_inspect maxLength must be greater than or equal to 1."
+    case .emptySelector:
+      "browser_inspect selector must be omitted or non-empty."
+    }
+  }
+}
+
+public enum BrowserRefreshResult: Codable, Equatable, Sendable {
+  case success(path: WorkspaceRelativePath?, url: String?, hard: Bool)
+  case failed(reason: ToolFailureReason)
+}
+
+public enum BrowserInspectResult: Codable, Equatable, Sendable {
+  case success(
+    path: WorkspaceRelativePath?,
+    title: String,
+    url: String,
+    selector: String?,
+    text: ToolTextOutput,
+    html: ToolTextOutput?
+  )
+  case failed(reason: ToolFailureReason)
 }
 
 public struct WebSearchInput: Codable, Equatable, Sendable {
@@ -1121,6 +1321,10 @@ nonisolated extension ToolResultPayload {
       return result.preview
     case .askUser(let result):
       return result.preview
+    case .browserRefresh(let result):
+      return result.preview
+    case .browserInspect(let result):
+      return result.preview
     case .webSearch(let result):
       return result.preview
     case .webFetch(let result):
@@ -1203,6 +1407,56 @@ nonisolated extension TodoWriteResult {
 nonisolated extension AskUserResult {
   fileprivate var preview: ToolResultPreview {
     ToolResultPreview(text: "User answered: \(answer)")
+  }
+}
+
+nonisolated extension BrowserRefreshResult {
+  fileprivate var preview: ToolResultPreview {
+    switch self {
+    case .success(let path, let url, let hard):
+      let pathLine = path.map { "Preview path: \($0.rawValue)\n" } ?? ""
+      let urlLine = url.map { "URL: \($0)\n" } ?? ""
+      return ToolResultPreview(
+        text: "\(pathLine)\(urlLine)Reloaded current preview.\nHard reload: \(hard)",
+        affectedPaths: path.map { [$0.rawValue] } ?? []
+      )
+    case .failed(let reason):
+      return ToolResultPreview(status: reason.previewStatus, text: reason.message)
+    }
+  }
+}
+
+nonisolated extension BrowserInspectResult {
+  fileprivate var preview: ToolResultPreview {
+    switch self {
+    case .success(let path, let title, let url, let selector, let text, let html):
+      var lines: [String] = []
+      if let path {
+        lines.append("Preview path: \(path.rawValue)")
+      }
+      lines.append("Title: \(title)")
+      lines.append("URL: \(url)")
+      lines.append("Scope: \(selector ?? "document.body")")
+      lines.append("Text truncated: \(text.truncated)")
+      lines.append("")
+      lines.append("Text:")
+      lines.append(text.text)
+      if let html {
+        lines.append("")
+        lines.append("HTML truncated: \(html.truncated)")
+        lines.append("")
+        lines.append("HTML:")
+        lines.append(html.text)
+      }
+      return ToolResultPreview(
+        text: lines.joined(separator: "\n"),
+        truncated: text.truncated || (html?.truncated ?? false),
+        redacted: text.redacted || (html?.redacted ?? false),
+        affectedPaths: path.map { [$0.rawValue] } ?? []
+      )
+    case .failed(let reason):
+      return ToolResultPreview(status: reason.previewStatus, text: reason.message)
+    }
   }
 }
 

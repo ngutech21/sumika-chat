@@ -13,6 +13,7 @@ final class AppState {
   var isWorkspaceLibraryLoading = true
 
   @ObservationIgnored let chatController: ChatSessionController
+  @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
   private var workspaceLibraryController: WorkspaceLibraryController
   @ObservationIgnored private let workspaceStore: any WorkspaceStoring
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
@@ -41,6 +42,8 @@ final class AppState {
     self.modelSettingsStore = modelSettingsStore
     self.webAccessSettingsStore = webAccessSettingsStore
     self.appBehaviorSettingsStore = appBehaviorSettingsStore
+    let browserToolService = HTMLPreviewBrowserToolService()
+    self.browserToolService = browserToolService
 
     if let chatController {
       self.chatController = chatController
@@ -52,6 +55,7 @@ final class AppState {
         runtime: GemmaMLXRuntime(),
         toolOrchestrator: ToolOrchestrator(
           executorRegistry: .codingAgent,
+          browserToolService: browserToolService,
           webAccessSettingsProvider: {
             await webAccessSettingsStore.settings()
           }

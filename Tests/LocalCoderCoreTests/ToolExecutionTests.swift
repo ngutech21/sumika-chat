@@ -597,6 +597,28 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func browserToolsAreAvailableOnlyInCodingAgentRegistry() async throws {
+    let workspace = try makeWorkspace()
+    let refresh = await BrowserRefreshToolExecutor().run(
+      BrowserRefreshInput(hard: true),
+      context: ToolContext(workspace: workspace)
+    )
+    let inspect = await BrowserInspectToolExecutor().run(
+      BrowserInspectInput(selector: nil, maxLength: nil, includeHTML: nil),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(!ToolExecutorRegistry.readOnly.definitions.map(\.name).contains(.browserRefresh))
+    #expect(!ToolExecutorRegistry.readOnly.definitions.map(\.name).contains(.browserInspect))
+    #expect(ToolExecutorRegistry.codingAgent.definitions.map(\.name).contains(.browserRefresh))
+    #expect(ToolExecutorRegistry.codingAgent.definitions.map(\.name).contains(.browserInspect))
+    #expect(refresh.status == .failed)
+    #expect(inspect.status == .failed)
+    #expect(refresh.text.contains("/preview <path-to-html-file>"))
+    #expect(inspect.text.contains("/preview <path-to-html-file>"))
+  }
+
+  @Test
   func todoWriteDefinitionIsAvailableOnlyInCodingAgentRegistry() async throws {
     let definition = ToolDefinition.todoWrite
     let workspace = try makeWorkspace()
@@ -1707,6 +1729,8 @@ struct ToolExecutionTests {
         .searchFiles,
         .workspaceDiff,
         .workspaceDiagnostics,
+        .browserRefresh,
+        .browserInspect,
         .editFile,
         .writeFile,
         .runCommand,

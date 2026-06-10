@@ -8,6 +8,7 @@ public struct ToolContext: Sendable {
   public let webAccessSettings: WebAccessSettings
   public let webSearcher: any WebSearching
   public let webFetcher: any WebFetching
+  public let browserToolService: any BrowserToolServing
 
   public init(
     workspace: Workspace,
@@ -16,7 +17,8 @@ public struct ToolContext: Sendable {
     latestCommandResultStore: LatestCommandResultStore? = nil,
     webAccessSettings: WebAccessSettings = .disabled,
     webSearcher: any WebSearching = DefaultWebSearchService(),
-    webFetcher: any WebFetching = DefaultWebFetchService()
+    webFetcher: any WebFetching = DefaultWebFetchService(),
+    browserToolService: any BrowserToolServing = UnavailableBrowserToolService()
   ) {
     self.workspace = workspace
     self.sessionID = sessionID
@@ -25,6 +27,7 @@ public struct ToolContext: Sendable {
     self.webAccessSettings = webAccessSettings
     self.webSearcher = webSearcher
     self.webFetcher = webFetcher
+    self.browserToolService = browserToolService
   }
 }
 
@@ -485,6 +488,12 @@ public struct AnyToolExecutor: Sendable {
       return try cast(input, as: inputType, definition: definition, actualToolName: .todoWrite)
     case .askUser(let input):
       return try cast(input, as: inputType, definition: definition, actualToolName: .askUser)
+    case .browserRefresh(let input):
+      return try cast(
+        input, as: inputType, definition: definition, actualToolName: .browserRefresh)
+    case .browserInspect(let input):
+      return try cast(
+        input, as: inputType, definition: definition, actualToolName: .browserInspect)
     case .webSearch(let input):
       return try cast(input, as: inputType, definition: definition, actualToolName: .webSearch)
     case .webFetch(let input):
@@ -532,6 +541,8 @@ public struct ToolExecutorRegistry: Sendable {
     AnyToolExecutor(SearchFilesToolExecutor()),
     AnyToolExecutor(WorkspaceDiffToolExecutor()),
     AnyToolExecutor(WorkspaceDiagnosticsToolExecutor()),
+    AnyToolExecutor(BrowserRefreshToolExecutor()),
+    AnyToolExecutor(BrowserInspectToolExecutor()),
     AnyToolExecutor(EditFileToolExecutor()),
     AnyToolExecutor(WriteFileToolExecutor()),
     AnyToolExecutor(RunCommandToolExecutor()),
@@ -1662,6 +1673,7 @@ public struct ToolOrchestrator: Sendable {
   private let latestCommandResultStore: LatestCommandResultStore
   private let webSearcher: any WebSearching
   private let webFetcher: any WebFetching
+  private let browserToolService: any BrowserToolServing
   private let webAccessSettingsProvider: @Sendable () async -> WebAccessSettings
 
   public init(
@@ -1671,6 +1683,7 @@ public struct ToolOrchestrator: Sendable {
     latestCommandResultStore: LatestCommandResultStore = LatestCommandResultStore(),
     webSearcher: any WebSearching = DefaultWebSearchService(),
     webFetcher: any WebFetching = DefaultWebFetchService(),
+    browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
     webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
       .disabled
     }
@@ -1681,6 +1694,7 @@ public struct ToolOrchestrator: Sendable {
     self.latestCommandResultStore = latestCommandResultStore
     self.webSearcher = webSearcher
     self.webFetcher = webFetcher
+    self.browserToolService = browserToolService
     self.webAccessSettingsProvider = webAccessSettingsProvider
   }
 
@@ -1740,7 +1754,8 @@ public struct ToolOrchestrator: Sendable {
           latestCommandResultStore: latestCommandResultStore,
           webAccessSettings: webAccessSettings,
           webSearcher: webSearcher,
-          webFetcher: webFetcher
+          webFetcher: webFetcher,
+          browserToolService: browserToolService
         )
       )
     }
@@ -1754,7 +1769,8 @@ public struct ToolOrchestrator: Sendable {
         latestCommandResultStore: latestCommandResultStore,
         webAccessSettings: webAccessSettings,
         webSearcher: webSearcher,
-        webFetcher: webFetcher
+        webFetcher: webFetcher,
+        browserToolService: browserToolService
       )
     )
   }

@@ -106,6 +106,18 @@ public struct ToolPermissionEvaluator: Sendable {
         reason: "Asking the user a blocking clarification is allowed.",
         riskLevel: .low
       )
+    case .browserRefresh:
+      return ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Refreshing the active HTML preview is allowed.",
+        riskLevel: .low
+      )
+    case .browserInspect:
+      return ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Inspecting the active HTML preview is allowed.",
+        riskLevel: .low
+      )
     case .webSearch, .webFetch:
       return ToolPermissionEvaluation(
         decision: .denied,

@@ -85,6 +85,7 @@ struct ContentView: View {
               controller: controller,
               workspace: workspace,
               sessionID: appState.activeSessionID,
+              browserToolService: appState.browserToolService,
               onAddAttachments: chooseAttachments
             )
             .navigationTitle(workspace.name)

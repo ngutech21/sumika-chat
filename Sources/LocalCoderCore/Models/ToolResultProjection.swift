@@ -249,6 +249,10 @@ public enum ToolResultProjector {
       return projectTodoWrite(result, request: request)
     case .askUser(let result):
       return projectAskUser(result, request: request)
+    case .browserRefresh(let result):
+      return projectBrowserRefresh(result, request: request)
+    case .browserInspect(let result):
+      return projectBrowserInspect(result, request: request)
     case .webSearch(let result):
       return projectWebSearch(result, request: request, policy: policy)
     case .webFetch(let result):
@@ -518,6 +522,69 @@ public enum ToolResultProjector {
       text: "User answered: \(result.answer)",
       affectedPaths: []
     )
+  }
+
+  private static func projectBrowserRefresh(
+    _ result: BrowserRefreshResult,
+    request: ToolCallRequest
+  ) -> ToolResultProjection {
+    switch result {
+    case .success(let path, let url, let hard):
+      let affectedPaths = path.map { [$0] } ?? []
+      let urlText = url.map { "\nURL: \($0)" } ?? ""
+      return summaryProjection(
+        toolName: request.toolName,
+        status: .success,
+        text: "Reloaded current preview.\nHard reload: \(hard)\(urlText)",
+        affectedPaths: affectedPaths
+      )
+    case .failed(let reason):
+      return summaryProjection(
+        toolName: request.toolName,
+        status: reason.projectedStatus,
+        text: reason.message,
+        affectedPaths: []
+      )
+    }
+  }
+
+  private static func projectBrowserInspect(
+    _ result: BrowserInspectResult,
+    request: ToolCallRequest
+  ) -> ToolResultProjection {
+    switch result {
+    case .success(let path, let title, let url, let selector, let text, let html):
+      let affectedPaths = path.map { [$0] } ?? []
+      var body = [
+        "Title: \(title)",
+        "URL: \(url)",
+        "Scope: \(selector ?? "document.body")",
+        "Text truncated: \(text.truncated)",
+        "",
+        "Text:",
+        text.text,
+      ]
+      if let html {
+        body.append("")
+        body.append("HTML truncated: \(html.truncated)")
+        body.append("")
+        body.append("HTML:")
+        body.append(html.text)
+      }
+      return summaryProjection(
+        toolName: request.toolName,
+        status: .success,
+        text: body.joined(separator: "\n"),
+        affectedPaths: affectedPaths
+      )
+    case .failed(let reason):
+      return summaryProjection(
+        toolName: request.toolName,
+        status: reason.projectedStatus,
+        text: reason.message,
+        affectedPaths: []
+      )
+    }
   }
 
   private static func projectWebSearch(

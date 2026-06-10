@@ -84,6 +84,20 @@ struct ToolCallRequestValidatorTests {
         ]),
       registry: registry
     )
+    let browserRefresh = validator.validate(
+      raw(.browserRefresh, arguments: ["hard": .string("true")]),
+      registry: registry
+    )
+    let browserInspect = validator.validate(
+      raw(
+        .browserInspect,
+        arguments: [
+          "selector": .string("main"),
+          "maxLength": .string("1200"),
+          "includeHtml": .string("false"),
+        ]),
+      registry: registry
+    )
 
     guard case .readFile(let readInput) = read.payload else {
       Issue.record("Expected read_file payload")
@@ -124,6 +138,11 @@ struct ToolCallRequestValidatorTests {
             question: "Which implementation should I use?",
             options: ["Minimal fix", "Broader refactor"]
           )))
+    #expect(browserRefresh.payload == .browserRefresh(BrowserRefreshInput(hard: true)))
+    #expect(
+      browserInspect.payload
+        == .browserInspect(
+          BrowserInspectInput(selector: "main", maxLength: 1200, includeHTML: false)))
   }
 
   @Test
@@ -260,6 +279,42 @@ struct ToolCallRequestValidatorTests {
           name: "options",
           expected: "unique answer option strings"
         ))
+  }
+
+  @Test
+  func browserInspectRejectsEmptySelectorAndNonPositiveMaxLength() {
+    let registry = ToolExecutorRegistry.codingAgent.toolRegistry
+    let emptySelector = validator.validate(
+      raw(
+        .browserInspect,
+        arguments: ["selector": .string(" "), "maxLength": .number(40)]),
+      registry: registry
+    )
+    let invalidMaxLength = validator.validate(
+      raw(.browserInspect, arguments: ["maxLength": .number(0)]),
+      registry: registry
+    )
+
+    #expect(
+      invalidReason(emptySelector)
+        == .invalidArgumentType(
+          name: "selector",
+          expected: "omit it or provide a non-empty CSS selector"
+        ))
+    #expect(invalidReason(invalidMaxLength) == .invalidPagination("maxLength"))
+  }
+
+  @Test
+  func browserInspectNormalizesSelectorsWrappedInQuotes() {
+    let input = BrowserInspectInput(
+      selector: #"".color-swatch""#,
+      maxLength: 4000,
+      includeHTML: false
+    )
+
+    #expect(input.resolvedSelector == ".color-swatch")
+    #expect(BrowserInspectInput.normalizedSelector(#"'main .item'"#) == "main .item")
+    #expect(BrowserInspectInput.normalizedSelector(" body ") == "body")
   }
 
   @Test

@@ -136,6 +136,32 @@ struct ToolDefinitionSchemaTests {
   }
 
   @Test
+  func browserDefinitionsExposePreviewInspectionControls() {
+    let refresh = ToolDefinition.browserRefresh
+    let inspect = ToolDefinition.browserInspect
+
+    #expect(refresh.description.contains("HTML preview"))
+    #expect(refresh.riskLevel == .low)
+    #expect(refresh.capabilities.isEmpty)
+    #expect(refresh.functionSchema.parameters.required.isEmpty)
+    #expect(refresh.functionSchema.parameters.properties["hard"]?.type == .boolean)
+    #expect(refresh.functionSchema.parameters.properties["hard"]?.defaultValue == .bool(false))
+
+    #expect(inspect.description.contains("HTML preview"))
+    #expect(inspect.riskLevel == .low)
+    #expect(inspect.capabilities.isEmpty)
+    #expect(inspect.functionSchema.parameters.required.isEmpty)
+    #expect(inspect.functionSchema.parameters.properties["selector"]?.type == .string)
+    #expect(inspect.functionSchema.parameters.properties["maxLength"]?.type == .integer)
+    #expect(inspect.functionSchema.parameters.properties["maxLength"]?.minimum == 1)
+    #expect(inspect.functionSchema.parameters.properties["maxLength"]?.maximum == 20_000)
+    #expect(inspect.functionSchema.parameters.properties["maxLength"]?.defaultValue == .number(4000))
+    #expect(inspect.functionSchema.parameters.properties["includeHtml"]?.type == .boolean)
+    #expect(
+      inspect.functionSchema.parameters.properties["includeHtml"]?.defaultValue == .bool(false))
+  }
+
+  @Test
   func functionSchemaEncodesProviderNeutralFunctionToolShape() throws {
     let data = try JSONEncoder().encode(ToolDefinition.readFile.functionSchema)
     let object = try #require(

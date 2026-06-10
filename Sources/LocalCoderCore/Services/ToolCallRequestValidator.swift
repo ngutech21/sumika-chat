@@ -144,6 +144,12 @@ public struct ToolCallRequestValidator: Sendable {
         )
       }
       return .askUser(input)
+    case .browserRefresh:
+      let input = try decode(BrowserRefreshInput.self, from: rawRequest.arguments)
+      return .browserRefresh(input)
+    case .browserInspect:
+      let input = try decode(BrowserInspectInput.self, from: rawRequest.arguments)
+      return .browserInspect(input)
     case .webSearch:
       let input = try decode(WebSearchInput.self, from: rawRequest.arguments)
       guard !input.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -318,6 +324,22 @@ public struct ToolCallRequestValidator: Sendable {
       }
     }
 
+    if let browserError = error as? BrowserToolInputValidationError {
+      switch browserError {
+      case .invalidBooleanArgument(let name):
+        return .invalidArgumentType(name: name, expected: "true or false")
+      case .invalidIntegerArgument(let name):
+        return .invalidArgumentType(name: name, expected: "an integer")
+      case .invalidMaxLength:
+        return .invalidPagination("maxLength")
+      case .emptySelector:
+        return .invalidArgumentType(
+          name: "selector",
+          expected: "omit it or provide a non-empty CSS selector"
+        )
+      }
+    }
+
     if let decodingError = error as? DecodingError {
       return invalidReason(from: decodingError)
     }
@@ -380,6 +402,10 @@ nonisolated extension ToolDefinition {
       .todoWrite
     case .askUser:
       .askUser
+    case .browserRefresh:
+      .browserRefresh
+    case .browserInspect:
+      .browserInspect
     case .webSearch:
       .webSearch
     case .webFetch:

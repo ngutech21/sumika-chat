@@ -575,6 +575,10 @@ extension ToolCallModelMessage {
       return argumentValue(named: "query")
     case .webFetch:
       return argumentValue(named: "url")
+    case .browserInspect:
+      return argumentValue(named: "selector") ?? "document.body"
+    case .browserRefresh:
+      return argumentValue(named: "hard")
     default:
       return nil
     }

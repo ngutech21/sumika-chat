@@ -49,6 +49,7 @@ enum AppLaunchConfiguration {
       )
     )
     try? FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+    let browserToolService = HTMLPreviewBrowserToolService()
 
     let controller = ChatSessionController(
       modelSettingsStore: modelSettingsStore,
@@ -56,6 +57,7 @@ enum AppLaunchConfiguration {
       runtime: GemmaMLXRuntime(),
       toolOrchestrator: ToolOrchestrator(
         executorRegistry: .codingAgent,
+        browserToolService: browserToolService,
         webAccessSettingsProvider: {
           await webAccessSettingsStore.settings()
         }
