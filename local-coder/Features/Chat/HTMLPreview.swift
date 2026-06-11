@@ -547,7 +547,7 @@ struct HTMLPreviewWebView: NSViewRepresentable {
       return "\"\(escaped)\""
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
       _ = webView
       _ = navigation
       Task { @MainActor in
@@ -557,7 +557,7 @@ struct HTMLPreviewWebView: NSViewRepresentable {
 
     func webView(
       _ webView: WKWebView,
-      didFail navigation: WKNavigation!,
+      didFail navigation: WKNavigation?,
       withError error: Error
     ) {
       _ = webView
@@ -569,7 +569,7 @@ struct HTMLPreviewWebView: NSViewRepresentable {
 
     func webView(
       _ webView: WKWebView,
-      didFailProvisionalNavigation navigation: WKNavigation!,
+      didFailProvisionalNavigation navigation: WKNavigation?,
       withError error: Error
     ) {
       _ = webView
