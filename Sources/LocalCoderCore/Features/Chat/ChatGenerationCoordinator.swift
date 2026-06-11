@@ -68,6 +68,7 @@ public struct ChatGenerationCoordinator {
     settings: ChatGenerationSettings,
     appendChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
+    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void = { _ in },
     updateContextUsage: () async -> Void
   ) async throws -> String {
     let result = try await streamAssistantReplyResult(
@@ -82,6 +83,7 @@ public struct ChatGenerationCoordinator {
       toolContext: nil,
       appendChunk: appendChunk,
       updateGenerationMetrics: updateGenerationMetrics,
+      updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot,
       updateContextUsage: updateContextUsage
     )
     return result.assistantContent
@@ -99,6 +101,7 @@ public struct ChatGenerationCoordinator {
     toolContext: ChatRuntimeToolContext? = nil,
     appendChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
+    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void = { _ in },
     updateContextUsage: () async -> Void
   ) async throws -> ChatGenerationResult {
     let operationID =
@@ -129,6 +132,7 @@ public struct ChatGenerationCoordinator {
         toolContext: toolContext,
         appendChunk: appendChunk,
         updateGenerationMetrics: updateGenerationMetrics,
+        updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot,
         updateContextUsage: updateContextUsage
       )
     }
@@ -146,6 +150,7 @@ public struct ChatGenerationCoordinator {
     toolContext: ChatRuntimeToolContext?,
     appendChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
+    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void,
     updateContextUsage: () async -> Void
   ) async throws -> ChatGenerationResult {
     let generationStartedAt = Date()
@@ -157,6 +162,9 @@ public struct ChatGenerationCoordinator {
       toolContext: toolContext,
       operationID: operationID
     )
+    let runtimeCacheDebugSnapshot = try await runtimeOperations.runtimeCacheDebugSnapshot(
+      operationID: operationID)
+    await updateRuntimeCacheDebugSnapshot(runtimeCacheDebugSnapshot)
 
     var bufferedChunk = ""
     var generatedContent = ""

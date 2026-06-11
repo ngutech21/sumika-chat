@@ -6,6 +6,7 @@ import Observation
 public final class ChatSessionController {
   public var chatSession = ChatSession.codingDefault
   public var contextUsage: ChatContextUsage?
+  public var runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
   public var draft = ""
   public var isGenerating = false
   public var errorMessage: String?
@@ -203,6 +204,7 @@ extension ChatSessionController {
         return
       }
 
+      self.runtimeCacheDebugSnapshot = nil
       self.invalidateContextUsage()
     }
     modelRuntime.onContextUsageShouldRefresh = { [weak self] in
@@ -226,6 +228,7 @@ extension ChatSessionController {
     let didResetRuntime = modelRuntime.applySessionModel(model)
     errorMessage = nil
     contextUsage = nil
+    runtimeCacheDebugSnapshot = nil
     chatSession = session
     chatSession.pendingAttachments = []
     disableUnsupportedInteractionModeIfNeeded()
@@ -464,6 +467,7 @@ extension ChatSessionController {
 
   public func clearChatHistory() {
     transcriptMutator.clearTranscript(in: &chatSession)
+    runtimeCacheDebugSnapshot = nil
     invalidateContextUsage()
     notifySessionDidChange()
 
@@ -508,6 +512,7 @@ extension ChatSessionController {
   }
 
   private func clearRuntimeContextForReuse() {
+    runtimeCacheDebugSnapshot = nil
     let operationID = modelRuntime.currentOperationID()
     let modelLifecycleCoordinator = modelLifecycleCoordinator
     let previousTask = pendingRuntimeContextClear?.task
@@ -1253,6 +1258,12 @@ extension ChatSessionController {
         transcriptMutator.updateGenerationMetrics(
           metrics, for: assistantMessageID, in: &chatSession)
         transcriptMutator.updateDeliveryStatus(.complete, for: assistantMessageID, in: &chatSession)
+      },
+      updateRuntimeCacheDebugSnapshot: { snapshot in
+        guard isCurrentTurn(turnID) else {
+          return
+        }
+        runtimeCacheDebugSnapshot = snapshot
       },
       updateContextUsage: {
         await MainActor.run {}

@@ -67,6 +67,10 @@ public final class ModelRuntimeController {
     modelOperationID
   }
 
+  public func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
+    try? await runtimeOperations.runtimeCacheDebugSnapshot(operationID: modelOperationID)
+  }
+
   public func prepareDefaultModelDirectory() {
     let lifecycleCoordinator = modelLifecycleCoordinator
     Task {

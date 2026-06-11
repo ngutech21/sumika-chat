@@ -394,6 +394,7 @@ nonisolated private struct CachedGemmaSession {
 nonisolated private struct GemmaSessionCachePlan {
   let session: MLXLMCommon.ChatSession
   let trace: GemmaSessionCacheTrace
+  let reuseStrategy: GemmaSessionReuseStrategy
   let streamInput: GemmaSessionStreamInput
 }
 
@@ -423,6 +424,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   private var loadedModelSupportsImageInput = false
   private var cachedSession: CachedGemmaSession?
   private var pendingCacheInvalidationReason: GemmaSessionInvalidationReason?
+  private var lastRuntimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
   private let attachmentStore = ChatAttachmentStore()
   private var contextTokenLimit: Int?
   private var generationOwnership = GemmaGenerationOwnership()
@@ -467,6 +469,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     modelContainer = container
     loadedModelSupportsImageInput = configuration.supportsImageInput
     contextTokenLimit = configuration.contextTokenLimit
+    lastRuntimeCacheDebugSnapshot = nil
     invalidateCachedSession(reason: .modelChanged)
   }
 
@@ -478,6 +481,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     modelContainer = nil
     loadedModelSupportsImageInput = false
     contextTokenLimit = nil
+    lastRuntimeCacheDebugSnapshot = nil
     await Self.clearMemoryCache(
       reason: .unload,
       traceID: nil,
@@ -492,6 +496,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     defer { lifecycleTransitionInProgress = false }
     await cancelAndDrainActiveGeneration(reason: .signatureMismatch)
     invalidateCachedSession(reason: .signatureMismatch)
+    lastRuntimeCacheDebugSnapshot = nil
     await Self.clearMemoryCache(
       reason: .clearContext,
       traceID: nil,
@@ -509,6 +514,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     return await modelContainer.perform { context in
       context.tokenizer.encode(text: text, addSpecialTokens: false).count
     }
+  }
+
+  func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
+    lastRuntimeCacheDebugSnapshot
   }
 
   func contextUsage(
@@ -596,6 +605,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let historySnapshot = Self.messageSnapshot(from: history)
     let finalPrompt = promptMessage.content
     await supersedeActiveGenerationBeforeStartingNew()
+    let traceMetadata = TurnTraceContext.current
+    let traceID = traceMetadata?.generationID ?? UUID()
     let generationID = generationOwnership.beginGeneration()
     let cachePlan = prepareSession(
       modelContainer: modelContainer,
@@ -611,10 +622,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       cacheEligibility: cacheEligibility,
       generationID: generationID
     )
+    lastRuntimeCacheDebugSnapshot = Self.runtimeCacheDebugSnapshot(
+      from: cachePlan.trace,
+      reuseStrategy: cachePlan.reuseStrategy,
+      generationID: traceID
+    )
     cachePlan.session.tools = toolSpecs
 
-    let traceMetadata = TurnTraceContext.current
-    let traceID = traceMetadata?.generationID ?? UUID()
     let traceMessages = try Self.runtimeHistoryMessages(
       systemPrompt: systemPrompt,
       history: history
@@ -784,6 +798,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       return GemmaSessionCachePlan(
         session: cached.session,
         trace: decision.trace,
+        reuseStrategy: decision.reuseStrategy,
         streamInput: Self.streamInput(
           for: decision.reuseStrategy,
           history: history,
@@ -808,6 +823,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     return GemmaSessionCachePlan(
       session: session,
       trace: decision.trace,
+      reuseStrategy: decision.reuseStrategy,
       streamInput: .prompt(promptMessage.content, images: promptMessage.images)
     )
   }
@@ -1203,6 +1219,47 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         cacheEligibilityReason: cacheEligibility.traceReason
       )
     )
+  }
+
+  nonisolated static func runtimeCacheDebugSnapshot(
+    from trace: GemmaSessionCacheTrace,
+    reuseStrategy: GemmaSessionReuseStrategy,
+    generationID: UUID,
+    recordedAt: Date = Date()
+  ) -> RuntimeCacheDebugSnapshot {
+    let strategy = runtimeCacheDebugReuseStrategy(reuseStrategy)
+    return RuntimeCacheDebugSnapshot(
+      generationID: generationID,
+      recordedAt: recordedAt,
+      cacheMode: trace.cacheMode.rawValue,
+      cacheReason: trace.cacheReason.rawValue,
+      reuseStrategy: strategy.name,
+      appendDeltaStartIndex: strategy.appendDeltaStartIndex,
+      contextSignature: trace.contextSignature,
+      previousContextSignature: trace.previousContextSignature,
+      appendOnly: trace.appendOnly,
+      reusedMessageCount: trace.reusedMessageCount,
+      appendedMessageCount: trace.appendedMessageCount,
+      mismatchReason: trace.mismatchReason,
+      firstMismatchIndex: trace.firstMismatchIndex,
+      systemPromptChanged: trace.systemPromptChanged,
+      currentPromptContextChanged: trace.currentPromptContextChanged,
+      cacheEligibility: trace.cacheEligibility,
+      cacheEligibilityReason: trace.cacheEligibilityReason
+    )
+  }
+
+  nonisolated private static func runtimeCacheDebugReuseStrategy(
+    _ reuseStrategy: GemmaSessionReuseStrategy
+  ) -> (name: String, appendDeltaStartIndex: Int?) {
+    switch reuseStrategy {
+    case .none:
+      ("none", nil)
+    case .exactPrompt:
+      ("exact_prompt", nil)
+    case .appendHistoryDelta(let startIndex):
+      ("append_history_delta", startIndex)
+    }
   }
 
   nonisolated static func renderedContextSignature(

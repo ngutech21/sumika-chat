@@ -4,6 +4,7 @@ public protocol ChatModelRuntime: Sendable {
   func load(configuration: ChatModelConfiguration) async throws
   func unload() async
   func clearContext() async
+  func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot?
   func generatedTokenCount(for text: String) async throws -> Int
   func contextUsage(
     for transcript: ModelContextSnapshot,
@@ -64,6 +65,10 @@ public struct ChatRuntimeToolCall: Equatable, Sendable {
 }
 
 extension ChatModelRuntime {
+  public func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
+    nil
+  }
+
   public func streamReply(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],

@@ -212,6 +212,7 @@ private struct ModelContextDebugPane: View {
       switch documentResult {
       case .success(let document):
         header(for: document)
+        RuntimeCacheDebugSection(snapshot: controller.runtimeCacheDebugSnapshot)
         Divider()
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 10) {
@@ -327,6 +328,146 @@ private struct ModelContextDebugMetric: View {
         .foregroundStyle(.secondary)
       Text(value)
         .font(.caption.monospacedDigit())
+    }
+  }
+}
+
+private struct RuntimeCacheDebugSection: View {
+  let snapshot: RuntimeCacheDebugSnapshot?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("KV Cache")
+        .font(.subheadline.weight(.semibold))
+
+      if let snapshot {
+        VStack(alignment: .leading, spacing: 6) {
+          HStack(spacing: 8) {
+            Label(statusTitle(for: snapshot), systemImage: statusImage(for: snapshot))
+              .font(.caption.weight(.semibold))
+            Spacer()
+            Text(snapshot.recordedAt, style: .time)
+              .font(.caption.monospacedDigit())
+              .foregroundStyle(.secondary)
+          }
+
+          RuntimeCacheDebugRow(title: "Reason", value: snapshot.cacheReason)
+          RuntimeCacheDebugRow(title: "Mode", value: snapshot.cacheMode)
+          RuntimeCacheDebugRow(title: "Reuse", value: reuseValue(for: snapshot))
+          RuntimeCacheDebugRow(title: "Messages", value: messageValue(for: snapshot))
+          RuntimeCacheDebugRow(title: "Mismatch", value: mismatchValue(for: snapshot))
+          RuntimeCacheDebugRow(
+            title: "System prompt",
+            value: booleanValue(snapshot.systemPromptChanged)
+          )
+          RuntimeCacheDebugRow(
+            title: "Prompt context",
+            value: booleanValue(snapshot.currentPromptContextChanged)
+          )
+          RuntimeCacheDebugRow(title: "Eligibility", value: eligibilityValue(for: snapshot))
+          RuntimeCacheDebugRow(title: "Signature", value: snapshot.contextSignature)
+          if let previousContextSignature = snapshot.previousContextSignature {
+            RuntimeCacheDebugRow(title: "Previous", value: previousContextSignature)
+          }
+        }
+      } else {
+        Text("No KV cache decision recorded yet.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    }
+    .padding(.horizontal, 16)
+    .padding(.bottom, 12)
+  }
+
+  private func statusTitle(for snapshot: RuntimeCacheDebugSnapshot) -> String {
+    if snapshot.cacheReason == "append_only_delta_reused"
+      || snapshot.reuseStrategy == "append_history_delta"
+    {
+      return "Append-only delta"
+    }
+    if snapshot.cacheMode == "session_reused" {
+      return "Reused"
+    }
+    if snapshot.cacheMode == "new_session_history" {
+      return "New session"
+    }
+    if snapshot.cacheMode.hasPrefix("invalidated_") {
+      return "Invalidated"
+    }
+    return snapshot.cacheMode
+  }
+
+  private func statusImage(for snapshot: RuntimeCacheDebugSnapshot) -> String {
+    if snapshot.cacheMode == "session_reused" {
+      return "bolt.horizontal.circle"
+    }
+    if snapshot.cacheMode == "new_session_history" {
+      return "plus.circle"
+    }
+    if snapshot.cacheMode.hasPrefix("invalidated_") {
+      return "exclamationmark.triangle"
+    }
+    return "memorychip"
+  }
+
+  private func reuseValue(for snapshot: RuntimeCacheDebugSnapshot) -> String {
+    guard let appendDeltaStartIndex = snapshot.appendDeltaStartIndex else {
+      return snapshot.reuseStrategy
+    }
+    return "\(snapshot.reuseStrategy) @ \(appendDeltaStartIndex)"
+  }
+
+  private func messageValue(for snapshot: RuntimeCacheDebugSnapshot) -> String {
+    "reused \(snapshot.reusedMessageCount), appended \(snapshot.appendedMessageCount)"
+  }
+
+  private func mismatchValue(for snapshot: RuntimeCacheDebugSnapshot) -> String {
+    guard let mismatchReason = snapshot.mismatchReason else {
+      return "none"
+    }
+    if let firstMismatchIndex = snapshot.firstMismatchIndex {
+      return "\(mismatchReason) @ \(firstMismatchIndex)"
+    }
+    return mismatchReason
+  }
+
+  private func booleanValue(_ value: Bool?) -> String {
+    switch value {
+    case .some(true):
+      "changed"
+    case .some(false):
+      "unchanged"
+    case .none:
+      "unknown"
+    }
+  }
+
+  private func eligibilityValue(for snapshot: RuntimeCacheDebugSnapshot) -> String {
+    if let reason = snapshot.cacheEligibilityReason {
+      return "\(snapshot.cacheEligibility) (\(reason))"
+    }
+    return snapshot.cacheEligibility
+  }
+}
+
+private struct RuntimeCacheDebugRow: View {
+  let title: String
+  let value: String
+
+  var body: some View {
+    HStack(alignment: .firstTextBaseline, spacing: 10) {
+      Text(title)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .frame(width: 76, alignment: .leading)
+      Text(value)
+        .font(.caption.monospaced())
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .textSelection(.enabled)
+        .help(value)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 }

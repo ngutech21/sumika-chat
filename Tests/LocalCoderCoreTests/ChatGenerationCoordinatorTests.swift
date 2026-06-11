@@ -80,6 +80,46 @@ struct ChatGenerationCoordinatorTests {
   }
 
   @Test
+  func streamingPublishesRuntimeCacheDebugSnapshotAfterStreamStarts() async throws {
+    let generationID = UUID()
+    let runtimeSnapshot = RuntimeCacheDebugSnapshot(
+      generationID: generationID,
+      recordedAt: Date(timeIntervalSince1970: 10),
+      cacheMode: "session_reused",
+      cacheReason: "append_only_delta_reused",
+      reuseStrategy: "append_history_delta",
+      appendDeltaStartIndex: 2,
+      contextSignature: "ctx-new",
+      previousContextSignature: "ctx-old",
+      appendOnly: true,
+      reusedMessageCount: 2,
+      appendedMessageCount: 1,
+      cacheEligibility: "enabled"
+    )
+    let runtime = RuntimeCacheSnapshotRuntime(snapshot: runtimeSnapshot)
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+    var publishedSnapshot: RuntimeCacheDebugSnapshot?
+
+    _ = try await coordinator.streamAssistantReply(
+      transcript: ModelContextSnapshot(),
+      systemPrompt: "Answer normally.",
+      settings: .codingDefault,
+      appendChunk: { _ in },
+      updateGenerationMetrics: { _ in },
+      updateRuntimeCacheDebugSnapshot: { snapshot in
+        publishedSnapshot = snapshot
+      },
+      updateContextUsage: {}
+    )
+
+    #expect(publishedSnapshot == runtimeSnapshot)
+  }
+
+  @Test
   func regularAssistantStreamingTracesUIFlushWithTurnAndGenerationID() async throws {
     let turnID = UUID()
     let tracer = RecordingTurnTracer()
@@ -177,6 +217,57 @@ struct ChatGenerationCoordinatorTests {
         throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))
+    }
+  }
+}
+
+private actor RuntimeCacheSnapshotRuntime: ChatModelRuntime {
+  let snapshot: RuntimeCacheDebugSnapshot
+
+  init(snapshot: RuntimeCacheDebugSnapshot) {
+    self.snapshot = snapshot
+  }
+
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+  }
+
+  func unload() async {}
+  func clearContext() async {}
+
+  func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
+    snapshot
+  }
+
+  func contextUsage(
+    for transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String
+  ) async throws -> ChatContextUsage {
+    _ = transcript
+    _ = attachments
+    _ = systemPrompt
+    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
+  }
+
+  func streamReply(
+    for transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = transcript
+    _ = attachments
+    _ = systemPrompt
+    _ = settings
+    return AsyncThrowingStream { continuation in
+      continuation.yield(.chunk("hello"))
+      continuation.yield(
+        .completed(
+          ChatGenerationMetrics(generatedTokenCount: 1, tokensPerSecond: 100, durationMs: 10)
+        )
+      )
+      continuation.finish()
     }
   }
 }

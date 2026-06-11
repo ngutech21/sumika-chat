@@ -63,6 +63,15 @@ public actor RuntimeOperationCoordinator {
     try checkCurrent(operationID)
   }
 
+  public func runtimeCacheDebugSnapshot(operationID: UUID) async throws
+    -> RuntimeCacheDebugSnapshot?
+  {
+    try checkCurrent(operationID)
+    let snapshot = await runtime.runtimeCacheDebugSnapshot()
+    try checkCurrent(operationID)
+    return snapshot
+  }
+
   public func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],

@@ -569,6 +569,47 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func runtimeCacheDebugSnapshotMapsTraceAndReuseStrategy() {
+    let generationID = UUID()
+    let recordedAt = Date(timeIntervalSince1970: 42)
+    let trace = GemmaSessionCacheTrace(
+      cacheMode: .sessionReused,
+      cacheReason: .appendOnlyDeltaReused,
+      contextSignature: "ctx-new",
+      previousContextSignature: "ctx-old",
+      appendOnly: true,
+      reusedMessageCount: 3,
+      appendedMessageCount: 1,
+      mismatchReason: nil,
+      firstMismatchIndex: nil,
+      systemPromptChanged: nil,
+      currentPromptContextChanged: nil,
+      cacheEligibility: "enabled",
+      cacheEligibilityReason: nil
+    )
+
+    let snapshot = GemmaMLXRuntime.runtimeCacheDebugSnapshot(
+      from: trace,
+      reuseStrategy: .appendHistoryDelta(startIndex: 3),
+      generationID: generationID,
+      recordedAt: recordedAt
+    )
+
+    #expect(snapshot.generationID == generationID)
+    #expect(snapshot.recordedAt == recordedAt)
+    #expect(snapshot.cacheMode == "session_reused")
+    #expect(snapshot.cacheReason == "append_only_delta_reused")
+    #expect(snapshot.reuseStrategy == "append_history_delta")
+    #expect(snapshot.appendDeltaStartIndex == 3)
+    #expect(snapshot.contextSignature == "ctx-new")
+    #expect(snapshot.previousContextSignature == "ctx-old")
+    #expect(snapshot.appendOnly)
+    #expect(snapshot.reusedMessageCount == 3)
+    #expect(snapshot.appendedMessageCount == 1)
+    #expect(snapshot.cacheEligibility == "enabled")
+  }
+
+  @Test
   func cacheDecisionReportsRenderedContextSignatureChangeSeparatelyFromRendererVersion() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [
