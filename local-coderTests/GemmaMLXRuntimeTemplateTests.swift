@@ -415,13 +415,18 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func renderedContextSignatureChangesWhenGenerationSettingsChange() {
+  func renderedContextSignatureIgnoresSamplingSettings() {
+    // Sampling params and maxTokens are decode-time only and never change the
+    // KV-cache prefix, so they must not appear in the rendered-context signature.
     let history = GemmaMLXRuntime.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
     ])
     var changedSettings = ChatGenerationSettings.codingDefault
     changedSettings.maxTokens = 128
+    changedSettings.temperature = 0.9
+    changedSettings.topP = 0.5
+    changedSettings.topK = 40
 
     let first = GemmaMLXRuntime.renderedContextSignature(
       for: history,
@@ -432,10 +437,8 @@ struct GemmaMLXRuntimeTemplateTests {
       settings: changedSettings
     )
 
-    #expect(first != second)
-    #expect(first.renderedHistoryHash == second.renderedHistoryHash)
-    #expect(first.generationSettingsHash != second.generationSettingsHash)
-    #expect(first.nativeToolSchemaHash == second.nativeToolSchemaHash)
+    #expect(first == second)
+    #expect(first.generationSettingsHash == second.generationSettingsHash)
   }
 
   @Test
@@ -1408,9 +1411,38 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func cacheDecisionInvalidatesWhenSettingsChange() {
+  func cacheDecisionReusesWhenOnlySamplingSettingsChange() {
+    // Sampling params and maxTokens are applied at decode time and do not change the
+    // KV-cache prefix, so changing them must keep the cached session reusable.
     var changedSettings = ChatGenerationSettings.codingDefault
     changedSettings.maxTokens = 128
+    changedSettings.temperature = 0.9
+    changedSettings.topP = 0.5
+    changedSettings.topK = 40
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: .codingDefault,
+      cachedState: .clean,
+      currentHistory: prefix,
+      currentSettings: changedSettings
+    )
+
+    #expect(decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .sessionReused)
+    #expect(decision.trace.mismatchReason == nil)
+  }
+
+  @Test
+  func cacheDecisionInvalidatesWhenMaxKVSizeChanges() {
+    // maxKVSize controls cache rotation/eviction, so it must still invalidate.
+    var changedSettings = ChatGenerationSettings.codingDefault
+    changedSettings.maxKVSize = 2048
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),

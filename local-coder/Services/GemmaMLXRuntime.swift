@@ -788,10 +788,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
     if cacheEligibility == .enabled, decision.shouldReuse, let cached {
       cached.session.instructions = Self.normalizedRuntimeSystemPrompt(systemPrompt)
+      // Sampling params no longer invalidate the prefix, so push the current values
+      // onto the reused session to ensure a mid-session change still takes effect.
+      cached.session.generateParameters = generateParameters
       cachedSession = CachedGemmaSession(
         session: cached.session,
         prefix: cached.prefix,
-        settings: cached.settings,
+        settings: settings,
         contextSignature: cached.contextSignature,
         state: .inFlight(generationID: generationID)
       )
@@ -1112,7 +1115,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       cacheReason = .generationInvalidationReason(from: invalidationReason)
       reuseStrategy = .none
       mismatchReason = nil
-    } else if cachedSettings != currentSettings {
+    } else if Self.cacheAffectingSettingsChanged(cachedSettings, currentSettings) {
       cacheMode = .invalidatedSignatureMismatch
       cacheReason = .invalidatedSettingsChanged
       reuseStrategy = .none
@@ -1330,14 +1333,27 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     return .invalidatedHistoryPrefixMismatch
   }
 
+  /// Whether a settings change should invalidate a reusable KV-cache prefix.
+  ///
+  /// Only `maxKVSize` affects the cached prefill. Sampling params and `maxTokens`
+  /// are applied at decode time, so changing them keeps the prefix valid (the new
+  /// values are pushed onto the reused session instead — see `prepareSession`).
+  nonisolated private static func cacheAffectingSettingsChanged(
+    _ cached: ChatGenerationSettings?,
+    _ current: ChatGenerationSettings
+  ) -> Bool {
+    guard let cached else { return true }
+    return cached.maxKVSize != current.maxKVSize
+  }
+
   nonisolated private static func generationSettingsSignature(
     for settings: ChatGenerationSettings
   ) -> String {
+    // Only settings that change the KV-cache prefill belong in the cache signature.
+    // Sampling params (temperature/topP/topK) and maxTokens are applied at decode
+    // time and never alter the cached prefix, so they must not invalidate it. Only
+    // maxKVSize matters here, because it controls cache rotation/eviction.
     hashSignature { updateString in
-      updateString(String(settings.maxTokens))
-      updateString(String(settings.temperature))
-      updateString(String(settings.topP))
-      updateString(String(settings.topK))
       updateString(settings.maxKVSize.map(String.init) ?? "nil")
     }
   }
