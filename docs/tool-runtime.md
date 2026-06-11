@@ -192,9 +192,11 @@ flowchart TD
   operate only on the current integrated HTML preview target, not arbitrary
   URLs or file paths. `browser_refresh` reloads the current preview page without
   approval. `browser_inspect` returns compact page metadata plus body text or a
-  selector-scoped excerpt, with optional HTML when explicitly requested. If no
-  preview page is active yet, both tools fail with a clear instruction to open
-  `/preview <path-to-html-file>` first.
+  selector-scoped excerpt, with optional HTML when explicitly requested. If the
+  preview navigation is still loading, `browser_inspect` waits for completion but
+  fails the tool call after a fixed timeout instead of blocking the Agent loop
+  indefinitely. If no preview page is active yet, both tools fail with a clear
+  instruction to open `/preview <path-to-html-file>` first.
 - `workspace_diff` is a read-only review tool available in the Agent registry.
   It validates the optional workspace-relative `path`, then runs
   Git through `Process` argv, not shell interpolation. The first version is
