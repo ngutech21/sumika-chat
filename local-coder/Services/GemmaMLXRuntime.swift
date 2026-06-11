@@ -115,6 +115,7 @@ nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
   case invalidatedSettingsChanged = "invalidated_settings_changed"
   case invalidatedRendererVersionChanged = "invalidated_renderer_version_changed"
   case invalidatedRenderedContextChanged = "invalidated_rendered_context_signature_changed"
+  case invalidatedSystemPromptChanged = "invalidated_system_prompt_changed"
   case invalidatedHistoryAppended = "invalidated_history_appended"
   case invalidatedHistoryPrefixMismatch = "invalidated_history_prefix_mismatch"
   case invalidatedCurrentPromptContextBoundary = "invalidated_current_prompt_context_boundary"
@@ -185,12 +186,13 @@ nonisolated struct GemmaMessageSnapshot: Equatable, Sendable {
 nonisolated struct GemmaRenderedContextSignature: Equatable, Sendable {
   let rendererVersion: Int
   let projectionMode: ModelContextProjectionMode
+  let systemPromptHash: String
   let renderedHistoryHash: String
   let generationSettingsHash: String
   let nativeToolSchemaHash: String
 
   var traceValue: String {
-    "renderer-v\(rendererVersion):projection-\(projectionMode.signatureComponent):history-\(renderedHistoryHash):settings-\(generationSettingsHash):tools-\(nativeToolSchemaHash)"
+    "renderer-v\(rendererVersion):projection-\(projectionMode.signatureComponent):system-\(systemPromptHash):history-\(renderedHistoryHash):settings-\(generationSettingsHash):tools-\(nativeToolSchemaHash)"
   }
 }
 
@@ -514,15 +516,14 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     attachments: [ChatAttachment],
     systemPrompt: String
   ) async throws -> ChatContextUsage {
-    _ = attachments
-    _ = systemPrompt
     guard let modelContainer else {
       throw GemmaMLXRuntimeError.modelNotLoaded
     }
 
-    let rawMessages = try Self.validatedTemplateMessages(
-      transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
-        .map { Self.chatMessage(from: $0) }
+    let rawMessages = try Self.templateMessages(
+      from: transcript,
+      attachments: attachments,
+      systemPrompt: systemPrompt
     )
     .map { ["role": $0.role.rawValue, "content": $0.content] as [String: any Sendable] }
     let usedTokens = try await modelContainer.perform { context in
@@ -554,7 +555,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     settings: ChatGenerationSettings,
     toolContext: ChatRuntimeToolContext?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = systemPrompt
     let streamStartStartedAt = Date()
     guard !lifecycleTransitionInProgress else {
       throw CancellationError()
@@ -589,6 +589,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
     let toolSpecs = Self.toolSpecs(from: toolContext)
     let nativeToolSchemaHash = Self.nativeToolSchemaSignature(from: toolContext)
+    let cacheSystemPrompt = toolContext?.cacheSystemPrompt ?? systemPrompt
     let history = try Self.generationHistoryMessages(
       from: projectedEntries[..<currentPromptIndex]
     )
@@ -601,6 +602,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       history: history,
       historySnapshot: historySnapshot,
       promptMessage: promptMessage,
+      systemPrompt: systemPrompt,
+      cacheSystemPrompt: cacheSystemPrompt,
       settings: settings,
       generateParameters: generateParameters,
       projectionMode: projectionMode,
@@ -612,7 +615,11 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
     let traceMetadata = TurnTraceContext.current
     let traceID = traceMetadata?.generationID ?? UUID()
-    let traceHistory = history.map { message in
+    let traceMessages = try Self.runtimeHistoryMessages(
+      systemPrompt: systemPrompt,
+      history: history
+    )
+    let traceHistory = traceMessages.map { message in
       (role: message.role.rawValue, content: message.content)
     }
     await GemmaDebugTraceStore.shared.traceRequest(
@@ -720,6 +727,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     history: [Chat.Message],
     historySnapshot: [GemmaMessageSnapshot],
     promptMessage: Chat.Message,
+    systemPrompt: String,
+    cacheSystemPrompt: String,
     settings: ChatGenerationSettings,
     generateParameters: GenerateParameters,
     projectionMode: ModelContextProjectionMode,
@@ -731,6 +740,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       for: historySnapshot,
       settings: settings,
       projectionMode: projectionMode,
+      systemPrompt: cacheSystemPrompt,
       nativeToolSchemaHash: nativeToolSchemaHash
     )
     let cached = cachedSession
@@ -745,6 +755,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           currentHistory: historySnapshot,
           currentSettings: settings,
           projectionMode: projectionMode,
+          currentSystemPrompt: cacheSystemPrompt,
           currentNativeToolSchemaHash: nativeToolSchemaHash,
           cacheEligibility: cacheEligibility
         )
@@ -754,6 +765,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           currentHistory: historySnapshot,
           currentSettings: settings,
           projectionMode: projectionMode,
+          currentSystemPrompt: cacheSystemPrompt,
           currentNativeToolSchemaHash: nativeToolSchemaHash,
           cacheEligibility: cacheEligibility
         )
@@ -761,6 +773,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     pendingCacheInvalidationReason = nil
 
     if cacheEligibility == .enabled, decision.shouldReuse, let cached {
+      cached.session.instructions = Self.normalizedRuntimeSystemPrompt(systemPrompt)
       cachedSession = CachedGemmaSession(
         session: cached.session,
         prefix: cached.prefix,
@@ -781,7 +794,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
     let session = MLXLMCommon.ChatSession(
       modelContainer,
-      instructions: nil,
+      instructions: Self.normalizedRuntimeSystemPrompt(systemPrompt),
       history: history,
       generateParameters: generateParameters
     )
@@ -841,6 +854,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         for: completedPrefix,
         settings: settings,
         projectionMode: projectionMode,
+        systemPromptHash: cached.contextSignature.systemPromptHash,
         nativeToolSchemaHash: nativeToolSchemaHash
       ),
       state: completedState
@@ -898,6 +912,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         for: completedPrefix,
         settings: settings,
         projectionMode: projectionMode,
+        systemPromptHash: cached.contextSignature.systemPromptHash,
         nativeToolSchemaHash: nativeToolSchemaHash
       ),
       state: completedState
@@ -1012,6 +1027,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     currentHistory: [GemmaMessageSnapshot],
     currentSettings: ChatGenerationSettings,
     projectionMode: ModelContextProjectionMode = .fullHistory,
+    currentSystemPrompt: String? = nil,
     currentNativeToolSchemaHash: String = nativeToolSchemaSignature(from: nil),
     currentRendererVersion: Int = gemmaRendererVersion,
     cacheEligibility: GemmaSessionCacheEligibility = .enabled
@@ -1020,6 +1036,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       for: currentHistory,
       settings: currentSettings,
       projectionMode: projectionMode,
+      systemPrompt: currentSystemPrompt,
       nativeToolSchemaHash: currentNativeToolSchemaHash,
       rendererVersion: currentRendererVersion
     )
@@ -1043,9 +1060,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let currentPromptContextChanged: Bool?
     if let cachedPrefix {
       mismatchIndex = firstMismatchIndex(cachedPrefix: cachedPrefix, currentHistory: currentHistory)
-      systemPromptChanged =
+      let renderedHistorySystemPromptChanged =
         baseSystemInstructionBlock(from: cachedPrefix)
         != baseSystemInstructionBlock(from: currentHistory)
+      let runtimeSystemPromptChanged =
+        previousSignature.map { $0.systemPromptHash != currentSignature.systemPromptHash }
+      systemPromptChanged =
+        renderedHistorySystemPromptChanged || runtimeSystemPromptChanged == true
       currentPromptContextChanged =
         currentPromptContextBlock(from: cachedPrefix)
         != currentPromptContextBlock(from: currentHistory)
@@ -1153,6 +1174,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     currentHistory: [GemmaMessageSnapshot],
     currentSettings: ChatGenerationSettings,
     projectionMode: ModelContextProjectionMode,
+    currentSystemPrompt: String? = nil,
     currentNativeToolSchemaHash: String,
     cacheEligibility: GemmaSessionCacheEligibility
   ) -> GemmaSessionCacheDecision {
@@ -1160,6 +1182,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       for: currentHistory,
       settings: currentSettings,
       projectionMode: projectionMode,
+      systemPrompt: currentSystemPrompt,
       nativeToolSchemaHash: currentNativeToolSchemaHash
     )
     return GemmaSessionCacheDecision(
@@ -1186,12 +1209,15 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     for messages: [GemmaMessageSnapshot],
     settings: ChatGenerationSettings,
     projectionMode: ModelContextProjectionMode = .fullHistory,
+    systemPrompt: String? = nil,
+    systemPromptHash: String? = nil,
     nativeToolSchemaHash: String = nativeToolSchemaSignature(from: nil),
     rendererVersion: Int = gemmaRendererVersion
   ) -> GemmaRenderedContextSignature {
     GemmaRenderedContextSignature(
       rendererVersion: rendererVersion,
       projectionMode: projectionMode,
+      systemPromptHash: systemPromptHash ?? runtimeSystemPromptSignature(from: systemPrompt),
       renderedHistoryHash: contextSignature(for: messages),
       generationSettingsHash: generationSettingsSignature(for: settings),
       nativeToolSchemaHash: nativeToolSchemaHash
@@ -1211,6 +1237,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     if previousSignature.projectionMode != currentSignature.projectionMode {
       return .invalidatedRenderedContextChanged
     }
+    if previousSignature.systemPromptHash != currentSignature.systemPromptHash {
+      return .invalidatedSystemPromptChanged
+    }
     if previousSignature.nativeToolSchemaHash != currentSignature.nativeToolSchemaHash {
       return .invalidatedToolSchemaChanged
     }
@@ -1226,6 +1255,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
     return previousSignature.rendererVersion == currentSignature.rendererVersion
       && previousSignature.projectionMode == currentSignature.projectionMode
+      && previousSignature.systemPromptHash == currentSignature.systemPromptHash
       && previousSignature.generationSettingsHash == currentSignature.generationSettingsHash
       && previousSignature.nativeToolSchemaHash == currentSignature.nativeToolSchemaHash
   }
@@ -1252,6 +1282,17 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       updateString(String(settings.topP))
       updateString(String(settings.topK))
       updateString(settings.maxKVSize.map(String.init) ?? "nil")
+    }
+  }
+
+  nonisolated private static func runtimeSystemPromptSignature(from systemPrompt: String?) -> String
+  {
+    guard let normalizedSystemPrompt = normalizedRuntimeSystemPrompt(systemPrompt ?? "") else {
+      return "none"
+    }
+    return hashSignature { updateString in
+      updateString("runtime_system_prompt_v1")
+      updateString(normalizedSystemPrompt)
     }
   }
 
@@ -1333,7 +1374,11 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated private static func baseSystemInstructionBlock(
     from messages: [GemmaMessageSnapshot]
   ) -> String? {
-    guard let block = systemInstructionBlock(from: messages) else {
+    if let first = messages.first, first.role == Chat.Message.Role.system.rawValue {
+      return first.content
+    }
+
+    guard let block = userSystemInstructionBlock(from: messages) else {
       return nil
     }
     guard let boundary = currentPromptContextBoundary(in: block) else {
@@ -1346,7 +1391,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated private static func currentPromptContextBlock(
     from messages: [GemmaMessageSnapshot]
   ) -> CurrentPromptContextRuntimeBlock? {
-    guard let block = systemInstructionBlock(from: messages),
+    guard let block = userSystemInstructionBlock(from: messages),
       let boundary = currentPromptContextBoundary(in: block)
     else {
       return nil
@@ -1357,7 +1402,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
   }
 
-  nonisolated private static func systemInstructionBlock(
+  nonisolated private static func userSystemInstructionBlock(
     from messages: [GemmaMessageSnapshot]
   ) -> String? {
     guard let firstUser = messages.first(where: { $0.role == Chat.Message.Role.user.rawValue }),
@@ -1873,13 +1918,34 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     systemPrompt: String
   ) throws -> [Chat.Message] {
     _ = attachments
-    _ = systemPrompt
     return try validatedTemplateMessages(
-      normalizedChatMessages(
-        try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
-          .map { Self.chatMessage(from: $0) }
-      )
+      runtimeHistoryMessages(
+        systemPrompt: systemPrompt,
+        history: normalizedChatMessages(
+          try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
+            .map { Self.chatMessage(from: $0) }
+        )
+      ),
+      allowsSystemPrompt: true
     )
+  }
+
+  nonisolated static func runtimeHistoryMessages(
+    systemPrompt: String,
+    history: [Chat.Message]
+  ) throws -> [Chat.Message] {
+    let normalizedSystemPrompt = normalizedRuntimeSystemPrompt(systemPrompt)
+    let messages =
+      if let normalizedSystemPrompt {
+        [Chat.Message.system(normalizedSystemPrompt)] + history
+      } else {
+        history
+      }
+    return try validatedTemplateMessages(messages, allowsSystemPrompt: true)
+  }
+
+  nonisolated private static func normalizedRuntimeSystemPrompt(_ systemPrompt: String) -> String? {
+    ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt)
   }
 
   nonisolated static func normalizedChatMessages(_ messages: [Chat.Message]) -> [Chat.Message] {
@@ -1899,16 +1965,27 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
   }
 
-  nonisolated static func validatedTemplateMessages(_ messages: [Chat.Message]) throws -> [Chat
-    .Message]
-  {
-    guard messages.allSatisfy({ $0.role == .user || $0.role == .assistant }) else {
+  nonisolated static func validatedTemplateMessages(
+    _ messages: [Chat.Message],
+    allowsSystemPrompt: Bool = false
+  ) throws -> [Chat.Message] {
+    let bodyMessages: ArraySlice<Chat.Message>
+    if messages.first?.role == .system {
+      guard allowsSystemPrompt else {
+        throw GemmaMLXRuntimeError.invalidChatTemplateMessageSequence
+      }
+      bodyMessages = messages.dropFirst()
+    } else {
+      bodyMessages = messages[...]
+    }
+
+    guard bodyMessages.allSatisfy({ $0.role == .user || $0.role == .assistant }) else {
       throw GemmaMLXRuntimeError.invalidChatTemplateMessageSequence
     }
 
-    for index in messages.indices.dropFirst() {
-      let previousIndex = messages.index(before: index)
-      if messages[previousIndex].role == messages[index].role {
+    for index in bodyMessages.indices.dropFirst() {
+      let previousIndex = bodyMessages.index(before: index)
+      if bodyMessages[previousIndex].role == bodyMessages[index].role {
         throw GemmaMLXRuntimeError.invalidChatTemplateMessageSequence
       }
     }

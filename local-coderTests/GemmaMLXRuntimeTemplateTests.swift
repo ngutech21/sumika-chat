@@ -110,26 +110,26 @@ struct GemmaMLXRuntimeTemplateTests {
       systemPrompt: "This runtime argument must not rewrite frozen content."
     )
 
-    #expect(rendered.map(\.role) == [.user, .assistant, .user])
-    #expect(!rendered[0].content.contains("System instructions:"))
-    #expect(rendered[2].content.contains("System instructions:"))
-    #expect(rendered[2].content.contains("Use concise coding steps."))
-    #expect(!rendered[2].content.contains("This runtime argument must not rewrite"))
-    #expect(rendered[1].content.contains("Tool call write_file requested."))
-    #expect(rendered[1].content.contains("Tool receipt: write_file"))
-    #expect(rendered[1].content.contains("Summary:"))
-    #expect(rendered[1].content.contains("Wrote 13 bytes to index.htm."))
-    #expect(rendered[1].content.contains("<observation") == false)
-    #expect(!rendered.contains { $0.role == .system })
+    #expect(rendered[0].role == .system)
+    #expect(rendered.map(\.role) == [.system, .user, .assistant, .user])
+    #expect(!rendered[1].content.contains("System instructions:"))
+    #expect(rendered[0].content.contains("This runtime argument must not rewrite"))
+    #expect(rendered[3].content.contains("System instructions:"))
+    #expect(rendered[3].content.contains("Use concise coding steps."))
+    #expect(!rendered[3].content.contains("This runtime argument must not rewrite"))
+    #expect(rendered[2].content.contains("Tool call write_file requested."))
+    #expect(rendered[2].content.contains("Tool receipt: write_file"))
+    #expect(rendered[2].content.contains("Summary:"))
+    #expect(rendered[2].content.contains("Wrote 13 bytes to index.htm."))
+    #expect(rendered[2].content.contains("<observation") == false)
   }
 
   @Test
-  func generationHistoryUsesFrozenSystemPromptSnapshot() throws {
+  func runtimeHistoryPrependsSystemPromptWithoutEmbeddingItInUserHistory() throws {
     let callID = UUID()
     let entries = [
       try ModelFacingPromptRenderer.userPromptEntry(
-        prompt: "create index.htm",
-        systemContext: ["Use concise coding steps."]
+        prompt: "create index.htm"
       ),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         content: writeFileToolCall(
@@ -155,15 +155,18 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
     ]
 
-    let history = try GemmaMLXRuntime.generationHistoryMessages(
+    let projectedHistory = try GemmaMLXRuntime.generationHistoryMessages(
       from: try projectedEntries(from: entries)[...]
     )
+    let history = try GemmaMLXRuntime.runtimeHistoryMessages(
+      systemPrompt: "Use concise coding steps.",
+      history: projectedHistory
+    )
 
-    #expect(history.map(\.role) == [.user, .assistant])
-    #expect(history[0].content.contains("System instructions:"))
+    #expect(history.map(\.role) == [.system, .user, .assistant])
     #expect(history[0].content.contains("Use concise coding steps."))
-    #expect(!history[0].content.contains("No tools may run now."))
-    #expect(!history.contains { $0.role == .system })
+    #expect(!history[1].content.contains("System instructions:"))
+    #expect(!history[1].content.contains("Use concise coding steps."))
   }
 
   @Test
@@ -193,7 +196,7 @@ struct GemmaMLXRuntimeTemplateTests {
     )
 
     #expect(history.map(\.role) == [.user, .assistant, .user, .assistant])
-    #expect(history[0].content == initialRendered[0].content)
+    #expect(history[0].content == initialRendered[1].content)
     #expect(history[2].content.contains("No more tools may run in this response."))
     #expect(!history[0].content.contains("No more tools may run in this response."))
   }
@@ -205,14 +208,13 @@ struct GemmaMLXRuntimeTemplateTests {
         try ModelFacingPromptRenderer.userPromptEntry(
           prompt: "change the background color to green",
           systemContext: [
-            "Use concise coding steps.",
             """
             Current focused file: index.htm
             Source: previous write_file
             Known content excerpt:
             <html><body><table><tr><td>Movie</td></tr></table></body></html>
             Explicit file paths in the user request or tool call take precedence.
-            """,
+            """
           ]
         )
       ]
@@ -224,12 +226,12 @@ struct GemmaMLXRuntimeTemplateTests {
       systemPrompt: "A later runtime argument must not rewrite frozen content."
     )
 
-    #expect(rendered.map(\.role) == [.user])
-    #expect(rendered[0].content.contains("Use concise coding steps."))
-    #expect(rendered[0].content.contains("Current focused file: index.htm"))
-    #expect(rendered[0].content.contains("<html><body><table>"))
-    #expect(rendered[0].content.contains("User request:"))
-    #expect(rendered[0].content.contains("change the background color to green"))
+    #expect(rendered.map(\.role) == [.system, .user])
+    #expect(rendered[0].content.contains("A later runtime argument must not rewrite"))
+    #expect(rendered[1].content.contains("Current focused file: index.htm"))
+    #expect(rendered[1].content.contains("<html><body><table>"))
+    #expect(rendered[1].content.contains("User request:"))
+    #expect(rendered[1].content.contains("change the background color to green"))
   }
 
   @Test
@@ -238,21 +240,20 @@ struct GemmaMLXRuntimeTemplateTests {
       try ModelFacingPromptRenderer.userPromptEntry(
         prompt: "explain this",
         systemContext: [
-          "Use concise coding steps.",
           """
           Current focused file: index.htm
           Source: previous read_file
           Known content excerpt:
           <h1>Dashboard</h1>
           Explicit file paths in the user request or tool call take precedence.
-          """,
+          """
         ]
       )
     ]
     let (history, prompt) = try generationHistoryAndPrompt(from: entries)
 
     #expect(history.isEmpty)
-    #expect(prompt.content.contains("Use concise coding steps."))
+    #expect(!prompt.content.contains("Use concise coding steps."))
     #expect(prompt.content.contains("Current focused file: index.htm"))
     #expect(prompt.content.contains("<h1>Dashboard</h1>"))
     #expect(prompt.content.contains("User request:"))
@@ -263,7 +264,7 @@ struct GemmaMLXRuntimeTemplateTests {
   func currentPromptContextDoesNotRewriteHistoricalUserMessage() throws {
     let initialUser = try ModelFacingPromptRenderer.userPromptEntry(
       prompt: "summarize the current page",
-      systemContext: ["Use concise coding steps."]
+      systemContext: []
     )
     let initialRendered = try GemmaMLXRuntime.templateMessages(
       from: ModelContextSnapshot(entries: [initialUser]),
@@ -276,24 +277,23 @@ struct GemmaMLXRuntimeTemplateTests {
       try ModelFacingPromptRenderer.userPromptEntry(
         prompt: "change the heading",
         systemContext: [
-          "No more tools may run in this response.",
           """
           Current focused file: robots.html
           Source: previous read_file
           Known content excerpt:
           <table><tr><td>Robot</td></tr></table>
           Explicit file paths in the user request or tool call take precedence.
-          """,
+          """
         ]
       ),
     ]
     let (history, prompt) = try generationHistoryAndPrompt(from: entries)
 
     #expect(history.map(\.role) == [.user, .assistant])
-    #expect(history[0].content == initialRendered[0].content)
+    #expect(history[0].content == initialRendered[1].content)
     #expect(!history[0].content.contains("Current focused file: robots.html"))
     #expect(!history[0].content.contains("No more tools may run in this response."))
-    #expect(prompt.content.contains("No more tools may run in this response."))
+    #expect(!prompt.content.contains("No more tools may run in this response."))
     #expect(prompt.content.contains("Current focused file: robots.html"))
     #expect(prompt.content.contains("<table><tr><td>Robot</td></tr></table>"))
     #expect(prompt.content.contains("change the heading"))
@@ -343,9 +343,9 @@ struct GemmaMLXRuntimeTemplateTests {
       systemPrompt: "Use concise coding steps."
     )
 
-    #expect(rendered.map(\.role) == [.user])
+    #expect(rendered.map(\.role) == [.system, .user])
     #expect(!rendered.contains { $0.content.contains("<|tool_call>call:invalid") })
-    #expect(rendered[0].content.contains("The tool call was invalid"))
+    #expect(rendered[1].content.contains("The tool call was invalid"))
   }
 
   @Test
@@ -384,6 +384,32 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(first != second)
     #expect(first.renderedHistoryHash != second.renderedHistoryHash)
+    #expect(first.generationSettingsHash == second.generationSettingsHash)
+    #expect(first.nativeToolSchemaHash == second.nativeToolSchemaHash)
+  }
+
+  @Test
+  func renderedContextSignatureChangesWhenSystemPromptChanges() {
+    let settings = ChatGenerationSettings.codingDefault
+    let history = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+
+    let first = GemmaMLXRuntime.renderedContextSignature(
+      for: history,
+      settings: settings,
+      systemPrompt: "Use concise coding steps."
+    )
+    let second = GemmaMLXRuntime.renderedContextSignature(
+      for: history,
+      settings: settings,
+      systemPrompt: "Use detailed coding steps."
+    )
+
+    #expect(first != second)
+    #expect(first.systemPromptHash != second.systemPromptHash)
+    #expect(first.renderedHistoryHash == second.renderedHistoryHash)
     #expect(first.generationSettingsHash == second.generationSettingsHash)
     #expect(first.nativeToolSchemaHash == second.nativeToolSchemaHash)
   }
@@ -552,6 +578,10 @@ struct GemmaMLXRuntimeTemplateTests {
     let cachedSignature = GemmaRenderedContextSignature(
       rendererVersion: GemmaMLXRuntime.gemmaRendererVersion,
       projectionMode: .fullHistory,
+      systemPromptHash: GemmaMLXRuntime.renderedContextSignature(
+        for: prefix,
+        settings: settings
+      ).systemPromptHash,
       renderedHistoryHash: "different-history",
       generationSettingsHash: GemmaMLXRuntime.renderedContextSignature(
         for: prefix,
@@ -573,6 +603,66 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
     #expect(decision.trace.cacheReason == .invalidatedRenderedContextChanged)
     #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
+  }
+
+  @Test
+  func cacheDecisionInvalidatesWhenSystemPromptChangesWithoutHistoryChange() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let cachedSignature = GemmaMLXRuntime.renderedContextSignature(
+      for: prefix,
+      settings: settings,
+      systemPrompt: "Use concise coding steps."
+    )
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedContextSignature: cachedSignature,
+      cachedState: .clean,
+      currentHistory: prefix,
+      currentSettings: settings,
+      currentSystemPrompt: "Use detailed coding steps."
+    )
+
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.cacheReason == .invalidatedSystemPromptChanged)
+    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
+    #expect(decision.trace.systemPromptChanged == true)
+    #expect(decision.trace.currentPromptContextChanged == false)
+  }
+
+  @Test
+  func cacheDecisionReusesWhenCacheSystemPromptIsUnchanged() {
+    let settings = ChatGenerationSettings.codingDefault
+    let prefix = GemmaMLXRuntime.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    let cachedSignature = GemmaMLXRuntime.renderedContextSignature(
+      for: prefix,
+      settings: settings,
+      systemPrompt: "Use concise coding steps."
+    )
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: settings,
+      cachedContextSignature: cachedSignature,
+      cachedState: .clean,
+      currentHistory: prefix,
+      currentSettings: settings,
+      currentSystemPrompt: "Use concise coding steps."
+    )
+
+    #expect(decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .sessionReused)
+    #expect(decision.trace.systemPromptChanged == nil)
   }
 
   @Test
@@ -866,8 +956,7 @@ struct GemmaMLXRuntimeTemplateTests {
     let entries = [
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
-        prompt: "read README.md",
-        systemContext: ["Read-only tools are available."]
+        prompt: "read README.md"
       ),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
@@ -891,8 +980,7 @@ struct GemmaMLXRuntimeTemplateTests {
           callID: callID,
           toolName: .readFile,
           arguments: ["path": .string("README.md")]
-        ),
-        systemContext: ["Read-only tools are available."]
+        )
       ),
     ]
     let (history, prompt) = try generationHistoryAndPrompt(from: entries)
@@ -981,8 +1069,7 @@ struct GemmaMLXRuntimeTemplateTests {
     let entries = [
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
-        prompt: "create movies.html",
-        systemContext: ["Tools are available."]
+        prompt: "create movies.html"
       ),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
@@ -1005,8 +1092,7 @@ struct GemmaMLXRuntimeTemplateTests {
             callID: terminalResult.callID
           )
         ),
-        followUpInstruction: "Use the preceding tool result to answer the user's request.",
-        systemContext: ["No more tools may run in this response."]
+        followUpInstruction: "Use the preceding tool result to answer the user's request."
       ),
     ]
     let (history, prompt) = try generationHistoryAndPrompt(from: entries)
@@ -1023,7 +1109,7 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(prompt.role == .user)
     #expect(prompt.content.contains("Summary: Wrote 13 bytes to movies.html."))
     #expect(prompt.content.contains("Use the preceding tool result to answer"))
-    #expect(prompt.content.contains("No more tools may run in this response."))
+    #expect(!prompt.content.contains("No more tools may run in this response."))
     #expect(decision.shouldReuse)
     #expect(decision.trace.cacheMode == .sessionReused)
     #expect(decision.trace.cacheReason == .sessionReused)

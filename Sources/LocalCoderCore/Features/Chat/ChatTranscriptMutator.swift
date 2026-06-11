@@ -42,7 +42,6 @@ public struct ChatTranscriptMutator: Sendable {
   public func appendFinalToolResultFollowUpBoundary(
     _ content: String,
     turnID: ChatTurn.ID,
-    systemPromptSnapshot: String,
     to state: inout ChatSession
   ) {
     guard
@@ -58,8 +57,7 @@ public struct ChatTranscriptMutator: Sendable {
     else {
       if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
-        prompt: content,
-        systemContext: [systemPromptSnapshot]
+        prompt: content
       ) {
         appendModelContextEntry(entry, to: &state)
       }
@@ -73,26 +71,13 @@ public struct ChatTranscriptMutator: Sendable {
         turnID: terminalEntry.turnID,
         sourceMessageID: terminalEntry.sourceMessageID,
         terminalToolResult: context,
-        followUpInstruction: content,
-        systemContext: [systemPromptSnapshot]
+        followUpInstruction: content
       )
     else {
       return
     }
 
     state.modelContextSnapshot.entries[terminalIndex] = followUpEntry
-  }
-
-  public func updateLastUserModelContextSystemPromptSnapshot(
-    _ systemPromptSnapshot: String,
-    turnID: ChatTurn.ID,
-    in state: inout ChatSession
-  ) {
-    updateLastUserModelContextEntrySystemPromptSnapshot(
-      systemPromptSnapshot,
-      turnID: turnID,
-      in: &state
-    )
   }
 
   public func appendAssistantPlaceholder(
@@ -425,65 +410,5 @@ public struct ChatTranscriptMutator: Sendable {
     }
 
     state.turns[index] = transform(state.turns[index])
-  }
-
-  private func updateLastUserModelContextEntrySystemPromptSnapshot(
-    _ systemPromptSnapshot: String,
-    turnID: ChatTurn.ID,
-    in state: inout ChatSession
-  ) {
-    guard
-      let index = state.modelContextSnapshot.entries.lastIndex(where: { entry in
-        entry.turnID == turnID && entry.body.modelRole == .user
-      })
-    else {
-      return
-    }
-
-    let entry = state.modelContextSnapshot.entries[index]
-    let updatedEntry: ModelContextEntry?
-    switch entry.body {
-    case .userPrompt(let context):
-      guard context.systemContext.isEmpty else {
-        return
-      }
-      updatedEntry = try? ModelFacingPromptRenderer.userPromptEntry(
-        id: entry.id,
-        turnID: entry.turnID,
-        sourceMessageID: entry.sourceMessageID,
-        prompt: context.prompt,
-        systemContext: [systemPromptSnapshot],
-        currentPromptContext: context.currentPromptContext
-      )
-    case .toolObservation(let context):
-      updatedEntry = try? ModelContextEntry(
-        id: entry.id,
-        turnID: entry.turnID,
-        sourceMessageID: entry.sourceMessageID,
-        body: .toolObservation(
-          ToolObservationContext(
-            callID: context.callID,
-            toolName: context.toolName,
-            status: context.status,
-            content: context.content,
-            toolReceipt: context.toolReceipt,
-            toolCall: context.toolCall,
-            systemContext: [systemPromptSnapshot]
-          )),
-        frozenContent: FrozenModelContent(
-          role: .user,
-          content: ModelFacingPromptRenderer.userContent(
-            context.content,
-            systemContext: [systemPromptSnapshot]
-          )
-        )
-      )
-    case .assistantOutput, .terminalToolResult:
-      return
-    }
-
-    if let updatedEntry {
-      state.modelContextSnapshot.entries[index] = updatedEntry
-    }
   }
 }

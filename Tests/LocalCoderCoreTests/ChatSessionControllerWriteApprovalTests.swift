@@ -86,7 +86,9 @@ struct ChatSessionControllerWriteApprovalTests {
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
-    #expect(capturedMessages.last?.last?.content.contains("No more tools may run") == true)
+    #expect(capturedMessages.last?.last?.content.contains("No more tools may run") == false)
+    let capturedSystemPrompts = await runtime.capturedSystemPrompts
+    #expect(capturedSystemPrompts.last?.contains("No more tools may run") == true)
   }
 
   @Test

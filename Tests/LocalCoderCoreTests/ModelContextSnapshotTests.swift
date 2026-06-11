@@ -241,7 +241,6 @@ struct ModelContextSnapshotTests {
     mutator.appendFinalToolResultFollowUpBoundary(
       "Use the preceding tool result to answer the user's request.",
       turnID: turnID,
-      systemPromptSnapshot: "No more tools may run in this response.",
       to: &state
     )
 
@@ -267,7 +266,7 @@ struct ModelContextSnapshotTests {
     #expect(
       finalEntry.frozenContent.content.contains(
         "Use the preceding tool result to answer the user's request."))
-    #expect(finalEntry.frozenContent.content.contains("No more tools may run in this response."))
+    #expect(!finalEntry.frozenContent.content.contains("No more tools may run in this response."))
   }
 
   @Test

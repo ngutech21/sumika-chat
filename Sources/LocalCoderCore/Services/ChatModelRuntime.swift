@@ -34,10 +34,16 @@ public enum ChatModelStreamEvent: Sendable {
 public struct ChatRuntimeToolContext: Equatable, Sendable {
   public var strategy: ToolCallingStrategy
   public var registry: ToolRegistry
+  public var cacheSystemPrompt: String?
 
-  public init(strategy: ToolCallingStrategy, registry: ToolRegistry) {
+  public init(
+    strategy: ToolCallingStrategy,
+    registry: ToolRegistry,
+    cacheSystemPrompt: String? = nil
+  ) {
     self.strategy = strategy
     self.registry = registry
+    self.cacheSystemPrompt = cacheSystemPrompt
   }
 }
 

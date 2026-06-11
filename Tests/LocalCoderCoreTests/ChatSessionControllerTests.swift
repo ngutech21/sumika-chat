@@ -180,6 +180,43 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func sendMessageDoesNotFreezeBaseSystemPromptIntoUserEntriesAcrossTurns() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.chunk("first answer")],
+      [.chunk("second answer")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.loadSession(
+      ChatSession(
+        selectedModelID: "gemma4-e2b",
+        systemPrompt: "Base system prompt"
+      ))
+    controller.modelRuntime.modelState = .ready
+
+    controller.draft = "first"
+    controller.sendMessage()
+    try await waitUntil { !controller.isGenerating }
+
+    controller.draft = "second"
+    controller.sendMessage()
+    try await waitUntil { !controller.isGenerating }
+
+    let userEntries = controller.chatSession.modelContextSnapshot.entries.filter {
+      $0.frozenContent.role == .user
+    }
+    #expect(userEntries.count == 2)
+    #expect(!userEntries.contains { $0.frozenContent.content.contains("Base system prompt") })
+    #expect(!userEntries.contains { $0.frozenContent.content.contains("System instructions:") })
+
+    let capturedSystemPrompts = await runtime.capturedSystemPrompts
+    #expect(capturedSystemPrompts == ["Base system prompt", "Base system prompt"])
+    let secondRuntimeMessages = try #require(await runtime.capturedMessages.last)
+    let userRuntimeMessages = secondRuntimeMessages.filter { $0.role == .user }
+    #expect(userRuntimeMessages.count == 2)
+    #expect(!userRuntimeMessages.contains { $0.content.contains("Base system prompt") })
+  }
+
+  @Test
   func setInteractionModeClearsRuntimeContext() async throws {
     let runtime = CountingClearContextRuntime()
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")

@@ -322,7 +322,6 @@ extension ChatSessionController {
       for: interactionMode,
       toolsAvailable: toolsAvailable
     )
-    let initialSystemPromptSnapshot = systemPrompt(toolPromptMode: initialToolPromptMode)
     let sentAttachments = attachmentsForTurn
     let turnID = UUID()
     let userMessageID = UUID()
@@ -359,7 +358,7 @@ extension ChatSessionController {
       sourceMessageID: userMessageID,
       prompt: prompt,
       attachments: sentAttachments,
-      systemContext: [initialSystemPromptSnapshot] + currentPromptContext.renderedBlocks,
+      systemContext: currentPromptContext.renderedBlocks,
       currentPromptContext: currentPromptContext.consumedContext
     ) {
       transcriptMutator.appendModelContextEntry(entry, to: &chatSession)
@@ -1182,7 +1181,6 @@ extension ChatSessionController {
     transcriptMutator.appendFinalToolResultFollowUpBoundary(
       "Use the preceding tool result to answer the user's request.",
       turnID: turnID,
-      systemPromptSnapshot: systemPrompt(toolPromptMode: toolPromptMode),
       to: &chatSession
     )
   }
@@ -1205,11 +1203,6 @@ extension ChatSessionController {
     activeModelContextDebugToolPromptMode = toolPromptMode
     let systemPromptStartedAt = Date()
     let renderedSystemPrompt = systemPrompt(toolPromptMode: toolPromptMode)
-    transcriptMutator.updateLastUserModelContextSystemPromptSnapshot(
-      renderedSystemPrompt,
-      turnID: turnID,
-      in: &chatSession
-    )
     traceTurnPhase(
       .renderSystemPrompt,
       startedAt: systemPromptStartedAt,
@@ -1385,11 +1378,19 @@ extension ChatSessionController {
     guard policy.strategy == .nativeGemma4 else {
       return nil
     }
-    let registry = toolRegistry(for: toolPromptMode)
-    guard !registry.tools.isEmpty else {
+    switch toolPromptMode {
+    case .disabled, .enabled(false):
       return nil
+    case .inspect, .afterInspectToolResultCanContinue, .afterToolResultCanContinue,
+      .afterToolResultFinal, .enabled(true):
+      break
     }
-    return ChatRuntimeToolContext(strategy: policy.strategy, registry: registry)
+    let registry = toolRegistry(for: toolPromptMode)
+    return ChatRuntimeToolContext(
+      strategy: policy.strategy,
+      registry: registry,
+      cacheSystemPrompt: chatSession.systemPrompt
+    )
   }
 
   private func toolPromptMode(

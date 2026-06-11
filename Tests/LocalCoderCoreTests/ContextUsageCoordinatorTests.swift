@@ -22,7 +22,7 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false))
+          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: false))
       ])
   }
 
@@ -43,7 +43,7 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false))
+          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: false))
       ])
   }
 
@@ -82,9 +82,9 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false)),
+          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: false)),
         .updated(
-          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false)),
+          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: false)),
       ])
   }
 
@@ -127,7 +127,7 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false))
+          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: false))
       ])
   }
 
@@ -167,9 +167,9 @@ struct ContextUsageCoordinatorTests {
     #expect(
       events == [
         .updated(
-          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false)),
+          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: false)),
         .updated(
-          ChatContextUsage(usedTokens: 14, tokenLimit: 100, accuracy: .estimate, isStale: false)),
+          ChatContextUsage(usedTokens: 3, tokenLimit: 100, accuracy: .estimate, isStale: false)),
       ])
   }
 
@@ -224,8 +224,7 @@ struct ContextUsageCoordinatorTests {
     let entry: ModelContextEntry
     do {
       entry = try ModelFacingPromptRenderer.userPromptEntry(
-        prompt: "hello",
-        systemContext: [systemPrompt]
+        prompt: "hello"
       )
     } catch {
       preconditionFailure("Failed to build context usage test transcript: \(error)")
