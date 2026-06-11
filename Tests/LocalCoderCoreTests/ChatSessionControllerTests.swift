@@ -895,6 +895,7 @@ struct ChatSessionControllerTests {
     #expect(
       controller.chatSession.modelContextSnapshot.entries[3].frozenContent.content
         == "Displayed show_file result for README.md directly to the user.")
+    #expect(controller.chatSession.focusedFileState == .empty)
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 1)
