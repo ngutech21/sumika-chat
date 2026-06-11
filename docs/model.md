@@ -4,62 +4,81 @@ classDiagram
 
   class WorkspaceLibrary {
     workspaces: [Workspace]
-    activeWorkspaceID
-    activeSessionID
-  } 
+    activeWorkspaceID: Workspace.ID?
+    activeSessionID: ChatSession.ID?
+  }
 
   class Workspace {
-    id
-    name
-    rootURL
-    bookmarkData
+    id: UUID
+    name: String
+    rootURL: URL
+    bookmarkData: Data?
     sessions: [ChatSession]
-    createdAt
-    updatedAt
+    createdAt: Date
+    updatedAt: Date
   }
 
   class ChatSession {
-    id
-    title
+    id: UUID
+    title: String
     selectedModelID: ManagedModel.ID
-    turns: [ChatTurn]
-    toolCalls: [ToolCallRecord]
     modelContextSnapshot: ModelContextSnapshot
+    toolCalls: [ToolCallRecord]
+    turns: [ChatTurn]
     focusedFileState: FocusedFileState
-    systemPrompt
+    systemPrompt: String
     generationSettings: ChatGenerationSettings
     interactionMode: WorkspaceInteractionMode
+    todoState: TodoState?
     pendingAttachments: [ChatAttachment] transient
     activeAttachmentContext: ActiveAttachmentContext
-    createdAt
-    updatedAt
+    createdAt: Date
+    updatedAt: Date
   }
 
   class ManagedModel {
-    id
-    displayName
-    shortName
-    summary
-    detail
-    huggingFaceRepoID
-    localDirectoryName
-    parameterSize
-    estimatedDownloadSize
-    isRecommended
-    requiresLargeMemory
-    defaultSystemPrompt
-    defaultGenerationSettings
-    defaultContextTokenLimit
-    toolCallingPolicy
-    supportsImageInput
+    id: String
+    displayName: String
+    shortName: String
+    summary: String
+    detail: String
+    huggingFaceRepoID: String
+    localDirectoryName: String
+    parameterSize: String
+    estimatedDownloadSize: String
+    isRecommended: Bool
+    requiresLargeMemory: Bool
+    stability: ManagedModelStability
+    toolCallingPolicy: ToolCallingPolicy
+    supportsImageInput: Bool
+    defaultSystemPrompt: String
+    defaultGenerationSettings: ChatGenerationSettings
+    defaultContextTokenLimit: Int
+  }
+
+  class ManagedModelStability {
+    <<enum>>
+    stable
+    experimental
+  }
+
+  class ToolCallingPolicy {
+    strategy: ToolCallingStrategy
+    allowsMultipleToolCalls: Bool
+  }
+
+  class ToolCallingStrategy {
+    <<enum>>
+    unsupported
+    nativeGemma4
   }
 
   class ChatGenerationSettings {
-    temperature
-    topP
-    topK
-    maxTokens
-    maxKVSize
+    temperature: Double
+    topP: Double
+    topK: Int
+    maxTokens: Int
+    maxKVSize: Int?
   }
 
   class WorkspaceInteractionMode {
@@ -69,18 +88,19 @@ classDiagram
   }
 
   class ChatTurn {
-    id
+    id: UUID
     status: ChatTurnStatus
     modelContextPolicy: ChatTurnModelContextPolicy
     items: [ChatTurnItem]
-    createdAt
-    updatedAt
+    createdAt: Date
+    updatedAt: Date
   }
 
   class ChatTurnStatus {
     <<enum>>
     running
     awaitingApproval
+    awaitingUserAnswer
     completed
     cancelled
     failed
@@ -101,25 +121,38 @@ classDiagram
   }
 
   class UserTurnMessage {
-    id
-    content
+    id: UUID
+    content: String
     attachments: [ChatAttachment]
   }
 
   class AssistantTurnMessage {
-    id
-    content
+    id: UUID
+    content: String
     attachments: [ChatAttachment]
     generationMetrics: ChatGenerationMetrics?
-    deliveryStatus
+    deliveryStatus: DeliveryStatus
+  }
+
+  class DeliveryStatus {
+    <<enum>>
+    complete
+    streaming
+    cancelled
   }
 
   class ChatAttachment {
     id: AttachmentID
-    displayName
+    displayName: String
     payload: ChatAttachmentPayload
-    createdAt
-    kind derived
+    createdAt: Date
+    kind: ChatAttachmentKind derived
+  }
+
+  class ChatAttachmentKind {
+    <<enum>>
+    text
+    image
   }
 
   class ChatAttachmentPayload {
@@ -129,15 +162,15 @@ classDiagram
   }
 
   class TextAttachmentPayload {
-    content
-    byteSize
-    contentSHA256
+    content: String
+    byteSize: Int
+    contentSHA256: String
   }
 
   class ImageAttachmentPayload {
-    mimeType
-    byteSize
-    contentSHA256
+    mimeType: String
+    byteSize: Int
+    contentSHA256: String
   }
 
   class ActiveAttachmentContext {
@@ -149,50 +182,94 @@ classDiagram
   }
 
   class ChatGenerationMetrics {
-    generatedTokenCount
-    tokensPerSecond
-    durationMs
+    generatedTokenCount: Int
+    tokensPerSecond: Double
+    durationMs: Int
+  }
+
+  class TodoState {
+    items: [TodoItem]
+    updatedAt: Date
+  }
+
+  class TodoItem {
+    id: String
+    content: String
+    status: TodoStatus
+  }
+
+  class TodoStatus {
+    <<enum>>
+    pending
+    inProgress
+    completed
+    blocked
   }
 
   class ToolCallRecord {
-    id
+    id: UUID derived
     request: ToolCallRequest
     evaluation: ToolPermissionEvaluation
-    state: ToolCallState
     events: [ToolCallEvent]
+    state: ToolCallState
   }
 
   class ToolCallRequest {
+    id: UUID derived
     raw: RawToolCallRequest
     payload: ToolCallPayload
   }
 
   class RawToolCallRequest {
-    id
-    workspaceID
-    sessionID
-    toolName
-    arguments
-    rawText
-    createdAt
+    id: UUID
+    workspaceID: Workspace.ID
+    sessionID: ChatSession.ID
+    toolName: ToolName
+    arguments: ToolCallArguments
+    originalToolName: String?
+    rawText: String?
+    createdAt: Date
+  }
+
+  class ToolName {
+    rawValue: String
+  }
+
+  class ToolArgumentValue {
+    <<enum>>
+    string(String)
+    number(Double)
+    bool(Bool)
+    array([ToolArgumentValue])
+    object([String: ToolArgumentValue])
+    null
   }
 
   class ToolCallPayload {
     <<enum>>
-    readFile
-    showFile
-    listFiles
-    globFiles
-    searchFiles
-    writeFile
-    editFile
-    invalid
+    readFile(ReadFileInput)
+    showFile(ReadFileInput)
+    listFiles(ListFilesInput)
+    globFiles(GlobFilesInput)
+    searchFiles(SearchFilesInput)
+    workspaceDiff(WorkspaceDiffInput)
+    workspaceDiagnostics(WorkspaceDiagnosticsInput)
+    writeFile(WriteFileInput)
+    editFile(EditFileInput)
+    runCommand(RunCommandInput)
+    todoWrite(TodoWriteInput)
+    askUser(AskUserInput)
+    browserRefresh(BrowserRefreshInput)
+    browserInspect(BrowserInspectInput)
+    webSearch(WebSearchInput)
+    webFetch(WebFetchInput)
+    invalid(InvalidToolInput)
   }
 
   class ToolPermissionEvaluation {
     decision: ToolPermissionDecision
+    reason: String
     riskLevel: ToolRiskLevel
-    reason
     normalizedPaths: [String]
     workspaceRelativePaths: [WorkspaceRelativePath]
   }
@@ -223,24 +300,45 @@ classDiagram
     cancelled
   }
 
+  class ToolCallStatus {
+    <<enum>>
+    pending
+    awaitingApproval
+    awaitingUserAnswer
+    denied
+    running
+    completed
+    failed
+    cancelled
+  }
+
   class ToolResultPayload {
     <<enum>>
-    readFile
-    listFiles
-    globFiles
-    searchFiles
-    writeFile
-    editFile
-    invalidTool
-    failure
+    readFile(ReadFileResult)
+    listFiles(ListFilesResult)
+    globFiles(GlobFilesResult)
+    searchFiles(SearchFilesResult)
+    workspaceDiff(WorkspaceDiffResult)
+    workspaceDiagnostics(WorkspaceDiagnosticsResult)
+    writeFile(WriteFileResult)
+    editFile(EditFileResult)
+    runCommand(RunCommandResult)
+    todoWrite(TodoWriteResult)
+    askUser(AskUserResult)
+    browserRefresh(BrowserRefreshResult)
+    browserInspect(BrowserInspectResult)
+    webSearch(WebSearchToolResult)
+    webFetch(WebFetchToolResult)
+    invalidTool(InvalidToolResult)
+    failure(ToolFailure)
   }
 
   class ToolResultPreview {
     status: ToolResultStatus
-    text
-    truncated
-    redacted
-    affectedPaths
+    text: String
+    truncated: Bool
+    redacted: Bool
+    affectedPaths: [String]
   }
 
   class ToolResultStatus {
@@ -251,11 +349,11 @@ classDiagram
   }
 
   class ToolCallEvent {
-    id
-    timestamp
+    id: UUID
+    timestamp: Date
     actor: ToolCallActor
     kind: ToolCallEventKind
-    message
+    message: String
   }
 
   class ToolCallActor {
@@ -270,6 +368,8 @@ classDiagram
     <<enum>>
     requested
     awaitingApproval
+    awaitingUserAnswer
+    answered
     approved
     denied
     started
@@ -280,29 +380,28 @@ classDiagram
 
   class ModelContextSnapshot {
     entries: [ModelContextEntry]
-    prompt snapshot
   }
 
   class ModelContextEntry {
-    id
-    turnID
-    sourceMessageID
+    id: UUID
+    turnID: ChatTurn.ID?
+    sourceMessageID: UUID?
     body: ModelContextEntryBody
     frozenContent: FrozenModelContent
   }
 
   class ModelContextEntryBody {
     <<enum>>
-    userPrompt
-    assistantOutput
-    toolObservation
-    terminalToolResult
+    userPrompt(UserPromptContext)
+    assistantOutput(AssistantOutputContext)
+    toolObservation(ToolObservationContext)
+    terminalToolResult(TerminalToolResultContext)
   }
 
   class FrozenModelContent {
     role: ModelContextRole
-    content
-    signature
+    content: String
+    signature: String
   }
 
   class ModelContextRole {
@@ -312,7 +411,7 @@ classDiagram
   }
 
   class FocusedFileState {
-    activePath: WorkspaceRelativePath
+    activePath: WorkspaceRelativePath?
     recentPaths: [FocusedPath]
     snapshots: [WorkspaceRelativePath: FocusedFileSnapshot]
     focusedAttachments: [AttachmentID]
@@ -320,20 +419,35 @@ classDiagram
 
   class FocusedPath {
     path: WorkspaceRelativePath
-    source
-    confidence
-    updatedAt
+    source: FocusedPathSource
+    confidence: FocusConfidence
+    updatedAt: Date
+  }
+
+  class FocusedPathSource {
+    <<enum>>
+    readFile
+    writeFile
+    editFile
+    attachment
+  }
+
+  class FocusConfidence {
+    <<enum>>
+    active
+    recent
+    ambiguous
   }
 
   class FocusedFileSnapshot {
-    contentHash
-    excerpt
-    fullContentAvailable
-    updatedAt
+    contentHash: String
+    excerpt: String?
+    fullContentAvailable: Bool
+    updatedAt: Date
   }
 
   class WorkspaceRelativePath {
-    rawValue
+    rawValue: String
   }
 
   WorkspaceLibrary "1" --> "*" Workspace
@@ -341,13 +455,19 @@ classDiagram
 
   ChatSession "1" --> "*" ChatTurn : canonical order
   ChatSession "1" --> "*" ToolCallRecord : canonical tool lifecycle
-  ChatSession "1" --> "1" ModelContextSnapshot : persisted prompt snapshot
+  ChatSession "1" --> "1" ModelContextSnapshot : persisted model context
   ChatSession "1" --> "1" FocusedFileState
   ChatSession "1" --> "1" ActiveAttachmentContext
+  ChatSession "0..1" --> "1" TodoState
   ChatSession --> ManagedModel : selected model ID
   ChatSession --> ChatGenerationSettings
   ChatSession --> WorkspaceInteractionMode
   ChatSession --> ChatAttachment : transient attachments
+
+  ManagedModel --> ManagedModelStability
+  ManagedModel --> ToolCallingPolicy
+  ManagedModel --> ChatGenerationSettings
+  ToolCallingPolicy --> ToolCallingStrategy
 
   ChatTurn "1" --> "*" ChatTurnItem
   ChatTurn --> ChatTurnStatus
@@ -358,11 +478,17 @@ classDiagram
   UserTurnMessage --> ChatAttachment
   AssistantTurnMessage --> ChatAttachment
   AssistantTurnMessage --> ChatGenerationMetrics
+  AssistantTurnMessage --> DeliveryStatus
+
   ChatAttachment --> AttachmentID
+  ChatAttachment --> ChatAttachmentKind
   ChatAttachment --> ChatAttachmentPayload
   ChatAttachmentPayload --> TextAttachmentPayload
   ChatAttachmentPayload --> ImageAttachmentPayload
   ActiveAttachmentContext --> AttachmentID
+
+  TodoState "1" --> "*" TodoItem
+  TodoItem --> TodoStatus
 
   ToolCallRecord "1" --> "1" ToolCallRequest
   ToolCallRecord "1" --> "1" ToolPermissionEvaluation
@@ -370,21 +496,29 @@ classDiagram
   ToolCallRecord "1" --> "*" ToolCallEvent
   ToolCallRequest --> RawToolCallRequest
   ToolCallRequest --> ToolCallPayload
+  RawToolCallRequest --> ToolName
+  RawToolCallRequest --> ToolArgumentValue
   ToolPermissionEvaluation --> ToolPermissionDecision
   ToolPermissionEvaluation --> ToolRiskLevel
   ToolPermissionEvaluation --> WorkspaceRelativePath
+  ToolCallState --> ToolCallStatus : derived
   ToolCallState --> ToolResultPreview : approval preview
   ToolCallState --> ToolResultPayload : result payload
+  ToolResultPayload --> ToolResultPreview : derived preview
   ToolResultPreview --> ToolResultStatus
   ToolCallEvent --> ToolCallActor
   ToolCallEvent --> ToolCallEventKind
+
   ModelContextSnapshot "1" --> "*" ModelContextEntry
   ModelContextEntry --> ModelContextEntryBody
   ModelContextEntry --> FrozenModelContent
   FrozenModelContent --> ModelContextRole
+
   FocusedFileState --> WorkspaceRelativePath
   FocusedFileState --> FocusedPath
   FocusedFileState --> FocusedFileSnapshot
   FocusedFileState --> AttachmentID
   FocusedPath --> WorkspaceRelativePath
+  FocusedPath --> FocusedPathSource
+  FocusedPath --> FocusConfidence
 ```

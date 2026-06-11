@@ -21,6 +21,7 @@ public struct DataModelMarkdownRenderer: Sendable {
       "## Overview",
       "",
       "```mermaid",
+      "%%{init: {\"themeVariables\": {\"fontSize\": \"18px\"}, \"flowchart\": {\"nodeSpacing\": 60, \"rankSpacing\": 80}}}%%",
       "flowchart TD",
     ]
 
