@@ -47,6 +47,29 @@ struct AssistantMarkdownPreprocessorTests {
   }
 
   @Test
+  func convertsLegacyCSSFileDisplayToFencedCodeBlock() {
+    let content = """
+      Here is `style.css`:
+
+          1: body {
+          2:   color: #87CEEB;
+          3: }
+      """
+
+    #expect(
+      AssistantMarkdownPreprocessor.renderableContent(for: content) == """
+        Here is `style.css`:
+
+        ```css
+        1: body {
+        2:   color: #87CEEB;
+        3: }
+        ```
+        """
+    )
+  }
+
+  @Test
   func wrapsUnfencedHTMLAsCodeBlock() {
     let content = """
       <!DOCTYPE html>
@@ -102,6 +125,27 @@ struct AssistantMarkdownPreprocessorTests {
         for i in {1..5}; do
           echo "RobotName$i"
         done
+        ```
+        """
+    )
+  }
+
+  @Test
+  func wrapsUnfencedCSSAsCodeBlock() {
+    let content = """
+      body {
+        color: #87CEEB;
+        margin: 0;
+      }
+      """
+
+    #expect(
+      AssistantMarkdownPreprocessor.renderableContent(for: content) == """
+        ```css
+        body {
+          color: #87CEEB;
+          margin: 0;
+        }
         ```
         """
     )

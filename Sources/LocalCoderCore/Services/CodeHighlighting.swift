@@ -1,6 +1,7 @@
 import Foundation
 import SwiftTreeSitter
 import TreeSitterBash
+import TreeSitterCSS
 import TreeSitterHTML
 import TreeSitterJSON
 import TreeSitterPython
@@ -16,6 +17,7 @@ public protocol CodeHighlightingBackend: Sendable {
 
 public enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
   case bash
+  case css
   case html
   case javascript
   case json
@@ -37,6 +39,8 @@ public enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
     switch normalizedLanguage {
     case "bash", "sh", "shell", "zsh":
       self = .bash
+    case "css":
+      self = .css
     case "html", "htm":
       self = .html
     case "js", "javascript", "mjs", "cjs":
@@ -73,6 +77,8 @@ public enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
     switch self {
     case .bash:
       "Bash"
+    case .css:
+      "CSS"
     case .html:
       "HTML"
     case .javascript:
@@ -193,6 +199,7 @@ public struct CodeHighlightTheme: Equatable, Hashable, Sendable {
       "tag": .type,
       "tag.delimiter": .punctuation,
       "type": .type,
+      "unit": .number,
       "variable": .variable,
     ]
   )
@@ -426,11 +433,12 @@ public actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
   ) throws -> HighlightedCode {
     let parserLanguage = ParserLanguage(codeLanguage: language)
     let configuration = try configuration(for: parserLanguage)
+    let highlightSource = CodeHighlightSource(code: code)
     let parser = Parser()
     try parser.setLanguage(configuration.language)
 
     guard
-      let tree = parser.parse(code),
+      let tree = parser.parse(highlightSource.parseCode),
       let query = configuration.queries[.highlights]
     else {
       return .plain(code: code, language: language)
@@ -439,12 +447,13 @@ public actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
     let ranges =
       query
       .execute(in: tree)
-      .resolve(with: .init(string: code))
+      .resolve(with: .init(string: highlightSource.parseCode))
       .highlights()
 
     let spans = nonOverlappingSpans(
       from: ranges,
-      codeUTF16Length: code.utf16.count,
+      source: highlightSource,
+      language: language,
       theme: theme
     )
 
@@ -463,28 +472,29 @@ public actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
 
   private func nonOverlappingSpans(
     from ranges: [NamedRange],
-    codeUTF16Length: Int,
+    source: CodeHighlightSource,
+    language: CodeLanguage,
     theme: CodeHighlightTheme
   ) -> [HighlightSpan] {
-    let candidateSpans = ranges.compactMap { namedRange -> HighlightSpan? in
+    var candidateSpans = ranges.flatMap { namedRange -> [HighlightSpan] in
       guard
         namedRange.range.location >= 0,
         namedRange.range.length > 0,
-        namedRange.range.upperBound <= codeUTF16Length,
+        namedRange.range.upperBound <= source.parseUTF16Length,
         let style = theme.style(for: namedRange.name)
       else {
-        return nil
+        return []
       }
 
-      return HighlightSpan(
-        range: HighlightTextRange(
-          location: namedRange.range.location,
-          length: namedRange.range.length
-        ),
-        style: style,
-        captureName: namedRange.name
-      )
+      return source.originalRanges(for: namedRange.range).map { originalRange in
+        HighlightSpan(
+          range: originalRange,
+          style: style,
+          captureName: namedRange.name
+        )
+      }
     }
+    candidateSpans.append(contentsOf: syntheticSpans(for: language, source: source))
 
     let preferredSpans = candidateSpans.reversed()
     var selectedSpans: [HighlightSpan] = []
@@ -507,10 +517,221 @@ public actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
       return $0.range.length < $1.range.length
     }
   }
+
+  private func syntheticSpans(
+    for language: CodeLanguage,
+    source: CodeHighlightSource
+  ) -> [HighlightSpan] {
+    switch language {
+    case .css:
+      cssDimensionSpans(source: source)
+    default:
+      []
+    }
+  }
+
+  private func cssDimensionSpans(source: CodeHighlightSource) -> [HighlightSpan] {
+    let pattern =
+      #"(?<![A-Za-z0-9_.-])(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:px|em|rem|vh|vw|vmin|vmax|ch|ex|cm|mm|in|pt|pc|fr|deg|rad|turn|s|ms|dpi|dpcm|dppx|%)"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+      return []
+    }
+
+    let fullRange = NSRange(location: 0, length: source.parseUTF16Length)
+    return regex.matches(in: source.parseCode, range: fullRange).flatMap { match in
+      source.originalRanges(for: match.range).map { originalRange in
+        HighlightSpan(
+          range: originalRange,
+          style: .number,
+          captureName: "number.dimension"
+        )
+      }
+    }
+  }
+}
+
+private struct CodeHighlightSource {
+  let originalCode: String
+  let parseCode: String
+  let parseUTF16Length: Int
+  private let originalUTF16OffsetsByParseOffset: [Int]?
+
+  init(code: String) {
+    originalCode = code
+
+    guard let numberedCode = NumberedCodeLineMapper(code: code).strippedCode() else {
+      parseCode = code
+      parseUTF16Length = code.utf16.count
+      originalUTF16OffsetsByParseOffset = nil
+      return
+    }
+
+    parseCode = numberedCode.code
+    parseUTF16Length = numberedCode.originalOffsetsByParseOffset.count
+    originalUTF16OffsetsByParseOffset = numberedCode.originalOffsetsByParseOffset
+  }
+
+  func originalRanges(for parseRange: NSRange) -> [HighlightTextRange] {
+    guard let originalUTF16OffsetsByParseOffset else {
+      return [HighlightTextRange(location: parseRange.location, length: parseRange.length)]
+    }
+
+    let lowerBound = parseRange.location
+    let upperBound = parseRange.upperBound
+    guard
+      lowerBound >= 0,
+      lowerBound < upperBound,
+      upperBound <= originalUTF16OffsetsByParseOffset.count
+    else {
+      return []
+    }
+
+    var ranges: [HighlightTextRange] = []
+    var currentLowerBound = originalUTF16OffsetsByParseOffset[lowerBound]
+    var previousOffset = currentLowerBound
+
+    for parseOffset in (lowerBound + 1)..<upperBound {
+      let originalOffset = originalUTF16OffsetsByParseOffset[parseOffset]
+      if originalOffset == previousOffset + 1 {
+        previousOffset = originalOffset
+      } else {
+        ranges.append(
+          HighlightTextRange(
+            location: currentLowerBound,
+            length: previousOffset - currentLowerBound + 1
+          ))
+        currentLowerBound = originalOffset
+        previousOffset = originalOffset
+      }
+    }
+
+    ranges.append(
+      HighlightTextRange(
+        location: currentLowerBound,
+        length: previousOffset - currentLowerBound + 1
+      ))
+    return ranges
+  }
+}
+
+private struct NumberedCodeLineMapper {
+  let code: String
+
+  func strippedCode() -> (code: String, originalOffsetsByParseOffset: [Int])? {
+    let originalCodeUnits = Array(code.utf16)
+    let lineRanges = lineRanges(in: originalCodeUnits)
+    let numberedLineCount = lineRanges.filter { lineRange in
+      numberedContentStart(
+        in: originalCodeUnits, lineStart: lineRange.start, lineEnd: lineRange.end)
+        != nil
+    }.count
+    let contentLineCount = lineRanges.filter { $0.start < $0.end }.count
+
+    guard
+      numberedLineCount >= 2,
+      numberedLineCount * 3 >= max(contentLineCount, 1) * 2
+    else {
+      return nil
+    }
+
+    var parseCodeUnits: [UInt16] = []
+    var originalOffsetsByParseOffset: [Int] = []
+
+    for lineRange in lineRanges {
+      let contentStart =
+        numberedContentStart(
+          in: originalCodeUnits,
+          lineStart: lineRange.start,
+          lineEnd: lineRange.end
+        ) ?? lineRange.start
+
+      appendCodeUnits(
+        originalCodeUnits,
+        in: contentStart..<lineRange.end,
+        to: &parseCodeUnits,
+        originalOffsetsByParseOffset: &originalOffsetsByParseOffset
+      )
+
+      if let newlineOffset = lineRange.newlineOffset {
+        appendCodeUnits(
+          originalCodeUnits,
+          in: newlineOffset..<(newlineOffset + 1),
+          to: &parseCodeUnits,
+          originalOffsetsByParseOffset: &originalOffsetsByParseOffset
+        )
+      }
+    }
+
+    return (
+      code: String(decoding: parseCodeUnits, as: UTF16.self),
+      originalOffsetsByParseOffset: originalOffsetsByParseOffset
+    )
+  }
+
+  private func lineRanges(in codeUnits: [UInt16]) -> [LineRange] {
+    var ranges: [LineRange] = []
+    var lineStart = 0
+    var offset = 0
+
+    while offset < codeUnits.count {
+      if codeUnits[offset] == 10 {
+        ranges.append(LineRange(start: lineStart, end: offset, newlineOffset: offset))
+        lineStart = offset + 1
+      }
+      offset += 1
+    }
+
+    if lineStart < codeUnits.count || codeUnits.isEmpty {
+      ranges.append(LineRange(start: lineStart, end: codeUnits.count, newlineOffset: nil))
+    }
+
+    return ranges
+  }
+
+  private func numberedContentStart(
+    in codeUnits: [UInt16],
+    lineStart: Int,
+    lineEnd: Int
+  ) -> Int? {
+    var offset = lineStart
+    while offset < lineEnd, (48...57).contains(Int(codeUnits[offset])) {
+      offset += 1
+    }
+
+    guard offset > lineStart, offset < lineEnd, codeUnits[offset] == 58 else {
+      return nil
+    }
+
+    offset += 1
+    if offset < lineEnd, codeUnits[offset] == 32 || codeUnits[offset] == 9 {
+      offset += 1
+    }
+
+    return offset
+  }
+
+  private func appendCodeUnits(
+    _ codeUnits: [UInt16],
+    in range: Range<Int>,
+    to parseCodeUnits: inout [UInt16],
+    originalOffsetsByParseOffset: inout [Int]
+  ) {
+    for offset in range {
+      parseCodeUnits.append(codeUnits[offset])
+      originalOffsetsByParseOffset.append(offset)
+    }
+  }
+
+  private struct LineRange {
+    var start: Int
+    var end: Int
+    var newlineOffset: Int?
+  }
 }
 
 private enum ParserLanguage: Hashable {
   case bash
+  case css
   case html
   case json
   case python
@@ -520,6 +741,8 @@ private enum ParserLanguage: Hashable {
     switch codeLanguage {
     case .bash:
       self = .bash
+    case .css:
+      self = .css
     case .html:
       self = .html
     case .javascript, .typescript:
@@ -541,6 +764,10 @@ private enum ParserLanguage: Hashable {
       language = Language(language: tree_sitter_bash())
       name = "Bash"
       bundleName = "TreeSitterBash_TreeSitterBash"
+    case .css:
+      language = Language(language: tree_sitter_css())
+      name = "CSS"
+      bundleName = "TreeSitterCSS_TreeSitterCSS"
     case .html:
       language = Language(language: tree_sitter_html())
       name = "HTML"

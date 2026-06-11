@@ -23,6 +23,7 @@ let package = Package(
     .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "603.0.0"),
     .package(url: "https://github.com/tree-sitter/swift-tree-sitter", exact: "0.25.0"),
     .package(url: "https://github.com/tree-sitter/tree-sitter-bash", exact: "0.25.1"),
+    .package(url: "https://github.com/tree-sitter/tree-sitter-css", exact: "0.25.0"),
     .package(url: "https://github.com/tree-sitter/tree-sitter-html", exact: "0.23.2"),
     .package(url: "https://github.com/tree-sitter/tree-sitter-json", exact: "0.24.8"),
     .package(url: "https://github.com/tree-sitter/tree-sitter-python", exact: "0.25.0"),
@@ -36,13 +37,22 @@ let package = Package(
         .product(name: "SwiftSoup", package: "SwiftSoup"),
         .product(name: "SwiftTreeSitter", package: "swift-tree-sitter"),
         .product(name: "TreeSitterBash", package: "tree-sitter-bash"),
+        .product(name: "TreeSitterCSS", package: "tree-sitter-css"),
         .product(name: "TreeSitterHTML", package: "tree-sitter-html"),
         .product(name: "TreeSitterJSON", package: "tree-sitter-json"),
         .product(name: "TreeSitterPython", package: "tree-sitter-python"),
         .product(name: "TreeSitterTypeScript", package: "tree-sitter-typescript"),
+        "TreeSitterCSSScanner",
         "TreeSitterPythonScanner",
       ],
       swiftSettings: concurrencyChecking
+    ),
+    .target(
+      name: "TreeSitterCSSScanner",
+      path: "Sources/TreeSitterCSSScanner",
+      sources: ["scanner.c"],
+      publicHeadersPath: "include",
+      cSettings: [.headerSearchPath("include")]
     ),
     .target(
       name: "TreeSitterPythonScanner",

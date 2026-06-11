@@ -11,6 +11,8 @@ struct CodeHighlightingTests {
     #expect(CodeLanguage(fenceLanguage: "sh") == .bash)
     #expect(CodeLanguage(fenceLanguage: "shell") == .bash)
     #expect(CodeLanguage(fenceLanguage: "zsh") == .bash)
+    #expect(CodeLanguage(fenceLanguage: "css") == .css)
+    #expect(CodeLanguage(fenceLanguage: "scss") == nil)
     #expect(CodeLanguage(fenceLanguage: "html") == .html)
     #expect(CodeLanguage(fenceLanguage: "htm") == .html)
     #expect(CodeLanguage(fenceLanguage: "js") == .javascript)
@@ -25,6 +27,8 @@ struct CodeHighlightingTests {
   func normalizesFilePathExtensions() {
     #expect(CodeLanguage(filePath: "hello.py") == .python)
     #expect(CodeLanguage(filePath: "scripts/deploy.sh") == .bash)
+    #expect(CodeLanguage(filePath: "style.css") == .css)
+    #expect(CodeLanguage(filePath: "styles/app.scss") == nil)
     #expect(CodeLanguage(filePath: "site/index.html") == .html)
     #expect(CodeLanguage(filePath: "site/partial.htm") == .html)
     #expect(CodeLanguage(filePath: "package.json") == .json)
@@ -101,6 +105,75 @@ struct CodeHighlightingTests {
 
     expect(highlighted, contains: .comment)
     expect(highlighted, contains: .string)
+  }
+
+  @Test
+  func highlightsCSSCode() async throws {
+    let highlighted = try await SwiftTreeSitterCodeHighlightingBackend().highlight(
+      code: """
+        body {
+          color: #87CEEB;
+          width: 800px;
+          margin: 0;
+          /* note */
+        }
+        """,
+      language: .css,
+      theme: .chat
+    )
+
+    #expect(highlighted.language == .css)
+    expect(highlighted, contains: .property)
+    expect(highlighted, contains: .number)
+    expect(highlighted, contains: .comment)
+    #expect(highlighted.containsText("800px", styledAs: .number))
+  }
+
+  @Test
+  func highlightsNumberedCSSCodeFromShowFileOutput() async throws {
+    let code = """
+      1: body {
+      2:   display: flex;
+      3:   background-color: #87CEEB;
+      4:   margin: 0;
+      5:   /* note */
+      6: }
+      """
+    let highlighted = try await SwiftTreeSitterCodeHighlightingBackend().highlight(
+      code: code,
+      language: .css,
+      theme: .chat
+    )
+
+    #expect(highlighted.language == .css)
+    expect(highlighted, contains: .property)
+    expect(highlighted, contains: .number)
+    expect(highlighted, contains: .comment)
+    #expect(
+      highlighted.containsText("display", styledAs: .property),
+      "Expected property highlighting to map back onto the original numbered code."
+    )
+  }
+
+  @Test
+  func splitsNumberedMultilineCSSHighlightsAcrossLinePrefixes() async throws {
+    let code = """
+      1: body {
+      2:   /*
+      3:   note
+      4:   */
+      5: }
+      """
+    let highlighted = try await SwiftTreeSitterCodeHighlightingBackend().highlight(
+      code: code,
+      language: .css,
+      theme: .chat
+    )
+
+    #expect(highlighted.containsStyledSubstring("/*", styledAs: .comment))
+    #expect(highlighted.containsStyledSubstring("note", styledAs: .comment))
+    #expect(highlighted.containsStyledSubstring("*/", styledAs: .comment))
+    #expect(!highlighted.containsStyledSubstring("3:   note", styledAs: .comment))
   }
 
   @Test
@@ -317,6 +390,29 @@ struct CodeHighlightingTests {
       "Expected \(style.rawValue) span in \(highlighted.spans)",
       sourceLocation: sourceLocation
     )
+  }
+}
+
+extension HighlightedCode {
+  fileprivate func containsText(_ text: String, styledAs style: CodeHighlightStyle) -> Bool {
+    spans.contains { span in
+      guard span.style == style, let range = Range(span.range.nsRange, in: code) else {
+        return false
+      }
+      return code[range] == text
+    }
+  }
+
+  fileprivate func containsStyledSubstring(
+    _ text: String,
+    styledAs style: CodeHighlightStyle
+  ) -> Bool {
+    spans.contains { span in
+      guard span.style == style, let range = Range(span.range.nsRange, in: code) else {
+        return false
+      }
+      return code[range].contains(text)
+    }
   }
 }
 
