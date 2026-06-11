@@ -50,6 +50,7 @@ public enum ModelContextDebugRole: String, Equatable, Sendable {
   case system
   case user
   case assistant
+  case toolFollowUpPrompt = "tool_follow_up_prompt"
 }
 
 public enum ModelContextDebugRenderer {
@@ -65,12 +66,20 @@ public enum ModelContextDebugRenderer {
       role: .system,
       content: normalizedSystemPrompt
     )
-    let entries = try transcript.runtimeProjectedEntries(mode: projectionMode)
+    let projectedEntries = try transcript.runtimeProjectedEntries(mode: projectionMode)
+    let toolFollowUpIndex = toolFollowUpPromptIndex(
+      in: transcript,
+      projectedEntryCount: projectedEntries.count
+    )
+    let entries =
+      projectedEntries
       .enumerated()
       .map { offset, entry in
         ModelContextDebugEntry(
           index: offset + 1,
-          role: ModelContextDebugRole(entry.role),
+          role: offset == toolFollowUpIndex
+            ? .toolFollowUpPrompt
+            : ModelContextDebugRole(entry.role),
           content: entry.content
         )
       }
@@ -148,6 +157,20 @@ public enum ModelContextDebugRenderer {
     }
     return String(format: "%016llx", hash)
   }
+
+  private static func toolFollowUpPromptIndex(
+    in transcript: ModelContextSnapshot,
+    projectedEntryCount: Int
+  ) -> Int? {
+    guard projectedEntryCount > 0,
+      let currentPromptIndex = transcript.entries.lastIndex(where: \.isRuntimePromptEntryForDebug),
+      case .toolObservation = transcript.entries[currentPromptIndex].body
+    else {
+      return nil
+    }
+
+    return projectedEntryCount - 1
+  }
 }
 
 extension ModelContextDebugRole {
@@ -157,6 +180,17 @@ extension ModelContextDebugRole {
       self = .user
     case .assistant:
       self = .assistant
+    }
+  }
+}
+
+extension ModelContextEntry {
+  fileprivate var isRuntimePromptEntryForDebug: Bool {
+    switch body {
+    case .userPrompt, .toolObservation:
+      true
+    case .assistantOutput, .terminalToolResult:
+      false
     }
   }
 }

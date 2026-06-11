@@ -5,6 +5,77 @@ public struct ToolResultProjection: Equatable, Sendable {
   public let observation: ToolModelObservation
 }
 
+public enum ProjectionLimitStrategy: Equatable, Sendable {
+  case head
+  case tail
+  case headTail
+}
+
+public struct ProjectionLimit: Equatable, Sendable {
+  public var maxCharacters: Int
+  public var strategy: ProjectionLimitStrategy
+
+  public init(maxCharacters: Int, strategy: ProjectionLimitStrategy) {
+    self.maxCharacters = maxCharacters
+    self.strategy = strategy
+  }
+
+  public static let defaultModelObservation = ProjectionLimit(
+    maxCharacters: 8_000,
+    strategy: .headTail
+  )
+}
+
+public struct ProjectionLimitResult: Equatable, Sendable {
+  public let text: String
+  public let wasLimited: Bool
+}
+
+public enum ProjectionLimiter {
+  private static let marker = "\n[tool observation truncated]\n"
+
+  public static func limit(_ text: String, limit: ProjectionLimit) -> ProjectionLimitResult {
+    guard text.count > limit.maxCharacters else {
+      return ProjectionLimitResult(text: text, wasLimited: false)
+    }
+    guard limit.maxCharacters > 0 else {
+      return ProjectionLimitResult(text: "", wasLimited: true)
+    }
+
+    let marker = truncatedMarker(maxCharacters: limit.maxCharacters)
+    let availableCharacters = max(0, limit.maxCharacters - marker.count)
+
+    let limitedText =
+      switch limit.strategy {
+      case .head:
+        String(text.prefix(availableCharacters)) + marker
+      case .tail:
+        marker + String(text.suffix(availableCharacters))
+      case .headTail:
+        headTailLimitedText(text, marker: marker, availableCharacters: availableCharacters)
+      }
+
+    return ProjectionLimitResult(text: limitedText, wasLimited: true)
+  }
+
+  private static func truncatedMarker(maxCharacters: Int) -> String {
+    guard marker.count <= maxCharacters else {
+      return String(marker.prefix(maxCharacters))
+    }
+    return marker
+  }
+
+  private static func headTailLimitedText(
+    _ text: String,
+    marker: String,
+    availableCharacters: Int
+  ) -> String {
+    let headCount = (availableCharacters + 1) / 2
+    let tailCount = availableCharacters / 2
+    return String(text.prefix(headCount)) + marker + String(text.suffix(tailCount))
+  }
+}
+
 public enum ToolDisplayPayload: Equatable, Sendable {
   case fileContent(path: WorkspaceRelativePath, content: ToolTextOutput)
   case fileList(root: WorkspaceRelativePath, entries: [WorkspaceFileEntry], truncated: Bool)
@@ -152,17 +223,20 @@ public struct ToolResultProjectionPolicy: Equatable, Sendable {
   public var maxSearchObservationSnippets: Int
   public var includeShowFileBodyInObservation: Bool
   public var includeReadFileBodyInObservation: Bool
+  public var modelObservationLimit: ProjectionLimit
 
   public init(
     maxListObservationEntries: Int = 40,
     maxSearchObservationSnippets: Int = 20,
     includeShowFileBodyInObservation: Bool = false,
-    includeReadFileBodyInObservation: Bool = true
+    includeReadFileBodyInObservation: Bool = true,
+    modelObservationLimit: ProjectionLimit = .defaultModelObservation
   ) {
     self.maxListObservationEntries = maxListObservationEntries
     self.maxSearchObservationSnippets = maxSearchObservationSnippets
     self.includeShowFileBodyInObservation = includeShowFileBodyInObservation
     self.includeReadFileBodyInObservation = includeReadFileBodyInObservation
+    self.modelObservationLimit = modelObservationLimit
   }
 
   public static let `default` = ToolResultProjectionPolicy()

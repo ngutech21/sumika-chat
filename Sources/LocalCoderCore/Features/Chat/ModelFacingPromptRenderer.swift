@@ -60,6 +60,7 @@ public enum ModelFacingPromptRenderer {
       projection.observation,
       callID: toolResult.callID
     )
+    let content = limitedToolObservationContent(rawContent, policy: policy)
     let toolReceipt = ToolReceiptFactory.make(
       callID: toolResult.callID,
       toolName: toolResult.toolName,
@@ -75,12 +76,12 @@ public enum ModelFacingPromptRenderer {
             callID: toolResult.callID,
             toolName: toolResult.toolName,
             status: projection.observation.status,
-            content: rawContent,
+            content: content,
             toolReceipt: toolReceipt,
             toolCall: ToolCallModelMessage(request: request)
           )
         ),
-        frozenContent: FrozenModelContent(role: .assistant, content: rawContent)
+        frozenContent: FrozenModelContent(role: .assistant, content: content)
       )
     }
 
@@ -93,7 +94,7 @@ public enum ModelFacingPromptRenderer {
           callID: toolResult.callID,
           toolName: toolResult.toolName,
           status: projection.observation.status,
-          content: rawContent,
+          content: content,
           toolReceipt: toolReceipt,
           toolCall: ToolCallModelMessage(request: request),
           systemContext: normalizedSystemContext(systemContext)
@@ -101,7 +102,7 @@ public enum ModelFacingPromptRenderer {
       ),
       frozenContent: FrozenModelContent(
         role: .user,
-        content: userContent(rawContent, systemContext: systemContext)
+        content: userContent(content, systemContext: systemContext)
       )
     )
   }
@@ -112,10 +113,15 @@ public enum ModelFacingPromptRenderer {
     sourceMessageID: UUID? = nil,
     terminalToolResult: TerminalToolResultContext,
     followUpInstruction: String,
+    policy: ToolResultProjectionPolicy = .default,
     systemContext: [String] = []
   ) throws -> ModelContextEntry {
-    let prompt = [
+    let toolResultContent = limitedToolObservationContent(
       terminalToolResult.content,
+      policy: policy
+    )
+    let prompt = [
+      toolResultContent,
       followUpInstruction,
     ]
     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -249,6 +255,13 @@ public enum ModelFacingPromptRenderer {
     systemContext
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
+  }
+
+  private static func limitedToolObservationContent(
+    _ content: String,
+    policy: ToolResultProjectionPolicy
+  ) -> String {
+    ProjectionLimiter.limit(content, limit: policy.modelObservationLimit).text
   }
 }
 

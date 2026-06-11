@@ -393,6 +393,110 @@ struct ToolResultProjectorTests {
       ])
   }
 
+  @Test
+  func projectionLimiterLeavesTextBelowLimitUnchanged() {
+    let result = ProjectionLimiter.limit(
+      "short observation",
+      limit: ProjectionLimit(maxCharacters: 80, strategy: .headTail)
+    )
+
+    #expect(result.text == "short observation")
+    #expect(!result.wasLimited)
+    #expect(!result.text.contains("tool observation truncated"))
+  }
+
+  @Test
+  func projectionLimiterSupportsHeadTruncation() {
+    let text = String(repeating: "a", count: 40) + String(repeating: "z", count: 40)
+    let result = ProjectionLimiter.limit(
+      text,
+      limit: ProjectionLimit(maxCharacters: 50, strategy: .head)
+    )
+
+    #expect(result.wasLimited)
+    #expect(result.text.count <= 50)
+    #expect(result.text.hasPrefix(String(repeating: "a", count: 20)))
+    #expect(result.text.contains("tool observation truncated"))
+    #expect(!result.text.contains(String(repeating: "z", count: 20)))
+  }
+
+  @Test
+  func projectionLimiterSupportsTailTruncation() {
+    let text = String(repeating: "a", count: 40) + String(repeating: "z", count: 40)
+    let result = ProjectionLimiter.limit(
+      text,
+      limit: ProjectionLimit(maxCharacters: 50, strategy: .tail)
+    )
+
+    #expect(result.wasLimited)
+    #expect(result.text.count <= 50)
+    #expect(result.text.hasSuffix(String(repeating: "z", count: 20)))
+    #expect(result.text.contains("tool observation truncated"))
+    #expect(!result.text.contains(String(repeating: "a", count: 20)))
+  }
+
+  @Test
+  func projectionLimiterSupportsHeadTailTruncation() {
+    let text = String(repeating: "a", count: 40) + String(repeating: "z", count: 40)
+    let result = ProjectionLimiter.limit(
+      text,
+      limit: ProjectionLimit(maxCharacters: 50, strategy: .headTail)
+    )
+
+    #expect(result.wasLimited)
+    #expect(result.text.count <= 50)
+    #expect(result.text.hasPrefix(String(repeating: "a", count: 10)))
+    #expect(result.text.hasSuffix(String(repeating: "z", count: 10)))
+    #expect(result.text.contains("tool observation truncated"))
+  }
+
+  @Test
+  func modelFacingObservationLimitPreservesDisplayPayload() throws {
+    let fullContent = String(repeating: "0123456789", count: 40)
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+    let payload = ToolResultPayload.readFile(
+      .success(path: path, content: ToolTextOutput(text: fullContent))
+    )
+    let request = request(
+      toolName: .readFile,
+      payload: .readFile(ReadFileInput(path: "README.md", offset: nil, limit: nil))
+    )
+
+    let projection = ToolResultProjector.project(payload: payload, request: request)
+    guard case .fileContent(_, let displayContent) = projection.display else {
+      Issue.record("Expected full file display payload.")
+      return
+    }
+    #expect(displayContent.text == fullContent)
+
+    let callID = UUID()
+    let entry = try ModelFacingPromptRenderer.toolResultEntry(
+      toolResult: ToolResultModelMessage(
+        callID: callID,
+        toolName: .readFile,
+        payload: payload
+      ),
+      request: request,
+      policy: ToolResultProjectionPolicy(
+        modelObservationLimit: ProjectionLimit(maxCharacters: 160, strategy: .headTail)
+      )
+    )
+
+    guard case .toolObservation(let context) = entry.body else {
+      Issue.record("Expected model-facing tool observation.")
+      return
+    }
+    #expect(context.content.count <= 160)
+    #expect(context.content.contains("tool observation truncated"))
+    #expect(!context.content.contains(fullContent))
+    #expect(
+      context.content
+        != ToolModelObservationRenderer.render(
+          projection.observation,
+          callID: callID
+        ))
+  }
+
   private func request(toolName: ToolName, payload: ToolCallPayload) -> ToolCallRequest {
     ToolCallRequest.validated(
       raw: RawToolCallRequest(

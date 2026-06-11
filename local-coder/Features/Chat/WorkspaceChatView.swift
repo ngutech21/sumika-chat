@@ -522,6 +522,8 @@ extension ModelContextDebugRole {
       "User"
     case .assistant:
       "Assistant"
+    case .toolFollowUpPrompt:
+      "Tool follow-up prompt"
     }
   }
 
@@ -533,6 +535,8 @@ extension ModelContextDebugRole {
       "person"
     case .assistant:
       "cpu"
+    case .toolFollowUpPrompt:
+      "arrow.triangle.2.circlepath"
     }
   }
 }

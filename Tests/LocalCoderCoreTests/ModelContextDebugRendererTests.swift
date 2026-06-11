@@ -63,6 +63,7 @@ struct ModelContextDebugRendererTests {
     )
 
     #expect(document.entries.count == 1)
+    #expect(document.entries.first?.role == .toolFollowUpPrompt)
     let content = try #require(document.entries.first?.content)
     #expect(content.contains("Original user request:"))
     #expect(content.contains("run the smoke test"))
