@@ -26,6 +26,7 @@ public final class ChatSessionController {
   @ObservationIgnored private let focusedFileReducer = FocusedFileStateReducer()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private var pendingRuntimeContextClear: PendingRuntimeContextClear?
+  @ObservationIgnored private var activeModelContextDebugToolPromptMode: ToolPromptMode?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
   @ObservationIgnored private let maxToolLoopIterations = 6
@@ -485,6 +486,24 @@ extension ChatSessionController {
       onEvent: handleContextUsageEvent(_:))
   }
 
+  public func modelContextDebugDocument(
+    workspace: Workspace? = nil,
+    sessionID: ChatSession.ID? = nil
+  ) throws -> ModelContextDebugDocument {
+    let transcript = modelContextBuilder.transcript(
+      from: chatSession,
+      includingTurnID: chatTurnCoordinator.activeTurnID
+    )
+    return try ModelContextDebugRenderer.render(
+      transcript: transcript,
+      systemPrompt: systemPrompt(
+        toolPromptMode: modelContextDebugToolPromptMode(
+          workspace: workspace,
+          sessionID: sessionID
+        ))
+    )
+  }
+
   private func invalidateContextUsage() {
     contextUsageCoordinator.invalidate(onEvent: handleContextUsageEvent(_:))
   }
@@ -544,6 +563,7 @@ extension ChatSessionController {
   }
 
   private func flushPendingContextUsageRefresh(defaultMode: ToolPromptMode) {
+    activeModelContextDebugToolPromptMode = nil
     refreshContextUsage(toolPromptMode: defaultMode)
   }
 
@@ -1182,6 +1202,7 @@ extension ChatSessionController {
     -> ChatGenerationResult
   {
     let toolCallingPolicy = modelRuntime.selectedModel.toolCallingPolicy
+    activeModelContextDebugToolPromptMode = toolPromptMode
     let systemPromptStartedAt = Date()
     let renderedSystemPrompt = systemPrompt(toolPromptMode: toolPromptMode)
     transcriptMutator.updateLastUserModelContextSystemPromptSnapshot(
@@ -1325,6 +1346,7 @@ extension ChatSessionController {
         notifySessionDidChange()
         return
       case .resumeGeneration(let nextAssistantMessageID, let promptMode):
+        activeModelContextDebugToolPromptMode = promptMode
         let generationResult = try await streamAssistantReply(
           to: nextAssistantMessageID,
           interactionMode: interactionMode,
@@ -1384,6 +1406,35 @@ extension ChatSessionController {
     case .agent:
       return .enabled(true)
     }
+  }
+
+  private func modelContextDebugToolPromptMode(
+    workspace: Workspace?,
+    sessionID: ChatSession.ID?
+  ) -> ToolPromptMode {
+    if chatTurnCoordinator.activeTurnID != nil,
+      let activeModelContextDebugToolPromptMode
+    {
+      return activeModelContextDebugToolPromptMode
+    }
+
+    return currentToolPromptMode(workspace: workspace, sessionID: sessionID)
+  }
+
+  private func currentToolPromptMode(
+    workspace: Workspace?,
+    sessionID: ChatSession.ID?
+  ) -> ToolPromptMode {
+    let toolAvailability = toolPromptPolicy.toolAvailability(
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    return toolPromptMode(
+      for: chatSession.interactionMode,
+      toolsAvailable: toolAvailability == .availableForWorkspace
+        && chatSession.interactionMode != .chat
+        && modelRuntime.selectedModel.supportsWorkspaceTools
+    )
   }
 
   private func followUpPromptMode(

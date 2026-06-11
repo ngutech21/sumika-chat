@@ -5,6 +5,8 @@ import SwiftUI
 struct ContentView: View {
   @AppStorage("contentView.columnVisibility") private var storedColumnVisibility =
     Self.defaultColumnVisibility.storageValue
+  @AppStorage("workspaceChat.isModelContextDebugVisible") private var isModelContextDebugVisible =
+    false
   @State private var selection: AppNavigationSelection?
   @State private var appState: AppState
 
@@ -81,6 +83,7 @@ struct ContentView: View {
               workspace: workspace,
               sessionID: appState.activeSessionID,
               browserToolService: appState.browserToolService,
+              isModelContextDebugVisible: $isModelContextDebugVisible,
               onAddAttachments: chooseAttachments
             )
             .navigationTitle(workspace.name)

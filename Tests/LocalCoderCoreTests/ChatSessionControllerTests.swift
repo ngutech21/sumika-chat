@@ -135,6 +135,34 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func modelContextDebugDocumentUsesWorkspaceToolAvailability() throws {
+    let session = ChatSession(
+      selectedModelID: "gemma4-e2b",
+      systemPrompt: "Base system prompt",
+      interactionMode: .agent
+    )
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+    controller.loadSession(session)
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project"),
+      sessions: [controller.chatSession]
+    )
+
+    let unavailableDocument = try controller.modelContextDebugDocument()
+    let availableDocument = try controller.modelContextDebugDocument(
+      workspace: workspace,
+      sessionID: controller.chatSession.id
+    )
+
+    #expect(!unavailableDocument.systemPrompt.content.contains("Workspace tools are available"))
+    #expect(availableDocument.systemPrompt.content.contains("Workspace tools are available"))
+  }
+
+  @Test
   func sendMessageAllowsExperimentalGemma4PersistedToolMode() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["native mode response"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")

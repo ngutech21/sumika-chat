@@ -1,3 +1,4 @@
+import AppKit
 import LocalCoderCore
 import SwiftUI
 
@@ -6,6 +7,7 @@ struct WorkspaceChatView: View {
   let workspace: Workspace
   let sessionID: ChatSession.ID?
   let browserToolService: HTMLPreviewBrowserToolService
+  @Binding var isModelContextDebugVisible: Bool
   let onAddAttachments: () -> Void
   @State private var htmlPreview: HTMLPreviewState?
   @State private var htmlPreviewRefreshID = UUID()
@@ -103,6 +105,18 @@ struct WorkspaceChatView: View {
         )
         .transition(.move(edge: .trailing).combined(with: .opacity))
       }
+
+      if isModelContextDebugVisible {
+        ModelContextDebugPane(
+          controller: controller,
+          workspace: workspace,
+          sessionID: sessionID,
+          onClose: {
+            isModelContextDebugVisible = false
+          }
+        )
+        .transition(.move(edge: .trailing).combined(with: .opacity))
+      }
     }
     .onDisappear {
       Task {
@@ -183,5 +197,201 @@ struct WorkspaceChatView: View {
       controller.errorMessage = error.localizedDescription
     }
     return true
+  }
+}
+
+private struct ModelContextDebugPane: View {
+  @Bindable var controller: ChatSessionController
+  let workspace: Workspace
+  let sessionID: ChatSession.ID?
+  let onClose: () -> Void
+  @State private var didCopy = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      switch documentResult {
+      case .success(let document):
+        header(for: document)
+        Divider()
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 10) {
+            ModelContextDebugEntryView(entry: document.systemPrompt)
+            ForEach(document.entries) { entry in
+              ModelContextDebugEntryView(entry: entry)
+            }
+          }
+          .padding(16)
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      case .failure(let error):
+        ContentUnavailableView(
+          "Model Context Unavailable",
+          systemImage: "exclamationmark.triangle",
+          description: Text(error.localizedDescription)
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+    }
+    .frame(width: 380)
+    .frame(maxHeight: .infinity)
+    .background(.regularMaterial)
+    .overlay(alignment: .leading) {
+      Divider()
+    }
+    .accessibilityIdentifier("modelContextDebug.pane")
+  }
+
+  private var documentResult: Result<ModelContextDebugDocument, Error> {
+    Result {
+      try controller.modelContextDebugDocument(
+        workspace: workspace,
+        sessionID: sessionID
+      )
+    }
+  }
+
+  private func header(for document: ModelContextDebugDocument) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .top, spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Projected Model Context")
+            .font(.headline)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+
+          Text(document.signature)
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .textSelection(.enabled)
+            .help(document.signature)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        HStack(spacing: 8) {
+          Button {
+            copy(document.renderedContext)
+          } label: {
+            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+          }
+          .help(didCopy ? "Copied" : "Copy full context")
+          .accessibilityLabel("Copy full model context")
+
+          Button(action: onClose) {
+            Image(systemName: "xmark")
+          }
+          .help("Hide model context debug")
+          .accessibilityLabel("Hide model context debug")
+        }
+      }
+
+      HStack(spacing: 12) {
+        ModelContextDebugMetric(
+          title: "Chars",
+          value: document.totalCharacters.formatted(.number)
+        )
+        ModelContextDebugMetric(
+          title: "Est. tokens",
+          value: document.totalEstimatedTokens.formatted(.number)
+        )
+        ModelContextDebugMetric(
+          title: "Entries",
+          value: document.entries.count.formatted(.number)
+        )
+      }
+    }
+    .padding(16)
+  }
+
+  private func copy(_ context: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(context, forType: .string)
+    didCopy = true
+
+    Task {
+      try? await Task.sleep(for: .seconds(1.2))
+      didCopy = false
+    }
+  }
+}
+
+private struct ModelContextDebugMetric: View {
+  let title: String
+  let value: String
+
+  var body: some View {
+    VStack(alignment: .trailing, spacing: 2) {
+      Text(title)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+      Text(value)
+        .font(.caption.monospacedDigit())
+    }
+  }
+}
+
+private struct ModelContextDebugEntryView: View {
+  let entry: ModelContextDebugEntry
+  @State private var isExpanded = false
+
+  var body: some View {
+    DisclosureGroup(isExpanded: $isExpanded) {
+      ScrollView(.horizontal) {
+        Text(entry.content.isEmpty ? " " : entry.content)
+          .font(.system(.caption, design: .monospaced))
+          .textSelection(.enabled)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.top, 8)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    } label: {
+      HStack(spacing: 10) {
+        Label(entryTitle, systemImage: entry.role.systemImage)
+          .font(.subheadline)
+        Spacer()
+        Text("\(entry.characterCount.formatted(.number)) chars")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
+        Text("~\(entry.estimatedTokens.formatted(.number)) tokens")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
+      }
+    }
+    .padding(10)
+    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+  }
+
+  private var entryTitle: String {
+    if let index = entry.index {
+      return "\(index). \(entry.role.title)"
+    }
+    return entry.role.title
+  }
+}
+
+extension ModelContextDebugRole {
+  fileprivate var title: String {
+    switch self {
+    case .system:
+      "System"
+    case .user:
+      "User"
+    case .assistant:
+      "Assistant"
+    }
+  }
+
+  fileprivate var systemImage: String {
+    switch self {
+    case .system:
+      "gearshape"
+    case .user:
+      "person"
+    case .assistant:
+      "cpu"
+    }
   }
 }
