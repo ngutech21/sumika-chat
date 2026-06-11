@@ -23,8 +23,12 @@ struct ContentView: View {
   }
 
   @MainActor
-  init(controller: ChatSessionController) {
-    _appState = State(initialValue: AppState(chatController: controller))
+  init(controller: ChatSessionController, browserToolService: HTMLPreviewBrowserToolService) {
+    _appState = State(
+      initialValue: AppState(
+        browserToolService: browserToolService,
+        chatController: controller
+      ))
   }
 
   @MainActor

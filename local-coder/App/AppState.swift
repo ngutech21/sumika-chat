@@ -31,38 +31,50 @@ final class AppState {
   var activeWebAccessSettings = WebAccessSettings.disabled
   var activeAppBehaviorSettings = AppBehaviorSettings()
 
+  convenience init(
+    workspaceStore: any WorkspaceStoring = WorkspaceStore(),
+    modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
+    webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
+    appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
+    modelDownloader: any ModelDownloading = HuggingFaceModelDownloader(),
+    runtime: any ChatModelRuntime = GemmaMLXRuntime(),
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
+      ModelLifecycleCoordinator.defaultModelAvailability,
+    turnTracer: any TurnTracing = GemmaDebugTraceStore.shared
+  ) {
+    let browserToolService = HTMLPreviewBrowserToolService()
+    self.init(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: webAccessSettingsStore,
+      appBehaviorSettingsStore: appBehaviorSettingsStore,
+      browserToolService: browserToolService,
+      chatController: Self.makeChatController(
+        modelSettingsStore: modelSettingsStore,
+        webAccessSettingsStore: webAccessSettingsStore,
+        modelDownloader: modelDownloader,
+        runtime: runtime,
+        modelAvailability: modelAvailability,
+        browserToolService: browserToolService,
+        turnTracer: turnTracer
+      )
+    )
+  }
+
   init(
     workspaceStore: any WorkspaceStoring = WorkspaceStore(),
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
     webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
-    chatController: ChatSessionController? = nil
+    browserToolService: HTMLPreviewBrowserToolService,
+    chatController: ChatSessionController
   ) {
     self.workspaceStore = workspaceStore
     self.modelSettingsStore = modelSettingsStore
     self.webAccessSettingsStore = webAccessSettingsStore
     self.appBehaviorSettingsStore = appBehaviorSettingsStore
-    let browserToolService = HTMLPreviewBrowserToolService()
     self.browserToolService = browserToolService
-
-    if let chatController {
-      self.chatController = chatController
-    } else {
-      let webAccessSettingsStore = webAccessSettingsStore
-      self.chatController = ChatSessionController(
-        modelSettingsStore: modelSettingsStore,
-        modelDownloader: HuggingFaceModelDownloader(),
-        runtime: GemmaMLXRuntime(),
-        toolOrchestrator: ToolOrchestrator(
-          executorRegistry: .codingAgent,
-          browserToolService: browserToolService,
-          webAccessSettingsProvider: {
-            await webAccessSettingsStore.settings()
-          }
-        ),
-        turnTracer: GemmaDebugTraceStore.shared
-      )
-    }
+    self.chatController = chatController
     self.workspaceLibraryController = WorkspaceLibraryController(
       defaultSessionFactory: Self.defaultSessionFactory(
         selectedModelID: defaultSessionModelID,
@@ -75,6 +87,31 @@ final class AppState {
       self?.persistActiveSession()
     }
     loadStoredLibrary()
+  }
+
+  private static func makeChatController(
+    modelSettingsStore: any ModelSettingsStoring,
+    webAccessSettingsStore: any WebAccessSettingsStoring,
+    modelDownloader: any ModelDownloading,
+    runtime: any ChatModelRuntime,
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
+    browserToolService: HTMLPreviewBrowserToolService,
+    turnTracer: any TurnTracing
+  ) -> ChatSessionController {
+    ChatSessionController(
+      modelSettingsStore: modelSettingsStore,
+      modelDownloader: modelDownloader,
+      runtime: runtime,
+      modelAvailability: modelAvailability,
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgent,
+        browserToolService: browserToolService,
+        webAccessSettingsProvider: {
+          await webAccessSettingsStore.settings()
+        }
+      ),
+      turnTracer: turnTracer
+    )
   }
 
   var activeWorkspace: Workspace? {

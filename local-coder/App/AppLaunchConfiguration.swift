@@ -3,18 +3,22 @@ import LocalCoderCore
 
 enum AppLaunchConfiguration {
   @MainActor
-  static func makeAppState(environment: [String: String] = ProcessInfo.processInfo.environment)
-    -> AppState
-  {
+  static func makeAppState(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    runtime: any ChatModelRuntime = GemmaMLXRuntime()
+  ) -> AppState {
     guard environment["LOCAL_CODER_UI_TEST_MODE"] == "1" else {
-      return AppState()
+      return AppState(runtime: runtime)
     }
 
-    return makeUITestAppState(environment: environment)
+    return makeUITestAppState(environment: environment, runtime: runtime)
   }
 
   @MainActor
-  private static func makeUITestAppState(environment: [String: String]) -> AppState {
+  private static func makeUITestAppState(
+    environment: [String: String],
+    runtime: any ChatModelRuntime
+  ) -> AppState {
     let storageRoot = URL(
       filePath: environment["LOCAL_CODER_UI_TEST_STORAGE_ROOT"]
         ?? FileManager.default.temporaryDirectory
@@ -49,27 +53,13 @@ enum AppLaunchConfiguration {
       )
     )
     try? FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
-    let browserToolService = HTMLPreviewBrowserToolService()
 
-    let controller = ChatSessionController(
-      modelSettingsStore: modelSettingsStore,
-      modelDownloader: HuggingFaceModelDownloader(),
-      runtime: GemmaMLXRuntime(),
-      toolOrchestrator: ToolOrchestrator(
-        executorRegistry: .codingAgent,
-        browserToolService: browserToolService,
-        webAccessSettingsProvider: {
-          await webAccessSettingsStore.settings()
-        }
-      ),
-      turnTracer: GemmaDebugTraceStore.shared
-    )
     return AppState(
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
-      chatController: controller
+      runtime: runtime
     )
   }
 

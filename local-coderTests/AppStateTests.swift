@@ -32,15 +32,11 @@ struct AppStateTests {
     let workspaceStore = InMemoryWorkspaceStore(initialLibrary: initialLibrary)
     let modelSettingsStore = InMemoryModelSettingsStore()
     let webAccessSettingsStore = InMemoryWebAccessSettingsStore()
-    let controller = ChatSessionController(
-      modelSettingsStore: modelSettingsStore,
-      runtime: AppStateTestRuntime()
-    )
     let appState = AppState(
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
-      chatController: controller
+      runtime: AppStateTestRuntime()
     )
 
     try await waitUntil {
@@ -89,10 +85,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
-      chatController: ChatSessionController(
-        modelSettingsStore: modelSettingsStore,
-        runtime: AppStateTestRuntime()
-      )
+      runtime: AppStateTestRuntime()
     )
 
     try await waitUntil {
@@ -122,10 +115,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
-      chatController: ChatSessionController(
-        modelSettingsStore: modelSettingsStore,
-        runtime: AppStateTestRuntime()
-      )
+      runtime: AppStateTestRuntime()
     )
 
     try await waitUntil {
@@ -161,6 +151,7 @@ struct AppStateTests {
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
       appBehaviorSettingsStore: appBehaviorSettingsStore,
+      browserToolService: HTMLPreviewBrowserToolService(),
       chatController: controller
     )
 
@@ -183,11 +174,8 @@ struct AppStateTests {
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
       appBehaviorSettingsStore: appBehaviorSettingsStore,
-      chatController: ChatSessionController(
-        modelSettingsStore: modelSettingsStore,
-        runtime: runtime,
-        modelAvailability: { _ in true }
-      )
+      runtime: runtime,
+      modelAvailability: { _ in true }
     )
 
     try await waitUntil {
@@ -210,11 +198,6 @@ struct AppStateTests {
   func autoloadLastModelStartsLoadingWhenEnabled() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let runtime = AppStateTestRuntime()
-    let controller = ChatSessionController(
-      modelSettingsStore: modelSettingsStore,
-      runtime: runtime,
-      modelAvailability: { _ in true }
-    )
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
       modelSettingsStore: modelSettingsStore,
@@ -222,7 +205,8 @@ struct AppStateTests {
       appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(
         settings: AppBehaviorSettings(autoloadLastModel: true)
       ),
-      chatController: controller
+      runtime: runtime,
+      modelAvailability: { _ in true }
     )
 
     try await waitUntil {
@@ -232,7 +216,7 @@ struct AppStateTests {
     appState.startModelRuntimeServices()
 
     try await waitUntil {
-      controller.modelRuntime.modelState == .ready
+      appState.chatController.modelRuntime.modelState == .ready
     }
 
     #expect(appState.activeAppBehaviorSettings.autoloadLastModel)
@@ -243,11 +227,6 @@ struct AppStateTests {
   func autoloadLastModelDoesNotLoadWhenSelectedModelIsNotDownloaded() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let runtime = AppStateTestRuntime()
-    let controller = ChatSessionController(
-      modelSettingsStore: modelSettingsStore,
-      runtime: runtime,
-      modelAvailability: { _ in false }
-    )
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
       modelSettingsStore: modelSettingsStore,
@@ -255,7 +234,8 @@ struct AppStateTests {
       appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(
         settings: AppBehaviorSettings(autoloadLastModel: true)
       ),
-      chatController: controller
+      runtime: runtime,
+      modelAvailability: { _ in false }
     )
 
     try await waitUntil {
@@ -265,8 +245,97 @@ struct AppStateTests {
     appState.startModelRuntimeServices()
 
     #expect(appState.activeAppBehaviorSettings.autoloadLastModel)
-    #expect(controller.modelRuntime.modelState == .notLoaded)
+    #expect(appState.chatController.modelRuntime.modelState == .notLoaded)
     #expect(await runtime.loadCount() == 0)
+  }
+
+  @Test
+  func injectedControllerUsesSuppliedBrowserToolService() async throws {
+    let modelSettingsStore = InMemoryModelSettingsStore()
+    let browserToolService = HTMLPreviewBrowserToolService()
+    let controller = ChatSessionController(
+      modelSettingsStore: modelSettingsStore,
+      runtime: AppStateTestRuntime()
+    )
+
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      browserToolService: browserToolService,
+      chatController: controller
+    )
+
+    #expect(appState.browserToolService === browserToolService)
+    #expect(appState.chatController === controller)
+  }
+
+  @Test
+  func uiTestLaunchAppStateSharesBrowserToolServiceWithControllerTools() async throws {
+    let runtime = AppStateTestRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "browser_refresh",
+            arguments: ["hard": .bool(true)]
+          ))
+      ],
+      [.chunk("Preview refreshed.")],
+    ])
+    let fixture = try makeLaunchFixture()
+    let appState = AppLaunchConfiguration.makeAppState(
+      environment: [
+        "LOCAL_CODER_UI_TEST_MODE": "1",
+        "LOCAL_CODER_UI_TEST_STORAGE_ROOT": fixture.storageRoot.path(percentEncoded: false),
+        "LOCAL_CODER_UI_TEST_WORKSPACE_PATH": fixture.workspaceURL.path(percentEncoded: false),
+        "LOCAL_CODER_UI_TEST_MODEL_ID": ManagedModelCatalog.defaultModelID,
+      ],
+      runtime: runtime
+    )
+    let probe = BrowserToolProbe()
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+    await appState.browserToolService.register(
+      refreshHandler: { input in
+        await probe.recordRefresh(input)
+        return .success(
+          path: WorkspaceRelativePath(rawValue: "index.html"),
+          url: "file:///index.html",
+          hard: input.hard ?? false
+        )
+      },
+      inspectHandler: { input in
+        await probe.recordInspect(input)
+        return .success(
+          path: WorkspaceRelativePath(rawValue: "index.html"),
+          title: "Preview Fixture",
+          url: "file:///index.html",
+          selector: input.selector,
+          text: ToolTextOutput(text: "Preview Fixture"),
+          html: nil
+        )
+      }
+    )
+    guard let workspace = appState.activeWorkspace else {
+      throw AppStateTestFailure.missingWorkspace
+    }
+    let activeSessionID = try #require(appState.activeSessionID)
+    appState.chatController.setInteractionMode(.agent)
+    appState.chatController.modelRuntime.modelState = .ready
+    appState.chatController.draft = "refresh the preview"
+
+    appState.chatController.sendMessage(in: workspace, sessionID: activeSessionID)
+
+    try await waitUntil {
+      !appState.chatController.isGenerating
+    }
+
+    #expect(await probe.refreshCount() == 1)
+    let toolCall = try #require(appState.chatController.chatSession.toolCalls.first)
+    #expect(toolCall.request.toolName == .browserRefresh)
+    #expect(toolCall.status == .completed)
   }
 }
 
@@ -373,7 +442,13 @@ private actor SlowFirstWebAccessSettingsStore: WebAccessSettingsStoring {
 }
 
 private actor AppStateTestRuntime: ChatModelRuntime {
+  private let turns: [[ChatModelStreamEvent]]
   private var loadedConfigurations: [ChatModelConfiguration] = []
+  private var streamReplyCount = 0
+
+  init(eventTurns: [[ChatModelStreamEvent]] = []) {
+    self.turns = eventTurns
+  }
 
   func load(configuration: ChatModelConfiguration) async throws {
     loadedConfigurations.append(configuration)
@@ -407,10 +482,62 @@ private actor AppStateTestRuntime: ChatModelRuntime {
     _ = attachments
     _ = systemPrompt
     _ = settings
+    let events: [ChatModelStreamEvent]
+    if turns.isEmpty {
+      events = []
+    } else {
+      events = turns[min(streamReplyCount, turns.count - 1)]
+    }
+    streamReplyCount += 1
     return AsyncThrowingStream { continuation in
+      for event in events {
+        continuation.yield(event)
+      }
+      continuation.yield(.completed(nil))
       continuation.finish()
     }
   }
+}
+
+private actor BrowserToolProbe {
+  private var refreshInputs: [BrowserRefreshInput] = []
+  private var inspectInputs: [BrowserInspectInput] = []
+
+  func recordRefresh(_ input: BrowserRefreshInput) {
+    refreshInputs.append(input)
+  }
+
+  func recordInspect(_ input: BrowserInspectInput) {
+    inspectInputs.append(input)
+  }
+
+  func refreshCount() -> Int {
+    refreshInputs.count
+  }
+}
+
+private func makeLaunchFixture() throws -> (storageRoot: URL, workspaceURL: URL) {
+  let storageRoot = FileManager.default.temporaryDirectory.appending(
+    path: "local-coder-app-state-tests-\(UUID().uuidString)",
+    directoryHint: .isDirectory
+  )
+  let workspaceURL = storageRoot.appending(path: "workspace", directoryHint: .isDirectory)
+  try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+  try """
+  <!doctype html>
+  <html>
+  <body>Preview Fixture</body>
+  </html>
+  """.write(
+    to: workspaceURL.appending(path: "index.html", directoryHint: .notDirectory),
+    atomically: true,
+    encoding: .utf8
+  )
+  return (storageRoot, workspaceURL)
+}
+
+private enum AppStateTestFailure: Error {
+  case missingWorkspace
 }
 
 private func waitForSavedLibrary(
