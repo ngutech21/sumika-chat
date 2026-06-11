@@ -419,6 +419,9 @@ struct ChatComposer: View {
     guard let pngData = pasteboardPNGData(pasteboard) else {
       return nil
     }
+    guard pngData.count <= ChatAttachmentLimits.maxImageFileBytes else {
+      return nil
+    }
 
     do {
       let directory = FileManager.default.temporaryDirectory

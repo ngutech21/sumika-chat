@@ -38,6 +38,79 @@ struct ChatAttachmentCoordinatorTests {
   }
 
   @Test
+  func addAttachmentsRemovesPasteboardTempFileAfterSuccess() async throws {
+    let tempFile = try makePasteboardTempFile(name: "clipboard-image-\(UUID().uuidString).png")
+    let attachment = makeAttachment(name: "clipboard.png", content: "notes")
+    let loader = AttachmentFakeLoader(result: .success([attachment]))
+    let coordinator = ChatAttachmentCoordinator(loader: loader)
+    var events: [ChatAttachmentEvent] = []
+
+    coordinator.addAttachments(
+      from: [tempFile],
+      existingAttachments: [],
+      onEvent: { events.append($0) }
+    )
+
+    try await waitUntil { events == [.appendAttachments([attachment])] }
+    #expect(!FileManager.default.fileExists(atPath: tempFile.path(percentEncoded: false)))
+  }
+
+  @Test
+  func addAttachmentsRemovesPasteboardTempFileAfterFailure() async throws {
+    let tempFile = try makePasteboardTempFile(name: "clipboard-image-\(UUID().uuidString).png")
+    let loader = AttachmentFakeLoader(result: .failure(ChatAttachmentTestError()))
+    let coordinator = ChatAttachmentCoordinator(loader: loader)
+    var events: [ChatAttachmentEvent] = []
+
+    coordinator.addAttachments(
+      from: [tempFile],
+      existingAttachments: [],
+      onEvent: { events.append($0) }
+    )
+
+    try await waitUntil { events == [.error("Attachment test error")] }
+    #expect(!FileManager.default.fileExists(atPath: tempFile.path(percentEncoded: false)))
+  }
+
+  @Test
+  func addAttachmentsKeepsNormalSourceFileAfterSuccess() async throws {
+    let file = try makeNormalTempFile(name: "clipboard-image-\(UUID().uuidString).png")
+    defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+    let attachment = makeAttachment(name: "clipboard.png", content: "notes")
+    let loader = AttachmentFakeLoader(result: .success([attachment]))
+    let coordinator = ChatAttachmentCoordinator(loader: loader)
+    var events: [ChatAttachmentEvent] = []
+
+    coordinator.addAttachments(
+      from: [file],
+      existingAttachments: [],
+      onEvent: { events.append($0) }
+    )
+
+    try await waitUntil { events == [.appendAttachments([attachment])] }
+    #expect(FileManager.default.fileExists(atPath: file.path(percentEncoded: false)))
+  }
+
+  @Test
+  func addAttachmentsKeepsNonMatchingPasteboardTempFileAfterSuccess() async throws {
+    let tempFile = try makePasteboardTempFile(name: "not-clipboard-image-\(UUID().uuidString).png")
+    defer { try? FileManager.default.removeItem(at: tempFile) }
+    let attachment = makeAttachment(name: "clipboard.png", content: "notes")
+    let loader = AttachmentFakeLoader(result: .success([attachment]))
+    let coordinator = ChatAttachmentCoordinator(loader: loader)
+    var events: [ChatAttachmentEvent] = []
+
+    coordinator.addAttachments(
+      from: [tempFile],
+      existingAttachments: [],
+      onEvent: { events.append($0) }
+    )
+
+    try await waitUntil { events == [.appendAttachments([attachment])] }
+    #expect(FileManager.default.fileExists(atPath: tempFile.path(percentEncoded: false)))
+  }
+
+  @Test
   func newerLoadInvalidatesOlderResult() async throws {
     let loader = AttachmentControlledLoader()
     defer {
@@ -256,6 +329,24 @@ private final class ControlledAttachmentLoad: @unchecked Sendable {
     lock.unlock()
     semaphore.signal()
   }
+}
+
+private func makePasteboardTempFile(name: String) throws -> URL {
+  let directory = FileManager.default.temporaryDirectory
+    .appending(path: "local-coder-pasteboard", directoryHint: .isDirectory)
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  let url = directory.appending(path: name, directoryHint: .notDirectory)
+  try Data("temporary image".utf8).write(to: url)
+  return url
+}
+
+private func makeNormalTempFile(name: String) throws -> URL {
+  let directory = FileManager.default.temporaryDirectory
+    .appending(path: "local-coder-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  let url = directory.appending(path: name, directoryHint: .notDirectory)
+  try Data("normal file".utf8).write(to: url)
+  return url
 }
 
 private struct ChatAttachmentTestError: LocalizedError {

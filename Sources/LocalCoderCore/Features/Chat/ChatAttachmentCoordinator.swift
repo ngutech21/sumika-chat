@@ -82,12 +82,34 @@ public final class ChatAttachmentCoordinator {
             from: urls,
             existingAttachments: existingAttachments
           )
+          removeAppOwnedPasteboardTempFiles(from: urls)
           continuation.resume(returning: attachments)
         } catch {
+          removeAppOwnedPasteboardTempFiles(from: urls)
           continuation.resume(throwing: error)
         }
       }
     }
+  }
+
+  private nonisolated static func removeAppOwnedPasteboardTempFiles(from urls: [URL]) {
+    let fileManager = FileManager.default
+    for url in urls where isAppOwnedPasteboardTempFile(url) {
+      try? fileManager.removeItem(at: url)
+    }
+  }
+
+  private nonisolated static func isAppOwnedPasteboardTempFile(_ url: URL) -> Bool {
+    let standardizedURL = url.standardizedFileURL
+    let directory = FileManager.default.temporaryDirectory
+      .appending(path: "local-coder-pasteboard", directoryHint: .isDirectory)
+      .standardizedFileURL
+    let parent = standardizedURL.deletingLastPathComponent().standardizedFileURL
+    let fileName = standardizedURL.lastPathComponent
+
+    return parent.path(percentEncoded: false) == directory.path(percentEncoded: false)
+      && fileName.hasPrefix("clipboard-image-")
+      && fileName.hasSuffix(".png")
   }
 
   public func convertDroppedFilePaths(
