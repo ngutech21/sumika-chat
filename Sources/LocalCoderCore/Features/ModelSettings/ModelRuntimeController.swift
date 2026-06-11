@@ -36,27 +36,6 @@ public final class ModelRuntimeController {
     modelState != .loading && !downloadState.isDownloading
   }
 
-  convenience init(
-    modelSettingsStore settingsStore: any ModelSettingsStoring,
-    modelDownloader downloader: any ModelDownloading,
-    runtimeOperations: RuntimeOperationCoordinator,
-    modelLifecycleCoordinator: ModelLifecycleCoordinator,
-    resourceMonitor: any ProcessResourceMonitoring,
-    initialOperationID: UUID
-  ) {
-    self.init(
-      selectedModelID: ManagedModelCatalog.defaultModel.id,
-      modelPath: ManagedModelCatalog.defaultModel.localPath,
-      modelContextTokenLimit: ManagedModelCatalog.defaultModel.defaultContextTokenLimit,
-      modelSettingsStore: settingsStore,
-      runtimeOperations: runtimeOperations,
-      modelLifecycleCoordinator: modelLifecycleCoordinator,
-      resourceMonitor: resourceMonitor,
-      initialOperationID: initialOperationID
-    )
-    loadPersistedModelSelection()
-  }
-
   public init(
     selectedModelID: ManagedModel.ID,
     modelPath: String,

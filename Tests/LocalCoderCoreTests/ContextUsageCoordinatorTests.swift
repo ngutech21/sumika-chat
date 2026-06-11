@@ -242,20 +242,6 @@ struct ContextUsageCoordinatorTests {
     )
   }
 
-  private func waitUntil(
-    timeout: Duration = .seconds(1),
-    condition: @escaping @MainActor () -> Bool
-  ) async throws {
-    let start = ContinuousClock.now
-    while !condition() {
-      if start.duration(to: .now) > timeout {
-        Issue.record("Timed out waiting for condition")
-        throw TestWaitTimeoutError()
-      }
-      try await Task.sleep(for: .milliseconds(10))
-    }
-  }
-
   private func waitUntilAsync(
     timeout: Duration = .seconds(1),
     condition: @escaping () async -> Bool
@@ -300,81 +286,6 @@ private actor ContextUsageFakeRuntime: ChatModelRuntime {
     _ = systemPrompt
     contextUsageRequestCount += 1
     return usage
-  }
-
-  func streamReply(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    _ = settings
-    return AsyncThrowingStream { continuation in
-      continuation.finish()
-    }
-  }
-}
-
-private actor ContextUsageControlledRuntime: ChatModelRuntime {
-  private struct PendingContextUsage {
-    let id: UUID
-    let continuation: CheckedContinuation<ChatContextUsage, Never>
-  }
-
-  private var contextUsageContinuations: [PendingContextUsage] = []
-  private(set) var contextUsageRequestCount = 0
-  private(set) var completedContextUsageCount = 0
-
-  func load(configuration: ChatModelConfiguration) async throws {
-    _ = configuration
-  }
-
-  func unload() async {}
-  func clearContext() async {}
-
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    contextUsageRequestCount += 1
-    let id = UUID()
-    let usage = await withCheckedContinuation { continuation in
-      contextUsageContinuations.append(PendingContextUsage(id: id, continuation: continuation))
-      Task {
-        try? await Task.sleep(for: .seconds(2))
-        self.resolveContextUsage(
-          id: id,
-          with: ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-        )
-      }
-    }
-    completedContextUsageCount += 1
-    return usage
-  }
-
-  func resolveContextUsage(at index: Int, with usage: ChatContextUsage) {
-    guard contextUsageContinuations.indices.contains(index) else {
-      return
-    }
-    let pendingUsage = contextUsageContinuations.remove(at: index)
-    pendingUsage.continuation.resume(returning: usage)
-  }
-
-  private func resolveContextUsage(id: UUID, with usage: ChatContextUsage) {
-    guard
-      let index = contextUsageContinuations.firstIndex(where: { $0.id == id })
-    else {
-      return
-    }
-    let pendingUsage = contextUsageContinuations.remove(at: index)
-    pendingUsage.continuation.resume(returning: usage)
   }
 
   func streamReply(
@@ -448,51 +359,12 @@ private actor ContextUsageDelayedClearRuntime: ChatModelRuntime {
   }
 }
 
-private actor ContextUsageFailingRuntime: ChatModelRuntime {
-  func load(configuration: ChatModelConfiguration) async throws {
-    _ = configuration
-  }
-
-  func unload() async {}
-  func clearContext() async {}
-
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    throw ContextUsageTestError.failed
-  }
-
-  func streamReply(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    _ = settings
-    return AsyncThrowingStream { continuation in
-      continuation.finish()
-    }
-  }
-}
-
 private actor RecordingContextUsageTracer: TurnTracing {
   private(set) var events: [TurnTraceEvent] = []
 
   func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
     events.append(event)
   }
-}
-
-private enum ContextUsageTestError: Error {
-  case failed
 }
 
 private struct ContextUsageFakeModelDownloader: ModelDownloading {

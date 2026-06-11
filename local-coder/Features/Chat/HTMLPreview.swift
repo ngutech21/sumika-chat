@@ -42,7 +42,6 @@ enum HTMLPreviewConsoleMessageLevel: String, Codable, Equatable, Sendable {
 
 struct HTMLPreviewConsoleEntry: Identifiable, Equatable, Sendable {
   let id = UUID()
-  let timestamp = Date()
   let level: HTMLPreviewConsoleMessageLevel
   let message: String
   let source: String?

@@ -139,91 +139,6 @@ struct ToolExecutionSummaryView: View {
   }
 }
 
-struct ToolCallSummaryView: View {
-  let toolCall: ToolCallModelMessage
-  let toolCallRecord: ToolCallRecord?
-  let generationMetrics: ChatGenerationMetrics?
-  let onApprove: (ToolCallRecord.ID) -> Void
-  let onDeny: (ToolCallRecord.ID) -> Void
-  let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
-  @State private var isDetailsExpanded = false
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 5) {
-      ToolSummaryRow(
-        leadingImage: "wrench.and.screwdriver",
-        title: "Tool call:",
-        toolName: toolCall.toolName.rawValue,
-        statusImage: toolCallRecord?.status.summarySystemImage ?? "ellipsis",
-        statusColor: toolCallRecord?.status.summaryColor ?? .secondary,
-        detailsAvailable: hasDetails,
-        isDetailsExpanded: $isDetailsExpanded
-      )
-
-      if let toolCallRecord {
-        if isDetailsExpanded {
-          ToolCallDetailsView(
-            toolCall: toolCall,
-            toolCallRecord: toolCallRecord,
-            generationMetrics: generationMetrics
-          )
-        }
-
-        if toolCallRecord.status == .awaitingApproval {
-          HStack(spacing: 6) {
-            Button {
-              onApprove(toolCallRecord.id)
-            } label: {
-              Image(systemName: "checkmark")
-            }
-            .help("Approve")
-            .accessibilityLabel("Approve tool call")
-            .controlSize(.small)
-
-            Button(role: .destructive) {
-              onDeny(toolCallRecord.id)
-            } label: {
-              Image(systemName: "xmark")
-            }
-            .help("Deny")
-            .accessibilityLabel("Deny tool call")
-            .controlSize(.small)
-          }
-        }
-
-        if toolCallRecord.status == .awaitingUserAnswer,
-          let input = toolCallRecord.askUserInput
-        {
-          AskUserAnswerView(
-            toolCallID: toolCallRecord.id,
-            input: input,
-            onAnswer: onAnswerAskUser
-          )
-        }
-      }
-    }
-    .font(.caption)
-    .accessibilityLabel(accessibilityLabel)
-  }
-
-  private var hasDetails: Bool {
-    !toolCall.transcriptArguments.isEmpty
-      || toolCallRecord?.resultPreview?.text.isEmpty == false
-      || generationMetrics != nil
-  }
-
-  private var accessibilityLabel: String {
-    var parts = ["Tool call \(toolCall.toolName.rawValue)"]
-    if let toolCallRecord {
-      parts.append(toolCallRecord.status.displayName)
-    }
-    if let generationMetrics {
-      parts.append(generationMetrics.tokenRateSummary)
-    }
-    return parts.joined(separator: ", ")
-  }
-}
-
 extension ToolCallStatus {
   fileprivate var displayName: String {
     switch self {
@@ -705,10 +620,6 @@ extension ToolDisplayPayload {
     case .summary(let status, _, _):
       status
     }
-  }
-
-  fileprivate var statusColor: Color {
-    status.statusColor
   }
 
   fileprivate var affectedPaths: [WorkspaceRelativePath] {

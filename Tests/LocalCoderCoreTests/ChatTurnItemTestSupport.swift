@@ -47,22 +47,6 @@ struct TestTranscriptMessage: Equatable {
     self.init(id: id, kind: .user, content: userContent, attachments: attachments)
   }
 
-  init(
-    id: UUID = UUID(),
-    assistantContent: String,
-    attachments: [ChatAttachment] = [],
-    generationMetrics: ChatGenerationMetrics? = nil,
-    deliveryStatus: AssistantTurnMessage.DeliveryStatus = .complete
-  ) {
-    self.init(
-      id: id,
-      kind: .assistant,
-      content: assistantContent,
-      attachments: attachments,
-      generationMetrics: generationMetrics,
-      deliveryStatus: deliveryStatus
-    )
-  }
 }
 
 extension ChatSession {

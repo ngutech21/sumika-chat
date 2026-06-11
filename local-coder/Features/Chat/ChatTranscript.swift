@@ -442,7 +442,6 @@ struct LinkedText: NSViewRepresentable {
   }
 
   func updateNSView(_ textView: LinkTextView, context _: Context) {
-    textView.linkColor = linkColor
     textView.textStorage?.setAttributedString(attributedString)
     textView.invalidateIntrinsicContentSize()
     textView.window?.invalidateCursorRects(for: textView)
@@ -490,8 +489,6 @@ struct LinkedText: NSViewRepresentable {
 }
 
 final class LinkTextView: NSTextView {
-  var linkColor: NSColor = .linkColor
-
   override var intrinsicContentSize: NSSize {
     guard let layoutManager, let textContainer else {
       return super.intrinsicContentSize

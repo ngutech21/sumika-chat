@@ -126,14 +126,6 @@ actor ControlledContextUsageRuntime: ChatModelRuntime {
     return usage
   }
 
-  func resolveContextUsage(at index: Int, with usage: ChatContextUsage) {
-    guard contextUsageContinuations.indices.contains(index) else {
-      return
-    }
-    let pendingUsage = contextUsageContinuations.remove(at: index)
-    pendingUsage.continuation.resume(returning: usage)
-  }
-
   private func resolveContextUsage(id: UUID, with usage: ChatContextUsage) {
     guard
       let index = contextUsageContinuations.firstIndex(where: { $0.id == id })
@@ -549,11 +541,6 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   init(chunks: [String] = []) {
     self.turns = [chunks.map(ChatModelStreamEvent.chunk)]
     self.failingStreamReplyCalls = []
-  }
-
-  init(turns: [[String]], failingStreamReplyCalls: Set<Int> = []) {
-    self.turns = turns.map { $0.map(ChatModelStreamEvent.chunk) }
-    self.failingStreamReplyCalls = failingStreamReplyCalls
   }
 
   init(eventTurns: [[ChatModelStreamEvent]], failingStreamReplyCalls: Set<Int> = []) {

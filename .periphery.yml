@@ -1,0 +1,4 @@
+retain_public: true
+retain_codable_properties: true
+relative_results: true
+disable_update_check: true

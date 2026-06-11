@@ -211,8 +211,7 @@ public struct ToolLoopCoordinator: Sendable {
 
       nextFollowUpPromptMode = followUpPromptMode(
         after: record,
-        defaultMode: nextFollowUpPromptMode,
-        interactionMode: request.interactionMode
+        defaultMode: nextFollowUpPromptMode
       )
 
       if let directResponse = directResponse(
@@ -423,8 +422,7 @@ public struct ToolLoopCoordinator: Sendable {
 
   private func followUpPromptMode(
     after record: ToolCallRecord,
-    defaultMode: ToolPromptMode,
-    interactionMode: WorkspaceInteractionMode
+    defaultMode: ToolPromptMode
   ) -> ToolPromptMode {
     guard record.status == .completed else {
       return defaultMode

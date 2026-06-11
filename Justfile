@@ -92,3 +92,7 @@ format:
 
 typos:
     typos -q --format brief
+
+periphery:
+    periphery scan --retain-public --retain-codable-properties --baseline .periphery-core-baseline --relative-results --disable-update-check
+    periphery scan --project local-coder.xcodeproj --schemes local-coder --retain-public --retain-codable-properties --report-include "local-coder/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check -- -destination platform=macOS

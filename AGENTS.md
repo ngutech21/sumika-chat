@@ -124,6 +124,7 @@ just data-model
 just coverage
 just coverage-low
 just final-check
+just periphery
 ```
 
 Use the narrowest feedback loop while debugging:

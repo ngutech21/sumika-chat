@@ -797,10 +797,6 @@ private actor CapturingHTTPClient: WebHTTPClient {
     self.contentType = contentType
   }
 
-  func data(for request: URLRequest, maxRedirects: Int) async throws -> (Data, URLResponse) {
-    try await data(for: request, maxRedirects: maxRedirects, validationProfile: .publicWebURL)
-  }
-
   func data(
     for request: URLRequest,
     maxRedirects: Int,
