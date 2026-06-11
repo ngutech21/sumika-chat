@@ -259,7 +259,7 @@ struct HTMLPreviewPane: View {
         browserToolService: browserToolService,
         onConsoleMessage: onConsoleMessage
       )
-        .accessibilityIdentifier("html-preview-webview")
+      .accessibilityIdentifier("html-preview-webview")
 
       if isConsoleVisible {
         Divider()
@@ -287,7 +287,8 @@ struct HTMLPreviewWebView: NSViewRepresentable {
     let configuration = WKWebViewConfiguration()
     configuration.defaultWebpagePreferences.allowsContentJavaScript = true
     configuration.userContentController.addUserScript(HTMLPreviewConsoleBridgeScript.userScript)
-    configuration.userContentController.add(context.coordinator, name: HTMLPreviewConsoleBridgeScript.handlerName)
+    configuration.userContentController.add(
+      context.coordinator, name: HTMLPreviewConsoleBridgeScript.handlerName)
 
     let webView = WKWebView(frame: .zero, configuration: configuration)
     webView.allowsBackForwardNavigationGestures = true
@@ -538,7 +539,8 @@ struct HTMLPreviewWebView: NSViewRepresentable {
       guard let value else {
         return "null"
       }
-      let escaped = value
+      let escaped =
+        value
         .replacingOccurrences(of: "\\", with: "\\\\")
         .replacingOccurrences(of: "\"", with: "\\\"")
         .replacingOccurrences(of: "\n", with: "\\n")
@@ -583,7 +585,7 @@ private struct HTMLPreviewConsolePanel: View {
   let entries: [HTMLPreviewConsoleEntry]
 
   var body: some View {
-      VStack(alignment: .leading, spacing: 0) {
+    VStack(alignment: .leading, spacing: 0) {
       HStack(spacing: 8) {
         Label("Console", systemImage: "terminal")
           .font(.caption.weight(.semibold))
@@ -739,9 +741,9 @@ enum HTMLPreviewJavaScriptErrorFormatter {
   }
 }
 
-private extension WKWebView {
+extension WKWebView {
   @MainActor
-  func evaluateJavaScriptStringAsync(_ script: String) async throws -> String {
+  fileprivate func evaluateJavaScriptStringAsync(_ script: String) async throws -> String {
     try await withCheckedThrowingContinuation { continuation in
       evaluateJavaScript(script) { value, error in
         if let error {

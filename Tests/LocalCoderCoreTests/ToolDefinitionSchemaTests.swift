@@ -155,7 +155,8 @@ struct ToolDefinitionSchemaTests {
     #expect(inspect.functionSchema.parameters.properties["maxLength"]?.type == .integer)
     #expect(inspect.functionSchema.parameters.properties["maxLength"]?.minimum == 1)
     #expect(inspect.functionSchema.parameters.properties["maxLength"]?.maximum == 20_000)
-    #expect(inspect.functionSchema.parameters.properties["maxLength"]?.defaultValue == .number(4000))
+    #expect(
+      inspect.functionSchema.parameters.properties["maxLength"]?.defaultValue == .number(4000))
     #expect(inspect.functionSchema.parameters.properties["includeHtml"]?.type == .boolean)
     #expect(
       inspect.functionSchema.parameters.properties["includeHtml"]?.defaultValue == .bool(false))

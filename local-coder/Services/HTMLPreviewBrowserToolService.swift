@@ -1,8 +1,10 @@
 import LocalCoderCore
 
 actor HTMLPreviewBrowserToolService {
-  typealias RefreshHandler = @MainActor @Sendable (BrowserRefreshInput) async -> BrowserRefreshResult
-  typealias InspectHandler = @MainActor @Sendable (BrowserInspectInput) async -> BrowserInspectResult
+  typealias RefreshHandler =
+    @MainActor @Sendable (BrowserRefreshInput) async -> BrowserRefreshResult
+  typealias InspectHandler =
+    @MainActor @Sendable (BrowserInspectInput) async -> BrowserInspectResult
 
   private var refreshHandler: RefreshHandler?
   private var inspectHandler: InspectHandler?

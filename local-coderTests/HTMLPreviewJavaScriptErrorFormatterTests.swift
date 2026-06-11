@@ -20,11 +20,12 @@ struct HTMLPreviewJavaScriptErrorFormatterTests {
 
     let description = HTMLPreviewJavaScriptErrorFormatter.describe(error)
 
-    #expect(description == """
-      JavaScript exception: Cannot read properties of undefined
-      Source: file:///workspace/index.html
-      Location: line 27, column 14
-      """)
+    #expect(
+      description == """
+        JavaScript exception: Cannot read properties of undefined
+        Source: file:///workspace/index.html
+        Location: line 27, column 14
+        """)
   }
 
   @Test
