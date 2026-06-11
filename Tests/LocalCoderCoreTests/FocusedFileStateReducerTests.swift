@@ -179,6 +179,70 @@ struct FocusedFileStateReducerTests {
   }
 
   @Test
+  func imageAttachmentDoesNotCreateFocusedFileState() {
+    let reducer = FocusedFileStateReducer()
+    let attachment = ChatAttachment(
+      url: URL(filePath: "/tmp/local-coder-pasteboard/clipboard-image.png"),
+      displayName: "clipboard-image.png",
+      kind: .image,
+      content: "[Image attachment: clipboard-image.png, image/png, 128 bytes]",
+      metadata: ChatAttachmentMetadata(
+        mimeType: "image/png",
+        byteCount: 128,
+        contentSHA256: "hash"
+      )
+    )
+
+    let state = reducer.applyingAttachments(
+      [attachment],
+      workspace: nil,
+      to: .empty,
+      updatedAt: Date(timeIntervalSinceReferenceDate: 1)
+    )
+
+    #expect(state == .empty)
+  }
+
+  @Test
+  func imageAttachmentDoesNotReplaceExistingFocusedFile() {
+    let reducer = FocusedFileStateReducer()
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+    let existingState = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(path: path, source: .readFile, confidence: .active)
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          contentHash: "hash",
+          excerpt: "Project notes",
+          fullContentAvailable: true
+        )
+      ]
+    )
+    let attachment = ChatAttachment(
+      url: URL(filePath: "/tmp/local-coder-pasteboard/clipboard-image.png"),
+      displayName: "clipboard-image.png",
+      kind: .image,
+      content: "[Image attachment: clipboard-image.png, image/png, 128 bytes]",
+      metadata: ChatAttachmentMetadata(
+        mimeType: "image/png",
+        byteCount: 128,
+        contentSHA256: "image-hash"
+      )
+    )
+
+    let state = reducer.applyingAttachments(
+      [attachment],
+      workspace: nil,
+      to: existingState,
+      updatedAt: Date(timeIntervalSinceReferenceDate: 1)
+    )
+
+    #expect(state == existingState)
+  }
+
+  @Test
   func recentPathsAreDeduplicatedAndLimited() {
     let reducer = FocusedFileStateReducer(maxRecentPaths: 3)
     var state = FocusedFileState.empty

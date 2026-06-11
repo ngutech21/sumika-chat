@@ -82,9 +82,12 @@ public struct FocusedFileStateReducer: Sendable {
       return state
     }
 
-    let focusedAttachments = attachments.map { attachment in
+    let focusedAttachments = attachments.filter { $0.kind == .text }.map { attachment in
       let path = attachmentPath(for: attachment, workspace: workspace)
       return (path, attachment.content)
+    }
+    guard !focusedAttachments.isEmpty else {
+      return state
     }
 
     if focusedAttachments.count == 1, let first = focusedAttachments.first {
