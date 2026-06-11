@@ -852,6 +852,8 @@ private enum ParserLanguage: Hashable {
     switch bundleName {
     case "TreeSitterBash_TreeSitterBash":
       return "tree-sitter-bash"
+    case "TreeSitterCSS_TreeSitterCSS":
+      return "tree-sitter-css"
     case "TreeSitterHTML_TreeSitterHTML":
       return "tree-sitter-html"
     case "TreeSitterJSON_TreeSitterJSON":

@@ -68,6 +68,22 @@ struct FocusedFileStateReducerTests {
   }
 
   @Test
+  func showFileSuccessDoesNotRecordFocusedSnapshot() {
+    let reducer = FocusedFileStateReducer()
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+
+    let state = reducer.applyingToolResult(
+      .readFile(.success(path: path, content: ToolTextOutput(text: "Project notes"))),
+      request: makeRequest(
+        toolName: .showFile, payload: .showFile(ReadFileInput(path: "README.md"))),
+      to: .empty,
+      updatedAt: Date(timeIntervalSinceReferenceDate: 1)
+    )
+
+    #expect(state == .empty)
+  }
+
+  @Test
   func editFileSuccessUpdatesExistingFullSnapshot() {
     let reducer = FocusedFileStateReducer()
     let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")

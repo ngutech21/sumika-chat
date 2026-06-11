@@ -24,7 +24,7 @@ public struct FocusedFileStateReducer: Sendable {
     }
 
     switch payload {
-    case .readFile(.success(let path, let content)):
+    case .readFile(.success(let path, let content)) where request.toolName == .readFile:
       return focusing(
         path,
         source: .readFile,
@@ -33,6 +33,8 @@ public struct FocusedFileStateReducer: Sendable {
         in: state,
         updatedAt: updatedAt
       )
+    case .readFile:
+      return state
     case .writeFile(.success(let path, _)):
       let content: String?
       if case .writeFile(let input) = request.payload {
