@@ -19,7 +19,7 @@ public struct DefaultChatSessionFactory: Equatable, Sendable {
   }
 
   public func makeSession(
-    title: String = "New Session",
+    title: String = ChatSession.defaultTitle,
     createdAt: Date = Date(),
     updatedAt: Date = Date()
   ) -> ChatSession {

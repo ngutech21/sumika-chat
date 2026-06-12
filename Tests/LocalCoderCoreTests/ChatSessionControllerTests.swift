@@ -180,6 +180,64 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func sendMessageNamesDefaultSessionFromFirstPrompt() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let session = ChatSession(selectedModelID: ManagedModelCatalog.defaultModelID)
+    controller.loadSession(session)
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "  build   a snake game\nin python  "
+
+    controller.sendMessage()
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.title == "build a snake game in python")
+    #expect(controller.sessionSnapshot(updating: session).title == "build a snake game in python")
+  }
+
+  @Test
+  func sendMessageDoesNotRenameManualTitle() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.loadSession(
+      ChatSession(
+        title: "Manual title",
+        selectedModelID: ManagedModelCatalog.defaultModelID
+      )
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "first prompt"
+
+    controller.sendMessage()
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.title == "Manual title")
+  }
+
+  @Test
+  func sendMessageDoesNotRenameExistingConversation() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let existingTurn = ChatTurn(
+      status: .completed,
+      items: [.userMessage(UserTurnMessage(content: "original prompt"))]
+    )
+    controller.loadSession(
+      ChatSession(
+        selectedModelID: ManagedModelCatalog.defaultModelID,
+        turns: [existingTurn]
+      )
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "second prompt"
+
+    controller.sendMessage()
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.title == ChatSession.defaultTitle)
+  }
+
+  @Test
   func sendMessageDoesNotFreezeBaseSystemPromptIntoUserEntriesAcrossTurns() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [.chunk("first answer")],

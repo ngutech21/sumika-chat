@@ -245,6 +245,7 @@ extension ChatSessionController {
 
   public func sessionSnapshot(updating session: ChatSession) -> ChatSession {
     var snapshot = session
+    snapshot.title = chatSession.title
     snapshot.selectedModelID = modelRuntime.selectedModelID
     snapshot.modelContextSnapshot = chatSession.modelContextSnapshot
     snapshot.toolCalls = chatSession.toolCalls
@@ -329,6 +330,7 @@ extension ChatSessionController {
     let turnID = UUID()
     let userMessageID = UUID()
     let assistantMessageID = UUID()
+    updateDefaultSessionTitleIfNeeded(fromFirstPrompt: prompt)
     draft = ""
     errorMessage = nil
     chatSession.pendingAttachments.removeAll()
@@ -448,6 +450,16 @@ extension ChatSessionController {
       flushPendingContextUsageRefresh(defaultMode: .disabled)
       notifySessionDidChange()
     }
+  }
+
+  private func updateDefaultSessionTitleIfNeeded(fromFirstPrompt prompt: String) {
+    guard chatSession.title == ChatSession.defaultTitle,
+      chatSession.turns.flatMap(\.items).allSatisfy({ $0.userContent == nil })
+    else {
+      return
+    }
+
+    chatSession.title = ChatSessionTitleDeriver.title(fromFirstPrompt: prompt)
   }
 
   public func cancelGeneration() {

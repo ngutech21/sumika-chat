@@ -1,6 +1,8 @@
 import Foundation
 
 public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
+  public static let defaultTitle = "New Session"
+
   public let id: UUID
   public var title: String
   public var selectedModelID: ManagedModel.ID
@@ -19,7 +21,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
 
   public init(
     id: UUID = UUID(),
-    title: String = "New Session",
+    title: String = ChatSession.defaultTitle,
     selectedModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID,
     modelContextSnapshot: ModelContextSnapshot = ModelContextSnapshot(),
     toolCalls: [ToolCallRecord] = [],
