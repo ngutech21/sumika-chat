@@ -114,11 +114,10 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     )
     todoState = try container.decode(TodoState?.self, forKey: .todoState)
     pendingAttachments = []
-    activeAttachmentContext =
-      try container.decodeIfPresent(
-        ActiveAttachmentContext.self,
-        forKey: .activeAttachmentContext
-      ) ?? .empty
+    activeAttachmentContext = try container.decode(
+      ActiveAttachmentContext.self,
+      forKey: .activeAttachmentContext
+    )
     createdAt = try container.decode(Date.self, forKey: .createdAt)
     updatedAt = try container.decode(Date.self, forKey: .updatedAt)
   }

@@ -22,6 +22,34 @@ struct WorkspaceStoreTests {
   }
 
   @Test
+  func workspaceStoreSignalsCorruptLibraryInsteadOfSilentlyDiscarding() async throws {
+    let corruptURL = temporaryLibraryURL()
+    try FileManager.default.createDirectory(
+      at: corruptURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
+
+    let recorder = LoadFailureRecorder()
+    let store = WorkspaceStore(libraryURL: corruptURL, onLoadFailure: { recorder.record($0) })
+
+    #expect(await store.loadLibrary() == WorkspaceLibrary())
+    #expect(recorder.capturedError != nil)
+  }
+
+  @Test
+  func workspaceStoreDoesNotSignalFailureForMissingFile() async throws {
+    let recorder = LoadFailureRecorder()
+    let store = WorkspaceStore(
+      libraryURL: temporaryLibraryURL(),
+      onLoadFailure: { recorder.record($0) }
+    )
+
+    #expect(await store.loadLibrary() == WorkspaceLibrary())
+    #expect(recorder.capturedError == nil)
+  }
+
+  @Test
   func workspaceStorePersistsLibraryAndBookmarkData() async throws {
     let libraryURL = temporaryLibraryURL()
     let store = WorkspaceStore(libraryURL: libraryURL)
@@ -179,6 +207,20 @@ struct WorkspaceStoreTests {
   }
 
   @Test
+  func chatSessionDecodeRequiresActiveAttachmentContext() throws {
+    let session = ChatSession(selectedModelID: "gemma4-e4b")
+    var object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(session)) as? [String: Any]
+    )
+    object.removeValue(forKey: "activeAttachmentContext")
+    let data = try JSONSerialization.data(withJSONObject: object)
+
+    #expect(throws: DecodingError.self) {
+      _ = try JSONDecoder().decode(ChatSession.self, from: data)
+    }
+  }
+
+  @Test
   func chatSessionDecodeRequiresModelContextSnapshot() throws {
     let legacySession = LegacyChatSession(
       id: UUID(),
@@ -317,6 +359,19 @@ struct WorkspaceStoreTests {
       preconditionFailure("Invalid test UUID: \(value)")
     }
     return uuid
+  }
+}
+
+private final class LoadFailureRecorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storedError: Error?
+
+  func record(_ error: Error) {
+    lock.withLock { storedError = error }
+  }
+
+  var capturedError: Error? {
+    lock.withLock { storedError }
   }
 }
 
