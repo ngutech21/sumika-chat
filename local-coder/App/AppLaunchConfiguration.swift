@@ -5,13 +5,18 @@ enum AppLaunchConfiguration {
   @MainActor
   static func makeAppState(
     environment: [String: String] = ProcessInfo.processInfo.environment,
-    runtime: any ChatModelRuntime = GemmaMLXRuntime()
+    runtime: (any ChatModelRuntime)? = nil
   ) -> AppState {
-    guard environment["LOCAL_CODER_UI_TEST_MODE"] == "1" else {
-      return AppState(runtime: runtime)
+    if environment["LOCAL_CODER_UI_TEST_MODE"] == "1" {
+      return makeUITestAppState(environment: environment, runtime: runtime ?? GemmaMLXRuntime())
     }
 
-    return makeUITestAppState(environment: environment, runtime: runtime)
+    if isXcodeUnitTestHost(environment: environment) {
+      return makeUnitTestHostAppState(
+        environment: environment, runtime: runtime ?? MockChatRuntime())
+    }
+
+    return AppState(runtime: runtime ?? GemmaMLXRuntime())
   }
 
   @MainActor
@@ -61,6 +66,62 @@ enum AppLaunchConfiguration {
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       runtime: runtime
     )
+  }
+
+  @MainActor
+  private static func makeUnitTestHostAppState(
+    environment: [String: String],
+    runtime: any ChatModelRuntime
+  ) -> AppState {
+    let storageRoot = URL(
+      filePath: environment["LOCAL_CODER_UNIT_TEST_STORAGE_ROOT"]
+        ?? FileManager.default.temporaryDirectory
+        .appending(path: "local-coder-unit-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        .path(percentEncoded: false),
+      directoryHint: .isDirectory
+    )
+
+    return AppState(
+      workspaceStore: WorkspaceStore(
+        libraryURL: storageRoot.appending(path: "workspaces.json", directoryHint: .notDirectory)
+      ),
+      modelSettingsStore: makeUnitTestHostModelSettingsStore(
+        environment: environment,
+        storageRoot: storageRoot
+      ),
+      webAccessSettingsStore: WebAccessSettingsStore(
+        settingsURL: storageRoot.appending(
+          path: "web-access-settings.json", directoryHint: .notDirectory)
+      ),
+      appBehaviorSettingsStore: AppBehaviorSettingsStore(
+        settingsURL: storageRoot.appending(
+          path: "app-behavior-settings.json", directoryHint: .notDirectory)
+      ),
+      modelDownloader: UnavailableModelDownloader(),
+      runtime: runtime,
+      modelAvailability: { _ in false },
+      turnTracer: NoopTurnTracer()
+    )
+  }
+
+  nonisolated private static func makeUnitTestHostModelSettingsStore(
+    environment: [String: String],
+    storageRoot: URL
+  ) -> ModelSettingsStore {
+    let userDefaults =
+      UserDefaults(
+        suiteName: environment["LOCAL_CODER_UNIT_TEST_DEFAULTS_SUITE"]
+          ?? "local-coder-unit-tests-\(UUID().uuidString)"
+      ) ?? .standard
+
+    return ModelSettingsStore(
+      userDefaults: userDefaults,
+      settingsURL: storageRoot.appending(path: "model-settings.json", directoryHint: .notDirectory)
+    )
+  }
+
+  private static func isXcodeUnitTestHost(environment: [String: String]) -> Bool {
+    environment["XCTestConfigurationFilePath"] != nil
   }
 
   private static func makeUITestWorkspaceLibrary(
