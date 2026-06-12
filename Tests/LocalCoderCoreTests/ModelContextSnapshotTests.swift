@@ -142,7 +142,7 @@ struct ModelContextSnapshotTests {
       """.utf8)
 
     #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(ConsumedCurrentPromptContext.self, from: data)
+      _ = try JSONDecoder().decode(CurrentPromptContext.self, from: data)
     }
   }
 
@@ -168,7 +168,7 @@ struct ModelContextSnapshotTests {
       """.utf8)
 
     #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(ConsumedCurrentPromptContext.self, from: data)
+      _ = try JSONDecoder().decode(CurrentPromptContext.self, from: data)
     }
   }
 

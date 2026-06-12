@@ -352,7 +352,7 @@ struct CurrentPromptContextRendererTests {
   }
 
   @Test
-  func renderedContextIncludesTypedConsumedAttachedFileSnapshot() throws {
+  func renderedContextIncludesTypedAttachedFileSnapshot() throws {
     let attachment = ChatAttachment(
       url: URL(filePath: "/tmp/project/Sources/Foo.swift"),
       displayName: "Foo.swift",

@@ -8,7 +8,7 @@ public enum ModelFacingPromptRenderer {
     prompt: String,
     attachments: [ChatAttachment] = [],
     systemContext: [String] = [],
-    currentPromptContext: ConsumedCurrentPromptContext? = nil
+    currentPromptContext: CurrentPromptContext? = nil
   ) throws -> ModelContextEntry {
     let content = userContent(prompt, systemContext: systemContext)
     return try ModelContextEntry(

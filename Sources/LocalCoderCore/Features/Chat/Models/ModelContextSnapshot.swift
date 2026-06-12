@@ -209,14 +209,14 @@ public struct UserPromptContext: Codable, Equatable, Sendable {
   /// exact identity of what was prefilled into the runtime KV cache.
   public let imageSignatures: [String]
   public let systemContext: [String]
-  public let currentPromptContext: ConsumedCurrentPromptContext?
+  public let currentPromptContext: CurrentPromptContext?
 
   public init(
     prompt: String,
     attachmentNames: [String] = [],
     imageSignatures: [String] = [],
     systemContext: [String] = [],
-    currentPromptContext: ConsumedCurrentPromptContext? = nil
+    currentPromptContext: CurrentPromptContext? = nil
   ) {
     self.prompt = prompt
     self.attachmentNames = attachmentNames
