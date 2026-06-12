@@ -121,10 +121,6 @@ public enum AssistantMarkdownPreprocessor {
       return "json"
     }
 
-    if looksLikeSwift(content) {
-      return "swift"
-    }
-
     if looksLikeShell(content) {
       return "bash"
     }
@@ -161,21 +157,7 @@ public enum AssistantMarkdownPreprocessor {
     return (try? JSONSerialization.jsonObject(with: Data(content.utf8))) != nil
   }
 
-  private static func looksLikeSwift(_ content: String) -> Bool {
-    let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
-      .map { $0.trimmingCharacters(in: .whitespaces) }
-
-    return lines.contains { line in
-      line.hasPrefix("import ")
-        || line.hasPrefix("func ")
-        || line.hasPrefix("struct ")
-        || line.hasPrefix("class ")
-        || line.hasPrefix("enum ")
-        || line.hasPrefix("let ")
-        || line.hasPrefix("var ")
-    }
-  }
-
+  
   private static func looksLikeShell(_ content: String) -> Bool {
     let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
       .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -191,9 +173,32 @@ public enum AssistantMarkdownPreprocessor {
   }
 
   private static func looksLikeCSS(_ content: String) -> Bool {
-    content.contains("{")
-      && content.contains("}")
-      && content.contains(":")
-      && (content.contains(";") || content.contains("}"))
+    let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    guard !looksLikeJSON(trimmed) else {
+      return false
+    }
+
+    let lowercased = trimmed.lowercased()
+    guard !lowercased.hasPrefix("<!doctype"),
+      !lowercased.hasPrefix("<html"),
+      !lowercased.contains("</html>")
+    else {
+      return false
+    }
+
+    let hasSelectorBlock =
+      trimmed.range(
+        of: #"(?m)^\s*(?:[.#]?[A-Za-z][A-Za-z0-9_-]*|\*|:root|@[A-Za-z-]+[^{]*)[^{;]*\{\s*$"#,
+        options: .regularExpression
+      ) != nil
+
+    let hasDeclaration =
+      trimmed.range(
+        of: #"(?m)^\s*-?[A-Za-z][A-Za-z0-9-]*\s*:\s*[^;{}]+;"#,
+        options: .regularExpression
+      ) != nil
+
+    return hasSelectorBlock && hasDeclaration
   }
 }
