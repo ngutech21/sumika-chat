@@ -57,7 +57,7 @@ public enum ModelContextDebugRenderer {
   public static func render(
     transcript: ModelContextSnapshot,
     systemPrompt: String,
-    projectionMode: ModelContextProjectionMode = .compactedHistoryForLaterTurns
+    projectionMode: ModelContextProjectionMode = .fullHistory
   ) throws -> ModelContextDebugDocument {
     let normalizedSystemPrompt =
       ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt) ?? ""
@@ -66,7 +66,7 @@ public enum ModelContextDebugRenderer {
       role: .system,
       content: normalizedSystemPrompt
     )
-    let projectedEntries = try transcript.runtimeProjectedEntries(mode: projectionMode)
+    let projectedEntries = transcript.projectedEntries(mode: projectionMode)
     let toolFollowUpIndex = toolFollowUpPromptIndex(
       in: transcript,
       projectedEntryCount: projectedEntries.count
@@ -163,8 +163,8 @@ public enum ModelContextDebugRenderer {
     projectedEntryCount: Int
   ) -> Int? {
     guard projectedEntryCount > 0,
-      let currentPromptIndex = transcript.entries.lastIndex(where: \.isRuntimePromptEntryForDebug),
-      case .toolObservation = transcript.entries[currentPromptIndex].body
+      let lastEntry = transcript.entries.last,
+      case .toolObservation = lastEntry.body
     else {
       return nil
     }
@@ -180,17 +180,6 @@ extension ModelContextDebugRole {
       self = .user
     case .assistant:
       self = .assistant
-    }
-  }
-}
-
-extension ModelContextEntry {
-  fileprivate var isRuntimePromptEntryForDebug: Bool {
-    switch body {
-    case .userPrompt, .toolObservation:
-      true
-    case .assistantOutput, .terminalToolResult:
-      false
     }
   }
 }

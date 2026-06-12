@@ -30,7 +30,7 @@ struct ModelContextDebugRendererTests {
   }
 
   @Test
-  func renderUsesRuntimeProjectionForSameTurnToolFollowUp() throws {
+  func renderMarksFrozenSameTurnToolFollowUpPrompt() throws {
     let turnID = UUID()
     let callID = UUID()
     let transcript = ModelContextSnapshot(entries: [
@@ -53,7 +53,8 @@ struct ModelContextDebugRendererTests {
               stderr: ToolTextOutput(text: "")
             ))
         ),
-        request: runCommandRequest(callID: callID)
+        request: runCommandRequest(callID: callID),
+        originalUserRequest: "run the smoke test"
       ),
     ])
 
@@ -62,9 +63,9 @@ struct ModelContextDebugRendererTests {
       systemPrompt: "Tools are available."
     )
 
-    #expect(document.entries.count == 1)
-    #expect(document.entries.first?.role == .toolFollowUpPrompt)
-    let content = try #require(document.entries.first?.content)
+    #expect(document.entries.count == 2)
+    #expect(document.entries.map(\.role) == [.user, .toolFollowUpPrompt])
+    let content = try #require(document.entries.last?.content)
     #expect(content.contains("Original user request:"))
     #expect(content.contains("run the smoke test"))
     #expect(content.contains("Tool observation:"))

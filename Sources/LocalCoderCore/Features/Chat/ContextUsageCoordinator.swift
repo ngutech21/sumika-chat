@@ -35,7 +35,7 @@ public struct ContextUsageSnapshot: Sendable {
 
   public func estimatedUsage(isStale: Bool = true) -> ChatContextUsage {
     var byteCount = systemPrompt.utf8.count
-    for entry in transcript.projectedEntries(mode: .compactedHistoryForLaterTurns) {
+    for entry in transcript.projectedEntries(mode: .fullHistory) {
       byteCount += entry.content.utf8.count
     }
     for attachment in attachments {

@@ -71,7 +71,10 @@ public struct ChatTranscriptMutator: Sendable {
         turnID: terminalEntry.turnID,
         sourceMessageID: terminalEntry.sourceMessageID,
         terminalToolResult: context,
-        followUpInstruction: content
+        followUpInstruction: content,
+        originalUserRequest: terminalEntry.turnID.flatMap {
+          state.modelContextSnapshot.originalUserPromptText(forTurn: $0)
+        }
       )
     else {
       return

@@ -95,7 +95,8 @@ struct GemmaMLXRuntimeTemplateTests {
               "path": .string("index.htm"),
               "content": .string("<html></html>"),
             ]
-          )
+          ),
+          originalUserRequest: nil
         ),
         try ModelFacingPromptRenderer.userPromptEntry(
           prompt: "change the background color to green",
@@ -118,10 +119,10 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(rendered[3].content.contains("Use concise coding steps."))
     #expect(!rendered[3].content.contains("This runtime argument must not rewrite"))
     #expect(rendered[2].content.contains("Tool call write_file requested."))
-    #expect(rendered[2].content.contains("Tool receipt: write_file"))
+    #expect(rendered[2].content.contains("<observation"))
     #expect(rendered[2].content.contains("Summary:"))
     #expect(rendered[2].content.contains("Wrote 13 bytes to index.htm."))
-    #expect(rendered[2].content.contains("<observation") == false)
+    #expect(rendered[2].content.contains("Tool receipt:") == false)
   }
 
   @Test
@@ -151,12 +152,13 @@ struct GemmaMLXRuntimeTemplateTests {
             "path": .string("index.htm"),
             "content": .string("<html></html>"),
           ]
-        )
+        ),
+        originalUserRequest: nil
       ),
     ]
 
     let projectedHistory = try GemmaMLXRuntime.generationHistoryMessages(
-      from: try projectedEntries(from: entries)[...]
+      from: projectedEntries(from: entries)[...]
     )
     let history = try GemmaMLXRuntime.runtimeHistoryMessages(
       systemPrompt: "Use concise coding steps.",
@@ -332,7 +334,8 @@ struct GemmaMLXRuntimeTemplateTests {
               rawArguments: [:],
               reason: .parserError("Assistant described a tool call without an action block.")
             )
-          )
+          ),
+          originalUserRequest: "change the table heading"
         ),
       ]
     )
@@ -1024,7 +1027,8 @@ struct GemmaMLXRuntimeTemplateTests {
           callID: callID,
           toolName: .readFile,
           arguments: ["path": .string("README.md")]
-        )
+        ),
+        originalUserRequest: "read README.md"
       ),
     ]
     let (history, prompt) = try generationHistoryAndPrompt(from: entries)
@@ -1039,6 +1043,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(history.map(\.role) == [.user, .assistant])
     #expect(prompt.role == .user)
+    #expect(prompt.content.contains("Original user request:"))
     #expect(prompt.content.contains("<observation"))
     #expect(prompt.content.contains("Project overview"))
     #expect(decision.shouldReuse)
@@ -1049,7 +1054,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func laterUserTurnHistoryCompactsPreviousToolObservationToReceipt() throws {
+  func laterUserTurnHistoryKeepsToolObservationInFrozenFollowUpForm() throws {
     let callID = UUID()
     let transcript = ModelContextSnapshot(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
@@ -1073,7 +1078,8 @@ struct GemmaMLXRuntimeTemplateTests {
           callID: callID,
           toolName: .readFile,
           arguments: ["path": .string("README.md")]
-        )
+        ),
+        originalUserRequest: "read README.md"
       ),
       try ModelFacingPromptRenderer.assistantOutputEntry(content: "README.md is a project file."),
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "what did you read?"),
@@ -1081,11 +1087,95 @@ struct GemmaMLXRuntimeTemplateTests {
 
     let history = try GemmaMLXRuntime.generationHistoryMessages(from: transcript)
 
+    // The observation stays in the exact form that was prefilled, so the
+    // cached KV prefix remains a prefix of this history.
     #expect(history.map(\.role) == [.user, .assistant, .user, .assistant])
-    #expect(history[2].content.contains("Tool receipt: read_file"))
-    #expect(history[2].content.contains("Summary:"))
+    #expect(history[2].content.contains("Original user request:"))
+    #expect(history[2].content.contains("<observation"))
     #expect(history[2].content.contains("Project overview"))
-    #expect(history[2].content.contains("<observation") == false)
+    #expect(history[2].content.contains("Tool receipt:") == false)
+  }
+
+  // The tool follow-up prompt is frozen into the observation entry, and the
+  // runtime renders full history without receipt compaction. The next user
+  // turn therefore renders the observation byte-identically to what was
+  // prefilled, and the cached KV prefix survives the turn boundary.
+  @Test
+  func cachePrefixSurvivesUserTurnAfterToolObservation() throws {
+    let callID = UUID()
+    let turnID = UUID()
+    let toolTurnEntries = [
+      try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: "read README.md"),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: NativeToolCallBoundaryRenderer.renderGemma4(
+          toolName: ToolName.readFile.rawValue,
+          arguments: ["path": .string("README.md")]
+        )
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .readFile,
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            ))
+        ),
+        request: toolRequest(
+          callID: callID,
+          toolName: .readFile,
+          arguments: ["path": .string("README.md")]
+        ),
+        originalUserRequest: "read README.md"
+      ),
+    ]
+
+    // What the runtime caches after the tool follow-up completes:
+    // history before the prompt + [user(prompt verbatim), assistant(output)].
+    let (followUpHistory, followUpPrompt) = try generationHistoryAndPrompt(from: toolTurnEntries)
+    let cachedPrefix =
+      GemmaMLXRuntime.messageSnapshot(from: followUpHistory)
+      + [
+        GemmaMessageSnapshot(
+          role: Chat.Message.Role.user.rawValue, content: followUpPrompt.content),
+        GemmaMessageSnapshot(
+          role: Chat.Message.Role.assistant.rawValue, content: "README.md is a project file."),
+      ]
+
+    // The next user turn: the observation now lives in history, frozen in the
+    // same follow-up form that was sent as the prompt.
+    let nextTurn = ModelContextSnapshot(
+      entries: toolTurnEntries + [
+        try ModelFacingPromptRenderer.assistantOutputEntry(
+          turnID: turnID, content: "README.md is a project file."),
+        try ModelFacingPromptRenderer.userPromptEntry(prompt: "what did you read?"),
+      ])
+    let currentHistory = GemmaMLXRuntime.messageSnapshot(
+      from: try GemmaMLXRuntime.generationHistoryMessages(from: nextTurn))
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: cachedPrefix,
+      cachedSettings: .codingDefault,
+      cachedState: .clean,
+      currentHistory: currentHistory,
+      currentSettings: .codingDefault
+    )
+
+    // Same position, same bytes: the prefilled prompt and the history
+    // rendering of the observation are identical.
+    #expect(cachedPrefix[2].content.contains("<observation"))
+    #expect(currentHistory[2].content.contains("<observation"))
+    #expect(cachedPrefix[2].content == currentHistory[2].content)
+    #expect(cachedPrefix == currentHistory)
+
+    #expect(decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .sessionReused)
+    #expect(decision.trace.mismatchReason == nil)
+    #expect(decision.trace.firstMismatchIndex == nil)
   }
 
   @Test
@@ -1136,7 +1226,8 @@ struct GemmaMLXRuntimeTemplateTests {
             callID: terminalResult.callID
           )
         ),
-        followUpInstruction: "Use the preceding tool result to answer the user's request."
+        followUpInstruction: "Use the preceding tool result to answer the user's request.",
+        originalUserRequest: "create movies.html"
       ),
     ]
     let (history, prompt) = try generationHistoryAndPrompt(from: entries)
@@ -1151,6 +1242,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     #expect(history.map(\.role) == [.user, .assistant])
     #expect(prompt.role == .user)
+    #expect(prompt.content.contains("Original user request:"))
     #expect(prompt.content.contains("Summary: Wrote 13 bytes to movies.html."))
     #expect(prompt.content.contains("Use the preceding tool result to answer"))
     #expect(!prompt.content.contains("No more tools may run in this response."))
@@ -2169,15 +2261,15 @@ struct GemmaMLXRuntimeTemplateTests {
 
   private func projectedEntries(
     from entries: [ModelContextEntry]
-  ) throws -> [ProjectedModelContextEntry] {
-    try ModelContextSnapshot(entries: entries)
-      .runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
+  ) -> [ProjectedModelContextEntry] {
+    ModelContextSnapshot(entries: entries)
+      .projectedEntries(mode: GemmaMLXRuntime.runtimeProjectionMode)
   }
 
   private func generationHistoryAndPrompt(
     from entries: [ModelContextEntry]
   ) throws -> (history: [Chat.Message], prompt: Chat.Message) {
-    let projectedEntries = try projectedEntries(from: entries)
+    let projectedEntries = projectedEntries(from: entries)
     let lastUserIndex = try #require(projectedEntries.lastIndex { $0.role == .user })
     let history = try GemmaMLXRuntime.generationHistoryMessages(
       from: projectedEntries[..<lastUserIndex]

@@ -233,7 +233,8 @@ struct ModelContextSnapshotTests {
             toolName: .writeFile
           ),
           payload: .writeFile(WriteFileInput(path: "movies.html", content: "movies.html written"))
-        )
+        ),
+        originalUserRequest: nil
       ),
       to: &state
     )
@@ -351,7 +352,7 @@ struct ModelContextSnapshotTests {
   }
 
   @Test
-  func runtimeProjectionRendersSameTurnToolObservationWithOriginalUserRequest() throws {
+  func toolObservationEntryFreezesSameTurnFollowUpPrompt() throws {
     let turnID = UUID()
     let callID = UUID()
     let transcript = ModelContextSnapshot(entries: [
@@ -374,12 +375,14 @@ struct ModelContextSnapshotTests {
               stderr: ToolTextOutput(text: "")
             ))
         ),
-        request: runCommandRequest(callID: callID)
+        request: runCommandRequest(callID: callID),
+        originalUserRequest: "run the smoke test"
       ),
     ])
 
-    let projected = try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
+    let projected = transcript.projectedEntries(mode: .fullHistory)
 
+    #expect(projected.count == 2)
     #expect(projected.last?.content.contains("Original user request:") == true)
     #expect(projected.last?.content.contains("run the smoke test") == true)
     #expect(projected.last?.content.contains("Assistant tool call:") == true)
@@ -389,14 +392,15 @@ struct ModelContextSnapshotTests {
   }
 
   @Test
-  func runtimeProjectionKeepsConsecutiveNativeToolObservationsInCurrentPrompt() throws {
+  func consecutiveToolObservationsStayAppendOnlyInProjection() throws {
     let turnID = UUID()
     let readCallID = UUID()
     let commandCallID = UUID()
+    let request = "read the README and run the smoke test"
     let transcript = ModelContextSnapshot(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
-        prompt: "read the README and run the smoke test"
+        prompt: request
       ),
       try ModelFacingPromptRenderer.toolResultEntry(
         turnID: turnID,
@@ -409,7 +413,8 @@ struct ModelContextSnapshotTests {
               content: ToolTextOutput(text: "Project overview")
             ))
         ),
-        request: readFileRequest(callID: readCallID)
+        request: readFileRequest(callID: readCallID),
+        originalUserRequest: request
       ),
       try ModelFacingPromptRenderer.toolResultEntry(
         turnID: turnID,
@@ -426,38 +431,36 @@ struct ModelContextSnapshotTests {
               stderr: ToolTextOutput(text: "")
             ))
         ),
-        request: runCommandRequest(callID: commandCallID)
+        request: runCommandRequest(callID: commandCallID),
+        originalUserRequest: request
       ),
     ])
 
-    let projected = try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
+    let projected = transcript.projectedEntries(mode: .fullHistory)
 
-    #expect(projected.count == 1)
-    let prompt = try #require(projected.last?.content)
-    #expect(prompt.contains("Original user request:"))
-    #expect(prompt.contains("read the README and run the smoke test"))
-    #expect(prompt.contains("tool=\"read_file\""))
-    #expect(prompt.contains("Project overview"))
-    #expect(prompt.contains("tool=\"run_command\""))
-    #expect(prompt.contains("passed"))
+    // Each observation is its own stable message; earlier observations are
+    // never re-rendered into later prompts, so the history stays append-only
+    // and a cached KV prefix remains valid across tool-loop iterations.
+    #expect(projected.count == 3)
+    let firstObservation = try #require(projected[1].content as String?)
+    #expect(firstObservation.contains("Original user request:"))
+    #expect(firstObservation.contains("tool=\"read_file\""))
+    #expect(firstObservation.contains("Project overview"))
+    let secondObservation = try #require(projected[2].content as String?)
+    #expect(secondObservation.contains("Original user request:"))
+    #expect(secondObservation.contains("tool=\"run_command\""))
+    #expect(secondObservation.contains("passed"))
+    #expect(secondObservation.contains("Project overview") == false)
   }
 
   @Test
-  func runtimeProjectionRejectsToolObservationWithoutTurnID() throws {
+  func toolObservationWithoutOriginalRequestFreezesBareObservation() throws {
     let callID = UUID()
-    let transcript = ModelContextSnapshot(entries: [
-      try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
-      try readFileToolResultEntry(callID: callID, content: "Project overview"),
-    ])
+    let entry = try readFileToolResultEntry(callID: callID, content: "Project overview")
 
-    #expect(
-      throws: ModelContextProjectionError.missingToolObservationTurn(
-        callID: callID,
-        toolName: .readFile
-      )
-    ) {
-      _ = try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
-    }
+    #expect(entry.frozenContent.content.contains("<observation"))
+    #expect(entry.frozenContent.content.contains("Project overview"))
+    #expect(entry.frozenContent.content.contains("Original user request:") == false)
   }
 
   @Test
@@ -471,7 +474,8 @@ struct ModelContextSnapshotTests {
           .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 18)
         )
       ),
-      request: writeFileRequest(callID: callID)
+      request: writeFileRequest(callID: callID),
+      originalUserRequest: nil
     )
 
     guard case .terminalToolResult(let terminalContext) = terminalEntry.body else {
@@ -481,7 +485,8 @@ struct ModelContextSnapshotTests {
 
     let followUpEntry = try ModelFacingPromptRenderer.finalToolResultPromptEntry(
       terminalToolResult: terminalContext,
-      followUpInstruction: "Use the preceding tool result to answer the user's request."
+      followUpInstruction: "Use the preceding tool result to answer the user's request.",
+      originalUserRequest: nil
     )
 
     guard case .toolObservation(let context) = followUpEntry.body else {
@@ -516,7 +521,8 @@ struct ModelContextSnapshotTests {
     callID: UUID,
     content: String,
     truncated: Bool = false,
-    redacted: Bool = false
+    redacted: Bool = false,
+    originalUserRequest: String? = nil
   ) throws -> ModelContextEntry {
     try ModelFacingPromptRenderer.toolResultEntry(
       toolResult: ToolResultModelMessage(
@@ -528,7 +534,8 @@ struct ModelContextSnapshotTests {
             content: ToolTextOutput(text: content, truncated: truncated, redacted: redacted)
           ))
       ),
-      request: readFileRequest(callID: callID)
+      request: readFileRequest(callID: callID),
+      originalUserRequest: originalUserRequest
     )
   }
 

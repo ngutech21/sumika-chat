@@ -48,6 +48,7 @@ public enum ModelFacingPromptRenderer {
     sourceMessageID: UUID? = nil,
     toolResult: ToolResultModelMessage,
     request: ToolCallRequest,
+    originalUserRequest: String?,
     policy: ToolResultProjectionPolicy = .default,
     systemContext: [String] = []
   ) throws -> ModelContextEntry {
@@ -85,25 +86,46 @@ public enum ModelFacingPromptRenderer {
       )
     }
 
+    let observationContext = ToolObservationContext(
+      callID: toolResult.callID,
+      toolName: toolResult.toolName,
+      status: projection.observation.status,
+      content: content,
+      toolReceipt: toolReceipt,
+      toolCall: ToolCallModelMessage(request: request),
+      systemContext: normalizedSystemContext(systemContext)
+    )
     return try ModelContextEntry(
       id: id,
       turnID: turnID,
       sourceMessageID: sourceMessageID,
-      body: .toolObservation(
-        ToolObservationContext(
-          callID: toolResult.callID,
-          toolName: toolResult.toolName,
-          status: projection.observation.status,
-          content: content,
-          toolReceipt: toolReceipt,
-          toolCall: ToolCallModelMessage(request: request),
-          systemContext: normalizedSystemContext(systemContext)
-        )
-      ),
+      body: .toolObservation(observationContext),
       frozenContent: FrozenModelContent(
         role: .user,
-        content: userContent(content, systemContext: systemContext)
+        content: frozenToolObservationContent(
+          observationContext,
+          originalUserRequest: originalUserRequest,
+          systemContext: systemContext
+        )
       )
+    )
+  }
+
+  /// The frozen content is the exact runtime follow-up prompt. Freezing the
+  /// follow-up form (instead of merging it at projection time) keeps the
+  /// rendered history append-only, so the KV-cache prefix stays valid across
+  /// tool-loop iterations and the next user turn.
+  private static func frozenToolObservationContent(
+    _ observation: ToolObservationContext,
+    originalUserRequest: String?,
+    systemContext: [String]
+  ) -> String {
+    guard let originalUserRequest else {
+      return userContent(observation.content, systemContext: systemContext)
+    }
+    return sameTurnToolFollowUpContent(
+      originalUserRequest: originalUserRequest,
+      toolObservations: [observation]
     )
   }
 
@@ -113,6 +135,7 @@ public enum ModelFacingPromptRenderer {
     sourceMessageID: UUID? = nil,
     terminalToolResult: TerminalToolResultContext,
     followUpInstruction: String,
+    originalUserRequest: String?,
     policy: ToolResultProjectionPolicy = .default,
     systemContext: [String] = []
   ) throws -> ModelContextEntry {
@@ -128,24 +151,27 @@ public enum ModelFacingPromptRenderer {
     .filter { !$0.isEmpty }
     .joined(separator: "\n\n")
 
+    let observationContext = ToolObservationContext(
+      callID: terminalToolResult.callID,
+      toolName: terminalToolResult.toolName,
+      status: terminalToolResult.status,
+      content: prompt,
+      toolReceipt: terminalToolResult.toolReceipt,
+      toolCall: terminalToolResult.toolCall,
+      systemContext: normalizedSystemContext(systemContext)
+    )
     return try ModelContextEntry(
       id: id,
       turnID: turnID,
       sourceMessageID: sourceMessageID,
-      body: .toolObservation(
-        ToolObservationContext(
-          callID: terminalToolResult.callID,
-          toolName: terminalToolResult.toolName,
-          status: terminalToolResult.status,
-          content: prompt,
-          toolReceipt: terminalToolResult.toolReceipt,
-          toolCall: terminalToolResult.toolCall,
-          systemContext: normalizedSystemContext(systemContext)
-        )
-      ),
+      body: .toolObservation(observationContext),
       frozenContent: FrozenModelContent(
         role: .user,
-        content: userContent(prompt, systemContext: systemContext)
+        content: frozenToolObservationContent(
+          observationContext,
+          originalUserRequest: originalUserRequest,
+          systemContext: systemContext
+        )
       )
     )
   }

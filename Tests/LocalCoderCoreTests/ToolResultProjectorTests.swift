@@ -477,6 +477,7 @@ struct ToolResultProjectorTests {
         payload: payload
       ),
       request: request,
+      originalUserRequest: nil,
       policy: ToolResultProjectionPolicy(
         modelObservationLimit: ProjectionLimit(maxCharacters: 160, strategy: .headTail)
       )

@@ -301,7 +301,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
     _ = settings
 
     capturedMessages.append(
-      try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns))
+      transcript.projectedEntries(mode: .fullHistory))
     capturedSystemPrompts.append(systemPrompt)
     let callIndex = streamReplyCount
     streamReplyCount += 1
@@ -579,7 +579,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
     _ = settings
 
     capturedMessages.append(
-      try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns))
+      transcript.projectedEntries(mode: .fullHistory))
     capturedAttachments.append(attachments)
     capturedSystemPrompts.append(systemPrompt)
     let callIndex = streamReplyCount

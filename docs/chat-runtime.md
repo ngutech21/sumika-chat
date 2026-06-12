@@ -146,12 +146,20 @@ flowchart TD
   history from mutable UI state, focused context, current tool prompt mode, or
   attachments.
 - `ModelContextSnapshot` is the only persisted model context ledger.
-  Runtime calls consume the typed runtime projection of that ledger.
+  Runtime calls consume the full-history projection of that ledger; rendering
+  is append-only so the cached KV prefix stays a byte-stable prefix of every
+  later generation.
 - Same-turn tool follow-ups must not treat `toolObservation` entries as new user
-  instructions. The runtime projection renders them with the original user
-  request, an assistant tool-call marker, the untrusted tool observation, and a
-  continue instruction. Tool observations without a turn ID are invalid instead
-  of being attached to the last user message heuristically.
+  instructions. The follow-up form is frozen into the entry at creation time:
+  the original user request, an assistant tool-call marker, the untrusted tool
+  observation, and a continue instruction. Each observation carries only its
+  own result; earlier observations stay in history as their own messages and
+  are never re-rendered into later prompts. An observation created without a
+  resolvable original user request freezes the bare observation form instead.
+- Receipt compaction (`compactedHistoryForLaterTurns`) is not applied by the
+  runtime. It remains a model-level projection reserved for a future explicit
+  compaction boundary, because rewriting past observations invalidates the
+  cached KV prefix after every tool turn.
 - Legacy model-context messages are not stored or backfilled.
 - Completed turns are included by default.
 - Cancelled and failed turns with `modelContextPolicy == .excluded` are omitted

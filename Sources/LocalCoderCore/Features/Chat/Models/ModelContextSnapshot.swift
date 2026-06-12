@@ -19,103 +19,16 @@ public struct ModelContextSnapshot: Codable, Equatable, Sendable {
     }
   }
 
-  public func runtimeProjectedEntries(
-    mode: ModelContextProjectionMode = .fullHistory
-  ) throws -> [ProjectedModelContextEntry] {
-    guard let currentPromptIndex = entries.lastIndex(where: \.isRuntimePromptEntry) else {
-      return projectedEntries(mode: mode)
-    }
-
-    guard case .toolObservation(let observation) = entries[currentPromptIndex].body else {
-      return entries.indices.map { index in
-        entries[index].projectedEntry(
-          mode: mode,
-          keepFullContent: index == currentPromptIndex
-        )
-      }
-    }
-
-    guard let turnID = entries[currentPromptIndex].turnID else {
-      throw ModelContextProjectionError.missingToolObservationTurn(
-        callID: observation.callID,
-        toolName: observation.toolName
-      )
-    }
-
-    guard
-      let userPromptIndex = entries[..<currentPromptIndex].lastIndex(where: { entry in
-        entry.turnID == turnID && entry.isUserPrompt
-      }),
-      case .userPrompt(let userPrompt) = entries[userPromptIndex].body
-    else {
-      throw ModelContextProjectionError.missingOriginalUserPrompt(
-        turnID: turnID,
-        callID: observation.callID,
-        toolName: observation.toolName
-      )
-    }
-
-    var toolObservations: [ToolObservationContext] = []
-    for entry in entries[userPromptIndex...currentPromptIndex] {
-      guard case .toolObservation(let observation) = entry.body else {
+  /// The raw prompt text of the latest user prompt in the given turn. Used to
+  /// freeze the tool follow-up form into observation entries at creation time.
+  public func originalUserPromptText(forTurn turnID: ChatTurn.ID) -> String? {
+    for entry in entries.reversed() {
+      guard entry.turnID == turnID, case .userPrompt(let context) = entry.body else {
         continue
       }
-      guard let observationTurnID = entry.turnID else {
-        throw ModelContextProjectionError.missingToolObservationTurn(
-          callID: observation.callID,
-          toolName: observation.toolName
-        )
-      }
-      guard observationTurnID == turnID else {
-        continue
-      }
-      toolObservations.append(observation)
+      return context.prompt
     }
-
-    let currentPrompt = ProjectedModelContextEntry(
-      role: .user,
-      content: ModelFacingPromptRenderer.sameTurnToolFollowUpContent(
-        originalUserRequest: userPrompt.prompt,
-        toolObservations: toolObservations
-      )
-    )
-
-    var projected = entries[..<userPromptIndex].map {
-      $0.projectedEntry(mode: mode, keepFullContent: false)
-    }
-
-    let sameTurnHistoryEnd = sameTurnHistoryEndIndex(
-      from: userPromptIndex,
-      to: currentPromptIndex,
-      mode: mode
-    )
-    if sameTurnHistoryEnd > userPromptIndex {
-      projected += entries[userPromptIndex..<sameTurnHistoryEnd].map {
-        $0.projectedEntry(mode: mode, keepFullContent: false)
-      }
-    }
-    projected.append(currentPrompt)
-    return projected
-  }
-
-  private func sameTurnHistoryEndIndex(
-    from userPromptIndex: Int,
-    to currentPromptIndex: Int,
-    mode: ModelContextProjectionMode
-  ) -> Int {
-    var endIndex = currentPromptIndex
-    while endIndex > userPromptIndex {
-      let previousIndex = entries.index(before: endIndex)
-      let projected = entries[previousIndex].projectedEntry(
-        mode: mode,
-        keepFullContent: false
-      )
-      guard projected.role == .user else {
-        break
-      }
-      endIndex = previousIndex
-    }
-    return endIndex
+    return nil
   }
 }
 
@@ -201,20 +114,6 @@ public enum ModelContextEntryError: LocalizedError, Equatable, Sendable {
     switch self {
     case .roleMismatch(let expected, let actual):
       "Model context entry role mismatch. Expected \(expected.rawValue), got \(actual.rawValue)."
-    }
-  }
-}
-
-public enum ModelContextProjectionError: LocalizedError, Equatable, Sendable {
-  case missingToolObservationTurn(callID: UUID, toolName: ToolName)
-  case missingOriginalUserPrompt(turnID: ChatTurn.ID, callID: UUID, toolName: ToolName)
-
-  public var errorDescription: String? {
-    switch self {
-    case .missingToolObservationTurn(let callID, let toolName):
-      "Tool observation \(callID.uuidString) for \(toolName.rawValue) is missing its turn ID."
-    case .missingOriginalUserPrompt(let turnID, let callID, let toolName):
-      "Tool observation \(callID.uuidString) for \(toolName.rawValue) in turn \(turnID.uuidString) is missing its original user prompt."
     }
   }
 }
@@ -513,22 +412,6 @@ public enum ModelContextRole: String, Codable, Equatable, Sendable {
 }
 
 extension ModelContextEntry {
-  fileprivate var isRuntimePromptEntry: Bool {
-    switch body {
-    case .userPrompt, .toolObservation:
-      true
-    case .assistantOutput, .terminalToolResult:
-      false
-    }
-  }
-
-  fileprivate var isUserPrompt: Bool {
-    if case .userPrompt = body {
-      return true
-    }
-    return false
-  }
-
   fileprivate func projectedEntry(
     mode: ModelContextProjectionMode,
     keepFullContent: Bool

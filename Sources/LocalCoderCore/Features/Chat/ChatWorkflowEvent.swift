@@ -146,7 +146,8 @@ public struct ChatWorkflowEventApplier: Sendable {
           turnID: turnID,
           sourceMessageID: toolResult.callID,
           toolResult: toolResult,
-          request: request
+          request: request,
+          originalUserRequest: state.modelContextSnapshot.originalUserPromptText(forTurn: turnID)
         ) {
           mutator.appendModelContextEntry(entry, to: &state)
         }

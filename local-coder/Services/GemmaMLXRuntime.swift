@@ -579,8 +579,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let cacheEligibility: GemmaSessionCacheEligibility =
       imageAttachments.isEmpty ? .enabled : .disabled(reason: .imageInputBoundary)
 
-    let projectionMode = ModelContextProjectionMode.compactedHistoryForLaterTurns
-    let projectedEntries = try transcript.runtimeProjectedEntries(mode: projectionMode)
+    let projectionMode = Self.runtimeProjectionMode
+    let projectedEntries = transcript.projectedEntries(mode: projectionMode)
     guard let currentPromptIndex = projectedEntries.lastIndex(where: { $0.role == .user }) else {
       throw GemmaMLXRuntimeError.missingUserMessage
     }
@@ -984,6 +984,12 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
   nonisolated private static let maxMLXCacheBytes = 512 * 1024 * 1024
   nonisolated static let gemmaRendererVersion = 1
+
+  /// Full history keeps the rendered transcript append-only so the cached
+  /// KV prefix stays a byte-stable prefix of every later generation. Receipt
+  /// compaction rewrites past observations and would invalidate the cache
+  /// after every tool turn.
+  nonisolated static let runtimeProjectionMode = ModelContextProjectionMode.fullHistory
 
   nonisolated static func messageSnapshot(from messages: [Chat.Message]) -> [GemmaMessageSnapshot] {
     messages.map { message in
@@ -1995,7 +2001,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       runtimeHistoryMessages(
         systemPrompt: systemPrompt,
         history: normalizedChatMessages(
-          try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
+          transcript.projectedEntries(mode: runtimeProjectionMode)
             .map { Self.chatMessage(from: $0) }
         )
       ),
@@ -2081,7 +2087,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   nonisolated static func generationHistoryMessages(
     from transcript: ModelContextSnapshot
   ) throws -> [Chat.Message] {
-    let entries = try transcript.runtimeProjectedEntries(mode: .compactedHistoryForLaterTurns)
+    let entries = transcript.projectedEntries(mode: runtimeProjectionMode)
     guard let lastUserIndex = entries.lastIndex(where: { $0.role == .user }) else {
       return []
     }
