@@ -93,8 +93,7 @@ struct ChatGenerationCoordinatorTests {
       previousContextSignature: "ctx-old",
       appendOnly: true,
       reusedMessageCount: 2,
-      appendedMessageCount: 1,
-      cacheEligibility: "enabled"
+      appendedMessageCount: 1
     )
     let runtime = RuntimeCacheSnapshotRuntime(snapshot: runtimeSnapshot)
     let coordinator = ChatGenerationCoordinator(

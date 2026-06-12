@@ -45,6 +45,13 @@ public struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     payload.contentSHA256
   }
 
+  /// Stable identity of the attachment bytes, used in cache prefix snapshots.
+  /// Falls back to the attachment ID when no content hash was recorded, so two
+  /// different attachments can never share a signature.
+  public var contentSignature: String {
+    contentSHA256.isEmpty ? "attachment:\(id.uuidString)" : "sha256:\(contentSHA256)"
+  }
+
   public var mimeType: String? {
     payload.mimeType
   }

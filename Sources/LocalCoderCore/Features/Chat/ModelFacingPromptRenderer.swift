@@ -19,6 +19,7 @@ public enum ModelFacingPromptRenderer {
         UserPromptContext(
           prompt: prompt,
           attachmentNames: attachments.map(\.displayName),
+          imageSignatures: attachments.filter { $0.kind == .image }.map(\.contentSignature),
           systemContext: normalizedSystemContext(systemContext),
           currentPromptContext: currentPromptContext
         )

@@ -1484,8 +1484,6 @@ Properties:
 
 - `appendOnly: Bool?`
 - `appendedMessageCount: Int?`
-- `cacheEligibility: String?`
-- `cacheEligibilityReason: String?`
 - `cacheMode: String?`
 - `cacheReason: String?`
 - `contextSignature: String?`

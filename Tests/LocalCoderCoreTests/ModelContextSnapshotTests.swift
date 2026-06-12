@@ -500,6 +500,72 @@ struct ModelContextSnapshotTests {
   }
 
   @Test
+  func userPromptEntryFreezesImageSignaturesFromImageAttachments() throws {
+    let imageAttachment = ChatAttachment(
+      displayName: "car.jpg",
+      payload: .image(
+        ImageAttachmentPayload(mimeType: "image/jpeg", byteSize: 1024, contentSHA256: "abc123")
+      )
+    )
+    let textAttachment = ChatAttachment(
+      displayName: "notes.txt",
+      payload: .text(
+        TextAttachmentPayload(content: "notes", byteSize: 5, contentSHA256: "def456")
+      )
+    )
+
+    let entry = try ModelFacingPromptRenderer.userPromptEntry(
+      prompt: "what is in the picture",
+      attachments: [imageAttachment, textAttachment]
+    )
+
+    guard case .userPrompt(let context) = entry.body else {
+      Issue.record("Expected user prompt context.")
+      return
+    }
+    #expect(context.imageSignatures == ["sha256:abc123"])
+    #expect(entry.frozenContent.content.contains("abc123") == false)
+  }
+
+  @Test
+  func attachmentContentSignatureFallsBackToAttachmentID() {
+    let attachment = ChatAttachment(
+      displayName: "car.jpg",
+      payload: .image(
+        ImageAttachmentPayload(mimeType: "image/jpeg", byteSize: 1, contentSHA256: ""))
+    )
+
+    #expect(attachment.contentSignature == "attachment:\(attachment.id.uuidString)")
+  }
+
+  @Test
+  func imageSignaturesCodableRoundTripAndProjectIntoFullHistory() throws {
+    let imageAttachment = ChatAttachment(
+      displayName: "car.jpg",
+      payload: .image(
+        ImageAttachmentPayload(mimeType: "image/jpeg", byteSize: 1024, contentSHA256: "abc123")
+      )
+    )
+    let transcript = ModelContextSnapshot(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        prompt: "what is in the picture",
+        attachments: [imageAttachment]
+      ),
+      try ModelFacingPromptRenderer.assistantOutputEntry(content: "A blue Mini Cooper."),
+    ])
+
+    let decoded = try JSONDecoder().decode(
+      ModelContextSnapshot.self,
+      from: JSONEncoder().encode(transcript)
+    )
+
+    #expect(decoded == transcript)
+    let projected = decoded.projectedEntries(mode: .fullHistory)
+    #expect(projected[0].imageSignatures == ["sha256:abc123"])
+    #expect(projected[1].imageSignatures == [])
+  }
+
+  @Test
   func toolReceiptMetadataCodableRoundTripsInTranscript() throws {
     let entry = try readFileToolResultEntry(callID: UUID(), content: "Project overview")
     let transcript = ModelContextSnapshot(entries: [entry])

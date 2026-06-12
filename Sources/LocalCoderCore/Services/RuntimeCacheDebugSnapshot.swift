@@ -16,8 +16,6 @@ public struct RuntimeCacheDebugSnapshot: Equatable, Sendable {
   public let firstMismatchIndex: Int?
   public let systemPromptChanged: Bool?
   public let currentPromptContextChanged: Bool?
-  public let cacheEligibility: String
-  public let cacheEligibilityReason: String?
 
   public init(
     generationID: UUID,
@@ -34,9 +32,7 @@ public struct RuntimeCacheDebugSnapshot: Equatable, Sendable {
     mismatchReason: String? = nil,
     firstMismatchIndex: Int? = nil,
     systemPromptChanged: Bool? = nil,
-    currentPromptContextChanged: Bool? = nil,
-    cacheEligibility: String,
-    cacheEligibilityReason: String? = nil
+    currentPromptContextChanged: Bool? = nil
   ) {
     self.generationID = generationID
     self.recordedAt = recordedAt
@@ -53,7 +49,5 @@ public struct RuntimeCacheDebugSnapshot: Equatable, Sendable {
     self.firstMismatchIndex = firstMismatchIndex
     self.systemPromptChanged = systemPromptChanged
     self.currentPromptContextChanged = currentPromptContextChanged
-    self.cacheEligibility = cacheEligibility
-    self.cacheEligibilityReason = cacheEligibilityReason
   }
 }

@@ -364,7 +364,6 @@ private struct RuntimeCacheDebugSection: View {
             title: "Prompt context",
             value: booleanValue(snapshot.currentPromptContextChanged)
           )
-          RuntimeCacheDebugRow(title: "Eligibility", value: eligibilityValue(for: snapshot))
           RuntimeCacheDebugRow(title: "Signature", value: snapshot.contextSignature)
           if let previousContextSignature = snapshot.previousContextSignature {
             RuntimeCacheDebugRow(title: "Previous", value: previousContextSignature)
@@ -441,13 +440,6 @@ private struct RuntimeCacheDebugSection: View {
     case .none:
       "unknown"
     }
-  }
-
-  private func eligibilityValue(for snapshot: RuntimeCacheDebugSnapshot) -> String {
-    if let reason = snapshot.cacheEligibilityReason {
-      return "\(snapshot.cacheEligibility) (\(reason))"
-    }
-    return snapshot.cacheEligibility
   }
 }
 

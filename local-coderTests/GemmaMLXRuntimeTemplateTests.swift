@@ -43,27 +43,88 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func imageInputBoundaryDisablesCacheEligibility() throws {
-    let decision = GemmaMLXRuntime.disabledCacheDecision(
-      cachedPrefix: [
-        GemmaMessageSnapshot(role: "user", content: "previous"),
-        GemmaMessageSnapshot(role: "assistant", content: "answer"),
-      ],
-      currentHistory: [
-        GemmaMessageSnapshot(role: "user", content: "previous"),
-        GemmaMessageSnapshot(role: "assistant", content: "answer"),
-      ],
-      currentSettings: .codingDefault,
-      projectionMode: .compactedHistoryForLaterTurns,
-      currentNativeToolSchemaHash: "none",
-      cacheEligibility: .disabled(reason: .imageInputBoundary)
+  func generationHistorySnapshotCarriesImageSignaturesFromUserPromptEntry() throws {
+    let imageAttachment = ChatAttachment(
+      displayName: "car.jpg",
+      payload: .image(
+        ImageAttachmentPayload(mimeType: "image/jpeg", byteSize: 1024, contentSHA256: "abc123")
+      )
+    )
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        prompt: "what is in the picture",
+        attachments: [imageAttachment]
+      ),
+      try ModelFacingPromptRenderer.assistantOutputEntry(content: "A blue Mini Cooper."),
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "what color are the wheels?"),
+    ]
+
+    let snapshot = GemmaMLXRuntime.generationHistorySnapshot(
+      from: projectedEntries(from: entries)[..<2]
     )
 
-    #expect(decision.shouldReuse == false)
-    #expect(decision.trace.cacheEligibility == "disabled")
-    #expect(decision.trace.cacheEligibilityReason == "image_input_boundary")
-    #expect(decision.trace.cacheMode == .invalidatedImageInputBoundary)
-    #expect(decision.trace.cacheReason == .invalidatedImageInputBoundary)
+    #expect(snapshot.count == 2)
+    #expect(snapshot[0].imageSignatures == ["sha256:abc123"])
+    #expect(snapshot[1].imageSignatures == [])
+    #expect(snapshot[0].content.contains("abc123") == false)
+  }
+
+  @Test
+  func cacheDecisionReusesPrefixWithMatchingImageSignature() {
+    let prefix = [
+      GemmaMessageSnapshot(
+        role: "user",
+        content: "what is in the picture",
+        imageSignatures: ["sha256:abc"]
+      ),
+      GemmaMessageSnapshot(role: "assistant", content: "A blue Mini Cooper."),
+    ]
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: prefix,
+      cachedSettings: .codingDefault,
+      cachedState: .clean,
+      currentHistory: prefix,
+      currentSettings: .codingDefault
+    )
+
+    #expect(decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .sessionReused)
+    #expect(decision.trace.mismatchReason == nil)
+  }
+
+  @Test
+  func cacheDecisionInvalidatesWhenImageSignatureDiffers() {
+    let cachedPrefix = [
+      GemmaMessageSnapshot(
+        role: "user",
+        content: "what is in the picture",
+        imageSignatures: ["sha256:abc"]
+      ),
+      GemmaMessageSnapshot(role: "assistant", content: "A blue Mini Cooper."),
+    ]
+    let currentHistory = [
+      GemmaMessageSnapshot(
+        role: "user",
+        content: "what is in the picture",
+        imageSignatures: ["sha256:other"]
+      ),
+      GemmaMessageSnapshot(role: "assistant", content: "A blue Mini Cooper."),
+    ]
+
+    let decision = GemmaMLXRuntime.cacheDecision(
+      cachedPrefix: cachedPrefix,
+      cachedSettings: .codingDefault,
+      cachedState: .clean,
+      currentHistory: currentHistory,
+      currentSettings: .codingDefault
+    )
+
+    // Identical rendered text, different prefilled image: never reuse.
+    #expect(!decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
+    #expect(decision.trace.firstMismatchIndex == 0)
   }
 
   @Test
@@ -589,9 +650,7 @@ struct GemmaMLXRuntimeTemplateTests {
       mismatchReason: nil,
       firstMismatchIndex: nil,
       systemPromptChanged: nil,
-      currentPromptContextChanged: nil,
-      cacheEligibility: "enabled",
-      cacheEligibilityReason: nil
+      currentPromptContextChanged: nil
     )
 
     let snapshot = GemmaMLXRuntime.runtimeCacheDebugSnapshot(
@@ -612,7 +671,6 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(snapshot.appendOnly)
     #expect(snapshot.reusedMessageCount == 3)
     #expect(snapshot.appendedMessageCount == 1)
-    #expect(snapshot.cacheEligibility == "enabled")
   }
 
   @Test
@@ -2322,9 +2380,7 @@ struct GemmaMLXRuntimeTemplateTests {
       mismatchReason: nil,
       firstMismatchIndex: nil,
       systemPromptChanged: nil,
-      currentPromptContextChanged: nil,
-      cacheEligibility: "enabled",
-      cacheEligibilityReason: nil
+      currentPromptContextChanged: nil
     )
   }
 }

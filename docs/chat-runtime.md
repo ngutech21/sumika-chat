@@ -191,6 +191,13 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   The cached session may remain clean only when the Core model context projects
   the exact same boundary before the tool observation; the following
   continuation can then trace `append_only_delta_reused`.
+- Image prompts stay cacheable. The content signatures of the images consumed
+  with a user prompt are frozen into the entry (`UserPromptContext.imageSignatures`)
+  and carried through the projection into the prefix snapshots, so identical
+  rendered text with different prefilled images can never reuse a cached
+  session. Signatures are bookkeeping only and are never sent to the model.
+  The image tokens stay in the reused KV cache; after a full re-prefill from
+  text-only history the image is no longer part of the model context.
 - Dirty states stay conservative. Cancelled turns, interrupted streams, runtime
   errors, and non-tool downstream termination invalidate reuse.
 - Trace fields such as `cacheMode`, `cacheReason`, `appendOnly`,

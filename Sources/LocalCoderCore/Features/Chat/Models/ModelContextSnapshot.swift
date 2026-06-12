@@ -44,6 +44,20 @@ public enum ModelContextProjectionMode: String, Equatable, Sendable {
 public struct ProjectedModelContextEntry: Equatable, Sendable {
   public let role: ModelContextRole
   public let content: String
+  /// Identities of the images that were consumed with this entry's prompt.
+  /// Never sent to the model; lets the runtime cache distinguish prefixes
+  /// whose rendered text is identical but whose prefilled images differ.
+  public let imageSignatures: [String]
+
+  public init(
+    role: ModelContextRole,
+    content: String,
+    imageSignatures: [String] = []
+  ) {
+    self.role = role
+    self.content = content
+    self.imageSignatures = imageSignatures
+  }
 }
 
 public struct ModelContextEntry: Codable, Identifiable, Equatable, Sendable {
@@ -190,17 +204,23 @@ public enum ModelContextEntryBody: Codable, Equatable, Sendable {
 public struct UserPromptContext: Codable, Equatable, Sendable {
   public let prompt: String
   public let attachmentNames: [String]
+  /// Content signatures of the image attachments consumed with this prompt.
+  /// Part of the persisted entry so later history renderings reproduce the
+  /// exact identity of what was prefilled into the runtime KV cache.
+  public let imageSignatures: [String]
   public let systemContext: [String]
   public let currentPromptContext: ConsumedCurrentPromptContext?
 
   public init(
     prompt: String,
     attachmentNames: [String] = [],
+    imageSignatures: [String] = [],
     systemContext: [String] = [],
     currentPromptContext: ConsumedCurrentPromptContext? = nil
   ) {
     self.prompt = prompt
     self.attachmentNames = attachmentNames
+    self.imageSignatures = imageSignatures
     self.systemContext = systemContext
     self.currentPromptContext = currentPromptContext
   }
@@ -412,6 +432,13 @@ public enum ModelContextRole: String, Codable, Equatable, Sendable {
 }
 
 extension ModelContextEntry {
+  fileprivate var imageSignatures: [String] {
+    guard case .userPrompt(let context) = body else {
+      return []
+    }
+    return context.imageSignatures
+  }
+
   fileprivate func projectedEntry(
     mode: ModelContextProjectionMode,
     keepFullContent: Bool
@@ -419,7 +446,8 @@ extension ModelContextEntry {
     guard mode == .compactedHistoryForLaterTurns, !keepFullContent else {
       return ProjectedModelContextEntry(
         role: frozenContent.role,
-        content: frozenContent.content
+        content: frozenContent.content,
+        imageSignatures: imageSignatures
       )
     }
 
@@ -449,7 +477,8 @@ extension ModelContextEntry {
     case .userPrompt, .assistantOutput:
       return ProjectedModelContextEntry(
         role: frozenContent.role,
-        content: frozenContent.content
+        content: frozenContent.content,
+        imageSignatures: imageSignatures
       )
     }
   }

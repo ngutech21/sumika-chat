@@ -137,12 +137,6 @@ actor GemmaDebugTraceStore: TurnTracing {
     if let cacheReason = event.cacheReason {
       trace["cacheReason"] = cacheReason
     }
-    if let cacheEligibility = event.cacheEligibility {
-      trace["cacheEligibility"] = cacheEligibility
-    }
-    if let cacheEligibilityReason = event.cacheEligibilityReason {
-      trace["cacheEligibilityReason"] = cacheEligibilityReason
-    }
     if let memoryClearReason = event.memoryClearReason {
       trace["memoryClearReason"] = memoryClearReason
     }
