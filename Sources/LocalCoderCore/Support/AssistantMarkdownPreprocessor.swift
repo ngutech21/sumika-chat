@@ -129,7 +129,43 @@ public enum AssistantMarkdownPreprocessor {
       return "css"
     }
 
+    if looksLikeTypeScript(content) {
+      return "typescript"
+    }
+
+    if looksLikePython(content) {
+      return "python"
+    }
+
     return nil
+  }
+
+  private static func looksLikePython(_ content: String) -> Bool {
+    let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+
+    let hasPythonBlock = lines.contains {
+      $0.hasPrefix("def ") || $0.hasPrefix("async def ")
+        || $0.hasPrefix("class ") && $0.hasSuffix(":") || $0.hasPrefix("if __name__ == ")
+    }
+
+    let hasPythonSyntax = lines.contains {
+      $0.hasPrefix("import ") || $0.hasPrefix("from ") && $0.contains(" import ")
+        || $0.hasPrefix("print(") || $0.hasPrefix("@")
+    }
+
+    return hasPythonBlock && hasPythonSyntax
+  }
+
+  private static func looksLikeTypeScript(_ content: String) -> Bool {
+    let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+
+    return lines.contains {
+      $0.hasPrefix("interface ") || $0.hasPrefix("type ") || $0.contains(": string")
+        || $0.contains(": number") || $0.contains(": boolean") || $0.contains(" as const")
+        || $0.contains(" satisfies ")
+    }
   }
 
   private static func looksLikeMarkdownNarrative(_ content: String) -> Bool {
@@ -157,7 +193,6 @@ public enum AssistantMarkdownPreprocessor {
     return (try? JSONSerialization.jsonObject(with: Data(content.utf8))) != nil
   }
 
-  
   private static func looksLikeShell(_ content: String) -> Bool {
     let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
       .map { $0.trimmingCharacters(in: .whitespaces) }
