@@ -243,9 +243,13 @@ public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
     return nil
   }
 
-  private static func parseLocation(_ location: String) -> (
-    path: String, line: Int, column: Int?
-  )? {
+  private struct ParsedLocation {
+    let path: String
+    let line: Int
+    let column: Int?
+  }
+
+  private static func parseLocation(_ location: String) -> ParsedLocation? {
     let parts = location.split(separator: ":", omittingEmptySubsequences: false)
     guard parts.count >= 2,
       let lastNumber = Int(parts[parts.count - 1]),
@@ -264,14 +268,14 @@ public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
       else {
         return nil
       }
-      return (path: path, line: line, column: lastNumber)
+      return ParsedLocation(path: path, line: line, column: lastNumber)
     }
 
     let path = parts.dropLast(1).joined(separator: ":")
     guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       return nil
     }
-    return (path: path, line: lastNumber, column: nil)
+    return ParsedLocation(path: path, line: lastNumber, column: nil)
   }
 }
 

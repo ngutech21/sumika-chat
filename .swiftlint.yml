@@ -11,7 +11,6 @@ disabled_rules:
   - closure_parameter_position
   - file_length
   - function_parameter_count
-  - large_tuple
   - line_length
   - opening_brace
   - trailing_comma
@@ -69,6 +68,7 @@ opt_in_rules:
   # cleanup (had existing violations, now fixed)
   - array_init
   - convenience_type
+  - large_tuple
   - prefer_key_path
   - self_binding
   - unneeded_escaping
