@@ -1174,6 +1174,7 @@ struct ToolExecutionTests {
     }
     #expect(payload.exitCode == 2)
     #expect(payload.stderr.text == "tests failed\n")
+    #expect(result.resultPreview?.status == .failed)
     #expect(result.resultPreview?.text.contains("Exit code: 2") == true)
   }
 

@@ -124,6 +124,30 @@ public struct ToolModelObservation: Equatable, Sendable {
     )
   }
 
+  static func structured(
+    toolName: ToolName,
+    status: ToolResultStatus,
+    affectedPaths: [WorkspaceRelativePath],
+    blocks: [ToolObservationBlock]
+  ) -> ToolModelObservation {
+    precondition(
+      status != .denied,
+      "Denied tool observations require failure text."
+    )
+    if status == .success {
+      precondition(
+        !blocks.contains(where: \.isFailure),
+        "Success tool observations cannot contain failure blocks."
+      )
+    }
+    return ToolModelObservation(
+      toolName: toolName,
+      status: status,
+      affectedPaths: affectedPaths,
+      blocks: blocks
+    )
+  }
+
   static func failed(
     toolName: ToolName,
     affectedPaths: [WorkspaceRelativePath],
@@ -518,15 +542,18 @@ public enum ToolResultProjector {
     _ result: RunCommandResult,
     request: ToolCallRequest
   ) -> ToolResultProjection {
-    ToolResultProjection(
+    let status = result.outcomeStatus
+    let affectedPaths = [WorkspaceRelativePath(rawValue: ".")]
+    return ToolResultProjection(
       display: .summary(
-        status: .success,
+        status: status,
         text: result.previewText,
-        affectedPaths: [WorkspaceRelativePath(rawValue: ".")]
+        affectedPaths: affectedPaths
       ),
-      observation: ToolModelObservation.success(
+      observation: ToolModelObservation.structured(
         toolName: request.toolName,
-        affectedPaths: [WorkspaceRelativePath(rawValue: ".")],
+        status: status,
+        affectedPaths: affectedPaths,
         blocks: [.commandResult(result)]
       )
     )

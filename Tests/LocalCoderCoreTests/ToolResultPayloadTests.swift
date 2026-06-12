@@ -140,6 +140,16 @@ struct ToolResultPayloadTests {
   }
 
   @Test
+  func runCommandPreviewStatusFollowsCommandOutcome() {
+    #expect(runCommandPayload(exitCode: 0).preview.status == .success)
+    #expect(runCommandPayload(exitCode: 1).preview.status == .failed)
+    #expect(runCommandPayload(exitCode: 0, timedOut: true).preview.status == .failed)
+    #expect(runCommandPayload(exitCode: 0, cancelled: true).preview.status == .failed)
+    #expect(runCommandPayload(exitCode: nil).preview.status == .failed)
+    #expect(runCommandPayload(exitCode: 0).preview.affectedPaths == ["."])
+  }
+
+  @Test
   func budgetExceededFailurePreviewExplainsLimit() {
     let payload = ToolResultPayload.failure(
       ToolFailure(
@@ -171,6 +181,24 @@ struct ToolResultPayloadTests {
     #expect(preview.text.contains("Tool attempt ignored for edit_file"))
     #expect(preview.text.contains("final for the current turn"))
     #expect(preview.affectedPaths.isEmpty)
+  }
+
+  private func runCommandPayload(
+    exitCode: Int32?,
+    timedOut: Bool = false,
+    cancelled: Bool = false
+  ) -> ToolResultPayload {
+    .runCommand(
+      RunCommandResult(
+        command: "just test-core",
+        timeoutSeconds: 120,
+        exitCode: exitCode,
+        durationMs: 42,
+        stdout: ToolTextOutput(text: ""),
+        stderr: ToolTextOutput(text: ""),
+        timedOut: timedOut,
+        cancelled: cancelled
+      ))
   }
 
 }

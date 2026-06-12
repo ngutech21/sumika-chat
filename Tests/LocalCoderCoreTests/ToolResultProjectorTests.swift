@@ -188,7 +188,15 @@ struct ToolResultProjectorTests {
   }
 
   @Test
-  func runCommandObservationIncludesExitAndOutput() {
+  func runCommandProjectionReportsSuccessForZeroExit() {
+    assertRunCommandProjection(
+      runCommandResult(exitCode: 0),
+      expectedStatus: .success
+    )
+  }
+
+  @Test
+  func runCommandProjectionReportsFailureForNonZeroExitAndKeepsOutputDetails() {
     let result = RunCommandResult(
       command: "just test-core",
       timeoutSeconds: 120,
@@ -197,20 +205,46 @@ struct ToolResultProjectorTests {
       stdout: ToolTextOutput(text: "build started\n"),
       stderr: ToolTextOutput(text: "Tests failed\n")
     )
-    let projection = ToolResultProjector.project(
-      payload: .runCommand(result),
-      request: request(
-        toolName: .runCommand,
-        payload: .runCommand(RunCommandInput(command: "just test-core", timeoutSeconds: 120))
-      )
+
+    let rendered = assertRunCommandProjection(
+      result,
+      expectedStatus: .failed
     )
 
-    #expect(projection.observation.blocks == [.commandResult(result)])
-    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
     #expect(rendered.contains("Command: just test-core"))
     #expect(rendered.contains("Exit code: 1"))
     #expect(rendered.contains("Stdout preview:\nbuild started"))
     #expect(rendered.contains("Stderr preview:\nTests failed"))
+  }
+
+  @Test
+  func runCommandProjectionReportsFailureForTimedOutCommand() {
+    let rendered = assertRunCommandProjection(
+      runCommandResult(exitCode: 0, timedOut: true),
+      expectedStatus: .failed
+    )
+
+    #expect(rendered.contains("Timed out: true"))
+  }
+
+  @Test
+  func runCommandProjectionReportsFailureForCancelledCommand() {
+    let rendered = assertRunCommandProjection(
+      runCommandResult(exitCode: 0, cancelled: true),
+      expectedStatus: .failed
+    )
+
+    #expect(rendered.contains("Cancelled: true"))
+  }
+
+  @Test
+  func runCommandProjectionReportsFailureForMissingExitCode() {
+    let rendered = assertRunCommandProjection(
+      runCommandResult(exitCode: nil),
+      expectedStatus: .failed
+    )
+
+    #expect(rendered.contains("Exit code: none"))
   }
 
   @Test
@@ -506,6 +540,56 @@ struct ToolResultProjectorTests {
         toolName: toolName
       ),
       payload: payload
+    )
+  }
+
+  @discardableResult
+  private func assertRunCommandProjection(
+    _ result: RunCommandResult,
+    expectedStatus: ToolResultStatus
+  ) -> String {
+    let projection = ToolResultProjector.project(
+      payload: .runCommand(result),
+      request: request(
+        toolName: .runCommand,
+        payload: .runCommand(
+          RunCommandInput(command: result.command, timeoutSeconds: result.timeoutSeconds)
+        )
+      )
+    )
+
+    guard case .summary(let displayStatus, let text, let affectedPaths) = projection.display else {
+      Issue.record("Expected run_command display summary.")
+      return ""
+    }
+    #expect(displayStatus == expectedStatus)
+    #expect(text == result.previewText)
+    #expect(affectedPaths == [WorkspaceRelativePath(rawValue: ".")])
+    #expect(projection.observation.status == expectedStatus)
+    #expect(projection.observation.blocks == [.commandResult(result)])
+
+    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
+    #expect(
+      rendered.contains(
+        "tool=\"run_command\" status=\"\(expectedStatus.rawValue)\""
+      ))
+    return rendered
+  }
+
+  private func runCommandResult(
+    exitCode: Int32?,
+    timedOut: Bool = false,
+    cancelled: Bool = false
+  ) -> RunCommandResult {
+    RunCommandResult(
+      command: "just test-core",
+      timeoutSeconds: 120,
+      exitCode: exitCode,
+      durationMs: 42,
+      stdout: ToolTextOutput(text: ""),
+      stderr: ToolTextOutput(text: ""),
+      timedOut: timedOut,
+      cancelled: cancelled
     )
   }
 }

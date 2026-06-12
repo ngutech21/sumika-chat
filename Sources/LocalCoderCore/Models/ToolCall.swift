@@ -1595,8 +1595,16 @@ nonisolated extension EditFileResult {
 }
 
 nonisolated extension RunCommandResult {
+  var outcomeStatus: ToolResultStatus {
+    guard !timedOut, !cancelled, let exitCode, exitCode == 0 else {
+      return .failed
+    }
+    return .success
+  }
+
   fileprivate var preview: ToolResultPreview {
     ToolResultPreview(
+      status: outcomeStatus,
       text: previewText,
       truncated: outputTruncated,
       affectedPaths: ["."]

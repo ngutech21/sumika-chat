@@ -381,6 +381,17 @@ public struct AnyToolExecutor: Sendable {
     let payload = await tool.run(input, context: context)
     let preview = payload.preview
 
+    if case .runCommand = payload {
+      record.state = .completed(payload)
+      record.events.append(
+        ToolCallEvent(
+          actor: .tool,
+          kind: .completed,
+          message: "Completed \(request.toolName.rawValue)."
+        ))
+      return record
+    }
+
     switch preview.status {
     case .success:
       record.state = .completed(payload)
