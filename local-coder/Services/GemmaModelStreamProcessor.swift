@@ -219,9 +219,9 @@ nonisolated enum GemmaModelStreamProcessor {
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: GemmaSessionCacheTrace,
-    markCompleted: @escaping @Sendable (String) async -> Void,
-    markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void,
-    markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void,
+    markCompleted: @Sendable (String) async -> Void,
+    markNativeToolCallBoundary: @Sendable (String, [ChatRuntimeToolCall]) async -> Void,
+    markCancelled: @Sendable (GemmaSessionInvalidationReason) async -> Void,
     memoryCacheClearer: GemmaMemoryCacheClearer
   ) async {
     if didTerminateDownstream {

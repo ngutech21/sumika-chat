@@ -172,11 +172,11 @@ extension DeclModifierListSyntax {
 
 extension InheritanceClauseSyntax? {
   fileprivate var modelTypeNames: [String] {
-    guard let clause = self else {
+    guard let self else {
       return []
     }
 
-    return clause.inheritedTypes
+    return self.inheritedTypes
       .map { normalizedType($0.type.description) }
       .sorted()
   }

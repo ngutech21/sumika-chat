@@ -86,7 +86,7 @@ public final class ContextUsageCoordinator {
     task = nil
   }
 
-  public func invalidate(onEvent: @escaping @MainActor (ContextUsageEvent) -> Void) {
+  public func invalidate(onEvent: @MainActor (ContextUsageEvent) -> Void) {
     requestID = UUID()
     cancel()
     onEvent(.reset)
@@ -166,7 +166,7 @@ public final class ContextUsageCoordinator {
 
   private func publishEstimate(
     snapshot: ContextUsageSnapshot,
-    onEvent: @escaping @MainActor (ContextUsageEvent) -> Void
+    onEvent: @MainActor (ContextUsageEvent) -> Void
   ) {
     onEvent(.updated(snapshot.estimatedUsage(isStale: false)))
   }

@@ -553,7 +553,7 @@ private final class WebHTTPClientTaskDelegate: NSObject, URLSessionTaskDelegate,
     task: URLSessionTask,
     willPerformHTTPRedirection response: HTTPURLResponse,
     newRequest request: URLRequest,
-    completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    completionHandler: @Sendable (URLRequest?) -> Void
   ) {
     _ = session
     _ = task
@@ -833,7 +833,7 @@ public struct DuckDuckGoHTMLSearchParser: Sendable {
 
   public func parse(html: String, maxResults: Int) -> [WebSearchResult] {
     let blocks = html.components(separatedBy: "result__body")
-    return blocks.compactMap(parseResultBlock(_:)).prefix(maxResults).map { $0 }
+    return blocks.compactMap(parseResultBlock(_:)).prefix(maxResults).map(\.self)
   }
 
   private func parseResultBlock(_ block: String) -> WebSearchResult? {
@@ -910,7 +910,7 @@ public struct SearXNGJSONSearchParser: Sendable {
         url: url,
         snippet: item.content?.trimmingCharacters(in: .whitespacesAndNewlines)
       )
-    }.prefix(maxResults).map { $0 }
+    }.prefix(maxResults).map(\.self)
   }
 }
 

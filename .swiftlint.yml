@@ -26,10 +26,52 @@ type_body_length:
   warning: 600
 
 opt_in_rules:
+  # existing
   - empty_xctest_method
   - force_unwrapping
   - implicitly_unwrapped_optional
   - weak_delegate
+  # safety / correctness (catch real bugs)
+  - fallthrough
+  - fatal_error_message
+  - identical_operands
+  - private_swiftui_state
+  - unavailable_function
+  - unhandled_throwing_task
+  - unowned_variable_capture
+  - untyped_error_in_catch
+  # performance
+  - contains_over_filter_count
+  - contains_over_filter_is_empty
+  - contains_over_first_not_nil
+  - contains_over_range_nil_comparison
+  - empty_count
+  - empty_string
+  - first_where
+  - flatmap_over_map_reduce
+  - last_where
+  - reduce_into
+  - sorted_first_last
+  # idiomatic / clarity
+  - direct_return
+  - empty_collection_literal
+  - explicit_init
+  - joined_default_parameter
+  - legacy_multiple
+  - optional_enum_case_matching
+  - prefer_self_type_over_type_of_self
+  - redundant_nil_coalescing
+  - redundant_type_annotation
+  - shorthand_optional_binding
+  - static_operator
+  - superfluous_else
+  - toggle_bool
+  # cleanup (had existing violations, now fixed)
+  - array_init
+  - convenience_type
+  - prefer_key_path
+  - self_binding
+  - unneeded_escaping
 
 analyzer_rules:
   - unused_declaration

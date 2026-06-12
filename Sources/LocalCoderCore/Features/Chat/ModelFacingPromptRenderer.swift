@@ -395,12 +395,12 @@ public enum ToolModelObservationRenderer {
         "Truncated: \(truncated)",
         "Redacted: \(redacted)",
         "Content: omitted from model history.",
-      ].compactMap { $0 }.joined(separator: "\n")
+      ].compactMap(\.self).joined(separator: "\n")
     case .fileContent(let path, let content):
       let flags = [
         content.truncated ? "truncated" : nil,
         content.redacted ? "redacted" : nil,
-      ].compactMap { $0 }.joined(separator: ", ")
+      ].compactMap(\.self).joined(separator: ", ")
       let suffix = flags.isEmpty ? "" : "\nFlags: \(flags)"
       return """
         File content: \(path.rawValue)\(suffix)
@@ -439,7 +439,7 @@ public enum ToolModelObservationRenderer {
         "Edited file: \(path.rawValue)",
         matchStrategy.map { "Match strategy: \($0.rawValue)" },
         diffSummary.map { "Diff summary:\n\($0)" },
-      ].compactMap { $0 }.joined(separator: "\n")
+      ].compactMap(\.self).joined(separator: "\n")
     case .commandResult(let result):
       var lines = [
         "Command: \(result.command)",
@@ -454,7 +454,7 @@ public enum ToolModelObservationRenderer {
         "Stderr truncated: \(result.stderr.truncated)",
         result.stderrOmittedChars > 0 ? "Stderr omitted chars: \(result.stderrOmittedChars)" : nil,
         result.stderr.text.isEmpty ? nil : "Stderr preview:\n\(result.stderr.text)",
-      ].compactMap { $0 }
+      ].compactMap(\.self)
       if let outputRef = result.outputRef {
         lines.append(
           "Hint: Run workspace_diagnostics(outputRef: \(outputRef)) for structured errors.")
@@ -478,7 +478,7 @@ public enum ToolModelObservationRenderer {
             "\(index + 1). \(result.title)",
             result.url,
             result.snippet,
-          ].compactMap { $0 }.joined(separator: "\n")
+          ].compactMap(\.self).joined(separator: "\n")
         }.joined(separator: "\n\n")
       return """
         Web search provider: \(provider.displayName)
@@ -492,7 +492,7 @@ public enum ToolModelObservationRenderer {
       let flags = [
         content.truncated ? "truncated" : nil,
         content.redacted ? "redacted" : nil,
-      ].compactMap { $0 }.joined(separator: ", ")
+      ].compactMap(\.self).joined(separator: ", ")
       let suffix = flags.isEmpty ? "" : "\nFlags: \(flags)"
       let redirect = url == finalURL ? "" : "\nFinal URL: \(finalURL)"
       return """

@@ -8,7 +8,7 @@ nonisolated struct LocalDownloader: MLXLMCommon.Downloader {
     revision: String?,
     matching patterns: [String],
     useLatest: Bool,
-    progressHandler: @Sendable @escaping (Progress) -> Void
+    progressHandler: @Sendable (Progress) -> Void
   ) async throws -> URL {
     throw ModelConfiguration.DirectoryError.unresolvedModelDirectory(id)
   }

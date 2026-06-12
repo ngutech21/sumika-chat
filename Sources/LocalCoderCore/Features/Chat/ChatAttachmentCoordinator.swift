@@ -139,7 +139,7 @@ public final class ChatAttachmentCoordinator {
 
   public func removeAttachment(
     id: ChatAttachment.ID,
-    onEvent: @escaping @MainActor @Sendable (ChatAttachmentEvent) -> Void
+    onEvent: @MainActor @Sendable (ChatAttachmentEvent) -> Void
   ) {
     onEvent(.removeAttachment(id))
   }

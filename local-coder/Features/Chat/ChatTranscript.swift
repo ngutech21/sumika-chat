@@ -128,7 +128,7 @@ struct ChatTranscript: View {
   }
 
   private var shouldShowTranscriptGenerationIndicator: Bool {
-    isGenerating && !transcriptItems.contains { $0.shouldShowAssistantPlaceholder }
+    isGenerating && !transcriptItems.contains(where: \.shouldShowAssistantPlaceholder)
   }
 }
 

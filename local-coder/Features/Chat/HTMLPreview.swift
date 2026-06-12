@@ -74,7 +74,7 @@ private struct HTMLPreviewConsoleMessagePayload: Decodable {
   let column: Int?
 }
 
-private struct HTMLPreviewConsoleBridgeScript {
+private enum HTMLPreviewConsoleBridgeScript {
   static let handlerName = "htmlPreviewConsole"
 
   static var userScript: WKUserScript {

@@ -482,7 +482,7 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
         "Timeout: \(clampedTimeout(input.timeoutSeconds)) seconds",
         input.reason.map { "Reason: \($0)" },
         "Command:\n\(input.command)",
-      ].compactMap { $0 }.joined(separator: "\n"),
+      ].compactMap(\.self).joined(separator: "\n"),
       affectedPaths: ["."]
     )
   }

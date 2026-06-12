@@ -12,7 +12,7 @@ public struct UnavailableModelDownloader: ModelDownloading {
 
   public func download(
     model: ManagedModel,
-    progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
+    progressHandler: @MainActor @Sendable (Progress) -> Void
   ) async throws -> URL {
     _ = model
     _ = progressHandler
