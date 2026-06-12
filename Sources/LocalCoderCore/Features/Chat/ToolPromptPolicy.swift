@@ -97,8 +97,8 @@ public struct ToolPromptPolicy: Sendable {
       \(nativeMultipleToolCallInstruction(policy: toolCallingPolicy))
 
       Read-only workflow:
-      - To display file contents directly to the user, use show_file.
-      - To inspect, explain, summarize, search within, or reason about a file, use read_file.
+      - When the user only wants to see, show, view, or open a file (no question or task about its contents), use show_file. You will not receive the contents.
+      - When you need a file's contents yourself to inspect, explain, summarize, search within, or reason about it, use read_file. read_file loads the full text into your context; show_file does not.
       - To find files by name, use glob_files or list_files.
       - To search code contents, use search_files.
       - To review current workspace changes, use workspace_diff.
@@ -124,8 +124,8 @@ public struct ToolPromptPolicy: Sendable {
       File workflow:
       - For multi-step Agent tasks, first call todo_write with item1 and item2, plus optional item3 through item6. Use done1/done2 booleans only for already completed items; omit done fields for new todos. Never call todo_write once per todo.
       - After completing a planned todo, call todo_write with the full plan and mark only completed items using done1 through done6.
-      - To display file contents directly to the user, use show_file.
-      - To inspect, explain, summarize, search within, reason about, or modify a file, use read_file.
+      - When the user only wants to see, show, view, or open a file (no question or task about its contents), use show_file. You will not receive the contents.
+      - When you need a file's contents yourself to inspect, explain, summarize, search within, reason about, or modify it, use read_file. read_file loads the full text into your context; show_file does not.
       - To find files by name, use glob_files or list_files.
       - To search code contents, use search_files.
       - To review current workspace changes, use workspace_diff.

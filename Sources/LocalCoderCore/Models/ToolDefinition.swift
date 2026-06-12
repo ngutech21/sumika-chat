@@ -213,7 +213,7 @@ nonisolated extension ToolDefinition {
 
   public static let readFile = ToolDefinition(
     name: .readFile,
-    description: "Read workspace file lines into context.",
+    description: "Read a file into your context to analyze, summarize, or edit it.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
@@ -246,7 +246,7 @@ nonisolated extension ToolDefinition {
 
   public static let showFile = ToolDefinition(
     name: .showFile,
-    description: "Display workspace file lines to the user.",
+    description: "Show a file to the user without loading its contents into your context.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
