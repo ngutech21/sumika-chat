@@ -17,12 +17,6 @@ nonisolated struct GemmaMessageSnapshot: Equatable, Sendable {
   }
 }
 
-nonisolated struct GemmaHistoryItem: Sendable {
-  let role: Chat.Message.Role
-  let content: String
-  let imageSignatures: [String]
-}
-
 nonisolated struct GemmaRenderedContextSignature: Equatable, Sendable {
   let rendererVersion: Int
   let projectionMode: ModelContextProjectionMode

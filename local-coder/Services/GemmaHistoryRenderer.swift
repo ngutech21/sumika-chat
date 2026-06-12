@@ -9,12 +9,6 @@ nonisolated enum GemmaHistoryRenderer {
   /// after every tool turn.
   nonisolated static let runtimeProjectionMode = ModelContextProjectionMode.fullHistory
 
-  nonisolated static func messageSnapshot(from messages: [Chat.Message]) -> [GemmaMessageSnapshot] {
-    messages.map { message in
-      GemmaMessageSnapshot(role: message.role.rawValue, content: message.content)
-    }
-  }
-
   nonisolated static func chatMessage(
     from entry: ProjectedModelContextEntry,
     images: [UserInput.Image] = []
@@ -54,14 +48,14 @@ nonisolated enum GemmaHistoryRenderer {
     systemPrompt: String
   ) throws -> [Chat.Message] {
     _ = attachments
+    let history = chatMessages(
+      from: normalizedSnapshots(
+        from: transcript.projectedEntries(mode: runtimeProjectionMode)[...],
+        dropsTrailingUser: false
+      )
+    )
     return try validatedTemplateMessages(
-      runtimeHistoryMessages(
-        systemPrompt: systemPrompt,
-        history: normalizedChatMessages(
-          transcript.projectedEntries(mode: runtimeProjectionMode)
-            .map { Self.chatMessage(from: $0) }
-        )
-      ),
+      runtimeHistoryMessages(systemPrompt: systemPrompt, history: history),
       allowsSystemPrompt: true
     )
   }
@@ -82,23 +76,6 @@ nonisolated enum GemmaHistoryRenderer {
 
   nonisolated static func normalizedRuntimeSystemPrompt(_ systemPrompt: String) -> String? {
     ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt)
-  }
-
-  nonisolated static func normalizedChatMessages(_ messages: [Chat.Message]) -> [Chat.Message] {
-    messages.reduce(into: []) { normalizedMessages, message in
-      guard !message.content.isEmpty else {
-        return
-      }
-
-      guard let lastMessage = normalizedMessages.last, lastMessage.role == message.role else {
-        normalizedMessages.append(message)
-        return
-      }
-
-      let mergedContent = [lastMessage.content, message.content].joined(separator: "\n\n")
-      normalizedMessages[normalizedMessages.index(before: normalizedMessages.endIndex)] =
-        Chat.Message(role: lastMessage.role, content: mergedContent)
-    }
   }
 
   nonisolated static func validatedTemplateMessages(
@@ -129,29 +106,32 @@ nonisolated enum GemmaHistoryRenderer {
     return messages
   }
 
-  /// Mirrors `normalizedChatMessages` (skip empty, merge consecutive same-role
-  /// with a blank line) while carrying image signatures, then drops trailing
-  /// user messages. Single source for both the template history and the cache
-  /// prefix snapshot so the two can never drift.
-  nonisolated private static func normalizedHistoryItems(
-    from entries: ArraySlice<ProjectedModelContextEntry>
-  ) -> [GemmaHistoryItem] {
-    var items: [GemmaHistoryItem] = []
+  /// Skips empty entries, merges consecutive same-role entries with a blank
+  /// line, and carries image signatures. `dropsTrailingUser` removes trailing
+  /// user turns for the generation history (the current prompt is rendered
+  /// separately); the token-counting path keeps them. Single source for the
+  /// template history, the generation history, and the cache prefix snapshot so
+  /// the three can never drift.
+  nonisolated private static func normalizedSnapshots(
+    from entries: ArraySlice<ProjectedModelContextEntry>,
+    dropsTrailingUser: Bool
+  ) -> [GemmaMessageSnapshot] {
+    var items: [GemmaMessageSnapshot] = []
     for entry in entries {
       guard !entry.content.isEmpty else {
         continue
       }
       let role: Chat.Message.Role = entry.role == .user ? .user : .assistant
-      if let last = items.last, last.role == role {
-        items[items.count - 1] = GemmaHistoryItem(
-          role: role,
+      if let last = items.last, last.role == role.rawValue {
+        items[items.count - 1] = GemmaMessageSnapshot(
+          role: last.role,
           content: [last.content, entry.content].joined(separator: "\n\n"),
           imageSignatures: last.imageSignatures + entry.imageSignatures
         )
       } else {
         items.append(
-          GemmaHistoryItem(
-            role: role,
+          GemmaMessageSnapshot(
+            role: role.rawValue,
             content: entry.content,
             imageSignatures: entry.imageSignatures
           )
@@ -159,33 +139,44 @@ nonisolated enum GemmaHistoryRenderer {
       }
     }
 
-    while items.last?.role == .user {
-      items.removeLast()
+    if dropsTrailingUser {
+      while items.last?.role == Chat.Message.Role.user.rawValue {
+        items.removeLast()
+      }
     }
 
     return items
   }
 
+  /// Maps normalized snapshots back to `Chat.Message`. Snapshots from
+  /// `normalizedSnapshots` only ever carry user/assistant roles.
+  nonisolated static func chatMessages(
+    from snapshots: [GemmaMessageSnapshot]
+  ) -> [Chat.Message] {
+    snapshots.map { snapshot in
+      Chat.Message(
+        role: snapshot.role == Chat.Message.Role.assistant.rawValue ? .assistant : .user,
+        content: snapshot.content
+      )
+    }
+  }
+
+  nonisolated static func validatedChatMessages(
+    from snapshots: [GemmaMessageSnapshot]
+  ) throws -> [Chat.Message] {
+    try validatedTemplateMessages(chatMessages(from: snapshots))
+  }
+
   nonisolated static func generationHistoryMessages(
     from entries: ArraySlice<ProjectedModelContextEntry>
   ) throws -> [Chat.Message] {
-    try validatedTemplateMessages(
-      normalizedHistoryItems(from: entries).map {
-        Chat.Message(role: $0.role, content: $0.content)
-      }
-    )
+    try validatedChatMessages(from: generationHistorySnapshot(from: entries))
   }
 
   nonisolated static func generationHistorySnapshot(
     from entries: ArraySlice<ProjectedModelContextEntry>
   ) -> [GemmaMessageSnapshot] {
-    normalizedHistoryItems(from: entries).map { item in
-      GemmaMessageSnapshot(
-        role: item.role.rawValue,
-        content: item.content,
-        imageSignatures: item.imageSignatures
-      )
-    }
+    normalizedSnapshots(from: entries, dropsTrailingUser: true)
   }
 
   nonisolated static func generationHistoryMessages(

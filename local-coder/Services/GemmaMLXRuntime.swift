@@ -184,12 +184,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let toolSpecs = GemmaNativeToolSchema.toolSpecs(from: toolContext)
     let nativeToolSchemaHash = GemmaSessionCachePolicy.nativeToolSchemaSignature(from: toolContext)
     let cacheSystemPrompt = toolContext?.cacheSystemPrompt ?? systemPrompt
-    let history = try GemmaHistoryRenderer.generationHistoryMessages(
-      from: projectedEntries[..<currentPromptIndex]
-    )
     let historySnapshot = GemmaHistoryRenderer.generationHistorySnapshot(
       from: projectedEntries[..<currentPromptIndex]
     )
+    let history = try GemmaHistoryRenderer.validatedChatMessages(from: historySnapshot)
     let promptImageSignatures = projectedEntries[currentPromptIndex].imageSignatures
     let finalPrompt = promptMessage.content
     await supersedeActiveGenerationBeforeStartingNew()
