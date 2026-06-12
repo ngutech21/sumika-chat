@@ -150,45 +150,21 @@ nonisolated enum GemmaModelStreamProcessor {
           }
         }
 
-        if didTerminateDownstream {
-          await markCancelled(.downstreamTerminated)
-          continuation.finish()
-          return
-        }
-
-        if !didCompleteNaturally {
-          let error = GemmaMLXRuntimeError.interruptedStream
-          await markCancelled(.interrupted)
-          if let memoryClearReason = memoryClearReason(for: .interruptedStream) {
-            await clearMemoryCache(
-              reason: memoryClearReason,
-              traceID: traceID,
-              traceMetadata: traceMetadata,
-              cacheTrace: cacheTrace,
-              memoryCacheClearer: memoryCacheClearer
-            )
-          }
-          await GemmaDebugTraceStore.shared.traceResponse(
-            id: traceID,
-            output: output,
-            metrics: completedMetrics,
-            error: error.localizedDescription
-          )
-          continuation.finish(throwing: error)
-          return
-        }
-
-        if !nativeToolCalls.isEmpty {
-          await markNativeToolCallBoundary(output, nativeToolCalls)
-        } else {
-          await markCompleted(output)
-        }
-        await GemmaDebugTraceStore.shared.traceResponse(
-          id: traceID,
+        await finalizeStream(
+          continuation: continuation,
           output: output,
-          metrics: completedMetrics
+          completedMetrics: completedMetrics,
+          didTerminateDownstream: didTerminateDownstream,
+          didCompleteNaturally: didCompleteNaturally,
+          nativeToolCalls: nativeToolCalls,
+          traceID: traceID,
+          traceMetadata: traceMetadata,
+          cacheTrace: cacheTrace,
+          markCompleted: markCompleted,
+          markNativeToolCallBoundary: markNativeToolCallBoundary,
+          markCancelled: markCancelled,
+          memoryCacheClearer: memoryCacheClearer
         )
-        continuation.finish()
       } catch is CancellationError {
         await markCancelled(.cancelled)
         await GemmaDebugTraceStore.shared.traceResponse(
@@ -231,6 +207,62 @@ nonisolated enum GemmaModelStreamProcessor {
     }
 
     return GemmaModelStreamPlan(stream: outputStream, task: task)
+  }
+
+  nonisolated private static func finalizeStream(
+    continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
+    output: String,
+    completedMetrics: ChatGenerationMetrics?,
+    didTerminateDownstream: Bool,
+    didCompleteNaturally: Bool,
+    nativeToolCalls: [ChatRuntimeToolCall],
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: GemmaSessionCacheTrace,
+    markCompleted: @escaping @Sendable (String) async -> Void,
+    markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void,
+    markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void,
+    memoryCacheClearer: GemmaMemoryCacheClearer
+  ) async {
+    if didTerminateDownstream {
+      await markCancelled(.downstreamTerminated)
+      continuation.finish()
+      return
+    }
+
+    if !didCompleteNaturally {
+      let error = GemmaMLXRuntimeError.interruptedStream
+      await markCancelled(.interrupted)
+      if let memoryClearReason = memoryClearReason(for: .interruptedStream) {
+        await clearMemoryCache(
+          reason: memoryClearReason,
+          traceID: traceID,
+          traceMetadata: traceMetadata,
+          cacheTrace: cacheTrace,
+          memoryCacheClearer: memoryCacheClearer
+        )
+      }
+      await GemmaDebugTraceStore.shared.traceResponse(
+        id: traceID,
+        output: output,
+        metrics: completedMetrics,
+        error: error.localizedDescription
+      )
+      continuation.finish(throwing: error)
+      return
+    }
+
+    if !nativeToolCalls.isEmpty {
+      await markNativeToolCallBoundary(output, nativeToolCalls)
+    } else {
+      await markCompleted(output)
+    }
+    await GemmaDebugTraceStore.shared.traceResponse(
+      id: traceID,
+      output: output,
+      metrics: completedMetrics
+    )
+    continuation.finish()
   }
 
   nonisolated static func memoryClearReason(

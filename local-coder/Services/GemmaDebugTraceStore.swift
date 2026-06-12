@@ -104,98 +104,43 @@ actor GemmaDebugTraceStore: TurnTracing {
       "phase": event.phase.rawValue,
       "durationMs": event.durationMs,
     ]
-    if let turnID = event.turnID {
-      trace["turnID"] = turnID.uuidString
-    }
-    if let generationID = event.generationID {
-      trace["generationID"] = generationID.uuidString
-    }
-    if let promptBytes = event.promptBytes {
-      trace["promptBytes"] = promptBytes
-    }
-    if let promptTokens = event.promptTokens {
-      trace["promptTokens"] = promptTokens
-    }
-    if let messageCount = event.messageCount {
-      trace["messageCount"] = messageCount
-    }
-    if let toolLoopIteration = event.toolLoopIteration {
-      trace["toolLoopIteration"] = toolLoopIteration
-    }
-    if let toolName = event.toolName {
-      trace["toolName"] = toolName
-    }
-    if let ttftMs = event.ttftMs {
-      trace["ttftMs"] = ttftMs
-    }
-    if let tokensPerSecond = event.tokensPerSecond {
-      trace["tokensPerSecond"] = tokensPerSecond
-    }
-    if let cacheMode = event.cacheMode {
-      trace["cacheMode"] = cacheMode
-    }
-    if let cacheReason = event.cacheReason {
-      trace["cacheReason"] = cacheReason
-    }
-    if let memoryClearReason = event.memoryClearReason {
-      trace["memoryClearReason"] = memoryClearReason
-    }
-    if let interactionMode = event.interactionMode {
-      trace["interactionMode"] = interactionMode.rawValue
-    }
-    if let contextSignature = event.contextSignature {
-      trace["contextSignature"] = contextSignature
-    }
-    if let previousContextSignature = event.previousContextSignature {
-      trace["previousContextSignature"] = previousContextSignature
-    }
-    if let appendOnly = event.appendOnly {
-      trace["appendOnly"] = appendOnly
-    }
-    if let reusedMessageCount = event.reusedMessageCount {
-      trace["reusedMessageCount"] = reusedMessageCount
-    }
-    if let appendedMessageCount = event.appendedMessageCount {
-      trace["appendedMessageCount"] = appendedMessageCount
-    }
-    if let mismatchReason = event.mismatchReason {
-      trace["mismatchReason"] = mismatchReason
-    }
-    if let firstMismatchIndex = event.firstMismatchIndex {
-      trace["firstMismatchIndex"] = firstMismatchIndex
-    }
-    if let systemPromptChanged = event.systemPromptChanged {
-      trace["systemPromptChanged"] = systemPromptChanged
-    }
-    if let currentPromptContextChanged = event.currentPromptContextChanged {
-      trace["currentPromptContextChanged"] = currentPromptContextChanged
-    }
-    if let toolCallFormat = event.toolCallFormat {
-      trace["toolCallFormat"] = toolCallFormat
-    }
-    if let toolValidationStatus = event.toolValidationStatus {
-      trace["toolValidationStatus"] = toolValidationStatus
-    }
-    if let toolValidationError = event.toolValidationError {
-      trace["toolValidationError"] = toolValidationError
-    }
-    if let toolOriginalName = event.toolOriginalName {
-      trace["toolOriginalName"] = toolOriginalName
-    }
-    if let toolArgumentKeys = event.toolArgumentKeys {
-      trace["toolArgumentKeys"] = toolArgumentKeys
-    }
-    if let toolArguments = event.toolArguments {
-      trace["toolArguments"] = toolArguments.map(traceToolArgument(from:))
-    }
-    if let imageCount = event.imageCount {
-      trace["imageCount"] = imageCount
-    }
-    if let imageTypes = event.imageTypes {
-      trace["imageTypes"] = imageTypes
-    }
-    if let imageByteCount = event.imageByteCount {
-      trace["imageByteCount"] = imageByteCount
+    let optionalFields: [(String, Any?)] = [
+      ("turnID", event.turnID?.uuidString),
+      ("generationID", event.generationID?.uuidString),
+      ("promptBytes", event.promptBytes),
+      ("promptTokens", event.promptTokens),
+      ("messageCount", event.messageCount),
+      ("toolLoopIteration", event.toolLoopIteration),
+      ("toolName", event.toolName),
+      ("ttftMs", event.ttftMs),
+      ("tokensPerSecond", event.tokensPerSecond),
+      ("cacheMode", event.cacheMode),
+      ("cacheReason", event.cacheReason),
+      ("memoryClearReason", event.memoryClearReason),
+      ("interactionMode", event.interactionMode?.rawValue),
+      ("contextSignature", event.contextSignature),
+      ("previousContextSignature", event.previousContextSignature),
+      ("appendOnly", event.appendOnly),
+      ("reusedMessageCount", event.reusedMessageCount),
+      ("appendedMessageCount", event.appendedMessageCount),
+      ("mismatchReason", event.mismatchReason),
+      ("firstMismatchIndex", event.firstMismatchIndex),
+      ("systemPromptChanged", event.systemPromptChanged),
+      ("currentPromptContextChanged", event.currentPromptContextChanged),
+      ("toolCallFormat", event.toolCallFormat),
+      ("toolValidationStatus", event.toolValidationStatus),
+      ("toolValidationError", event.toolValidationError),
+      ("toolOriginalName", event.toolOriginalName),
+      ("toolArgumentKeys", event.toolArgumentKeys),
+      ("toolArguments", event.toolArguments?.map(traceToolArgument(from:))),
+      ("imageCount", event.imageCount),
+      ("imageTypes", event.imageTypes),
+      ("imageByteCount", event.imageByteCount),
+    ]
+    for (key, value) in optionalFields {
+      if let value {
+        trace[key] = value
+      }
     }
     append(trace)
   }

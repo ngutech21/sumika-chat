@@ -9,7 +9,6 @@ excluded:
 
 disabled_rules:
   - closure_parameter_position
-  - cyclomatic_complexity
   - file_length
   - function_parameter_count
   - large_tuple
@@ -17,6 +16,10 @@ disabled_rules:
   - opening_brace
   - trailing_comma
 
+cyclomatic_complexity:
+  warning: 15
+  error: 30
+  ignores_case_statements: true
 function_body_length:
   warning: 180
 type_body_length:
