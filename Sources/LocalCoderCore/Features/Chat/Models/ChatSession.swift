@@ -99,7 +99,9 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       forKey: .modelContextSnapshot
     )
     toolCalls = try container.decode([ToolCallRecord].self, forKey: .toolCalls)
-    turns = try container.decode([ChatTurn].self, forKey: .turns)
+    turns = Self.resolvingInterruptedStreams(
+      in: try container.decode([ChatTurn].self, forKey: .turns)
+    )
     focusedFileState = try container.decode(FocusedFileState.self, forKey: .focusedFileState)
     systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
     generationSettings = try container.decode(
@@ -137,6 +139,31 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     try container.encode(activeAttachmentContext, forKey: .activeAttachmentContext)
     try container.encode(createdAt, forKey: .createdAt)
     try container.encode(updatedAt, forKey: .updatedAt)
+  }
+
+  /// A persisted `.streaming` delivery status means generation was interrupted
+  /// by a crash or hard quit — there is no live stream after a reload, so a
+  /// loaded turn must never resurface as "Generating…". Mirror the runtime
+  /// cancel path (`ChatTranscriptMutator.removeTransientAssistantPlaceholders`
+  /// and `markStreamingAssistantMessagesCancelled`): drop empty placeholders and
+  /// mark partial content as cancelled.
+  private static func resolvingInterruptedStreams(in turns: [ChatTurn]) -> [ChatTurn] {
+    turns.map { turn in
+      var turn = turn
+      turn.items = turn.items.compactMap { item in
+        guard case .assistantMessage(var message) = item,
+          message.deliveryStatus == .streaming
+        else {
+          return item
+        }
+        guard !message.content.isEmpty else {
+          return nil
+        }
+        message.deliveryStatus = .cancelled
+        return .assistantMessage(message)
+      }
+      return turn
+    }
   }
 
   public func turnID(containingToolCall toolCallID: ToolCallRecord.ID) -> ChatTurn.ID? {
