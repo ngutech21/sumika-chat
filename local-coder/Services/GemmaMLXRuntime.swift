@@ -116,7 +116,6 @@ nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
   case invalidatedHistoryPrefixMismatch = "invalidated_history_prefix_mismatch"
   case invalidatedCurrentPromptContextBoundary = "invalidated_current_prompt_context_boundary"
   case invalidatedToolPromptChanged = "invalidated_tool_prompt_changed"
-  case invalidatedToolSchemaChanged = "invalidated_tool_schema_changed"
   case invalidatedModelChanged = "invalidated_model_changed"
   case invalidatedRuntimeContextCleared = "invalidated_runtime_context_cleared"
   case invalidatedNativeToolCallBoundary = "invalidated_native_tool_call_boundary"
@@ -175,6 +174,22 @@ nonisolated struct GemmaRenderedContextSignature: Equatable, Sendable {
 
   var traceValue: String {
     "renderer-v\(rendererVersion):projection-\(projectionMode.signatureComponent):system-\(systemPromptHash):history-\(renderedHistoryHash):settings-\(generationSettingsHash):tools-\(nativeToolSchemaHash)"
+  }
+
+  /// Whether two signatures describe the same prefilled KV prefix.
+  ///
+  /// `nativeToolSchemaHash` is deliberately excluded: the Gemma chat template
+  /// never renders tool specs into the prompt, so `session.tools` only affects
+  /// decode-time tool-call parsing, not the prefilled bytes. Gating prefix
+  /// reuse on it made the final tool-loop answer (empty registry -> "none")
+  /// re-prefill the whole context spuriously, the same way sampling params used
+  /// to. The hash stays in `traceValue` for diagnostics.
+  func hasSamePrefill(as other: GemmaRenderedContextSignature) -> Bool {
+    rendererVersion == other.rendererVersion
+      && projectionMode == other.projectionMode
+      && systemPromptHash == other.systemPromptHash
+      && renderedHistoryHash == other.renderedHistoryHash
+      && generationSettingsHash == other.generationSettingsHash
   }
 }
 
@@ -1083,7 +1098,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       reuseStrategy = .none
       mismatchReason = "settings_changed"
     } else if cachedPrefix == currentHistory {
-      if previousSignature == currentSignature {
+      if previousSignature?.hasSamePrefill(as: currentSignature) == true {
         cacheMode = .sessionReused
         if cachedState == .cleanNativeToolCallBoundary {
           cacheReason = .appendOnlyDeltaReused
@@ -1222,9 +1237,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     if previousSignature.systemPromptHash != currentSignature.systemPromptHash {
       return .invalidatedSystemPromptChanged
     }
-    if previousSignature.nativeToolSchemaHash != currentSignature.nativeToolSchemaHash {
-      return .invalidatedToolSchemaChanged
-    }
     return .invalidatedRenderedContextChanged
   }
 
@@ -1235,11 +1247,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     guard let previousSignature else {
       return false
     }
+    // Append-only deltas legitimately extend the history, so renderedHistoryHash
+    // differs by design and is not compared. nativeToolSchemaHash is excluded for
+    // the same reason as in `hasSamePrefill`: it is decode-time only for Gemma.
     return previousSignature.rendererVersion == currentSignature.rendererVersion
       && previousSignature.projectionMode == currentSignature.projectionMode
       && previousSignature.systemPromptHash == currentSignature.systemPromptHash
       && previousSignature.generationSettingsHash == currentSignature.generationSettingsHash
-      && previousSignature.nativeToolSchemaHash == currentSignature.nativeToolSchemaHash
   }
 
   nonisolated private static func historyMismatchReason(

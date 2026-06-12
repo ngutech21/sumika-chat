@@ -991,8 +991,12 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(decision.trace.cacheReason == .sessionReused)
   }
 
+  // The Gemma chat template never renders tool specs into the prompt, so the
+  // native tool schema is a decode-time-only parameter and must not gate KV
+  // prefix reuse. A tool-schema-only change (e.g. the final tool-loop answer
+  // dropping to an empty registry) must reuse the cached prefix.
   @Test
-  func cacheDecisionInvalidatesWhenNativeToolSchemaChanges() {
+  func cacheDecisionReusesWhenOnlyNativeToolSchemaChanges() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [
       .user("hello"),
@@ -1000,9 +1004,6 @@ struct GemmaMLXRuntimeTemplateTests {
     ])
     let readOnlyToolSchemaHash = GemmaMLXRuntime.nativeToolSchemaSignature(
       for: ToolExecutorRegistry.readOnly.toolRegistry.tools
-    )
-    let codingToolSchemaHash = GemmaMLXRuntime.nativeToolSchemaSignature(
-      for: ToolExecutorRegistry.codingAgent.toolRegistry.tools
     )
     let cachedSignature = GemmaMLXRuntime.renderedContextSignature(
       for: prefix,
@@ -1017,13 +1018,13 @@ struct GemmaMLXRuntimeTemplateTests {
       cachedState: .clean,
       currentHistory: prefix,
       currentSettings: settings,
-      currentNativeToolSchemaHash: codingToolSchemaHash
+      currentNativeToolSchemaHash: GemmaMLXRuntime.nativeToolSchemaSignature(from: nil)
     )
 
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedToolSchemaChanged)
-    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
+    #expect(decision.shouldReuse)
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .sessionReused)
+    #expect(decision.trace.mismatchReason == nil)
   }
 
   @Test
@@ -1436,8 +1437,10 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(decision.trace.appendedMessageCount == 0)
   }
 
+  // Append-only history that also drops the tool schema (decode-time only for
+  // Gemma) still reuses the cached prefix as a delta.
   @Test
-  func cacheDecisionInvalidatesAppendOnlyHistoryWhenNativeToolSchemaChanges() {
+  func cacheDecisionReusesAppendOnlyHistoryWhenNativeToolSchemaChanges() {
     let settings = ChatGenerationSettings.codingDefault
     let prefix = GemmaMLXRuntime.messageSnapshot(from: [
       .user("hello"),
@@ -1450,9 +1453,6 @@ struct GemmaMLXRuntimeTemplateTests {
     ])
     let readOnlyToolSchemaHash = GemmaMLXRuntime.nativeToolSchemaSignature(
       for: ToolExecutorRegistry.readOnly.toolRegistry.tools
-    )
-    let codingToolSchemaHash = GemmaMLXRuntime.nativeToolSchemaSignature(
-      for: ToolExecutorRegistry.codingAgent.toolRegistry.tools
     )
     let cachedSignature = GemmaMLXRuntime.renderedContextSignature(
       for: prefix,
@@ -1467,17 +1467,17 @@ struct GemmaMLXRuntimeTemplateTests {
       cachedState: .clean,
       currentHistory: appendedHistory,
       currentSettings: settings,
-      currentNativeToolSchemaHash: codingToolSchemaHash
+      currentNativeToolSchemaHash: GemmaMLXRuntime.nativeToolSchemaSignature(from: nil)
     )
 
-    #expect(!decision.shouldReuse)
-    #expect(decision.reuseStrategy == .none)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedToolSchemaChanged)
+    #expect(decision.shouldReuse)
+    #expect(decision.reuseStrategy == .appendHistoryDelta(startIndex: 2))
+    #expect(decision.trace.cacheMode == .sessionReused)
+    #expect(decision.trace.cacheReason == .appendOnlyDeltaReused)
     #expect(decision.trace.appendOnly)
     #expect(decision.trace.reusedMessageCount == 2)
     #expect(decision.trace.appendedMessageCount == 1)
-    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
+    #expect(decision.trace.mismatchReason == nil)
   }
 
   @Test
