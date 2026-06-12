@@ -82,7 +82,22 @@ check-warnings:
 
 lint:
     @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew install swiftlint"; exit 127; }
-    swiftlint lint --quiet --strict --no-cache --config .swiftlint.yml
+    @configs="$(find . \( -path ./.git -o -path ./.build -o -path ./build -o -path ./DerivedData \) -prune -o -name .swiftlint.yml -print | sort | sed 's#^\./##')"; \
+    if [ -z "$configs" ]; then \
+        echo "No SwiftLint configuration files found."; \
+        exit 1; \
+    fi; \
+    status=0; \
+    for config in $configs; do \
+        dir="$(dirname "$config")"; \
+        echo "SwiftLint $config"; \
+        if [ "$dir" = "." ]; then \
+            swiftlint lint --quiet --strict --no-cache --config "$config" || status=$?; \
+        else \
+            swiftlint lint --quiet --strict --no-cache --config "$config" "$dir" || status=$?; \
+        fi; \
+    done; \
+    exit "$status"
 
 final-check: typos format lint test check-warnings
 

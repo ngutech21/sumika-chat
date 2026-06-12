@@ -34,13 +34,13 @@ jobs:
           xcrun --sdk macosx --show-sdk-version
           xcrun swift --version
 
-      - name: Install SwiftLint
+      - name: Install lint tools
         timeout-minutes: 10
-        run: brew install swiftlint
+        run: brew install just swiftlint
 
       - name: Run SwiftLint
         timeout-minutes: 10
-        run: swiftlint lint --strict --no-cache --config .swiftlint.yml
+        run: just lint
 
       - name: Resolve Swift packages
         timeout-minutes: 10
