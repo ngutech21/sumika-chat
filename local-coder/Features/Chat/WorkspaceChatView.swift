@@ -12,8 +12,10 @@ struct WorkspaceChatView: View {
   @State private var htmlPreview: HTMLPreviewState?
   @State private var htmlPreviewRefreshID = UUID()
   @State private var htmlPreviewConsoleEntries: [HTMLPreviewConsoleEntry] = []
+  @State private var filePreview: FilePreviewState?
   private let slashCommandParser = SlashCommandParser()
   private let htmlPreviewResolver = HTMLPreviewResolver()
+  private let filePreviewResolver = FilePreviewResolver()
 
   private var onSend: () -> Void {
     {
@@ -63,7 +65,7 @@ struct WorkspaceChatView: View {
           canChangeModel: !downloadedModels.isEmpty && !controller.isGenerating
             && controller.modelRuntime.canChangeModel,
           canChangeInteractionMode: controller.canChangeInteractionMode,
-          canSend: controller.canSend || canRunPreviewCommand,
+          canSend: controller.canSend || canRunSlashCommand,
           isGenerating: controller.isGenerating,
           isInputBlocked: controller.isInputBlocked,
           errorMessage: controller.errorMessage,
@@ -106,6 +108,16 @@ struct WorkspaceChatView: View {
         .transition(.move(edge: .trailing).combined(with: .opacity))
       }
 
+      if let filePreview {
+        FilePreviewPane(
+          preview: filePreview,
+          onClose: {
+            self.filePreview = nil
+          }
+        )
+        .transition(.move(edge: .trailing).combined(with: .opacity))
+      }
+
       if isModelContextDebugVisible {
         ModelContextDebugPane(
           controller: controller,
@@ -125,7 +137,7 @@ struct WorkspaceChatView: View {
     }
   }
 
-  private var canRunPreviewCommand: Bool {
+  private var canRunSlashCommand: Bool {
     !controller.isGenerating
       && !controller.isInputBlocked
       && slashCommandParser.parse(controller.draft) != nil
@@ -179,24 +191,50 @@ struct WorkspaceChatView: View {
 
   private func handleLocalSlashCommand() -> Bool {
     let trimmedDraft = controller.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard trimmedDraft.hasPrefix("/preview") else {
+    guard trimmedDraft.hasPrefix("/") else {
       return false
     }
 
-    guard case .preview(let path) = slashCommandParser.parse(trimmedDraft) else {
-      controller.errorMessage = "Usage: /preview <path-to-html-file>"
+    let name = String(trimmedDraft.dropFirst().prefix { !$0.isWhitespace })
+    guard let descriptor = SlashCommandRegistry.descriptor(named: name) else {
+      // Unknown command text: leave it for the normal send path.
+      return false
+    }
+
+    guard let command = slashCommandParser.parse(trimmedDraft) else {
+      controller.errorMessage = descriptor.usage
       return true
     }
 
+    switch command {
+    case .preview(let path):
+      runPreviewCommand(path: path)
+    case .show(let path):
+      runShowCommand(path: path)
+    }
+    return true
+  }
+
+  private func runPreviewCommand(path: String) {
     do {
       htmlPreview = try htmlPreviewResolver.resolve(path: path, in: workspace)
+      filePreview = nil
       htmlPreviewConsoleEntries.removeAll()
       controller.draft = ""
       controller.errorMessage = nil
     } catch {
       controller.errorMessage = error.localizedDescription
     }
-    return true
+  }
+
+  private func runShowCommand(path: String) {
+    do {
+      filePreview = try filePreviewResolver.resolve(path: path, in: workspace)
+      controller.draft = ""
+      controller.errorMessage = nil
+    } catch {
+      controller.errorMessage = error.localizedDescription
+    }
   }
 }
 

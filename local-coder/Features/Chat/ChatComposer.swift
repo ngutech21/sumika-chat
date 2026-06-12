@@ -30,6 +30,8 @@ struct ChatComposer: View {
   let onCancel: () -> Void
   @State private var isDropTarget = false
   @FocusState private var messageFieldFocused: Bool
+  @State private var slashSelectionIndex = 0
+  @State private var slashSuggestionsDismissed = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -63,6 +65,16 @@ struct ChatComposer: View {
           .transition(.opacity.combined(with: .move(edge: .top)))
       }
 
+      if !slashSuggestions.isEmpty {
+        SlashCommandSuggestionList(
+          suggestions: slashSuggestions,
+          selectedIndex: clampedSlashIndex,
+          onSelect: acceptSlashSuggestion,
+          onHighlight: { slashSelectionIndex = $0 }
+        )
+        .transition(.opacity)
+      }
+
       VStack(spacing: 8) {
         TextField("Message", text: $draft, axis: .vertical)
           .textFieldStyle(.plain)
@@ -72,11 +84,17 @@ struct ChatComposer: View {
           .focused($messageFieldFocused)
           .disabled(isInputBlocked)
           .onSubmit(sendMessage)
+          .onKeyPress(.upArrow) { moveSlashSelection(by: -1) }
+          .onKeyPress(.downArrow) { moveSlashSelection(by: 1) }
+          .onKeyPress(.tab) { commitSlashSelectionFromKey() }
+          .onKeyPress(.escape) { dismissSlashSuggestions() }
           .onPasteCommand(of: [UTType.fileURL, UTType.image, UTType.png, UTType.tiff]) {
             providers in
             handlePaste(providers)
           }
           .onChange(of: draft) { oldDraft, newDraft in
+            slashSuggestionsDismissed = false
+            slashSelectionIndex = 0
             handleDraftChangeAfterPaste(from: oldDraft, to: newDraft)
           }
           .background {
@@ -265,7 +283,68 @@ struct ChatComposer: View {
     messageFieldFocused && !isGenerating && !isInputBlocked && modelState == .ready
   }
 
+  private var slashSuggestions: [SlashCommandDescriptor] {
+    guard !slashSuggestionsDismissed, !isInputBlocked else {
+      return []
+    }
+    guard draft.first == "/" else {
+      return []
+    }
+    let token = draft.dropFirst()
+    guard !token.contains(where: \.isWhitespace) else {
+      return []
+    }
+    return SlashCommandRegistry.matching(prefix: String(token))
+  }
+
+  private var clampedSlashIndex: Int {
+    let count = slashSuggestions.count
+    guard count > 0 else {
+      return 0
+    }
+    return min(max(slashSelectionIndex, 0), count - 1)
+  }
+
+  private func moveSlashSelection(by delta: Int) -> KeyPress.Result {
+    let suggestions = slashSuggestions
+    guard !suggestions.isEmpty else {
+      return .ignored
+    }
+    slashSelectionIndex = min(max(clampedSlashIndex + delta, 0), suggestions.count - 1)
+    return .handled
+  }
+
+  private func commitSlashSelectionFromKey() -> KeyPress.Result {
+    let suggestions = slashSuggestions
+    guard !suggestions.isEmpty else {
+      return .ignored
+    }
+    acceptSlashSuggestion(suggestions[clampedSlashIndex])
+    return .handled
+  }
+
+  private func dismissSlashSuggestions() -> KeyPress.Result {
+    guard !slashSuggestions.isEmpty else {
+      return .ignored
+    }
+    slashSuggestionsDismissed = true
+    return .handled
+  }
+
+  private func acceptSlashSuggestion(_ descriptor: SlashCommandDescriptor) {
+    draft = descriptor.token + " "
+    slashSelectionIndex = 0
+    slashSuggestionsDismissed = false
+    messageFieldFocused = true
+  }
+
   private func sendMessage() {
+    let suggestions = slashSuggestions
+    if !suggestions.isEmpty {
+      acceptSlashSuggestion(suggestions[clampedSlashIndex])
+      return
+    }
+
     guard canSend else {
       return
     }
