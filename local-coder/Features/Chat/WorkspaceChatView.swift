@@ -15,6 +15,7 @@ struct WorkspaceChatView: View {
   @State private var htmlPreviewRefreshID = UUID()
   @State private var htmlPreviewConsoleEntries: [HTMLPreviewConsoleEntry] = []
   @State private var filePreview: FilePreviewState?
+  @State private var isWorkspaceTerminalVisible = false
   private let slashCommandParser = SlashCommandParser()
   private let htmlPreviewResolver = HTMLPreviewResolver()
   private let filePreviewResolver = FilePreviewResolver()
@@ -81,6 +82,17 @@ struct WorkspaceChatView: View {
           onCancel: controller.cancelGeneration
         )
         .zIndex(1)
+
+        if isWorkspaceTerminalVisible {
+          WorkspaceTerminalPane(
+            configuration: WorkspaceTerminalConfiguration(workspace: workspace),
+            onClose: {
+              isWorkspaceTerminalVisible = false
+            }
+          )
+          .id(workspace.id)
+          .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -139,6 +151,17 @@ struct WorkspaceChatView: View {
     }
     .toolbar {
       ToolbarItemGroup(placement: .primaryAction) {
+        Button {
+          isWorkspaceTerminalVisible.toggle()
+        } label: {
+          Image(systemName: isWorkspaceTerminalVisible ? "terminal.fill" : "terminal")
+        }
+        .help(isWorkspaceTerminalVisible ? "Hide workspace terminal" : "Show workspace terminal")
+        .accessibilityLabel(
+          isWorkspaceTerminalVisible ? "Hide workspace terminal" : "Show workspace terminal"
+        )
+        .accessibilityIdentifier("workspace.terminalToggleButton")
+
         Button(action: onOpenWorkspaceInFinder) {
           Image(systemName: "folder")
         }

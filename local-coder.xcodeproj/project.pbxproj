@@ -17,6 +17,7 @@
 		F9081F202FCE1000000A270C /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1F2FCE1000000A270C /* HuggingFace */; };
 		F92000012FD2000000A270C /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = F92000032FD2000000A270C /* MarkdownUI */; };
 		F93000012FD3000000A270C /* LocalCoderCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* LocalCoderCore */; };
+		F95000012FE0000000A270C /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F95000032FE0000000A270C /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -90,6 +91,7 @@
 				F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */,
 				F92000012FD2000000A270C /* MarkdownUI in Frameworks */,
 				F93000012FD3000000A270C /* LocalCoderCore in Frameworks */,
+				F95000012FE0000000A270C /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -193,6 +195,7 @@
 				F9081F1B2FCE1000000A270C /* Tokenizers */,
 				F92000032FD2000000A270C /* MarkdownUI */,
 				F93000032FD3000000A270C /* LocalCoderCore */,
+				F95000032FE0000000A270C /* SwiftTerm */,
 			);
 			productName = "local-coder";
 			productReference = F9D7F5FB2FCC80CD00FECA78 /* local-coder.app */;
@@ -236,6 +239,7 @@
 				F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */,
 				F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */,
 				F92000022FD2000000A270C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				F93000022FD3000000A270C /* XCLocalSwiftPackageReference "." */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -713,6 +717,14 @@
 				minimumVersion = 2.4.1;
 			};
 		};
+		F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.13.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -765,6 +777,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F93000022FD3000000A270C /* XCLocalSwiftPackageReference "." */;
 			productName = LocalCoderCore;
+		};
+		F95000032FE0000000A270C /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
