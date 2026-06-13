@@ -98,9 +98,11 @@ struct ChatComposer: View {
             handleDraftChangeAfterPaste(from: oldDraft, to: newDraft)
           }
           .background {
-            ComposerPasteCommandMonitor(
-              isActive: canInterceptPasteCommand,
-              onPaste: handlePasteboardCommand
+            ComposerKeyCommandMonitor(
+              canHandlePaste: canInterceptPasteCommand,
+              canInsertSoftBreak: canInsertSoftBreak,
+              onPaste: handlePasteboardCommand,
+              onSoftBreak: insertSoftBreak
             )
             .frame(width: 0, height: 0)
           }
@@ -283,6 +285,10 @@ struct ChatComposer: View {
     messageFieldFocused && !isGenerating && !isInputBlocked && modelState == .ready
   }
 
+  private var canInsertSoftBreak: Bool {
+    messageFieldFocused && !isInputBlocked
+  }
+
   private var slashSuggestions: [SlashCommandDescriptor] {
     guard !slashSuggestionsDismissed, !isInputBlocked else {
       return []
@@ -388,6 +394,20 @@ struct ChatComposer: View {
     }
 
     onDropAttachments([imageURL])
+    return true
+  }
+
+  private func insertSoftBreak() -> Bool {
+    guard canInsertSoftBreak else {
+      return false
+    }
+
+    if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+      editor.insertText("\n", replacementRange: editor.selectedRange())
+      return true
+    }
+
+    draft.append("\n")
     return true
   }
 
@@ -616,9 +636,11 @@ nonisolated private final class AttachmentURLAccumulator: @unchecked Sendable {
   }
 }
 
-private struct ComposerPasteCommandMonitor: NSViewRepresentable {
-  let isActive: Bool
+private struct ComposerKeyCommandMonitor: NSViewRepresentable {
+  let canHandlePaste: Bool
+  let canInsertSoftBreak: Bool
   let onPaste: () -> Bool
+  let onSoftBreak: () -> Bool
 
   func makeCoordinator() -> Coordinator {
     Coordinator(parent: self)
@@ -640,10 +662,10 @@ private struct ComposerPasteCommandMonitor: NSViewRepresentable {
   }
 
   final class Coordinator {
-    var parent: ComposerPasteCommandMonitor
+    var parent: ComposerKeyCommandMonitor
     private var monitor: Any?
 
-    init(parent: ComposerPasteCommandMonitor) {
+    init(parent: ComposerKeyCommandMonitor) {
       self.parent = parent
     }
 
@@ -653,11 +675,19 @@ private struct ComposerPasteCommandMonitor: NSViewRepresentable {
       }
 
       monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-        guard let self, parent.isActive, Self.isPasteCommand(event) else {
+        guard let self else {
           return event
         }
 
-        return parent.onPaste() ? nil : event
+        if parent.canInsertSoftBreak, Self.isSoftBreakCommand(event) {
+          return parent.onSoftBreak() ? nil : event
+        }
+
+        if parent.canHandlePaste, Self.isPasteCommand(event) {
+          return parent.onPaste() ? nil : event
+        }
+
+        return event
       }
     }
 
@@ -675,6 +705,19 @@ private struct ComposerPasteCommandMonitor: NSViewRepresentable {
       }
 
       return event.charactersIgnoringModifiers?.lowercased() == "v"
+    }
+
+    private static func isSoftBreakCommand(_ event: NSEvent) -> Bool {
+      let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+      guard flags.contains(.shift),
+        !flags.contains(.command),
+        !flags.contains(.control),
+        !flags.contains(.option)
+      else {
+        return false
+      }
+
+      return event.keyCode == 36 || event.keyCode == 76
     }
   }
 }
