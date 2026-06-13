@@ -9,6 +9,10 @@ struct LocalCoderApp: App {
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible =
     false
 
+  init() {
+    NSWindow.allowsAutomaticWindowTabbing = false
+  }
+
 
   var body: some Scene {
     WindowGroup {
