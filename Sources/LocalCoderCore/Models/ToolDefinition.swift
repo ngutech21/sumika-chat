@@ -213,7 +213,7 @@ nonisolated extension ToolDefinition {
 
   public static let readFile = ToolDefinition(
     name: .readFile,
-    description: "Read a file into your context to analyze, summarize, or edit it.",
+    description: "Read a workspace text file into your context to inspect, explain, summarize, reason about, or edit it. Use this before editing an existing file unless the exact current content is already visible.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
@@ -246,7 +246,7 @@ nonisolated extension ToolDefinition {
 
   public static let showFile = ToolDefinition(
     name: .showFile,
-    description: "Show a file to the user without loading its contents into your context.",
+    description: "Show a workspace file directly to the user without loading its contents into your model context. Use only when the user wants to view/open the file, not when you need to reason about its contents.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
@@ -279,7 +279,7 @@ nonisolated extension ToolDefinition {
 
   public static let listFiles = ToolDefinition(
     name: .listFiles,
-    description: "List files in a workspace directory.",
+    description: "List files and folders in a workspace-relative directory. Use this to explore project structure before choosing a path.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
@@ -296,7 +296,7 @@ nonisolated extension ToolDefinition {
 
   public static let globFiles = ToolDefinition(
     name: .globFiles,
-    description: "Find workspace files by glob.",
+    description: "Find workspace files by glob pattern. Use this when the target path or file type is unknown but a filename pattern is known.",
     parameters: [
       ToolParameterDefinition(
         name: "pattern",
@@ -319,7 +319,7 @@ nonisolated extension ToolDefinition {
 
   public static let searchFiles = ToolDefinition(
     name: .searchFiles,
-    description: "Search workspace text files.",
+    description: "earch text contents of workspace files. Use this to locate symbols, strings, errors, or relevant code before reading or editing files.",
     parameters: [
       ToolParameterDefinition(
         name: "pattern",
@@ -365,11 +365,11 @@ nonisolated extension ToolDefinition {
 
   public static let workspaceDiagnostics = ToolDefinition(
     name: .workspaceDiagnostics,
-    description: "Parse diagnostics from command output.",
+    description: "Extract compiler, linter, and test diagnostics from a previous run_command outputRef. Use after build, test, lint, or typecheck commands to get structured file/line/column errors before editing.",
     parameters: [
       ToolParameterDefinition(
         name: "outputRef",
-        description: "Command output ref.",
+        description: "The outputRef returned by run_command, e.g. cmd_abc123. Must refer to the command whose stdout/stderr should be parsed.",
         isRequired: true
       )
     ],
@@ -382,7 +382,7 @@ nonisolated extension ToolDefinition {
 
   public static let writeFile = ToolDefinition(
     name: .writeFile,
-    description: "Create or fully overwrite a workspace text file.",
+    description: "Create a new workspace text file or intentionally replace an entire small file. Prefer edit_file for targeted changes to existing files.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
@@ -391,7 +391,7 @@ nonisolated extension ToolDefinition {
       ),
       ToolParameterDefinition(
         name: "content",
-        description: "Complete UTF-8 content. Replaces the entire file.",
+        description: "Complete UTF-8 file content written exactly as provided. Replaces the entire file.",
         isRequired: true,
         supportsHeredocPayload: true
       ),
@@ -406,7 +406,7 @@ nonisolated extension ToolDefinition {
 
   public static let editFile = ToolDefinition(
     name: .editFile,
-    description: "Replace one exact text span in an existing workspace file.",
+    description: "Replace one exact text span in an existing workspace file. Use after reading the current file content unless the exact current span is already visible.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
@@ -437,7 +437,7 @@ nonisolated extension ToolDefinition {
 
   public static let runCommand = ToolDefinition(
     name: .runCommand,
-    description: "Run an approved foreground shell command in the workspace root.",
+    description: "Run an approved foreground shell command in the workspace root. Do not use this to write files when write_file or edit_file can do the change.",
     parameters: [
       ToolParameterDefinition(
         name: "command",
@@ -469,7 +469,7 @@ nonisolated extension ToolDefinition {
 
   public static let todoWrite = ToolDefinition(
     name: .todoWrite,
-    description: "Update the Agent todo plan.",
+    description: "Create or update the Agent's compact todo plan for multi-step work. Send the full current plan in one call, not one call per item.",
     parameters: (1...6).map { index in
       ToolParameterDefinition(
         name: "item\(index)",
@@ -504,7 +504,7 @@ nonisolated extension ToolDefinition {
   public static let askUser = ToolDefinition(
     name: .askUser,
     description:
-      "Ask the user a blocking clarification with predefined answer options.",
+      "Ask the user one blocking clarification question with predefined answer options. Use only when workspace inspection cannot resolve the ambiguity and choosing a default would risk wrong changes.",
     parameters: [
       ToolParameterDefinition(
         name: "question",
