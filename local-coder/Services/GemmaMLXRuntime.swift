@@ -290,6 +290,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
           promptImageSignatures: promptImageSignatures,
           output: output,
           nativeToolCalls: nativeToolCalls,
+          toolRegistry: toolContext?.registry,
           settings: settings,
           projectionMode: projectionMode,
           nativeToolSchemaHash: nativeToolSchemaHash
@@ -452,6 +453,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     promptImageSignatures: [String],
     output: String,
     nativeToolCalls: [ChatRuntimeToolCall],
+    toolRegistry: ToolRegistry?,
     settings: ChatGenerationSettings,
     projectionMode: ModelContextProjectionMode,
     nativeToolSchemaHash: String
@@ -467,7 +469,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       return
     }
 
-    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(nativeToolCalls)
+    let nativeBoundary = NativeToolCallBoundaryRenderer.renderModelContextGemma4(
+      nativeToolCalls,
+      registry: toolRegistry
+    )
     let assistantOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
     let assistantSnapshots =
       assistantOutput.isEmpty

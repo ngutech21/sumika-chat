@@ -12,6 +12,22 @@ public enum NativeToolCallBoundaryRenderer {
     toolCalls.map(renderGemma4(_:)).joined(separator: "\n")
   }
 
+  public static func renderModelContextGemma4(
+    _ toolCalls: [ToolCallModelMessage]
+  ) -> String {
+    toolCalls.map(\.modelContextContent).joined(separator: "\n")
+  }
+
+  public static func renderModelContextGemma4(
+    _ toolCalls: [ChatRuntimeToolCall],
+    registry: ToolRegistry? = nil
+  ) -> String {
+    toolCalls.map { toolCall in
+      modelContextMessage(for: toolCall, registry: registry).modelContextContent
+    }
+    .joined(separator: "\n")
+  }
+
   public static func renderGemma4(
     toolName: String,
     arguments: ToolCallArguments
@@ -22,6 +38,34 @@ public enum NativeToolCallBoundaryRenderer {
     .joined(separator: ",")
 
     return "<|tool_call>call:\(toolName){\(renderedArguments)}<tool_call|>"
+  }
+
+  private static func modelContextMessage(
+    for toolCall: ChatRuntimeToolCall,
+    registry: ToolRegistry?
+  ) -> ToolCallModelMessage {
+    let toolName = modelContextToolName(for: toolCall.name, registry: registry)
+    let rawText = renderGemma4(toolName: toolName.rawValue, arguments: toolCall.arguments)
+    return ToolCallModelMessage(
+      callID: UUID(),
+      toolName: toolName,
+      arguments: toolCall.arguments.keys.sorted().map { key in
+        ToolCallModelArgument(name: key, value: toolCall.arguments[key]?.displayValue ?? "")
+      },
+      rawText: rawText
+    )
+  }
+
+  private static func modelContextToolName(
+    for rawName: String,
+    registry: ToolRegistry?
+  ) -> ToolName {
+    guard let registry else {
+      return ToolName(rawValue: rawName.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    let resolution = ToolNameResolver().resolve(rawName, registry: registry)
+    return resolution.canonicalToolName
+      ?? ToolName(rawValue: rawName.trimmingCharacters(in: .whitespacesAndNewlines))
   }
 
   private static func renderGemma4Argument(_ value: ToolArgumentValue) -> String {

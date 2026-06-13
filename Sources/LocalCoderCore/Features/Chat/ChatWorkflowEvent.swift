@@ -197,8 +197,8 @@ public struct ChatWorkflowEventApplier: Sendable {
         + missingTurnDiagnostics([turnID], event: event, in: state)
     case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, _):
       return missingMessageDiagnostics([assistantMessageID], event: event, in: state)
-    case .assistantAnnotatedAsNativeToolCall(let assistantMessageID, _):
-      return missingMessageDiagnostics([assistantMessageID], event: event, in: state)
+    case .assistantAnnotatedAsNativeToolCall:
+      return []
     case .toolCallAppended(_, let turnID):
       return missingTurnDiagnostics([turnID], event: event, in: state)
     case .toolCallReplaced(let record):

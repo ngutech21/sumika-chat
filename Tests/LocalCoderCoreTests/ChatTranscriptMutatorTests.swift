@@ -120,6 +120,97 @@ struct ChatTranscriptMutatorTests {
   }
 
   @Test
+  func annotateEditFileToolCallRedactsPayloadFromModelHistory() throws {
+    let assistantID = UUID()
+    let oldText = "if ball.left <= 0:\n    pass"
+    let newText = "if ball.left <= 0:\n    ball.center = (SCREEN_WIDTH/2, SCREEN_HEIGHT/2)"
+    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(
+      toolName: ToolName.editFile.rawValue,
+      arguments: [
+        "path": .string("pong.py"),
+        "old_text": .string(oldText),
+        "new_text": .string(newText),
+      ]
+    )
+    let toolCall = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .editFile,
+      arguments: [
+        ToolCallModelArgument(name: "new_text", value: newText),
+        ToolCallModelArgument(name: "old_text", value: oldText),
+        ToolCallModelArgument(name: "path", value: "pong.py"),
+      ],
+      rawText: nativeBoundary
+    )
+    var state = makeState(items: [
+      .assistantMessage(AssistantTurnMessage(id: assistantID, content: "I will edit pong.py."))
+    ])
+    try ChatTranscriptMutator().appendModelContextEntry(
+      ModelFacingPromptRenderer.assistantOutputEntry(
+        sourceMessageID: assistantID,
+        content: "I will edit pong.py.\n\n\(nativeBoundary)"
+      ),
+      to: &state
+    )
+
+    ChatTranscriptMutator().annotateToolCall(toolCall, for: assistantID, in: &state)
+
+    let content = try #require(state.modelContextSnapshot.entries.first?.frozenContent.content)
+    #expect(content.contains("I will edit pong.py."))
+    #expect(content.contains("Tool call edit_file requested."))
+    #expect(content.contains("Path:\npong.py"))
+    #expect(content.contains("Payload omitted from history."))
+    #expect(!content.contains(oldText))
+    #expect(!content.contains(newText))
+    #expect(!content.contains("old_text:"))
+    #expect(!content.contains("new_text:"))
+    #expect(state.toolCalls.first?.request.rawArguments["old_text"] == .string(oldText))
+    #expect(state.toolCalls.first?.request.rawArguments["new_text"] == .string(newText))
+  }
+
+  @Test
+  func annotateWriteFileToolCallRedactsContentFromModelHistory() throws {
+    let assistantID = UUID()
+    let fileContent = "<html><body><h1>Large generated file</h1></body></html>"
+    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(
+      toolName: ToolName.writeFile.rawValue,
+      arguments: [
+        "path": .string("index.html"),
+        "content": .string(fileContent),
+      ]
+    )
+    let toolCall = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .writeFile,
+      arguments: [
+        ToolCallModelArgument(name: "content", value: fileContent),
+        ToolCallModelArgument(name: "path", value: "index.html"),
+      ],
+      rawText: nativeBoundary
+    )
+    var state = makeState(items: [
+      .assistantMessage(AssistantTurnMessage(id: assistantID, content: "I will write index.html."))
+    ])
+    try ChatTranscriptMutator().appendModelContextEntry(
+      ModelFacingPromptRenderer.assistantOutputEntry(
+        sourceMessageID: assistantID,
+        content: nativeBoundary
+      ),
+      to: &state
+    )
+
+    ChatTranscriptMutator().annotateToolCall(toolCall, for: assistantID, in: &state)
+
+    let content = try #require(state.modelContextSnapshot.entries.first?.frozenContent.content)
+    #expect(content.contains("Tool call write_file requested."))
+    #expect(content.contains("Path:\nindex.html"))
+    #expect(content.contains("Payload omitted from history."))
+    #expect(!content.contains(fileContent))
+    #expect(!content.contains("content:"))
+    #expect(state.toolCalls.first?.request.rawArguments["content"] == .string(fileContent))
+  }
+
+  @Test
   func annotateTodoToolCallDoesNotMutateModelHistory() throws {
     let assistantID = UUID()
     let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(

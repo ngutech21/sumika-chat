@@ -137,6 +137,48 @@ struct ToolCallTests {
   }
 
   @Test
+  func nativeModelContextBoundaryRedactsWriteAndEditPayloads() {
+    let fileContent = "<html><body>Generated page</body></html>"
+    let oldText = "let title = \"Old\""
+    let newText = "let title = \"New\""
+
+    let boundary = NativeToolCallBoundaryRenderer.renderModelContextGemma4(
+      [
+        ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+        ChatRuntimeToolCall(
+          name: "WRITE-FILE",
+          arguments: [
+            "path": .string("index.html"),
+            "content": .string(fileContent),
+          ]
+        ),
+        ChatRuntimeToolCall(
+          name: "EDIT-FILE",
+          arguments: [
+            "path": .string("Sources/App.swift"),
+            "old_text": .string(oldText),
+            "new_text": .string(newText),
+          ]
+        ),
+      ],
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(boundary.contains("<|tool_call>call:read_file{path:<|\"|>README.md<|\"|>}<tool_call|>"))
+    #expect(boundary.contains("Tool call write_file requested."))
+    #expect(boundary.contains("Path:\nindex.html"))
+    #expect(boundary.contains("Tool call edit_file requested."))
+    #expect(boundary.contains("Path:\nSources/App.swift"))
+    #expect(boundary.contains("Payload omitted from history."))
+    #expect(!boundary.contains(fileContent))
+    #expect(!boundary.contains(oldText))
+    #expect(!boundary.contains(newText))
+    #expect(!boundary.contains("content:"))
+    #expect(!boundary.contains("old_text:"))
+    #expect(!boundary.contains("new_text:"))
+  }
+
+  @Test
   func runCommandTranscriptArgumentsHideWorkingDirectory() {
     let request = RawToolCallRequest(
       workspaceID: UUID(),

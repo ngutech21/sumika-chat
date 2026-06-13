@@ -146,11 +146,11 @@ public struct ToolLoopCoordinator: Sendable {
     }
 
     let nextAssistantMessageID = UUID()
-    var events = nativeAssistantBoundaryEvents(for: request)
+    var events = nativeAssistantBoundaryEvents(for: request, outputs: outputs)
     var focusedFileState = request.focusedFileState
     var nextFollowUpPromptMode = request.followUpPromptMode
 
-    for (index, output) in outputs.enumerated() {
+    for output in outputs {
       let executeStartedAt = Date()
       let record = await toolOrchestrator(for: request.interactionMode).execute(
         request: output.request,
@@ -163,13 +163,11 @@ public struct ToolLoopCoordinator: Sendable {
         record: record
       )
 
-      if index == 0 {
-        events.append(
-          .assistantAnnotatedAsNativeToolCall(
-            assistantMessageID: request.assistantMessageID,
-            toolCall: output.modelMessage
-          ))
-      }
+      events.append(
+        .assistantAnnotatedAsNativeToolCall(
+          assistantMessageID: request.assistantMessageID,
+          toolCall: output.modelMessage
+        ))
       events.append(.toolCallAppended(record, turnID: request.turnID))
 
       guard record.status != .awaitingApproval else {
@@ -359,13 +357,18 @@ public struct ToolLoopCoordinator: Sendable {
     return (String(value.prefix(limit)), true)
   }
 
-  private func nativeAssistantBoundaryEvents(for request: ToolLoopRequest) -> [ChatWorkflowEvent] {
-    guard !request.nativeToolCalls.isEmpty else {
+  private func nativeAssistantBoundaryEvents(
+    for request: ToolLoopRequest,
+    outputs: [ToolCallParseOutput]
+  ) -> [ChatWorkflowEvent] {
+    guard !outputs.isEmpty else {
       return []
     }
     return [
       .nativeAssistantBoundaryAppended(
-        content: NativeToolCallBoundaryRenderer.renderGemma4(request.nativeToolCalls),
+        content: NativeToolCallBoundaryRenderer.renderModelContextGemma4(
+          outputs.map(\.modelMessage)
+        ),
         sourceMessageID: request.assistantMessageID,
         turnID: request.turnID
       )

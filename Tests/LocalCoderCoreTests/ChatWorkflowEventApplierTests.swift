@@ -32,17 +32,27 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
-  func nativeToolCallAnnotationPreservesModelContextBoundary() throws {
+  func nativeEditFileToolCallAnnotationRedactsModelContextBoundary() throws {
     let assistantID = UUID()
     let turnID = UUID()
+    let oldText = "let title = \"Old\""
+    let newText = "let title = \"New\""
     let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(
       toolName: ToolName.editFile.rawValue,
-      arguments: ["path": .string("index.html")]
+      arguments: [
+        "path": .string("index.html"),
+        "old_text": .string(oldText),
+        "new_text": .string(newText),
+      ]
     )
     let toolCall = ToolCallModelMessage(
       callID: UUID(),
       toolName: .editFile,
-      arguments: [ToolCallModelArgument(name: "path", value: "index.html")],
+      arguments: [
+        ToolCallModelArgument(name: "new_text", value: newText),
+        ToolCallModelArgument(name: "old_text", value: oldText),
+        ToolCallModelArgument(name: "path", value: "index.html"),
+      ],
       rawText: nativeBoundary
     )
     var state = makeState(turns: [
@@ -75,8 +85,48 @@ struct ChatWorkflowEventApplierTests {
     #expect(items[0].toolCallForTesting(records: state.toolCalls) == toolCall)
 
     let modelContent = try #require(state.modelContextSnapshot.entries.last?.frozenContent.content)
-    #expect(modelContent == nativeBoundary)
-    #expect(!modelContent.contains("Payload omitted from history."))
+    #expect(modelContent.contains("Tool call edit_file requested."))
+    #expect(modelContent.contains("Path:\nindex.html"))
+    #expect(modelContent.contains("Payload omitted from history."))
+    #expect(!modelContent.contains(oldText))
+    #expect(!modelContent.contains(newText))
+    #expect(!modelContent.contains("old_text:"))
+    #expect(!modelContent.contains("new_text:"))
+  }
+
+  @Test
+  func nativeMultipleToolCallAnnotationsDoNotReportMissingMessageAfterFirstReplacement() {
+    let assistantID = UUID()
+    let readCall = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .readFile,
+      arguments: [ToolCallModelArgument(name: "path", value: "README.md")]
+    )
+    let editCall = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .editFile,
+      arguments: [ToolCallModelArgument(name: "path", value: "README.md")]
+    )
+    var state = makeState(items: [
+      .assistantMessage(AssistantTurnMessage(id: assistantID, content: "I'll use tools."))
+    ])
+
+    let diagnostics = ChatWorkflowEventApplier().apply(
+      [
+        .assistantAnnotatedAsNativeToolCall(
+          assistantMessageID: assistantID,
+          toolCall: readCall
+        ),
+        .assistantAnnotatedAsNativeToolCall(
+          assistantMessageID: assistantID,
+          toolCall: editCall
+        ),
+      ],
+      to: &state
+    )
+
+    #expect(diagnostics.isEmpty)
+    #expect(state.toolCalls.map(\.id) == [readCall.callID, editCall.callID])
   }
 
   @Test

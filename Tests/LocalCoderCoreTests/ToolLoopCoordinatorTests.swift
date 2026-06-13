@@ -98,6 +98,44 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func nativeMultipleToolCallBoundaryRedactsSecondEditFilePayload() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let oldText = "project notes"
+    let newText = "updated project notes"
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("README.md"),
+              "old_text": .string(oldText),
+              "new_text": .string(newText),
+            ]
+          ),
+        ]
+      )
+    )
+
+    let boundary = try #require(nativeAssistantBoundary(from: result))
+    #expect(boundary.contains("<|tool_call>call:read_file{path:<|\"|>README.md<|\"|>}<tool_call|>"))
+    #expect(boundary.contains("Tool call edit_file requested."))
+    #expect(boundary.contains("Path:\nREADME.md"))
+    #expect(boundary.contains("Payload omitted from history."))
+    #expect(!boundary.contains("old_text:"))
+    #expect(!boundary.contains("new_text:"))
+    #expect(!boundary.contains(newText))
+    #expect(annotatedNativeToolCalls(from: result).map(\.toolName) == [.readFile, .editFile])
+    #expect(toolCallRecords(from: result).map(\.request.toolName) == [.readFile, .editFile])
+    #expect(result?.continuation == .awaitingApproval)
+  }
+
+  @Test
   func noNativeToolCallsDoesNothing() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -273,6 +311,25 @@ struct ToolLoopCoordinatorTests {
         continue
       }
       return toolCall
+    }
+    return nil
+  }
+
+  private func annotatedNativeToolCalls(from step: ChatWorkflowStep?) -> [ToolCallModelMessage] {
+    (step?.events ?? []).compactMap { event in
+      guard case .assistantAnnotatedAsNativeToolCall(_, let toolCall) = event else {
+        return nil
+      }
+      return toolCall
+    }
+  }
+
+  private func nativeAssistantBoundary(from step: ChatWorkflowStep?) -> String? {
+    for event in step?.events ?? [] {
+      guard case .nativeAssistantBoundaryAppended(let content, _, _) = event else {
+        continue
+      }
+      return content
     }
     return nil
   }

@@ -163,6 +163,7 @@ public struct ChatTranscriptMutator: Sendable {
     in state: inout ChatSession
   ) {
     ensureToolCallRecord(for: toolCall, in: &state)
+    redactModelFacingToolCallPayloadIfNeeded(toolCall, sourceMessageID: messageID, in: &state)
     replaceItem(matchingMessageID: messageID, with: .toolCall(toolCall.callID), in: &state)
   }
 
@@ -403,6 +404,57 @@ public struct ChatTranscriptMutator: Sendable {
     )
   }
 
+  private func redactModelFacingToolCallPayloadIfNeeded(
+    _ toolCall: ToolCallModelMessage,
+    sourceMessageID: UUID,
+    in state: inout ChatSession
+  ) {
+    guard toolCall.shouldRedactPayloadInModelHistory else {
+      return
+    }
+
+    for index in state.modelContextSnapshot.entries.indices {
+      let entry = state.modelContextSnapshot.entries[index]
+      guard entry.sourceMessageID == sourceMessageID,
+        case .assistantOutput(let context) = entry.body
+      else {
+        continue
+      }
+
+      let redactedContent = redactedAssistantOutputContent(context.content, using: toolCall)
+      guard redactedContent != context.content,
+        let redactedEntry = try? ModelFacingPromptRenderer.assistantOutputEntry(
+          id: entry.id,
+          turnID: entry.turnID,
+          sourceMessageID: entry.sourceMessageID,
+          content: redactedContent
+        )
+      else {
+        continue
+      }
+
+      state.modelContextSnapshot.entries[index] = redactedEntry
+    }
+  }
+
+  private func redactedAssistantOutputContent(
+    _ content: String,
+    using toolCall: ToolCallModelMessage
+  ) -> String {
+    let redactedToolCall = toolCall.modelContextContent
+    guard let rawText = toolCall.rawText?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !rawText.isEmpty
+    else {
+      return redactedToolCall
+    }
+
+    if content.contains(rawText) {
+      return content.replacingOccurrences(of: rawText, with: redactedToolCall)
+    }
+
+    return redactedToolCall
+  }
+
   private func updateTurn(
     _ turnID: ChatTurn.ID,
     in state: inout ChatSession,
@@ -413,5 +465,11 @@ public struct ChatTranscriptMutator: Sendable {
     }
 
     state.turns[index] = transform(state.turns[index])
+  }
+}
+
+nonisolated extension ToolCallModelMessage {
+  fileprivate var shouldRedactPayloadInModelHistory: Bool {
+    toolName == .writeFile || toolName == .editFile
   }
 }
