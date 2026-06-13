@@ -1233,19 +1233,22 @@ public struct ToolResultPreview: Codable, Equatable, Sendable {
   public var truncated: Bool
   public var redacted: Bool
   public var affectedPaths: [String]
+  public var resultPayload: ToolResultPayload?
 
   public init(
     status: ToolResultStatus = .success,
     text: String,
     truncated: Bool = false,
     redacted: Bool = false,
-    affectedPaths: [String] = []
+    affectedPaths: [String] = [],
+    resultPayload: ToolResultPayload? = nil
   ) {
     self.status = status
     self.text = text
     self.truncated = truncated
     self.redacted = redacted
     self.affectedPaths = affectedPaths
+    self.resultPayload = resultPayload
   }
 }
 
@@ -1570,7 +1573,8 @@ nonisolated extension EditFileResult {
           "edit_file failed: old_text was not found in \(path.rawValue).\(contentText)\n\n\(recovery.message)",
         truncated: currentContent?.truncated ?? false,
         redacted: currentContent?.redacted ?? false,
-        affectedPaths: [path.rawValue]
+        affectedPaths: [path.rawValue],
+        resultPayload: .editFile(self)
       )
     case .multipleMatches(let path, let matchCount, let recovery):
       return ToolResultPreview(

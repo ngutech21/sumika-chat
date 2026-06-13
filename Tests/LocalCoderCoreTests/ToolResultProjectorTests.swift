@@ -532,6 +532,79 @@ struct ToolResultProjectorTests {
         ))
   }
 
+  @Test
+  func editFileOldTextNotFoundObservationIncludesRecoveryAndCurrentExcerpt() {
+    let path = WorkspaceRelativePath(rawValue: "pong.py")
+    let currentContent = ToolTextOutput(text: "20: clock = pygame.time.Clock()\n")
+    let projection = ToolResultProjector.project(
+      payload: .editFile(
+        .oldTextNotFound(
+          path: path,
+          currentContent: currentContent,
+          recovery: .readFile(path: path)
+        )
+      ),
+      request: request(
+        toolName: .editFile,
+        payload: .editFile(
+          EditFileInput(
+            path: path.rawValue,
+            oldText: "clock = pygame.Krotron(FPS)",
+            newText: "clock = pygame.time.Clock()"
+          ))
+      )
+    )
+
+    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
+    #expect(rendered.contains("old_text was not found in pong.py"))
+    #expect(rendered.contains("Do not retry edit_file from memory"))
+    #expect(rendered.contains("First call read_file(path: \"pong.py\")"))
+    #expect(rendered.contains("smallest exact current text span"))
+    #expect(rendered.contains("20: clock = pygame.time.Clock()"))
+
+    guard case .summary(let status, let displayText, let affectedPaths) = projection.display else {
+      Issue.record("Expected edit_file mismatch display summary.")
+      return
+    }
+    #expect(status == .failed)
+    #expect(displayText.contains("Current file excerpt:"))
+    #expect(displayText.contains(currentContent.text))
+    #expect(affectedPaths == [path])
+  }
+
+  @Test
+  func editFileOldTextNotFoundObservationLimitsLongCurrentExcerpt() {
+    let path = WorkspaceRelativePath(rawValue: "pong.py")
+    let longContent =
+      String(repeating: "head-line\n", count: 300)
+      + "middle should be omitted\n"
+      + String(repeating: "tail-line\n", count: 300)
+    let projection = ToolResultProjector.project(
+      payload: .editFile(
+        .oldTextNotFound(
+          path: path,
+          currentContent: ToolTextOutput(text: longContent),
+          recovery: .readFile(path: path)
+        )
+      ),
+      request: request(
+        toolName: .editFile,
+        payload: .editFile(EditFileInput(path: path.rawValue, oldText: "old", newText: "new"))
+      )
+    )
+
+    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
+    #expect(rendered.contains("Current file excerpt (truncated):"))
+    #expect(rendered.contains("[tool observation truncated]"))
+    #expect(rendered.count < longContent.count)
+
+    guard case .summary(_, let displayText, _) = projection.display else {
+      Issue.record("Expected edit_file mismatch display summary.")
+      return
+    }
+    #expect(displayText.contains(longContent))
+  }
+
   private func request(toolName: ToolName, payload: ToolCallPayload) -> ToolCallRequest {
     ToolCallRequest.validated(
       raw: RawToolCallRequest(

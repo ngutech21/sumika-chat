@@ -300,13 +300,15 @@ public struct AnyToolExecutor: Sendable {
     case .success:
       return true
     case .failed:
-      record.state = .failed(
-        ToolResultPayload.failure(
+      let payload =
+        preview.resultPayload
+        ?? ToolResultPayload.failure(
           ToolFailure(
             toolName: record.request.toolName,
             path: firstPath(in: preview),
             reason: .executionError(preview.text)
-          )))
+          ))
+      record.state = .failed(payload)
       record.events.append(ToolCallEvent(actor: .tool, kind: .failed, message: preview.text))
       return false
     case .denied:

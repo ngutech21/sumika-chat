@@ -267,6 +267,11 @@ public struct ToolResultProjectionPolicy: Equatable, Sendable {
 }
 
 public enum ToolResultProjector {
+  private static let editMismatchObservationLimit = ProjectionLimit(
+    maxCharacters: 4_000,
+    strategy: .headTail
+  )
+
   public static func project(
     payload: ToolResultPayload,
     request: ToolCallRequest,
@@ -501,10 +506,16 @@ public enum ToolResultProjector {
         )
       )
     case .oldTextNotFound(let path, let currentContent, let recovery):
-      let text =
-        "edit_file failed: old_text was not found in \(path.rawValue). \(recovery.message)"
+      let text = editMismatchObservationText(
+        path: path,
+        currentContent: currentContent,
+        recovery: recovery
+      )
       let displayText =
-        currentContent.map { "\(text)\n\nCurrent file excerpt:\n\($0.text)" } ?? text
+        currentContent.map {
+          "edit_file failed: old_text was not found in \(path.rawValue). \(recovery.message)\n\nCurrent file excerpt:\n\($0.text)"
+        }
+        ?? text
       return ToolResultProjection(
         display: .summary(status: .failed, text: displayText, affectedPaths: [path]),
         observation: ToolModelObservation.failed(
@@ -536,6 +547,34 @@ public enum ToolResultProjector {
         affectedPaths: path.map { [$0] } ?? []
       )
     }
+  }
+
+  private static func editMismatchObservationText(
+    path: WorkspaceRelativePath,
+    currentContent: ToolTextOutput?,
+    recovery: RecoveryHint
+  ) -> String {
+    var sections = [
+      "edit_file failed: old_text was not found in \(path.rawValue).",
+      """
+      Do not retry edit_file from memory. First call read_file(path: "\(path.rawValue)"), then retry edit_file with the smallest exact current text span that appears once.
+      """,
+      recovery.message,
+    ]
+
+    if let currentContent {
+      let limited = ProjectionLimiter.limit(
+        currentContent.text,
+        limit: editMismatchObservationLimit
+      )
+      let truncatedText =
+        currentContent.truncated || limited.wasLimited
+        ? "Current file excerpt (truncated):"
+        : "Current file excerpt:"
+      sections.append("\(truncatedText)\n\(limited.text)")
+    }
+
+    return sections.joined(separator: "\n\n")
   }
 
   private static func projectRunCommand(

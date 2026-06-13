@@ -416,7 +416,7 @@ nonisolated extension ToolDefinition {
   public static let editFile = ToolDefinition(
     name: .editFile,
     description:
-      "Replace one exact text span in an existing workspace file. Use after reading the current file content unless the exact current span is already visible.",
+      "Replace exactly one current text span in an existing workspace file. Call read_file first unless the exact current old_text is visible in the latest context. old_text must be copied verbatim from current file content, match once, and be as small as practical. Do not guess from memory.",
     parameters: [
       ToolParameterDefinition(
         name: "path",
@@ -425,7 +425,8 @@ nonisolated extension ToolDefinition {
       ),
       ToolParameterDefinition(
         name: "old_text",
-        description: "Exact current text. Must match once.",
+        description:
+          "Exact current file text to replace. Copy verbatim from read_file output or visible current file content. Must match exactly once.",
         isRequired: true,
         supportsHeredocPayload: true
       ),

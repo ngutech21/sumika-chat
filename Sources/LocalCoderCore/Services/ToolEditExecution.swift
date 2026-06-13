@@ -111,6 +111,10 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     resolvedURL: URL?,
     error: Error
   ) -> ToolResultPreview {
+    if case EditFileValidationError.oldTextNotFound = error {
+      return oldTextNotFoundResult(input, context: context, resolvedURL: resolvedURL).preview
+    }
+
     guard ToolResultFailureMapper.isFileNotFound(error) else {
       return ToolResultPreview(status: .failed, text: error.localizedDescription)
     }

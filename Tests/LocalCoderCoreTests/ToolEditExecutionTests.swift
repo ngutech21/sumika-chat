@@ -391,6 +391,35 @@ struct ToolEditExecutionTests {
   }
 
   @Test
+  func editFileOldTextNotFoundBeforeApprovalReturnsStructuredRecoveryPayload() async throws {
+    let workspace = try makeWorkspace()
+    try write("clock = pygame.time.Clock()\n", to: "pong.py", in: workspace)
+
+    let result = await executeEdit(
+      path: "pong.py",
+      oldText: "clock = pygame.Krotron(FPS)",
+      newText: "clock = pygame.time.Clock()",
+      workspace: workspace
+    )
+
+    #expect(result.status == .failed)
+    #expect(result.resultPreview?.status == .failed)
+    #expect(result.resultPreview?.text.contains("old_text was not found") == true)
+    #expect(result.resultPreview?.text.contains("Current file excerpt:") == true)
+    #expect(result.resultPreview?.text.contains("clock = pygame.time.Clock()") == true)
+    guard
+      case .editFile(.oldTextNotFound(let path, let currentContent, let recovery)) =
+        result.resultPayload
+    else {
+      Issue.record("Expected old_text not found payload before approval.")
+      return
+    }
+    #expect(path == WorkspaceRelativePath(rawValue: "pong.py"))
+    #expect(currentContent?.text == "clock = pygame.time.Clock()\n")
+    #expect(recovery == .readFile(path: WorkspaceRelativePath(rawValue: "pong.py")))
+  }
+
+  @Test
   func approvedEditFileRevalidatesMissingAndAmbiguousOldText() async throws {
     let missingWorkspace = try makeWorkspace()
     try write("old", to: "notes.txt", in: missingWorkspace)
