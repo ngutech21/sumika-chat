@@ -84,7 +84,9 @@ struct ContentView: View {
               sessionID: appState.activeSessionID,
               browserToolService: appState.browserToolService,
               isModelContextDebugVisible: $isModelContextDebugVisible,
-              onAddAttachments: chooseAttachments
+              onAddAttachments: chooseAttachments,
+              onOpenWorkspaceInFinder: appState.openActiveWorkspaceInFinder,
+              onOpenWorkspaceInVisualStudioCode: appState.openActiveWorkspaceInVisualStudioCode
             )
             .navigationTitle(workspace.name)
           } else {
@@ -141,6 +143,24 @@ struct ContentView: View {
         selection = .session(sessionID)
       }
     }
+    .alert("Workspace Error", isPresented: workspaceErrorAlertBinding) {
+      Button("OK", role: .cancel) {
+        appState.workspaceErrorMessage = nil
+      }
+    } message: {
+      Text(appState.workspaceErrorMessage ?? "")
+    }
+  }
+
+  private var workspaceErrorAlertBinding: Binding<Bool> {
+    Binding(
+      get: { appState.workspaceErrorMessage != nil },
+      set: { isPresented in
+        if !isPresented {
+          appState.workspaceErrorMessage = nil
+        }
+      }
+    )
   }
 
   private func chooseWorkspace() {

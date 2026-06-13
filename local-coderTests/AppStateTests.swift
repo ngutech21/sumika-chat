@@ -139,6 +139,124 @@ struct AppStateTests {
   }
 
   @Test
+  func openActiveWorkspaceInFinderDelegatesActiveRootURL() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let workspaceURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: workspaceURL,
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let opener = RecordingWorkspaceOpener()
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime(),
+      workspaceOpener: opener
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+
+    appState.openActiveWorkspaceInFinder()
+
+    try await waitUntil {
+      opener.requests.count == 1
+    }
+    #expect(opener.requests.first?.url == workspaceURL)
+    #expect(opener.requests.first?.destination == .finder)
+    #expect(appState.workspaceErrorMessage == nil)
+  }
+
+  @Test
+  func openActiveWorkspaceInVisualStudioCodeDelegatesActiveRootURL() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let workspaceURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: workspaceURL,
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let opener = RecordingWorkspaceOpener()
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime(),
+      workspaceOpener: opener
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+
+    appState.openActiveWorkspaceInVisualStudioCode()
+
+    try await waitUntil {
+      opener.requests.count == 1
+    }
+    #expect(opener.requests.first?.url == workspaceURL)
+    #expect(opener.requests.first?.destination == .visualStudioCode)
+    #expect(appState.workspaceErrorMessage == nil)
+  }
+
+  @Test
+  func openActiveWorkspaceReportsOpenFailure() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime(),
+      workspaceOpener: FailingWorkspaceOpener(
+        error: WorkspaceOpenError.applicationNotFound("Visual Studio Code")
+      )
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+
+    appState.openActiveWorkspaceInVisualStudioCode()
+
+    try await waitUntil {
+      appState.workspaceErrorMessage
+        == "Visual Studio Code was not found in /Applications or ~/Applications."
+    }
+  }
+
+  @Test
   func autoloadLastModelDefaultsOffAndDoesNotLoadOnStartup() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()
@@ -571,6 +689,30 @@ private actor SlowFirstWebAccessSettingsStore: WebAccessSettingsStoring {
 
   func saveCount() -> Int {
     saves
+  }
+}
+
+@MainActor
+private final class RecordingWorkspaceOpener: WorkspaceOpening {
+  private(set) var requests: [(url: URL, destination: WorkspaceOpenDestination)] = []
+
+  func open(_ url: URL, destination: WorkspaceOpenDestination) async throws {
+    requests.append((url, destination))
+  }
+}
+
+@MainActor
+private final class FailingWorkspaceOpener: WorkspaceOpening {
+  private let error: Error
+
+  init(error: Error) {
+    self.error = error
+  }
+
+  func open(_ url: URL, destination: WorkspaceOpenDestination) async throws {
+    _ = url
+    _ = destination
+    throw error
   }
 }
 

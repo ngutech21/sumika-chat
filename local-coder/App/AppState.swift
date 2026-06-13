@@ -19,6 +19,7 @@ final class AppState {
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private let webAccessSettingsStore: any WebAccessSettingsStoring
   @ObservationIgnored private let appBehaviorSettingsStore: any AppBehaviorSettingsStoring
+  @ObservationIgnored private let workspaceOpener: any WorkspaceOpening
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
   @ObservationIgnored private var defaultSessionSystemPrompt =
     ManagedModelCatalog.defaultModel.defaultSystemPrompt
@@ -40,7 +41,8 @@ final class AppState {
     runtime: any ChatModelRuntime = GemmaMLXRuntime(),
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,
-    turnTracer: any TurnTracing = GemmaDebugTraceStore.shared
+    turnTracer: any TurnTracing = GemmaDebugTraceStore.shared,
+    workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService()
   ) {
     let browserToolService = HTMLPreviewBrowserToolService()
     self.init(
@@ -48,6 +50,7 @@ final class AppState {
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
+      workspaceOpener: workspaceOpener,
       browserToolService: browserToolService,
       chatController: Self.makeChatController(
         modelSettingsStore: modelSettingsStore,
@@ -66,6 +69,7 @@ final class AppState {
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
     webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
+    workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService(),
     browserToolService: HTMLPreviewBrowserToolService,
     chatController: ChatSessionController
   ) {
@@ -73,6 +77,7 @@ final class AppState {
     self.modelSettingsStore = modelSettingsStore
     self.webAccessSettingsStore = webAccessSettingsStore
     self.appBehaviorSettingsStore = appBehaviorSettingsStore
+    self.workspaceOpener = workspaceOpener
     self.browserToolService = browserToolService
     self.chatController = chatController
     self.workspaceLibraryController = WorkspaceLibraryController(
@@ -222,6 +227,14 @@ final class AppState {
     chatController.modelRuntime.prepareDefaultModelDirectory()
     chatController.modelRuntime.startResourceMonitoring()
     attemptAutoloadLastModelIfReady()
+  }
+
+  func openActiveWorkspaceInFinder() {
+    openActiveWorkspace(destination: .finder)
+  }
+
+  func openActiveWorkspaceInVisualStudioCode() {
+    openActiveWorkspace(destination: .visualStudioCode)
   }
 
   func persistActiveSession() {
@@ -387,6 +400,22 @@ final class AppState {
 
     didAttemptAutoloadLastModel = true
     chatController.modelRuntime.loadSelectedModel()
+  }
+
+  private func openActiveWorkspace(destination: WorkspaceOpenDestination) {
+    guard let workspace = activeWorkspace else {
+      workspaceErrorMessage = WorkspaceOpenError.noActiveWorkspace.localizedDescription
+      return
+    }
+
+    Task {
+      do {
+        try await workspaceOpener.open(workspace.rootURL, destination: destination)
+        workspaceErrorMessage = nil
+      } catch {
+        workspaceErrorMessage = error.localizedDescription
+      }
+    }
   }
 
   private func makeSecurityScopedBookmarkData(for url: URL) -> Data? {

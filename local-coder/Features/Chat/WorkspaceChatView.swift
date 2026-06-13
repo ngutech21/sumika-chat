@@ -9,6 +9,8 @@ struct WorkspaceChatView: View {
   let browserToolService: HTMLPreviewBrowserToolService
   @Binding var isModelContextDebugVisible: Bool
   let onAddAttachments: () -> Void
+  let onOpenWorkspaceInFinder: () -> Void
+  let onOpenWorkspaceInVisualStudioCode: () -> Void
   @State private var htmlPreview: HTMLPreviewState?
   @State private var htmlPreviewRefreshID = UUID()
   @State private var htmlPreviewConsoleEntries: [HTMLPreviewConsoleEntry] = []
@@ -133,6 +135,23 @@ struct WorkspaceChatView: View {
     .onDisappear {
       Task {
         await browserToolService.clear()
+      }
+    }
+    .toolbar {
+      ToolbarItemGroup(placement: .primaryAction) {
+        Button(action: onOpenWorkspaceInFinder) {
+          Image(systemName: "folder")
+        }
+        .help("Open workspace in Finder")
+        .accessibilityLabel("Open workspace in Finder")
+        .accessibilityIdentifier("workspace.openInFinderButton")
+
+        Button(action: onOpenWorkspaceInVisualStudioCode) {
+          Image(systemName: "curlybraces")
+        }
+        .help("Open workspace in Visual Studio Code")
+        .accessibilityLabel("Open workspace in Visual Studio Code")
+        .accessibilityIdentifier("workspace.openInVSCodeButton")
       }
     }
   }
