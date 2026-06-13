@@ -248,6 +248,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   private(set) var completedCallIndexes: Set<Int> = []
   private(set) var capturedMessages: [[ProjectedModelContextEntry]] = []
   private(set) var capturedSystemPrompts: [String] = []
+  private(set) var capturedToolContexts: [ChatRuntimeToolContext?] = []
 
   init(turns: [[String]], blockedCallIndexes: Set<Int>) {
     self.turns = turns.map { $0.map(ChatModelStreamEvent.chunk) }
@@ -344,6 +345,22 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
         task.cancel()
       }
     }
+  }
+
+  func streamReply(
+    for transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings,
+    toolContext: ChatRuntimeToolContext?
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    capturedToolContexts.append(toolContext)
+    return try await streamReply(
+      for: transcript,
+      attachments: attachments,
+      systemPrompt: systemPrompt,
+      settings: settings
+    )
   }
 
   private func storeStreamContinuation(
@@ -536,6 +553,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private(set) var capturedMessages: [[ProjectedModelContextEntry]] = []
   private(set) var capturedAttachments: [[ChatAttachment]] = []
   private(set) var capturedSystemPrompts: [String] = []
+  private(set) var capturedToolContexts: [ChatRuntimeToolContext?] = []
   private(set) var capturedContextUsageSystemPrompts: [String] = []
 
   init(chunks: [String] = []) {
@@ -607,6 +625,22 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
       )
       continuation.finish()
     }
+  }
+
+  func streamReply(
+    for transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings,
+    toolContext: ChatRuntimeToolContext?
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    capturedToolContexts.append(toolContext)
+    return try await streamReply(
+      for: transcript,
+      attachments: attachments,
+      systemPrompt: systemPrompt,
+      settings: settings
+    )
   }
 
 }

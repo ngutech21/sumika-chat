@@ -30,6 +30,19 @@ struct AppSettingsView: View {
         }
 
         VStack(alignment: .leading, spacing: 14) {
+          Text("Agent Tools")
+            .font(.headline)
+
+          Toggle("Enable todo_write planning tool", isOn: todoWriteToolEnabledBinding)
+
+          Text(
+            "Off by default. Small local models often struggle with this tool; enable it when you want the Agent to maintain an explicit plan."
+          )
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: 720, alignment: .leading)
+        }
+
+        VStack(alignment: .leading, spacing: 14) {
           Text("Web Access")
             .font(.headline)
 
@@ -64,6 +77,17 @@ struct AppSettingsView: View {
       set: { isEnabled in
         var updatedSettings = appBehaviorSettings
         updatedSettings.autoloadLastModel = isEnabled
+        appBehaviorSettings = updatedSettings
+      }
+    )
+  }
+
+  private var todoWriteToolEnabledBinding: Binding<Bool> {
+    Binding(
+      get: { appBehaviorSettings.todoWriteToolEnabled },
+      set: { isEnabled in
+        var updatedSettings = appBehaviorSettings
+        updatedSettings.todoWriteToolEnabled = isEnabled
         appBehaviorSettings = updatedSettings
       }
     )

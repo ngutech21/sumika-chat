@@ -161,6 +161,7 @@ struct AppStateTests {
     appState.startModelRuntimeServices()
 
     #expect(appState.activeAppBehaviorSettings == AppBehaviorSettings())
+    #expect(!appState.activeAppBehaviorSettings.todoWriteToolEnabled)
     #expect(controller.modelRuntime.modelState == .notLoaded)
   }
 
@@ -368,6 +369,107 @@ struct AppStateTests {
     #expect(toolCall.request.toolName == .browserRefresh)
     #expect(toolCall.status == .completed)
   }
+
+  @Test
+  func todoWriteToolIsHiddenByDefaultInAppAgentPromptAndSchema() async throws {
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let runtime = AppStateTestRuntime(eventTurns: [[.chunk("Done.")]])
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspace.id,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(),
+      runtime: runtime
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+    guard let activeWorkspace = appState.activeWorkspace else {
+      throw AppStateTestFailure.missingWorkspace
+    }
+    let activeSessionID = try #require(appState.activeSessionID)
+    appState.chatController.modelRuntime.modelState = .ready
+    appState.chatController.setInteractionMode(.agent)
+    appState.chatController.draft = "inspect the project"
+
+    appState.chatController.sendMessage(in: activeWorkspace, sessionID: activeSessionID)
+
+    try await waitUntil {
+      !appState.chatController.isGenerating
+    }
+
+    let capturedSystemPrompts = await runtime.capturedSystemPrompts
+    #expect(capturedSystemPrompts.first?.contains("todo_write") == false)
+    let capturedToolContexts = await runtime.capturedToolContexts
+    let toolContext = try #require(capturedToolContexts.first ?? nil)
+    #expect(toolContext.registry.definition(for: .todoWrite) == nil)
+  }
+
+  @Test
+  func enablingTodoWriteToolExposesItInAppAgentPromptAndSchema() async throws {
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()
+    let runtime = AppStateTestRuntime(eventTurns: [[.chunk("Done.")]])
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspace.id,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      appBehaviorSettingsStore: appBehaviorSettingsStore,
+      runtime: runtime
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+    let updatedSettings = AppBehaviorSettings(todoWriteToolEnabled: true)
+    appState.updateActiveAppBehaviorSettings(updatedSettings)
+    try await waitUntil {
+      await appBehaviorSettingsStore.settings() == updatedSettings
+    }
+
+    guard let activeWorkspace = appState.activeWorkspace else {
+      throw AppStateTestFailure.missingWorkspace
+    }
+    let activeSessionID = try #require(appState.activeSessionID)
+    appState.chatController.modelRuntime.modelState = .ready
+    appState.chatController.setInteractionMode(.agent)
+    appState.chatController.draft = "inspect the project"
+
+    appState.chatController.sendMessage(in: activeWorkspace, sessionID: activeSessionID)
+
+    try await waitUntil {
+      !appState.chatController.isGenerating
+    }
+
+    let capturedSystemPrompts = await runtime.capturedSystemPrompts
+    #expect(capturedSystemPrompts.first?.contains("todo_write") == true)
+    let capturedToolContexts = await runtime.capturedToolContexts
+    let toolContext = try #require(capturedToolContexts.first ?? nil)
+    #expect(toolContext.registry.definition(for: .todoWrite) != nil)
+  }
 }
 
 private actor InMemoryWorkspaceStore: WorkspaceStoring {
@@ -476,6 +578,8 @@ private actor AppStateTestRuntime: ChatModelRuntime {
   private let turns: [[ChatModelStreamEvent]]
   private var loadedConfigurations: [ChatModelConfiguration] = []
   private var streamReplyCount = 0
+  private(set) var capturedSystemPrompts: [String] = []
+  private(set) var capturedToolContexts: [ChatRuntimeToolContext?] = []
 
   init(eventTurns: [[ChatModelStreamEvent]] = []) {
     self.turns = eventTurns
@@ -511,8 +615,28 @@ private actor AppStateTestRuntime: ChatModelRuntime {
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
     _ = settings
+    capturedSystemPrompts.append(systemPrompt)
+    capturedToolContexts.append(nil)
+    return stream(from: nextEvents())
+  }
+
+  func streamReply(
+    for transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings,
+    toolContext: ChatRuntimeToolContext?
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = transcript
+    _ = attachments
+    _ = settings
+    capturedSystemPrompts.append(systemPrompt)
+    capturedToolContexts.append(toolContext)
+    return stream(from: nextEvents())
+  }
+
+  private func nextEvents() -> [ChatModelStreamEvent] {
     let events: [ChatModelStreamEvent]
     if turns.isEmpty {
       events = []
@@ -520,7 +644,13 @@ private actor AppStateTestRuntime: ChatModelRuntime {
       events = turns[min(streamReplyCount, turns.count - 1)]
     }
     streamReplyCount += 1
-    return AsyncThrowingStream { continuation in
+    return events
+  }
+
+  private func stream(from events: [ChatModelStreamEvent])
+    -> AsyncThrowingStream<ChatModelStreamEvent, Error>
+  {
+    AsyncThrowingStream { continuation in
       for event in events {
         continuation.yield(event)
       }

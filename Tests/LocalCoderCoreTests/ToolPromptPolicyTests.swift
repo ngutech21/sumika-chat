@@ -30,6 +30,20 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
+  func nativeAgentPromptOmitsTodoInstructionsWhenTodoWriteUnavailable() {
+    let prompt = ToolPromptPolicy().systemPrompt(
+      basePrompt: "Base",
+      mode: .enabled(true),
+      toolRegistry: ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: false).toolRegistry
+    )
+
+    #expect(!prompt.contains("todo_write"))
+    #expect(!prompt.contains("planned todo"))
+    #expect(prompt.contains("read_file"))
+    #expect(prompt.contains("edit_file"))
+  }
+
+  @Test
   func nativeInspectPromptRestrictsWrites() {
     let prompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",
@@ -52,5 +66,24 @@ struct ToolPromptPolicyTests {
 
     #expect(prompt.contains("No more tools may run"))
     #expect(prompt.contains("Do not call another tool"))
+  }
+
+  @Test
+  func followUpPromptMentionsTodoOnlyWhenTodoWriteAvailable() {
+    let enabledPrompt = ToolPromptPolicy().systemPrompt(
+      basePrompt: "Base",
+      mode: .afterToolResultCanContinue,
+      toolRegistry: ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: true).toolRegistry
+    )
+    let disabledPrompt = ToolPromptPolicy().systemPrompt(
+      basePrompt: "Base",
+      mode: .afterToolResultCanContinue,
+      toolRegistry: ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: false).toolRegistry
+    )
+
+    #expect(enabledPrompt.contains("todo_write"))
+    #expect(disabledPrompt.contains("Available tools:"))
+    #expect(!disabledPrompt.contains("todo_write"))
+    #expect(!disabledPrompt.contains("planned todo"))
   }
 }

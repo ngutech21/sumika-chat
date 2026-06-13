@@ -80,6 +80,166 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func disabledTodoWriteRegistryHidesSchemaAndRejectsTodoWriteCalls() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "todo_write",
+            arguments: ["items": .string("Inspect files:false\nRun tests:false")]
+          ))
+      ],
+      [.chunk("Continuing without a todo plan.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false)
+      )
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.draft = "make a focused change"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let toolCall = try #require(controller.chatSession.toolCalls.first)
+    #expect(toolCall.request.toolName == .todoWrite)
+    #expect(toolCall.status == .failed)
+    #expect(
+      toolCall.resultPayload
+        == .invalidTool(
+          InvalidToolResult(originalName: "todo_write", reason: .unavailableToolName("todo_write"))
+        ))
+    #expect(controller.chatSession.todoState == nil)
+
+    let capturedSystemPrompts = await runtime.capturedSystemPrompts
+    #expect(capturedSystemPrompts.first?.contains("todo_write") == false)
+    let capturedToolContexts = await runtime.capturedToolContexts
+    let toolContext = try #require(capturedToolContexts.first ?? nil)
+    #expect(toolContext.registry.definition(for: .todoWrite) == nil)
+  }
+
+  @Test
+  func enablingTodoWriteDuringGenerationDoesNotAffectActiveTurn() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ControlledStreamingRuntime(
+      eventTurns: [
+        [
+          .toolCall(
+            ChatRuntimeToolCall(
+              name: "todo_write",
+              arguments: ["items": .string("Inspect files:false\nRun tests:false")]
+            ))
+        ],
+        [.chunk("Continuing without a todo plan.")],
+        [.chunk("Next turn can see todo_write.")],
+      ],
+      blockedCallIndexes: [0]
+    )
+    defer { Task { await runtime.releaseStream(callIndex: 0) } }
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false)
+      )
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.draft = "make a focused change"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntilAsync { await runtime.startedStreamCount == 1 }
+
+    controller.configureAgentTools(todoWriteEnabled: true)
+    await runtime.releaseStream(callIndex: 0)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let toolCall = try #require(controller.chatSession.toolCalls.first)
+    #expect(toolCall.status == .failed)
+    #expect(
+      toolCall.resultPayload
+        == .invalidTool(
+          InvalidToolResult(originalName: "todo_write", reason: .unavailableToolName("todo_write"))
+        ))
+    #expect(controller.chatSession.todoState == nil)
+
+    let capturedToolContexts = await runtime.capturedToolContexts
+    let firstToolContext = try #require(capturedToolContexts.first ?? nil)
+    #expect(firstToolContext.registry.definition(for: .todoWrite) == nil)
+
+    controller.draft = "continue"
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntil { !controller.isGenerating }
+
+    let prompts = await runtime.capturedSystemPrompts
+    #expect(prompts.last?.contains("todo_write") == true)
+  }
+
+  @Test
+  func disablingTodoWriteDuringGenerationDoesNotAffectActiveTurn() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ControlledStreamingRuntime(
+      eventTurns: [
+        [
+          .toolCall(
+            ChatRuntimeToolCall(
+              name: "todo_write",
+              arguments: ["items": .string("Inspect files:false\nRun tests:false")]
+            ))
+        ],
+        [.chunk("Continuing with the plan.")],
+        [.chunk("Next turn does not see todo_write.")],
+      ],
+      blockedCallIndexes: [0]
+    )
+    defer { Task { await runtime.releaseStream(callIndex: 0) } }
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgentRegistry(todoWriteEnabled: true)
+      )
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.draft = "make a focused change"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntilAsync { await runtime.startedStreamCount == 1 }
+
+    controller.configureAgentTools(todoWriteEnabled: false)
+    await runtime.releaseStream(callIndex: 0)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let toolCall = try #require(controller.chatSession.toolCalls.first)
+    #expect(toolCall.status == .completed)
+    #expect(
+      controller.chatSession.todoState?.items.map(\.content) == ["Inspect files", "Run tests"])
+
+    let capturedToolContexts = await runtime.capturedToolContexts
+    let firstToolContext = try #require(capturedToolContexts.first ?? nil)
+    #expect(firstToolContext.registry.definition(for: .todoWrite) != nil)
+
+    controller.draft = "continue"
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntil { !controller.isGenerating }
+
+    let prompts = await runtime.capturedSystemPrompts
+    #expect(prompts.last?.contains("todo_write") == false)
+  }
+
+  @Test
   func askUserPausesThenAnswerResumesSameTurn() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -228,6 +388,20 @@ struct ChatSessionControllerToolLoopTests {
     while !condition() {
       if start.duration(to: .now) > timeout {
         Issue.record("Timed out waiting for condition")
+        throw TestWaitTimeoutError()
+      }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+  }
+
+  private func waitUntilAsync(
+    timeout: Duration = .seconds(1),
+    condition: @escaping () async -> Bool
+  ) async throws {
+    let start = ContinuousClock.now
+    while !(await condition()) {
+      if start.duration(to: .now) > timeout {
+        Issue.record("Timed out waiting for async condition")
         throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))

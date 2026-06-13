@@ -15,9 +15,9 @@ public final class ChatSessionController {
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
   @ObservationIgnored private let contextUsageCoordinator: ContextUsageCoordinator
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
-  @ObservationIgnored private let toolOrchestrator: ToolOrchestrator
+  @ObservationIgnored private var toolOrchestrator: ToolOrchestrator
   @ObservationIgnored private let toolPromptPolicy: ToolPromptPolicy
-  @ObservationIgnored private let toolLoopCoordinator: ToolLoopCoordinator
+  @ObservationIgnored private var toolLoopCoordinator: ToolLoopCoordinator
   @ObservationIgnored private let turnTracer: any TurnTracing
   @ObservationIgnored private let chatTurnCoordinator = ChatTurnCoordinator()
   @ObservationIgnored private let modelContextBuilder = ChatModelContextBuilder()
@@ -27,6 +27,7 @@ public final class ChatSessionController {
   @ObservationIgnored private let focusedFileReducer = FocusedFileStateReducer()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private var pendingRuntimeContextClear: PendingRuntimeContextClear?
+  @ObservationIgnored private var pendingAgentToolExecutorRegistry: ToolExecutorRegistry?
   @ObservationIgnored private var activeModelContextDebugToolPromptMode: ToolPromptMode?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
@@ -275,6 +276,20 @@ extension ChatSessionController {
     notifySessionDidChange()
   }
 
+  public func configureAgentTools(todoWriteEnabled: Bool) {
+    setAgentToolExecutorRegistry(
+      ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: todoWriteEnabled)
+    )
+  }
+
+  public func setAgentToolExecutorRegistry(_ executorRegistry: ToolExecutorRegistry) {
+    guard !isGenerating else {
+      pendingAgentToolExecutorRegistry = executorRegistry
+      return
+    }
+    applyAgentToolExecutorRegistry(executorRegistry, shouldRefreshContext: true)
+  }
+
   public func prepareForModelRuntimeAction(
     cancelGeneration shouldCancelGeneration: Bool,
     invalidateContext shouldInvalidateContext: Bool
@@ -286,6 +301,30 @@ extension ChatSessionController {
     if shouldInvalidateContext {
       invalidateContextUsage()
     }
+  }
+
+  private func applyAgentToolExecutorRegistry(
+    _ executorRegistry: ToolExecutorRegistry,
+    shouldRefreshContext: Bool
+  ) {
+    toolOrchestrator = toolOrchestrator.replacingExecutorRegistry(executorRegistry)
+    toolLoopCoordinator = ToolLoopCoordinator(
+      agentToolOrchestrator: toolOrchestrator,
+      turnTracer: turnTracer
+    )
+    if shouldRefreshContext {
+      clearRuntimeContextForReuse()
+      refreshContextUsage()
+    }
+  }
+
+  private func finishGeneratingTurn(
+    _ turnID: ChatTurn.ID,
+    contextRefreshMode: ToolPromptMode = .disabled
+  ) {
+    isGenerating = false
+    chatTurnCoordinator.finishTurn(turnID)
+    flushPendingContextUsageRefresh(defaultMode: contextRefreshMode)
   }
 
   public func sendMessage() {
@@ -409,9 +448,7 @@ extension ChatSessionController {
           return
         }
         markTurnCancelled(turnID)
-        isGenerating = false
-        chatTurnCoordinator.finishTurn(turnID)
-        flushPendingContextUsageRefresh(defaultMode: .disabled)
+        finishGeneratingTurn(turnID)
         notifySessionDidChange()
         return
       } catch {
@@ -428,9 +465,7 @@ extension ChatSessionController {
           .transientAssistantPlaceholdersRemoved,
         ])
         errorMessage = error.localizedDescription
-        isGenerating = false
-        chatTurnCoordinator.finishTurn(turnID)
-        flushPendingContextUsageRefresh(defaultMode: .disabled)
+        finishGeneratingTurn(turnID)
         notifySessionDidChange()
         return
       }
@@ -445,9 +480,7 @@ extension ChatSessionController {
           modelContextPolicy: nil
         )
       ])
-      isGenerating = false
-      chatTurnCoordinator.finishTurn(turnID)
-      flushPendingContextUsageRefresh(defaultMode: .disabled)
+      finishGeneratingTurn(turnID)
       notifySessionDidChange()
     }
   }
@@ -469,9 +502,11 @@ extension ChatSessionController {
   private func cancelGeneration(notify: Bool) {
     if let turnID = chatTurnCoordinator.cancelActiveTurn() {
       markTurnCancelled(turnID)
+      finishGeneratingTurn(turnID)
+    } else {
+      isGenerating = false
+      flushPendingContextUsageRefresh(defaultMode: .disabled)
     }
-    isGenerating = false
-    flushPendingContextUsageRefresh(defaultMode: .disabled)
     if notify {
       notifySessionDidChange()
     }
@@ -580,6 +615,13 @@ extension ChatSessionController {
 
   private func flushPendingContextUsageRefresh(defaultMode: ToolPromptMode) {
     activeModelContextDebugToolPromptMode = nil
+    if let pendingAgentToolExecutorRegistry {
+      self.pendingAgentToolExecutorRegistry = nil
+      applyAgentToolExecutorRegistry(
+        pendingAgentToolExecutorRegistry,
+        shouldRefreshContext: false
+      )
+    }
     refreshContextUsage(toolPromptMode: defaultMode)
   }
 
@@ -883,9 +925,7 @@ extension ChatSessionController {
         modelContextPolicy: .excluded
       )
     ])
-    isGenerating = false
-    chatTurnCoordinator.finishTurn(turnID)
-    flushPendingContextUsageRefresh(defaultMode: .disabled)
+    finishGeneratingTurn(turnID)
     notifySessionDidChange()
   }
 
@@ -894,9 +934,7 @@ extension ChatSessionController {
       return
     }
     markTurnCancelled(turnID)
-    isGenerating = false
-    chatTurnCoordinator.finishTurn(turnID)
-    flushPendingContextUsageRefresh(defaultMode: .disabled)
+    finishGeneratingTurn(turnID)
     notifySessionDidChange()
   }
 
@@ -914,9 +952,7 @@ extension ChatSessionController {
       .transientAssistantPlaceholdersRemoved,
     ])
     errorMessage = error.localizedDescription
-    isGenerating = false
-    chatTurnCoordinator.finishTurn(turnID)
-    flushPendingContextUsageRefresh(defaultMode: .disabled)
+    finishGeneratingTurn(turnID)
     notifySessionDidChange()
   }
 
@@ -931,9 +967,7 @@ extension ChatSessionController {
         modelContextPolicy: nil
       )
     ])
-    isGenerating = false
-    chatTurnCoordinator.finishTurn(turnID)
-    flushPendingContextUsageRefresh(defaultMode: .disabled)
+    finishGeneratingTurn(turnID)
     notifySessionDidChange()
   }
 
@@ -1350,15 +1384,11 @@ extension ChatSessionController {
 
       switch step.continuation {
       case .awaitingApproval:
-        isGenerating = false
-        chatTurnCoordinator.finishTurn(turnID)
-        flushPendingContextUsageRefresh(defaultMode: .disabled)
+        finishGeneratingTurn(turnID)
         notifySessionDidChange()
         return
       case .awaitingUserAnswer:
-        isGenerating = false
-        chatTurnCoordinator.finishTurn(turnID)
-        flushPendingContextUsageRefresh(defaultMode: .disabled)
+        finishGeneratingTurn(turnID)
         notifySessionDidChange()
         return
       case .resumeGeneration(let nextAssistantMessageID, let promptMode):
@@ -1380,13 +1410,15 @@ extension ChatSessionController {
   }
 
   fileprivate func systemPrompt(toolPromptMode: ToolPromptMode) -> String {
+    let registry = toolRegistry(for: toolPromptMode)
     let renderedPrompt = toolPromptPolicy.systemPrompt(
       basePrompt: chatSession.systemPrompt,
       mode: toolPromptMode,
-      toolRegistry: toolRegistry(for: toolPromptMode),
+      toolRegistry: registry,
       toolCallingPolicy: modelRuntime.selectedModel.toolCallingPolicy
     )
     guard chatSession.interactionMode == .agent,
+      registry.definition(for: .todoWrite) != nil,
       let planBlock = TodoPromptRenderer.compactPlanBlock(for: chatSession.todoState)
     else {
       return renderedPrompt
@@ -1482,7 +1514,7 @@ extension ChatSessionController {
     case .inspect, .afterInspectToolResultCanContinue:
       return ToolExecutorRegistry.readOnly.toolRegistry
     case .enabled(true), .afterToolResultCanContinue:
-      return ToolExecutorRegistry.codingAgent.toolRegistry
+      return toolOrchestrator.toolRegistry
     case .disabled, .enabled(false), .afterToolResultFinal:
       return ToolRegistry(tools: [])
     }

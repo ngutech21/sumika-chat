@@ -534,7 +534,7 @@ public struct AnyToolExecutor: Sendable {
 }
 
 public struct ToolExecutorRegistry: Sendable {
-  public static let readOnly = ToolExecutorRegistry([
+  private static let readOnlyExecutors = [
     AnyToolExecutor(ReadFileToolExecutor()),
     AnyToolExecutor(ShowFileToolExecutor()),
     AnyToolExecutor(ListFilesToolExecutor()),
@@ -542,26 +542,41 @@ public struct ToolExecutorRegistry: Sendable {
     AnyToolExecutor(SearchFilesToolExecutor()),
     AnyToolExecutor(WorkspaceDiffToolExecutor()),
     AnyToolExecutor(WorkspaceDiagnosticsToolExecutor()),
-  ])
+  ]
 
-  public static let codingAgent = ToolExecutorRegistry([
-    AnyToolExecutor(ReadFileToolExecutor()),
-    AnyToolExecutor(ShowFileToolExecutor()),
-    AnyToolExecutor(ListFilesToolExecutor()),
-    AnyToolExecutor(GlobFilesToolExecutor()),
-    AnyToolExecutor(SearchFilesToolExecutor()),
-    AnyToolExecutor(WorkspaceDiffToolExecutor()),
-    AnyToolExecutor(WorkspaceDiagnosticsToolExecutor()),
-    AnyToolExecutor(BrowserRefreshToolExecutor()),
-    AnyToolExecutor(BrowserInspectToolExecutor()),
-    AnyToolExecutor(EditFileToolExecutor()),
-    AnyToolExecutor(WriteFileToolExecutor()),
-    AnyToolExecutor(RunCommandToolExecutor()),
-    AnyToolExecutor(TodoWriteToolExecutor()),
-    AnyToolExecutor(AskUserToolExecutor()),
-    AnyToolExecutor(WebSearchToolExecutor()),
-    AnyToolExecutor(WebFetchToolExecutor()),
-  ])
+  private static func codingAgentExecutors(todoWriteEnabled: Bool) -> [AnyToolExecutor] {
+    var executors = [
+      AnyToolExecutor(ReadFileToolExecutor()),
+      AnyToolExecutor(ShowFileToolExecutor()),
+      AnyToolExecutor(ListFilesToolExecutor()),
+      AnyToolExecutor(GlobFilesToolExecutor()),
+      AnyToolExecutor(SearchFilesToolExecutor()),
+      AnyToolExecutor(WorkspaceDiffToolExecutor()),
+      AnyToolExecutor(WorkspaceDiagnosticsToolExecutor()),
+      AnyToolExecutor(BrowserRefreshToolExecutor()),
+      AnyToolExecutor(BrowserInspectToolExecutor()),
+      AnyToolExecutor(EditFileToolExecutor()),
+      AnyToolExecutor(WriteFileToolExecutor()),
+      AnyToolExecutor(RunCommandToolExecutor()),
+    ]
+    if todoWriteEnabled {
+      executors.append(AnyToolExecutor(TodoWriteToolExecutor()))
+    }
+    executors.append(contentsOf: [
+      AnyToolExecutor(AskUserToolExecutor()),
+      AnyToolExecutor(WebSearchToolExecutor()),
+      AnyToolExecutor(WebFetchToolExecutor()),
+    ])
+    return executors
+  }
+
+  public static let readOnly = ToolExecutorRegistry(readOnlyExecutors)
+
+  public static let codingAgent = codingAgentRegistry(todoWriteEnabled: true)
+
+  public static func codingAgentRegistry(todoWriteEnabled: Bool) -> ToolExecutorRegistry {
+    ToolExecutorRegistry(codingAgentExecutors(todoWriteEnabled: todoWriteEnabled))
+  }
 
   private let orderedExecutors: [AnyToolExecutor]
   private let executorsByName: [ToolName: AnyToolExecutor]
@@ -1711,6 +1726,21 @@ public struct ToolOrchestrator: Sendable {
 
   public var toolRegistry: ToolRegistry {
     executorRegistry.toolRegistry
+  }
+
+  public func replacingExecutorRegistry(_ executorRegistry: ToolExecutorRegistry)
+    -> ToolOrchestrator
+  {
+    ToolOrchestrator(
+      executorRegistry: executorRegistry,
+      validator: validator,
+      readTracker: readTracker,
+      latestCommandResultStore: latestCommandResultStore,
+      webSearcher: webSearcher,
+      webFetcher: webFetcher,
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: webAccessSettingsProvider
+    )
   }
 
   public func execute(request rawRequest: RawToolCallRequest, workspace: Workspace) async

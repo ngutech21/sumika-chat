@@ -652,6 +652,35 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func codingAgentRegistryCanDisableTodoWrite() {
+    let enabledDefinitions = ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: true)
+      .definitions
+    let disabledDefinitions = ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: false)
+      .definitions
+
+    #expect(enabledDefinitions.map(\.name).contains(.todoWrite))
+    #expect(!disabledDefinitions.map(\.name).contains(.todoWrite))
+    #expect(
+      disabledDefinitions == [
+        .readFile,
+        .showFile,
+        .listFiles,
+        .globFiles,
+        .searchFiles,
+        .workspaceDiff,
+        .workspaceDiagnostics,
+        .browserRefresh,
+        .browserInspect,
+        .editFile,
+        .writeFile,
+        .runCommand,
+        .askUser,
+        .webSearch,
+        .webFetch,
+      ])
+  }
+
+  @Test
   func workspaceDiffReturnsCleanWorkspaceMessage() async throws {
     let workspace = try makeWorkspace()
     try initializeGitRepository(in: workspace)

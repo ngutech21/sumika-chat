@@ -3,9 +3,14 @@ import LocalCoderCore
 
 nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
   var autoloadLastModel: Bool
+  var todoWriteToolEnabled: Bool
 
-  init(autoloadLastModel: Bool = false) {
+  init(
+    autoloadLastModel: Bool = false,
+    todoWriteToolEnabled: Bool = false
+  ) {
     self.autoloadLastModel = autoloadLastModel
+    self.todoWriteToolEnabled = todoWriteToolEnabled
   }
 }
 

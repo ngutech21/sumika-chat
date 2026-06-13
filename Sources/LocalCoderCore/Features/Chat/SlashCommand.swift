@@ -78,7 +78,8 @@ public struct SlashCommandParser: Sendable {
       return nil
     }
 
-    let argument = withoutSlash
+    let argument =
+      withoutSlash
       .dropFirst(name.count)
       .trimmingCharacters(in: .whitespacesAndNewlines)
 

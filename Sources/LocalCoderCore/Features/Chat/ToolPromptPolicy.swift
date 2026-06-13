@@ -88,7 +88,7 @@ public struct ToolPromptPolicy: Sendable {
     toolRegistry: ToolRegistry,
     toolCallingPolicy: ToolCallingPolicy
   ) -> String {
-    [
+    return [
       basePrompt,
       """
       Read-only workspace tools are available through the native tool-calling interface.
@@ -113,7 +113,14 @@ public struct ToolPromptPolicy: Sendable {
     toolRegistry: ToolRegistry,
     toolCallingPolicy: ToolCallingPolicy
   ) -> String {
-    [
+    let todoWorkflowInstruction =
+      toolRegistry.definition(for: .todoWrite) != nil
+      ? """
+      - For multi-step Agent tasks, first call todo_write with item1 and item2, plus optional item3 through item6. Use done1/done2 booleans only for already completed items; omit done fields for new todos. Never call todo_write once per todo.
+      - After completing a planned todo, call todo_write with the full plan and mark only completed items using done1 through done6.
+      """
+      : ""
+    return [
       basePrompt,
       """
       Workspace tools are available through the native tool-calling interface.
@@ -122,8 +129,7 @@ public struct ToolPromptPolicy: Sendable {
       \(nativeMultipleToolCallInstruction(policy: toolCallingPolicy))
 
       File workflow:
-      - For multi-step Agent tasks, first call todo_write with item1 and item2, plus optional item3 through item6. Use done1/done2 booleans only for already completed items; omit done fields for new todos. Never call todo_write once per todo.
-      - After completing a planned todo, call todo_write with the full plan and mark only completed items using done1 through done6.
+      \(todoWorkflowInstruction)
       - When the user only wants to see, show, view, or open a file (no question or task about its contents), use show_file. You will not receive the contents.
       - When you need a file's contents yourself to inspect, explain, summarize, search within, reason about, or modify it, use read_file. read_file loads the full text into your context; show_file does not.
       - To find files by name, use glob_files or list_files.

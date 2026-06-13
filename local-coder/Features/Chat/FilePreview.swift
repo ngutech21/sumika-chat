@@ -124,13 +124,15 @@ struct FilePreviewPane: View {
 
       if preview.truncated {
         Divider()
-        Label("File truncated to the first \(preview.byteCount.formatted(.byteCount(style: .file)))",
-          systemImage: "scissors")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 8)
+        Label(
+          "File truncated to the first \(preview.byteCount.formatted(.byteCount(style: .file)))",
+          systemImage: "scissors"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
       }
     }
     .frame(minWidth: 360, idealWidth: 460)

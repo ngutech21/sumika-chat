@@ -104,7 +104,7 @@ final class AppState {
       runtime: runtime,
       modelAvailability: modelAvailability,
       toolOrchestrator: ToolOrchestrator(
-        executorRegistry: .codingAgent,
+        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false),
         browserToolService: browserToolService,
         webAccessSettingsProvider: {
           await webAccessSettingsStore.settings()
@@ -201,6 +201,7 @@ final class AppState {
 
   func updateActiveAppBehaviorSettings(_ settings: AppBehaviorSettings) {
     activeAppBehaviorSettings = settings
+    applyAppBehaviorSettings(settings)
     let previousSaveTask = saveAppBehaviorSettingsTask
     saveAppBehaviorSettingsTask = Task { [appBehaviorSettingsStore] in
       await previousSaveTask?.value
@@ -285,6 +286,10 @@ final class AppState {
     }
   }
 
+  private func applyAppBehaviorSettings(_ settings: AppBehaviorSettings) {
+    chatController.configureAgentTools(todoWriteEnabled: settings.todoWriteToolEnabled)
+  }
+
   private func refreshDefaultSessionFactory() {
     workspaceLibraryController.defaultSessionFactory = makeDefaultSessionFactory()
   }
@@ -357,6 +362,7 @@ final class AppState {
       let library = await workspaceStore.loadLibrary()
 
       activeAppBehaviorSettings = appBehaviorSettings
+      applyAppBehaviorSettings(appBehaviorSettings)
       defaultSessionModelID = selectedModel.id
       defaultSessionSystemPrompt = settings.systemPrompt
       defaultSessionGenerationSettings = settings.generationSettings
