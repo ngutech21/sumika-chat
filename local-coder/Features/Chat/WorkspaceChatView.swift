@@ -8,6 +8,7 @@ struct WorkspaceChatView: View {
   let sessionID: ChatSession.ID?
   let browserToolService: HTMLPreviewBrowserToolService
   @Binding var isModelContextDebugVisible: Bool
+  @Binding var isWorkspaceTerminalVisible: Bool
   let onAddAttachments: () -> Void
   let onOpenWorkspaceInFinder: () -> Void
   let onOpenWorkspaceInVisualStudioCode: () -> Void
@@ -15,7 +16,7 @@ struct WorkspaceChatView: View {
   @State private var htmlPreviewRefreshID = UUID()
   @State private var htmlPreviewConsoleEntries: [HTMLPreviewConsoleEntry] = []
   @State private var filePreview: FilePreviewState?
-  @State private var isWorkspaceTerminalVisible = false
+  
   private let slashCommandParser = SlashCommandParser()
   private let htmlPreviewResolver = HTMLPreviewResolver()
   private let filePreviewResolver = FilePreviewResolver()

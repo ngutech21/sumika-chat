@@ -7,6 +7,7 @@ struct ContentView: View {
     Self.defaultColumnVisibility.storageValue
   @AppStorage("workspaceChat.isModelContextDebugVisible") private var isModelContextDebugVisible =
     false
+  @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible = false
   @State private var selection: AppNavigationSelection?
   @State private var appState: AppState
 
@@ -84,9 +85,11 @@ struct ContentView: View {
               sessionID: appState.activeSessionID,
               browserToolService: appState.browserToolService,
               isModelContextDebugVisible: $isModelContextDebugVisible,
+              isWorkspaceTerminalVisible: $isTerminalVisible,
               onAddAttachments: chooseAttachments,
               onOpenWorkspaceInFinder: appState.openActiveWorkspaceInFinder,
               onOpenWorkspaceInVisualStudioCode: appState.openActiveWorkspaceInVisualStudioCode
+              
             )
             .navigationTitle(workspace.name)
           } else {

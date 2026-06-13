@@ -6,6 +6,9 @@ import SwiftUI
 struct LocalCoderApp: App {
   @AppStorage("workspaceChat.isModelContextDebugVisible") private var isModelContextDebugVisible =
     false
+  @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible =
+    false
+
 
   var body: some Scene {
     WindowGroup {
@@ -15,6 +18,8 @@ struct LocalCoderApp: App {
       CommandGroup(after: .sidebar) {
         Toggle("Model Context Debug", isOn: $isModelContextDebugVisible)
           .keyboardShortcut("0", modifiers: [.command, .option])
+          Toggle("Console", isOn: $isTerminalVisible)
+          .keyboardShortcut("T", modifiers: [.command, .option])
       }
     }
   }
