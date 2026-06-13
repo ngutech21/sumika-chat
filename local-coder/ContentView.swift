@@ -89,7 +89,7 @@ struct ContentView: View {
               onAddAttachments: chooseAttachments,
               onOpenWorkspaceInFinder: appState.openActiveWorkspaceInFinder,
               onOpenWorkspaceInVisualStudioCode: appState.openActiveWorkspaceInVisualStudioCode
-              
+
             )
             .navigationTitle(workspace.name)
           } else {

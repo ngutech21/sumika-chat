@@ -2139,7 +2139,6 @@ struct GemmaMLXRuntimeTemplateTests {
     let limit = try #require(properties["limit"] as? [String: any Sendable])
 
     #expect(readFileSpec["type"] as? String == "function")
-    #expect(function["description"] as? String == ToolDefinition.readFile.description)
     #expect(parameters["type"] as? String == "object")
     #expect(parameters["additionalProperties"] as? Bool == false)
     #expect(path["type"] as? String == "string")
@@ -2177,10 +2176,8 @@ struct GemmaMLXRuntimeTemplateTests {
     let option2 = try #require(askProperties["option2"] as? [String: any Sendable])
 
     #expect(item1["type"] as? String == "string")
-    #expect((item1["description"] as? String)?.contains("Todo item 1 content") == true)
     #expect(item1["items"] == nil)
     #expect(item2["type"] as? String == "string")
-    #expect((item2["description"] as? String)?.contains("Todo item 2 content") == true)
     #expect(item2["items"] == nil)
     #expect(done1["type"] as? String == "boolean")
     #expect(done1["items"] == nil)

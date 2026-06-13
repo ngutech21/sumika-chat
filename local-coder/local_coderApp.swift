@@ -13,7 +13,6 @@ struct LocalCoderApp: App {
     NSWindow.allowsAutomaticWindowTabbing = false
   }
 
-
   var body: some Scene {
     WindowGroup {
       ContentView(appState: AppLaunchConfiguration.makeAppState())
@@ -22,7 +21,7 @@ struct LocalCoderApp: App {
       CommandGroup(after: .sidebar) {
         Toggle("Model Context Debug", isOn: $isModelContextDebugVisible)
           .keyboardShortcut("0", modifiers: [.command, .option])
-          Toggle("Console", isOn: $isTerminalVisible)
+        Toggle("Console", isOn: $isTerminalVisible)
           .keyboardShortcut("T", modifiers: [.command, .option])
       }
     }

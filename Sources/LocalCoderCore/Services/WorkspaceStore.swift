@@ -1,5 +1,5 @@
 import Foundation
-import os
+import OSLog
 
 public protocol WorkspaceStoring: Sendable {
   func loadLibrary() async -> WorkspaceLibrary

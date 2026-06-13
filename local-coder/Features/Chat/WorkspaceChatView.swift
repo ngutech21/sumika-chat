@@ -16,7 +16,7 @@ struct WorkspaceChatView: View {
   @State private var htmlPreviewRefreshID = UUID()
   @State private var htmlPreviewConsoleEntries: [HTMLPreviewConsoleEntry] = []
   @State private var filePreview: FilePreviewState?
-  
+
   private let slashCommandParser = SlashCommandParser()
   private let htmlPreviewResolver = HTMLPreviewResolver()
   private let filePreviewResolver = FilePreviewResolver()
