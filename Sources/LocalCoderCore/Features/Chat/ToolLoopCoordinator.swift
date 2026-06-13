@@ -424,7 +424,9 @@ public struct ToolLoopCoordinator: Sendable {
     after record: ToolCallRecord,
     defaultMode: ToolPromptMode
   ) -> ToolPromptMode {
-    guard record.status == .completed else {
+    guard record.status == .completed,
+      record.resultPayload?.status == .success
+    else {
       return defaultMode
     }
     switch record.request.toolName {

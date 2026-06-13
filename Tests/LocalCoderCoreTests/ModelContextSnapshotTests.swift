@@ -271,6 +271,42 @@ struct ModelContextSnapshotTests {
   }
 
   @Test
+  func failedEditFileResultEntryFreezesAsToolObservationPrompt() throws {
+    let turnID = UUID()
+    let callID = UUID()
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+    let entry = try ModelFacingPromptRenderer.toolResultEntry(
+      turnID: turnID,
+      toolResult: ToolResultModelMessage(
+        callID: callID,
+        toolName: .editFile,
+        payload: .editFile(
+          .oldTextNotFound(
+            path: path,
+            currentContent: ToolTextOutput(text: "project notes\n"),
+            recovery: .readFile(path: path)
+          ))
+      ),
+      request: editFileRequest(callID: callID),
+      originalUserRequest: "replace missing text in README"
+    )
+
+    #expect(entry.frozenContent.role == .user)
+    guard case .toolObservation(let context) = entry.body else {
+      Issue.record("Expected failed edit_file result to be a model-facing tool observation.")
+      return
+    }
+    #expect(context.toolName == .editFile)
+    #expect(context.status == .failed)
+    #expect(context.content.contains("edit_file failed: old_text was not found in README.md"))
+    #expect(context.content.contains("First call read_file(path: \"README.md\")"))
+    #expect(entry.frozenContent.content.contains("Original user request:"))
+    #expect(entry.frozenContent.content.contains("replace missing text in README"))
+    #expect(entry.frozenContent.content.contains("Tool observation:"))
+    #expect(entry.frozenContent.content.contains("Do not retry edit_file from memory"))
+  }
+
+  @Test
   func toolResultEntryStoresTypedToolReceiptMetadata() throws {
     let callID = UUID()
     let entry = try readFileToolResultEntry(
@@ -639,6 +675,23 @@ struct ModelContextSnapshotTests {
         toolName: .writeFile
       ),
       payload: .writeFile(WriteFileInput(path: "movies.html", content: "<html></html>"))
+    )
+  }
+
+  private func editFileRequest(callID: UUID) -> ToolCallRequest {
+    ToolCallRequest.validated(
+      raw: RawToolCallRequest(
+        id: callID,
+        workspaceID: UUID(),
+        sessionID: UUID(),
+        toolName: .editFile
+      ),
+      payload: .editFile(
+        EditFileInput(
+          path: "README.md",
+          oldText: "missing text",
+          newText: "replacement"
+        ))
     )
   }
 }

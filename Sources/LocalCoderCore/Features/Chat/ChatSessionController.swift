@@ -848,7 +848,7 @@ extension ChatSessionController {
       )
       applyWorkflowEvents(events)
       notifySessionDidChange()
-      let promptMode = followUpPromptMode(afterApprovedTool: mergedRecord.request.toolName)
+      let promptMode = followUpPromptMode(afterApprovedTool: mergedRecord)
       appendFinalToolFollowUpBoundaryIfNeeded(
         toolPromptMode: promptMode,
         turnID: turnID
@@ -860,7 +860,7 @@ extension ChatSessionController {
         turnID: turnID,
         toolLoopIteration: 1
       )
-      if !isFinalApprovedToolFollowUp(mergedRecord.request.toolName) {
+      if !isFinalApprovedToolFollowUp(mergedRecord) {
         try await runToolLoop(
           workspace: workspace,
           sessionID: existingRecord.request.sessionID,
@@ -1213,12 +1213,15 @@ extension ChatSessionController {
     return merged
   }
 
-  private func followUpPromptMode(afterApprovedTool toolName: ToolName) -> ToolPromptMode {
-    isFinalApprovedToolFollowUp(toolName) ? .afterToolResultFinal : .afterToolResultCanContinue
+  private func followUpPromptMode(afterApprovedTool record: ToolCallRecord) -> ToolPromptMode {
+    isFinalApprovedToolFollowUp(record) ? .afterToolResultFinal : .afterToolResultCanContinue
   }
 
-  private func isFinalApprovedToolFollowUp(_ toolName: ToolName) -> Bool {
-    toolName == .writeFile || toolName == .editFile
+  private func isFinalApprovedToolFollowUp(_ record: ToolCallRecord) -> Bool {
+    guard record.resultPayload?.status == .success else {
+      return false
+    }
+    return record.request.toolName == .writeFile || record.request.toolName == .editFile
   }
 
   private func appendFinalToolFollowUpBoundaryIfNeeded(

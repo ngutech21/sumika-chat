@@ -333,6 +333,13 @@ struct ChatSessionControllerToolLoopTests {
     #expect(controller.chatSession.toolCalls[1].request.toolName == .readFile)
     #expect(controller.chatSession.toolCalls[1].status == .completed)
     #expect(controller.chatSession.testMessages.last?.content == "The file contains project notes.")
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count >= 2)
+    let recoveryPrompt = try #require(capturedMessages[1].last(where: { $0.role == .user }))
+    #expect(recoveryPrompt.content.contains("edit_file failed: old_text was not found in README.md"))
+    #expect(recoveryPrompt.content.contains("Do not retry edit_file from memory"))
+    #expect(recoveryPrompt.content.contains("First call read_file(path: \"README.md\")"))
   }
 
   @Test

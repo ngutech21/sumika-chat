@@ -68,7 +68,10 @@ public enum ModelFacingPromptRenderer {
       toolName: toolResult.toolName,
       preview: toolResult.preview
     )
-    if toolResult.toolName == .writeFile || toolResult.toolName == .editFile {
+    if isTerminalWriteResult(
+      toolName: toolResult.toolName,
+      status: projection.observation.status
+    ) {
       return try ModelContextEntry(
         id: id,
         turnID: turnID,
@@ -110,6 +113,13 @@ public enum ModelFacingPromptRenderer {
         )
       )
     )
+  }
+
+  private static func isTerminalWriteResult(
+    toolName: ToolName,
+    status: ToolResultStatus
+  ) -> Bool {
+    status == .success && (toolName == .writeFile || toolName == .editFile)
   }
 
   /// The frozen content is the exact runtime follow-up prompt. Freezing the
