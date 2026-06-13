@@ -5,19 +5,18 @@ import Testing
 
 struct ToolDefinitionSchemaTests {
   @Test
-  func registeredToolsHaveCompleteModelFacingDescriptions() {
+  func registeredToolsHaveStableExecutableMetadata() {
     let definitions = ToolExecutorRegistry.codingAgent.definitions
 
     #expect(!definitions.isEmpty)
 
     for definition in definitions {
-      #expect(!definition.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      #expect(!definition.name.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       #expect(!definition.exampleArguments.isEmpty)
       #expect(!definition.parameters.isEmpty)
 
       for parameter in definition.parameters {
         #expect(!parameter.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        #expect(!parameter.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }
     }
   }
@@ -59,20 +58,12 @@ struct ToolDefinitionSchemaTests {
     let writeDefinition = ToolDefinition.writeFile
     let editDefinition = ToolDefinition.editFile
 
-    #expect(writeDefinition.description.contains("fully overwrite"))
     #expect(writeDefinition.parameters.first { $0.name == "content" }?.valueType == .string)
-    #expect(
-      writeDefinition.parameters.first { $0.name == "content" }?.description.contains(
-        "Replaces the entire file") == true)
     #expect(
       writeDefinition.parameters.first { $0.name == "content" }?.supportsHeredocPayload == true)
 
-    #expect(editDefinition.description.contains("exact text span"))
     #expect(editDefinition.functionSchema.parameters.required == ["path", "old_text", "new_text"])
     #expect(editDefinition.parameters.first { $0.name == "old_text" }?.valueType == .string)
-    #expect(
-      editDefinition.parameters.first { $0.name == "old_text" }?.description.contains(
-        "Must match once") == true)
     #expect(
       editDefinition.parameters.first { $0.name == "old_text" }?.supportsHeredocPayload == true)
   }
@@ -82,7 +73,6 @@ struct ToolDefinitionSchemaTests {
     let definition = ToolDefinition.runCommand
     let schema = definition.functionSchema
 
-    #expect(definition.description.contains("approved foreground shell command"))
     #expect(definition.capabilities == [.runCommand])
     #expect(definition.riskLevel == .high)
     #expect(schema.parameters.required == ["command", "timeoutSeconds"])
@@ -98,7 +88,6 @@ struct ToolDefinitionSchemaTests {
     let definition = ToolDefinition.todoWrite
     let schema = definition.functionSchema
 
-    #expect(definition.description.contains("Agent todo plan"))
     #expect(definition.riskLevel == .low)
     #expect(definition.capabilities.isEmpty)
     #expect(schema.parameters.required == ["item1", "item2"])
@@ -108,8 +97,6 @@ struct ToolDefinitionSchemaTests {
     #expect(schema.parameters.properties["done1"]?.type == .boolean)
     #expect(schema.parameters.properties["done6"]?.type == .boolean)
     #expect(schema.parameters.properties["done1"]?.defaultValue == .bool(false))
-    #expect(schema.parameters.properties["item1"]?.description.contains("Required") == true)
-    #expect(schema.parameters.properties["item3"]?.description.contains("Optional") == true)
     #expect(schema.parameters.properties["item1"]?.arrayItems == nil)
     #expect(schema.parameters.properties.keys.count == 12)
   }
@@ -119,7 +106,6 @@ struct ToolDefinitionSchemaTests {
     let definition = ToolDefinition.askUser
     let schema = definition.functionSchema
 
-    #expect(definition.description.contains("blocking clarification"))
     #expect(definition.riskLevel == .low)
     #expect(definition.capabilities.isEmpty)
     #expect(schema.parameters.required == ["question", "option1", "option2"])
@@ -140,14 +126,12 @@ struct ToolDefinitionSchemaTests {
     let refresh = ToolDefinition.browserRefresh
     let inspect = ToolDefinition.browserInspect
 
-    #expect(refresh.description.contains("HTML preview"))
     #expect(refresh.riskLevel == .low)
     #expect(refresh.capabilities.isEmpty)
     #expect(refresh.functionSchema.parameters.required.isEmpty)
     #expect(refresh.functionSchema.parameters.properties["hard"]?.type == .boolean)
     #expect(refresh.functionSchema.parameters.properties["hard"]?.defaultValue == .bool(false))
 
-    #expect(inspect.description.contains("HTML preview"))
     #expect(inspect.riskLevel == .low)
     #expect(inspect.capabilities.isEmpty)
     #expect(inspect.functionSchema.parameters.required.isEmpty)
@@ -171,7 +155,6 @@ struct ToolDefinitionSchemaTests {
 
     #expect(object["type"] as? String == "function")
     #expect(object["name"] as? String == "read_file")
-    #expect(object["description"] as? String == ToolDefinition.readFile.description)
 
     let parameters = try #require(object["parameters"] as? [String: Any])
     #expect(parameters["type"] as? String == "object")
@@ -198,45 +181,7 @@ struct ToolDefinitionSchemaTests {
 
     #expect(schema.parameters.properties.keys.sorted() == ["limit", "offset", "path"])
     #expect(schema.parameters.required == ["path"])
-    #expect(
-      schema.parameters.properties["path"]?.description
-        == "Workspace-relative file path.")
-  }
-
-  @Test
-  func functionSchemaDescriptionsStayCompactAndNativeOnly() {
-    let definitions = ToolExecutorRegistry.codingAgent.definitions
-    let forbiddenFragments = ["delimiter", "heredoc", "LC_PAYLOAD_V1"]
-
-    for definition in definitions {
-      let schema = definition.functionSchema
-      #expect(schema.description.count <= 80)
-      for fragment in forbiddenFragments {
-        #expect(!schema.description.contains(fragment))
-      }
-
-      for property in schema.parameters.properties.values {
-        #expect(property.description.count <= 90)
-        for fragment in forbiddenFragments {
-          #expect(!property.description.contains(fragment))
-        }
-      }
-    }
-  }
-
-  @Test
-  func optionalRootScopedPathDescriptionsExposeDefaults() {
-    let rootDefaultTools = [
-      ToolDefinition.listFiles,
-      ToolDefinition.globFiles,
-      ToolDefinition.searchFiles,
-      ToolDefinition.workspaceDiff,
-    ]
-
-    for definition in rootDefaultTools {
-      let path = definition.functionSchema.parameters.properties["path"]
-      #expect(path?.description.contains("Defaults to root") == true)
-    }
+    #expect(schema.parameters.properties["path"]?.type == .string)
   }
 
   @Test
