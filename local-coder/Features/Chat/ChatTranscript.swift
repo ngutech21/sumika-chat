@@ -219,12 +219,6 @@ private struct ChatBubble: View {
       }
 
       VStack(alignment: item.isDisplayedAsUser ? .trailing : .leading, spacing: item.stackSpacing) {
-        if item.showsAuthorLabel {
-          Label(item.displayTitle, systemImage: item.displaySystemImage)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-
         if item.shouldShowAssistantPlaceholder {
           AssistantPlaceholderView(item: item)
         } else {
@@ -566,11 +560,14 @@ extension RenderedChatTurnItem {
   }
 
   var messageBubbleBackground: Color {
-    if isToolItem {
-      return .clear
-    }
+    // Only the user message keeps a bubble now; the assistant renders as plain,
+    // quieter free text. The user bubble adopts the muted gray the assistant
+    // bubble used to have (no more accent blue).
+    showsBubble ? Color.secondary.opacity(0.12) : .clear
+  }
 
-    return isDisplayedAsUser ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12)
+  var showsBubble: Bool {
+    isDisplayedAsUser
   }
 
   var stackSpacing: CGFloat {
@@ -578,15 +575,11 @@ extension RenderedChatTurnItem {
   }
 
   var contentPadding: CGFloat {
-    isToolItem ? 0 : 10
+    showsBubble ? 10 : 0
   }
 
   var maximumBubbleWidth: CGFloat {
     isToolItem ? 460 : 680
-  }
-
-  var showsAuthorLabel: Bool {
-    !isToolItem
   }
 
   fileprivate var accessibilityIdentifier: String {
@@ -607,30 +600,6 @@ extension RenderedChatTurnItem {
       return true
     }
     return false
-  }
-
-  var displayTitle: String {
-    switch item {
-    case .userMessage:
-      "You"
-    case .assistantMessage, .toolResult:
-      "Local Coder"
-    case .toolCall:
-      ""
-    }
-  }
-
-  var displaySystemImage: String {
-    switch item {
-    case .userMessage:
-      "person.crop.circle"
-    case .assistantMessage:
-      "cpu"
-    case .toolCall:
-      "wrench.and.screwdriver"
-    case .toolResult:
-      "checkmark.circle"
-    }
   }
 
   var shouldShowAssistantPlaceholder: Bool {
