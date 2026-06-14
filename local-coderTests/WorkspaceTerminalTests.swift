@@ -72,4 +72,42 @@ struct WorkspaceTerminalTests {
     #expect(configuration.environment["TERM"] == "xterm-256color")
     #expect(configuration.shellArguments == ["-il"])
   }
+
+  @Test
+  func terminalProcessStateExposesRunningConfigurationForRestartComparison() {
+    let configuration = WorkspaceTerminalConfiguration(
+      workspaceName: "Project",
+      workingDirectoryPath: "/tmp/project",
+      processEnvironment: ["SHELL": "/bin/zsh"]
+    )
+    let changedConfiguration = WorkspaceTerminalConfiguration(
+      workspaceName: "Other Project",
+      workingDirectoryPath: "/tmp/other-project",
+      processEnvironment: ["SHELL": "/bin/zsh"]
+    )
+
+    let state = WorkspaceTerminalProcessState.running(configuration)
+
+    #expect(state.configuration == configuration)
+    #expect(state.configuration != changedConfiguration)
+  }
+
+  @Test
+  func terminalProcessStateExposesExitedConfigurationForRestartComparison() {
+    let configuration = WorkspaceTerminalConfiguration(
+      workspaceName: "Project",
+      workingDirectoryPath: "/tmp/project",
+      processEnvironment: ["SHELL": "/bin/zsh"]
+    )
+    let changedConfiguration = WorkspaceTerminalConfiguration(
+      workspaceName: "Project",
+      workingDirectoryPath: "/tmp/other-project",
+      processEnvironment: ["SHELL": "/bin/zsh"]
+    )
+
+    let state = WorkspaceTerminalProcessState.exited(configuration)
+
+    #expect(state.configuration == configuration)
+    #expect(state.configuration != changedConfiguration)
+  }
 }

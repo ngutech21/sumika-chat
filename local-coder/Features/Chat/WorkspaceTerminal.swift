@@ -160,9 +160,11 @@ struct WorkspaceTerminalView: NSViewRepresentable {
       in terminalView: LocalProcessTerminalView,
       configuration: WorkspaceTerminalConfiguration
     ) {
-      switch processState {
-      case .running(configuration), .exited(configuration):
+      if processState.configuration == configuration {
         return
+      }
+
+      switch processState {
       case .running:
         terminate(terminalView)
       case .idle, .exited:
@@ -197,8 +199,17 @@ struct WorkspaceTerminalView: NSViewRepresentable {
   }
 }
 
-private enum WorkspaceTerminalProcessState: Equatable {
+enum WorkspaceTerminalProcessState: Equatable {
   case idle
   case running(WorkspaceTerminalConfiguration)
   case exited(WorkspaceTerminalConfiguration)
+
+  var configuration: WorkspaceTerminalConfiguration? {
+    switch self {
+    case .idle:
+      nil
+    case .running(let configuration), .exited(let configuration):
+      configuration
+    }
+  }
 }
