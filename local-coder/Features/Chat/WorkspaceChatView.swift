@@ -65,7 +65,6 @@ struct WorkspaceChatView: View {
           interactionMode: controller.chatSession.interactionMode,
           todoState: visibleTodoState,
           contextUsage: controller.contextUsage,
-          processUsage: controller.modelRuntime.processUsage,
           canChangeModel: !downloadedModels.isEmpty && !controller.isGenerating
             && controller.modelRuntime.canChangeModel,
           canChangeInteractionMode: controller.canChangeInteractionMode,

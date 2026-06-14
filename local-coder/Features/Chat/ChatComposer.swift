@@ -13,7 +13,6 @@ struct ChatComposer: View {
   let interactionMode: WorkspaceInteractionMode
   let todoState: TodoState?
   let contextUsage: ChatContextUsage?
-  let processUsage: ProcessResourceUsage?
   let canChangeModel: Bool
   let canChangeInteractionMode: Bool
   let canSend: Bool
@@ -189,12 +188,9 @@ struct ChatComposer: View {
           .help("Select interaction mode")
           .accessibilityIdentifier("chat.modePicker")
 
-          ComposerResourceSummary(
-            contextUsage: contextUsage,
-            processUsage: processUsage
-          )
-
           Spacer()
+
+          ComposerContextRing(usage: contextUsage)
 
           Button(action: isGenerating ? onCancel : sendMessage) {
             Image(systemName: isGenerating ? "stop.fill" : "arrow.up")
@@ -730,81 +726,6 @@ private struct ComposerKeyCommandMonitor: NSViewRepresentable {
 
       return event.keyCode == 36 || event.keyCode == 76
     }
-  }
-}
-
-private struct ComposerResourceSummary: View {
-  let contextUsage: ChatContextUsage?
-  let processUsage: ProcessResourceUsage?
-
-  var body: some View {
-    HStack(spacing: 12) {
-      ComposerMetric(
-        title: "RAM",
-        systemImage: "memorychip",
-        value: processUsage?.memorySummary ?? "Measuring"
-      )
-
-      ComposerMetric(
-        title: "CPU",
-        systemImage: "cpu",
-        value: processUsage?.cpuSummary ?? "Measuring"
-      )
-
-      if let tokenValue {
-        ComposerMetric(
-          title: "Tokens",
-          systemImage: "rectangle.stack",
-          value: tokenValue,
-          help: tokenHelp
-        )
-      }
-    }
-    .font(.caption)
-    .foregroundStyle(.secondary)
-  }
-
-  private var tokenValue: String? {
-    guard let contextUsage else {
-      return nil
-    }
-
-    let prefix = contextUsage.accuracy == .estimate ? "~" : ""
-    let usedTokens = contextUsage.usedTokens.formatted(.number)
-    guard let availableTokens = contextUsage.availableTokens else {
-      return "\(prefix)\(usedTokens)"
-    }
-
-    return "\(prefix)\(usedTokens)/\(availableTokens.formatted(.number))"
-  }
-
-  private var tokenHelp: String? {
-    guard let contextUsage, contextUsage.accuracy == .estimate || contextUsage.isStale else {
-      return nil
-    }
-
-    return "Estimated tokens; exact count updates when idle."
-  }
-}
-
-private struct ComposerMetric: View {
-  let title: String
-  let systemImage: String
-  let value: String
-  var help: String?
-
-  var body: some View {
-    Label {
-      HStack(spacing: 4) {
-        Text(title)
-        Text(value)
-          .monospacedDigit()
-      }
-    } icon: {
-      Image(systemName: systemImage)
-    }
-    .lineLimit(1)
-    .help(help ?? "")
   }
 }
 

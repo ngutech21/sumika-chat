@@ -89,6 +89,13 @@ struct AppSidebar: View {
     .accessibilityIdentifier("sidebar.workspaceList")
     .listStyle(.sidebar)
     .navigationTitle("local-coder")
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      ModelRuntimeFooter(processUsage: appState.chatController.modelRuntime.processUsage)
+        .background(.regularMaterial)
+        .overlay(alignment: .top) {
+          Divider()
+        }
+    }
     .alert("Rename Session", isPresented: renameAlertBinding) {
       TextField("Session name", text: $renameTitle)
 
