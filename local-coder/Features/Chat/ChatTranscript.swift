@@ -238,25 +238,24 @@ private struct ChatBubble: View {
             )
             .textSelection(.enabled)
 
-            if let metrics = item.visibleGenerationMetrics {
-              GenerationMetricsView(metrics: metrics)
+            if item.visibleGenerationMetrics != nil || item.canCopyAssistantMessageContent {
+              HStack(spacing: 8) {
+                if item.canCopyAssistantMessageContent {
+                  copyButton
+                }
+                if let metrics = item.visibleGenerationMetrics {
+                  GenerationMetricsView(metrics: metrics)
+                }
+              }
             }
           }
           .padding(item.contentPadding)
           .background(item.messageBubbleBackground, in: item.messageBubbleShape)
-        }
 
-        if item.canCopyMessageContent {
-          HStack(spacing: 8) {
-            Button {
-              copyMessageToClipboard()
-            } label: {
-              Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+          if item.canCopyUserMessageContent {
+            HStack(spacing: 8) {
+              copyButton
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help(didCopy ? "Copied" : "Copy")
-            .accessibilityLabel(item.copyAccessibilityLabel)
           }
         }
       }
@@ -285,6 +284,18 @@ private struct ChatBubble: View {
       try? await Task.sleep(for: .seconds(1.2))
       didCopy = false
     }
+  }
+
+  private var copyButton: some View {
+    Button {
+      copyMessageToClipboard()
+    } label: {
+      Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+    }
+    .buttonStyle(.borderless)
+    .foregroundStyle(.secondary)
+    .help(didCopy ? "Copied" : "Copy")
+    .accessibilityLabel(item.copyAccessibilityLabel)
   }
 }
 
@@ -634,6 +645,14 @@ extension RenderedChatTurnItem {
     case .toolCall, .toolResult:
       false
     }
+  }
+
+  var canCopyUserMessageContent: Bool {
+    isDisplayedAsUser && canCopyMessageContent
+  }
+
+  var canCopyAssistantMessageContent: Bool {
+    !isDisplayedAsUser && canCopyMessageContent
   }
 
   var copyAccessibilityLabel: String {
