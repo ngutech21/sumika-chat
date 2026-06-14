@@ -144,7 +144,13 @@ struct ContentView: View {
     }
     .onAppear {
       appState.startModelRuntimeServices()
-      if let sessionID = appState.activeSessionID {
+      let modelRuntime = controller.modelRuntime
+      let hasDownloadedModel = modelRuntime.availableModels.contains {
+        modelRuntime.isModelDownloaded($0)
+      }
+      if !hasDownloadedModel {
+        selection = .models
+      } else if let sessionID = appState.activeSessionID {
         selection = .session(sessionID)
       }
     }

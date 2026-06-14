@@ -32,21 +32,27 @@ struct ManagedModelRow: View {
   var body: some View {
     Button(action: onSelect) {
       HStack(spacing: 12) {
-        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-          .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+          .fill(tileTint.opacity(0.16))
+          .frame(width: 30, height: 30)
+          .overlay {
+            Image(systemName: tileSymbol)
+              .font(.system(size: 15, weight: .medium))
+              .foregroundStyle(tileTint)
+          }
 
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
           HStack(spacing: 8) {
             Text(model.displayName)
-              .font(.headline)
+              .font(.body.weight(.medium))
 
             if model.isRecommended {
               Text("Recommended")
                 .font(.caption.weight(.medium))
+                .foregroundStyle(Color.accentColor)
                 .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(Color.accentColor.opacity(0.14))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .padding(.vertical, 2)
+                .background(Color.accentColor.opacity(0.14), in: Capsule())
             }
 
             if model.stability == .experimental {
@@ -69,24 +75,43 @@ struct ManagedModelRow: View {
             .lineLimit(2)
         }
 
-        Spacer()
+        Spacer(minLength: 12)
 
-        VStack(alignment: .trailing, spacing: 4) {
+        VStack(alignment: .trailing, spacing: 3) {
           Text(model.estimatedDownloadSize)
+            .font(.callout)
             .foregroundStyle(.secondary)
             .monospacedDigit()
-          Text(statusText)
-            .font(.caption)
-            .foregroundStyle(statusTint)
+          HStack(spacing: 4) {
+            if isActive || isDownloaded {
+              Circle()
+                .fill(statusTint)
+                .frame(width: 6, height: 6)
+            }
+            Text(statusText)
+              .font(.caption)
+              .foregroundStyle(statusTint)
+          }
         }
+
+        Image(systemName: "checkmark")
+          .font(.body.weight(.semibold))
+          .foregroundStyle(Color.accentColor)
+          .opacity(isSelected ? 1 : 0)
+          .frame(width: 16)
       }
-      .padding(12)
-      .background(isSelected ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.07))
-      .clipShape(RoundedRectangle(cornerRadius: 8))
+      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .disabled(!canSelect && !isSelected)
+    .listRowBackground(isSelected ? Color.accentColor.opacity(0.10) : nil)
     .accessibilityIdentifier("model-row-\(model.id)")
+  }
+
+  private var tileSymbol: String { "cpu" }
+
+  private var tileTint: Color {
+    isSelected ? .accentColor : .secondary
   }
 
   private var statusText: String {
@@ -129,32 +154,44 @@ struct ModelRuntimeStatus: View {
   let processUsage: ProcessResourceUsage?
 
   var body: some View {
-    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
-      GridRow {
-        StatusValue(
-          title: "Runtime", systemImage: modelState.systemImage, value: modelState.label,
-          tint: modelState.tint)
-        StatusValue(
-          title: "Download", systemImage: "arrow.down.circle", value: downloadState.label,
-          tint: downloadTint)
+    Group {
+      LabeledContent("Runtime") {
+        Label(modelState.label, systemImage: modelState.systemImage)
+          .foregroundStyle(modelState.tint)
       }
 
-      GridRow {
-        StatusValue(
-          title: "Context",
-          systemImage: "rectangle.stack",
-          value: contextUsage?.summary ?? "Not loaded",
-          tint: .secondary
-        )
-        StatusValue(
-          title: "Memory",
-          systemImage: "memorychip",
-          value: processUsage?.memorySummary ?? "Measuring",
-          tint: .secondary
-        )
+      LabeledContent("Download") {
+        Label(downloadState.label, systemImage: "arrow.down.circle")
+          .foregroundStyle(downloadTint)
+      }
+
+      LabeledContent("Context") {
+        if let usage = contextUsage, let fraction = usage.fraction {
+          HStack(spacing: 10) {
+            Gauge(value: min(max(fraction, 0), 1)) {
+              EmptyView()
+            }
+            .gaugeStyle(.accessoryLinearCapacity)
+            .tint(ContextUsageTint.color(for: fraction))
+            .frame(width: 90)
+
+            Text(usage.summary)
+              .foregroundStyle(.secondary)
+              .monospacedDigit()
+          }
+        } else {
+          Text(contextUsage?.summary ?? "Not loaded")
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+        }
+      }
+
+      LabeledContent("Memory") {
+        Text(processUsage?.memorySummary ?? "Measuring")
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
       }
     }
-    .font(.callout)
   }
 
   private var downloadTint: Color {
@@ -169,26 +206,6 @@ struct ModelRuntimeStatus: View {
   }
 }
 
-private struct StatusValue: View {
-  let title: String
-  let systemImage: String
-  let value: String
-  let tint: Color
-
-  var body: some View {
-    HStack(spacing: 8) {
-      Image(systemName: systemImage)
-        .foregroundStyle(tint)
-        .frame(width: 18)
-      Text(title)
-      Spacer(minLength: 12)
-      Text(value)
-        .foregroundStyle(.secondary)
-        .monospacedDigit()
-    }
-  }
-}
-
 struct ModelAdvancedSettings: View {
   let model: ManagedModel
   @Binding var systemPrompt: String
@@ -197,52 +214,40 @@ struct ModelAdvancedSettings: View {
   let canChangeContextTokenLimit: Bool
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      LabeledContent("Hugging Face") {
-        Text(model.huggingFaceRepoID)
-          .textSelection(.enabled)
-          .foregroundStyle(.secondary)
-      }
-
-      LabeledContent("Local Folder") {
-        Text(model.localPath)
-          .textSelection(.enabled)
-          .foregroundStyle(.secondary)
-      }
-
-      VStack(alignment: .leading, spacing: 6) {
-        Label("System Prompt", systemImage: "text.quote")
-        TextField("System Prompt", text: $systemPrompt, axis: .vertical)
-          .textFieldStyle(.roundedBorder)
-          .lineLimit(4...8)
-      }
-
-      VStack(alignment: .leading, spacing: 6) {
-        HStack {
-          Label("Creativity", systemImage: "thermometer.variable")
-          Spacer()
-          Text(generationSettings.temperature.formatted(.number.precision(.fractionLength(1))))
-            .foregroundStyle(.secondary)
-            .monospacedDigit()
+    Group {
+      Section("Generation") {
+        VStack(alignment: .leading, spacing: 6) {
+          Label("System Prompt", systemImage: "text.quote")
+          TextField("System Prompt", text: $systemPrompt, axis: .vertical)
+            .textFieldStyle(.roundedBorder)
+            .lineLimit(4...8)
+            .labelsHidden()
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        Slider(value: $generationSettings.temperature, in: 0...2, step: 0.1)
+
+        VStack(alignment: .leading, spacing: 6) {
+          HStack {
+            Label("Creativity", systemImage: "thermometer.variable")
+            Spacer()
+            Text(generationSettings.temperature.formatted(.number.precision(.fractionLength(1))))
+              .foregroundStyle(.secondary)
+              .monospacedDigit()
+          }
+          Slider(value: $generationSettings.temperature, in: 0...2, step: 0.1)
+        }
+
+        Stepper(value: $generationSettings.maxTokens, in: 128...8192, step: 128) {
+          SettingValueLabel(title: "Response Length", value: "\(generationSettings.maxTokens)")
+        }
+
+        Stepper(value: $contextTokenLimit, in: 4096...131072, step: 4096) {
+          SettingValueLabel(title: "Context Length", value: formattedContextTokenLimit)
+        }
+        .disabled(!canChangeContextTokenLimit)
       }
 
-      Stepper(value: $generationSettings.maxTokens, in: 128...8192, step: 128) {
-        SettingValueLabel(title: "Response Length", value: "\(generationSettings.maxTokens)")
-      }
-
-      Stepper(value: $contextTokenLimit, in: 4096...131072, step: 4096) {
-        SettingValueLabel(title: "Context Length", value: formattedContextTokenLimit)
-      }
-      .disabled(!canChangeContextTokenLimit)
-
-      Divider()
-
-      VStack(alignment: .leading, spacing: 10) {
-        Text("Technical Generation")
-          .font(.headline)
-
+      Section("Advanced") {
         Toggle(isOn: maxKVSizeEnabled) {
           SettingValueLabel(title: "Custom KV Cache", value: formattedMaxKVSize)
         }
@@ -266,15 +271,26 @@ struct ModelAdvancedSettings: View {
         Stepper(value: $generationSettings.topK, in: 0...200, step: 10) {
           SettingValueLabel(title: "Top K", value: "\(generationSettings.topK)")
         }
-      }
 
-      Button("Coding Defaults") {
-        systemPrompt = model.defaultSystemPrompt
-        generationSettings = model.defaultGenerationSettings
-        contextTokenLimit = model.defaultContextTokenLimit
+        LabeledContent("Hugging Face") {
+          Text(model.huggingFaceRepoID)
+            .textSelection(.enabled)
+            .foregroundStyle(.secondary)
+        }
+
+        LabeledContent("Local Folder") {
+          Text(model.localPath)
+            .textSelection(.enabled)
+            .foregroundStyle(.secondary)
+        }
+
+        Button("Coding Defaults") {
+          systemPrompt = model.defaultSystemPrompt
+          generationSettings = model.defaultGenerationSettings
+          contextTokenLimit = model.defaultContextTokenLimit
+        }
       }
     }
-    .padding(.top, 10)
   }
 
   private var formattedContextTokenLimit: String {

@@ -314,9 +314,6 @@ private struct AssistantPlaceholderView: View {
       .labelStyle(.titleAndIcon)
     }
     .foregroundStyle(.secondary)
-    .padding(10)
-    .background(Color.secondary.opacity(0.12))
-    .clipShape(RoundedRectangle(cornerRadius: 8))
     .accessibilityElement(children: .combine)
     .accessibilityLabel(item.assistantPlaceholderTitle)
     .accessibilityIdentifier("chat.generationSpinner")
@@ -338,9 +335,6 @@ private struct TranscriptGenerationIndicator: View {
           Text("Generating")
         }
         .foregroundStyle(.secondary)
-        .padding(10)
-        .background(Color.secondary.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Generating")
         .accessibilityIdentifier("chat.generationSpinner")

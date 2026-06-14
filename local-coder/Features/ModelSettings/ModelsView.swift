@@ -15,110 +15,99 @@ struct ModelsView: View {
     ) -> Void
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 20) {
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Models")
-            .font(.title2.weight(.semibold))
-          Text(
-            "Choose a local Gemma model. Downloads are explicit so you stay in control of storage and network use."
-          )
-          .foregroundStyle(.secondary)
-          .frame(maxWidth: 720, alignment: .leading)
-        }
-
-        VStack(spacing: 10) {
-          ForEach(modelRuntime.availableModels) { model in
-            ManagedModelRow(
-              model: model,
-              isSelected: modelRuntime.selectedModelID == model.id,
-              isActive: modelRuntime.selectedModelID == model.id
-                && modelRuntime.modelState == .ready,
-              isDownloaded: modelRuntime.isModelDownloaded(model),
-              downloadState: modelRuntime.selectedModelID == model.id
-                ? modelRuntime.downloadState : .idle,
-              canSelect: canChangeModel,
-              onSelect: {
-                let isChangingModel = modelRuntime.selectedModelID != model.id
-                onPrepareModelRuntimeAction(false, isChangingModel)
-                modelRuntime.selectModel(model)
-              }
-            )
-          }
-        }
-
-        Divider()
-
-        VStack(alignment: .leading, spacing: 14) {
-          HStack {
-            VStack(alignment: .leading, spacing: 4) {
-              Text(modelRuntime.selectedModel.displayName)
-                .font(.headline)
-              Text(selectedModelStatusText)
-                .foregroundStyle(.secondary)
+    Form {
+      Section {
+        ForEach(modelRuntime.availableModels) { model in
+          ManagedModelRow(
+            model: model,
+            isSelected: modelRuntime.selectedModelID == model.id,
+            isActive: modelRuntime.selectedModelID == model.id
+              && modelRuntime.modelState == .ready,
+            isDownloaded: modelRuntime.isModelDownloaded(model),
+            downloadState: modelRuntime.selectedModelID == model.id
+              ? modelRuntime.downloadState : .idle,
+            canSelect: canChangeModel,
+            onSelect: {
+              let isChangingModel = modelRuntime.selectedModelID != model.id
+              onPrepareModelRuntimeAction(false, isChangingModel)
+              modelRuntime.selectModel(model)
             }
-            Spacer()
-
-            Button {
-              onPrepareModelRuntimeAction(false, false)
-              modelRuntime.downloadSelectedModel()
-            } label: {
-              Label("Download", systemImage: "square.and.arrow.down")
-            }
-            .disabled(
-              !canChangeModel
-                || modelRuntime.downloadState.isDownloading
-                || modelRuntime.isModelDownloaded(modelRuntime.selectedModel))
-
-            Button {
-              if modelRuntime.modelState == .ready {
-                onPrepareModelRuntimeAction(true, true)
-                modelRuntime.unloadModel()
-              } else {
-                onPrepareModelRuntimeAction(false, true)
-                modelRuntime.loadSelectedModel()
-              }
-            } label: {
-              Label(modelActionTitle, systemImage: modelActionSystemImage)
-            }
-            .accessibilityIdentifier(
-              modelRuntime.modelState == .ready ? "unload-model-button" : "load-model-button"
-            )
-            .disabled(isModelActionDisabled)
-          }
-
-          if case .downloading(let progress) = modelRuntime.downloadState {
-            DownloadProgressView(progress: progress)
-          }
-
-          ModelRuntimeStatus(
-            modelState: modelRuntime.modelState,
-            downloadState: effectiveDownloadState,
-            contextUsage: contextUsage,
-            processUsage: modelRuntime.processUsage
-          )
-
-          if let errorMessage {
-            Label(errorMessage, systemImage: "exclamationmark.triangle")
-              .font(.callout)
-              .foregroundStyle(.red)
-              .textSelection(.enabled)
-          }
-        }
-
-        DisclosureGroup("Details") {
-          ModelAdvancedSettings(
-            model: modelRuntime.selectedModel,
-            systemPrompt: $systemPrompt,
-            generationSettings: $generationSettings,
-            contextTokenLimit: $modelRuntime.modelContextTokenLimit,
-            canChangeContextTokenLimit: modelRuntime.modelState == .notLoaded
           )
         }
+      } header: {
+        Text("Available models")
+      } footer: {
+        Text(
+          "Downloads are explicit so you stay in control of storage and network use."
+        )
       }
-      .padding(24)
-      .frame(maxWidth: 920, alignment: .leading)
+
+      Section {
+        ModelRuntimeStatus(
+          modelState: modelRuntime.modelState,
+          downloadState: effectiveDownloadState,
+          contextUsage: contextUsage,
+          processUsage: modelRuntime.processUsage
+        )
+
+        if case .downloading(let progress) = modelRuntime.downloadState {
+          DownloadProgressView(progress: progress)
+        }
+
+        if let errorMessage {
+          Label(errorMessage, systemImage: "exclamationmark.triangle")
+            .font(.callout)
+            .foregroundStyle(.red)
+            .textSelection(.enabled)
+        }
+
+        HStack(spacing: 10) {
+          Spacer()
+
+          Button {
+            onPrepareModelRuntimeAction(false, false)
+            modelRuntime.downloadSelectedModel()
+          } label: {
+            Label("Download", systemImage: "square.and.arrow.down")
+          }
+          .disabled(
+            !canChangeModel
+              || modelRuntime.downloadState.isDownloading
+              || modelRuntime.isModelDownloaded(modelRuntime.selectedModel))
+
+          Button {
+            if modelRuntime.modelState == .ready {
+              onPrepareModelRuntimeAction(true, true)
+              modelRuntime.unloadModel()
+            } else {
+              onPrepareModelRuntimeAction(false, true)
+              modelRuntime.loadSelectedModel()
+            }
+          } label: {
+            Label(modelActionTitle, systemImage: modelActionSystemImage)
+          }
+          .buttonStyle(.borderedProminent)
+          .accessibilityIdentifier(
+            modelRuntime.modelState == .ready ? "unload-model-button" : "load-model-button"
+          )
+          .disabled(isModelActionDisabled)
+        }
+      } header: {
+        Text(modelRuntime.selectedModel.displayName)
+          .textCase(nil)
+      } footer: {
+        Text(selectedModelStatusText)
+      }
+
+      ModelAdvancedSettings(
+        model: modelRuntime.selectedModel,
+        systemPrompt: $systemPrompt,
+        generationSettings: $generationSettings,
+        contextTokenLimit: $modelRuntime.modelContextTokenLimit,
+        canChangeContextTokenLimit: modelRuntime.modelState == .notLoaded
+      )
     }
+    .formStyle(.grouped)
   }
 
   private var selectedModelStatusText: String {
