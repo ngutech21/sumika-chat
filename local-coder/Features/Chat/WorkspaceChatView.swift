@@ -54,34 +54,34 @@ struct WorkspaceChatView: View {
             controller.answerAskUserToolCall(id: toolCallID, answer: answer, in: workspace)
           }
         )
-
-        ChatComposer(
-          draft: $controller.draft,
-          attachments: controller.chatSession.pendingAttachments,
-          activeAttachments: controller.activeAttachmentContextAttachments,
-          availableModels: downloadedModels,
-          selectedModel: composerSelectedModel,
-          modelState: controller.modelRuntime.modelState,
-          interactionMode: controller.chatSession.interactionMode,
-          todoState: visibleTodoState,
-          contextUsage: controller.contextUsage,
-          canChangeModel: !downloadedModels.isEmpty && !controller.isGenerating
-            && controller.modelRuntime.canChangeModel,
-          canChangeInteractionMode: controller.canChangeInteractionMode,
-          canSend: controller.canSend || canRunSlashCommand,
-          isGenerating: controller.isGenerating,
-          isInputBlocked: controller.isInputBlocked,
-          errorMessage: controller.errorMessage,
-          onSelectInteractionMode: controller.setInteractionMode,
-          onSelectModel: selectModel(_:),
-          onLoadModel: loadSelectedModel,
-          onAddAttachments: onAddAttachments,
-          onDropAttachments: controller.addAttachments,
-          onRemoveAttachment: controller.removeAttachment,
-          onSend: onSend,
-          onCancel: controller.cancelGeneration
-        )
-        .zIndex(1)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+          ChatComposer(
+            draft: $controller.draft,
+            attachments: controller.chatSession.pendingAttachments,
+            activeAttachments: controller.activeAttachmentContextAttachments,
+            availableModels: downloadedModels,
+            selectedModel: composerSelectedModel,
+            modelState: controller.modelRuntime.modelState,
+            interactionMode: controller.chatSession.interactionMode,
+            todoState: visibleTodoState,
+            contextUsage: controller.contextUsage,
+            canChangeModel: !downloadedModels.isEmpty && !controller.isGenerating
+              && controller.modelRuntime.canChangeModel,
+            canChangeInteractionMode: controller.canChangeInteractionMode,
+            canSend: controller.canSend || canRunSlashCommand,
+            isGenerating: controller.isGenerating,
+            isInputBlocked: controller.isInputBlocked,
+            errorMessage: controller.errorMessage,
+            onSelectInteractionMode: controller.setInteractionMode,
+            onSelectModel: selectModel(_:),
+            onLoadModel: loadSelectedModel,
+            onAddAttachments: onAddAttachments,
+            onDropAttachments: controller.addAttachments,
+            onRemoveAttachment: controller.removeAttachment,
+            onSend: onSend,
+            onCancel: controller.cancelGeneration
+          )
+        }
 
         if isWorkspaceTerminalVisible {
           WorkspaceTerminalPane(

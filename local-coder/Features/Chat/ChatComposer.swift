@@ -209,7 +209,15 @@ struct ChatComposer: View {
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 14)
-      .glassPanel(cornerRadius: 14)
+      .background(
+        .regularMaterial,
+        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+      )
+      .overlay {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .strokeBorder(Color.secondary.opacity(0.18), lineWidth: 1)
+      }
+      .shadow(color: Color.black.opacity(0.14), radius: 16, x: 0, y: 8)
     }
     .padding(16)
     .background {
