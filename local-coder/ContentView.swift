@@ -104,6 +104,8 @@ struct ContentView: View {
     }
     .navigationSplitViewStyle(.balanced)
     .frame(minWidth: 880, minHeight: 560)
+    .focusedSceneValue(\.addWorkspaceAction, chooseWorkspace)
+    .focusedSceneValue(\.openSettingsAction) { selection = .settings }
     .onChange(of: controller.chatSession.systemPrompt) {
       controller.refreshContextUsage()
       controller.modelRuntime.saveSelectedModelSettings(

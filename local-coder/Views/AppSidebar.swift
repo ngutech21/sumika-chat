@@ -8,93 +8,90 @@ struct AppSidebar: View {
   @State private var sessionBeingRenamed: ChatSession?
   @State private var sessionPendingDeletion: ChatSession?
   @State private var renameTitle = ""
-  @State private var collapsedWorkspaces: Set<Workspace.ID> = []
+  @AppStorage("sidebar.collapsedWorkspaceIDs") private var collapsedWorkspaceIDsRaw = ""
+
+  private var collapsedWorkspaces: Set<Workspace.ID> {
+    Set(collapsedWorkspaceIDsRaw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+  }
 
   var body: some View {
     List(selection: $selection) {
       Section {
-        NavigationLink(value: AppNavigationSelection.settings) {
-          Label("Settings", systemImage: "gearshape")
-            .font(.body.weight(.regular))
-        }
-        .accessibilityIdentifier("sidebar.settingsLink")
-
         NavigationLink(value: AppNavigationSelection.models) {
           Label("Models", systemImage: "cpu")
-            .font(.body.weight(.regular))
         }
         .accessibilityIdentifier("sidebar.modelsLink")
       }
 
-      Section {
-        Button(action: onAddWorkspace) {
-          Label("Add Workspace", systemImage: "folder.badge.plus")
-            .font(.body.weight(.regular))
-            .foregroundStyle(.primary)
-        }
-        .buttonStyle(.plain)
-        .padding(.top, 12)
-        .accessibilityIdentifier("sidebar.addWorkspaceButton")
-      }
-
-      ForEach(appState.workspaceLibrary.workspaces) { workspace in
-        DisclosureGroup(isExpanded: expansionBinding(for: workspace.id)) {
-          ForEach(workspace.sessions) { session in
-            NavigationLink(value: AppNavigationSelection.session(session.id)) {
-              Text(sidebarTitle(for: session))
-                .font(.callout.weight(.regular))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            }
-            .accessibilityIdentifier("sidebar.sessionLink")
-            .contextMenu {
-              Button("Rename") {
-                sessionBeingRenamed = session
-                renameTitle = session.title
+      Section("Workspaces") {
+        ForEach(appState.workspaceLibrary.workspaces) { workspace in
+          DisclosureGroup(isExpanded: expansionBinding(for: workspace.id)) {
+            ForEach(workspace.sessions) { session in
+              NavigationLink(value: AppNavigationSelection.session(session.id)) {
+                Text(sidebarTitle(for: session))
+                  .lineLimit(1)
+                  .truncationMode(.tail)
               }
+              .accessibilityIdentifier("sidebar.sessionLink")
+              .contextMenu {
+                Button("Rename") {
+                  sessionBeingRenamed = session
+                  renameTitle = session.title
+                }
 
-              Button("Delete", role: .destructive) {
-                sessionPendingDeletion = session
+                Button("Delete", role: .destructive) {
+                  sessionPendingDeletion = session
+                }
               }
             }
-          }
 
-          Button {
-            if let sessionID = appState.createSession(in: workspace.id) {
-              selection = .session(sessionID)
+            Button {
+              if let sessionID = appState.createSession(in: workspace.id) {
+                selection = .session(sessionID)
+              }
+            } label: {
+              HStack(spacing: 8) {
+                Image(systemName: "plus")
+                  .foregroundStyle(.secondary)
+
+                Text("New Chat")
+              }
             }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sidebar.newSessionButton")
           } label: {
-            HStack(spacing: 8) {
-              Image(systemName: "plus")
-                .foregroundStyle(.secondary)
-
-              Text("New Chat")
+            Label {
+              Text(workspace.name)
+            } icon: {
+              Image(systemName: isExpanded(workspace.id) ? "folder.fill" : "folder")
+                .foregroundStyle(.tint)
             }
-            .font(.callout.weight(.regular))
           }
-          .buttonStyle(.plain)
-          .accessibilityIdentifier("sidebar.newSessionButton")
-        } label: {
-          Label {
-            Text(workspace.name)
-              .font(.body.weight(.medium))
-              .foregroundStyle(.primary)
-          } icon: {
-            Image(systemName: "folder")
-          }
+          .accessibilityIdentifier("sidebar.workspaceDisclosure")
         }
-        .accessibilityIdentifier("sidebar.workspaceDisclosure")
       }
     }
     .accessibilityIdentifier("sidebar.workspaceList")
     .listStyle(.sidebar)
     .navigationTitle("local-coder")
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      ModelRuntimeFooter(processUsage: appState.chatController.modelRuntime.processUsage)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-          Divider()
+      HStack(spacing: 0) {
+        Button(action: onAddWorkspace) {
+          Image(systemName: "plus")
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.borderless)
+        .padding(.leading, 8)
+        .help("Add Workspace")
+        .accessibilityIdentifier("sidebar.addWorkspaceButton")
+
+        ModelRuntimeFooter(processUsage: appState.chatController.modelRuntime.processUsage)
+      }
+      .background(.regularMaterial)
+      .overlay(alignment: .top) {
+        Divider()
+      }
     }
     .alert("Rename Session", isPresented: renameAlertBinding) {
       TextField("Session name", text: $renameTitle)
@@ -131,14 +128,22 @@ struct AppSidebar: View {
     session.title == ChatSession.defaultTitle ? "Untitled" : session.title
   }
 
+  private func isExpanded(_ workspaceID: Workspace.ID) -> Bool {
+    !collapsedWorkspaces.contains(workspaceID)
+  }
+
   private func expansionBinding(for workspaceID: Workspace.ID) -> Binding<Bool> {
     Binding(
       get: { !collapsedWorkspaces.contains(workspaceID) },
       set: { isExpanded in
-        if isExpanded {
-          collapsedWorkspaces.remove(workspaceID)
-        } else {
-          collapsedWorkspaces.insert(workspaceID)
+        withAnimation(.snappy(duration: 0.22)) {
+          var ids = collapsedWorkspaces
+          if isExpanded {
+            ids.remove(workspaceID)
+          } else {
+            ids.insert(workspaceID)
+          }
+          collapsedWorkspaceIDsRaw = ids.map(\.uuidString).sorted().joined(separator: ",")
         }
       }
     )
