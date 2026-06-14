@@ -9,57 +9,62 @@ struct ToolExecutionSummaryView: View {
   let onDeny: (ToolCallRecord.ID) -> Void
   let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
   @State private var isDetailsExpanded = false
-  @State private var isResultExpanded = false
+
+  private let detailIndent: CGFloat = 17
 
   var body: some View {
     let toolCall = ToolCallModelMessage(request: toolCallRecord.request)
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(spacing: 7) {
-        Image(systemName: toolCallRecord.status.executionSystemImage)
-          .font(.caption2.weight(.semibold))
-          .foregroundStyle(toolCallRecord.status.executionColor)
-          .accessibilityHidden(true)
+    let resultDisplay = resultDisplayPayload
+    let detailsAvailable = hasDetails(resultDisplay: resultDisplay)
+    VStack(alignment: .leading, spacing: 6) {
+      Button {
+        isDetailsExpanded.toggle()
+      } label: {
+        HStack(spacing: 6) {
+          ToolStatusIndicator(status: displayStatus)
 
-        Text("Tool")
-          .foregroundStyle(.secondary)
-
-        Text(toolCall.toolName.rawValue)
-          .fontWeight(.semibold)
-          .lineLimit(1)
-
-        if let headerSummary = toolCall.headerSummary {
-          Text(":")
-            .foregroundStyle(.secondary)
-
-          Text(headerSummary)
-            .fontWeight(.semibold)
+          Text(toolCall.toolName.rawValue)
+            .fontWeight(.medium)
+            .foregroundStyle(.primary)
             .lineLimit(1)
-            .truncationMode(.middle)
-        }
+            .layoutPriority(1)
 
-        Spacer(minLength: 8)
-
-        if hasDetails {
-          Button {
-            isDetailsExpanded.toggle()
-          } label: {
-            Image(systemName: isDetailsExpanded ? "chevron.down" : "chevron.right")
-              .font(.caption2.weight(.semibold))
+          if let headerSummary = toolCall.headerSummary {
+            Text(headerSummary)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .truncationMode(.middle)
           }
-          .buttonStyle(.plain)
-          .foregroundStyle(.secondary)
-          .help(isDetailsExpanded ? "Hide details" : "Show details")
-          .accessibilityLabel(isDetailsExpanded ? "Hide tool details" : "Show tool details")
+
+          if detailsAvailable {
+            Image(systemName: showsDetails ? "chevron.down" : "chevron.right")
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(.tertiary)
+          }
+
+          Spacer(minLength: 0)
         }
+        .contentShape(Rectangle())
       }
+      .buttonStyle(.plain)
+      .disabled(!detailsAvailable)
+      .help(showsDetails ? "Hide details" : "Show details")
 
       if showsDetails {
-        ToolCallDetailsView(
-          toolCall: toolCall,
-          toolCallRecord: toolCallRecord,
-          generationMetrics: generationMetrics,
-          showsPreview: toolCallRecord.status == .awaitingApproval
-        )
+        VStack(alignment: .leading, spacing: 6) {
+          ToolCallDetailsView(
+            toolCall: toolCall,
+            toolCallRecord: toolCallRecord,
+            showsPreview: toolCallRecord.status == .awaitingApproval
+          )
+
+          if let resultDisplay, !resultDisplay.text.isEmpty {
+            ToolDetailTextView(text: resultDisplay.text)
+          }
+
+          ToolGenerationMetricsDetail(generationMetrics: generationMetrics)
+        }
+        .padding(.leading, detailIndent)
       }
 
       if toolCallRecord.status == .awaitingUserAnswer,
@@ -70,6 +75,7 @@ struct ToolExecutionSummaryView: View {
           input: input,
           onAnswer: onAnswerAskUser
         )
+        .padding(.leading, detailIndent)
       }
 
       if toolCallRecord.status == .awaitingApproval || toolCallRecord.status == .awaitingUserAnswer
@@ -81,6 +87,8 @@ struct ToolExecutionSummaryView: View {
             Label("Approve", systemImage: "checkmark")
           }
           .controlSize(.small)
+          .buttonStyle(.bordered)
+          .tint(.green)
           .accessibilityLabel("Approve tool call")
 
           Button(role: .destructive) {
@@ -89,41 +97,58 @@ struct ToolExecutionSummaryView: View {
             Label("Deny", systemImage: "xmark")
           }
           .controlSize(.small)
+          .buttonStyle(.bordered)
           .accessibilityLabel("Deny tool call")
         }
-      }
-
-      if let resultPayload = toolCallRecord.resultPayload {
-        Divider()
-
-        ToolExecutionResultView(
-          toolResult: ToolResultModelMessage(record: toolCallRecord),
-          toolCallRecord: toolCallRecord,
-          payload: resultPayload,
-          isExpanded: $isResultExpanded
-        )
+        .padding(.leading, detailIndent)
+        .padding(.top, 1)
       }
     }
     .font(.caption)
-    .padding(.vertical, 8)
-    .padding(.leading, 16)
-    .padding(.trailing, 8)
-    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-    .overlay(alignment: .leading) {
-      Capsule()
-        .fill(toolCallRecord.status.executionColor)
-        .frame(width: 3)
-        .padding(.vertical, 7)
-        .padding(.leading, 5)
-    }
+    .padding(.vertical, 3)
     .accessibilityLabel(accessibilityLabel(toolCall: toolCall))
   }
 
-  private var hasDetails: Bool {
+  /// The projected result of the tool call, if it has finished executing.
+  private var resultDisplayPayload: ToolDisplayPayload? {
+    guard toolCallRecord.resultPayload != nil else {
+      return nil
+    }
+    return ToolResultModelMessage(record: toolCallRecord).displayPayload(for: toolCallRecord)
+  }
+
+  /// The status shown on the turn's single row. Once a result exists it reflects
+  /// the command's own outcome (a tool can finish while its command fails), so a
+  /// failed run reads as a failure rather than a misleading success.
+  private var displayStatus: ToolCallStatus {
+    guard let payload = toolCallRecord.resultPayload else {
+      return toolCallRecord.status
+    }
+    switch payload.status {
+    case .success:
+      return .completed
+    case .failed:
+      return .failed
+    case .denied:
+      return .denied
+    }
+  }
+
+  private func hasDetails(resultDisplay: ToolDisplayPayload?) -> Bool {
     let toolCall = ToolCallModelMessage(request: toolCallRecord.request)
-    return !toolCall.transcriptArguments.isEmpty
-      || toolCallRecord.approvalPreview?.text.isEmpty == false
-      || generationMetrics != nil
+    if !toolCall.transcriptArguments.isEmpty {
+      return true
+    }
+    if toolCallRecord.approvalPreview?.text.isEmpty == false {
+      return true
+    }
+    if generationMetrics != nil {
+      return true
+    }
+    if let resultDisplay, !resultDisplay.text.isEmpty {
+      return true
+    }
+    return false
   }
 
   private var showsDetails: Bool {
@@ -183,32 +208,65 @@ extension ToolCallStatus {
     }
   }
 
-  fileprivate var executionSystemImage: String {
+  fileprivate var isInProgress: Bool {
     switch self {
-    case .completed:
-      "checkmark.circle.fill"
-    case .failed, .denied:
-      "xmark.circle.fill"
-    case .cancelled:
-      "minus.circle.fill"
-    case .awaitingApproval, .awaitingUserAnswer:
-      "exclamationmark.circle.fill"
     case .pending, .running:
-      "ellipsis.circle.fill"
+      true
+    default:
+      false
     }
   }
 
-  fileprivate var executionColor: Color {
+  fileprivate var quietSystemImage: String {
+    switch self {
+    case .completed:
+      "checkmark"
+    case .failed, .denied:
+      "xmark"
+    case .cancelled:
+      "minus"
+    case .awaitingApproval, .awaitingUserAnswer:
+      "exclamationmark"
+    case .pending, .running:
+      "ellipsis"
+    }
+  }
+
+  fileprivate var quietColor: Color {
     switch self {
     case .completed:
       .green
-    case .failed, .denied, .cancelled:
+    case .failed, .denied:
       .orange
+    case .cancelled:
+      .secondary
     case .awaitingApproval, .awaitingUserAnswer:
-      .yellow
+      .orange
     case .pending, .running:
       .secondary
     }
+  }
+}
+
+/// A muted status indicator for a tool turn: a small spinner while work is in
+/// flight, otherwise a quiet tinted glyph (check / cross / needs-attention).
+private struct ToolStatusIndicator: View {
+  let status: ToolCallStatus
+
+  var body: some View {
+    Group {
+      if status.isInProgress {
+        ProgressView()
+          .controlSize(.small)
+          .scaleEffect(0.7)
+      } else {
+        Image(systemName: status.quietSystemImage)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(status.quietColor)
+      }
+    }
+    .frame(width: 13, height: 13)
+    .accessibilityHidden(true)
   }
 }
 
@@ -336,57 +394,6 @@ struct ToolResultSummaryView: View {
   }
 }
 
-private struct ToolExecutionResultView: View {
-  let toolResult: ToolResultModelMessage
-  let toolCallRecord: ToolCallRecord
-  let payload: ToolResultPayload
-  @Binding var isExpanded: Bool
-
-  var body: some View {
-    let display = toolResult.displayPayload(for: toolCallRecord)
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(spacing: 7) {
-        Image(systemName: display.status.summarySystemImage)
-          .font(.caption2.weight(.semibold))
-          .foregroundStyle(display.status.statusColor)
-          .accessibilityHidden(true)
-
-        Text("Result")
-          .foregroundStyle(.secondary)
-
-        Text(payload.status.rawValue)
-          .fontWeight(.semibold)
-
-        if !display.metaSummary.isEmpty {
-          Text(display.metaSummary)
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
-
-        Spacer(minLength: 8)
-
-        if !display.text.isEmpty {
-          Button {
-            isExpanded.toggle()
-          } label: {
-            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-              .font(.caption2.weight(.semibold))
-          }
-          .buttonStyle(.plain)
-          .foregroundStyle(.secondary)
-          .help(isExpanded ? "Hide result" : "Show result")
-          .accessibilityLabel(isExpanded ? "Hide tool result" : "Show tool result")
-        }
-      }
-
-      if isExpanded, !display.text.isEmpty {
-        ToolDetailTextView(text: display.text)
-      }
-    }
-  }
-}
-
 extension ToolResultModelMessage {
   var systemImage: String {
     payload.status == .success ? "checkmark.circle" : "exclamationmark.triangle"
@@ -439,13 +446,10 @@ private struct ToolSummaryRow: View {
 private struct ToolCallDetailsView: View {
   let toolCall: ToolCallModelMessage
   let toolCallRecord: ToolCallRecord
-  let generationMetrics: ChatGenerationMetrics?
   var showsPreview = true
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      ToolGenerationMetricsDetail(generationMetrics: generationMetrics)
-
       ForEach(toolCall.transcriptArguments) { argument in
         Text("\(argument.name): \(argument.value)")
           .lineLimit(2)
@@ -570,43 +574,6 @@ extension Double {
 }
 
 extension ToolDisplayPayload {
-  var metaSummary: String {
-    var parts: [String] = []
-
-    if !affectedPaths.isEmpty {
-      parts.append(pathSummary)
-    }
-
-    if truncated {
-      parts.append("truncated")
-    }
-
-    parts.append(resultSizeSummary)
-    return parts.joined(separator: " · ")
-  }
-
-  private var pathSummary: String {
-    guard let firstPath = affectedPaths.first else {
-      return ""
-    }
-
-    if affectedPaths.count == 1 {
-      return firstPath.rawValue
-    }
-
-    return "\(firstPath.rawValue) +\(affectedPaths.count - 1) paths"
-  }
-
-  private var resultSizeSummary: String {
-    let lineCount = text.isEmpty ? 0 : text.components(separatedBy: .newlines).count
-    let byteCount = text.utf8.count
-    let formattedBytes = ByteCountFormatter.string(
-      fromByteCount: Int64(byteCount),
-      countStyle: .file
-    )
-    return "\(lineCount) lines, \(formattedBytes)"
-  }
-
   fileprivate var status: ToolResultStatus {
     switch self {
     case .fileContent:
@@ -619,36 +586,6 @@ extension ToolDisplayPayload {
       .success
     case .summary(let status, _, _):
       status
-    }
-  }
-
-  fileprivate var affectedPaths: [WorkspaceRelativePath] {
-    switch self {
-    case .fileContent(let path, _):
-      [path]
-    case .fileList(let root, _, _):
-      [root]
-    case .searchResults(let root, _, _, _):
-      [root]
-    case .workspaceDiff(let path, _):
-      [path ?? WorkspaceRelativePath(rawValue: ".")]
-    case .summary(_, _, let affectedPaths):
-      affectedPaths
-    }
-  }
-
-  fileprivate var truncated: Bool {
-    switch self {
-    case .fileContent(_, let content):
-      content.truncated
-    case .fileList(_, _, let truncated):
-      truncated
-    case .searchResults(_, _, _, let truncated):
-      truncated
-    case .workspaceDiff(_, let content):
-      content.truncated
-    case .summary:
-      false
     }
   }
 
