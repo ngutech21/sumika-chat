@@ -197,24 +197,23 @@ struct ChatComposer: View {
           Spacer()
 
           Button(action: isGenerating ? onCancel : sendMessage) {
-            Image(systemName: isGenerating ? "stop.fill" : "paperplane.fill")
-              .frame(width: 16, height: 16)
+            Image(systemName: isGenerating ? "stop.fill" : "arrow.up")
+              .font(.system(size: 13, weight: .bold))
+              .foregroundStyle(sendButtonForeground)
+              .frame(width: 28, height: 28)
+              .background(sendButtonBackground, in: Circle())
+              .contentShape(Circle())
           }
+          .buttonStyle(.plain)
           .accessibilityIdentifier(isGenerating ? "cancel-generation-button" : "send-button")
           .keyboardShortcut(.return, modifiers: .command)
           .disabled(!isGenerating && !canSend)
-          .frame(width: 28, height: 24)
           .help(isGenerating ? "Cancel" : "Send")
         }
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 14)
-      .background(Color.secondary.opacity(0.08))
-      .clipShape(RoundedRectangle(cornerRadius: 8))
-      .overlay {
-        RoundedRectangle(cornerRadius: 8)
-          .strokeBorder(Color.secondary.opacity(0.16), lineWidth: 1)
-      }
+      .glassPanel(cornerRadius: 14)
     }
     .padding(16)
     .background {
@@ -259,6 +258,18 @@ struct ChatComposer: View {
 
   private var canLoadSelectedModel: Bool {
     !availableModels.isEmpty && modelState != .loading && !isGenerating
+  }
+
+  private var canActivateSend: Bool {
+    isGenerating || canSend
+  }
+
+  private var sendButtonBackground: Color {
+    canActivateSend ? Color.accentColor : Color.secondary.opacity(0.25)
+  }
+
+  private var sendButtonForeground: Color {
+    canActivateSend ? Color.white : Color.secondary
   }
 
   private var modelLoadActionTitle: String {

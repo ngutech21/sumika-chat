@@ -64,11 +64,7 @@ struct TodoPlanPanel: View {
     .padding(.horizontal, 12)
     .padding(.vertical, 10)
     .frame(maxWidth: 640)
-    .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-    .overlay {
-      RoundedRectangle(cornerRadius: 8)
-        .strokeBorder(Color.secondary.opacity(0.18), lineWidth: 1)
-    }
+    .glassPanel(cornerRadius: 12)
     .shadow(color: Color.black.opacity(0.14), radius: 16, x: 0, y: 8)
     .accessibilityIdentifier("agent.todoPanel")
   }

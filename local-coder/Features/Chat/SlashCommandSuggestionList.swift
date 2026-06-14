@@ -16,11 +16,7 @@ struct SlashCommandSuggestionList: View {
       }
     }
     .padding(4)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-    .overlay {
-      RoundedRectangle(cornerRadius: 8)
-        .strokeBorder(Color.secondary.opacity(0.18), lineWidth: 1)
-    }
+    .glassPanel(cornerRadius: 12)
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityIdentifier("slash-command-suggestions")
   }

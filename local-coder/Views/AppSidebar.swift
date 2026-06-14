@@ -8,7 +8,7 @@ struct AppSidebar: View {
   @State private var sessionBeingRenamed: ChatSession?
   @State private var sessionPendingDeletion: ChatSession?
   @State private var renameTitle = ""
-  private let workspaceChildIndent: CGFloat = 24
+  @State private var collapsedWorkspaces: Set<Workspace.ID> = []
 
   var body: some View {
     List(selection: $selection) {
@@ -38,14 +38,13 @@ struct AppSidebar: View {
       }
 
       ForEach(appState.workspaceLibrary.workspaces) { workspace in
-        Section {
+        DisclosureGroup(isExpanded: expansionBinding(for: workspace.id)) {
           ForEach(workspace.sessions) { session in
             NavigationLink(value: AppNavigationSelection.session(session.id)) {
               Text(sidebarTitle(for: session))
                 .font(.callout.weight(.regular))
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .padding(.leading, workspaceChildIndent)
             }
             .accessibilityIdentifier("sidebar.sessionLink")
             .contextMenu {
@@ -72,11 +71,10 @@ struct AppSidebar: View {
               Text("New Chat")
             }
             .font(.callout.weight(.regular))
-            .padding(.leading, workspaceChildIndent)
           }
           .buttonStyle(.plain)
           .accessibilityIdentifier("sidebar.newSessionButton")
-        } header: {
+        } label: {
           Label {
             Text(workspace.name)
               .font(.body.weight(.medium))
@@ -85,6 +83,7 @@ struct AppSidebar: View {
             Image(systemName: "folder")
           }
         }
+        .accessibilityIdentifier("sidebar.workspaceDisclosure")
       }
     }
     .accessibilityIdentifier("sidebar.workspaceList")
@@ -123,6 +122,19 @@ struct AppSidebar: View {
 
   private func sidebarTitle(for session: ChatSession) -> String {
     session.title == ChatSession.defaultTitle ? "Untitled" : session.title
+  }
+
+  private func expansionBinding(for workspaceID: Workspace.ID) -> Binding<Bool> {
+    Binding(
+      get: { !collapsedWorkspaces.contains(workspaceID) },
+      set: { isExpanded in
+        if isExpanded {
+          collapsedWorkspaces.remove(workspaceID)
+        } else {
+          collapsedWorkspaces.insert(workspaceID)
+        }
+      }
+    )
   }
 
   private var renameAlertBinding: Binding<Bool> {
