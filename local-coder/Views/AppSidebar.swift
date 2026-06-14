@@ -8,6 +8,7 @@ struct AppSidebar: View {
   @State private var sessionBeingRenamed: ChatSession?
   @State private var sessionPendingDeletion: ChatSession?
   @State private var renameTitle = ""
+  private let workspaceChildIndent: CGFloat = 24
 
   var body: some View {
     List(selection: $selection) {
@@ -26,15 +27,23 @@ struct AppSidebar: View {
       Section {
         Button(action: onAddWorkspace) {
           Label("Add Workspace", systemImage: "folder.badge.plus")
+            .font(.body)
+            .foregroundStyle(.primary)
         }
+        .buttonStyle(.plain)
+        .padding(.top, 12)
         .accessibilityIdentifier("sidebar.addWorkspaceButton")
       }
 
       ForEach(appState.workspaceLibrary.workspaces) { workspace in
-        Section(workspace.name) {
+        Section {
           ForEach(workspace.sessions) { session in
             NavigationLink(value: AppNavigationSelection.session(session.id)) {
-              Label(session.title, systemImage: "bubble.left.and.bubble.right")
+              Text(sidebarTitle(for: session))
+                .font(.callout)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.leading, workspaceChildIndent)
             }
             .accessibilityIdentifier("sidebar.sessionLink")
             .contextMenu {
@@ -54,10 +63,25 @@ struct AppSidebar: View {
               selection = .session(sessionID)
             }
           } label: {
-            Label("New Session", systemImage: "plus")
+            HStack(spacing: 8) {
+              Image(systemName: "plus")
+                .foregroundStyle(.secondary)
+
+              Text("New Chat")
+            }
+            .font(.callout)
+            .padding(.leading, workspaceChildIndent)
           }
-          .buttonStyle(.borderless)
+          .buttonStyle(.plain)
           .accessibilityIdentifier("sidebar.newSessionButton")
+        } header: {
+          Label {
+            Text(workspace.name)
+              .font(.body.weight(.semibold))
+              .foregroundStyle(.primary)
+          } icon: {
+            Image(systemName: "folder.fill")
+          }
         }
       }
     }
@@ -93,6 +117,10 @@ struct AppSidebar: View {
     } message: { session in
       Text("This permanently removes “\(session.title)” and its saved chat history.")
     }
+  }
+
+  private func sidebarTitle(for session: ChatSession) -> String {
+    session.title == ChatSession.defaultTitle ? "Untitled" : session.title
   }
 
   private var renameAlertBinding: Binding<Bool> {
