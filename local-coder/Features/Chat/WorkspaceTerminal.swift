@@ -139,6 +139,8 @@ struct WorkspaceTerminalView: NSViewRepresentable {
 
   func makeNSView(context: Context) -> LocalProcessTerminalView {
     let terminalView = LocalProcessTerminalView(frame: .zero)
+    configureTerminalCursor(terminalView)
+    configureTerminalClipboardMenu(terminalView)
     terminalView.processDelegate = context.coordinator
     terminalView.autoresizingMask = [.width, .height]
     context.coordinator.startProcessIfNeeded(in: terminalView, configuration: configuration)
@@ -146,12 +148,61 @@ struct WorkspaceTerminalView: NSViewRepresentable {
   }
 
   func updateNSView(_ terminalView: LocalProcessTerminalView, context: Context) {
+    configureTerminalCursor(terminalView)
+    configureTerminalClipboardMenu(terminalView)
     context.coordinator.startProcessIfNeeded(in: terminalView, configuration: configuration)
   }
 
   static func dismantleNSView(_ terminalView: LocalProcessTerminalView, coordinator: Coordinator) {
     coordinator.terminate(terminalView)
   }
+
+  private func configureTerminalCursor(_ terminalView: LocalProcessTerminalView) {
+    let terminal = terminalView.getTerminal()
+    terminal.options.cursorStyle = .steadyBlock
+    terminalView.cursorStyleChanged(source: terminal, newStyle: .steadyBlock)
+  }
+
+  private func configureTerminalClipboardMenu(_ terminalView: LocalProcessTerminalView) {
+    if terminalView.menu?.identifier == Self.clipboardMenuIdentifier {
+      return
+    }
+
+    let menu = NSMenu(title: "Terminal")
+    menu.identifier = Self.clipboardMenuIdentifier
+    menu.autoenablesItems = true
+    menu.addItem(
+      NSMenuItem(
+        title: "Copy",
+        action: #selector(LocalProcessTerminalView.copy(_:)),
+        keyEquivalent: ""
+      )
+    )
+    menu.addItem(
+      NSMenuItem(
+        title: "Paste",
+        action: #selector(LocalProcessTerminalView.paste(_:)),
+        keyEquivalent: ""
+      )
+    )
+    menu.addItem(.separator())
+    menu.addItem(
+      NSMenuItem(
+        title: "Select All",
+        action: #selector(LocalProcessTerminalView.selectAll(_:)),
+        keyEquivalent: ""
+      )
+    )
+
+    for item in menu.items where item.action != nil {
+      item.target = terminalView
+    }
+    terminalView.menu = menu
+  }
+
+  private static let clipboardMenuIdentifier = NSUserInterfaceItemIdentifier(
+    "local-coder.workspace-terminal.clipboard-menu"
+  )
 
   final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
     private var processState = WorkspaceTerminalProcessState.idle
