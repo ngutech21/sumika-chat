@@ -9,24 +9,19 @@ struct LocalCoderApp: App {
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible =
     false
   @FocusedValue(\.addWorkspaceAction) private var addWorkspaceAction
-  @FocusedValue(\.openSettingsAction) private var openSettingsAction
+  @State private var appState: AppState
 
+  @MainActor
   init() {
     NSWindow.allowsAutomaticWindowTabbing = false
+    _appState = State(initialValue: AppLaunchConfiguration.makeAppState())
   }
 
   var body: some Scene {
     WindowGroup {
-      ContentView(appState: AppLaunchConfiguration.makeAppState())
+      ContentView(appState: appState)
     }
     .commands {
-      CommandGroup(replacing: .appSettings) {
-        Button("Settings…") {
-          openSettingsAction?()
-        }
-        .keyboardShortcut(",", modifiers: .command)
-        .disabled(openSettingsAction == nil)
-      }
       CommandGroup(after: .newItem) {
         Button("Add Workspace…") {
           addWorkspaceAction?()
@@ -41,6 +36,19 @@ struct LocalCoderApp: App {
           .keyboardShortcut("T", modifiers: [.command, .option])
       }
     }
+
+    Settings {
+      AppSettingsView(
+        appBehaviorSettings: Binding(
+          get: { appState.activeAppBehaviorSettings },
+          set: { appState.updateActiveAppBehaviorSettings($0) }
+        ),
+        webAccessSettings: Binding(
+          get: { appState.activeWebAccessSettings },
+          set: { appState.updateActiveWebAccessSettings($0) }
+        )
+      )
+    }
   }
 }
 
@@ -48,18 +56,9 @@ private struct AddWorkspaceActionKey: FocusedValueKey {
   typealias Value = () -> Void
 }
 
-private struct OpenSettingsActionKey: FocusedValueKey {
-  typealias Value = () -> Void
-}
-
 extension FocusedValues {
   var addWorkspaceAction: (() -> Void)? {
     get { self[AddWorkspaceActionKey.self] }
     set { self[AddWorkspaceActionKey.self] = newValue }
-  }
-
-  var openSettingsAction: (() -> Void)? {
-    get { self[OpenSettingsActionKey.self] }
-    set { self[OpenSettingsActionKey.self] = newValue }
   }
 }

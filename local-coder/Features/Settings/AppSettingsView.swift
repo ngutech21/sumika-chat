@@ -6,69 +6,66 @@ struct AppSettingsView: View {
   @Binding var webAccessSettings: WebAccessSettings
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 24) {
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Settings")
-            .font(.title2.weight(.semibold))
-          Text("Configure app-wide behavior for local-first coding workflows.")
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: 720, alignment: .leading)
-        }
+    TabView {
+      generalTab
+        .tabItem { Label("General", systemImage: "gearshape") }
 
-        VStack(alignment: .leading, spacing: 14) {
-          Text("Startup")
-            .font(.headline)
-
-          Toggle("Load last selected model on app start", isOn: autoloadLastModelBinding)
-
-          Text(
-            "Off by default. When enabled, Local Coder loads the active session model after launch."
-          )
-          .foregroundStyle(.secondary)
-          .frame(maxWidth: 720, alignment: .leading)
-        }
-
-        VStack(alignment: .leading, spacing: 14) {
-          Text("Agent Tools")
-            .font(.headline)
-
-          Toggle("Enable todo_write planning tool", isOn: todoWriteToolEnabledBinding)
-
-          Text(
-            "Off by default. Small local models often struggle with this tool; enable it when you want the Agent to maintain an explicit plan."
-          )
-          .foregroundStyle(.secondary)
-          .frame(maxWidth: 720, alignment: .leading)
-        }
-
-        VStack(alignment: .leading, spacing: 14) {
-          Text("Web Access")
-            .font(.headline)
-
-          Picker("Web Access", selection: webPolicyBinding) {
-            ForEach(WebAccessPolicy.allCases, id: \.self) { policy in
-              Text(policy.displayName).tag(policy)
-            }
-          }
-
-          Picker("Search Provider", selection: webProviderBinding) {
-            ForEach(WebSearchProvider.allCases, id: \.self) { provider in
-              Text(provider.displayName).tag(provider)
-            }
-          }
-          .disabled(webAccessSettings.policy == .off)
-
-          TextField("SearXNG URL", text: webSearXNGURLBinding)
-            .textFieldStyle(.roundedBorder)
-            .disabled(webAccessSettings.policy == .off || webAccessSettings.provider != .searxng)
-        }
-
-        Spacer(minLength: 0)
-      }
-      .padding(24)
-      .frame(maxWidth: 920, alignment: .leading)
+      webAccessTab
+        .tabItem { Label("Web", systemImage: "globe") }
     }
+    .frame(width: 520, height: 360)
+  }
+
+  private var generalTab: some View {
+    Form {
+      Section {
+        Toggle("Load last selected model on app start", isOn: autoloadLastModelBinding)
+      } header: {
+        Text("Startup")
+      } footer: {
+        Text("When enabled, Local Coder loads the active session model after launch.")
+      }
+
+      Section {
+        Toggle("Enable todo_write planning tool", isOn: todoWriteToolEnabledBinding)
+      } header: {
+        Text("Agent Tools")
+      } footer: {
+        Text(
+          "Small local models often struggle with this tool; enable it when you want the Agent to maintain an explicit plan."
+        )
+      }
+    }
+    .formStyle(.grouped)
+  }
+
+  private var webAccessTab: some View {
+    Form {
+      Section {
+        Picker("Access", selection: webPolicyBinding) {
+          ForEach(WebAccessPolicy.allCases, id: \.self) { policy in
+            Text(policy.displayName).tag(policy)
+          }
+        }
+
+        Picker("Search Provider", selection: webProviderBinding) {
+          ForEach(WebSearchProvider.allCases, id: \.self) { provider in
+            Text(provider.displayName).tag(provider)
+          }
+        }
+        .disabled(webAccessSettings.policy == .off)
+
+        TextField("SearXNG URL", text: webSearXNGURLBinding)
+          .disabled(webAccessSettings.policy == .off || webAccessSettings.provider != .searxng)
+      } header: {
+        Text("Web Access")
+      } footer: {
+        Text(
+          "Lets the Agent search the web. Pick a provider, or point at a self-hosted SearXNG instance."
+        )
+      }
+    }
+    .formStyle(.grouped)
   }
 
   private var autoloadLastModelBinding: Binding<Bool> {

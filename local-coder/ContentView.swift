@@ -43,18 +43,6 @@ struct ContentView: View {
     } detail: {
       if let selection {
         switch selection {
-        case .settings:
-          AppSettingsView(
-            appBehaviorSettings: Binding(
-              get: { appState.activeAppBehaviorSettings },
-              set: { appState.updateActiveAppBehaviorSettings($0) }
-            ),
-            webAccessSettings: Binding(
-              get: { appState.activeWebAccessSettings },
-              set: { appState.updateActiveWebAccessSettings($0) }
-            )
-          )
-          .navigationTitle("Settings")
         case .models:
           ModelsView(
             modelRuntime: controller.modelRuntime,
@@ -105,7 +93,6 @@ struct ContentView: View {
     .navigationSplitViewStyle(.balanced)
     .frame(minWidth: 880, minHeight: 560)
     .focusedSceneValue(\.addWorkspaceAction, chooseWorkspace)
-    .focusedSceneValue(\.openSettingsAction) { selection = .settings }
     .onChange(of: controller.chatSession.systemPrompt) {
       controller.refreshContextUsage()
       controller.modelRuntime.saveSelectedModelSettings(
@@ -138,7 +125,7 @@ struct ContentView: View {
     .onChange(of: appState.activeSessionID) {
       if let sessionID = appState.activeSessionID {
         selection = .session(sessionID)
-      } else if selection != .models && selection != .settings {
+      } else if selection != .models {
         selection = nil
       }
     }
