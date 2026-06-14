@@ -201,6 +201,36 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func workspaceDiffDisplaysDirectlyWithoutModelFollowUp() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let coordinator = ToolLoopCoordinator(
+      agentToolOrchestrator: WorkspaceDiffToolOrchestrator(
+        content: ToolTextOutput(text: "diff --git a/README.md b/README.md")
+      ))
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        userContent: "show git diff",
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "workspace_diff", arguments: [:])
+        ]
+      )
+    )
+
+    #expect(result?.continuation == .stopTurn)
+    #expect(completedToolResult(from: result)?.toolName == .workspaceDiff)
+    let assistant = directAssistantMessage(from: result)
+    #expect(assistant?.content.contains("Workspace changes:") == true)
+    #expect(assistant?.content.contains("    diff --git a/README.md b/README.md") == true)
+    #expect(
+      assistant?.modelContextContent
+        == "Displayed workspace_diff result directly to the user.")
+  }
+
+  @Test
   func writeFileAwaitsApprovalWithoutFallbackToolResult() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -255,14 +285,21 @@ struct ToolLoopCoordinatorTests {
     workspace: Workspace,
     sessionID: ChatSession.ID,
     assistantMessageID: UUID = UUID(),
+    userContent: String? = nil,
     nativeToolCalls: [ChatRuntimeToolCall]
   ) -> ToolLoopRequest {
-    ToolLoopRequest(
+    var items: [ChatTurnItem] = []
+    if let userContent {
+      items.append(.userMessage(UserTurnMessage(content: userContent)))
+    }
+    items.append(.assistantMessage(AssistantTurnMessage(id: assistantMessageID, content: "")))
+
+    return ToolLoopRequest(
       workspace: workspace,
       sessionID: sessionID,
       turnID: UUID(),
       assistantMessageID: assistantMessageID,
-      items: [.assistantMessage(AssistantTurnMessage(id: assistantMessageID, content: ""))],
+      items: items,
       interactionMode: .agent,
       toolCallingPolicy: .nativeGemma4,
       nativeToolCalls: nativeToolCalls
@@ -388,5 +425,31 @@ struct ToolLoopCoordinatorTests {
       return todoState
     }
     return nil
+  }
+}
+
+private struct WorkspaceDiffToolOrchestrator: ToolOrchestrating {
+  let content: ToolTextOutput
+
+  var toolRegistry: ToolRegistry {
+    ToolRegistry(tools: [.workspaceDiff])
+  }
+
+  func execute(request rawRequest: RawToolCallRequest, workspace: Workspace) async
+    -> ToolCallRecord
+  {
+    let request = ToolCallRequest.validated(
+      raw: rawRequest,
+      payload: .workspaceDiff(WorkspaceDiffInput())
+    )
+    return ToolCallRecord(
+      request: request,
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Allowed for test.",
+        riskLevel: .low
+      ),
+      state: .completed(.workspaceDiff(.success(path: nil, content: content)))
+    )
   }
 }

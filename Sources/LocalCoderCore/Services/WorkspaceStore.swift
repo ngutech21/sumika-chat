@@ -1,6 +1,7 @@
 import Foundation
+
 #if canImport(OSLog)
-import OSLog
+  import OSLog
 #endif
 
 public protocol WorkspaceStoring: Sendable {
@@ -66,12 +67,12 @@ public actor WorkspaceStore: WorkspaceStoring {
     JSONDecoder()
   }
 
-#if canImport(OSLog)
-  nonisolated private static let logger = Logger(
-    subsystem: "local-coder",
-    category: "WorkspaceStore"
-  )
-#endif
+  #if canImport(OSLog)
+    nonisolated private static let logger = Logger(
+      subsystem: "local-coder",
+      category: "WorkspaceStore"
+    )
+  #endif
 
   /// Routes a load failure to the injected handler (tests) or, by default, logs
   /// it loudly so a corrupt/undecodable library on disk is never discarded in
@@ -80,14 +81,15 @@ public actor WorkspaceStore: WorkspaceStoring {
     if let onLoadFailure {
       onLoadFailure(error)
     } else {
-#if canImport(OSLog)
-      Self.logger.error(
-        "Failed to load workspace library; starting empty. error=\(String(reflecting: error), privacy: .public)"
-      )
-#else
-      let message = "Failed to load workspace library; starting empty. error=\(String(reflecting: error))\n"
-      FileHandle.standardError.write(Data(message.utf8))
-#endif
+      #if canImport(OSLog)
+        Self.logger.error(
+          "Failed to load workspace library; starting empty. error=\(String(reflecting: error), privacy: .public)"
+        )
+      #else
+        let message =
+          "Failed to load workspace library; starting empty. error=\(String(reflecting: error))\n"
+        FileHandle.standardError.write(Data(message.utf8))
+      #endif
     }
   }
 }
