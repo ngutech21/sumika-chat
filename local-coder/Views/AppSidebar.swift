@@ -15,11 +15,13 @@ struct AppSidebar: View {
       Section {
         NavigationLink(value: AppNavigationSelection.settings) {
           Label("Settings", systemImage: "gearshape")
+            .font(.body.weight(.regular))
         }
         .accessibilityIdentifier("sidebar.settingsLink")
 
         NavigationLink(value: AppNavigationSelection.models) {
           Label("Models", systemImage: "cpu")
+            .font(.body.weight(.regular))
         }
         .accessibilityIdentifier("sidebar.modelsLink")
       }
@@ -27,7 +29,7 @@ struct AppSidebar: View {
       Section {
         Button(action: onAddWorkspace) {
           Label("Add Workspace", systemImage: "folder.badge.plus")
-            .font(.body)
+            .font(.body.weight(.regular))
             .foregroundStyle(.primary)
         }
         .buttonStyle(.plain)
@@ -40,7 +42,7 @@ struct AppSidebar: View {
           ForEach(workspace.sessions) { session in
             NavigationLink(value: AppNavigationSelection.session(session.id)) {
               Text(sidebarTitle(for: session))
-                .font(.callout)
+                .font(.callout.weight(.regular))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .padding(.leading, workspaceChildIndent)
@@ -69,7 +71,7 @@ struct AppSidebar: View {
 
               Text("New Chat")
             }
-            .font(.callout)
+            .font(.callout.weight(.regular))
             .padding(.leading, workspaceChildIndent)
           }
           .buttonStyle(.plain)
@@ -77,10 +79,10 @@ struct AppSidebar: View {
         } header: {
           Label {
             Text(workspace.name)
-              .font(.body.weight(.semibold))
+              .font(.body.weight(.medium))
               .foregroundStyle(.primary)
           } icon: {
-            Image(systemName: "folder.fill")
+            Image(systemName: "folder")
           }
         }
       }
