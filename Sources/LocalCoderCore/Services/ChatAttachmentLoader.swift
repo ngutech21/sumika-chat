@@ -22,6 +22,15 @@ public struct DroppedAttachmentExtraction: Equatable, Sendable {
 public struct ChatAttachmentLoader: ChatAttachmentLoading {
   private let attachmentStore: ChatAttachmentStore
 
+  private static let droppedAttachmentRegex: NSRegularExpression? = {
+    let extensions = ChatAttachmentLimits.supportedFileExtensions
+      .sorted { $0.count > $1.count }
+      .map(NSRegularExpression.escapedPattern(for:))
+      .joined(separator: "|")
+    let pattern = #"file://[^\s]+|/[^\n\r\t]*?\.(?:"# + extensions + #")(?=\s|$)"#
+    return try? NSRegularExpression(pattern: pattern)
+  }()
+
   public init(attachmentStore: ChatAttachmentStore = ChatAttachmentStore()) {
     self.attachmentStore = attachmentStore
   }
@@ -46,8 +55,7 @@ public struct ChatAttachmentLoader: ChatAttachmentLoading {
   }
 
   public func extractDroppedAttachments(from draft: String) -> DroppedAttachmentExtraction {
-    let pattern = droppedAttachmentPathPattern()
-    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+    guard let regex = Self.droppedAttachmentRegex else {
       return DroppedAttachmentExtraction(cleanedDraft: draft)
     }
 
@@ -202,14 +210,6 @@ public struct ChatAttachmentLoader: ChatAttachmentLoading {
     default:
       fileExtension.isEmpty ? nil : "text/plain"
     }
-  }
-
-  private func droppedAttachmentPathPattern() -> String {
-    let extensions = ChatAttachmentLimits.supportedFileExtensions
-      .sorted { $0.count > $1.count }
-      .map(NSRegularExpression.escapedPattern(for:))
-      .joined(separator: "|")
-    return #"file://[^\s]+|/[^\n\r\t]*?\.(?:"# + extensions + #")(?=\s|$)"#
   }
 
   private func attachmentURL(fromDroppedPath path: String) -> URL? {

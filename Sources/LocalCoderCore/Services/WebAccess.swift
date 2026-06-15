@@ -829,6 +829,19 @@ enum WebAddressClassifier {
 }
 
 public struct DuckDuckGoHTMLSearchParser: Sendable {
+  private static let snippetAnchorRegex = compiledRegex(
+    #"<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>"#,
+    options: [.dotMatchesLineSeparators]
+  )
+  private static let snippetDivRegex = compiledRegex(
+    #"<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</div>"#,
+    options: [.dotMatchesLineSeparators]
+  )
+  private static let resultAnchorRegex = compiledRegex(
+    #"<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>"#,
+    options: [.dotMatchesLineSeparators]
+  )
+
   public init() {}
 
   public func parse(html: String, maxResults: Int) -> [WebSearchResult] {
@@ -841,14 +854,8 @@ public struct DuckDuckGoHTMLSearchParser: Sendable {
       return nil
     }
     let snippet =
-      firstMatch(
-        in: block,
-        pattern: #"<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>"#
-      )
-      ?? firstMatch(
-        in: block,
-        pattern: #"<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</div>"#
-      )
+      firstMatch(in: block, using: Self.snippetAnchorRegex)
+      ?? firstMatch(in: block, using: Self.snippetDivRegex)
     return WebSearchResult(
       title: WebTextExtractor.plainText(fromHTMLFragment: link.title),
       url: decodedDuckDuckGoRedirect(link.url),
@@ -857,12 +864,7 @@ public struct DuckDuckGoHTMLSearchParser: Sendable {
   }
 
   private func firstAnchor(in block: String) -> (title: String, url: String)? {
-    guard
-      let match = firstMatchGroups(
-        in: block,
-        pattern: #"<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>"#
-      )
-    else {
+    guard let match = firstMatchGroups(in: block, using: Self.resultAnchorRegex) else {
       return nil
     }
     return (match[1], htmlDecoded(match[0]))
@@ -915,6 +917,14 @@ public struct SearXNGJSONSearchParser: Sendable {
 }
 
 public enum WebTextExtractor {
+  private static let scriptRegex = compiledRegex(#"(?is)<script\b[^>]*>.*?</script>"#)
+  private static let styleRegex = compiledRegex(#"(?is)<style\b[^>]*>.*?</style>"#)
+  private static let lineBreakRegex = compiledRegex(#"(?i)<br\s*/?>"#)
+  private static let blockCloseRegex = compiledRegex(#"(?i)</p>|</div>|</li>|</h[1-6]>"#)
+  private static let tagRegex = compiledRegex(#"(?is)<[^>]+>"#)
+  private static let horizontalWhitespaceRegex = compiledRegex(#"[ \t\r\f]+"#)
+  private static let excessBlankLineRegex = compiledRegex(#"\n\s*\n\s*\n+"#)
+
   public static func extractText(from rawText: String, contentType: String?) -> String {
     guard let contentType, contentType.lowercased().contains("html") else {
       return collapseWhitespace(rawText)
@@ -924,38 +934,46 @@ public enum WebTextExtractor {
 
   public static func plainText(fromHTMLFragment html: String) -> String {
     var text = html
-    text = text.replacingOccurrences(
-      of: #"(?is)<script\b[^>]*>.*?</script>"#,
-      with: " ",
-      options: .regularExpression
-    )
-    text = text.replacingOccurrences(
-      of: #"(?is)<style\b[^>]*>.*?</style>"#,
-      with: " ",
-      options: .regularExpression
-    )
-    text = text.replacingOccurrences(of: #"(?i)<br\s*/?>"#, with: "\n", options: .regularExpression)
-    text = text.replacingOccurrences(
-      of: #"(?i)</p>|</div>|</li>|</h[1-6]>"#, with: "\n", options: .regularExpression)
-    text = text.replacingOccurrences(of: #"(?is)<[^>]+>"#, with: " ", options: .regularExpression)
+    text = replacingMatches(of: scriptRegex, in: text, with: " ")
+    text = replacingMatches(of: styleRegex, in: text, with: " ")
+    text = replacingMatches(of: lineBreakRegex, in: text, with: "\n")
+    text = replacingMatches(of: blockCloseRegex, in: text, with: "\n")
+    text = replacingMatches(of: tagRegex, in: text, with: " ")
     return collapseWhitespace(htmlDecoded(text))
   }
 
   private static func collapseWhitespace(_ text: String) -> String {
-    text
-      .replacingOccurrences(of: #"[ \t\r\f]+"#, with: " ", options: .regularExpression)
-      .replacingOccurrences(of: #"\n\s*\n\s*\n+"#, with: "\n\n", options: .regularExpression)
-      .trimmingCharacters(in: .whitespacesAndNewlines)
+    var collapsed = replacingMatches(of: horizontalWhitespaceRegex, in: text, with: " ")
+    collapsed = replacingMatches(of: excessBlankLineRegex, in: collapsed, with: "\n\n")
+    return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private static func replacingMatches(
+    of regex: NSRegularExpression?,
+    in text: String,
+    with template: String
+  ) -> String {
+    guard let regex else {
+      return text
+    }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    return regex.stringByReplacingMatches(in: text, range: range, withTemplate: template)
   }
 }
 
-private func firstMatch(in text: String, pattern: String) -> String? {
-  firstMatchGroups(in: text, pattern: pattern)?.first
+private func compiledRegex(
+  _ pattern: String,
+  options: NSRegularExpression.Options = []
+) -> NSRegularExpression? {
+  try? NSRegularExpression(pattern: pattern, options: options)
 }
 
-private func firstMatchGroups(in text: String, pattern: String) -> [String]? {
-  guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
-  else {
+private func firstMatch(in text: String, using regex: NSRegularExpression?) -> String? {
+  firstMatchGroups(in: text, using: regex)?.first
+}
+
+private func firstMatchGroups(in text: String, using regex: NSRegularExpression?) -> [String]? {
+  guard let regex else {
     return nil
   }
   let range = NSRange(text.startIndex..<text.endIndex, in: text)

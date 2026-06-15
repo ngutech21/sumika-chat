@@ -1,6 +1,9 @@
 import Foundation
 
 public enum URLTextLinkifier {
+  private static let urlDetectionRegex: NSRegularExpression? =
+    try? NSRegularExpression(pattern: #"https?://[^\s<>\"]+"#)
+
   public static func attributedString(for text: String) -> AttributedString {
     var attributedText = AttributedString(text)
 
@@ -24,7 +27,7 @@ public enum URLTextLinkifier {
     }
 
     let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
-    guard let regex = try? NSRegularExpression(pattern: #"https?://[^\s<>\"]+"#) else {
+    guard let regex = urlDetectionRegex else {
       return []
     }
 
