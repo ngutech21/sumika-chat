@@ -46,7 +46,7 @@ The remaining risks cluster in three areas:
 | T-03 | Medium | TypeSafety | Trace fields (`toolCallFormat`, validation status, cacheMode) passed as raw strings | `Sources/LocalCoderCore/Features/Chat/ToolLoopCoordinator.swift`, `ChatSessionController.swift` |
 | T-04 | Low | TypeSafety | `ToolName` is a stringly-typed struct; lists can drift without exhaustiveness | `Sources/LocalCoderCore/Models/ToolCall.swift`, `Services/ToolCallRequestValidator.swift` |
 | T-05 | Low | TypeSafety | KVC `setValue(false, forKey: "drawsBackground")` on `WKWebView` | `local-coder/Features/Chat/HTMLPreview.swift` |
-| Q-01 | High | Quality | `ToolPermissionEvaluator` is dead production code (only tests reference it) | `Sources/LocalCoderCore/Services/ToolPermissionEvaluator.swift` |
+| Q-01 | High | Quality | ~~`ToolPermissionEvaluator` is dead production code~~ — **resolved**, file deleted | `Sources/LocalCoderCore/Services/ToolPermissionEvaluator.swift` |
 | Q-02 | Medium | Quality | A-01: `ChatSessionController` is a god type (1566 lines); approval/deny/answer flows duplicate skeletons | `Sources/LocalCoderCore/Features/Chat/ChatSessionController.swift` |
 | Q-03 | Medium | Quality | A-04: `AppState` couples navigation, session lifecycle, persistence; 3x duplicated debounced-save | `local-coder/App/AppState.swift` |
 | Q-04 | Medium | Quality | Duplicated logic across result projections and extraction (status maps, diagnostics render, host validation, UTF-8 suffix trimming) | `Sources/LocalCoderCore/Models/ToolCall.swift`, `Models/ToolResultProjection.swift`, `Services/WebAccess.swift`, `Services/WebContentExtraction.swift`, `Services/ToolCommandExecution.swift` |
@@ -212,16 +212,17 @@ public `underPageBackgroundColor`/`isOpaque` configuration.
 
 ### Code Quality
 
-#### Q-01: `ToolPermissionEvaluator` is dead production code (High)
+#### Q-01: `ToolPermissionEvaluator` is dead production code (High) — RESOLVED
 
-Confirmed: `ToolPermissionEvaluator` is referenced only by its own declaration and by
+`ToolPermissionEvaluator` was referenced only by its own declaration and by
 `Tests/LocalCoderCoreTests/ToolPermissionTests.swift`. Production permission logic lives
-entirely in each `TypedToolExecutor.evaluatePermission`. The whole permission switch
-(`ToolPermissionEvaluator.swift:17-134`) duplicates per-executor decisions and reason
-strings.
+entirely in each `TypedToolExecutor.evaluatePermission`; the whole permission switch
+duplicated per-executor decisions and reason strings.
 
-Fix: delete `ToolPermissionEvaluator.swift` and repoint or remove its test (no
-backwards-compat needed). This finally resolves former finding A-02.
+Resolution: `ToolPermissionEvaluator.swift` was deleted and the four evaluator-specific
+tests (plus their now-unused `request` helper) were removed from `ToolPermissionTests`.
+The remaining `Workspace.resolveAllowedPath` path-resolution and `ToolName` tests — which
+cover the active permission boundary — were kept. This also resolves former finding A-02.
 
 #### Q-02: `ChatSessionController` god type (Medium)
 
@@ -320,12 +321,12 @@ accumulator class.
 
 ## Resolved since 2026-06-02
 
-- A-02 is now confirmed fully dead (see Q-01): the only remaining permission path is the
-  per-executor `evaluatePermission`. The duplicate is ready to delete.
+- Q-01 / A-02: the dead `ToolPermissionEvaluator` was deleted. The only remaining
+  permission path is the per-executor `evaluatePermission`.
 
 ## Recommended order
 
-1. Delete dead `ToolPermissionEvaluator` (Q-01) — trivial, resolves A-02.
+1. ~~Delete dead `ToolPermissionEvaluator` (Q-01)~~ — done.
 2. Memoize transcript markdown blocks and incrementalize context-usage/cache signatures
    (P-01, P-02, P-05) — the largest runtime wins as conversations grow.
 3. Hoist per-call regexes to `static let` (P-03) and fix the edit-match re-tokenization
