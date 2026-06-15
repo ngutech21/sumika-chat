@@ -686,14 +686,6 @@ extension ChatSessionController {
       onEvent: handleAttachmentEvent(_:))
   }
 
-  public func convertDroppedFilePathsInDraft() {
-    attachmentCoordinator.convertDroppedFilePaths(
-      in: draft,
-      isGenerating: isGenerating,
-      existingAttachments: chatSession.pendingAttachments,
-      onEvent: handleAttachmentEvent(_:))
-  }
-
   public func removeAttachment(id: ChatAttachment.ID) {
     attachmentCoordinator.removeAttachment(id: id, onEvent: handleAttachmentEvent(_:))
   }
@@ -704,8 +696,6 @@ extension ChatSessionController {
       chatSession.pendingAttachments.append(contentsOf: attachments)
       errorMessage = nil
       refreshContextUsage()
-    case .replaceDraft(let cleanedDraft):
-      draft = cleanedDraft
     case .removeAttachment(let id):
       chatSession.pendingAttachments.removeAll { $0.id == id }
       chatSession.activeAttachmentContext.remove(id)

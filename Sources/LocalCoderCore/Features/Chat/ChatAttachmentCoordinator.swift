@@ -2,7 +2,6 @@ import Foundation
 
 public enum ChatAttachmentEvent: Equatable, Sendable {
   case appendAttachments([ChatAttachment])
-  case replaceDraft(String)
   case removeAttachment(ChatAttachment.ID)
   case error(String)
 }
@@ -17,7 +16,6 @@ public final class ChatAttachmentCoordinator {
   )
   private var loadTask: Task<Void, Never>?
   private var loadRequestID = UUID()
-  private var isHandlingDroppedDraftPath = false
 
   public init(loader: any ChatAttachmentLoading) {
     self.loader = loader
@@ -110,31 +108,6 @@ public final class ChatAttachmentCoordinator {
     return parent.path(percentEncoded: false) == directory.path(percentEncoded: false)
       && fileName.hasPrefix("clipboard-image-")
       && fileName.hasSuffix(".png")
-  }
-
-  public func convertDroppedFilePaths(
-    in draft: String,
-    isGenerating: Bool,
-    existingAttachments: [ChatAttachment],
-    onEvent: @escaping @MainActor @Sendable (ChatAttachmentEvent) -> Void
-  ) {
-    guard !isHandlingDroppedDraftPath, !isGenerating else {
-      return
-    }
-
-    let droppedFiles = loader.extractDroppedAttachments(from: draft)
-    guard !droppedFiles.urls.isEmpty else {
-      return
-    }
-
-    isHandlingDroppedDraftPath = true
-    onEvent(.replaceDraft(droppedFiles.cleanedDraft))
-    addAttachments(
-      from: droppedFiles.urls,
-      existingAttachments: existingAttachments,
-      onEvent: onEvent
-    )
-    isHandlingDroppedDraftPath = false
   }
 
   public func removeAttachment(

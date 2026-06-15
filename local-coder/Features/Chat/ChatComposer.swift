@@ -25,7 +25,7 @@ struct ChatComposer: View {
   let onAddAttachments: () -> Void
   let onDropAttachments: ([URL]) -> Void
   let onRemoveAttachment: (ChatAttachment.ID) -> Void
-  let onSend: () -> Void
+  let onSend: () -> Bool
   let onCancel: () -> Void
   @State private var isDropTarget = false
   @FocusState private var messageFieldFocused: Bool
@@ -91,11 +91,6 @@ struct ChatComposer: View {
             providers in
             handlePaste(providers)
           }
-          .onChange(of: draft) { oldDraft, newDraft in
-            slashSuggestionsDismissed = false
-            slashSelectionIndex = 0
-            handleDraftChangeAfterPaste(from: oldDraft, to: newDraft)
-          }
           .background {
             ComposerKeyCommandMonitor(
               canHandlePaste: canInterceptPasteCommand,
@@ -105,11 +100,6 @@ struct ChatComposer: View {
             )
             .frame(width: 0, height: 0)
           }
-          .onDrop(
-            of: [UTType.fileURL.identifier],
-            isTargeted: $isDropTarget,
-            perform: handleDrop
-          )
 
         HStack(spacing: 8) {
           Button(action: onAddAttachments) {
@@ -231,11 +221,13 @@ struct ChatComposer: View {
           .padding(6)
       }
     }
-    .onDrop(
-      of: [UTType.fileURL.identifier],
-      isTargeted: $isDropTarget,
-      perform: handleDrop
-    )
+    .overlay {
+      ComposerFileDropReceiver(
+        isEnabled: canAcceptAttachments,
+        isTargeted: $isDropTarget,
+        onDrop: onDropAttachments
+      )
+    }
     .onAppear {
       messageFieldFocused = true
     }
@@ -262,6 +254,10 @@ struct ChatComposer: View {
 
   private var canLoadSelectedModel: Bool {
     !availableModels.isEmpty && modelState != .loading && !isGenerating
+  }
+
+  private var canAcceptAttachments: Bool {
+    !isGenerating && !isInputBlocked && modelState == .ready
   }
 
   private var canActivateSend: Bool {
@@ -372,17 +368,13 @@ struct ChatComposer: View {
 
     let submittedDraft = draft
     messageFieldFocused = false
-    onSend()
+    let shouldClearDraft = onSend()
     Task { @MainActor in
-      if draft.isEmpty || draft == submittedDraft {
+      if shouldClearDraft && (draft.isEmpty || draft == submittedDraft) {
         draft = ""
       }
       messageFieldFocused = true
     }
-  }
-
-  private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-    handleAttachmentProviders(providers)
   }
 
   private func handlePaste(_ providers: [NSItemProvider]) {
@@ -424,25 +416,6 @@ struct ChatComposer: View {
 
     draft.append("\n")
     return true
-  }
-
-  private func handleDraftChangeAfterPaste(from oldDraft: String, to newDraft: String) {
-    guard !isGenerating, !isInputBlocked, modelState == .ready else {
-      return
-    }
-    guard let pasteEdit = Self.pasteEdit(from: oldDraft, to: newDraft),
-      Self.insertedTextMatchesPasteboardFiles(pasteEdit.insertedText)
-    else {
-      return
-    }
-
-    let urls = Self.fileURLsFromPasteboard()
-    guard !urls.isEmpty else {
-      return
-    }
-
-    draft = pasteEdit.draftWithoutInsertedText.trimmingCharacters(in: .whitespacesAndNewlines)
-    onDropAttachments(urls)
   }
 
   private func handleImagePasteFromPasteboard() {
@@ -573,65 +546,6 @@ struct ChatComposer: View {
 
     return bitmap.representation(using: .png, properties: [:])
   }
-
-  nonisolated private static func pasteEdit(from oldDraft: String, to newDraft: String)
-    -> PasteEdit?
-  {
-    guard newDraft.count > oldDraft.count else {
-      return nil
-    }
-
-    var prefix = 0
-    while prefix < oldDraft.count,
-      oldDraft[oldDraft.index(oldDraft.startIndex, offsetBy: prefix)]
-        == newDraft[newDraft.index(newDraft.startIndex, offsetBy: prefix)]
-    {
-      prefix += 1
-    }
-
-    var suffix = 0
-    while suffix < oldDraft.count - prefix,
-      oldDraft[oldDraft.index(oldDraft.endIndex, offsetBy: -suffix - 1)]
-        == newDraft[newDraft.index(newDraft.endIndex, offsetBy: -suffix - 1)]
-    {
-      suffix += 1
-    }
-
-    let start = newDraft.index(newDraft.startIndex, offsetBy: prefix)
-    let end = newDraft.index(newDraft.endIndex, offsetBy: -suffix)
-    let insertedText = String(newDraft[start..<end])
-    var draftWithoutInsertedText = newDraft
-    draftWithoutInsertedText.removeSubrange(start..<end)
-    return PasteEdit(
-      insertedText: insertedText,
-      draftWithoutInsertedText: draftWithoutInsertedText
-    )
-  }
-
-  nonisolated private static func insertedTextMatchesPasteboardFiles(_ insertedText: String)
-    -> Bool
-  {
-    let urls = fileURLsFromPasteboard()
-    guard !urls.isEmpty else {
-      return false
-    }
-
-    let names = urls.map(\.lastPathComponent)
-    let candidates = [
-      names.joined(separator: "\n"),
-      names.joined(separator: " "),
-      names.joined(separator: ", "),
-    ]
-    let trimmedInsertedText = insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
-    return candidates.contains {
-      $0.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedInsertedText
-    }
-  }
-
-  nonisolated private struct PasteEdit {
-    let insertedText: String
-    let draftWithoutInsertedText: String
-  }
 }
 
 nonisolated private final class AttachmentURLAccumulator: @unchecked Sendable {
@@ -648,6 +562,173 @@ nonisolated private final class AttachmentURLAccumulator: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return storedURLs
+  }
+}
+
+private struct ComposerFileDropReceiver: NSViewRepresentable {
+  let isEnabled: Bool
+  @Binding var isTargeted: Bool
+  let onDrop: ([URL]) -> Void
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(isTargeted: $isTargeted, onDrop: onDrop)
+  }
+
+  func makeNSView(context: Context) -> ComposerFileDropView {
+    let view = ComposerFileDropView(frame: .zero)
+    view.setAccessibilityElement(false)
+    view.isDropEnabled = isEnabled
+    view.onTargetedChange = context.coordinator.setTargeted(_:)
+    view.onDrop = context.coordinator.drop(urls:)
+    return view
+  }
+
+  func updateNSView(_ nsView: ComposerFileDropView, context: Context) {
+    context.coordinator.isTargeted = $isTargeted
+    context.coordinator.onDrop = onDrop
+    nsView.isDropEnabled = isEnabled
+    nsView.onTargetedChange = context.coordinator.setTargeted(_:)
+    nsView.onDrop = context.coordinator.drop(urls:)
+    if !isEnabled {
+      context.coordinator.setTargeted(false)
+    }
+  }
+
+  static func dismantleNSView(_ nsView: ComposerFileDropView, coordinator: Coordinator) {
+    nsView.onTargetedChange = { _ in }
+    nsView.onDrop = { _ in }
+    nsView.unregisterDraggedTypes()
+  }
+
+  final class Coordinator {
+    var isTargeted: Binding<Bool>
+    var onDrop: ([URL]) -> Void
+
+    init(isTargeted: Binding<Bool>, onDrop: @escaping ([URL]) -> Void) {
+      self.isTargeted = isTargeted
+      self.onDrop = onDrop
+    }
+
+    func setTargeted(_ targeted: Bool) {
+      isTargeted.wrappedValue = targeted
+    }
+
+    func drop(urls: [URL]) {
+      onDrop(urls)
+    }
+  }
+}
+
+private final class ComposerFileDropView: NSView {
+  var isDropEnabled = true
+  var onTargetedChange: (Bool) -> Void = { _ in }
+  var onDrop: ([URL]) -> Void = { _ in }
+
+  override init(frame frameRect: NSRect) {
+    super.init(frame: frameRect)
+    registerForDraggedTypes(Self.draggedTypes)
+  }
+
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    registerForDraggedTypes(Self.draggedTypes)
+  }
+
+  override var isOpaque: Bool {
+    false
+  }
+
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    guard isDropEnabled else {
+      return nil
+    }
+    guard shouldCaptureDragHitTest else {
+      return nil
+    }
+    return Self.fileURLs(from: NSPasteboard(name: .drag)).isEmpty ? nil : self
+  }
+
+  override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    guard isDropEnabled else {
+      return []
+    }
+    let urls = Self.fileURLs(from: sender.draggingPasteboard)
+    guard !urls.isEmpty else {
+      return []
+    }
+
+    onTargetedChange(true)
+    return .copy
+  }
+
+  override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    guard isDropEnabled else {
+      onTargetedChange(false)
+      return []
+    }
+    if Self.fileURLs(from: sender.draggingPasteboard).isEmpty {
+      return []
+    }
+    return .copy
+  }
+
+  override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+    onTargetedChange(false)
+  }
+
+  override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+    guard isDropEnabled else {
+      onTargetedChange(false)
+      return false
+    }
+    let urls = Self.fileURLs(from: sender.draggingPasteboard)
+    onTargetedChange(false)
+    guard !urls.isEmpty else {
+      return false
+    }
+
+    onDrop(urls)
+    return true
+  }
+
+  override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+    onTargetedChange(false)
+  }
+
+  private var shouldCaptureDragHitTest: Bool {
+    guard let event = window?.currentEvent else {
+      return true
+    }
+
+    switch event.type {
+    case .leftMouseDragged, .leftMouseUp, .periodic:
+      return true
+    default:
+      return false
+    }
+  }
+
+  private static let draggedTypes: [NSPasteboard.PasteboardType] = [
+    .fileURL,
+    NSPasteboard.PasteboardType("NSFilenamesPboardType"),
+  ]
+
+  private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+    if let urls = pasteboard.readObjects(
+      forClasses: [NSURL.self],
+      options: [.urlReadingFileURLsOnly: true]
+    ) as? [URL],
+      !urls.isEmpty
+    {
+      return urls.map(\.standardizedFileURL)
+    }
+
+    let filenamesType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
+    guard let paths = pasteboard.propertyList(forType: filenamesType) as? [String] else {
+      return []
+    }
+
+    return paths.map { URL(filePath: $0).standardizedFileURL }
   }
 }
 

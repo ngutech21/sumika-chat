@@ -17,23 +17,8 @@ struct WorkspaceChatView: View {
   @State private var htmlPreviewConsoleEntries: [HTMLPreviewConsoleEntry] = []
   @State private var filePreview: FilePreviewState?
 
-  private let slashCommandParser = SlashCommandParser()
   private let htmlPreviewResolver = HTMLPreviewResolver()
   private let filePreviewResolver = FilePreviewResolver()
-
-  private var onSend: () -> Void {
-    {
-      if handleLocalSlashCommand() {
-        return
-      }
-
-      if let sessionID {
-        controller.sendMessage(in: workspace, sessionID: sessionID)
-      } else {
-        controller.sendMessage(in: workspace)
-      }
-    }
-  }
 
   var body: some View {
     HStack(spacing: 0) {
@@ -55,31 +40,13 @@ struct WorkspaceChatView: View {
           }
         )
         .safeAreaInset(edge: .bottom, spacing: 0) {
-          ChatComposer(
-            draft: $controller.draft,
-            attachments: controller.chatSession.pendingAttachments,
-            activeAttachments: controller.activeAttachmentContextAttachments,
-            availableModels: downloadedModels,
-            selectedModel: composerSelectedModel,
-            modelState: controller.modelRuntime.modelState,
-            interactionMode: controller.chatSession.interactionMode,
-            todoState: visibleTodoState,
-            contextUsage: controller.contextUsage,
-            canChangeModel: !downloadedModels.isEmpty && !controller.isGenerating
-              && controller.modelRuntime.canChangeModel,
-            canChangeInteractionMode: controller.canChangeInteractionMode,
-            canSend: controller.canSend || canRunSlashCommand,
-            isGenerating: controller.isGenerating,
-            isInputBlocked: controller.isInputBlocked,
-            errorMessage: controller.errorMessage,
-            onSelectInteractionMode: controller.setInteractionMode,
-            onSelectModel: selectModel(_:),
-            onLoadModel: loadSelectedModel,
+          WorkspaceChatComposerHost(
+            controller: controller,
+            workspace: workspace,
+            sessionID: sessionID,
             onAddAttachments: onAddAttachments,
-            onDropAttachments: controller.addAttachments,
-            onRemoveAttachment: controller.removeAttachment,
-            onSend: onSend,
-            onCancel: controller.cancelGeneration
+            onPreviewCommand: runPreviewCommand(path:),
+            onShowCommand: runShowCommand(path:)
           )
         }
 
@@ -179,10 +146,103 @@ struct WorkspaceChatView: View {
     }
   }
 
+  private func runPreviewCommand(path: String) -> Bool {
+    do {
+      htmlPreview = try htmlPreviewResolver.resolve(path: path, in: workspace)
+      filePreview = nil
+      htmlPreviewConsoleEntries.removeAll()
+      controller.draft = ""
+      controller.errorMessage = nil
+      return true
+    } catch {
+      controller.errorMessage = error.localizedDescription
+      return false
+    }
+  }
+
+  private func runShowCommand(path: String) -> Bool {
+    do {
+      filePreview = try filePreviewResolver.resolve(path: path, in: workspace)
+      controller.draft = ""
+      controller.errorMessage = nil
+      return true
+    } catch {
+      controller.errorMessage = error.localizedDescription
+      return false
+    }
+  }
+}
+
+private struct WorkspaceChatComposerHost: View {
+  @Bindable var controller: ChatSessionController
+  let workspace: Workspace
+  let sessionID: ChatSession.ID?
+  let onAddAttachments: () -> Void
+  let onPreviewCommand: (String) -> Bool
+  let onShowCommand: (String) -> Bool
+  @State private var draft = ""
+
+  private let slashCommandParser = SlashCommandParser()
+
+  private var onSend: () -> Bool {
+    {
+      switch handleLocalSlashCommand() {
+      case .handled(let shouldClearDraft):
+        return shouldClearDraft
+      case .notHandled:
+        break
+      }
+
+      controller.draft = draft
+      if let sessionID {
+        controller.sendMessage(in: workspace, sessionID: sessionID)
+      } else {
+        controller.sendMessage(in: workspace)
+      }
+      return controller.draft.isEmpty
+    }
+  }
+
+  var body: some View {
+    ChatComposer(
+      draft: $draft,
+      attachments: controller.chatSession.pendingAttachments,
+      activeAttachments: controller.activeAttachmentContextAttachments,
+      availableModels: downloadedModels,
+      selectedModel: composerSelectedModel,
+      modelState: controller.modelRuntime.modelState,
+      interactionMode: controller.chatSession.interactionMode,
+      todoState: visibleTodoState,
+      contextUsage: controller.contextUsage,
+      canChangeModel: !downloadedModels.isEmpty && !controller.isGenerating
+        && controller.modelRuntime.canChangeModel,
+      canChangeInteractionMode: controller.canChangeInteractionMode,
+      canSend: canSend || canRunSlashCommand,
+      isGenerating: controller.isGenerating,
+      isInputBlocked: controller.isInputBlocked,
+      errorMessage: controller.errorMessage,
+      onSelectInteractionMode: controller.setInteractionMode,
+      onSelectModel: selectModel(_:),
+      onLoadModel: loadSelectedModel,
+      onAddAttachments: onAddAttachments,
+      onDropAttachments: controller.addAttachments,
+      onRemoveAttachment: controller.removeAttachment,
+      onSend: onSend,
+      onCancel: controller.cancelGeneration
+    )
+  }
+
   private var canRunSlashCommand: Bool {
     !controller.isGenerating
       && !controller.isInputBlocked
-      && slashCommandParser.parse(controller.draft) != nil
+      && slashCommandParser.parse(draft) != nil
+  }
+
+  private var canSend: Bool {
+    controller.modelRuntime.modelState == .ready
+      && draft.contains { !$0.isWhitespace }
+      && !controller.isGenerating
+      && !controller.isInputBlocked
   }
 
   private var visibleTodoState: TodoState? {
@@ -231,52 +291,40 @@ struct WorkspaceChatView: View {
     controller.modelRuntime.loadSelectedModel()
   }
 
-  private func handleLocalSlashCommand() -> Bool {
-    let trimmedDraft = controller.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+  private func handleLocalSlashCommand() -> LocalSlashCommandResult {
+    let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmedDraft.hasPrefix("/") else {
-      return false
+      return .notHandled
     }
 
     let name = String(trimmedDraft.dropFirst().prefix { !$0.isWhitespace })
     guard let descriptor = SlashCommandRegistry.descriptor(named: name) else {
       // Unknown command text: leave it for the normal send path.
-      return false
+      return .notHandled
     }
 
     guard let command = slashCommandParser.parse(trimmedDraft) else {
       controller.errorMessage = descriptor.usage
-      return true
+      return .handled(shouldClearDraft: false)
     }
 
     switch command {
     case .preview(let path):
-      runPreviewCommand(path: path)
+      guard onPreviewCommand(path) else {
+        return .handled(shouldClearDraft: false)
+      }
     case .show(let path):
-      runShowCommand(path: path)
+      guard onShowCommand(path) else {
+        return .handled(shouldClearDraft: false)
+      }
     }
-    return true
+    draft = ""
+    return .handled(shouldClearDraft: true)
   }
 
-  private func runPreviewCommand(path: String) {
-    do {
-      htmlPreview = try htmlPreviewResolver.resolve(path: path, in: workspace)
-      filePreview = nil
-      htmlPreviewConsoleEntries.removeAll()
-      controller.draft = ""
-      controller.errorMessage = nil
-    } catch {
-      controller.errorMessage = error.localizedDescription
-    }
-  }
-
-  private func runShowCommand(path: String) {
-    do {
-      filePreview = try filePreviewResolver.resolve(path: path, in: workspace)
-      controller.draft = ""
-      controller.errorMessage = nil
-    } catch {
-      controller.errorMessage = error.localizedDescription
-    }
+  private enum LocalSlashCommandResult {
+    case notHandled
+    case handled(shouldClearDraft: Bool)
   }
 }
 

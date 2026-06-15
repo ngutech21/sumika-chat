@@ -5,18 +5,6 @@ public protocol ChatAttachmentLoading: Sendable {
     from urls: [URL],
     existingAttachments: [ChatAttachment]
   ) throws -> [ChatAttachment]
-
-  func extractDroppedAttachments(from draft: String) -> DroppedAttachmentExtraction
-}
-
-public struct DroppedAttachmentExtraction: Equatable, Sendable {
-  public var urls: [URL]
-  public var cleanedDraft: String
-
-  public init(urls: [URL] = [], cleanedDraft: String) {
-    self.urls = urls
-    self.cleanedDraft = cleanedDraft
-  }
 }
 
 public struct ChatAttachmentLoader: ChatAttachmentLoading {
@@ -43,50 +31,6 @@ public struct ChatAttachmentLoader: ChatAttachmentLoading {
 
       return try readTextAttachment(from: url)
     }
-  }
-
-  public func extractDroppedAttachments(from draft: String) -> DroppedAttachmentExtraction {
-    let pattern = droppedAttachmentPathPattern()
-    guard let regex = try? NSRegularExpression(pattern: pattern) else {
-      return DroppedAttachmentExtraction(cleanedDraft: draft)
-    }
-
-    let range = NSRange(draft.startIndex..<draft.endIndex, in: draft)
-    let matches = regex.matches(in: draft, range: range)
-    guard !matches.isEmpty else {
-      return DroppedAttachmentExtraction(cleanedDraft: draft)
-    }
-
-    var urls: [URL] = []
-    var rangesToRemove: [Range<String.Index>] = []
-
-    for match in matches {
-      guard let matchRange = Range(match.range, in: draft) else {
-        continue
-      }
-
-      let rawPath = String(draft[matchRange])
-      guard let url = attachmentURL(fromDroppedPath: rawPath), isSupportedAttachmentURL(url) else {
-        continue
-      }
-
-      urls.append(url)
-      rangesToRemove.append(matchRange)
-    }
-
-    guard !urls.isEmpty else {
-      return DroppedAttachmentExtraction(cleanedDraft: draft)
-    }
-
-    var cleanedDraft = draft
-    for range in rangesToRemove.reversed() {
-      cleanedDraft.removeSubrange(range)
-    }
-
-    return DroppedAttachmentExtraction(
-      urls: urls,
-      cleanedDraft: normalizeDraftAfterRemovingAttachmentPaths(cleanedDraft)
-    )
   }
 
   private func readTextAttachment(from url: URL) throws -> ChatAttachment {
@@ -202,48 +146,5 @@ public struct ChatAttachmentLoader: ChatAttachmentLoading {
     default:
       fileExtension.isEmpty ? nil : "text/plain"
     }
-  }
-
-  private func droppedAttachmentPathPattern() -> String {
-    let extensions = ChatAttachmentLimits.supportedFileExtensions
-      .sorted { $0.count > $1.count }
-      .map(NSRegularExpression.escapedPattern(for:))
-      .joined(separator: "|")
-    return #"file://[^\s]+|/[^\n\r\t]*?\.(?:"# + extensions + #")(?=\s|$)"#
-  }
-
-  private func attachmentURL(fromDroppedPath path: String) -> URL? {
-    if path.hasPrefix("file://") {
-      return URL(string: path)?.standardizedFileURL
-    }
-
-    return URL(filePath: path).standardizedFileURL
-  }
-
-  private func isSupportedAttachmentURL(_ url: URL) -> Bool {
-    let path = url.path(percentEncoded: false)
-    let fileExtension = url.pathExtension.lowercased()
-    var isDirectory: ObjCBool = false
-
-    let hasSupportedExtension =
-      ChatAttachmentLimits.supportedTextFileExtensions.contains(fileExtension)
-      || ChatAttachmentLimits.supportedImageFileExtensions.contains(fileExtension)
-
-    return hasSupportedExtension
-      && FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-      && !isDirectory.boolValue
-  }
-
-  private func normalizeDraftAfterRemovingAttachmentPaths(_ text: String) -> String {
-    var cleaned =
-      text
-      .replacingOccurrences(of: " \n", with: "\n")
-      .replacingOccurrences(of: "\n ", with: "\n")
-
-    while cleaned.contains("  ") {
-      cleaned = cleaned.replacingOccurrences(of: "  ", with: " ")
-    }
-
-    return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 }

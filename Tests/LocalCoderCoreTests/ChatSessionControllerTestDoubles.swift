@@ -537,10 +537,6 @@ final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sen
     ]
   }
 
-  func extractDroppedAttachments(from draft: String) -> DroppedAttachmentExtraction {
-    DroppedAttachmentExtraction(cleanedDraft: draft)
-  }
-
   func releaseFirstLoad() {
     firstLoadRelease.signal()
   }

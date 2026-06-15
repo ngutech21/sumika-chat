@@ -163,55 +163,6 @@ struct ChatAttachmentLoaderTests {
     }
   }
 
-  @Test
-  func extractDroppedAttachmentsFindsAbsoluteAndFileURLPaths() throws {
-    let loader = ChatAttachmentLoader()
-    let absoluteURL = try write("absolute", to: "Absolute.swift")
-    let fileURL = try write("file url", to: "README.md")
-    let draft = """
-      Please inspect \(absoluteURL.path(percentEncoded: false)) and \(fileURL.absoluteString)
-      before answering.
-      """
-
-    let extraction = loader.extractDroppedAttachments(from: draft)
-    let extractedPaths = extraction.urls.map { $0.path(percentEncoded: false) }
-
-    #expect(
-      extractedPaths == [
-        absoluteURL.path(percentEncoded: false),
-        fileURL.path(percentEncoded: false),
-      ])
-    #expect(extraction.cleanedDraft == "Please inspect and\nbefore answering.")
-  }
-
-  @Test
-  func extractDroppedAttachmentsNormalizesDraftAfterRemovingPaths() throws {
-    let loader = ChatAttachmentLoader()
-    let firstURL = try write("first", to: "First.swift")
-    let secondURL = try write("second", to: "Second.swift")
-    let draft =
-      "  Use \(firstURL.path(percentEncoded: false))  \n \(secondURL.path(percentEncoded: false)) please  "
-
-    let extraction = loader.extractDroppedAttachments(from: draft)
-
-    #expect(extraction.urls.count == 2)
-    #expect(extraction.cleanedDraft == "Use \n please")
-  }
-
-  @Test
-  func extractDroppedAttachmentsKeepsMissingAndUnsupportedPathsInDraft() throws {
-    let loader = ChatAttachmentLoader()
-    let rootURL = try makeTemporaryDirectory()
-    let missingSupportedPath = rootURL.appending(path: "Missing.swift").path(percentEncoded: false)
-    let unsupportedURL = try write("not supported", to: "image.gif")
-    let draft = "Review \(missingSupportedPath) and \(unsupportedURL.path(percentEncoded: false))"
-
-    let extraction = loader.extractDroppedAttachments(from: draft)
-
-    #expect(extraction.urls.isEmpty)
-    #expect(extraction.cleanedDraft == draft)
-  }
-
   private func write(_ content: String, to fileName: String) throws -> URL {
     let data = try #require(content.data(using: .utf8))
     return try write(data, to: fileName)
