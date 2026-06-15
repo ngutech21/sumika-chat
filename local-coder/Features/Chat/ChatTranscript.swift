@@ -11,9 +11,12 @@ struct ChatTranscript: View {
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
   let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
+  @State private var renderer = ChatTranscriptRenderer()
 
   var body: some View {
-    if transcriptItems.isEmpty {
+    let items = renderer.items(for: turns, toolCalls: toolCalls)
+
+    if items.isEmpty {
       ZStack {
         ContentUnavailableView(
           emptyStateTitle,
@@ -28,8 +31,8 @@ struct ChatTranscript: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else {
       ChatTranscriptScrollContent(
-        items: transcriptItems,
-        showsGenerationIndicator: shouldShowTranscriptGenerationIndicator,
+        items: items,
+        showsGenerationIndicator: shouldShowTranscriptGenerationIndicator(for: items),
         accessibilityValue: modelState.accessibilityValue,
         onApproveToolCall: onApproveToolCall,
         onDenyToolCall: onDenyToolCall,
@@ -64,9 +67,28 @@ struct ChatTranscript: View {
     }
   }
 
-  private var transcriptItems: [RenderedChatTurnItem] {
+  private func shouldShowTranscriptGenerationIndicator(for items: [RenderedChatTurnItem]) -> Bool {
+    isGenerating && !items.contains(where: \.shouldShowAssistantPlaceholder)
+  }
+}
+
+@MainActor
+private final class ChatTranscriptRenderer {
+  private var cachedInput: ChatTranscriptRenderInput?
+  private var cachedItems: [RenderedChatTurnItem] = []
+  private var assistantBlockCache: [AssistantMessageRenderKey: [AssistantRenderBlock]] = [:]
+
+  func items(
+    for turns: [ChatTurn],
+    toolCalls: [ToolCallRecord]
+  ) -> [RenderedChatTurnItem] {
+    let input = ChatTranscriptRenderInput(turns: turns, toolCalls: toolCalls)
+    guard input != cachedInput else {
+      return cachedItems
+    }
+
     let recordsByID = Dictionary(toolCalls.map { ($0.id, $0) }) { _, latest in latest }
-    return turns.flatMap { turn in
+    let renderedItems = turns.flatMap { turn in
       let turnGenerationMetrics = turn.items.compactMap(\.generationMetrics).last
       var renderedItems: [RenderedChatTurnItem] = []
       var renderedToolCallIDs = Set<ToolCallRecord.ID>()
@@ -89,7 +111,7 @@ struct ChatTranscript: View {
               item: item,
               toolCallRecord: nil,
               generationMetrics: message.generationMetrics,
-              assistantRenderBlocks: AssistantMessageRenderBlocks.blocks(for: message.content)
+              assistantRenderBlocks: blocks(for: message)
             ))
         case .toolCall(let id):
           guard let record = recordsByID[id] else {
@@ -125,10 +147,25 @@ struct ChatTranscript: View {
 
       return renderedItems
     }
+
+    cachedInput = input
+    cachedItems = renderedItems
+    let activeAssistantMessages = input.assistantMessages
+    assistantBlockCache = assistantBlockCache.filter { key, _ in
+      activeAssistantMessages.contains(key)
+    }
+    return renderedItems
   }
 
-  private var shouldShowTranscriptGenerationIndicator: Bool {
-    isGenerating && !transcriptItems.contains(where: \.shouldShowAssistantPlaceholder)
+  private func blocks(for message: AssistantTurnMessage) -> [AssistantRenderBlock] {
+    let key = AssistantMessageRenderKey(id: message.id, content: message.content)
+    if let cachedBlocks = assistantBlockCache[key] {
+      return cachedBlocks
+    }
+
+    let blocks = AssistantMessageRenderBlocks.blocks(for: message.content)
+    assistantBlockCache[key] = blocks
+    return blocks
   }
 }
 
@@ -138,6 +175,26 @@ private struct RenderedChatTurnItem: Identifiable, Equatable {
   let toolCallRecord: ToolCallRecord?
   let generationMetrics: ChatGenerationMetrics?
   let assistantRenderBlocks: [AssistantRenderBlock]
+}
+
+private struct ChatTranscriptRenderInput: Equatable {
+  let turns: [ChatTurn]
+  let toolCalls: [ToolCallRecord]
+
+  var assistantMessages: Set<AssistantMessageRenderKey> {
+    Set(
+      turns.flatMap(\.items).compactMap { item in
+        guard case .assistantMessage(let message) = item else {
+          return nil
+        }
+        return AssistantMessageRenderKey(id: message.id, content: message.content)
+      })
+  }
+}
+
+private struct AssistantMessageRenderKey: Hashable {
+  let id: UUID
+  let content: String
 }
 
 private struct ChatTranscriptScrollContent: View {
