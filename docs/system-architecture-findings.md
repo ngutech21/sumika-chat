@@ -1,11 +1,13 @@
 # System Architecture Findings
 
-Date: 2026-06-15
+Date: 2026-06-16
 
 This document captures a full system-level architecture, performance, type-safety,
-and code-quality review of the codebase. It supersedes the 2026-06-02 review. Every
-finding is tied to concrete files and describes an incremental direction rather than a
-rewrite. Severity reflects user-visible/runtime impact and risk, not effort.
+and code-quality review of the codebase. It supersedes the 2026-06-02 review; the
+2026-06-16 update prunes findings that have since been resolved (see Resolved) and
+reframes the residual context-usage item. Every finding is tied to concrete files and
+describes an incremental direction rather than a rewrite. Severity reflects
+user-visible/runtime impact and risk, not effort.
 
 ## Summary
 
@@ -17,27 +19,27 @@ well-designed and well-documented. Type safety is generally excellent: no force
 unwraps, `try!`, or `as!` were found in the reviewed surface, and discriminated-union
 `Codable` ADTs are used consistently.
 
-The remaining risks cluster in three areas:
+With the markdown-render, regex-compilation, edit-match, and span-filtering hot paths
+now resolved (see Resolved), the remaining risks are smaller and cluster in three areas:
 
-1. **Render/recompute hot paths** — the chat transcript re-parses markdown and rebuilds
-   derived collections on every streaming chunk, and context-usage/cache signatures
-   re-tokenize or re-hash the full history per turn (O(n^2) over a session).
-2. **Per-call regex compilation** in extraction/highlighting/linkifying code that runs
-   per render or per keystroke.
+1. **Residual recompute paths** — the Gemma KV-cache signature re-hashes the full
+   history per turn (P-05), and the context-usage refresh re-renders the system prompt
+   on every call (P-02). Both are bounded and neither re-tokenizes the transcript
+   anymore.
+2. **Stringly-typed runtime dispatch and trace fields** — typed tool input is recovered
+   via an `as?` cast and name switch (T-01), and trace/cache-debug fields are compared
+   as raw magic strings (T-02, T-03).
 3. **Coupling and stale seams** — `ChatSessionController` and `AppState` remain broad
-   adapters, and several legacy/dead seams persist that this unreleased prototype does
-   not need (see the Data Model Policy in `AGENTS.md`).
+   adapters with duplicated skeletons (Q-02, Q-03), and several legacy/dead seams persist
+   that this unreleased prototype does not need (Q-05, O-01–O-03; see the Data Model
+   Policy in `AGENTS.md`).
 
 ## Findings
 
 | ID | Severity | Category | Finding | Affected Files |
 | --- | --- | --- | --- | --- |
-| P-01 | High | Perf | Chat transcript re-parses markdown + rebuilds derived items every streaming chunk | `local-coder/Features/Chat/ChatTranscript.swift` |
-| P-02 | High | Perf | Context usage re-tokenizes the full history on every refresh (O(n^2)/session) | `Sources/LocalCoderCore/Features/Chat/ContextUsageCoordinator.swift`, `ChatSessionController.swift`, `ChatModelContextBuilder.swift` |
-| P-03 | High | Perf | Per-call `NSRegularExpression` compilation in hot extraction/highlight/linkify paths | `Sources/LocalCoderCore/Services/WebAccess.swift`, `CodeHighlighting.swift`, `Support/URLTextLinkifier.swift`, `Services/ChatAttachmentLoader.swift` |
-| P-04 | High | Perf | Edit-match path re-tokenizes file content and uses `String.distance` per lookup | `Sources/LocalCoderCore/Services/ToolEditExecution.swift` |
+| P-02 | Low | Perf | Context-usage refresh re-renders the system prompt + re-sums history bytes on every call (~11x/turn) | `Sources/LocalCoderCore/Features/Chat/ContextUsageCoordinator.swift`, `ChatSessionController.swift` |
 | P-05 | Medium | Perf | Full-history FNV cache signature re-hashed ~2x per turn (grows O(transcript)) | `local-coder/Services/GemmaMLXRuntime.swift`, `GemmaSessionCachePolicy.swift` |
-| P-06 | Medium | Perf | O(n^2) span overlap filtering and whitespace collapsing | `Sources/LocalCoderCore/Services/CodeHighlighting.swift`, `ChatAttachmentLoader.swift` |
 | P-07 | Medium | Perf | `refreshDebounced` does not debounce; no coalescing of usage refreshes | `Sources/LocalCoderCore/Features/Chat/ContextUsageCoordinator.swift` |
 | P-08 | Medium | Perf | Command runner busy-polls `process.isRunning` every 20ms | `Sources/LocalCoderCore/Services/ToolCommandExecution.swift` |
 | P-09 | Low | Perf | Whole library re-encoded to one JSON file on every mutation | `Sources/LocalCoderCore/Services/WorkspaceStore.swift`, `Models/Workspace.swift` |
@@ -46,7 +48,6 @@ The remaining risks cluster in three areas:
 | T-03 | Medium | TypeSafety | Trace fields (`toolCallFormat`, validation status, cacheMode) passed as raw strings | `Sources/LocalCoderCore/Features/Chat/ToolLoopCoordinator.swift`, `ChatSessionController.swift` |
 | T-04 | Low | TypeSafety | `ToolName` is a stringly-typed struct; lists can drift without exhaustiveness | `Sources/LocalCoderCore/Models/ToolCall.swift`, `Services/ToolCallRequestValidator.swift` |
 | T-05 | Low | TypeSafety | KVC `setValue(false, forKey: "drawsBackground")` on `WKWebView` | `local-coder/Features/Chat/HTMLPreview.swift` |
-| Q-01 | High | Quality | ~~`ToolPermissionEvaluator` is dead production code~~ — **resolved**, file deleted | `Sources/LocalCoderCore/Services/ToolPermissionEvaluator.swift` |
 | Q-02 | Medium | Quality | A-01: `ChatSessionController` is a god type (1566 lines); approval/deny/answer flows duplicate skeletons | `Sources/LocalCoderCore/Features/Chat/ChatSessionController.swift` |
 | Q-03 | Medium | Quality | A-04: `AppState` couples navigation, session lifecycle, persistence; 3x duplicated debounced-save | `local-coder/App/AppState.swift` |
 | Q-04 | Medium | Quality | Duplicated logic across result projections and extraction (status maps, diagnostics render, host validation, UTF-8 suffix trimming) | `Sources/LocalCoderCore/Models/ToolCall.swift`, `Models/ToolResultProjection.swift`, `Services/WebAccess.swift`, `Services/WebContentExtraction.swift`, `Services/ToolCommandExecution.swift` |
@@ -59,61 +60,31 @@ The remaining risks cluster in three areas:
 
 ### Performance
 
-#### P-01: Chat transcript re-parses markdown + rebuilds derived items every chunk (High)
+#### P-02: Context-usage refresh re-renders the system prompt every call (Low)
 
-`ChatTranscript.transcriptItems` (`local-coder/Features/Chat/ChatTranscript.swift:67-128`)
-runs a full `flatMap` over all turns, builds a `Dictionary` of every tool call, and
-calls `AssistantMessageRenderBlocks.blocks(for:)` (markdown parsing) for every assistant
-message on each `body` pass. Because `controller.chatSession.turns` mutates per streamed
-token, the entire transcript — including markdown re-parse of all prior messages — is
-rebuilt on every chunk. The property is also computed twice per pass (empty check at
-line 16, body at line 30/131), and `onChange(of: items)` diffs the whole rendered array
-(P-01b) including parsed blocks.
+`refreshContextUsage` -> `contextUsageSnapshot` (`ChatSessionController.swift:628-669`)
+re-renders the full system prompt via `systemPrompt(toolPromptMode:)` and rebuilds the
+transcript on every call, and `estimatedUsage()` (`ContextUsageCoordinator.swift:36-46`)
+sums the UTF-8 byte count of the whole history. It runs ~11x per turn (turn start, after
+each stream, every tool-loop iteration, attachment add/remove, completion).
 
-Fix: memoize parsed render blocks per message keyed by message id + content length, or
-finalize blocks onto the turn model when content stops streaming; compute
-`transcriptItems` once per pass; observe a lightweight anchor token (last item id +
-count) for scroll instead of the full `items` array.
+Resolved parts: the original O(n^2) re-tokenization is gone — the runtime-tokenizer path
+was dropped in favor of a byte estimate, and the per-call
+`projectedEntries(.fullHistory)` array allocation was replaced with a direct sum over
+`frozenContent.content` (commit `336d9ed0`).
 
-#### P-02: Context usage re-tokenizes the full history on every refresh (High)
+Residual: the per-refresh system-prompt re-render (tool-registry assembly + prompt
+render) is O(1) in history but a non-trivial constant repeated ~11x/turn; the history
+byte-sum is still O(n) per call. Both are cheap relative to the former tokenization,
+hence Low.
 
-`refreshContextUsage` rebuilds the whole transcript via
-`ChatModelContextBuilder.transcript(from:)` and then `estimatedUsage()` walks
-`projectedEntries(mode: .fullHistory)` re-encoding every entry's UTF-8 byte count from
-scratch (`ContextUsageCoordinator.swift:36-54`, `ChatSessionController.swift:525-537,
-628-669`). It is called at turn start, after each stream, after every tool-loop
-iteration, on attachment add/remove, and on completion — so an N-entry history is fully
-re-tokenized N times within one multi-iteration agent turn, giving O(n^2) growth over a
-session.
-
-Fix: the ledger is append-only (per the frozen-context design), so cache the cumulative
-byte/token count and only add the delta for newly appended entries; memoize the built
-`ModelContextSnapshot` keyed by `entries.count` / last-entry id.
-
-#### P-03: Per-call `NSRegularExpression` compilation in hot paths (High)
-
-- `WebAccess.swift:925-949` (`WebTextExtractor.plainText`) runs 5
-  `replacingOccurrences(..., options: .regularExpression)` calls per invocation, each
-  recompiling its pattern; `firstMatchGroups` (`:956-971`) recompiles per result block.
-- `CodeHighlighting.swift:533-538` compiles the CSS dimension-unit pattern on every
-  highlight pass (runs per keystroke during streaming).
-- `URLTextLinkifier.swift:27` recompiles the URL pattern on every assistant message
-  render; `ChatAttachmentLoader.swift:50` rebuilds the attachment-path pattern per draft
-  change.
-
-Fix: hoist all fixed patterns into `static let` precompiled `NSRegularExpression`
-instances and reuse `stringByReplacingMatches`.
-
-#### P-04: Edit-match path re-tokenizes content and uses `String.distance` per lookup (High)
-
-`EditFileToolExecutor.validatedMatch` (`ToolEditExecution.swift:205-241`) runs up to 5
-full-content match strategies; `lineSegments(in:)` (`:466-524`) re-tokenizes the whole
-file inside every `lineWindowMatches` call (`:389-424`), and
-`IndexedNormalizedText.sourceRange` (`:721-722`) calls `text.distance(from:to:)` (O(n))
-per lookup, making normalized matching O(n*m) on large files.
-
-Fix: tokenize content once and pass cached `[TextLine]` into all strategies; store
-integer offsets instead of recomputing `String.distance`.
+Fix (if pursued): memoize the rendered system prompt keyed on `(toolPromptMode,
+systemPrompt, todoState, toolCallingPolicy)`. If the byte-sum ever shows up in a profile,
+maintain a cumulative byte count on the ledger — but note the ledger is **not** purely
+append-only: the terminal->follow-up swap (`ChatTranscriptMutator.swift:83`) and the
+write/edit payload redaction (`:436`) mutate existing entries in place while preserving
+`entries.count` and entry ids, so a naive "count + last-entry id" memo key would go
+stale. Bump a revision stamp on every mutation instead.
 
 #### P-05: Full-history cache signature re-hashed per turn (Medium)
 
@@ -125,16 +96,6 @@ grows O(transcript bytes) every turn.
 
 Fix: history is append-only, so keep a rolling/incremental hash of the consumed prefix
 on `CachedGemmaSession` and hash only newly appended messages.
-
-#### P-06: O(n^2) span filtering and whitespace collapsing (Medium)
-
-`CodeHighlighting.nonOverlappingSpans` (`:499-511`) does `selectedSpans.contains { ... }`
-per candidate — quadratic in span count; large code blocks generate thousands of spans
-per highlight pass. `ChatAttachmentLoader.swift:243-245` rescans the whole string each
-iteration of `while cleaned.contains("  ")`.
-
-Fix: sort spans once and sweep with a running max upper-bound (O(n log n)); replace the
-whitespace loop with a single compiled `" {2,}" -> " "` regex.
 
 #### P-07: `refreshDebounced` does not debounce (Medium)
 
@@ -212,18 +173,6 @@ public `underPageBackgroundColor`/`isOpaque` configuration.
 
 ### Code Quality
 
-#### Q-01: `ToolPermissionEvaluator` is dead production code (High) — RESOLVED
-
-`ToolPermissionEvaluator` was referenced only by its own declaration and by
-`Tests/LocalCoderCoreTests/ToolPermissionTests.swift`. Production permission logic lives
-entirely in each `TypedToolExecutor.evaluatePermission`; the whole permission switch
-duplicated per-executor decisions and reason strings.
-
-Resolution: `ToolPermissionEvaluator.swift` was deleted and the four evaluator-specific
-tests (plus their now-unused `request` helper) were removed from `ToolPermissionTests`.
-The remaining `Workspace.resolveAllowedPath` path-resolution and `ToolName` tests — which
-cover the active permission boundary — were kept. This also resolves former finding A-02.
-
 #### Q-02: `ChatSessionController` god type (Medium)
 
 Former finding A-01 remains. The 1566-line controller owns model-runtime callbacks,
@@ -244,7 +193,7 @@ Former finding A-04 remains unaddressed (no `WorkspaceSessionCoordinator` exists
 `AppState` interleaves navigation/selection, controller loading, snapshotting, and three
 near-identical debounced-save task chains (`:189-205, 207-224, 341-364`).
 
-Fix: introduce `WorkspaceSessionCoordinator` for the persist→mutate→save→load sequence;
+Fix: introduce `WorkspaceSessionCoordinator` for the persist->mutate->save->load sequence;
 extract a generic `DebouncedPersistenceScheduler`; leave `AppState` a thin facade.
 
 #### Q-04: Duplicated logic (Medium)
@@ -262,8 +211,8 @@ Fix: collapse each set to a single shared helper.
 
 #### Q-05: Dead/placeholder seams (Low)
 
-- `activeAttachmentContextAttachments` (`ChatSessionController.swift:720-722`) always
-  returns `[]` yet is read by `WorkspaceChatView.swift:61`.
+- `activeAttachmentContextAttachments` (`ChatSessionController.swift:710-712`) always
+  returns `[]` yet is read by `WorkspaceChatView.swift:210`.
 - `ChatGenerationCoordinator.streamAssistantReply` (`:60-90`, String-returning) has no
   production callers; production uses `streamAssistantReplyResult`.
 - The `updateContextUsage` closure threaded through the stream path is an empty
@@ -319,21 +268,45 @@ accumulator class.
 - `ChatModelContextBuilder.transcript` correctly short-circuits when nothing is excluded.
 - No deprecated Apple APIs other than the `DispatchGroup`/KVC items called out above.
 
-## Resolved since 2026-06-02
+## Resolved
 
-- Q-01 / A-02: the dead `ToolPermissionEvaluator` was deleted. The only remaining
-  permission path is the per-executor `evaluatePermission`.
+### Resolved 2026-06-16
+
+- **P-01** (was High / Perf) — chat transcript re-parsed markdown and rebuilt derived
+  items on every streaming chunk. `ChatTranscript` now memoizes parsed render blocks per
+  `AssistantMessageRenderKey(id:content:)` (`blocks(for:)`), short-circuits the whole
+  `transcriptItems` rebuild via `cachedInput`/`cachedItems`, and scrolls off a
+  lightweight `scrollAnchorID` instead of diffing the full items array.
+- **P-03** (was High / Perf) — per-call `NSRegularExpression` compilation in hot
+  extraction/highlight/linkify paths. All fixed patterns are now precompiled `static let`
+  instances (`compiledRegex(...)` statics in `WebAccess`, `cssDimensionRegex` in
+  `CodeHighlighting`, `urlDetectionRegex` in `URLTextLinkifier`; the per-draft attachment
+  pattern in `ChatAttachmentLoader` was removed). (commit `d5bb59f0`)
+- **P-04** (was High / Perf) — edit-match path re-tokenized file content and used
+  `String.distance` per lookup. `EditFileToolExecutor` now caches `oldLines`/`contentLines`,
+  and `IndexedNormalizedText.sourceRanges` accumulates offsets from a moving cursor so the
+  whole search is O(n) instead of O(n*m). (commit `cf72ed48`)
+- **P-06** (was Medium / Perf) — O(n^2) span-overlap filtering + whitespace-collapse loop.
+  `CodeHighlighting.nonOverlappingSpans` now uses a binary-search neighbor test and the
+  `while cleaned.contains("  ")` loop was removed. (commit `d1de0a80`)
+- **Q-01 / A-02** (was High / Quality) — the dead `ToolPermissionEvaluator` was deleted;
+  the only remaining permission path is each `TypedToolExecutor.evaluatePermission`.
+  (commit `9d223a8d`)
+- **P-02** (partial) — the context-usage re-tokenization and the per-call projected-array
+  allocation are resolved (now a direct byte sum over frozen content; the runtime
+  tokenizer path was already removed). The smaller residual is tracked as the reduced
+  P-02 above. (commit `336d9ed0`)
 
 ## Recommended order
 
-1. ~~Delete dead `ToolPermissionEvaluator` (Q-01)~~ — done.
-2. Memoize transcript markdown blocks and incrementalize context-usage/cache signatures
-   (P-01, P-02, P-05) — the largest runtime wins as conversations grow.
-3. Hoist per-call regexes to `static let` (P-03) and fix the edit-match re-tokenization
-   (P-04).
-4. Replace the `as?`-cast input recovery with statically-typed extraction (T-01).
-5. Remove legacy decoding/migration shims (O-01, O-03) per the Data Model Policy.
-6. Extract `ToolApprovalCoordinator` (Q-02) and `WorkspaceSessionCoordinator` +
-   `DebouncedPersistenceScheduler` (Q-03).
-7. Make trace and cache-debug fields typed (T-02, T-03); collapse duplicated helpers
+1. Incrementalize the Gemma KV-cache full-history signature (P-05) — the largest
+   remaining runtime win as conversations grow; optionally finish the context-usage
+   residual (P-02) and restore real debounce (P-07).
+2. Replace the `as?`-cast input recovery with statically-typed extraction (T-01).
+3. Remove legacy decoding/migration shims (O-01, O-03) per the Data Model Policy.
+4. Extract `ToolApprovalCoordinator` (Q-02) and `WorkspaceSessionCoordinator` +
+   `DebouncedPersistenceScheduler` (Q-03); remove the dead seams (Q-05).
+5. Make trace and cache-debug fields typed (T-02, T-03); collapse duplicated helpers
    (Q-04).
+6. Address the command-runner busy-poll (P-08) and per-mutation library re-encode (P-09)
+   as scaling work.
