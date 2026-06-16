@@ -440,23 +440,10 @@ struct ChatComposer: View {
       return false
     }
 
-    let group = DispatchGroup()
-    let accumulator = AttachmentURLAccumulator()
+    let loader = AttachmentFileProviderLoader(providers: fileProviders)
 
-    for provider in fileProviders {
-      group.enter()
-      provider.loadItem(forTypeIdentifier: fileURLType, options: nil) { item, _ in
-        defer { group.leave() }
-        guard let url = Self.fileURL(from: item) else {
-          return
-        }
-
-        accumulator.append(url)
-      }
-    }
-
-    group.notify(queue: .main) {
-      let urls = accumulator.urls()
+    Task { @MainActor in
+      let urls = await Self.fileURLs(from: loader, typeIdentifier: fileURLType)
       guard !urls.isEmpty else {
         return
       }
@@ -466,7 +453,7 @@ struct ChatComposer: View {
     return true
   }
 
-  nonisolated private static func fileURL(from item: NSSecureCoding?) -> URL? {
+  nonisolated fileprivate static func fileURL(from item: NSSecureCoding?) -> URL? {
     if let url = item as? URL {
       return url
     }
@@ -480,6 +467,33 @@ struct ChatComposer: View {
     }
 
     return nil
+  }
+
+  private static func fileURLs(
+    from loader: AttachmentFileProviderLoader,
+    typeIdentifier: String
+  ) async -> [URL] {
+    await withTaskGroup(of: (Int, URL?).self, returning: [URL].self) { group in
+      let providerCount = loader.providerCount
+      for position in 0..<providerCount {
+        group.addTask {
+          await loader.fileURL(at: position, typeIdentifier: typeIdentifier)
+        }
+      }
+
+      var urlsByIndex: [(Int, URL)] = []
+      for await (index, url) in group {
+        guard let url else {
+          continue
+        }
+        urlsByIndex.append((index, url))
+      }
+
+      return
+        urlsByIndex
+        .sorted { $0.0 < $1.0 }
+        .map(\.1)
+    }
   }
 
   nonisolated private static func fileURLsFromPasteboard() -> [URL] {
@@ -548,20 +562,25 @@ struct ChatComposer: View {
   }
 }
 
-nonisolated private final class AttachmentURLAccumulator: @unchecked Sendable {
-  private let lock = NSLock()
-  private var storedURLs: [URL] = []
+@MainActor
+private final class AttachmentFileProviderLoader {
+  private let indexedProviders: [(index: Int, provider: NSItemProvider)]
 
-  func append(_ url: URL) {
-    lock.lock()
-    storedURLs.append(url)
-    lock.unlock()
+  var providerCount: Int {
+    indexedProviders.count
   }
 
-  func urls() -> [URL] {
-    lock.lock()
-    defer { lock.unlock() }
-    return storedURLs
+  init(providers: [NSItemProvider]) {
+    indexedProviders = providers.enumerated().map { ($0.offset, $0.element) }
+  }
+
+  func fileURL(at position: Int, typeIdentifier: String) async -> (Int, URL?) {
+    let (index, provider) = indexedProviders[position]
+    let item = try? await provider.loadItem(
+      forTypeIdentifier: typeIdentifier,
+      options: nil
+    )
+    return (index, ChatComposer.fileURL(from: item))
   }
 }
 

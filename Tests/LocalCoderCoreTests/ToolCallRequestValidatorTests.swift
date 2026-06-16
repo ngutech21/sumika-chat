@@ -69,8 +69,10 @@ struct ToolCallRequestValidatorTests {
       raw(
         .todoWrite,
         arguments: [
-          "items": .string(
-            #"["Inspect affected files:true","Add todo state:false"]"#)
+          "item1": .string("Inspect affected files"),
+          "done1": .bool(true),
+          "item2": .string("Add todo state"),
+          "done2": .bool(false),
         ]),
       registry: registry
     )
@@ -344,134 +346,17 @@ struct ToolCallRequestValidatorTests {
   }
 
   @Test
-  func todoWriteAcceptsRowStringsAndCommaContainingContent() {
+  func todoWriteRejectsLegacyItemsArgument() {
     let request = validator.validate(
       raw(
         .todoWrite,
         arguments: [
-          "items": .string(
-            #"["Inspect files, configs, and docs:true","Run tests:false"]"#)
+          "items": .string(#"["Inspect files:true","Run tests:false"]"#)
         ]),
       registry: ToolExecutorRegistry.codingAgent.toolRegistry
     )
 
-    #expect(
-      request.payload
-        == .todoWrite(
-          TodoWriteInput(items: [
-            TodoItem(
-              id: "1",
-              content: "Inspect files, configs, and docs",
-              status: .completed
-            ),
-            TodoItem(id: "2", content: "Run tests", status: .pending),
-          ])))
-  }
-
-  @Test
-  func todoWriteAcceptsPlainTextRows() {
-    let request = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "items": .string(
-            """
-            Inspect files:true
-            Run tests:false
-            """
-          )
-        ]),
-      registry: ToolExecutorRegistry.codingAgent.toolRegistry
-    )
-
-    #expect(
-      request.payload
-        == .todoWrite(
-          TodoWriteInput(items: [
-            TodoItem(id: "1", content: "Inspect files", status: .completed),
-            TodoItem(id: "2", content: "Run tests", status: .pending),
-          ])))
-  }
-
-  @Test
-  func todoWriteSplitsRowsAtTrailingDoneSuffix() {
-    let request = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "items": .string(
-            """
-            Inspect files: configs:true
-            Run tests:false
-            """
-          )
-        ]),
-      registry: ToolExecutorRegistry.codingAgent.toolRegistry
-    )
-
-    #expect(
-      request.payload
-        == .todoWrite(
-          TodoWriteInput(items: [
-            TodoItem(id: "1", content: "Inspect files: configs", status: .completed),
-            TodoItem(id: "2", content: "Run tests", status: .pending),
-          ])))
-  }
-
-  @Test
-  func todoWriteAlsoAcceptsSemicolonDoneSuffix() {
-    let request = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "items": .string(
-            """
-            Inspect files;true
-            Run tests;false
-            """
-          )
-        ]),
-      registry: ToolExecutorRegistry.codingAgent.toolRegistry
-    )
-
-    #expect(
-      request.payload
-        == .todoWrite(
-          TodoWriteInput(items: [
-            TodoItem(id: "1", content: "Inspect files", status: .completed),
-            TodoItem(id: "2", content: "Run tests", status: .pending),
-          ])))
-  }
-
-  @Test
-  func todoWriteStillAcceptsInternalObjectArrays() {
-    let request = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "items": .array([
-            .object([
-              "id": .string("inspect"),
-              "content": .string("Inspect affected files"),
-              "status": .string("completed"),
-            ]),
-            .object([
-              "id": .string("core"),
-              "content": .string("Add todo state"),
-              "status": .string("inProgress"),
-            ]),
-          ])
-        ]),
-      registry: ToolExecutorRegistry.codingAgent.toolRegistry
-    )
-
-    #expect(
-      request.payload
-        == .todoWrite(
-          TodoWriteInput(items: [
-            TodoItem(id: "inspect", content: "Inspect affected files", status: .completed),
-            TodoItem(id: "core", content: "Add todo state", status: .inProgress),
-          ])))
+    #expect(invalidReason(request) == .unknownArguments(["items"]))
   }
 
   @Test
@@ -479,51 +364,15 @@ struct ToolCallRequestValidatorTests {
     let registry = ToolExecutorRegistry.codingAgent.toolRegistry
     let longContent = String(repeating: "a", count: 121)
     let noItems = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "items": .string("[]")
-        ]),
-      registry: registry
-    )
-    let oneItem = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "items": .string(#"["Only one item:false"]"#)
-        ]),
-      registry: registry
-    )
-    let oneDirectItem = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "items": .array([
-            .object([
-              "id": .string("only"),
-              "content": .string("Only one item"),
-              "status": .string("pending"),
-            ])
-          ])
-        ]),
+      raw(.todoWrite, arguments: [:]),
       registry: registry
     )
     let emptyContent = validator.validate(
       raw(
         .todoWrite,
         arguments: [
-          "items": .string(#"[" :false","Valid item:false"]"#)
-        ]),
-      registry: registry
-    )
-    let sevenItems = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "items": .array(
-            (0..<7).map { index in
-              .string("Item \(index):false")
-            })
+          "item1": .string(" "),
+          "item2": .string("Valid item"),
         ]),
       registry: registry
     )
@@ -531,7 +380,8 @@ struct ToolCallRequestValidatorTests {
       raw(
         .todoWrite,
         arguments: [
-          "items": .string(#"\#(longContent):false\nVerify:false"#)
+          "item1": .string(longContent),
+          "item2": .string("Verify"),
         ]),
       registry: registry
     )
@@ -539,15 +389,19 @@ struct ToolCallRequestValidatorTests {
       raw(
         .todoWrite,
         arguments: [
-          "items": .string(#"["Inspect:done","Verify:false"]"#)
+          "item1": .string("Inspect"),
+          "item2": .string("Verify"),
+          "done1": .string("done"),
         ]),
       registry: registry
     )
-    let malformedRow = validator.validate(
+    let unknownSeventhItem = validator.validate(
       raw(
         .todoWrite,
         arguments: [
-          "items": .string(#"["one,false","Verify:false"]"#)
+          "item1": .string("Inspect"),
+          "item2": .string("Verify"),
+          "item7": .string("Extra"),
         ]),
       registry: registry
     )
@@ -559,64 +413,13 @@ struct ToolCallRequestValidatorTests {
         ]),
       registry: registry
     )
-    let emptyRequiredNumberedItem = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "item1": .string(" "),
-          "item2": .string("Valid item"),
-        ]),
-      registry: registry
-    )
-
-    #expect(invalidReason(noItems)?.message.contains("2 to 6 items") == true)
-    #expect(invalidReason(oneItem)?.message.contains("2 to 6 items") == true)
-    #expect(invalidReason(oneDirectItem)?.message.contains("2 to 6 items") == true)
-    #expect(invalidReason(sevenItems)?.message.contains("2 to 6 items") == true)
+    #expect(invalidReason(noItems) == .missingRequiredArgument("item1"))
     #expect(invalidReason(emptyContent)?.message.contains("content must not be empty") == true)
     #expect(invalidReason(longItem)?.message.contains("120 characters or fewer") == true)
-    #expect(invalidReason(invalidDoneValue)?.message.contains("content:true|false") == true)
-    #expect(invalidReason(malformedRow)?.message.contains("content:true|false") == true)
+    #expect(
+      invalidReason(invalidDoneValue)?.message.contains("done1 must be true or false") == true)
+    #expect(invalidReason(unknownSeventhItem) == .unknownArguments(["item7"]))
     #expect(invalidReason(oneNumberedItem) == .missingRequiredArgument("item2"))
-    #expect(
-      invalidReason(emptyRequiredNumberedItem)?.message.contains("content must not be empty")
-        == true)
-  }
-
-  @Test
-  func todoWriteAcceptsEscapedRowSeparatorsWhenPlanHasMultipleItems() {
-    let registry = ToolExecutorRegistry.codingAgent.toolRegistry
-    let singleEscaped = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "items": .string(#"Inspect files:false\nRun tests:false"#)
-        ]),
-      registry: registry
-    )
-    let doubleEscaped = validator.validate(
-      raw(
-        .todoWrite,
-        arguments: [
-          "items": .string(#"Inspect files:true\\nRun tests:false"#)
-        ]),
-      registry: registry
-    )
-
-    #expect(
-      singleEscaped.payload
-        == .todoWrite(
-          TodoWriteInput(items: [
-            TodoItem(id: "1", content: "Inspect files", status: .pending),
-            TodoItem(id: "2", content: "Run tests", status: .pending),
-          ])))
-    #expect(
-      doubleEscaped.payload
-        == .todoWrite(
-          TodoWriteInput(items: [
-            TodoItem(id: "1", content: "Inspect files", status: .completed),
-            TodoItem(id: "2", content: "Run tests", status: .pending),
-          ])))
   }
 
   @Test

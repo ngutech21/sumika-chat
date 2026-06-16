@@ -46,7 +46,12 @@ struct ChatSessionControllerToolLoopTests {
         .toolCall(
           ChatRuntimeToolCall(
             name: "todo_write",
-            arguments: ["items": .string("Inspect files:true\nRun tests:false")]
+            arguments: [
+              "item1": .string("Inspect files"),
+              "done1": .bool(true),
+              "item2": .string("Run tests"),
+              "done2": .bool(false),
+            ]
           ))
       ],
       [.chunk("Continuing with the plan.")],
@@ -88,7 +93,12 @@ struct ChatSessionControllerToolLoopTests {
         .toolCall(
           ChatRuntimeToolCall(
             name: "todo_write",
-            arguments: ["items": .string("Inspect files:false\nRun tests:false")]
+            arguments: [
+              "item1": .string("Inspect files"),
+              "done1": .bool(false),
+              "item2": .string("Run tests"),
+              "done2": .bool(false),
+            ]
           ))
       ],
       [.chunk("Continuing without a todo plan.")],
@@ -135,7 +145,12 @@ struct ChatSessionControllerToolLoopTests {
           .toolCall(
             ChatRuntimeToolCall(
               name: "todo_write",
-              arguments: ["items": .string("Inspect files:false\nRun tests:false")]
+              arguments: [
+                "item1": .string("Inspect files"),
+                "done1": .bool(false),
+                "item2": .string("Run tests"),
+                "done2": .bool(false),
+              ]
             ))
         ],
         [.chunk("Continuing without a todo plan.")],
@@ -194,7 +209,12 @@ struct ChatSessionControllerToolLoopTests {
           .toolCall(
             ChatRuntimeToolCall(
               name: "todo_write",
-              arguments: ["items": .string("Inspect files:false\nRun tests:false")]
+              arguments: [
+                "item1": .string("Inspect files"),
+                "done1": .bool(false),
+                "item2": .string("Run tests"),
+                "done2": .bool(false),
+              ]
             ))
         ],
         [.chunk("Continuing with the plan.")],

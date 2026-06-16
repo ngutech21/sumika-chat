@@ -30,9 +30,8 @@ now resolved (see Resolved), the remaining risks are smaller and cluster in thre
    via an `as?` cast and name switch (T-01), and trace/cache-debug fields are compared
    as raw magic strings (T-02, T-03).
 3. **Coupling and stale seams** — `ChatSessionController` and `AppState` remain broad
-   adapters with duplicated skeletons (Q-02, Q-03), and several legacy/dead seams persist
-   that this unreleased prototype does not need (Q-05, O-01–O-03; see the Data Model
-   Policy in `AGENTS.md`).
+   adapters with duplicated skeletons (Q-02, Q-03), and several dead seams persist that
+   this unreleased prototype does not need (Q-05).
 
 ## Findings
 
@@ -51,9 +50,6 @@ now resolved (see Resolved), the remaining risks are smaller and cluster in thre
 | Q-03 | Medium | Quality | A-04: `AppState` couples navigation, session lifecycle, persistence; 3x duplicated debounced-save | `local-coder/App/AppState.swift` |
 | Q-04 | Medium | Quality | Duplicated logic across result projections and extraction (status maps, diagnostics render, host validation, UTF-8 suffix trimming) | `Sources/LocalCoderCore/Models/ToolCall.swift`, `Models/ToolResultProjection.swift`, `Services/WebAccess.swift`, `Services/WebContentExtraction.swift`, `Services/ToolCommandExecution.swift` |
 | Q-05 | Low | Quality | Dead/placeholder seams: `activeAttachmentContextAttachments` returns `[]`; test-only `streamAssistantReply`; no-op `updateContextUsage` closure | `Sources/LocalCoderCore/Features/Chat/ChatSessionController.swift`, `ChatGenerationCoordinator.swift` |
-| O-01 | Medium | Outdated | Legacy multi-format `TodoWriteInput` decoding (numbered fields + JSON-string + plain-text rows) | `Sources/LocalCoderCore/Services/ToolExecution.swift` |
-| O-02 | Medium | Outdated | `DispatchGroup` + `loadItem(forTypeIdentifier:)` + `@unchecked Sendable` accumulator in an async codebase | `local-coder/Features/Chat/ChatComposer.swift` |
-| O-03 | Low | Outdated | Legacy decode/migration shims not needed for an unreleased prototype | `Sources/LocalCoderCore/Support/AssistantMarkdownPreprocessor.swift`, `Services/ModelSettingsStore.swift`, `Features/Chat/Models/ChatSession.swift` |
 
 ## Details
 
@@ -211,43 +207,6 @@ Fix: collapse each set to a single shared helper.
 
 Fix: implement or remove each seam.
 
-### Outdated Code
-
-`AGENTS.md` (Data Model Policy) states this is an unreleased prototype with no
-backwards-compatibility, migrations, legacy decode paths, or fallback fields required —
-so the items below are removal candidates.
-
-#### O-01: Legacy multi-format `TodoWriteInput` decoding (Medium)
-
-`TodoWriteInput.init(from:)` (`ToolExecution.swift:640-700` + helpers `:707-827`) tries
-numbered `item1..6` fields, `[TodoItem]`, JSON-string `items`, JSON-string `[String]`,
-plain-text rows, then `[String]` rows — the comment at `:698` marks the tail as legacy.
-The model-facing schema (`ToolDefinition.todoWrite`, `:482-515`) advertises only the
-numbered-field contract.
-
-Fix: keep the numbered-field path; remove the string/rows legacy shims.
-
-#### O-02: `DispatchGroup` drop/paste handler (Medium)
-
-`ChatComposer.swift:459-494` uses `DispatchGroup.enter/leave` + `group.notify` + the
-callback-style `NSItemProvider.loadItem(forTypeIdentifier:options:)` + an
-`@unchecked Sendable` `AttachmentURLAccumulator` (`:637-652`) — legacy concurrency in an
-otherwise async/await codebase.
-
-Fix: load providers with async APIs in a `TaskGroup`, dropping the manual group and the
-accumulator class.
-
-#### O-03: Legacy decode/migration shims (Low)
-
-- `AssistantMarkdownPreprocessor.normalizedLegacyDirectFileDisplay` (`:11, 28-88`) —
-  legacy "Here is `…`:" direct-file-display path.
-- `ModelSettingsStore.init(from:)` (`:18-32`) exists only to `decodeIfPresent` a fallback
-  for `contextTokenLimit`.
-- `ChatSession.resolvingInterruptedStreams` (`:102-104, 149-166`) — if its sole purpose
-  is tolerating pre-existing persisted `.streaming` statuses it is a removal candidate;
-  if it also guards crash-interrupted reloads, keep it but drop the "migration-safe"
-  framing.
-
 ## Non-issues verified
 
 - No force unwraps (`!`), `try!`, `as!`, or implicitly unwrapped optionals were found in
@@ -257,7 +216,7 @@ accumulator class.
 - Streaming/chunked, byte-budgeted file reading (`ReadFilePreviewAccumulator`) and the
   mach/rusage `ProcessResourceMonitor` are well-designed and allocation-light.
 - `ChatModelContextBuilder.transcript` correctly short-circuits when nothing is excluded.
-- No deprecated Apple APIs other than the `DispatchGroup`/KVC items called out above.
+- No deprecated Apple APIs other than the KVC item called out above.
 
 ## Resolved
 
@@ -290,6 +249,18 @@ accumulator class.
 - **P-08** (was Medium / Perf) — `DefaultCommandProcessRunner` no longer busy-polls
   `process.isRunning`; it bridges `Process.terminationHandler` into a continuation and
   races process exit against timeout/cancellation in a task group.
+- **O-01** (was Medium / Outdated) — legacy `todo_write` input formats were removed.
+  `TodoWriteInput` now decodes and encodes only the numbered `item1...item6`/`done1...done6`
+  contract advertised by `ToolDefinition.todoWrite`, and validator tests reject the old
+  `items` argument.
+- **O-02** (was Medium / Outdated) — `ChatComposer` no longer uses `DispatchGroup`,
+  callback-style provider loading, or the `@unchecked Sendable` URL accumulator. File
+  providers are loaded through async `NSItemProvider.loadItem` calls coordinated by a
+  task group.
+- **O-03** (was Low / Outdated) — the legacy direct-file-display markdown normalizer and
+  the `StoredModelSettings.contextTokenLimit` decode fallback were removed. The
+  `ChatSession.resolvingInterruptedStreams` path remains because it protects current
+  sessions after crash or hard-quit interruption, not old schema migration.
 
 ## Recommended order
 
@@ -297,9 +268,8 @@ accumulator class.
    remaining runtime win as conversations grow; optionally finish the context-usage
    residual (P-02) and restore real debounce (P-07).
 2. Replace the `as?`-cast input recovery with statically-typed extraction (T-01).
-3. Remove legacy decoding/migration shims (O-01, O-03) per the Data Model Policy.
-4. Extract `ToolApprovalCoordinator` (Q-02) and `WorkspaceSessionCoordinator` +
+3. Extract `ToolApprovalCoordinator` (Q-02) and `WorkspaceSessionCoordinator` +
    `DebouncedPersistenceScheduler` (Q-03); remove the dead seams (Q-05).
-5. Make trace and cache-debug fields typed (T-02, T-03); collapse duplicated helpers
+4. Make trace and cache-debug fields typed (T-02, T-03); collapse duplicated helpers
    (Q-04).
-6. Address the per-mutation library re-encode (P-09) as scaling work.
+5. Address the per-mutation library re-encode (P-09) as scaling work.

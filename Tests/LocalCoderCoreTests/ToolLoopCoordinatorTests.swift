@@ -269,7 +269,12 @@ struct ToolLoopCoordinatorTests {
         nativeToolCalls: [
           ChatRuntimeToolCall(
             name: "todo_write",
-            arguments: ["items": .string("Inspect files:true\nRun tests:false")]
+            arguments: [
+              "item1": .string("Inspect files"),
+              "done1": .bool(true),
+              "item2": .string("Run tests"),
+              "done2": .bool(false),
+            ]
           )
         ]
       )

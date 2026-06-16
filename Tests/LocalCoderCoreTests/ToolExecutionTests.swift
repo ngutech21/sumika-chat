@@ -624,7 +624,7 @@ struct ToolExecutionTests {
     let workspace = try makeWorkspace()
     let input = TodoWriteInput(items: [
       TodoItem(id: "inspect", content: "Inspect affected files", status: .completed),
-      TodoItem(id: "core", content: "Add todo state", status: .inProgress),
+      TodoItem(id: "core", content: "Add todo state", status: .pending),
     ])
 
     let result = await TodoWriteToolExecutor().run(
@@ -649,6 +649,26 @@ struct ToolExecutionTests {
       Issue.record("Expected todo_write success payload.")
       return
     }
+  }
+
+  @Test
+  func todoWriteRejectsStatusesOutsideNumberedDoneContract() async throws {
+    let workspace = try makeWorkspace()
+    let input = TodoWriteInput(items: [
+      TodoItem(id: "inspect", content: "Inspect affected files", status: .completed),
+      TodoItem(id: "core", content: "Add todo state", status: .inProgress),
+    ])
+
+    let result = await TodoWriteToolExecutor().run(
+      input,
+      context: ToolContext(workspace: workspace)
+    )
+
+    guard case .todoWrite(.failed(let reason)) = result else {
+      Issue.record("Expected todo_write unsupported status failure.")
+      return
+    }
+    #expect(reason.message.contains("status must be pending or completed"))
   }
 
   @Test

@@ -67,6 +67,59 @@ struct ToolCallTests {
   }
 
   @Test
+  func todoWriteInputCodableUsesNumberedFieldsAndRejectsUnrepresentableItems() throws {
+    let input = TodoWriteInput(items: [
+      TodoItem(id: "inspect", content: "Inspect files", status: .completed),
+      TodoItem(id: "test", content: "Run tests", status: .pending),
+    ])
+
+    let data = try JSONEncoder().encode(input)
+    let object = try #require(
+      JSONSerialization.jsonObject(with: data) as? [String: Any]
+    )
+    let decoded = try JSONDecoder().decode(TodoWriteInput.self, from: data)
+
+    #expect(object["item1"] as? String == "Inspect files")
+    #expect(object["done1"] as? Bool == true)
+    #expect(object["item2"] as? String == "Run tests")
+    #expect(object["done2"] as? Bool == false)
+    #expect(object["items"] == nil)
+    #expect(
+      decoded
+        == TodoWriteInput(items: [
+          TodoItem(id: "1", content: "Inspect files", status: .completed),
+          TodoItem(id: "2", content: "Run tests", status: .pending),
+        ]))
+
+    let inProgressInput = TodoWriteInput(items: [
+      TodoItem(id: "inspect", content: "Inspect files", status: .completed),
+      TodoItem(id: "test", content: "Run tests", status: .inProgress),
+    ])
+    do {
+      _ = try JSONEncoder().encode(inProgressInput)
+      Issue.record("Expected todo_write encoding to reject inProgress.")
+    } catch TodoStateValidationError.unsupportedTodoWriteStatus(let id, let status) {
+      #expect(id == "test")
+      #expect(status == .inProgress)
+    } catch {
+      Issue.record("Unexpected error: \(error)")
+    }
+
+    let sevenItemsInput = TodoWriteInput(
+      items: (1...7).map { index in
+        TodoItem(id: "\(index)", content: "Item \(index)", status: .pending)
+      })
+    do {
+      _ = try JSONEncoder().encode(sevenItemsInput)
+      Issue.record("Expected todo_write encoding to reject more than six items.")
+    } catch TodoStateValidationError.invalidItemCount(let count) {
+      #expect(count == 7)
+    } catch {
+      Issue.record("Unexpected error: \(error)")
+    }
+  }
+
+  @Test
   func toolArgumentValueDisplayValueFormatsModelFacingArguments() {
     #expect(ToolArgumentValue.string("Sources/App.swift").displayValue == "Sources/App.swift")
     #expect(ToolArgumentValue.number(42).displayValue == "42")

@@ -216,7 +216,10 @@ struct ChatTranscriptMutatorTests {
     let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(
       toolName: ToolName.todoWrite.rawValue,
       arguments: [
-        "items": .string("Inspect affected files:false\nRun tests:false")
+        "item1": .string("Inspect affected files"),
+        "done1": .bool(false),
+        "item2": .string("Run tests"),
+        "done2": .bool(false),
       ]
     )
     let toolCall = ToolCallModelMessage(
@@ -224,9 +227,21 @@ struct ChatTranscriptMutatorTests {
       toolName: .todoWrite,
       arguments: [
         ToolCallModelArgument(
-          name: "items",
-          value: "Inspect affected files:false\nRun tests:false"
-        )
+          name: "item1",
+          value: "Inspect affected files"
+        ),
+        ToolCallModelArgument(
+          name: "done1",
+          value: "false"
+        ),
+        ToolCallModelArgument(
+          name: "item2",
+          value: "Run tests"
+        ),
+        ToolCallModelArgument(
+          name: "done2",
+          value: "false"
+        ),
       ],
       rawText: nativeBoundary
     )

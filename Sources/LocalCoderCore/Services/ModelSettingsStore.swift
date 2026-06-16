@@ -15,21 +15,6 @@ public struct StoredModelSettings: Codable, Equatable, Sendable {
     self.contextTokenLimit = contextTokenLimit
   }
 
-  private enum CodingKeys: String, CodingKey {
-    case systemPrompt
-    case generationSettings
-    case contextTokenLimit
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
-    generationSettings = try container.decode(
-      ChatGenerationSettings.self, forKey: .generationSettings)
-    contextTokenLimit =
-      try container.decodeIfPresent(Int.self, forKey: .contextTokenLimit)
-      ?? ManagedModelCatalog.defaultContextTokenLimit
-  }
 }
 
 public protocol ModelSettingsStoring: Sendable {

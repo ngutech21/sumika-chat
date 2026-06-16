@@ -96,7 +96,7 @@ public struct ToolCallRequestValidator: Sendable {
     case .todoWrite:
       let input = try decode(TodoWriteInput.self, from: rawRequest.arguments)
       do {
-        try TodoStateValidator().validate(input.items)
+        try TodoWriteInput.validateItems(input.items)
       } catch let validationError as TodoStateValidationError {
         throw InvalidToolCallReason.invalidTodoItems(validationError.localizedDescription)
       }
@@ -199,14 +199,6 @@ public struct ToolCallRequestValidator: Sendable {
   private func validateTodoWriteArgumentNames(
     _ arguments: ToolCallArguments
   ) -> InvalidToolCallReason? {
-    if arguments["items"] != nil {
-      let unknownArguments = Set(arguments.keys).subtracting(["items"])
-      guard unknownArguments.isEmpty else {
-        return .unknownArguments(unknownArguments.sorted())
-      }
-      return nil
-    }
-
     let knownArguments = Set(
       (1...6).flatMap { index in
         ["item\(index)", "done\(index)"]

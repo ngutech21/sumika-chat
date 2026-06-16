@@ -614,10 +614,6 @@ public struct ToolExecutorRegistry: Sendable {
 public struct TodoWriteInput: Codable, Equatable, Sendable {
   public let items: [TodoItem]
 
-  private enum CodingKeys: String, CodingKey {
-    case items
-  }
-
   private struct DynamicCodingKey: CodingKey {
     let stringValue: String
     let intValue: Int?
@@ -638,80 +634,55 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
   }
 
   public init(from decoder: Decoder) throws {
-    if let numberedItems = try Self.decodeNumberedItems(from: decoder) {
-      items = numberedItems
-      return
+    guard let numberedItems = try Self.decodeNumberedItems(from: decoder) else {
+      throw DecodingError.dataCorrupted(
+        DecodingError.Context(
+          codingPath: decoder.codingPath,
+          debugDescription: "todo_write must use item1/item2 numbered fields."
+        ))
     }
-
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    if let items = try? container.decode([TodoItem].self, forKey: .items) {
-      self.items = items
-      return
-    }
-
-    if let rawItems = try? container.decode(String.self, forKey: .items) {
-      if let decodedItems = Self.decodeItems(fromJSONString: rawItems) {
-        items = decodedItems
-        return
-      }
-      if let rows = Self.decodeStringRows(fromJSONString: rawItems) {
-        do {
-          items = try Self.parseRows(rows)
-          return
-        } catch {
-          throw DecodingError.dataCorruptedError(
-            forKey: .items,
-            in: container,
-            debugDescription: error.localizedDescription
-          )
-        }
-      }
-      do {
-        items = try Self.parseRows(Self.plainTextRows(from: rawItems))
-        return
-      } catch {
-        throw DecodingError.dataCorruptedError(
-          forKey: .items,
-          in: container,
-          debugDescription: error.localizedDescription
-        )
-      }
-    }
-
-    if let rows = try? container.decode([String].self, forKey: .items) {
-      do {
-        items = try Self.parseRows(rows)
-        return
-      } catch {
-        throw DecodingError.dataCorruptedError(
-          forKey: .items,
-          in: container,
-          debugDescription: error.localizedDescription
-        )
-      }
-    }
-
-    throw DecodingError.dataCorruptedError(
-      forKey: .items,
-      in: container,
-      debugDescription:
-        "todo_write must use item1/item2 fields or legacy items rows."
-    )
+    items = numberedItems
   }
 
   public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(items, forKey: .items)
+    try Self.validateItems(items)
+
+    var container = encoder.container(keyedBy: DynamicCodingKey.self)
+    for (offset, item) in items.enumerated() {
+      let index = offset + 1
+      try container.encode(item.content, forKey: Self.key("item\(index)"))
+      try container.encode(Self.doneValue(for: item), forKey: Self.key("done\(index)"))
+    }
   }
 
-  private static func decodeItems(fromJSONString rawItems: String) -> [TodoItem]? {
-    let data = Data(rawItems.utf8)
-    return try? JSONDecoder().decode([TodoItem].self, from: data)
+  public static func validateItems(_ items: [TodoItem]) throws {
+    try TodoStateValidator().validate(items)
+
+    for item in items {
+      switch item.status {
+      case .pending, .completed:
+        continue
+      case .inProgress, .blocked:
+        throw TodoStateValidationError.unsupportedTodoWriteStatus(
+          id: item.id,
+          status: item.status
+        )
+      }
+    }
   }
 
-  private static func decodeStringRows(fromJSONString rawItems: String) -> [String]? {
-    let data = Data(rawItems.utf8)
-    return try? JSONDecoder().decode([String].self, from: data)
+  private static func doneValue(for item: TodoItem) throws -> Bool {
+    switch item.status {
+    case .pending:
+      false
+    case .completed:
+      true
+    case .inProgress, .blocked:
+      throw TodoStateValidationError.unsupportedTodoWriteStatus(
+        id: item.id,
+        status: item.status
+      )
+    }
   }
 
   private static func decodeNumberedItems(from decoder: Decoder) throws -> [TodoItem]? {
@@ -783,59 +754,6 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
     }
     return key
   }
-
-  private static func parseRows(_ rows: [String]) throws -> [TodoItem] {
-    try rows.enumerated().map { index, row in
-      try parseRow(row, index: index)
-    }
-  }
-
-  private static func plainTextRows(from rawItems: String) -> [String] {
-    normalizedPlainTextRows(from: rawItems)
-      .split(whereSeparator: \.isNewline)
-      .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-  }
-
-  private static func normalizedPlainTextRows(from rawItems: String) -> String {
-    rawItems
-      .replacingOccurrences(of: #"\\n"#, with: "\n")
-      .replacingOccurrences(of: #"\n"#, with: "\n")
-  }
-
-  private static func parseRow(_ row: String, index: Int) throws -> TodoItem {
-    guard let parsed = parseDoneSuffix(from: row) else {
-      throw TodoRowParsingError.malformedRow(row)
-    }
-
-    let content = parsed.content.trimmingCharacters(in: .whitespacesAndNewlines)
-    let status: TodoStatus = parsed.done ? .completed : .pending
-    return TodoItem(id: String(index + 1), content: content, status: status)
-  }
-
-  private static func parseDoneSuffix(from row: String) -> (content: String, done: Bool)? {
-    let trimmed = row.trimmingCharacters(in: .whitespacesAndNewlines)
-    for suffix in [":true", ":false", ";true", ";false"] {
-      guard trimmed.lowercased().hasSuffix(suffix) else {
-        continue
-      }
-      let contentEnd = trimmed.index(trimmed.endIndex, offsetBy: -suffix.count)
-      let done = suffix.hasSuffix("true")
-      return (String(trimmed[..<contentEnd]), done)
-    }
-    return nil
-  }
-}
-
-private enum TodoRowParsingError: Error, LocalizedError {
-  case malformedRow(String)
-
-  var errorDescription: String? {
-    switch self {
-    case .malformedRow(let row):
-      "todo_write row must be content:true|false: \(row)"
-    }
-  }
 }
 
 public struct TodoWriteToolExecutor: TypedToolExecutor {
@@ -859,7 +777,7 @@ public struct TodoWriteToolExecutor: TypedToolExecutor {
   public func run(_ input: TodoWriteInput, context: ToolContext) async -> ToolResultPayload {
     _ = context
     do {
-      try TodoStateValidator().validate(input.items)
+      try TodoWriteInput.validateItems(input.items)
       return .todoWrite(.success)
     } catch {
       let reason =

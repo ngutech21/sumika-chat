@@ -47,6 +47,7 @@ public enum TodoStateValidationError: Error, Equatable, LocalizedError, Sendable
   case emptyContent(id: String)
   case contentTooLong(id: String, maxCharacters: Int)
   case multipleInProgress
+  case unsupportedTodoWriteStatus(id: String, status: TodoStatus)
 
   public var errorDescription: String? {
     switch self {
@@ -58,6 +59,8 @@ public enum TodoStateValidationError: Error, Equatable, LocalizedError, Sendable
       "todo_write item \(id) content must be \(maxCharacters) characters or fewer."
     case .multipleInProgress:
       "todo_write allows at most one inProgress item."
+    case .unsupportedTodoWriteStatus(let id, let status):
+      "todo_write item \(id) status must be pending or completed; received \(status.rawValue)."
     }
   }
 }
