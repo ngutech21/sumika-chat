@@ -26,6 +26,7 @@ public final class ChatSessionController {
   @ObservationIgnored private let transcriptMutator = ChatTranscriptMutator()
   @ObservationIgnored private let workflowEventApplier = ChatWorkflowEventApplier()
   @ObservationIgnored private let focusedFileReducer = FocusedFileStateReducer()
+  @ObservationIgnored private let toolResumeCoordinator = ToolResumeCoordinator()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private var pendingAgentToolExecutorRegistry: ToolExecutorRegistry?
   @ObservationIgnored private var activeModelContextDebugToolPromptMode: ToolPromptMode?
@@ -801,28 +802,27 @@ extension ChatSessionController {
       }
 
       let mergedRecord = mergedToolCallRecord(existing: existingRecord, updated: approvedRecord)
-      var events = approvedToolCompletionEvents(
+      let resumeResult = toolResumeCoordinator.approvedToolResult(
         record: mergedRecord,
         focusedFileState: chatSession.focusedFileState,
         turnID: turnID
       )
 
       guard mergedRecord.status == .completed else {
-        applyWorkflowEvents(events)
+        applyWorkflowEvents(resumeResult.events)
         completeTurn(turnID, outcome: .failed(error: nil, cancelsStreaming: false))
         return
       }
 
-      let nextAssistantMessageID = UUID()
-      events.append(
-        .assistantPlaceholderAppended(
-          messageID: nextAssistantMessageID,
-          turnID: turnID
-        )
-      )
-      applyWorkflowEvents(events)
+      guard let nextAssistantMessageID = resumeResult.nextAssistantMessageID,
+        let promptMode = resumeResult.followUpPromptMode
+      else {
+        completeTurn(turnID, outcome: .failed(error: nil, cancelsStreaming: false))
+        return
+      }
+
+      applyWorkflowEvents(resumeResult.events)
       notifySessionDidChange()
-      let promptMode = followUpPromptMode(afterApprovedTool: mergedRecord)
       appendFinalToolFollowUpBoundaryIfNeeded(
         toolPromptMode: promptMode,
         turnID: turnID
@@ -834,7 +834,7 @@ extension ChatSessionController {
         turnID: turnID,
         toolLoopIteration: 1
       )
-      if !isFinalApprovedToolFollowUp(mergedRecord) {
+      if !toolResumeCoordinator.isFinalApprovedToolFollowUp(mergedRecord) {
         try await runToolLoop(
           workspace: workspace,
           sessionID: existingRecord.request.sessionID,
@@ -854,105 +854,6 @@ extension ChatSessionController {
     }
 
     completeTurn(turnID, outcome: .completed)
-  }
-
-  private func approvedToolCompletionEvents(
-    record: ToolCallRecord,
-    focusedFileState: FocusedFileState,
-    turnID: ChatTurn.ID
-  ) -> [ChatWorkflowEvent] {
-    var events: [ChatWorkflowEvent] = [
-      .toolCallReplaced(record),
-      .toolResultAppended(
-        toolResultMessage(for: record),
-        turnID: turnID
-      ),
-    ]
-    events.append(contentsOf: focusEventsForToolRecord(record, from: focusedFileState))
-    return events
-  }
-
-  private func answeredAskUserToolEvents(
-    record: ToolCallRecord,
-    nextAssistantMessageID: UUID,
-    turnID: ChatTurn.ID
-  ) -> [ChatWorkflowEvent] {
-    [
-      .toolCallReplaced(record),
-      .toolResultAppended(
-        toolResultMessage(for: record),
-        turnID: turnID
-      ),
-      .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
-      .turnStatusChanged(
-        turnID: turnID,
-        status: .running,
-        modelContextPolicy: nil
-      ),
-    ]
-  }
-
-  private func deniedToolEvents(
-    record: ToolCallRecord,
-    message: String,
-    nextAssistantMessageID: UUID,
-    turnID: ChatTurn.ID
-  ) -> [ChatWorkflowEvent] {
-    [
-      .toolCallReplaced(record),
-      .toolResultAppended(
-        toolResultMessage(for: record, fallback: .permissionDenied(message: message)),
-        turnID: turnID
-      ),
-      .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
-      .turnStatusChanged(
-        turnID: turnID,
-        status: .running,
-        modelContextPolicy: nil
-      ),
-    ]
-  }
-
-  private func toolResultMessage(for record: ToolCallRecord) -> ToolResultModelMessage {
-    toolResultMessage(for: record, fallback: .unavailable)
-  }
-
-  private func toolResultMessage(
-    for record: ToolCallRecord,
-    fallback: ToolResultFallback
-  ) -> ToolResultModelMessage {
-    ToolResultModelMessage(
-      callID: record.id,
-      toolName: record.request.toolName,
-      payload: record.resultPayload ?? fallback.payload(for: record)
-    )
-  }
-
-  private enum ToolResultFallback {
-    case unavailable
-    case permissionDenied(message: String)
-
-    func payload(for record: ToolCallRecord) -> ToolResultPayload {
-      switch self {
-      case .unavailable:
-        return .failure(
-          ToolFailure(
-            toolName: record.request.toolName,
-            path: nil,
-            reason: .executionError(
-              "Tool result unavailable for \(record.request.toolName.rawValue)."
-            )
-          ))
-      case .permissionDenied(let message):
-        return .failure(
-          ToolFailure(
-            toolName: record.request.toolName,
-            path: record.evaluation.firstModelFacingPath,
-            reason: .permissionDenied,
-            recovery: .askUser(message: message)
-          ))
-      }
-    }
   }
 
   public func answerAskUserToolCall(
@@ -985,20 +886,21 @@ extension ChatSessionController {
       return
     }
 
-    var answeredRecord = existingRecord
-    answeredRecord.state = .completed(.askUser(AskUserResult(answer: answer)))
-    answeredRecord.events.append(
-      ToolCallEvent(actor: .user, kind: .answered, message: "Answered: \(answer)"))
-    let nextAssistantMessageID = UUID()
-    applyWorkflowEvents(
-      answeredAskUserToolEvents(
-        record: answeredRecord,
-        nextAssistantMessageID: nextAssistantMessageID,
-        turnID: turnID
-      ))
+    let resumeResult = toolResumeCoordinator.answeredAskUserTool(
+      record: existingRecord,
+      answer: answer,
+      turnID: turnID
+    )
+    guard let nextAssistantMessageID = resumeResult.nextAssistantMessageID,
+      let promptMode = resumeResult.followUpPromptMode
+    else {
+      return
+    }
+
+    applyWorkflowEvents(resumeResult.events)
     isGenerating = true
     errorMessage = nil
-    refreshContextUsage(toolPromptMode: .afterToolResultCanContinue)
+    refreshContextUsage(toolPromptMode: promptMode)
     notifySessionDidChange()
 
     chatTurnCoordinator.startTurn(id: turnID) { [weak self] turnID in
@@ -1009,7 +911,7 @@ extension ChatSessionController {
         let generationResult = try await streamAssistantReply(
           to: nextAssistantMessageID,
           interactionMode: chatSession.interactionMode,
-          toolPromptMode: .afterToolResultCanContinue,
+          toolPromptMode: promptMode,
           turnID: turnID,
           toolLoopIteration: 1
         )
@@ -1050,32 +952,25 @@ extension ChatSessionController {
     }
 
     let message = "Tool call denied by user."
-    var deniedRecord = existingRecord
-    deniedRecord.state = .denied(
-      .failure(
-        ToolFailure(
-          toolName: deniedRecord.request.toolName,
-          path: deniedRecord.evaluation.firstModelFacingPath,
-          reason: .permissionDenied,
-          recovery: .askUser(message: message)
-        ))
+    let resumeResult = toolResumeCoordinator.deniedTool(
+      record: existingRecord,
+      message: message,
+      turnID: turnID
     )
-    deniedRecord.events.append(ToolCallEvent(actor: .user, kind: .denied, message: message))
-    let nextAssistantMessageID = UUID()
-    applyWorkflowEvents(
-      deniedToolEvents(
-        record: deniedRecord,
-        message: message,
-        nextAssistantMessageID: nextAssistantMessageID,
-        turnID: turnID
-      ))
+    guard let nextAssistantMessageID = resumeResult.nextAssistantMessageID,
+      let promptMode = resumeResult.followUpPromptMode
+    else {
+      return
+    }
+
+    applyWorkflowEvents(resumeResult.events)
     isGenerating = true
     errorMessage = nil
     appendFinalToolFollowUpBoundaryIfNeeded(
-      toolPromptMode: .afterToolResultFinal,
+      toolPromptMode: promptMode,
       turnID: turnID
     )
-    refreshContextUsage(toolPromptMode: .afterToolResultFinal)
+    refreshContextUsage(toolPromptMode: promptMode)
     notifySessionDidChange()
 
     chatTurnCoordinator.startTurn(id: turnID) { [weak self] turnID in
@@ -1086,7 +981,7 @@ extension ChatSessionController {
         _ = try await streamAssistantReply(
           to: nextAssistantMessageID,
           interactionMode: chatSession.interactionMode,
-          toolPromptMode: .afterToolResultFinal,
+          toolPromptMode: promptMode,
           turnID: turnID,
           toolLoopIteration: 1
         )
@@ -1104,21 +999,6 @@ extension ChatSessionController {
 
   private func applyWorkflowEvents(_ events: [ChatWorkflowEvent]) {
     workflowEventApplier.apply(events, to: &chatSession)
-  }
-
-  private func focusEventsForToolRecord(
-    _ record: ToolCallRecord,
-    from focusedFileState: FocusedFileState
-  ) -> [ChatWorkflowEvent] {
-    let updatedState = focusedFileReducer.applyingToolResult(
-      record.resultPayload,
-      request: record.request,
-      to: focusedFileState
-    )
-    guard updatedState != focusedFileState else {
-      return []
-    }
-    return [.focusedFileStateChanged(updatedState)]
   }
 
   private func focusEventsForAttachments(
@@ -1164,17 +1044,6 @@ extension ChatSessionController {
     }
     merged.events = existing.events + appendedEvents
     return merged
-  }
-
-  private func followUpPromptMode(afterApprovedTool record: ToolCallRecord) -> ToolPromptMode {
-    isFinalApprovedToolFollowUp(record) ? .afterToolResultFinal : .afterToolResultCanContinue
-  }
-
-  private func isFinalApprovedToolFollowUp(_ record: ToolCallRecord) -> Bool {
-    guard record.resultPayload?.status == .success else {
-      return false
-    }
-    return record.request.toolName == .writeFile || record.request.toolName == .editFile
   }
 
   private func appendFinalToolFollowUpBoundaryIfNeeded(
