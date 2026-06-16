@@ -13,6 +13,7 @@ public final class ChatSessionController {
 
   public let modelRuntime: ModelRuntimeController
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
+  @ObservationIgnored private let runtimeContextClearCoordinator: RuntimeContextClearCoordinator
   @ObservationIgnored private let contextUsageCoordinator: ContextUsageCoordinator
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
   @ObservationIgnored private var toolOrchestrator: ToolOrchestrator
@@ -26,7 +27,6 @@ public final class ChatSessionController {
   @ObservationIgnored private let workflowEventApplier = ChatWorkflowEventApplier()
   @ObservationIgnored private let focusedFileReducer = FocusedFileStateReducer()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
-  @ObservationIgnored private var pendingRuntimeContextClear: PendingRuntimeContextClear?
   @ObservationIgnored private var pendingAgentToolExecutorRegistry: ToolExecutorRegistry?
   @ObservationIgnored private var activeModelContextDebugToolPromptMode: ToolPromptMode?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
@@ -156,6 +156,8 @@ public final class ChatSessionController {
       modelAvailability: modelAvailability
     )
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
+    self.runtimeContextClearCoordinator = RuntimeContextClearCoordinator(
+      modelLifecycleCoordinator: modelLifecycleCoordinator)
     self.contextUsageCoordinator = ContextUsageCoordinator(
       modelLifecycleCoordinator: modelLifecycleCoordinator,
       turnTracer: turnTracer)
@@ -484,7 +486,7 @@ extension ChatSessionController {
       }
 
       do {
-        try await awaitPendingRuntimeContextClear()
+        try await runtimeContextClearCoordinator.awaitPendingClear()
         refreshContextUsage(toolPromptMode: initialToolPromptMode)
         let generationResult = try await streamAssistantReply(
           to: assistantMessageID,
@@ -594,56 +596,13 @@ extension ChatSessionController {
   private func clearRuntimeContextForReuse() {
     runtimeCacheDebugSnapshot = nil
     let operationID = modelRuntime.currentOperationID()
-    let modelLifecycleCoordinator = modelLifecycleCoordinator
-    let previousTask = pendingRuntimeContextClear?.task
-    let clearID = UUID()
-    let clearTask = Task {
-      if let previousTask {
-        try await previousTask.value
-      }
-      try await modelLifecycleCoordinator.clearContext(operationID: operationID)
-    }
-    pendingRuntimeContextClear = PendingRuntimeContextClear(id: clearID, task: clearTask)
-
-    Task { [weak self, clearID, clearTask] in
-      do {
-        try await clearTask.value
-        self?.completeRuntimeContextClear(id: clearID, error: nil)
-      } catch is CancellationError {
-        self?.completeRuntimeContextClear(id: clearID, error: nil)
-      } catch {
-        self?.completeRuntimeContextClear(id: clearID, error: error)
+    runtimeContextClearCoordinator.clear(operationID: operationID) { [weak self] error in
+      if let error {
+        self?.errorMessage = error.localizedDescription
+      } else {
+        self?.flushPendingContextUsageRefresh(defaultMode: .disabled)
       }
     }
-  }
-
-  private func awaitPendingRuntimeContextClear() async throws {
-    guard let pendingRuntimeContextClear else {
-      return
-    }
-
-    try await pendingRuntimeContextClear.task.value
-    if self.pendingRuntimeContextClear?.id == pendingRuntimeContextClear.id {
-      self.pendingRuntimeContextClear = nil
-    }
-  }
-
-  private func completeRuntimeContextClear(id: UUID, error: Error?) {
-    guard pendingRuntimeContextClear?.id == id else {
-      return
-    }
-
-    pendingRuntimeContextClear = nil
-    if let error {
-      errorMessage = error.localizedDescription
-    } else {
-      flushPendingContextUsageRefresh(defaultMode: .disabled)
-    }
-  }
-
-  private struct PendingRuntimeContextClear {
-    let id: UUID
-    let task: Task<Void, Error>
   }
 
   private func flushPendingContextUsageRefresh(defaultMode: ToolPromptMode) {
@@ -696,7 +655,7 @@ extension ChatSessionController {
       attachments: attachmentsForCurrentTurn(),
       systemPrompt: renderedSystemPrompt,
       contextTokenLimit: modelRuntime.modelContextTokenLimit,
-      runtimeIsBusy: isGenerating || pendingRuntimeContextClear != nil,
+      runtimeIsBusy: isGenerating || runtimeContextClearCoordinator.hasPendingClear,
       interactionMode: chatSession.interactionMode
     )
   }
