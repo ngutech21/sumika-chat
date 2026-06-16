@@ -25,7 +25,7 @@ flowchart TD
   W --> V{"Invalid tool call?"}
   V -- "yes" --> L
   V -- "no" --> K{"Tool requires approval?"}
-  K -- "no" --> L["Append ToolCallRecord + toolResult item"]
+  K -- "no" --> L["Append tool-call + tool-result events"]
   L --> Q["Stream direct follow-up with current turn included"]
   Q --> U{"Follow-up emitted another allowed tool call?"}
   U -- "yes, within 6-call turn budget" --> J
@@ -55,10 +55,11 @@ flowchart TD
   resumes through `ToolResumeCoordinator`, and emits completion/cancel/failure
   events. It gates completion so stale async work from a cancelled or replaced
   turn cannot reset current UI state.
-- `ChatTurn` is the persisted turn audit record: status, model-context
-  policy, ordered `ChatTurnItem` values, and timestamps.
-- `ChatTurnItem` is the canonical transcript/UI item. User and assistant items
-  store typed `UserTurnMessage` and `AssistantTurnMessage` payloads directly.
+- `ChatTurn` is the persisted turn audit record. Its canonical state is an
+  append-only `ChatTurnEvent` log; status, model-context policy, ordered
+  `ChatTurnItem` values, and tool-call records are derived projections.
+- `ChatTurnItem` is the transcript/UI projection. User and assistant items store
+  typed `UserTurnMessage` and `AssistantTurnMessage` payloads directly.
   Tool-call and tool-result items store only `ToolCallRecord.ID`.
 - `AssistantTurnMessage.deliveryStatus` distinguishes complete assistant
   messages from streaming or cancelled partial output.
@@ -236,15 +237,13 @@ Gemma 4 native tool-call text.
 
 ## Persistence Rules
 
-- `ChatSession` persists `messages`, `modelContextSnapshot`, `toolCalls`,
-  and `turns`.
+- `ChatSession` persists `modelContextSnapshot` and `turns`. Tool-call records
+  are derived from the turn event log, not stored as a second top-level list.
 - Sessions without a stored `modelContextSnapshot` do not decode.
-- New Codable fields use defaults so sessions saved before turn metadata decode
-  successfully.
-- `ChatTurn.messageIDs` and `toolCallIDs` are audit links. They should be
-  updated whenever a turn appends a new transcript message or records a tool
-  call.
-- Clearing a chat transcript removes messages, tool calls, turns, and
+- `ChatTurn.events` is the transcript and tool-lifecycle source of truth. Append
+  an event for every transcript message, assistant update, tool call, tool
+  result, approval transition, and turn lifecycle transition.
+- Clearing a chat transcript removes turns, derived tool-call state, and
   attachments, but keeps session settings such as system prompt and generation
   settings.
 

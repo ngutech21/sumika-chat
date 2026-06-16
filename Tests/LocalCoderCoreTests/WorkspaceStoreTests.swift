@@ -134,7 +134,7 @@ struct WorkspaceStoreTests {
             content: ToolTextOutput(text: "Preview", truncated: true, redacted: true)
           )))
     #expect(reloadedToolCall.resultPreview?.redacted == true)
-    #expect(reloaded.workspaces.first?.sessions.first?.turns == [turn])
+    #expect(reloaded.workspaces.first?.sessions.first?.turns == session.turns)
   }
 
   @Test

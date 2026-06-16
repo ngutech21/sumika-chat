@@ -7,8 +7,10 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   public var title: String
   public var selectedModelID: ManagedModel.ID
   public var modelContextSnapshot: ModelContextSnapshot
-  public var toolCalls: [ToolCallRecord]
-  public var turns: [ChatTurn]
+  public var toolCalls: [ToolCallRecord] {
+    ChatTranscriptProjector.toolCallRecords(from: turns)
+  }
+  public internal(set) var turns: [ChatTurn]
   public var focusedFileState: FocusedFileState
   public var systemPrompt: String
   public var generationSettings: ChatGenerationSettings
@@ -40,8 +42,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.title = title
     self.selectedModelID = selectedModelID
     self.modelContextSnapshot = modelContextSnapshot
-    self.toolCalls = toolCalls
-    self.turns = turns
+    self.turns = Self.turns(turns, recording: toolCalls)
     self.focusedFileState = focusedFileState
     self.systemPrompt = systemPrompt
     self.generationSettings = generationSettings
@@ -60,7 +61,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       && lhs.title == rhs.title
       && lhs.selectedModelID == rhs.selectedModelID
       && lhs.modelContextSnapshot == rhs.modelContextSnapshot
-      && lhs.toolCalls == rhs.toolCalls
       && lhs.turns == rhs.turns
       && lhs.focusedFileState == rhs.focusedFileState
       && lhs.systemPrompt == rhs.systemPrompt
@@ -77,7 +77,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     case title
     case selectedModelID
     case modelContextSnapshot
-    case toolCalls
     case turns
     case focusedFileState
     case systemPrompt
@@ -98,7 +97,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       ModelContextSnapshot.self,
       forKey: .modelContextSnapshot
     )
-    toolCalls = try container.decode([ToolCallRecord].self, forKey: .toolCalls)
     turns = Self.resolvingInterruptedStreams(
       in: try container.decode([ChatTurn].self, forKey: .turns)
     )
@@ -128,7 +126,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     try container.encode(title, forKey: .title)
     try container.encode(selectedModelID, forKey: .selectedModelID)
     try container.encode(modelContextSnapshot, forKey: .modelContextSnapshot)
-    try container.encode(toolCalls, forKey: .toolCalls)
     try container.encode(turns, forKey: .turns)
     try container.encode(focusedFileState, forKey: .focusedFileState)
     try container.encode(systemPrompt, forKey: .systemPrompt)
@@ -149,20 +146,93 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   private static func resolvingInterruptedStreams(in turns: [ChatTurn]) -> [ChatTurn] {
     turns.map { turn in
       var turn = turn
-      turn.items = turn.items.compactMap { item in
-        guard case .assistantMessage(var message) = item,
+      let recoveryTimestamp = turn.updatedAt
+      for item in turn.items {
+        guard case .assistantMessage(let message) = item,
           message.deliveryStatus == .streaming
         else {
-          return item
+          continue
         }
-        guard !message.content.isEmpty else {
-          return nil
+        if message.content.isEmpty {
+          turn.appendEvent(
+            ChatTurnEvent(
+              id: interruptedStreamRecoveryEventID(
+                messageID: message.id,
+                kind: .emptyPlaceholderRemoved
+              ),
+              timestamp: recoveryTimestamp,
+              payload: .messageRemoved(MessageRemovedEvent(messageID: message.id))
+            ))
+        } else {
+          turn.appendEvent(
+            ChatTurnEvent(
+              id: interruptedStreamRecoveryEventID(
+                messageID: message.id,
+                kind: .partialMessageCancelled
+              ),
+              timestamp: recoveryTimestamp,
+              payload: .assistantDeliveryStatusUpdated(
+                AssistantDeliveryStatusUpdatedEvent(messageID: message.id, status: .cancelled)
+              )
+            ))
         }
-        message.deliveryStatus = .cancelled
-        return .assistantMessage(message)
       }
       return turn
     }
+  }
+
+  private enum InterruptedStreamRecoveryEventKind: UInt8 {
+    case emptyPlaceholderRemoved = 0x71
+    case partialMessageCancelled = 0x72
+  }
+
+  private static func interruptedStreamRecoveryEventID(
+    messageID: UUID,
+    kind: InterruptedStreamRecoveryEventKind
+  ) -> UUID {
+    var uuid = messageID.uuid
+    uuid.0 ^= 0x4C
+    uuid.1 ^= 0x43
+    uuid.2 ^= kind.rawValue
+    uuid.6 = (uuid.6 & 0x0F) | 0x50
+    uuid.8 = (uuid.8 & 0x3F) | 0x80
+    return UUID(uuid: uuid)
+  }
+
+  private static func turns(
+    _ turns: [ChatTurn],
+    recording toolCalls: [ToolCallRecord]
+  ) -> [ChatTurn] {
+    guard !toolCalls.isEmpty else {
+      return turns
+    }
+    var remainingRecordsByID = Dictionary(uniqueKeysWithValues: toolCalls.map { ($0.id, $0) })
+    var updatedTurns = turns.map { turn in
+      var turn = turn
+      for item in turn.items {
+        let id: ToolCallRecord.ID?
+        switch item {
+        case .toolCall(let toolCallID), .toolResult(let toolCallID):
+          id = toolCallID
+        case .userMessage, .assistantMessage:
+          id = nil
+        }
+        guard let id, let record = remainingRecordsByID.removeValue(forKey: id) else {
+          continue
+        }
+        turn.appendEvent(ChatTurnEvent(payload: .toolCallRecorded(record)))
+      }
+      return turn
+    }
+    for record in toolCalls where remainingRecordsByID[record.id] != nil {
+      if updatedTurns.isEmpty {
+        updatedTurns.append(ChatTurn(status: .completed))
+      }
+      updatedTurns[updatedTurns.count - 1].appendEvent(
+        ChatTurnEvent(payload: .toolCallRecorded(record))
+      )
+    }
+    return updatedTurns
   }
 
   public func turnID(containingToolCall toolCallID: ToolCallRecord.ID) -> ChatTurn.ID? {
@@ -176,5 +246,9 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
         }
       }
     }?.id
+  }
+
+  public func toolCallRecord(id: ToolCallRecord.ID) -> ToolCallRecord? {
+    ChatTranscriptProjector.toolCallRecord(id: id, from: turns)
   }
 }

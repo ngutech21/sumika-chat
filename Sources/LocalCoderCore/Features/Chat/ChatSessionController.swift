@@ -1,6 +1,10 @@
 import Foundation
 import Observation
 
+#if canImport(OSLog)
+  import OSLog
+#endif
+
 @MainActor
 @Observable
 public final class ChatSessionController {
@@ -29,6 +33,13 @@ public final class ChatSessionController {
   @ObservationIgnored private var activeModelContextDebugToolPromptMode: ToolPromptMode?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
+
+  #if canImport(OSLog)
+    nonisolated private static let logger = Logger(
+      subsystem: "local-coder",
+      category: "ChatSessionController"
+    )
+  #endif
 
   public var canSend: Bool {
     modelRuntime.modelState == .ready
@@ -248,7 +259,6 @@ extension ChatSessionController {
     snapshot.title = chatSession.title
     snapshot.selectedModelID = modelRuntime.selectedModelID
     snapshot.modelContextSnapshot = chatSession.modelContextSnapshot
-    snapshot.toolCalls = chatSession.toolCalls
     snapshot.turns = chatSession.turns
     snapshot.focusedFileState = chatSession.focusedFileState
     snapshot.systemPrompt = chatSession.systemPrompt
@@ -784,7 +794,20 @@ extension ChatSessionController {
   }
 
   private func applyWorkflowEvents(_ events: [ChatWorkflowEvent]) {
-    workflowEventApplier.apply(events, to: &chatSession)
+    let diagnostics = workflowEventApplier.apply(events, to: &chatSession)
+    guard !diagnostics.isEmpty else {
+      return
+    }
+    // In an append-only, event-sourced transcript a missing turn/message/tool-call
+    // target means a misordered or dropped event would otherwise corrupt the
+    // materialized projection in silence. Surface it loudly instead of discarding.
+    #if canImport(OSLog)
+      for diagnostic in diagnostics {
+        Self.logger.error(
+          "Workflow event applied with missing \(diagnostic.missingTargetKind.rawValue, privacy: .public) target id=\(diagnostic.missingTargetID.uuidString, privacy: .public)"
+        )
+      }
+    #endif
   }
 
   private func attachmentsForCurrentTurn() -> [ChatAttachment] {

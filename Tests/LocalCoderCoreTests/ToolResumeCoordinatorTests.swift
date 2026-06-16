@@ -22,7 +22,7 @@ struct ToolResumeCoordinatorTests {
 
     #expect(result.followUpPromptMode == .afterToolResultFinal)
     #expect(result.nextAssistantMessageID != nil)
-    #expect(replacedToolCall(from: result.events)?.id == record.id)
+    #expect(updatedToolCall(from: result.events)?.id == record.id)
     #expect(toolResultEvent(from: result.events)?.payload.status == .success)
     #expect(assistantPlaceholderID(from: result.events) == result.nextAssistantMessageID)
     #expect(focusedFileState(from: result.events)?.activePath == path)
@@ -43,11 +43,11 @@ struct ToolResumeCoordinatorTests {
       turnID: turnID
     )
 
-    let replacedRecord = try #require(replacedToolCall(from: result.events))
+    let updatedRecord = try #require(updatedToolCall(from: result.events))
     #expect(result.followUpPromptMode == .afterToolResultCanContinue)
     #expect(result.nextAssistantMessageID != nil)
-    #expect(replacedRecord.status == .completed)
-    #expect(replacedRecord.events.last?.kind == .answered)
+    #expect(updatedRecord.status == .completed)
+    #expect(updatedRecord.events.last?.kind == .answered)
     #expect(toolResultEvent(from: result.events)?.payload == .askUser(AskUserResult(answer: "yes")))
     #expect(turnStatus(from: result.events) == .running)
   }
@@ -75,12 +75,12 @@ struct ToolResumeCoordinatorTests {
       turnID: turnID
     )
 
-    let replacedRecord = try #require(replacedToolCall(from: result.events))
+    let updatedRecord = try #require(updatedToolCall(from: result.events))
     let resultMessage = try #require(toolResultEvent(from: result.events))
     #expect(result.followUpPromptMode == .afterToolResultFinal)
     #expect(result.nextAssistantMessageID != nil)
-    #expect(replacedRecord.status == .denied)
-    #expect(replacedRecord.events.last?.kind == .denied)
+    #expect(updatedRecord.status == .denied)
+    #expect(updatedRecord.events.last?.kind == .denied)
     #expect(resultMessage.payload.preview.status == .denied)
     #expect(resultMessage.payload.preview.affectedPaths == [path.rawValue])
     #expect(turnStatus(from: result.events) == .running)
@@ -112,9 +112,9 @@ private func makeRecord(
   )
 }
 
-private func replacedToolCall(from events: [ChatWorkflowEvent]) -> ToolCallRecord? {
+private func updatedToolCall(from events: [ChatWorkflowEvent]) -> ToolCallRecord? {
   for event in events {
-    if case .toolCallReplaced(let record) = event {
+    if case .toolCallUpdated(let record) = event {
       return record
     }
   }

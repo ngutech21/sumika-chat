@@ -26,7 +26,7 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
     ToolCallRecord,
     turnID: ChatTurn.ID
   )
-  case toolCallReplaced(ToolCallRecord)
+  case toolCallUpdated(ToolCallRecord)
   case toolResultAppended(
     ToolResultModelMessage,
     turnID: ChatTurn.ID
@@ -161,19 +161,12 @@ public struct ChatWorkflowEventApplier: Sendable {
     case .assistantAnnotatedAsNativeToolCall(let assistantMessageID, let toolCall):
       mutator.annotateToolCall(toolCall, for: assistantMessageID, in: &state)
     case .toolCallAppended(let record, let turnID):
-      if let existingIndex = state.toolCalls.firstIndex(where: { $0.id == record.id }) {
-        state.toolCalls[existingIndex] = record
-      } else {
-        state.toolCalls.append(record)
-      }
-      if !state.turns.containsToolItem(record.id, inTurn: turnID) {
-        mutator.appendItem(.toolCall(record.id), toTurn: turnID, in: &state)
-      }
-    case .toolCallReplaced(let record):
-      replaceToolCallRecord(record, in: &state)
+      mutator.recordToolCall(record, turnID: turnID, in: &state)
+    case .toolCallUpdated(let record):
+      mutator.updateToolCallRecord(record, in: &state)
     case .toolResultAppended(let toolResult, let turnID):
       mutator.appendToolResult(toolResult, turnID: turnID, to: &state)
-      if let request = state.toolCalls.first(where: { $0.id == toolResult.callID })?.request {
+      if let request = state.toolCallRecord(id: toolResult.callID)?.request {
         if let entry = try? ModelFacingPromptRenderer.toolResultEntry(
           turnID: turnID,
           sourceMessageID: toolResult.callID,
@@ -244,7 +237,7 @@ public struct ChatWorkflowEventApplier: Sendable {
       return []
     case .toolCallAppended(_, let turnID):
       return missingTurnDiagnostics([turnID], event: event, in: state)
-    case .toolCallReplaced(let record):
+    case .toolCallUpdated(let record):
       guard state.toolCalls.contains(where: { $0.id == record.id }) else {
         return [
           ChatWorkflowEventApplicationDiagnostic(
@@ -308,29 +301,4 @@ public struct ChatWorkflowEventApplier: Sendable {
     }
   }
 
-  private func replaceToolCallRecord(
-    _ record: ToolCallRecord,
-    in state: inout ChatSession
-  ) {
-    guard let index = state.toolCalls.firstIndex(where: { $0.id == record.id }) else {
-      return
-    }
-    state.toolCalls[index] = record
-  }
-}
-
-extension [ChatTurn] {
-  fileprivate func containsToolItem(_ toolCallID: ToolCallRecord.ID, inTurn turnID: ChatTurn.ID)
-    -> Bool
-  {
-    guard let turn = first(where: { $0.id == turnID }) else {
-      return false
-    }
-    return turn.items.contains { item in
-      if case .toolCall(let id) = item {
-        return id == toolCallID
-      }
-      return false
-    }
-  }
 }

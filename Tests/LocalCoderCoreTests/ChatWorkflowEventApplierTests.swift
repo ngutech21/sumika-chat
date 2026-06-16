@@ -95,7 +95,7 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
-  func nativeMultipleToolCallAnnotationsDoNotReportMissingMessageAfterFirstReplacement() {
+  func nativeMultipleToolCallAnnotationsDoNotReportMissingMessageAfterFirstUpdate() {
     let assistantID = UUID()
     let readCall = ToolCallModelMessage(
       callID: UUID(),
@@ -146,7 +146,7 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
-  func replacesExistingToolCallRecord() {
+  func updatesExistingToolCallRecord() {
     var existing = makeToolCallRecord(status: .awaitingApproval)
     let updated = makeToolCallRecord(request: existing.request, status: .completed)
     existing.events.append(
@@ -155,7 +155,7 @@ struct ChatWorkflowEventApplierTests {
     var state = makeState(toolCalls: [existing])
 
     ChatWorkflowEventApplier().apply(
-      [.toolCallReplaced(updated)],
+      [.toolCallUpdated(updated)],
       to: &state
     )
 
@@ -459,9 +459,9 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
-  func reportsMissingToolCallReplacementTarget() {
+  func reportsMissingToolCallUpdateTarget() {
     let record = makeToolCallRecord(status: .completed)
-    let event = ChatWorkflowEvent.toolCallReplaced(record)
+    let event = ChatWorkflowEvent.toolCallUpdated(record)
     var state = makeState()
 
     let diagnostics = ChatWorkflowEventApplier().apply(event, to: &state)

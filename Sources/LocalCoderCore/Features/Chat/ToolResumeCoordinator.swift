@@ -29,7 +29,7 @@ public struct ToolResumeCoordinator: Sendable {
     turnID: ChatTurn.ID
   ) -> ToolResumeResult {
     var events: [ChatWorkflowEvent] = [
-      .toolCallReplaced(record),
+      .toolCallUpdated(record),
       .toolResultAppended(
         toolResultMessage(for: record),
         turnID: turnID
@@ -136,7 +136,7 @@ public struct ToolResumeCoordinator: Sendable {
     turnID: ChatTurn.ID
   ) -> [ChatWorkflowEvent] {
     [
-      .toolCallReplaced(record),
+      .toolCallUpdated(record),
       .toolResultAppended(toolResult, turnID: turnID),
       .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
       .turnStatusChanged(
