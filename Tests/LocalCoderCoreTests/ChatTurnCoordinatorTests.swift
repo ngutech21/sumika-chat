@@ -233,19 +233,9 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
       workspace: workspace,
       sessionID: sessionID,
       attachments: [],
-      selectedModel: ManagedModelCatalog.defaultModel,
-      operationID: operationID,
+      runtime: runtimeContext(),
       runtimeContextClearCoordinator: runtimeContextClearCoordinator,
-      chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator,
-      session: { [weak self] in self?.session ?? .codingDefault },
-      emitEvents: { [weak self] events in self?.emit(events) },
-      setActiveToolPromptMode: { _ in },
-      updateRuntimeCacheDebugSnapshot: { _ in },
-      refreshContextUsage: { _ in },
-      setErrorMessage: { [weak self] message in self?.errorMessages.append(message) },
-      turnDidFinish: { [weak self] _, _ in self?.finishCount += 1 },
-      notifySessionDidChange: {}
+      callbacks: callbacks()
     )
   }
 
@@ -257,19 +247,9 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
       record,
       in: workspace,
       turnID: turnID,
-      selectedModel: ManagedModelCatalog.defaultModel,
-      operationID: operationID,
       toolOrchestrator: toolOrchestrator,
-      chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator,
-      session: { [weak self] in self?.session ?? .codingDefault },
-      emitEvents: { [weak self] events in self?.emit(events) },
-      setActiveToolPromptMode: { _ in },
-      updateRuntimeCacheDebugSnapshot: { _ in },
-      refreshContextUsage: { _ in },
-      setErrorMessage: { [weak self] message in self?.errorMessages.append(message) },
-      turnDidFinish: { [weak self] _, _ in self?.finishCount += 1 },
-      notifySessionDidChange: {}
+      runtime: runtimeContext(),
+      callbacks: callbacks()
     )
   }
 
@@ -282,18 +262,8 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
       answer: answer,
       in: workspace,
       turnID: turnID,
-      selectedModel: ManagedModelCatalog.defaultModel,
-      operationID: operationID,
-      chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator,
-      session: { [weak self] in self?.session ?? .codingDefault },
-      emitEvents: { [weak self] events in self?.emit(events) },
-      setActiveToolPromptMode: { _ in },
-      updateRuntimeCacheDebugSnapshot: { _ in },
-      refreshContextUsage: { _ in },
-      setErrorMessage: { [weak self] message in self?.errorMessages.append(message) },
-      turnDidFinish: { [weak self] _, _ in self?.finishCount += 1 },
-      notifySessionDidChange: {}
+      runtime: runtimeContext(),
+      callbacks: callbacks()
     )
   }
 
@@ -305,18 +275,8 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
       record,
       message: "Tool call denied by user.",
       turnID: turnID,
-      selectedModel: ManagedModelCatalog.defaultModel,
-      operationID: operationID,
-      chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator,
-      session: { [weak self] in self?.session ?? .codingDefault },
-      emitEvents: { [weak self] events in self?.emit(events) },
-      setActiveToolPromptMode: { _ in },
-      updateRuntimeCacheDebugSnapshot: { _ in },
-      refreshContextUsage: { _ in },
-      setErrorMessage: { [weak self] message in self?.errorMessages.append(message) },
-      turnDidFinish: { [weak self] _, _ in self?.finishCount += 1 },
-      notifySessionDidChange: {}
+      runtime: runtimeContext(),
+      callbacks: callbacks()
     )
   }
 
@@ -330,6 +290,28 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
 
   private func emit(_ events: [ChatWorkflowEvent]) {
     applier.apply(events, to: &session)
+  }
+
+  private func runtimeContext() -> ChatTurnRuntimeContext {
+    ChatTurnRuntimeContext(
+      selectedModel: ManagedModelCatalog.defaultModel,
+      operationID: operationID,
+      chatGenerationCoordinator: chatGenerationCoordinator,
+      toolLoopCoordinator: toolLoopCoordinator
+    )
+  }
+
+  private func callbacks() -> ChatTurnCallbacks {
+    ChatTurnCallbacks(
+      session: { [weak self] in self?.session ?? .codingDefault },
+      emitEvents: { [weak self] events in self?.emit(events) },
+      setActiveToolPromptMode: { _ in },
+      updateRuntimeCacheDebugSnapshot: { _ in },
+      refreshContextUsage: { _ in },
+      setErrorMessage: { [weak self] message in self?.errorMessages.append(message) },
+      turnDidFinish: { [weak self] _, _ in self?.finishCount += 1 },
+      notifySessionDidChange: {}
+    )
   }
 }
 

@@ -25,7 +25,7 @@ public struct ChatGenerationResult: Equatable, Sendable {
 }
 
 @MainActor
-public struct ChatGenerationCoordinator: Sendable {
+public struct ChatGenerationCoordinator {
   private let runtimeOperations: RuntimeOperationCoordinator
   private let turnTracer: any TurnTracing
   private let streamingFlushInterval: TimeInterval

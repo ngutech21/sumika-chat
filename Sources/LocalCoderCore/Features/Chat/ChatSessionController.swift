@@ -375,31 +375,9 @@ extension ChatSessionController {
       workspace: workspace,
       sessionID: sessionID,
       attachments: sentAttachments,
-      selectedModel: modelRuntime.selectedModel,
-      operationID: modelRuntime.currentOperationID(),
+      runtime: turnRuntimeContext(),
       runtimeContextClearCoordinator: runtimeContextClearCoordinator,
-      chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator,
-      session: { [weak self] in self?.chatSession ?? .codingDefault },
-      emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
-      setActiveToolPromptMode: { [weak self] mode in
-        self?.activeModelContextDebugToolPromptMode = mode
-      },
-      updateRuntimeCacheDebugSnapshot: { [weak self] snapshot in
-        self?.runtimeCacheDebugSnapshot = snapshot
-      },
-      refreshContextUsage: { [weak self] mode in
-        self?.refreshContextUsage(toolPromptMode: mode)
-      },
-      setErrorMessage: { [weak self] message in
-        self?.errorMessage = message
-      },
-      turnDidFinish: { [weak self] turnID, mode in
-        self?.finishGeneratingTurn(turnID, contextRefreshMode: mode)
-      },
-      notifySessionDidChange: { [weak self] in
-        self?.notifySessionDidChange()
-      }
+      callbacks: turnCallbacks()
     )
   }
 
@@ -652,31 +630,9 @@ extension ChatSessionController {
       existingRecord,
       in: workspace,
       turnID: turnID,
-      selectedModel: modelRuntime.selectedModel,
-      operationID: modelRuntime.currentOperationID(),
       toolOrchestrator: toolOrchestrator,
-      chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator,
-      session: { [weak self] in self?.chatSession ?? .codingDefault },
-      emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
-      setActiveToolPromptMode: { [weak self] mode in
-        self?.activeModelContextDebugToolPromptMode = mode
-      },
-      updateRuntimeCacheDebugSnapshot: { [weak self] snapshot in
-        self?.runtimeCacheDebugSnapshot = snapshot
-      },
-      refreshContextUsage: { [weak self] mode in
-        self?.refreshContextUsage(toolPromptMode: mode)
-      },
-      setErrorMessage: { [weak self] message in
-        self?.errorMessage = message
-      },
-      turnDidFinish: { [weak self] turnID, mode in
-        self?.finishGeneratingTurn(turnID, contextRefreshMode: mode)
-      },
-      notifySessionDidChange: { [weak self] in
-        self?.notifySessionDidChange()
-      }
+      runtime: turnRuntimeContext(),
+      callbacks: turnCallbacks()
     )
   }
 
@@ -717,30 +673,8 @@ extension ChatSessionController {
       answer: answer,
       in: workspace,
       turnID: turnID,
-      selectedModel: modelRuntime.selectedModel,
-      operationID: modelRuntime.currentOperationID(),
-      chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator,
-      session: { [weak self] in self?.chatSession ?? .codingDefault },
-      emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
-      setActiveToolPromptMode: { [weak self] mode in
-        self?.activeModelContextDebugToolPromptMode = mode
-      },
-      updateRuntimeCacheDebugSnapshot: { [weak self] snapshot in
-        self?.runtimeCacheDebugSnapshot = snapshot
-      },
-      refreshContextUsage: { [weak self] mode in
-        self?.refreshContextUsage(toolPromptMode: mode)
-      },
-      setErrorMessage: { [weak self] message in
-        self?.errorMessage = message
-      },
-      turnDidFinish: { [weak self] turnID, mode in
-        self?.finishGeneratingTurn(turnID, contextRefreshMode: mode)
-      },
-      notifySessionDidChange: { [weak self] in
-        self?.notifySessionDidChange()
-      }
+      runtime: turnRuntimeContext(),
+      callbacks: turnCallbacks()
     )
   }
 
@@ -766,10 +700,22 @@ extension ChatSessionController {
       existingRecord,
       message: message,
       turnID: turnID,
+      runtime: turnRuntimeContext(),
+      callbacks: turnCallbacks()
+    )
+  }
+
+  private func turnRuntimeContext() -> ChatTurnRuntimeContext {
+    ChatTurnRuntimeContext(
       selectedModel: modelRuntime.selectedModel,
       operationID: modelRuntime.currentOperationID(),
       chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator,
+      toolLoopCoordinator: toolLoopCoordinator
+    )
+  }
+
+  private func turnCallbacks() -> ChatTurnCallbacks {
+    ChatTurnCallbacks(
       session: { [weak self] in self?.chatSession ?? .codingDefault },
       emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
       setActiveToolPromptMode: { [weak self] mode in
