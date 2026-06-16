@@ -9,7 +9,7 @@ or provider-specific payloads.
 
 ```mermaid
 flowchart TD
-  A["Native ChatRuntimeToolCall event"] --> B["ToolLoopCoordinator"]
+  A["ChatTurnCoordinator receives native ChatRuntimeToolCall event"] --> B["ToolLoopCoordinator"]
   B --> C["RawToolCallRequest(name, arguments, rawText)"]
   C --> D["ToolCallRequestValidator"]
   D --> E["ToolCallRequest(payload: ToolCallPayload)"]
@@ -23,9 +23,14 @@ flowchart TD
   L --> O["ToolResultProjector derives display + observation"]
   O --> P["ToolResultModelMessage stores payload only"]
   O --> Q["Render ToolModelObservation into FrozenModelContent"]
-  J --> M["User approves"]
-  M --> N["Approved execution re-validates raw request + re-evaluates"]
-  N --> G
+  J --> M{"User decision"}
+  M -- "approve" --> N["Approved execution re-validates raw request + runs typed tool"]
+  N --> R["ToolResumeCoordinator builds approved-result events from result payload"]
+  M -- "deny" --> S["ToolResumeCoordinator builds denied-result events"]
+  B --> T["ask_user request"]
+  T --> U["ToolCallRecord awaitingUserAnswer"]
+  U --> V["User answers"]
+  V --> W["ToolResumeCoordinator builds answer receipt events"]
 ```
 
 ## Roles
@@ -36,6 +41,13 @@ flowchart TD
 - Native tool-call boundaries are committed to model history as canonical
   Gemma 4 boundary text generated from the tool name and sorted arguments. The
   boundary must stay stable so MLX append-only cache reuse can compare prefixes.
+- `ChatTurnCoordinator` owns the UI-free tool-loop lifecycle for a turn. It
+  invokes `ToolLoopCoordinator`, applies `ChatWorkflowStep` continuations via
+  emitted workflow events, pauses on approval or `ask_user`, and resumes through
+  approved, denied, or answered tool flows.
+- `ToolResumeCoordinator` builds the workflow events for approved tool results,
+  denied tool results, and answered `ask_user` receipts. It does not own async
+  execution; the active turn task stays in `ChatTurnCoordinator`.
 - Terminal follow-up prompts, such as approved write/edit follow-ups and denied
   tool follow-ups, do not expose tools to the runtime. If more work is needed,
   the model must ask the user for another turn rather than emitting more tools.
@@ -298,8 +310,8 @@ flowchart TD
   revalidation and may include bounded workspace-relative path suggestions.
 - `edit_file` is the only model-facing tool for changing existing files.
 - Successful `write_file` and `edit_file` results are terminal for additional
-  tool execution in the current chat turn. The controller may request one final
-  no-tools assistant follow-up so the model can summarize the completed write,
+  tool execution in the current chat turn. `ChatTurnCoordinator` may request one
+  final no-tools assistant follow-up so the model can summarize the completed write,
   but any emitted tool attempt in that final response must be converted into a
   structured failure observation and must not execute.
 - Denied approval-sensitive tools may also receive one final no-tools assistant
@@ -316,7 +328,7 @@ flowchart TD
   bounded, skip project metadata/build directories, and must not be applied
   automatically by the runtime.
 - Tool result projections are derived. They must not be persisted or used as the
-  source of truth for controller recovery decisions when `ToolResultPayload` is
+  source of truth for workflow recovery decisions when `ToolResultPayload` is
   available.
 - Tool results from a cancelled chat turn may remain visible for auditability,
   but the chat model context must exclude them unless that same turn is still

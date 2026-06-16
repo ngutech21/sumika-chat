@@ -29,27 +29,27 @@ now resolved (see Resolved), the remaining risks are smaller and cluster in thre
 2. **Stringly-typed runtime dispatch and trace fields** — typed tool input is recovered
    via an `as?` cast and name switch (T-01), and trace/cache-debug fields are compared
    as raw magic strings (T-02, T-03).
-3. **Coupling and stale seams** — `ChatSessionController` and `AppState` remain broad
-   adapters with duplicated skeletons (Q-02, Q-03), and several dead seams persist that
-   this unreleased prototype does not need (Q-05).
+3. **Coupling and stale seams** — the chat turn/tool loop has moved out of
+   `ChatSessionController` into the headless `ChatTurnCoordinator`; the remaining
+   coupling risk is mostly `AppState` lifecycle/persistence breadth (Q-03), plus
+   several dead seams this unreleased prototype does not need (Q-05).
 
 ## Findings
 
 | ID | Severity | Category | Finding | Affected Files |
 | --- | --- | --- | --- | --- |
-| P-02 | Low | Perf | Context-usage refresh re-renders the system prompt + re-sums history bytes on every call (~11x/turn) | `Sources/LocalCoderCore/Features/Chat/ContextUsageCoordinator.swift`, `ChatSessionController.swift` |
+| P-02 | Low | Perf | Context-usage refresh re-renders the system prompt + re-sums history bytes on every call (~11x/turn) | `Sources/LocalCoderCore/Features/Chat/ContextUsageCoordinator.swift`, `ChatSessionController.swift`, `ChatTurnCoordinator.swift` |
 | P-05 | Medium | Perf | Full-history FNV cache signature re-hashed ~2x per turn (grows O(transcript)) | `local-coder/Services/GemmaMLXRuntime.swift`, `GemmaSessionCachePolicy.swift` |
 | P-07 | Medium | Perf | `refreshDebounced` does not debounce; no coalescing of usage refreshes | `Sources/LocalCoderCore/Features/Chat/ContextUsageCoordinator.swift` |
 | P-09 | Low | Perf | Whole library re-encoded to one JSON file on every mutation | `Sources/LocalCoderCore/Services/WorkspaceStore.swift`, `Models/Workspace.swift` |
 | T-01 | High | TypeSafety | `AnyToolExecutor` recovers typed input via `as?` cast + 48-line name switch | `Sources/LocalCoderCore/Services/ToolExecution.swift` |
 | T-02 | Medium | TypeSafety | Cache-debug UI compares raw `cacheMode`/`cacheReason` magic strings | `local-coder/Features/Chat/WorkspaceChatView.swift` |
-| T-03 | Medium | TypeSafety | Trace fields (`toolCallFormat`, validation status, cacheMode) passed as raw strings | `Sources/LocalCoderCore/Features/Chat/ToolLoopCoordinator.swift`, `ChatSessionController.swift` |
+| T-03 | Medium | TypeSafety | Trace fields (`toolCallFormat`, validation status, cacheMode) passed as raw strings | `Sources/LocalCoderCore/Features/Chat/ToolLoopCoordinator.swift`, `ChatTurnCoordinator.swift` |
 | T-04 | Low | TypeSafety | `ToolName` is a stringly-typed struct; lists can drift without exhaustiveness | `Sources/LocalCoderCore/Models/ToolCall.swift`, `Services/ToolCallRequestValidator.swift` |
 | T-05 | Low | TypeSafety | KVC `setValue(false, forKey: "drawsBackground")` on `WKWebView` | `local-coder/Features/Chat/HTMLPreview.swift` |
-| Q-02 | Medium | Quality | A-01: `ChatSessionController` is a god type (1566 lines); approval/deny/answer flows duplicate skeletons | `Sources/LocalCoderCore/Features/Chat/ChatSessionController.swift` |
 | Q-03 | Medium | Quality | A-04: `AppState` couples navigation, session lifecycle, persistence; 3x duplicated debounced-save | `local-coder/App/AppState.swift` |
 | Q-04 | Medium | Quality | Duplicated logic across result projections and extraction (status maps, diagnostics render, host validation, UTF-8 suffix trimming) | `Sources/LocalCoderCore/Models/ToolCall.swift`, `Models/ToolResultProjection.swift`, `Services/WebAccess.swift`, `Services/WebContentExtraction.swift`, `Services/ToolCommandExecution.swift` |
-| Q-05 | Low | Quality | Dead/placeholder seams: `activeAttachmentContextAttachments` returns `[]`; test-only `streamAssistantReply`; no-op `updateContextUsage` closure | `Sources/LocalCoderCore/Features/Chat/ChatSessionController.swift`, `ChatGenerationCoordinator.swift` |
+| Q-05 | Low | Quality | Dead/placeholder seams: `activeAttachmentContextAttachments` returns `[]`; test-only `streamAssistantReply`; no-op `updateContextUsage` closure | `Sources/LocalCoderCore/Features/Chat/ChatSessionController.swift`, `ChatGenerationCoordinator.swift`, `ChatTurnCoordinator.swift` |
 
 ## Details
 
@@ -57,11 +57,13 @@ now resolved (see Resolved), the remaining risks are smaller and cluster in thre
 
 #### P-02: Context-usage refresh re-renders the system prompt every call (Low)
 
-`refreshContextUsage` -> `contextUsageSnapshot` (`ChatSessionController.swift:628-669`)
-re-renders the full system prompt via `systemPrompt(toolPromptMode:)` and rebuilds the
-transcript on every call, and `estimatedUsage()` (`ContextUsageCoordinator.swift:36-46`)
-sums the UTF-8 byte count of the whole history. It runs ~11x per turn (turn start, after
-each stream, every tool-loop iteration, attachment add/remove, completion).
+`refreshContextUsage` -> `contextUsageSnapshot` re-renders the full system prompt via
+`systemPrompt(toolPromptMode:)` and rebuilds the transcript on every call, and
+`estimatedUsage()` (`ContextUsageCoordinator.swift:36-46`) sums the UTF-8 byte count of
+the whole history. It runs ~11x per turn (turn start, after each stream, every tool-loop
+iteration, attachment add/remove, completion). The prompt rendering now delegates through
+`ChatTurnCoordinator.systemPrompt(...)`, so the issue is still a repeated refresh cost
+rather than controller-owned loop coupling.
 
 Resolved parts: the original O(n^2) re-tokenization is gone — the runtime-tokenizer path
 was dropped in favor of a byte estimate, and the per-call
@@ -141,10 +143,11 @@ raw strings in the view.
 
 #### T-03: Stringly-typed trace fields (Medium)
 
-`ToolLoopCoordinator.swift:287-290` passes `toolCallFormat: "native"` and
-`toolValidationStatus: "valid"/"invalid"`; `cacheMode` is threaded as `String?`. These
-should be enums (`ToolCallFormat`, `ToolValidationStatus`) so typos cannot produce bad
-trace data.
+`ToolLoopCoordinator.swift` passes `toolCallFormat: "native"` and
+`toolValidationStatus: "valid"/"invalid"`; cache/debug modes are still threaded as
+`String?` across the runtime and turn coordinator boundary. These should be enums
+(`ToolCallFormat`, `ToolValidationStatus`, cache mode/reason enums) so typos cannot
+produce bad trace data.
 
 #### T-04: `ToolName` stringly-typed struct (Low)
 
@@ -159,20 +162,6 @@ exhaustiveness while still accepting arbitrary model output.
 public `underPageBackgroundColor`/`isOpaque` configuration.
 
 ### Code Quality
-
-#### Q-02: `ChatSessionController` god type (Medium)
-
-Former finding A-01 remains. The 1566-line controller owns model-runtime callbacks,
-attachment events, context-usage orchestration, runtime-context-clear plumbing
-(`:561-614`), the tool loop (`:1337-1413`), and all approval/deny/answer flows
-(`approveToolCall` :781, `runApprovedToolCall` :815, `answerAskUserToolCall` :974,
-`denyToolCall` :1060), each hand-building near-identical `ChatWorkflowEvent` arrays and
-the same start-turn/stream/finish skeleton (A-03/A-05).
-
-Fix: extract a `ToolApprovalCoordinator` that returns `[ChatWorkflowEvent]` (mirroring
-`ToolLoopCoordinator.executeToolCalls`); extract the `PendingRuntimeContextClear`
-machinery; collapse the four `finish*ApprovedToolTurn` helpers and the `sendMessage`
-catch block into one `completeTurn(_:outcome:)`.
 
 #### Q-03: `AppState` coupling + duplicated debounced-save (Medium)
 
@@ -198,12 +187,12 @@ Fix: collapse each set to a single shared helper.
 
 #### Q-05: Dead/placeholder seams (Low)
 
-- `activeAttachmentContextAttachments` (`ChatSessionController.swift:710-712`) always
-  returns `[]` yet is read by `WorkspaceChatView.swift:210`.
+- `activeAttachmentContextAttachments` always returns `[]` yet is read by
+  `WorkspaceChatView`.
 - `ChatGenerationCoordinator.streamAssistantReply` (`:60-90`, String-returning) has no
   production callers; production uses `streamAssistantReplyResult`.
 - The `updateContextUsage` closure threaded through the stream path is an empty
-  `MainActor.run {}` no-op (`ChatSessionController.swift:1317-1319`).
+  `MainActor.run {}` no-op in the turn-coordinator stream path.
 
 Fix: implement or remove each seam.
 
@@ -222,6 +211,14 @@ Fix: implement or remove each seam.
 
 ### Resolved 2026-06-16
 
+- **Q-02** (was Medium / Quality) — `ChatSessionController` was a god type that owned
+  the async chat loop, tool loop, approval/deny/answer resumes, and completion/cancel
+  event construction. The controller is now a SwiftUI-facing facade for draft,
+  observable generation state, errors, context usage, and persistence notifications.
+  `ChatTurnCoordinator` owns the UI-free turn lifecycle, active task, start/resume
+  flows, streaming callbacks, tool-loop continuation, and completion/cancel/failure
+  events; `ToolResumeCoordinator` builds structured approved/denied/answered resume
+  event sequences.
 - **P-01** (was High / Perf) — chat transcript re-parsed markdown and rebuilt derived
   items on every streaming chunk. `ChatTranscript` now memoizes parsed render blocks per
   `AssistantMessageRenderKey(id:content:)` (`blocks(for:)`), short-circuits the whole
@@ -268,8 +265,8 @@ Fix: implement or remove each seam.
    remaining runtime win as conversations grow; optionally finish the context-usage
    residual (P-02) and restore real debounce (P-07).
 2. Replace the `as?`-cast input recovery with statically-typed extraction (T-01).
-3. Extract `ToolApprovalCoordinator` (Q-02) and `WorkspaceSessionCoordinator` +
-   `DebouncedPersistenceScheduler` (Q-03); remove the dead seams (Q-05).
+3. Extract `WorkspaceSessionCoordinator` + `DebouncedPersistenceScheduler` (Q-03);
+   remove the dead seams (Q-05).
 4. Make trace and cache-debug fields typed (T-02, T-03); collapse duplicated helpers
    (Q-04).
 5. Address the per-mutation library re-encode (P-09) as scaling work.

@@ -128,6 +128,7 @@ flowchart TD
   ToolResultPayload --> WorkspaceDiagnosticsResult
   ToolResultPayload --> WorkspaceDiffResult
   ToolResultPayload --> WriteFileResult
+  ToolResultPreview --> ToolResultPayload
   ToolResultPreview --> ToolResultStatus
   ToolResultProjection -. derives .-> ToolDisplayPayload
   ToolResultProjection -. derives .-> ToolModelObservation
@@ -1378,12 +1379,14 @@ Properties:
 
 - `affectedPaths: [String]`
 - `redacted: Bool`
+- `resultPayload: ToolResultPayload?`
 - `status: ToolResultStatus`
 - `text: String`
 - `truncated: Bool`
 
 Relations:
 
+- `ToolResultPayload`
 - `ToolResultStatus`
 
 ### ToolResultProjection

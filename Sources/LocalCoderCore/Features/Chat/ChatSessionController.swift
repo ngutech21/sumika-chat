@@ -17,22 +17,18 @@ public final class ChatSessionController {
   @ObservationIgnored private let contextUsageCoordinator: ContextUsageCoordinator
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
   @ObservationIgnored private var toolOrchestrator: ToolOrchestrator
-  @ObservationIgnored private let toolPromptPolicy: ToolPromptPolicy
   @ObservationIgnored private var toolLoopCoordinator: ToolLoopCoordinator
   @ObservationIgnored private let turnTracer: any TurnTracing
-  @ObservationIgnored private let chatTurnCoordinator = ChatTurnCoordinator()
+  @ObservationIgnored private let chatTurnCoordinator: ChatTurnCoordinator
   @ObservationIgnored private let modelContextBuilder = ChatModelContextBuilder()
   @ObservationIgnored private let attachmentCoordinator: ChatAttachmentCoordinator
   @ObservationIgnored private let transcriptMutator = ChatTranscriptMutator()
   @ObservationIgnored private let workflowEventApplier = ChatWorkflowEventApplier()
-  @ObservationIgnored private let focusedFileReducer = FocusedFileStateReducer()
-  @ObservationIgnored private let toolResumeCoordinator = ToolResumeCoordinator()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private var pendingAgentToolExecutorRegistry: ToolExecutorRegistry?
   @ObservationIgnored private var activeModelContextDebugToolPromptMode: ToolPromptMode?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
-  @ObservationIgnored private let maxToolLoopIterations = 6
 
   public var canSend: Bool {
     modelRuntime.modelState == .ready
@@ -157,6 +153,7 @@ public final class ChatSessionController {
       modelAvailability: modelAvailability
     )
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
+    self.chatTurnCoordinator = ChatTurnCoordinator(turnTracer: turnTracer)
     self.runtimeContextClearCoordinator = RuntimeContextClearCoordinator(
       modelLifecycleCoordinator: modelLifecycleCoordinator)
     self.contextUsageCoordinator = ContextUsageCoordinator(
@@ -179,7 +176,6 @@ public final class ChatSessionController {
       initialOperationID: modelOperationID
     )
     self.toolOrchestrator = toolOrchestrator
-    self.toolPromptPolicy = ToolPromptPolicy()
     self.toolLoopCoordinator = ToolLoopCoordinator(
       agentToolOrchestrator: toolOrchestrator,
       turnTracer: turnTracer
@@ -275,7 +271,7 @@ extension ChatSessionController {
     chatSession.interactionMode = mode
     errorMessage = nil
     clearRuntimeContextForReuse()
-    refreshContextUsage(toolPromptMode: toolPromptMode(for: mode, toolsAvailable: true))
+    refreshContextUsage(toolPromptMode: mode == .chat ? .disabled : .enabled(true))
     notifySessionDidChange()
   }
 
@@ -326,71 +322,7 @@ extension ChatSessionController {
     contextRefreshMode: ToolPromptMode = .disabled
   ) {
     isGenerating = false
-    chatTurnCoordinator.finishTurn(turnID)
     flushPendingContextUsageRefresh(defaultMode: contextRefreshMode)
-  }
-
-  private enum TurnOutcome {
-    case completed
-    case cancelled
-    case failed(error: Error?, cancelsStreaming: Bool)
-  }
-
-  private func completeTurn(
-    _ turnID: ChatTurn.ID,
-    outcome: TurnOutcome
-  ) {
-    guard isCurrentTurn(turnID) else {
-      return
-    }
-
-    applyWorkflowEvents(turnCompletionEvents(turnID, outcome: outcome))
-    if case .failed(let error?, _) = outcome {
-      errorMessage = error.localizedDescription
-    }
-    finishGeneratingTurn(turnID)
-    notifySessionDidChange()
-  }
-
-  private func turnCompletionEvents(
-    _ turnID: ChatTurn.ID,
-    outcome: TurnOutcome
-  ) -> [ChatWorkflowEvent] {
-    switch outcome {
-    case .completed:
-      return [
-        .turnStatusChanged(
-          turnID: turnID,
-          status: .completed,
-          modelContextPolicy: nil
-        )
-      ]
-    case .cancelled:
-      return [
-        .turnStatusChanged(
-          turnID: turnID,
-          status: .cancelled,
-          modelContextPolicy: .excluded
-        ),
-        .streamingAssistantMessagesCancelled(turnID: turnID),
-        .transientAssistantPlaceholdersRemoved,
-      ]
-    case .failed(_, let cancelsStreaming):
-      var events: [ChatWorkflowEvent] = [
-        .turnStatusChanged(
-          turnID: turnID,
-          status: .failed,
-          modelContextPolicy: .excluded
-        )
-      ]
-      if cancelsStreaming {
-        events.append(contentsOf: [
-          .streamingAssistantMessagesCancelled(turnID: turnID),
-          .transientAssistantPlaceholdersRemoved,
-        ])
-      }
-      return events
-    }
   }
 
   public func sendMessage() {
@@ -419,106 +351,46 @@ extension ChatSessionController {
       return
     }
 
-    let toolAvailability = toolPromptPolicy.toolAvailability(
-      workspace: workspace,
-      sessionID: sessionID
-    )
-    let toolsAvailable =
-      toolAvailability == .availableForWorkspace && chatSession.interactionMode != .chat
-      && modelRuntime.selectedModel.supportsWorkspaceTools
-    let interactionMode = chatSession.interactionMode
-    let initialToolPromptMode = toolPromptMode(
-      for: interactionMode,
-      toolsAvailable: toolsAvailable
-    )
     let sentAttachments = attachmentsForTurn
-    let turnID = UUID()
-    let userMessageID = UUID()
-    let assistantMessageID = UUID()
     updateDefaultSessionTitleIfNeeded(fromFirstPrompt: prompt)
     draft = ""
     errorMessage = nil
     chatSession.pendingAttachments.removeAll()
     chatSession.activeAttachmentContext = .empty
     chatSession.focusedFileState.focusedAttachments = []
-    applyWorkflowEvents(focusEventsForAttachments(sentAttachments, workspace: workspace))
-    transcriptMutator.appendTurn(
-      ChatTurn(
-        id: turnID,
-        status: .running
-      ),
-      to: &chatSession
-    )
-    transcriptMutator.appendUserMessage(
-      prompt,
-      id: userMessageID,
-      turnID: turnID,
-      attachments: sentAttachments,
-      to: &chatSession
-    )
-    let currentPromptContext = modelContextBuilder.currentPromptContext(
-      userInput: prompt,
-      mode: interactionMode,
-      focusedFileState: chatSession.focusedFileState,
-      attachments: sentAttachments,
-      workspace: workspace
-    )
-    if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
-      turnID: turnID,
-      sourceMessageID: userMessageID,
-      prompt: prompt,
-      attachments: sentAttachments,
-      systemContext: currentPromptContext.renderedBlocks,
-      currentPromptContext: currentPromptContext.consumedContext
-    ) {
-      transcriptMutator.appendModelContextEntry(entry, to: &chatSession)
-    }
-    transcriptMutator.appendAssistantPlaceholder(
-      id: assistantMessageID,
-      turnID: turnID,
-      to: &chatSession
-    )
     isGenerating = true
-    notifySessionDidChange()
 
-    chatTurnCoordinator.startTurn(id: turnID) { [weak self] turnID in
-      guard let self else {
-        return
+    chatTurnCoordinator.startUserTurn(
+      prompt: prompt,
+      workspace: workspace,
+      sessionID: sessionID,
+      attachments: sentAttachments,
+      selectedModel: modelRuntime.selectedModel,
+      operationID: modelRuntime.currentOperationID(),
+      runtimeContextClearCoordinator: runtimeContextClearCoordinator,
+      chatGenerationCoordinator: chatGenerationCoordinator,
+      toolLoopCoordinator: toolLoopCoordinator,
+      session: { [weak self] in self?.chatSession ?? .codingDefault },
+      emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
+      setActiveToolPromptMode: { [weak self] mode in
+        self?.activeModelContextDebugToolPromptMode = mode
+      },
+      updateRuntimeCacheDebugSnapshot: { [weak self] snapshot in
+        self?.runtimeCacheDebugSnapshot = snapshot
+      },
+      refreshContextUsage: { [weak self] mode in
+        self?.refreshContextUsage(toolPromptMode: mode)
+      },
+      setErrorMessage: { [weak self] message in
+        self?.errorMessage = message
+      },
+      turnDidFinish: { [weak self] turnID, mode in
+        self?.finishGeneratingTurn(turnID, contextRefreshMode: mode)
+      },
+      notifySessionDidChange: { [weak self] in
+        self?.notifySessionDidChange()
       }
-
-      do {
-        try await runtimeContextClearCoordinator.awaitPendingClear()
-        refreshContextUsage(toolPromptMode: initialToolPromptMode)
-        let generationResult = try await streamAssistantReply(
-          to: assistantMessageID,
-          interactionMode: interactionMode,
-          toolPromptMode: initialToolPromptMode,
-          turnID: turnID,
-          attachments: sentAttachments
-        )
-        guard isCurrentTurn(turnID) else {
-          return
-        }
-        if toolsAvailable && interactionMode.allowsToolLoop {
-          try await runToolLoop(
-            workspace: workspace,
-            sessionID: sessionID,
-            lastAssistantMessageID: assistantMessageID,
-            turnID: turnID,
-            interactionMode: interactionMode,
-            lastNativeToolCalls: generationResult.nativeToolCalls
-          )
-        }
-      } catch is CancellationError {
-        completeTurn(turnID, outcome: .cancelled)
-        return
-      } catch {
-        completeTurn(turnID, outcome: .failed(error: error, cancelsStreaming: true))
-        return
-      }
-
-      completeTurn(turnID, outcome: .completed)
-    }
+    )
   }
 
   private func updateDefaultSessionTitleIfNeeded(fromFirstPrompt prompt: String) {
@@ -536,10 +408,14 @@ extension ChatSessionController {
   }
 
   private func cancelGeneration(notify: Bool) {
-    if let turnID = chatTurnCoordinator.cancelActiveTurn() {
-      markTurnCancelled(turnID)
-      finishGeneratingTurn(turnID)
-    } else {
+    let didCancel = chatTurnCoordinator.cancelActiveTurn(
+      emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
+      turnDidFinish: { [weak self] turnID, mode in
+        self?.finishGeneratingTurn(turnID, contextRefreshMode: mode)
+      },
+      notifySessionDidChange: {}
+    )
+    if !didCancel {
       isGenerating = false
       flushPendingContextUsageRefresh(defaultMode: .disabled)
     }
@@ -745,14 +621,6 @@ extension ChatSessionController {
     }
   }
 
-  private func isCurrentTurn(_ turnID: ChatTurn.ID) -> Bool {
-    chatTurnCoordinator.isActive(turnID)
-  }
-
-  private func markTurnCancelled(_ turnID: ChatTurn.ID) {
-    applyWorkflowEvents(turnCompletionEvents(turnID, outcome: .cancelled))
-  }
-
   public func approveToolCall(id toolCallID: ToolCallRecord.ID, in workspace: Workspace) {
     guard !isGenerating else {
       return
@@ -770,90 +638,36 @@ extension ChatSessionController {
 
     isGenerating = true
     errorMessage = nil
-    applyWorkflowEvents([
-      .turnStatusChanged(
-        turnID: turnID,
-        status: .running,
-        modelContextPolicy: nil
-      )
-    ])
-    notifySessionDidChange()
-
-    chatTurnCoordinator.startTurn(id: turnID) { [weak self] turnID in
-      guard let self else {
-        return
+    chatTurnCoordinator.approveToolCall(
+      existingRecord,
+      in: workspace,
+      turnID: turnID,
+      selectedModel: modelRuntime.selectedModel,
+      operationID: modelRuntime.currentOperationID(),
+      toolOrchestrator: toolOrchestrator,
+      chatGenerationCoordinator: chatGenerationCoordinator,
+      toolLoopCoordinator: toolLoopCoordinator,
+      session: { [weak self] in self?.chatSession ?? .codingDefault },
+      emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
+      setActiveToolPromptMode: { [weak self] mode in
+        self?.activeModelContextDebugToolPromptMode = mode
+      },
+      updateRuntimeCacheDebugSnapshot: { [weak self] snapshot in
+        self?.runtimeCacheDebugSnapshot = snapshot
+      },
+      refreshContextUsage: { [weak self] mode in
+        self?.refreshContextUsage(toolPromptMode: mode)
+      },
+      setErrorMessage: { [weak self] message in
+        self?.errorMessage = message
+      },
+      turnDidFinish: { [weak self] turnID, mode in
+        self?.finishGeneratingTurn(turnID, contextRefreshMode: mode)
+      },
+      notifySessionDidChange: { [weak self] in
+        self?.notifySessionDidChange()
       }
-      await runApprovedToolCall(existingRecord, in: workspace, turnID: turnID)
-    }
-  }
-
-  private func runApprovedToolCall(
-    _ existingRecord: ToolCallRecord,
-    in workspace: Workspace,
-    turnID: ChatTurn.ID
-  ) async {
-    do {
-      let approvedRecord = await toolOrchestrator.executeApproved(
-        request: existingRecord.request,
-        workspace: workspace
-      )
-      guard isCurrentTurn(turnID) else {
-        return
-      }
-
-      let mergedRecord = mergedToolCallRecord(existing: existingRecord, updated: approvedRecord)
-      let resumeResult = toolResumeCoordinator.approvedToolResult(
-        record: mergedRecord,
-        focusedFileState: chatSession.focusedFileState,
-        turnID: turnID
-      )
-
-      guard mergedRecord.status == .completed else {
-        applyWorkflowEvents(resumeResult.events)
-        completeTurn(turnID, outcome: .failed(error: nil, cancelsStreaming: false))
-        return
-      }
-
-      guard let nextAssistantMessageID = resumeResult.nextAssistantMessageID,
-        let promptMode = resumeResult.followUpPromptMode
-      else {
-        completeTurn(turnID, outcome: .failed(error: nil, cancelsStreaming: false))
-        return
-      }
-
-      applyWorkflowEvents(resumeResult.events)
-      notifySessionDidChange()
-      appendFinalToolFollowUpBoundaryIfNeeded(
-        toolPromptMode: promptMode,
-        turnID: turnID
-      )
-      let generationResult = try await streamAssistantReply(
-        to: nextAssistantMessageID,
-        interactionMode: chatSession.interactionMode,
-        toolPromptMode: promptMode,
-        turnID: turnID,
-        toolLoopIteration: 1
-      )
-      if !toolResumeCoordinator.isFinalApprovedToolFollowUp(mergedRecord) {
-        try await runToolLoop(
-          workspace: workspace,
-          sessionID: existingRecord.request.sessionID,
-          lastAssistantMessageID: nextAssistantMessageID,
-          turnID: turnID,
-          interactionMode: chatSession.interactionMode,
-          remainingIterations: maxToolLoopIterations - 1,
-          lastNativeToolCalls: generationResult.nativeToolCalls
-        )
-      }
-    } catch is CancellationError {
-      completeTurn(turnID, outcome: .cancelled)
-      return
-    } catch {
-      completeTurn(turnID, outcome: .failed(error: error, cancelsStreaming: true))
-      return
-    }
-
-    completeTurn(turnID, outcome: .completed)
+    )
   }
 
   public func answerAskUserToolCall(
@@ -886,54 +700,38 @@ extension ChatSessionController {
       return
     }
 
-    let resumeResult = toolResumeCoordinator.answeredAskUserTool(
-      record: existingRecord,
-      answer: answer,
-      turnID: turnID
-    )
-    guard let nextAssistantMessageID = resumeResult.nextAssistantMessageID,
-      let promptMode = resumeResult.followUpPromptMode
-    else {
-      return
-    }
-
-    applyWorkflowEvents(resumeResult.events)
     isGenerating = true
     errorMessage = nil
-    refreshContextUsage(toolPromptMode: promptMode)
-    notifySessionDidChange()
-
-    chatTurnCoordinator.startTurn(id: turnID) { [weak self] turnID in
-      guard let self else {
-        return
+    chatTurnCoordinator.answerAskUserToolCall(
+      existingRecord,
+      answer: answer,
+      in: workspace,
+      turnID: turnID,
+      selectedModel: modelRuntime.selectedModel,
+      operationID: modelRuntime.currentOperationID(),
+      chatGenerationCoordinator: chatGenerationCoordinator,
+      toolLoopCoordinator: toolLoopCoordinator,
+      session: { [weak self] in self?.chatSession ?? .codingDefault },
+      emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
+      setActiveToolPromptMode: { [weak self] mode in
+        self?.activeModelContextDebugToolPromptMode = mode
+      },
+      updateRuntimeCacheDebugSnapshot: { [weak self] snapshot in
+        self?.runtimeCacheDebugSnapshot = snapshot
+      },
+      refreshContextUsage: { [weak self] mode in
+        self?.refreshContextUsage(toolPromptMode: mode)
+      },
+      setErrorMessage: { [weak self] message in
+        self?.errorMessage = message
+      },
+      turnDidFinish: { [weak self] turnID, mode in
+        self?.finishGeneratingTurn(turnID, contextRefreshMode: mode)
+      },
+      notifySessionDidChange: { [weak self] in
+        self?.notifySessionDidChange()
       }
-      do {
-        let generationResult = try await streamAssistantReply(
-          to: nextAssistantMessageID,
-          interactionMode: chatSession.interactionMode,
-          toolPromptMode: promptMode,
-          turnID: turnID,
-          toolLoopIteration: 1
-        )
-        try await runToolLoop(
-          workspace: workspace,
-          sessionID: existingRecord.request.sessionID,
-          lastAssistantMessageID: nextAssistantMessageID,
-          turnID: turnID,
-          interactionMode: chatSession.interactionMode,
-          remainingIterations: maxToolLoopIterations - 1,
-          lastNativeToolCalls: generationResult.nativeToolCalls
-        )
-      } catch is CancellationError {
-        completeTurn(turnID, outcome: .cancelled)
-        return
-      } catch {
-        completeTurn(turnID, outcome: .failed(error: error, cancelsStreaming: true))
-        return
-      }
-
-      completeTurn(turnID, outcome: .completed)
-    }
+    )
   }
 
   public func denyToolCall(id toolCallID: ToolCallRecord.ID) {
@@ -952,68 +750,41 @@ extension ChatSessionController {
     }
 
     let message = "Tool call denied by user."
-    let resumeResult = toolResumeCoordinator.deniedTool(
-      record: existingRecord,
-      message: message,
-      turnID: turnID
-    )
-    guard let nextAssistantMessageID = resumeResult.nextAssistantMessageID,
-      let promptMode = resumeResult.followUpPromptMode
-    else {
-      return
-    }
-
-    applyWorkflowEvents(resumeResult.events)
     isGenerating = true
     errorMessage = nil
-    appendFinalToolFollowUpBoundaryIfNeeded(
-      toolPromptMode: promptMode,
-      turnID: turnID
+    chatTurnCoordinator.denyToolCall(
+      existingRecord,
+      message: message,
+      turnID: turnID,
+      selectedModel: modelRuntime.selectedModel,
+      operationID: modelRuntime.currentOperationID(),
+      chatGenerationCoordinator: chatGenerationCoordinator,
+      toolLoopCoordinator: toolLoopCoordinator,
+      session: { [weak self] in self?.chatSession ?? .codingDefault },
+      emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
+      setActiveToolPromptMode: { [weak self] mode in
+        self?.activeModelContextDebugToolPromptMode = mode
+      },
+      updateRuntimeCacheDebugSnapshot: { [weak self] snapshot in
+        self?.runtimeCacheDebugSnapshot = snapshot
+      },
+      refreshContextUsage: { [weak self] mode in
+        self?.refreshContextUsage(toolPromptMode: mode)
+      },
+      setErrorMessage: { [weak self] message in
+        self?.errorMessage = message
+      },
+      turnDidFinish: { [weak self] turnID, mode in
+        self?.finishGeneratingTurn(turnID, contextRefreshMode: mode)
+      },
+      notifySessionDidChange: { [weak self] in
+        self?.notifySessionDidChange()
+      }
     )
-    refreshContextUsage(toolPromptMode: promptMode)
-    notifySessionDidChange()
-
-    chatTurnCoordinator.startTurn(id: turnID) { [weak self] turnID in
-      guard let self else {
-        return
-      }
-      do {
-        _ = try await streamAssistantReply(
-          to: nextAssistantMessageID,
-          interactionMode: chatSession.interactionMode,
-          toolPromptMode: promptMode,
-          turnID: turnID,
-          toolLoopIteration: 1
-        )
-      } catch is CancellationError {
-        completeTurn(turnID, outcome: .cancelled)
-        return
-      } catch {
-        completeTurn(turnID, outcome: .failed(error: error, cancelsStreaming: true))
-        return
-      }
-
-      completeTurn(turnID, outcome: .completed)
-    }
   }
 
   private func applyWorkflowEvents(_ events: [ChatWorkflowEvent]) {
     workflowEventApplier.apply(events, to: &chatSession)
-  }
-
-  private func focusEventsForAttachments(
-    _ attachments: [ChatAttachment],
-    workspace: Workspace?
-  ) -> [ChatWorkflowEvent] {
-    let updatedState = focusedFileReducer.applyingAttachments(
-      attachments,
-      workspace: workspace,
-      to: chatSession.focusedFileState
-    )
-    guard updatedState != chatSession.focusedFileState else {
-      return []
-    }
-    return [.focusedFileStateChanged(updatedState)]
   }
 
   private func attachmentsForCurrentTurn() -> [ChatAttachment] {
@@ -1030,263 +801,16 @@ extension ChatSessionController {
     return unique
   }
 
-  private func mergedToolCallRecord(
-    existing: ToolCallRecord,
-    updated: ToolCallRecord
-  ) -> ToolCallRecord {
-    var merged = updated
-    let appendedEvents = updated.events.filter { newEvent in
-      !existing.events.contains { existingEvent in
-        existingEvent.actor == newEvent.actor
-          && existingEvent.kind == newEvent.kind
-          && existingEvent.message == newEvent.message
-      }
-    }
-    merged.events = existing.events + appendedEvents
-    return merged
-  }
-
-  private func appendFinalToolFollowUpBoundaryIfNeeded(
-    toolPromptMode: ToolPromptMode,
-    turnID: ChatTurn.ID
-  ) {
-    guard toolPromptMode == .afterToolResultFinal else {
-      return
-    }
-
-    transcriptMutator.appendFinalToolResultFollowUpBoundary(
-      "Use the preceding tool result to answer the user's request.",
-      turnID: turnID,
-      to: &chatSession
-    )
-  }
-
 }
 
 extension ChatSessionController {
-  fileprivate func streamAssistantReply(
-    to assistantMessageID: UUID,
-    interactionMode: WorkspaceInteractionMode,
-    toolPromptMode: ToolPromptMode,
-    turnID: ChatTurn.ID,
-    toolLoopIteration: Int? = nil,
-    attachments: [ChatAttachment] = []
-  )
-    async throws
-    -> ChatGenerationResult
-  {
-    let toolCallingPolicy = modelRuntime.selectedModel.toolCallingPolicy
-    activeModelContextDebugToolPromptMode = toolPromptMode
-    let systemPromptStartedAt = Date()
-    let renderedSystemPrompt = systemPrompt(toolPromptMode: toolPromptMode)
-    traceTurnPhase(
-      .renderSystemPrompt,
-      startedAt: systemPromptStartedAt,
-      turnID: turnID,
-      generationID: nil,
-      promptBytes: renderedSystemPrompt.utf8.count,
-      messageCount: chatSession.modelContextSnapshot.entries.count,
-      toolLoopIteration: toolLoopIteration,
-      interactionMode: interactionMode
-    )
-    let contextBuildStartedAt = Date()
-    let modelContextSnapshot = modelContextBuilder.transcript(
-      from: chatSession,
-      includingTurnID: turnID
-    )
-    traceTurnPhase(
-      .contextBuild,
-      startedAt: contextBuildStartedAt,
-      turnID: turnID,
-      generationID: nil,
-      messageCount: modelContextSnapshot.entries.count,
-      toolLoopIteration: toolLoopIteration,
-      interactionMode: interactionMode
-    )
-    let generationResult = try await chatGenerationCoordinator.streamAssistantReplyResult(
-      turnID: turnID,
-      operationID: modelRuntime.currentOperationID(),
-      toolLoopIteration: toolLoopIteration,
-      interactionMode: interactionMode,
-      transcript: modelContextSnapshot,
-      attachments: attachments,
-      systemPrompt: renderedSystemPrompt,
-      settings: chatSession.generationSettings,
-      toolContext: runtimeToolContext(
-        for: toolPromptMode,
-        policy: toolCallingPolicy
-      ),
-      appendChunk: { chunk in
-        guard isCurrentTurn(turnID) else {
-          return
-        }
-        transcriptMutator.appendChunk(chunk, to: assistantMessageID, in: &chatSession)
-      },
-      updateGenerationMetrics: { metrics in
-        guard isCurrentTurn(turnID) else {
-          return
-        }
-        transcriptMutator.updateGenerationMetrics(
-          metrics, for: assistantMessageID, in: &chatSession)
-        transcriptMutator.updateDeliveryStatus(.complete, for: assistantMessageID, in: &chatSession)
-      },
-      updateRuntimeCacheDebugSnapshot: { snapshot in
-        guard isCurrentTurn(turnID) else {
-          return
-        }
-        runtimeCacheDebugSnapshot = snapshot
-      },
-      updateContextUsage: {
-        await MainActor.run {}
-      }
-    )
-    guard isCurrentTurn(turnID) else {
-      return ChatGenerationResult(assistantContent: "")
-    }
-    if !generationResult.assistantContent.isEmpty {
-      if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
-        turnID: turnID,
-        sourceMessageID: assistantMessageID,
-        content: generationResult.assistantContent
-      ) {
-        transcriptMutator.appendModelContextEntry(entry, to: &chatSession)
-      }
-    }
-    refreshContextUsage(toolPromptMode: toolPromptMode)
-    return generationResult
-  }
-
-  fileprivate func runToolLoop(
-    workspace: Workspace?,
-    sessionID: ChatSession.ID?,
-    lastAssistantMessageID: UUID,
-    turnID: ChatTurn.ID,
-    interactionMode: WorkspaceInteractionMode,
-    remainingIterations initialRemainingIterations: Int? = nil,
-    lastNativeToolCalls: [ChatRuntimeToolCall] = []
-  ) async throws {
-    guard interactionMode.allowsToolLoop, let workspace, let sessionID else {
-      return
-    }
-
-    var currentAssistantMessageID = lastAssistantMessageID
-    var currentNativeToolCalls = lastNativeToolCalls
-    var remainingIterations = initialRemainingIterations ?? maxToolLoopIterations
-    let toolCallingPolicy = modelRuntime.selectedModel.toolCallingPolicy
-
-    while remainingIterations > 0 {
-      let toolLoopIteration = (maxToolLoopIterations - remainingIterations) + 1
-      let followUpPromptMode: ToolPromptMode =
-        followUpPromptMode(for: interactionMode, remainingIterations: remainingIterations)
-      guard
-        let step = try await toolLoopCoordinator.run(
-          ToolLoopRequest(
-            workspace: workspace,
-            sessionID: sessionID,
-            turnID: turnID,
-            assistantMessageID: currentAssistantMessageID,
-            items: chatSession.turns.flatMap(\.items),
-            focusedFileState: chatSession.focusedFileState,
-            interactionMode: interactionMode,
-            followUpPromptMode: followUpPromptMode,
-            toolLoopIteration: toolLoopIteration,
-            toolCallingPolicy: toolCallingPolicy,
-            nativeToolCalls: currentNativeToolCalls
-          )
-        )
-      else {
-        return
-      }
-      currentNativeToolCalls = []
-      remainingIterations -= 1
-      try Task.checkCancellation()
-      guard isCurrentTurn(turnID) else {
-        return
-      }
-
-      applyWorkflowEvents(step.events)
-      notifySessionDidChange()
-
-      switch step.continuation {
-      case .awaitingApproval:
-        finishGeneratingTurn(turnID)
-        notifySessionDidChange()
-        return
-      case .awaitingUserAnswer:
-        finishGeneratingTurn(turnID)
-        notifySessionDidChange()
-        return
-      case .resumeGeneration(let nextAssistantMessageID, let promptMode):
-        activeModelContextDebugToolPromptMode = promptMode
-        let generationResult = try await streamAssistantReply(
-          to: nextAssistantMessageID,
-          interactionMode: interactionMode,
-          toolPromptMode: promptMode,
-          turnID: turnID,
-          toolLoopIteration: toolLoopIteration
-        )
-        currentNativeToolCalls = generationResult.nativeToolCalls
-        guard promptMode != .afterToolResultFinal else { return }
-        currentAssistantMessageID = nextAssistantMessageID
-      case .none, .stopTurn:
-        return
-      }
-    }
-  }
-
   fileprivate func systemPrompt(toolPromptMode: ToolPromptMode) -> String {
-    let registry = toolRegistry(for: toolPromptMode)
-    let renderedPrompt = toolPromptPolicy.systemPrompt(
-      basePrompt: chatSession.systemPrompt,
-      mode: toolPromptMode,
-      toolRegistry: registry,
-      toolCallingPolicy: modelRuntime.selectedModel.toolCallingPolicy
+    chatTurnCoordinator.systemPrompt(
+      session: chatSession,
+      selectedModel: modelRuntime.selectedModel,
+      toolLoopCoordinator: toolLoopCoordinator,
+      toolPromptMode: toolPromptMode
     )
-    guard chatSession.interactionMode == .agent,
-      registry.definition(for: .todoWrite) != nil,
-      let planBlock = TodoPromptRenderer.compactPlanBlock(for: chatSession.todoState)
-    else {
-      return renderedPrompt
-    }
-    return [renderedPrompt, planBlock].joined(separator: "\n\n")
-  }
-
-  fileprivate func runtimeToolContext(
-    for toolPromptMode: ToolPromptMode,
-    policy: ToolCallingPolicy
-  ) -> ChatRuntimeToolContext? {
-    guard policy.strategy == .nativeGemma4 else {
-      return nil
-    }
-    switch toolPromptMode {
-    case .disabled, .enabled(false):
-      return nil
-    case .inspect, .afterInspectToolResultCanContinue, .afterToolResultCanContinue,
-      .afterToolResultFinal, .enabled(true):
-      break
-    }
-    let registry = toolRegistry(for: toolPromptMode)
-    return ChatRuntimeToolContext(
-      strategy: policy.strategy,
-      registry: registry,
-      cacheSystemPrompt: chatSession.systemPrompt
-    )
-  }
-
-  private func toolPromptMode(
-    for interactionMode: WorkspaceInteractionMode,
-    toolsAvailable: Bool
-  ) -> ToolPromptMode {
-    guard toolsAvailable else {
-      return .disabled
-    }
-
-    switch interactionMode {
-    case .chat:
-      return .disabled
-    case .agent:
-      return .enabled(true)
-    }
   }
 
   private func modelContextDebugToolPromptMode(
@@ -1299,50 +823,12 @@ extension ChatSessionController {
       return activeModelContextDebugToolPromptMode
     }
 
-    return currentToolPromptMode(workspace: workspace, sessionID: sessionID)
-  }
-
-  private func currentToolPromptMode(
-    workspace: Workspace?,
-    sessionID: ChatSession.ID?
-  ) -> ToolPromptMode {
-    let toolAvailability = toolPromptPolicy.toolAvailability(
+    return chatTurnCoordinator.currentToolPromptMode(
+      session: chatSession,
       workspace: workspace,
-      sessionID: sessionID
+      sessionID: sessionID,
+      selectedModel: modelRuntime.selectedModel
     )
-    return toolPromptMode(
-      for: chatSession.interactionMode,
-      toolsAvailable: toolAvailability == .availableForWorkspace
-        && chatSession.interactionMode != .chat
-        && modelRuntime.selectedModel.supportsWorkspaceTools
-    )
-  }
-
-  private func followUpPromptMode(
-    for interactionMode: WorkspaceInteractionMode,
-    remainingIterations: Int
-  ) -> ToolPromptMode {
-    guard remainingIterations > 1 else {
-      return .afterToolResultFinal
-    }
-
-    switch interactionMode {
-    case .chat:
-      return .disabled
-    case .agent:
-      return .afterToolResultCanContinue
-    }
-  }
-
-  private func toolRegistry(for toolPromptMode: ToolPromptMode) -> ToolRegistry {
-    switch toolPromptMode {
-    case .inspect, .afterInspectToolResultCanContinue:
-      return ToolExecutorRegistry.readOnly.toolRegistry
-    case .enabled(true), .afterToolResultCanContinue:
-      return toolOrchestrator.toolRegistry
-    case .disabled, .enabled(false), .afterToolResultFinal:
-      return ToolRegistry(tools: [])
-    }
   }
 
   private func disableUnsupportedInteractionModeIfNeeded() {
@@ -1373,16 +859,5 @@ extension ManagedModel {
 extension Array where Element == ChatAttachment {
   fileprivate var hasImages: Bool {
     contains { $0.kind == .image }
-  }
-}
-
-extension WorkspaceInteractionMode {
-  fileprivate var allowsToolLoop: Bool {
-    switch self {
-    case .chat:
-      false
-    case .agent:
-      true
-    }
   }
 }

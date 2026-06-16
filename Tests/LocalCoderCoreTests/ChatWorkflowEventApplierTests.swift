@@ -210,6 +210,67 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
+  func appendsTurnUserMessageModelContextAndStreamingAssistantUpdates() throws {
+    let turnID = UUID()
+    let userMessageID = UUID()
+    let assistantMessageID = UUID()
+    let modelContextEntry = try ModelFacingPromptRenderer.userPromptEntry(
+      turnID: turnID,
+      sourceMessageID: userMessageID,
+      prompt: "say hello"
+    )
+    let metrics = ChatGenerationMetrics(
+      generatedTokenCount: 2,
+      tokensPerSecond: 20,
+      durationMs: 100
+    )
+    var state = makeState()
+
+    ChatWorkflowEventApplier().apply(
+      [
+        .turnAppended(ChatTurn(id: turnID, status: .running)),
+        .userMessageAppended(
+          content: "say hello",
+          messageID: userMessageID,
+          turnID: turnID,
+          attachments: []
+        ),
+        .modelContextEntryAppended(modelContextEntry),
+        .assistantPlaceholderAppended(messageID: assistantMessageID, turnID: turnID),
+        .assistantChunkAppended(chunk: "hello", messageID: assistantMessageID),
+        .assistantGenerationCompleted(messageID: assistantMessageID, metrics: metrics),
+      ],
+      to: &state
+    )
+
+    let items = state.transcriptItemsForTesting
+    #expect(state.turns.map(\.id) == [turnID])
+    #expect(items.map(\.messageID) == [userMessageID, assistantMessageID])
+    #expect(items[0].contentForTesting == "say hello")
+    #expect(items[1].contentForTesting == "hello")
+    #expect(items[1].deliveryStatusForTesting == .complete)
+    #expect(items[1].generationMetricsForTesting == metrics)
+    #expect(state.modelContextSnapshot.entries == [modelContextEntry])
+  }
+
+  @Test
+  func appendsFinalToolResultFollowUpBoundary() {
+    let turnID = UUID()
+    let content = "Use the preceding tool result to answer the user's request."
+    var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
+
+    ChatWorkflowEventApplier().apply(
+      .finalToolResultFollowUpBoundaryAppended(content: content, turnID: turnID),
+      to: &state
+    )
+
+    #expect(state.modelContextSnapshot.entries.count == 1)
+    #expect(state.modelContextSnapshot.entries[0].turnID == turnID)
+    #expect(state.modelContextSnapshot.entries[0].frozenContent.role == .user)
+    #expect(state.modelContextSnapshot.entries[0].frozenContent.content.contains(content))
+  }
+
+  @Test
   func appendsDirectAssistantMessageAndModelContextSummary() {
     let turnID = UUID()
     let messageID = UUID()

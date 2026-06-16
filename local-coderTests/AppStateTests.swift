@@ -61,6 +61,58 @@ struct AppStateTests {
   }
 
   @Test
+  func sendMessagePersistsActiveSession() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: sessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime(eventTurns: [[.chunk("Persisted reply.")]])
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+    guard let activeWorkspace = appState.activeWorkspace else {
+      throw AppStateTestFailure.missingWorkspace
+    }
+    let activeSessionID = try #require(appState.activeSessionID)
+    appState.chatController.modelRuntime.modelState = .ready
+    appState.chatController.draft = "Persist this"
+
+    appState.chatController.sendMessage(in: activeWorkspace, sessionID: activeSessionID)
+
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      let savedSession = library.workspaces.first?
+        .sessions.first(where: { $0.id == sessionID })
+      return savedSession?.transcriptTextForAppStateTesting == [
+        "Persist this",
+        "Persisted reply.",
+      ]
+    }
+    let savedSession = try #require(
+      savedLibrary.workspaces.first?
+        .sessions.first(where: { $0.id == sessionID })
+    )
+
+    #expect(savedSession.turns.first?.status == .completed)
+  }
+
+  @Test
   func webAccessSettingsAreGlobalAndPersistIndependentlyFromWorkspace() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()
@@ -873,3 +925,18 @@ private func waitUntil(
 }
 
 private struct AppStateTestTimeoutError: Error {}
+
+extension ChatSession {
+  fileprivate var transcriptTextForAppStateTesting: [String] {
+    turns.flatMap(\.items).compactMap { item in
+      switch item {
+      case .userMessage(let message):
+        message.content
+      case .assistantMessage(let message):
+        message.content
+      case .toolCall, .toolResult:
+        nil
+      }
+    }
+  }
+}

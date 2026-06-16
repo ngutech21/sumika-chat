@@ -1,6 +1,14 @@
 import Foundation
 
 public enum ChatWorkflowEvent: Equatable, Sendable {
+  case turnAppended(ChatTurn)
+  case userMessageAppended(
+    content: String,
+    messageID: UUID,
+    turnID: ChatTurn.ID,
+    attachments: [ChatAttachment]
+  )
+  case modelContextEntryAppended(ModelContextEntry)
   case nativeAssistantBoundaryAppended(
     content: String,
     sourceMessageID: UUID,
@@ -27,6 +35,14 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
     messageID: UUID,
     turnID: ChatTurn.ID
   )
+  case assistantChunkAppended(
+    chunk: String,
+    messageID: UUID
+  )
+  case assistantGenerationCompleted(
+    messageID: UUID,
+    metrics: ChatGenerationMetrics?
+  )
   case assistantMessageAppended(
     content: String,
     modelContextContent: String,
@@ -40,6 +56,10 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
   )
   case focusedFileStateChanged(FocusedFileState)
   case todoStateChanged(TodoState)
+  case finalToolResultFollowUpBoundaryAppended(
+    content: String,
+    turnID: ChatTurn.ID
+  )
   case streamingAssistantMessagesCancelled(turnID: ChatTurn.ID)
   case transientAssistantPlaceholdersRemoved
 }
@@ -116,6 +136,18 @@ public struct ChatWorkflowEventApplier: Sendable {
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
     let diagnostics = diagnostics(for: event, in: state)
     switch event {
+    case .turnAppended(let turn):
+      mutator.appendTurn(turn, to: &state)
+    case .userMessageAppended(let content, let messageID, let turnID, let attachments):
+      mutator.appendUserMessage(
+        content,
+        id: messageID,
+        turnID: turnID,
+        attachments: attachments,
+        to: &state
+      )
+    case .modelContextEntryAppended(let entry):
+      mutator.appendModelContextEntry(entry, to: &state)
     case .nativeAssistantBoundaryAppended(let content, let sourceMessageID, let turnID):
       if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
@@ -154,6 +186,11 @@ public struct ChatWorkflowEventApplier: Sendable {
       }
     case .assistantPlaceholderAppended(let messageID, let turnID):
       mutator.appendAssistantPlaceholder(id: messageID, turnID: turnID, to: &state)
+    case .assistantChunkAppended(let chunk, let messageID):
+      mutator.appendChunk(chunk, to: messageID, in: &state)
+    case .assistantGenerationCompleted(let messageID, let metrics):
+      mutator.updateGenerationMetrics(metrics, for: messageID, in: &state)
+      mutator.updateDeliveryStatus(.complete, for: messageID, in: &state)
     case .assistantMessageAppended(
       let content,
       let modelContextContent,
@@ -179,6 +216,8 @@ public struct ChatWorkflowEventApplier: Sendable {
       state.focusedFileState = focusedFileState
     case .todoStateChanged(let todoState):
       state.todoState = todoState
+    case .finalToolResultFollowUpBoundaryAppended(let content, let turnID):
+      mutator.appendFinalToolResultFollowUpBoundary(content, turnID: turnID, to: &state)
     case .streamingAssistantMessagesCancelled(let turnID):
       mutator.markStreamingAssistantMessagesCancelled(inTurn: turnID, in: &state)
     case .transientAssistantPlaceholdersRemoved:
@@ -192,6 +231,10 @@ public struct ChatWorkflowEventApplier: Sendable {
     in state: ChatSession
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
     switch event {
+    case .turnAppended, .modelContextEntryAppended:
+      return []
+    case .userMessageAppended(_, _, let turnID, _):
+      return missingTurnDiagnostics([turnID], event: event, in: state)
     case .nativeAssistantBoundaryAppended(_, let sourceMessageID, let turnID):
       return missingMessageDiagnostics([sourceMessageID], event: event, in: state)
         + missingTurnDiagnostics([turnID], event: event, in: state)
@@ -215,9 +258,13 @@ public struct ChatWorkflowEventApplier: Sendable {
     case .toolResultAppended(_, let turnID),
       .assistantPlaceholderAppended(_, let turnID),
       .assistantMessageAppended(_, _, _, let turnID),
+      .finalToolResultFollowUpBoundaryAppended(_, let turnID),
       .turnStatusChanged(let turnID, _, _),
       .streamingAssistantMessagesCancelled(let turnID):
       return missingTurnDiagnostics([turnID], event: event, in: state)
+    case .assistantChunkAppended(_, let messageID),
+      .assistantGenerationCompleted(let messageID, _):
+      return missingMessageDiagnostics([messageID], event: event, in: state)
     case .focusedFileStateChanged, .todoStateChanged, .transientAssistantPlaceholdersRemoved:
       return []
     }
