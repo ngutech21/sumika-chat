@@ -96,6 +96,34 @@ struct ToolEditExecutionTests {
   }
 
   @Test
+  func approvedEditFileNormalizedMatchMapsDeepCRLFOffset() async throws {
+    // Exercises the offset accumulation in IndexedNormalizedText.sourceRanges: the match
+    // sits several CRLF graphemes in, so a correct normalized-offset → source-index mapping
+    // is required to replace the right line and preserve every other CRLF.
+    let workspace = try makeWorkspace()
+    try write("alpha\r\nbeta\r\ngamma\r\ndelta\r\nepsilon\r\n", to: "notes.txt", in: workspace)
+
+    let result = await ToolOrchestrator(executorRegistry: .codingAgent).executeApproved(
+      request: request(
+        .editFile,
+        workspace: workspace,
+        arguments: editArguments(path: "notes.txt", oldText: "delta\n", newText: "DELTA\n")
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .completed)
+    guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
+      Issue.record("Expected edit_file success payload.")
+      return
+    }
+    #expect(matchStrategy == .normalizedLineEndings)
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
+        == "alpha\r\nbeta\r\ngamma\r\nDELTA\r\nepsilon\r\n")
+  }
+
+  @Test
   func approvedEditFileMatchesTrailingWhitespaceDifference() async throws {
     let workspace = try makeWorkspace()
     try write("let value = 1   \nlet done = true\n", to: "Sources/App.swift", in: workspace)

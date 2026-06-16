@@ -215,13 +215,19 @@ public struct EditFileToolExecutor: TypedToolExecutor {
       .lineTrimmedBlock,
     ]
 
+    // Tokenize old/content once and share it across the line-window strategies.
+    // The cache is lazy: the exact and normalized strategies never touch it, so a
+    // byte-exact match (the common case) returns without tokenizing the whole file.
+    let tokens = TokenizedEdit(oldText: oldText, content: content)
+
     for strategy in strategies {
       let matches = matches(
         oldText: oldText,
         newText: newText,
         content: content,
         strategy: strategy,
-        maxCount: 2
+        maxCount: 2,
+        tokens: tokens
       )
 
       if matches.count == 1 {
@@ -245,7 +251,8 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     newText: String,
     content: String,
     strategy: EditMatchStrategy,
-    maxCount: Int
+    maxCount: Int,
+    tokens: TokenizedEdit
   ) -> [EditMatch] {
     switch strategy {
     case .exact:
@@ -265,7 +272,8 @@ public struct EditFileToolExecutor: TypedToolExecutor {
         newText: newText,
         content: content,
         strategy: .trimTrailingWhitespace,
-        maxCount: maxCount
+        maxCount: maxCount,
+        tokens: tokens
       ) { candidate, old in
         trimTrailingWhitespace(candidate.body) == trimTrailingWhitespace(old.body)
       }
@@ -274,7 +282,8 @@ public struct EditFileToolExecutor: TypedToolExecutor {
         oldText: oldText,
         newText: newText,
         content: content,
-        maxCount: maxCount
+        maxCount: maxCount,
+        tokens: tokens
       )
     case .lineTrimmedBlock:
       return lineWindowMatches(
@@ -283,6 +292,7 @@ public struct EditFileToolExecutor: TypedToolExecutor {
         content: content,
         strategy: .lineTrimmedBlock,
         maxCount: maxCount,
+        tokens: tokens,
         replacementTransform: { candidateLines, oldLines, replacementText in
           reindentByLine(
             replacementText,
@@ -306,13 +316,10 @@ public struct EditFileToolExecutor: TypedToolExecutor {
   ) -> [EditMatch] {
     let normalizedContent = IndexedNormalizedText(lineEndingNormalizing: content)
     let normalizedOldText = normalizeLineEndings(oldText)
-    let ranges = matchRanges(of: normalizedOldText, in: normalizedContent.text, maxCount: maxCount)
+    let ranges = normalizedContent.sourceRanges(matching: normalizedOldText, maxCount: maxCount)
 
-    return ranges.compactMap { normalizedRange in
-      guard let range = normalizedContent.sourceRange(for: normalizedRange) else {
-        return nil
-      }
-      return EditMatch(
+    return ranges.map { range in
+      EditMatch(
         range: range,
         replacementText: convertLineEndings(newText, toMatch: String(content[range])),
         strategy: .normalizedLineEndings
@@ -324,10 +331,10 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     oldText: String,
     newText: String,
     content: String,
-    maxCount: Int
+    maxCount: Int,
+    tokens: TokenizedEdit
   ) -> [EditMatch] {
-    let oldLines = lineSegments(in: oldText)
-    guard oldLines.count > 1 else {
+    guard tokens.oldLines.count > 1 else {
       return []
     }
 
@@ -337,6 +344,7 @@ public struct EditFileToolExecutor: TypedToolExecutor {
       content: content,
       strategy: .indentationFlexible,
       maxCount: maxCount,
+      tokens: tokens,
       replacementTransform: { candidateLines, oldLines, replacementText in
         reindent(
           replacementText,
@@ -360,6 +368,7 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     content: String,
     strategy: EditMatchStrategy,
     maxCount: Int,
+    tokens: TokenizedEdit,
     linesMatch: (TextLine, TextLine) -> Bool
   ) -> [EditMatch] {
     lineWindowMatches(
@@ -368,6 +377,7 @@ public struct EditFileToolExecutor: TypedToolExecutor {
       content: content,
       strategy: strategy,
       maxCount: maxCount,
+      tokens: tokens,
       replacementTransform: { candidateLines, _, replacementText in
         convertLineEndings(replacementText, toMatch: candidateLines.map(\.fullText).joined())
       },
@@ -382,12 +392,13 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     content: String,
     strategy: EditMatchStrategy,
     maxCount: Int,
+    tokens: TokenizedEdit,
     replacementTransform: ([TextLine], [TextLine], String) -> String,
     linesMatch: (TextLine, TextLine) -> Bool,
     blocksMatch: (([TextLine], [TextLine]) -> Bool)? = nil
   ) -> [EditMatch] {
-    let oldLines = lineSegments(in: oldText)
-    let contentLines = lineSegments(in: content)
+    let oldLines = tokens.oldLines
+    let contentLines = tokens.contentLines
     guard !oldLines.isEmpty, contentLines.count >= oldLines.count else {
       return []
     }
@@ -463,7 +474,7 @@ public struct EditFileToolExecutor: TypedToolExecutor {
       """
   }
 
-  private static func lineSegments(in text: String) -> [TextLine] {
+  fileprivate static func lineSegments(in text: String) -> [TextLine] {
     var lines: [TextLine] = []
     var lineStart = text.startIndex
     var index = text.startIndex
@@ -674,6 +685,38 @@ nonisolated private struct TextLine {
   public let fullText: String
 }
 
+/// Tokenizes the edit's `oldText` and `content` into lines exactly once and shares the
+/// result across every fuzzy match strategy. Previously each line-window strategy called
+/// `lineSegments(in: content)`, re-tokenizing the whole file up to three times per edit.
+/// The properties are lazy, so the exact/normalized strategies — and thus the common
+/// byte-exact match — never pay to tokenize. Confined to a single synchronous
+/// `validatedMatch` call, so the mutable cache is never shared across threads.
+nonisolated private final class TokenizedEdit {
+  private let oldText: String
+  private let content: String
+  private var cachedOldLines: [TextLine]?
+  private var cachedContentLines: [TextLine]?
+
+  init(oldText: String, content: String) {
+    self.oldText = oldText
+    self.content = content
+  }
+
+  var oldLines: [TextLine] {
+    if let cachedOldLines { return cachedOldLines }
+    let lines = EditFileToolExecutor.lineSegments(in: oldText)
+    cachedOldLines = lines
+    return lines
+  }
+
+  var contentLines: [TextLine] {
+    if let cachedContentLines { return cachedContentLines }
+    let lines = EditFileToolExecutor.lineSegments(in: content)
+    cachedContentLines = lines
+    return lines
+  }
+}
+
 nonisolated private struct IndexedNormalizedText {
   public let text: String
   private let lowerBounds: [String.Index]
@@ -717,16 +760,36 @@ nonisolated private struct IndexedNormalizedText {
     self.upperBounds = upperBounds
   }
 
-  public func sourceRange(for range: Range<String.Index>) -> Range<String.Index>? {
-    let lowerOffset = text.distance(from: text.startIndex, to: range.lowerBound)
-    let upperOffset = text.distance(from: text.startIndex, to: range.upperBound)
-    guard lowerOffset >= 0, upperOffset > lowerOffset,
-      lowerOffset < lowerBounds.count,
-      upperOffset - 1 < upperBounds.count
-    else {
-      return nil
+  /// Finds up to `maxCount` occurrences of `needle` in the normalized text and maps each
+  /// back to a range in the original source. Character offsets are accumulated as the scan
+  /// advances, so each match costs O(1) to map and the whole search is O(n) — the previous
+  /// `sourceRange(for:)` recomputed `String.distance(from: startIndex,…)` per lookup, which
+  /// is O(n) every time on a `String`'s bidirectional index.
+  public func sourceRanges(matching needle: String, maxCount: Int) -> [Range<String.Index>] {
+    var results: [Range<String.Index>] = []
+    var searchStart = text.startIndex
+    var searchStartOffset = 0
+
+    while results.count < maxCount,
+      let matchRange = text.range(of: needle, range: searchStart..<text.endIndex)
+    {
+      let lowerOffset =
+        searchStartOffset + text.distance(from: searchStart, to: matchRange.lowerBound)
+      let upperOffset =
+        lowerOffset + text.distance(from: matchRange.lowerBound, to: matchRange.upperBound)
+
+      if lowerOffset >= 0, upperOffset > lowerOffset,
+        lowerOffset < lowerBounds.count,
+        upperOffset - 1 < upperBounds.count
+      {
+        results.append(lowerBounds[lowerOffset]..<upperBounds[upperOffset - 1])
+      }
+
+      searchStart = text.index(after: matchRange.lowerBound)
+      searchStartOffset = lowerOffset + 1
     }
-    return lowerBounds[lowerOffset]..<upperBounds[upperOffset - 1]
+
+    return results
   }
 }
 
