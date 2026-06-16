@@ -32,8 +32,9 @@ struct ChatSessionTests {
     )
 
     let items = decoded.turns[0].items
-    // Empty streaming placeholder dropped; partial content marked cancelled.
-    #expect(items.count == 2)
+    // Interrupted streaming messages are preserved for append-only ordering and
+    // marked cancelled so reload never resurfaces them as active generation.
+    #expect(items.count == 3)
     #expect(
       items.contains(
         .assistantMessage(
@@ -42,7 +43,10 @@ struct ChatSessionTests {
       items.contains(
         .assistantMessage(
           AssistantTurnMessage(id: partialID, content: "Half a thou", deliveryStatus: .cancelled))))
-    #expect(!items.contains { $0.messageID == placeholderID })
+    #expect(
+      items.contains(
+        .assistantMessage(
+          AssistantTurnMessage(id: placeholderID, content: "", deliveryStatus: .cancelled))))
   }
 
   @Test
@@ -71,7 +75,6 @@ struct ChatSessionTests {
 
     #expect(first.turns == second.turns)
     #expect(first.turns[0].updatedAt == updatedAt)
-    #expect(first.turns[0].events.count == session.turns[0].events.count + 2)
   }
 
   @Test
@@ -95,31 +98,14 @@ struct ChatSessionTests {
   }
 
   @Test
-  func toolCallUpdatedEventDoesNotCreateRecord() {
+  func toolCallsAreProjectedFromToolItems() {
     let record = makeToolCallRecord(status: .completed)
     let session = ChatSession(turns: [
-      ChatTurn(events: [
-        ChatTurnEvent(payload: .toolCallUpdated(record))
-      ])
+      ChatTurn(status: .completed, items: [.tool(record)])
     ])
 
-    #expect(session.toolCalls.isEmpty)
-    #expect(session.toolCallRecord(id: record.id) == nil)
-  }
-
-  @Test
-  func toolCallUpdatedEventUpdatesRecordedRecord() {
-    let existing = makeToolCallRecord(status: .awaitingApproval)
-    let updated = makeToolCallRecord(request: existing.request, status: .completed)
-    let session = ChatSession(turns: [
-      ChatTurn(events: [
-        ChatTurnEvent(payload: .toolCallRecorded(existing)),
-        ChatTurnEvent(payload: .toolCallUpdated(updated)),
-      ])
-    ])
-
-    #expect(session.toolCalls == [updated])
-    #expect(session.toolCallRecord(id: existing.id) == updated)
+    #expect(session.toolCalls == [record])
+    #expect(session.toolCallRecord(id: record.id) == record)
   }
 }
 

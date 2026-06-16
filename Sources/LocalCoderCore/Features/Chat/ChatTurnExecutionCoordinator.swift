@@ -1,7 +1,7 @@
 import Foundation
 
 typealias ChatTurnSessionProvider = @MainActor @Sendable () -> ChatSession
-typealias ChatTurnEventEmitter = @MainActor @Sendable ([ChatWorkflowEvent]) -> Void
+typealias ChatWorkflowEventEmitter = @MainActor @Sendable ([ChatWorkflowEvent]) -> Void
 typealias ChatTurnActiveToolPromptModeHandler = @MainActor @Sendable (ToolPromptMode?) -> Void
 typealias ChatTurnRuntimeCacheDebugSnapshotHandler =
   @MainActor @Sendable (
@@ -25,7 +25,7 @@ struct ChatTurnRuntimeContext {
 @MainActor
 struct ChatTurnCallbacks {
   let session: ChatTurnSessionProvider
-  let emitEvents: ChatTurnEventEmitter
+  let emitEvents: ChatWorkflowEventEmitter
   let setActiveToolPromptMode: ChatTurnActiveToolPromptModeHandler
   let updateRuntimeCacheDebugSnapshot: ChatTurnRuntimeCacheDebugSnapshotHandler
   let refreshContextUsage: ChatTurnContextRefreshHandler
@@ -346,7 +346,7 @@ struct ChatTurnExecutionCoordinator {
   func appendFinalToolFollowUpBoundaryIfNeeded(
     toolPromptMode: ToolPromptMode,
     turnID: ChatTurn.ID,
-    emitEvents: ChatTurnEventEmitter
+    emitEvents: ChatWorkflowEventEmitter
   ) {
     guard toolPromptMode == .afterToolResultFinal else {
       return

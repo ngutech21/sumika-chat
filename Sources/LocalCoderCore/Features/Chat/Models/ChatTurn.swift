@@ -2,23 +2,11 @@ import Foundation
 
 public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
   public let id: UUID
-  public internal(set) var events: [ChatTurnEvent]
+  public private(set) var status: ChatTurnStatus
+  public private(set) var modelContextPolicy: ChatTurnModelContextPolicy
+  public private(set) var items: [ChatTurnItem]
   public var createdAt: Date
-  public var updatedAt: Date {
-    events.last?.timestamp ?? createdAt
-  }
-
-  public var status: ChatTurnStatus {
-    events.reversed().compactMap(\.turnStatus).first ?? .running
-  }
-
-  public var modelContextPolicy: ChatTurnModelContextPolicy {
-    events.reversed().compactMap(\.modelContextPolicy).first ?? .included
-  }
-
-  public var items: [ChatTurnItem] {
-    ChatTranscriptProjector.items(from: events)
-  }
+  public private(set) var updatedAt: Date
 
   public init(
     id: UUID = UUID(),
@@ -29,146 +17,212 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     updatedAt: Date = Date()
   ) {
     self.id = id
-    self.createdAt = createdAt
-    var events = items.map { item in
-      ChatTurnEvent(
-        timestamp: createdAt,
-        payload: .transcriptItemAppended(item)
-      )
-    }
-    events.append(
-      ChatTurnEvent(
-        timestamp: updatedAt,
-        payload: .turnStatusChanged(
-          TurnStatusChangedEvent(status: status, modelContextPolicy: modelContextPolicy)
-        )
-      ))
-    self.events = events
-  }
-
-  public init(
-    id: UUID = UUID(),
-    events: [ChatTurnEvent] = [],
-    createdAt: Date = Date()
-  ) {
-    self.id = id
-    self.events = events
-    self.createdAt = createdAt
-  }
-
-  mutating func appendEvent(_ event: ChatTurnEvent) {
-    events.append(event)
-  }
-}
-
-public struct ChatTurnEvent: Codable, Identifiable, Equatable, Sendable {
-  public let id: UUID
-  public var timestamp: Date
-  public var payload: ChatTurnEventPayload
-
-  public init(
-    id: UUID = UUID(),
-    timestamp: Date = Date(),
-    payload: ChatTurnEventPayload
-  ) {
-    self.id = id
-    self.timestamp = timestamp
-    self.payload = payload
-  }
-}
-
-public enum ChatTurnEventPayload: Codable, Equatable, Sendable {
-  case transcriptItemAppended(ChatTurnItem)
-  case assistantChunkAppended(AssistantChunkAppendedEvent)
-  case assistantContentReplaced(AssistantContentReplacedEvent)
-  case assistantDeliveryStatusUpdated(AssistantDeliveryStatusUpdatedEvent)
-  case assistantGenerationMetricsUpdated(AssistantGenerationMetricsUpdatedEvent)
-  case messageRemoved(MessageRemovedEvent)
-  case transientAssistantPlaceholdersRemoved
-  case streamingAssistantMessagesCancelled
-  case toolCallRecorded(ToolCallRecord)
-  case toolCallUpdated(ToolCallRecord)
-  case assistantMessageAnnotatedAsToolCall(AssistantToolCallAnnotationEvent)
-  case toolResultAppended(ToolResultModelMessage)
-  case turnStatusChanged(TurnStatusChangedEvent)
-}
-
-public struct AssistantChunkAppendedEvent: Codable, Equatable, Sendable {
-  public var messageID: UUID
-  public var chunk: String
-
-  public init(messageID: UUID, chunk: String) {
-    self.messageID = messageID
-    self.chunk = chunk
-  }
-}
-
-public struct AssistantContentReplacedEvent: Codable, Equatable, Sendable {
-  public var messageID: UUID
-  public var content: String
-
-  public init(messageID: UUID, content: String) {
-    self.messageID = messageID
-    self.content = content
-  }
-}
-
-public struct AssistantDeliveryStatusUpdatedEvent: Codable, Equatable, Sendable {
-  public var messageID: UUID
-  public var status: AssistantTurnMessage.DeliveryStatus
-
-  public init(messageID: UUID, status: AssistantTurnMessage.DeliveryStatus) {
-    self.messageID = messageID
-    self.status = status
-  }
-}
-
-public struct AssistantGenerationMetricsUpdatedEvent: Codable, Equatable, Sendable {
-  public var messageID: UUID
-  public var metrics: ChatGenerationMetrics?
-
-  public init(messageID: UUID, metrics: ChatGenerationMetrics?) {
-    self.messageID = messageID
-    self.metrics = metrics
-  }
-}
-
-public struct MessageRemovedEvent: Codable, Equatable, Sendable {
-  public var messageID: UUID
-
-  public init(messageID: UUID) {
-    self.messageID = messageID
-  }
-}
-
-public struct AssistantToolCallAnnotationEvent: Codable, Equatable, Sendable {
-  public var messageID: UUID
-  public var toolCallID: ToolCallRecord.ID
-
-  public init(messageID: UUID, toolCallID: ToolCallRecord.ID) {
-    self.messageID = messageID
-    self.toolCallID = toolCallID
-  }
-}
-
-public struct TurnStatusChangedEvent: Codable, Equatable, Sendable {
-  public var status: ChatTurnStatus
-  public var modelContextPolicy: ChatTurnModelContextPolicy?
-
-  public init(
-    status: ChatTurnStatus,
-    modelContextPolicy: ChatTurnModelContextPolicy? = nil
-  ) {
     self.status = status
     self.modelContextPolicy = modelContextPolicy
+    self.items = items
+    self.createdAt = createdAt
+    self.updatedAt = updatedAt
+  }
+
+  mutating func appendItem(_ item: ChatTurnItem, at timestamp: Date = Date()) {
+    items.append(item)
+    updatedAt = timestamp
+  }
+
+  mutating func appendAssistantChunk(
+    _ chunk: String,
+    to messageID: UUID,
+    at timestamp: Date = Date()
+  ) {
+    updateAssistantMessage(messageID, at: timestamp) { message in
+      message.content += chunk
+    }
+  }
+
+  mutating func replaceAssistantContent(
+    _ content: String,
+    for messageID: UUID,
+    at timestamp: Date = Date()
+  ) {
+    updateAssistantMessage(messageID, at: timestamp) { message in
+      message.content = content
+      message.deliveryStatus = .complete
+    }
+  }
+
+  mutating func updateAssistantDeliveryStatus(
+    _ status: AssistantTurnMessage.DeliveryStatus,
+    for messageID: UUID,
+    at timestamp: Date = Date()
+  ) {
+    updateAssistantMessage(messageID, at: timestamp) { message in
+      message.deliveryStatus = status
+    }
+  }
+
+  mutating func updateAssistantGenerationMetrics(
+    _ metrics: ChatGenerationMetrics?,
+    for messageID: UUID,
+    at timestamp: Date = Date()
+  ) {
+    updateAssistantMessage(messageID, at: timestamp) { message in
+      message.generationMetrics = metrics
+    }
+  }
+
+  mutating func markStreamingAssistantMessagesCancelled(at timestamp: Date = Date()) {
+    var didUpdate = false
+    items = items.map { item in
+      guard case .assistantMessage(var message) = item,
+        message.deliveryStatus == .streaming
+      else {
+        return item
+      }
+      message.deliveryStatus = .cancelled
+      didUpdate = true
+      return .assistantMessage(message)
+    }
+    if didUpdate {
+      updatedAt = timestamp
+    }
+  }
+
+  mutating func cancelEmptyStreamingAssistantPlaceholders(at timestamp: Date = Date()) {
+    var didUpdate = false
+    items = items.map { item in
+      guard case .assistantMessage(var message) = item,
+        message.deliveryStatus == .streaming,
+        message.content.isEmpty
+      else {
+        return item
+      }
+      message.deliveryStatus = .cancelled
+      didUpdate = true
+      return .assistantMessage(message)
+    }
+    if didUpdate {
+      updatedAt = timestamp
+    }
+  }
+
+  mutating func recordToolCall(_ record: ToolCallRecord, at timestamp: Date = Date()) {
+    guard let index = toolItemIndex(id: record.id) else {
+      appendItem(.tool(record), at: timestamp)
+      return
+    }
+    items[index] = .tool(record)
+    updatedAt = timestamp
+  }
+
+  mutating func updateToolCallRecord(_ record: ToolCallRecord, at timestamp: Date = Date()) {
+    guard let index = toolItemIndex(id: record.id) else {
+      return
+    }
+    items[index] = .tool(record)
+    updatedAt = timestamp
+  }
+
+  mutating func appendOrUpdateToolResult(
+    _ toolResult: ToolResultModelMessage,
+    fallbackRecord: @autoclosure () -> ToolCallRecord,
+    at timestamp: Date = Date()
+  ) {
+    if let index = toolItemIndex(id: toolResult.callID),
+      case .tool(var record) = items[index]
+    {
+      record.state = toolResult.completedState
+      items[index] = .tool(record)
+      updatedAt = timestamp
+      return
+    }
+
+    appendItem(.tool(fallbackRecord()), at: timestamp)
+  }
+
+  mutating func annotateAssistantMessageAsToolCall(
+    messageID: UUID,
+    record: ToolCallRecord,
+    at timestamp: Date = Date()
+  ) {
+    if let index = assistantMessageIndex(id: messageID),
+      case .assistantMessage(var message) = items[index],
+      message.content.isEmpty,
+      message.deliveryStatus == .streaming
+    {
+      message.deliveryStatus = .cancelled
+      items[index] = .assistantMessage(message)
+      updatedAt = timestamp
+    }
+    recordToolCall(record, at: timestamp)
+  }
+
+  mutating func updateStatus(
+    _ status: ChatTurnStatus,
+    modelContextPolicy: ChatTurnModelContextPolicy? = nil,
+    at timestamp: Date = Date()
+  ) {
+    self.status = status
+    if let modelContextPolicy {
+      self.modelContextPolicy = modelContextPolicy
+    }
+    updatedAt = timestamp
+  }
+
+  func containsMessage(id messageID: UUID) -> Bool {
+    items.contains { $0.messageID == messageID }
+  }
+
+  func containsToolCall(id toolCallID: ToolCallRecord.ID) -> Bool {
+    toolItemIndex(id: toolCallID) != nil
+  }
+
+  func toolCallRecord(id toolCallID: ToolCallRecord.ID) -> ToolCallRecord? {
+    guard let index = toolItemIndex(id: toolCallID),
+      case .tool(let record) = items[index]
+    else {
+      return nil
+    }
+    return record
+  }
+
+  private func assistantMessageIndex(id messageID: UUID) -> Int? {
+    items.firstIndex { item in
+      guard case .assistantMessage(let message) = item else {
+        return false
+      }
+      return message.id == messageID
+    }
+  }
+
+  private mutating func updateAssistantMessage(
+    _ messageID: UUID,
+    at timestamp: Date,
+    update: (inout AssistantTurnMessage) -> Void
+  ) {
+    guard let index = assistantMessageIndex(id: messageID),
+      case .assistantMessage(var message) = items[index]
+    else {
+      return
+    }
+    update(&message)
+    items[index] = .assistantMessage(message)
+    updatedAt = timestamp
+  }
+
+  private func toolItemIndex(id toolCallID: ToolCallRecord.ID) -> Int? {
+    items.firstIndex { item in
+      guard case .tool(let record) = item else {
+        return false
+      }
+      return record.id == toolCallID
+    }
   }
 }
 
 public enum ChatTurnItem: Codable, Equatable, Sendable {
   case userMessage(UserTurnMessage)
   case assistantMessage(AssistantTurnMessage)
-  case toolCall(ToolCallRecord.ID)
-  case toolResult(ToolCallRecord.ID)
+  case tool(ToolCallRecord)
 }
 
 public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
@@ -184,184 +238,6 @@ public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
     self.id = id
     self.content = content
     self.attachments = attachments
-  }
-}
-
-nonisolated extension ChatTurnEvent {
-  var turnStatus: ChatTurnStatus? {
-    guard case .turnStatusChanged(let event) = payload else {
-      return nil
-    }
-    return event.status
-  }
-
-  var modelContextPolicy: ChatTurnModelContextPolicy? {
-    guard case .turnStatusChanged(let event) = payload else {
-      return nil
-    }
-    return event.modelContextPolicy
-  }
-}
-
-public enum ChatTranscriptProjector {
-  public static func items(from turns: [ChatTurn]) -> [ChatTurnItem] {
-    turns.flatMap(\.items)
-  }
-
-  public static func items(from events: [ChatTurnEvent]) -> [ChatTurnItem] {
-    var items: [ChatTurnItem] = []
-
-    for event in events {
-      switch event.payload {
-      case .transcriptItemAppended(let item):
-        items.append(item)
-      case .assistantChunkAppended(let update):
-        updateAssistantMessage(update.messageID, in: &items) { message in
-          var message = message
-          message.content += update.chunk
-          return message
-        }
-      case .assistantContentReplaced(let update):
-        updateAssistantMessage(update.messageID, in: &items) { message in
-          var message = message
-          message.content = update.content
-          message.deliveryStatus = .complete
-          return message
-        }
-      case .assistantDeliveryStatusUpdated(let update):
-        updateAssistantMessage(update.messageID, in: &items) { message in
-          var message = message
-          message.deliveryStatus = update.status
-          return message
-        }
-      case .assistantGenerationMetricsUpdated(let update):
-        updateAssistantMessage(update.messageID, in: &items) { message in
-          var message = message
-          message.generationMetrics = update.metrics
-          return message
-        }
-      case .messageRemoved(let removal):
-        items.removeAll { $0.messageID == removal.messageID }
-      case .transientAssistantPlaceholdersRemoved:
-        items.removeAll { item in
-          guard case .assistantMessage(let message) = item else {
-            return false
-          }
-          return message.content.isEmpty && message.deliveryStatus == .streaming
-        }
-      case .streamingAssistantMessagesCancelled:
-        items = items.map { item in
-          guard case .assistantMessage(var message) = item,
-            message.deliveryStatus == .streaming,
-            !message.content.isEmpty
-          else {
-            return item
-          }
-          message.deliveryStatus = .cancelled
-          return .assistantMessage(message)
-        }
-      case .assistantMessageAnnotatedAsToolCall(let annotation):
-        replaceItem(
-          matchingMessageID: annotation.messageID,
-          with: .toolCall(annotation.toolCallID),
-          in: &items
-        )
-      case .toolCallRecorded:
-        break
-      case .toolResultAppended(let toolResult):
-        items.append(.toolResult(toolResult.callID))
-      case .toolCallUpdated, .turnStatusChanged:
-        break
-      }
-    }
-
-    return items
-  }
-
-  public static func toolCallRecords(from turns: [ChatTurn]) -> [ToolCallRecord] {
-    var records: [ToolCallRecord.ID: ToolCallRecord] = [:]
-    var orderedIDs: [ToolCallRecord.ID] = []
-
-    for event in turns.flatMap(\.events) {
-      switch event.payload {
-      case .toolCallRecorded(let record):
-        if records[record.id] == nil {
-          orderedIDs.append(record.id)
-        }
-        records[record.id] = record
-      case .toolCallUpdated(let record):
-        guard records[record.id] != nil else {
-          continue
-        }
-        records[record.id] = record
-      case .transcriptItemAppended, .assistantChunkAppended, .assistantContentReplaced,
-        .assistantDeliveryStatusUpdated, .assistantGenerationMetricsUpdated, .messageRemoved,
-        .transientAssistantPlaceholdersRemoved, .streamingAssistantMessagesCancelled,
-        .assistantMessageAnnotatedAsToolCall, .toolResultAppended, .turnStatusChanged:
-        continue
-      }
-    }
-
-    return orderedIDs.compactMap { records[$0] }
-  }
-
-  public static func toolCallRecord(
-    id: ToolCallRecord.ID,
-    from turns: [ChatTurn]
-  ) -> ToolCallRecord? {
-    var currentRecord: ToolCallRecord?
-    for event in turns.flatMap(\.events) {
-      switch event.payload {
-      case .toolCallRecorded(let record):
-        guard record.id == id else {
-          continue
-        }
-        currentRecord = record
-      case .toolCallUpdated(let record):
-        guard record.id == id, currentRecord != nil else {
-          continue
-        }
-        currentRecord = record
-      case .transcriptItemAppended, .assistantChunkAppended, .assistantContentReplaced,
-        .assistantDeliveryStatusUpdated, .assistantGenerationMetricsUpdated, .messageRemoved,
-        .transientAssistantPlaceholdersRemoved, .streamingAssistantMessagesCancelled,
-        .assistantMessageAnnotatedAsToolCall, .toolResultAppended, .turnStatusChanged:
-        continue
-      }
-    }
-    return currentRecord
-  }
-
-  private static func updateAssistantMessage(
-    _ messageID: UUID,
-    in items: inout [ChatTurnItem],
-    transform: (AssistantTurnMessage) -> AssistantTurnMessage
-  ) {
-    guard
-      let index = items.firstIndex(where: { item in
-        guard case .assistantMessage(let message) = item else {
-          return false
-        }
-        return message.id == messageID
-      })
-    else {
-      return
-    }
-    guard case .assistantMessage(let message) = items[index] else {
-      return
-    }
-    items[index] = .assistantMessage(transform(message))
-  }
-
-  private static func replaceItem(
-    matchingMessageID messageID: UUID,
-    with replacement: ChatTurnItem,
-    in items: inout [ChatTurnItem]
-  ) {
-    guard let index = items.firstIndex(where: { $0.messageID == messageID }) else {
-      return
-    }
-    items[index] = replacement
   }
 }
 
@@ -414,8 +290,8 @@ nonisolated extension ChatTurnItem {
       message.id
     case .assistantMessage(let message):
       message.id
-    case .toolCall(let id), .toolResult(let id):
-      id
+    case .tool(let record):
+      record.id
     }
   }
 
@@ -424,5 +300,18 @@ nonisolated extension ChatTurnItem {
       return nil
     }
     return message.content
+  }
+}
+
+nonisolated extension ToolResultModelMessage {
+  var completedState: ToolCallState {
+    switch payload.preview.status {
+    case .success:
+      .completed(payload)
+    case .denied:
+      .denied(payload)
+    case .failed:
+      .failed(payload)
+    }
   }
 }

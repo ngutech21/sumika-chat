@@ -25,7 +25,7 @@ flowchart TD
   W --> V{"Invalid tool call?"}
   V -- "yes" --> L
   V -- "no" --> K{"Tool requires approval?"}
-  K -- "no" --> L["Append tool-call + tool-result events"]
+  K -- "no" --> L["Record tool state/result events"]
   L --> Q["Stream direct follow-up with current turn included"]
   Q --> U{"Follow-up emitted another allowed tool call?"}
   U -- "yes, within 6-call turn budget" --> J
@@ -55,12 +55,15 @@ flowchart TD
   resumes through `ToolResumeCoordinator`, and emits completion/cancel/failure
   events. It gates completion so stale async work from a cancelled or replaced
   turn cannot reset current UI state.
-- `ChatTurn` is the persisted turn audit record. Its canonical state is an
-  append-only `ChatTurnEvent` log; status, model-context policy, ordered
-  `ChatTurnItem` values, and tool-call records are derived projections.
+- `ChatTurn` is the persisted turn audit record. Its canonical state is the
+  turn status, model-context policy, and ordered `ChatTurnItem` values.
+  Membership is append-only: items are not deleted or duplicated into parallel
+  collections. Existing assistant/tool items may update only their own lifecycle
+  fields, such as streaming delivery status, assistant content, or tool state.
 - `ChatTurnItem` is the transcript/UI projection. User and assistant items store
   typed `UserTurnMessage` and `AssistantTurnMessage` payloads directly.
-  Tool-call and tool-result items store only `ToolCallRecord.ID`.
+  A single tool item embeds the `ToolCallRecord`; the same item represents the
+  pending call and its eventual result state.
 - `AssistantTurnMessage.deliveryStatus` distinguishes complete assistant
   messages from streaming or cancelled partial output.
 - `ChatModelContextBuilder` turns `ChatSession` into the model context
@@ -127,16 +130,16 @@ flowchart TD
 - Cancel only affects the active turn. Older async callbacks must check the
   active `turnID` before mutating transcript, context usage, persistence state,
   or `isGenerating`.
-- Empty streaming assistant placeholders are transient and are removed on
-  cancellation.
+- Empty streaming assistant placeholders are marked cancelled and filtered from
+  visible transcript projections. They remain in persisted turn items as audit
+  state instead of being removed.
 - Non-empty streaming assistant messages are marked `deliveryStatus ==
   .cancelled` so partial output remains inspectable instead of masquerading as a
   completed answer.
 - Completed tool calls keep their own `ToolCallStatus.completed`; cancelling the
   follow-up response cancels the surrounding chat turn, not the already-finished
   tool call.
-- Tool calls and tool results from a cancelled turn stay visible as audit data.
-  Future independent prompts exclude those messages from model context.
+- Tool items from a cancelled turn stay visible as audit data. Future independent prompts exclude those messages from model context.
 - The currently active turn is allowed to include its own tool result while
   generating the direct follow-up response.
 - Direct follow-up responses may emit another tool call within the turn
@@ -238,12 +241,17 @@ Gemma 4 native tool-call text.
 ## Persistence Rules
 
 - `ChatSession` persists `modelContextSnapshot` and `turns`. Tool-call records
-  are derived from the turn event log, not stored as a second top-level list.
+  live only inside `ChatTurn.items` and `ChatSession.toolCalls` is a derived
+  projection, not a second persisted list.
 - Sessions without a stored `modelContextSnapshot` do not decode.
 - `ChatSession.turns` is the transcript and tool-state source of truth. Append
-  turn events for every transcript message, assistant update, tool-call state
-  snapshot, tool result, and turn lifecycle transition.
-- Clearing a chat transcript removes turns, derived tool-call state, and
+  new turn items for new user, assistant, and tool facts; update existing items
+  only for their own lifecycle fields. Do not persist workflow event logs,
+  derived tool lists, or UI caches as session state.
+- `ModelContextSnapshot` is intentionally persisted as a frozen model-facing
+  copy. It is separate from the UI transcript so prompt bytes and cache prefixes
+  stay stable after later transcript projections change.
+- Clearing a chat transcript removes turns, derived tool-call projections, and
   attachments, but keeps session settings such as system prompt and generation
   settings.
 

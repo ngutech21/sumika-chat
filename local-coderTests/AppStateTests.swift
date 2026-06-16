@@ -934,7 +934,7 @@ extension ChatSession {
         message.content
       case .assistantMessage(let message):
         message.content
-      case .toolCall, .toolResult:
+      case .tool:
         nil
       }
     }

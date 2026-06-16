@@ -79,10 +79,11 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(!controller.hasPendingApproval)
     #expect(controller.chatSession.toolCalls[0].status == .completed)
     #expect(controller.chatSession.toolCalls[0].resultPreview?.status == .success)
-    #expect(controller.chatSession.testMessages.count == 4)
-    #expect(controller.chatSession.testMessages[2].kind == .toolResult)
-    #expect(controller.chatSession.testMessages[2].toolResult?.toolName == .writeFile)
-    #expect(controller.chatSession.testMessages[3].content == "Updated movies.html.")
+    #expect(controller.chatSession.testMessages.count == 3)
+    #expect(controller.chatSession.testMessages[1].kind == .toolResult)
+    #expect(controller.chatSession.testMessages[1].toolCall?.toolName == .writeFile)
+    #expect(controller.chatSession.testMessages[1].toolResult?.toolName == .writeFile)
+    #expect(controller.chatSession.testMessages[2].content == "Updated movies.html.")
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
@@ -127,9 +128,9 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(controller.chatSession.turns.first?.status == .completed)
     #expect(controller.chatSession.toolCalls[0].status == .denied)
     #expect(controller.chatSession.toolCalls[0].resultPreview?.affectedPaths == ["README.md"])
-    #expect(controller.chatSession.testMessages.count == 4)
-    #expect(controller.chatSession.testMessages[2].toolResult?.preview.status == .denied)
-    #expect(controller.chatSession.testMessages[3].content == "I will leave README.md unchanged.")
+    #expect(controller.chatSession.testMessages.count == 3)
+    #expect(controller.chatSession.testMessages[1].toolResult?.preview.status == .denied)
+    #expect(controller.chatSession.testMessages[2].content == "I will leave README.md unchanged.")
   }
 
   private func waitUntil(

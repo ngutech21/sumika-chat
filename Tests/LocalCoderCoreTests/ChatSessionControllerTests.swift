@@ -444,9 +444,12 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.turns.count == 1)
     #expect(controller.chatSession.turns[0].status == .cancelled)
     #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
-    #expect(
-      controller.chatSession.turns[0].items.map(messageID)
-        == [controller.chatSession.testMessages[0].id])
+    let persistedItems = controller.chatSession.turns[0].items
+    #expect(persistedItems.count == 2)
+    #expect(persistedItems[0].messageID == controller.chatSession.testMessages[0].id)
+    #expect(persistedItems[1].kindForTesting == .assistant)
+    #expect(persistedItems[1].contentForTesting.isEmpty)
+    #expect(persistedItems[1].deliveryStatusForTesting == .cancelled)
     #expect(controller.errorMessage == nil)
   }
 
@@ -526,8 +529,10 @@ struct ChatSessionControllerTests {
 
     #expect(controller.chatSession.toolCalls.count == 1)
     #expect(controller.chatSession.toolCalls[0].status == .completed)
-    #expect(controller.chatSession.testMessages.contains { $0.kind == .toolCall })
-    #expect(controller.chatSession.testMessages.contains { $0.kind == .toolResult })
+    let toolMessage = try #require(
+      controller.chatSession.testMessages.first { $0.kind == .toolResult })
+    #expect(toolMessage.toolCall?.toolName == .readFile)
+    #expect(toolMessage.toolResult?.toolName == .readFile)
     #expect(controller.chatSession.turns.count == 1)
     #expect(controller.chatSession.turns[0].status == .cancelled)
     #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
@@ -718,8 +723,8 @@ struct ChatSessionControllerTests {
       controller.chatSession.focusedFileState.snapshots[
         WorkspaceRelativePath(rawValue: "README.md")]?.excerpt == "1: project notes")
     let callID = controller.chatSession.toolCalls[0].request.id
-    #expect(controller.chatSession.testMessages.count == 4)
-    #expect(controller.chatSession.testMessages[1].kind == .toolCall)
+    #expect(controller.chatSession.testMessages.count == 3)
+    #expect(controller.chatSession.testMessages[1].kind == .toolResult)
     #expect(controller.chatSession.testMessages[1].content.isEmpty)
     #expect(controller.chatSession.testMessages[1].toolCall?.callID == callID)
     #expect(controller.chatSession.testMessages[1].toolCall?.toolName == .readFile)
@@ -729,13 +734,11 @@ struct ChatSessionControllerTests {
         ToolCallModelArgument(name: "path", value: "README.md")
       ]
     )
-    #expect(controller.chatSession.testMessages[2].kind == .toolResult)
-    #expect(controller.chatSession.testMessages[2].content.isEmpty)
-    #expect(controller.chatSession.testMessages[2].toolResult?.callID == callID)
-    #expect(controller.chatSession.testMessages[2].toolResult?.toolName == .readFile)
-    #expect(controller.chatSession.testMessages[2].toolResult?.preview.status == .success)
-    #expect(controller.chatSession.testMessages[2].toolResult?.preview.text == "1: project notes")
-    #expect(controller.chatSession.testMessages[3].content == "The README says project notes.")
+    #expect(controller.chatSession.testMessages[1].toolResult?.callID == callID)
+    #expect(controller.chatSession.testMessages[1].toolResult?.toolName == .readFile)
+    #expect(controller.chatSession.testMessages[1].toolResult?.preview.status == .success)
+    #expect(controller.chatSession.testMessages[1].toolResult?.preview.text == "1: project notes")
+    #expect(controller.chatSession.testMessages[2].content == "The README says project notes.")
     #expect(
       controller.chatSession.modelContextSnapshot.entries.map(\.frozenContent.role) == [
         .user, .assistant, .user, .assistant,
@@ -934,12 +937,11 @@ struct ChatSessionControllerTests {
 
     #expect(controller.errorMessage == nil)
     #expect(controller.chatSession.toolCalls.count == 1)
-    #expect(controller.chatSession.testMessages.count == 4)
-    #expect(controller.chatSession.testMessages[1].kind == .toolCall)
-    #expect(controller.chatSession.testMessages[2].kind == .toolResult)
-    #expect(controller.chatSession.testMessages[3].kind == .assistant)
-    #expect(controller.chatSession.testMessages[3].content.contains("Here is `README.md`:"))
-    #expect(controller.chatSession.testMessages[3].content.contains("1: project notes"))
+    #expect(controller.chatSession.testMessages.count == 3)
+    #expect(controller.chatSession.testMessages[1].kind == .toolResult)
+    #expect(controller.chatSession.testMessages[2].kind == .assistant)
+    #expect(controller.chatSession.testMessages[2].content.contains("Here is `README.md`:"))
+    #expect(controller.chatSession.testMessages[2].content.contains("1: project notes"))
     #expect(
       controller.chatSession.modelContextSnapshot.entries.map(\.frozenContent.role) == [
         .user, .assistant, .user, .assistant,
@@ -1009,11 +1011,11 @@ struct ChatSessionControllerTests {
     #expect(
       controller.errorMessage
         == ChatSessionFakeChatModelRuntimeError.streamFailed.localizedDescription)
-    #expect(controller.chatSession.testMessages.count == 3)
+    #expect(controller.chatSession.testMessages.count == 2)
     #expect(controller.chatSession.testMessages[1].toolCall?.toolName == .readFile)
     #expect(controller.chatSession.testMessages[1].content.isEmpty)
-    #expect(controller.chatSession.testMessages[2].toolResult?.toolName == .readFile)
-    #expect(controller.chatSession.testMessages[2].kind == .toolResult)
+    #expect(controller.chatSession.testMessages[1].toolResult?.toolName == .readFile)
+    #expect(controller.chatSession.testMessages[1].kind == .toolResult)
     #expect(
       !controller.chatSession.testMessages.contains { message in
         message.kind == .assistant && message.content.isEmpty
@@ -1187,7 +1189,7 @@ struct ChatSessionControllerTests {
       message.id
     case .assistantMessage(let message):
       message.id
-    case .toolCall, .toolResult:
+    case .tool:
       nil
     }
   }

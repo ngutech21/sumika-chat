@@ -88,35 +88,11 @@ classDiagram
 
   class ChatTurn {
     id: UUID
-    events: [ChatTurnEvent]
-    createdAt: Date
-    updatedAt: Date
     status: ChatTurnStatus
     modelContextPolicy: ChatTurnModelContextPolicy
     items: [ChatTurnItem]
-  }
-
-  class ChatTurnEvent {
-    id: UUID
-    timestamp: Date
-    payload: ChatTurnEventPayload
-  }
-
-  class ChatTurnEventPayload {
-    <<enum>>
-    transcriptItemAppended(ChatTurnItem)
-    assistantChunkAppended
-    assistantContentReplaced
-    assistantDeliveryStatusUpdated
-    assistantGenerationMetricsUpdated
-    messageRemoved
-    transientAssistantPlaceholdersRemoved
-    streamingAssistantMessagesCancelled
-    toolCallRecorded(ToolCallRecord)
-    toolCallUpdated(ToolCallRecord)
-    assistantMessageAnnotatedAsToolCall
-    toolResultAppended(ToolResultModelMessage)
-    turnStatusChanged
+    createdAt: Date
+    updatedAt: Date
   }
 
   class ChatTurnStatus {
@@ -139,8 +115,7 @@ classDiagram
     <<enum>>
     userMessage(UserTurnMessage)
     assistantMessage(AssistantTurnMessage)
-    toolCall(ToolCallRecord.ID)
-    toolResult(ToolCallRecord.ID)
+    tool(ToolCallRecord)
   }
 
   class UserTurnMessage {
@@ -445,7 +420,7 @@ classDiagram
   WorkspaceLibrary "1" --> "*" Workspace
   Workspace "1" --> "*" ChatSession
 
-  ChatSession "1" --> "*" ChatTurn : canonical turn event log
+  ChatSession "1" --> "*" ChatTurn : canonical turn records
   ChatSession "1" --> "1" ModelContextSnapshot : persisted model context
   ChatSession "1" --> "1" FocusedFileState
   ChatSession "1" --> "1" ActiveAttachmentContext
@@ -460,15 +435,12 @@ classDiagram
   ManagedModel --> ChatGenerationSettings
   ToolCallingPolicy --> ToolCallingStrategy
 
-  ChatTurn "1" --> "*" ChatTurnEvent
-  ChatTurnEvent --> ChatTurnEventPayload
-  ChatTurnEventPayload --> ChatTurnItem : transcript projection
-  ChatTurnEventPayload --> ToolCallRecord : derived tool lifecycle
-  ChatTurn ..> ChatTurnStatus : derived from events
-  ChatTurn ..> ChatTurnModelContextPolicy : derived from events
+  ChatTurn "1" --> "*" ChatTurnItem : append-only membership
+  ChatTurn --> ChatTurnStatus
+  ChatTurn --> ChatTurnModelContextPolicy
   ChatTurnItem --> UserTurnMessage : embeds user
   ChatTurnItem --> AssistantTurnMessage : embeds assistant
-  ChatTurnItem ..> ToolCallRecord : references by ID
+  ChatTurnItem --> ToolCallRecord : embeds tool lifecycle
   UserTurnMessage --> ChatAttachment
   AssistantTurnMessage --> ChatAttachment
   AssistantTurnMessage --> ChatGenerationMetrics

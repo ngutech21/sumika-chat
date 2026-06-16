@@ -107,16 +107,14 @@ struct ChatTranscriptMutatorTests {
 
     mutator.annotateToolCall(toolCall, for: assistantID, in: &state)
 
-    _ = assistantID
     let items = state.transcriptItemsForTesting
-    #expect(items[0].kindForTesting == .toolCall)
-    #expect(items[0].contentForTesting.isEmpty)
-    _ = attachment
-    _ = metrics
-    #expect(state.turns[0].items == [.toolCall(toolCall.callID)])
+    #expect(items.count == 2)
+    #expect(items[0].kindForTesting == .assistant)
+    #expect(items[1].kindForTesting == .toolCall)
+    #expect(items[1].contentForTesting.isEmpty)
     #expect(state.toolCalls.first?.id == toolCall.callID)
-    #expect(items[0].toolCallForTesting(records: state.toolCalls) == toolCall)
-    #expect(items[0].toolResultForTesting(records: state.toolCalls) == nil)
+    #expect(items[1].toolCallForTesting(records: state.toolCalls) == toolCall)
+    #expect(items[1].toolResultForTesting(records: state.toolCalls) == nil)
   }
 
   @Test
@@ -288,7 +286,7 @@ struct ChatTranscriptMutatorTests {
   }
 
   @Test
-  func removeTransientAssistantPlaceholdersKeepsRealAssistantMessages() {
+  func removeTransientAssistantPlaceholdersCancelsEmptyStreamingMessages() {
     let emptyAssistantID = UUID()
     let filledAssistant = AssistantTurnMessage(content: "Done")
     let userMessage = UserTurnMessage(content: "Prompt")
@@ -306,14 +304,15 @@ struct ChatTranscriptMutatorTests {
 
     mutator.removeTransientAssistantPlaceholders(from: &state)
 
-    #expect(
-      state.transcriptItemsForTesting == [
-        .userMessage(userMessage), .assistantMessage(filledAssistant),
-      ])
+    let items = state.transcriptItemsForTesting
+    #expect(items.count == 3)
+    #expect(items[0] == .userMessage(userMessage))
+    #expect(items[1].deliveryStatusForTesting == .cancelled)
+    #expect(items[2] == .assistantMessage(filledAssistant))
   }
 
   @Test
-  func removeTransientAssistantPlaceholdersRemovesMessageIDsFromTurns() {
+  func removeTransientAssistantPlaceholdersPreservesTurnOrdering() {
     let turnID = UUID()
     let userID = UUID()
     let emptyAssistantID = UUID()
@@ -345,8 +344,13 @@ struct ChatTranscriptMutatorTests {
 
     mutator.removeTransientAssistantPlaceholders(from: &state)
 
-    #expect(state.transcriptItemsForTesting.compactMap(\.messageID) == [userID, filledAssistantID])
-    #expect(state.turns[0].items.map(testMessageID) == [userID, filledAssistantID])
+    #expect(
+      state.transcriptItemsForTesting.compactMap(\.messageID) == [
+        userID, emptyAssistantID, filledAssistantID,
+      ])
+    #expect(
+      state.turns[0].items.map(testMessageID) == [userID, emptyAssistantID, filledAssistantID])
+    #expect(state.turns[0].items[1].deliveryStatusForTesting == .cancelled)
   }
 
   @Test
@@ -356,9 +360,13 @@ struct ChatTranscriptMutatorTests {
     let turn = ChatTurn(status: .completed)
     let toolCall = makeToolCallRecord()
     var state = makeState(
-      items: [.userMessage(UserTurnMessage(content: "Prompt"))],
-      toolCalls: [toolCall],
-      turns: [turn],
+      turns: [
+        ChatTurn(
+          id: turn.id,
+          status: .completed,
+          items: [.userMessage(UserTurnMessage(content: "Prompt")), .tool(toolCall)]
+        )
+      ],
       attachments: [attachment],
       todoState: TodoState(items: [
         TodoItem(id: "inspect", content: "Inspect files", status: .completed),
@@ -381,7 +389,7 @@ struct ChatTranscriptMutatorTests {
   }
 
   @Test
-  func removeMessageDeletesMatchingMessageOnly() {
+  func removeMessageDoesNotDeletePersistedItems() {
     let removedID = UUID()
     let kept = AssistantTurnMessage(content: "Keep")
     var state = makeState(items: [
@@ -392,13 +400,16 @@ struct ChatTranscriptMutatorTests {
 
     mutator.removeMessage(id: removedID, from: &state)
 
-    #expect(state.transcriptItemsForTesting == [.assistantMessage(kept)])
+    #expect(
+      state.transcriptItemsForTesting == [
+        .userMessage(UserTurnMessage(id: removedID, content: "Remove")),
+        .assistantMessage(kept),
+      ])
   }
 }
 
 private func makeState(
   items: [ChatTurnItem] = [],
-  toolCalls: [ToolCallRecord] = [],
   turns: [ChatTurn] = [],
   attachments: [ChatAttachment] = [],
   todoState: TodoState? = nil,
@@ -410,7 +421,6 @@ private func makeState(
     ? [ChatTurn(status: .running, items: items)]
     : turns
   return ChatSession(
-    toolCalls: toolCalls,
     turns: resolvedTurns,
     pendingAttachments: attachments,
     systemPrompt: systemPrompt,

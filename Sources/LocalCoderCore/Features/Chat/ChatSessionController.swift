@@ -92,7 +92,6 @@ public final class ChatSessionController {
       modelContextTokenLimit: storedSettings.contextTokenLimit,
       chatSession: ChatSession(
         modelContextSnapshot: ModelContextSnapshot(),
-        toolCalls: [],
         turns: [],
         pendingAttachments: [],
         systemPrompt: storedSettings.systemPrompt,

@@ -98,12 +98,11 @@ struct WorkspaceStoreTests {
     let turn = ChatTurn(
       status: .cancelled,
       modelContextPolicy: .excluded,
-      items: [.toolCall(toolCall.id)]
+      items: [.tool(toolCall)]
     )
     let session = ChatSession(
       id: sessionID,
       selectedModelID: "gemma4-e4b",
-      toolCalls: [toolCall],
       turns: [turn],
       systemPrompt: "Use short answers.",
       generationSettings: .codingDefault

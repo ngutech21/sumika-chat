@@ -8,7 +8,12 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   public var selectedModelID: ManagedModel.ID
   public var modelContextSnapshot: ModelContextSnapshot
   public var toolCalls: [ToolCallRecord] {
-    ChatTranscriptProjector.toolCallRecords(from: turns)
+    turns.flatMap(\.items).compactMap { item in
+      guard case .tool(let record) = item else {
+        return nil
+      }
+      return record
+    }
   }
   public internal(set) var turns: [ChatTurn]
   public var focusedFileState: FocusedFileState
@@ -26,7 +31,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     title: String = ChatSession.defaultTitle,
     selectedModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID,
     modelContextSnapshot: ModelContextSnapshot = ModelContextSnapshot(),
-    toolCalls: [ToolCallRecord] = [],
     turns: [ChatTurn] = [],
     pendingAttachments: [ChatAttachment] = [],
     focusedFileState: FocusedFileState = .empty,
@@ -42,7 +46,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.title = title
     self.selectedModelID = selectedModelID
     self.modelContextSnapshot = modelContextSnapshot
-    self.turns = Self.turns(turns, recording: toolCalls)
+    self.turns = turns
     self.focusedFileState = focusedFileState
     self.systemPrompt = systemPrompt
     self.generationSettings = generationSettings
@@ -139,116 +143,23 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
 
   /// A persisted `.streaming` delivery status means generation was interrupted
   /// by a crash or hard quit — there is no live stream after a reload, so a
-  /// loaded turn must never resurface as "Generating…". Mirror the runtime
-  /// cancel path (`ChatTranscriptMutator.removeTransientAssistantPlaceholders`
-  /// and `markStreamingAssistantMessagesCancelled`): drop empty placeholders and
-  /// mark partial content as cancelled.
+  /// loaded turn must never resurface as "Generating…". Preserve append-only
+  /// item ordering and mark interrupted assistant messages as cancelled.
   private static func resolvingInterruptedStreams(in turns: [ChatTurn]) -> [ChatTurn] {
     turns.map { turn in
       var turn = turn
-      let recoveryTimestamp = turn.updatedAt
-      for item in turn.items {
-        guard case .assistantMessage(let message) = item,
-          message.deliveryStatus == .streaming
-        else {
-          continue
-        }
-        if message.content.isEmpty {
-          turn.appendEvent(
-            ChatTurnEvent(
-              id: interruptedStreamRecoveryEventID(
-                messageID: message.id,
-                kind: .emptyPlaceholderRemoved
-              ),
-              timestamp: recoveryTimestamp,
-              payload: .messageRemoved(MessageRemovedEvent(messageID: message.id))
-            ))
-        } else {
-          turn.appendEvent(
-            ChatTurnEvent(
-              id: interruptedStreamRecoveryEventID(
-                messageID: message.id,
-                kind: .partialMessageCancelled
-              ),
-              timestamp: recoveryTimestamp,
-              payload: .assistantDeliveryStatusUpdated(
-                AssistantDeliveryStatusUpdatedEvent(messageID: message.id, status: .cancelled)
-              )
-            ))
-        }
-      }
+      turn.markStreamingAssistantMessagesCancelled(at: turn.updatedAt)
       return turn
     }
-  }
-
-  private enum InterruptedStreamRecoveryEventKind: UInt8 {
-    case emptyPlaceholderRemoved = 0x71
-    case partialMessageCancelled = 0x72
-  }
-
-  private static func interruptedStreamRecoveryEventID(
-    messageID: UUID,
-    kind: InterruptedStreamRecoveryEventKind
-  ) -> UUID {
-    var uuid = messageID.uuid
-    uuid.0 ^= 0x4C
-    uuid.1 ^= 0x43
-    uuid.2 ^= kind.rawValue
-    uuid.6 = (uuid.6 & 0x0F) | 0x50
-    uuid.8 = (uuid.8 & 0x3F) | 0x80
-    return UUID(uuid: uuid)
-  }
-
-  private static func turns(
-    _ turns: [ChatTurn],
-    recording toolCalls: [ToolCallRecord]
-  ) -> [ChatTurn] {
-    guard !toolCalls.isEmpty else {
-      return turns
-    }
-    var remainingRecordsByID = Dictionary(uniqueKeysWithValues: toolCalls.map { ($0.id, $0) })
-    var updatedTurns = turns.map { turn in
-      var turn = turn
-      for item in turn.items {
-        let id: ToolCallRecord.ID?
-        switch item {
-        case .toolCall(let toolCallID), .toolResult(let toolCallID):
-          id = toolCallID
-        case .userMessage, .assistantMessage:
-          id = nil
-        }
-        guard let id, let record = remainingRecordsByID.removeValue(forKey: id) else {
-          continue
-        }
-        turn.appendEvent(ChatTurnEvent(payload: .toolCallRecorded(record)))
-      }
-      return turn
-    }
-    for record in toolCalls where remainingRecordsByID[record.id] != nil {
-      if updatedTurns.isEmpty {
-        updatedTurns.append(ChatTurn(status: .completed))
-      }
-      updatedTurns[updatedTurns.count - 1].appendEvent(
-        ChatTurnEvent(payload: .toolCallRecorded(record))
-      )
-    }
-    return updatedTurns
   }
 
   public func turnID(containingToolCall toolCallID: ToolCallRecord.ID) -> ChatTurn.ID? {
     turns.first { turn in
-      turn.items.contains { item in
-        switch item {
-        case .toolCall(let id), .toolResult(let id):
-          id == toolCallID
-        case .userMessage, .assistantMessage:
-          false
-        }
-      }
+      turn.containsToolCall(id: toolCallID)
     }?.id
   }
 
   public func toolCallRecord(id: ToolCallRecord.ID) -> ToolCallRecord? {
-    ChatTranscriptProjector.toolCallRecord(id: id, from: turns)
+    turns.lazy.compactMap { $0.toolCallRecord(id: id) }.first
   }
 }

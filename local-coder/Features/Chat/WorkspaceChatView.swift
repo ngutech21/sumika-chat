@@ -25,7 +25,6 @@ struct WorkspaceChatView: View {
       VStack(spacing: 0) {
         ChatTranscript(
           turns: controller.chatSession.turns,
-          toolCalls: controller.chatSession.toolCalls,
           selectedModel: controller.modelRuntime.selectedModel,
           modelState: controller.modelRuntime.modelState,
           isGenerating: controller.isGenerating,

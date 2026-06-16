@@ -27,8 +27,8 @@ struct ChatWorkflowEventApplierTests {
     )
 
     let items = state.transcriptItemsForTesting
-    #expect(items[0].kindForTesting == .toolCall)
-    #expect(items[0].toolCallForTesting(records: state.toolCalls) == toolCall)
+    #expect(items.map(\.kindForTesting) == [.assistant, .toolCall])
+    #expect(items[1].toolCallForTesting(records: state.toolCalls) == toolCall)
   }
 
   @Test
@@ -81,9 +81,76 @@ struct ChatWorkflowEventApplierTests {
     )
 
     let items = state.transcriptItemsForTesting
-    #expect(items[0].kindForTesting == TranscriptItemKindForTesting.toolCall)
-    #expect(items[0].toolCallForTesting(records: state.toolCalls) == toolCall)
+    #expect(items.map(\.kindForTesting) == [.assistant, .toolCall])
+    #expect(items[1].toolCallForTesting(records: state.toolCalls) == toolCall)
 
+    let modelContent = try #require(state.modelContextSnapshot.entries.last?.frozenContent.content)
+    #expect(modelContent.contains("Tool call edit_file requested."))
+    #expect(modelContent.contains("Path:\nindex.html"))
+    #expect(modelContent.contains("Payload omitted from history."))
+    #expect(!modelContent.contains(oldText))
+    #expect(!modelContent.contains(newText))
+    #expect(!modelContent.contains("old_text:"))
+    #expect(!modelContent.contains("new_text:"))
+  }
+
+  @Test
+  func missingNativeToolCallAnnotationStillRedactsModelContextBoundary() throws {
+    let missingMessageID = UUID()
+    let turnID = UUID()
+    let oldText = "let title = \"Old\""
+    let newText = "let title = \"New\""
+    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(
+      toolName: ToolName.editFile.rawValue,
+      arguments: [
+        "path": .string("index.html"),
+        "old_text": .string(oldText),
+        "new_text": .string(newText),
+      ]
+    )
+    let toolCall = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .editFile,
+      arguments: [
+        ToolCallModelArgument(name: "new_text", value: newText),
+        ToolCallModelArgument(name: "old_text", value: oldText),
+        ToolCallModelArgument(name: "path", value: "index.html"),
+      ],
+      rawText: nativeBoundary
+    )
+    var state = makeState(turns: [
+      ChatTurn(
+        id: turnID,
+        status: .running,
+        items: []
+      )
+    ])
+
+    ChatWorkflowEventApplier().apply(
+      [
+        .nativeAssistantBoundaryAppended(
+          content: nativeBoundary,
+          sourceMessageID: missingMessageID,
+          turnID: turnID
+        )
+      ],
+      to: &state
+    )
+
+    let diagnostics = ChatWorkflowEventApplier().apply(
+      [
+        .assistantAnnotatedAsNativeToolCall(
+          assistantMessageID: missingMessageID,
+          toolCall: toolCall
+        )
+      ],
+      to: &state
+    )
+
+    #expect(state.toolCalls.isEmpty)
+    #expect(diagnostics.count == 1)
+    #expect(diagnostics[0].missingTargetKind == .message)
+    #expect(diagnostics[0].missingTargetID == missingMessageID)
     let modelContent = try #require(state.modelContextSnapshot.entries.last?.frozenContent.content)
     #expect(modelContent.contains("Tool call edit_file requested."))
     #expect(modelContent.contains("Path:\nindex.html"))
@@ -141,7 +208,7 @@ struct ChatWorkflowEventApplierTests {
     )
 
     #expect(state.toolCalls == [record])
-    #expect(state.turns[0].items == [.toolCall(record.id)])
+    #expect(state.turns[0].items == [.tool(record)])
     #expect(state.turnID(containingToolCall: record.id) == turnID)
   }
 
@@ -149,7 +216,7 @@ struct ChatWorkflowEventApplierTests {
   func updatesExistingToolCallRecord() {
     let existing = makeToolCallRecord(status: .awaitingApproval)
     let updated = makeToolCallRecord(request: existing.request, status: .completed)
-    var state = makeState(toolCalls: [existing])
+    var state = makeState(items: [.tool(existing)])
 
     ChatWorkflowEventApplier().apply(
       [.toolCallUpdated(updated)],
@@ -183,7 +250,7 @@ struct ChatWorkflowEventApplierTests {
     let items = state.transcriptItemsForTesting
     #expect(items.compactMap(\.messageID) == [result.callID])
     #expect(items[0].toolResultForTesting(records: state.toolCalls) == result)
-    #expect(state.turns[0].items == [.toolResult(result.callID)])
+    #expect(state.turns[0].items == [.tool(state.toolCalls[0])])
     #expect(state.turnID(containingToolCall: result.callID) == turnID)
     #expect(state.modelContextSnapshot.entries[0].sourceMessageID == result.callID)
   }
@@ -396,9 +463,10 @@ struct ChatWorkflowEventApplierTests {
     )
 
     let items = state.transcriptItemsForTesting
-    #expect(items.compactMap(\.messageID) == [cancelledID, keptID])
+    #expect(items.compactMap(\.messageID) == [cancelledID, removedID, keptID])
     #expect(items[0].deliveryStatusForTesting == .cancelled)
-    #expect(state.turns[0].items.map(testMessageID) == [cancelledID, keptID])
+    #expect(items[1].deliveryStatusForTesting == .cancelled)
+    #expect(state.turns[0].items.map(testMessageID) == [cancelledID, removedID, keptID])
   }
 
   @Test
@@ -473,7 +541,6 @@ struct ChatWorkflowEventApplierTests {
 
 private func makeState(
   items: [ChatTurnItem] = [],
-  toolCalls: [ToolCallRecord] = [],
   turns: [ChatTurn] = [],
   attachments: [ChatAttachment] = [],
   systemPrompt: String = "System",
@@ -484,7 +551,6 @@ private func makeState(
     ? [ChatTurn(status: .running, items: items)]
     : turns
   return ChatSession(
-    toolCalls: toolCalls,
     turns: resolvedTurns,
     pendingAttachments: attachments,
     systemPrompt: systemPrompt,

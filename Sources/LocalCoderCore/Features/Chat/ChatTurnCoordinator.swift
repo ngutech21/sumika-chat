@@ -234,7 +234,7 @@ public final class ChatTurnCoordinator {
 
   @discardableResult
   func cancelActiveTurn(
-    emitEvents: ChatTurnEventEmitter,
+    emitEvents: ChatWorkflowEventEmitter,
     turnDidFinish: ChatTurnFinishedHandler,
     notifySessionDidChange: ChatTurnNotifyHandler
   ) -> Bool {
@@ -331,7 +331,7 @@ public final class ChatTurnCoordinator {
 
   private func completeTurn(
     _ turnID: ChatTurn.ID,
-    emitEvents: ChatTurnEventEmitter,
+    emitEvents: ChatWorkflowEventEmitter,
     turnDidFinish: ChatTurnFinishedHandler,
     notifySessionDidChange: ChatTurnNotifyHandler
   ) {
@@ -353,7 +353,7 @@ public final class ChatTurnCoordinator {
 
   private func cancelTurn(
     _ turnID: ChatTurn.ID,
-    emitEvents: ChatTurnEventEmitter,
+    emitEvents: ChatWorkflowEventEmitter,
     turnDidFinish: ChatTurnFinishedHandler,
     notifySessionDidChange: ChatTurnNotifyHandler
   ) {
@@ -371,7 +371,7 @@ public final class ChatTurnCoordinator {
     _ turnID: ChatTurn.ID,
     error: Error?,
     cancelsStreaming: Bool,
-    emitEvents: ChatTurnEventEmitter,
+    emitEvents: ChatWorkflowEventEmitter,
     setErrorMessage: ChatTurnErrorMessageHandler,
     turnDidFinish: ChatTurnFinishedHandler,
     notifySessionDidChange: ChatTurnNotifyHandler

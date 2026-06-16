@@ -22,14 +22,27 @@ struct DataModelMarkdownRendererTests {
           name: "ChatSessionState",
           kind: .struct,
           properties: [
-            DataModelProperty(name: "turns", type: "[ChatTurn]", isStored: true),
-            DataModelProperty(name: "toolCalls", type: "[ToolCallRecord]", isStored: true),
+            DataModelProperty(name: "turns", type: "[ChatTurn]", isStored: true)
           ],
           sourcePath: "Sources/LocalCoderCore/Models/ChatSessionState.swift"
         ),
         DataModelDeclaration(
           name: "ChatTurn",
           kind: .struct,
+          properties: [
+            DataModelProperty(name: "items", type: "[ChatTurnItem]", isStored: true)
+          ],
+          sourcePath: "Sources/LocalCoderCore/Models/ChatTurn.swift"
+        ),
+        DataModelDeclaration(
+          name: "ChatTurnItem",
+          kind: .enum,
+          cases: [
+            DataModelCase(
+              name: "tool",
+              associatedValues: [DataModelAssociatedValue(type: "ToolCallRecord")]
+            )
+          ],
           sourcePath: "Sources/LocalCoderCore/Models/ChatTurn.swift"
         ),
         DataModelDeclaration(
@@ -56,11 +69,13 @@ struct DataModelMarkdownRendererTests {
     #expect(markdown.contains("\"nodeSpacing\": 60"))
     #expect(markdown.contains("flowchart TD"))
     #expect(markdown.contains("  ChatSessionState --> ChatTurn"))
-    #expect(markdown.contains("  ChatSessionState --> ToolCallRecord"))
+    #expect(markdown.contains("  ChatTurn --> ChatTurnItem"))
+    #expect(markdown.contains("  ChatTurnItem --> ToolCallRecord"))
     #expect(markdown.contains("  ToolCallRecord --> ToolResultPayload"))
     #expect(markdown.contains("  ToolResultPayload --> ReadFileResult"))
     #expect(markdown.contains("### ChatSessionState"))
     #expect(markdown.contains("- `turns: [ChatTurn]`"))
+    #expect(markdown.contains("- `items: [ChatTurnItem]`"))
     #expect(markdown.contains("- `readFile(ReadFileResult)`"))
   }
 }

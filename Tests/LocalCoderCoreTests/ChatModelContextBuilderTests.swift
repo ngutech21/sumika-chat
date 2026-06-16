@@ -224,7 +224,7 @@ struct ChatModelContextBuilderTests {
     let after = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
 
     #expect(Array(after.entries.prefix(before.entries.count)) == before.entries)
-    #expect(state.transcriptItemsForTesting[0].kindForTesting == .toolCall)
+    #expect(state.transcriptItemsForTesting.map(\.kindForTesting) == [.assistant, .toolCall])
     #expect(after.entries.last?.frozenContent.content == "observation")
   }
 }

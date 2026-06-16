@@ -71,6 +71,32 @@ unless explicitly requested.
 Prefer clean ADTs, single sources of truth, derived projections, and intentional
 `Codable` schemas covered by tests.
 
+Keep the persisted data model minimal and SSOT-first:
+
+- Store each domain fact in exactly one place. Do not keep parallel collections
+  that can describe the same event or lifecycle state.
+- Choose one canonical owner for every persisted concept and keep related
+  lifecycle state with that owner. References between concepts should use stable
+  IDs, not duplicated stored copies.
+- Do not add convenience arrays, caches, summaries, or denormalized fields as
+  persisted state when they mirror canonical data. Build UI timelines, prompt
+  inputs, traces, summaries, and other read models as derived projections.
+- For chat state, `ChatSession.turns` and `ChatTurn.items` are the persisted
+  transcript and tool-state SSOT. Do not persist a parallel `toolCalls` list or a
+  turn event log unless explicitly requested.
+- `ModelContextSnapshot` is an intentional frozen model-facing copy. Keep it as
+  the cache-stable prompt ledger, but do not use it as a reason to duplicate UI
+  transcript or tool lifecycle state elsewhere.
+- Enforce append-only turn membership in the model: append new user, assistant,
+  and tool facts; update existing items only for their own lifecycle fields.
+  Filter read models instead of deleting persisted transcript items.
+- Before adding a stored field, identify the owner, lifecycle, invariants, and
+  whether the value can be derived. If it can be derived cheaply and reliably,
+  do not persist it.
+- Add tests for data-model invariants when changing persisted schemas. Cover
+  ordering, ownership, encode/decode round trips, and projection generation from
+  the SSOT.
+
 ## Tool Runtime
 
 Follow `docs/tool-runtime.md` when adding or changing tools. Tools are registered

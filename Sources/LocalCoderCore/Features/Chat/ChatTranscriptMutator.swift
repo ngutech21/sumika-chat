@@ -113,15 +113,9 @@ public struct ChatTranscriptMutator: Sendable {
   }
 
   public func appendChunk(_ chunk: String, to messageID: UUID, in state: inout ChatSession) {
-    appendEvent(
-      ChatTurnEvent(
-        payload: .assistantChunkAppended(
-          AssistantChunkAppendedEvent(messageID: messageID, chunk: chunk)
-        )
-      ),
-      toTurnContainingMessageID: messageID,
-      in: &state
-    )
+    updateTurn(containingMessageID: messageID, in: &state) { turn in
+      turn.appendAssistantChunk(chunk, to: messageID)
+    }
   }
 
   public func updateGenerationMetrics(
@@ -129,15 +123,9 @@ public struct ChatTranscriptMutator: Sendable {
     for messageID: UUID,
     in state: inout ChatSession
   ) {
-    appendEvent(
-      ChatTurnEvent(
-        payload: .assistantGenerationMetricsUpdated(
-          AssistantGenerationMetricsUpdatedEvent(messageID: messageID, metrics: metrics)
-        )
-      ),
-      toTurnContainingMessageID: messageID,
-      in: &state
-    )
+    updateTurn(containingMessageID: messageID, in: &state) { turn in
+      turn.updateAssistantGenerationMetrics(metrics, for: messageID)
+    }
   }
 
   public func updateDeliveryStatus(
@@ -145,15 +133,9 @@ public struct ChatTranscriptMutator: Sendable {
     for messageID: UUID,
     in state: inout ChatSession
   ) {
-    appendEvent(
-      ChatTurnEvent(
-        payload: .assistantDeliveryStatusUpdated(
-          AssistantDeliveryStatusUpdatedEvent(messageID: messageID, status: status)
-        )
-      ),
-      toTurnContainingMessageID: messageID,
-      in: &state
-    )
+    updateTurn(containingMessageID: messageID, in: &state) { turn in
+      turn.updateAssistantDeliveryStatus(status, for: messageID)
+    }
   }
 
   public func replaceAssistantContent(
@@ -161,15 +143,9 @@ public struct ChatTranscriptMutator: Sendable {
     for messageID: UUID,
     in state: inout ChatSession
   ) {
-    appendEvent(
-      ChatTurnEvent(
-        payload: .assistantContentReplaced(
-          AssistantContentReplacedEvent(messageID: messageID, content: content)
-        )
-      ),
-      toTurnContainingMessageID: messageID,
-      in: &state
-    )
+    updateTurn(containingMessageID: messageID, in: &state) { turn in
+      turn.replaceAssistantContent(content, for: messageID)
+    }
   }
 
   public func annotateToolCall(
@@ -177,17 +153,16 @@ public struct ChatTranscriptMutator: Sendable {
     for messageID: UUID,
     in state: inout ChatSession
   ) {
-    ensureToolCallRecord(for: toolCall, nearMessageID: messageID, in: &state)
     redactModelFacingToolCallPayloadIfNeeded(toolCall, sourceMessageID: messageID, in: &state)
-    appendEvent(
-      ChatTurnEvent(
-        payload: .assistantMessageAnnotatedAsToolCall(
-          AssistantToolCallAnnotationEvent(messageID: messageID, toolCallID: toolCall.callID)
-        )
-      ),
-      toTurnContainingMessageID: messageID,
-      in: &state
-    )
+    guard let turnID = turnID(containingMessageID: messageID, in: state) else {
+      return
+    }
+    let record =
+      state.toolCallRecord(id: toolCall.callID)
+      ?? syntheticToolCallRecord(for: toolCall)
+    updateTurn(turnID, in: &state) { turn in
+      turn.annotateAssistantMessageAsToolCall(messageID: messageID, record: record)
+    }
   }
 
   public func appendToolResult(
@@ -195,12 +170,12 @@ public struct ChatTranscriptMutator: Sendable {
     turnID: ChatTurn.ID? = nil,
     to state: inout ChatSession
   ) {
-    ensureToolCallRecord(for: toolResult, turnID: turnID, in: &state)
-    appendEvent(
-      ChatTurnEvent(payload: .toolResultAppended(toolResult)),
-      toTurn: turnID,
-      in: &state
-    )
+    updateTurn(turnID, in: &state) { turn in
+      turn.appendOrUpdateToolResult(
+        toolResult,
+        fallbackRecord: syntheticToolCallRecord(for: toolResult)
+      )
+    }
   }
 
   public func recordToolCall(
@@ -208,63 +183,33 @@ public struct ChatTranscriptMutator: Sendable {
     turnID: ChatTurn.ID,
     in state: inout ChatSession
   ) {
-    appendEvent(
-      ChatTurnEvent(payload: .toolCallRecorded(record)),
-      toTurn: turnID,
-      in: &state
-    )
-    guard let turn = state.turns.first(where: { $0.id == turnID }),
-      !turn.items.contains(where: { item in
-        guard case .toolCall(let id) = item else {
-          return false
-        }
-        return id == record.id
-      })
-    else {
-      return
+    updateTurn(turnID, in: &state) { turn in
+      turn.recordToolCall(record)
     }
-    appendItem(.toolCall(record.id), toTurn: turnID, in: &state)
   }
 
   public func updateToolCallRecord(
     _ record: ToolCallRecord,
     in state: inout ChatSession
   ) {
-    guard state.toolCalls.contains(where: { $0.id == record.id }) else {
+    guard let turnID = state.turnID(containingToolCall: record.id) else {
       return
     }
-    appendEvent(
-      ChatTurnEvent(payload: .toolCallUpdated(record)),
-      toTurn: state.turnID(containingToolCall: record.id),
-      in: &state
-    )
+    updateTurn(turnID, in: &state) { turn in
+      turn.updateToolCallRecord(record)
+    }
   }
 
-  public func removeMessage(id: UUID, from state: inout ChatSession) {
-    appendEvent(
-      ChatTurnEvent(payload: .messageRemoved(MessageRemovedEvent(messageID: id))),
-      toTurnContainingMessageID: id,
-      in: &state
-    )
+  public func removeMessage(id _: UUID, from _: inout ChatSession) {
+    // Transcript items are append-only. Empty cancelled assistant placeholders
+    // are filtered by read models instead of being deleted from persisted turns.
   }
 
   public func removeTransientAssistantPlaceholders(from state: inout ChatSession) {
     for turnID in state.turns.map(\.id) {
-      guard let turn = state.turns.first(where: { $0.id == turnID }),
-        turn.items.contains(where: { item in
-          guard case .assistantMessage(let message) = item else {
-            return false
-          }
-          return message.content.isEmpty && message.deliveryStatus == .streaming
-        })
-      else {
-        continue
+      updateTurn(turnID, in: &state) { turn in
+        turn.cancelEmptyStreamingAssistantPlaceholders()
       }
-      appendEvent(
-        ChatTurnEvent(payload: .transientAssistantPlaceholdersRemoved),
-        toTurn: turnID,
-        in: &state
-      )
     }
   }
 
@@ -272,11 +217,9 @@ public struct ChatTranscriptMutator: Sendable {
     inTurn turnID: ChatTurn.ID,
     in state: inout ChatSession
   ) {
-    appendEvent(
-      ChatTurnEvent(payload: .streamingAssistantMessagesCancelled),
-      toTurn: turnID,
-      in: &state
-    )
+    updateTurn(turnID, in: &state) { turn in
+      turn.markStreamingAssistantMessagesCancelled()
+    }
   }
 
   public func clearTranscript(in state: inout ChatSession) {
@@ -296,22 +239,9 @@ public struct ChatTranscriptMutator: Sendable {
     toTurn turnID: ChatTurn.ID?,
     in state: inout ChatSession
   ) {
-    let event = ChatTurnEvent(payload: .transcriptItemAppended(item))
-    guard let turnID else {
-      if state.turns.isEmpty {
-        state.turns.append(ChatTurn(status: .completed, items: [item]))
-      } else {
-        state.turns[state.turns.count - 1].appendEvent(event)
-      }
-      return
+    updateTurn(turnID, in: &state) { turn in
+      turn.appendItem(item)
     }
-
-    guard state.turns.contains(where: { $0.id == turnID }) else {
-      state.turns.append(ChatTurn(id: turnID, status: .completed, items: [item]))
-      return
-    }
-
-    appendEvent(event, toTurn: turnID, in: &state)
   }
 
   public func updateTurnStatus(
@@ -320,25 +250,59 @@ public struct ChatTranscriptMutator: Sendable {
     for turnID: ChatTurn.ID,
     in state: inout ChatSession
   ) {
-    appendEvent(
-      ChatTurnEvent(
-        payload: .turnStatusChanged(
-          TurnStatusChangedEvent(status: status, modelContextPolicy: modelContextPolicy)
-        )
-      ),
-      toTurn: turnID,
-      in: &state
-    )
+    updateTurn(turnID, status: status, modelContextPolicy: modelContextPolicy, in: &state) {
+      turn in
+      turn.updateStatus(status, modelContextPolicy: modelContextPolicy)
+    }
   }
 
-  private func ensureToolCallRecord(
-    for toolResult: ToolResultModelMessage,
-    turnID: ChatTurn.ID?,
-    in state: inout ChatSession
+  private func updateTurn(
+    _ turnID: ChatTurn.ID?,
+    status: ChatTurnStatus = .completed,
+    modelContextPolicy: ChatTurnModelContextPolicy? = nil,
+    in state: inout ChatSession,
+    update: (inout ChatTurn) -> Void
   ) {
-    guard !state.toolCalls.contains(where: { $0.id == toolResult.callID }) else {
+    guard let turnID else {
+      if state.turns.isEmpty {
+        state.turns.append(
+          ChatTurn(status: status, modelContextPolicy: modelContextPolicy ?? .included))
+      }
+      update(&state.turns[state.turns.count - 1])
       return
     }
+
+    guard let index = state.turns.firstIndex(where: { $0.id == turnID }) else {
+      state.turns.append(
+        ChatTurn(id: turnID, status: status, modelContextPolicy: modelContextPolicy ?? .included))
+      update(&state.turns[state.turns.count - 1])
+      return
+    }
+
+    update(&state.turns[index])
+  }
+
+  private func updateTurn(
+    containingMessageID messageID: UUID,
+    in state: inout ChatSession,
+    update: (inout ChatTurn) -> Void
+  ) {
+    guard let turnID = turnID(containingMessageID: messageID, in: state) else {
+      return
+    }
+    updateTurn(turnID, in: &state, update: update)
+  }
+
+  private func turnID(
+    containingMessageID messageID: UUID,
+    in state: ChatSession
+  ) -> ChatTurn.ID? {
+    state.turns.first { turn in
+      turn.containsMessage(id: messageID)
+    }?.id
+  }
+
+  private func syntheticToolCallRecord(for toolResult: ToolResultModelMessage) -> ToolCallRecord {
     let raw = RawToolCallRequest(
       id: toolResult.callID,
       workspaceID: UUID(),
@@ -353,33 +317,18 @@ public struct ChatTranscriptMutator: Sendable {
         reason: .parserError("Tool result was recorded without a matching tool call request.")
       )
     )
-    appendEvent(
-      ChatTurnEvent(
-        payload: .toolCallRecorded(
-          ToolCallRecord(
-            request: request,
-            evaluation: ToolPermissionEvaluation(
-              decision: .allowed,
-              reason: "Synthetic record for an already completed tool result.",
-              riskLevel: .low
-            ),
-            state: .completed(toolResult.payload)
-          )
-        )
+    return ToolCallRecord(
+      request: request,
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Synthetic record for an already completed tool result.",
+        riskLevel: .low
       ),
-      toTurn: turnID,
-      in: &state
+      state: toolResult.completedState
     )
   }
 
-  private func ensureToolCallRecord(
-    for toolCall: ToolCallModelMessage,
-    nearMessageID messageID: UUID,
-    in state: inout ChatSession
-  ) {
-    guard !state.toolCalls.contains(where: { $0.id == toolCall.callID }) else {
-      return
-    }
+  private func syntheticToolCallRecord(for toolCall: ToolCallModelMessage) -> ToolCallRecord {
     let arguments = Dictionary(
       uniqueKeysWithValues: toolCall.arguments.map { argument in
         (argument.name, ToolArgumentValue.string(argument.value))
@@ -401,22 +350,14 @@ public struct ChatTranscriptMutator: Sendable {
         reason: .parserError("Tool call was displayed without a matching validated request.")
       )
     )
-    appendEvent(
-      ChatTurnEvent(
-        payload: .toolCallRecorded(
-          ToolCallRecord(
-            request: request,
-            evaluation: ToolPermissionEvaluation(
-              decision: .allowed,
-              reason: "Synthetic record for an already parsed tool call.",
-              riskLevel: .low
-            ),
-            state: .pending
-          )
-        )
+    return ToolCallRecord(
+      request: request,
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Synthetic record for an already parsed tool call.",
+        riskLevel: .low
       ),
-      toTurnContainingMessageID: messageID,
-      in: &state
+      state: .pending
     )
   }
 
@@ -469,78 +410,6 @@ public struct ChatTranscriptMutator: Sendable {
     }
 
     return redactedToolCall
-  }
-
-  private func appendEvent(
-    _ event: ChatTurnEvent,
-    toTurn turnID: ChatTurn.ID?,
-    in state: inout ChatSession
-  ) {
-    guard let turnID else {
-      if state.turns.isEmpty {
-        state.turns.append(ChatTurn(events: [event]))
-      } else {
-        state.turns[state.turns.count - 1].appendEvent(event)
-      }
-      return
-    }
-
-    guard let index = state.turns.firstIndex(where: { $0.id == turnID }) else {
-      state.turns.append(ChatTurn(id: turnID, events: [event]))
-      return
-    }
-
-    state.turns[index].appendEvent(event)
-  }
-
-  private func appendEvent(
-    _ event: ChatTurnEvent,
-    toTurnContainingMessageID messageID: UUID,
-    in state: inout ChatSession
-  ) {
-    let turnID = turnID(containingMessageID: messageID, in: state)
-    appendEvent(event, toTurn: turnID, in: &state)
-  }
-
-  private func turnID(
-    containingMessageID messageID: UUID,
-    in state: ChatSession
-  ) -> ChatTurn.ID? {
-    state.turns.first { turn in
-      turn.items.contains { $0.messageID == messageID }
-        || turn.events.contains { event in
-          event.referencesMessageID(messageID)
-        }
-    }?.id
-  }
-
-}
-
-nonisolated extension ChatTurnEvent {
-  fileprivate func referencesMessageID(_ messageID: UUID) -> Bool {
-    switch payload {
-    case .transcriptItemAppended(let item):
-      item.messageID == messageID
-    case .assistantChunkAppended(let event):
-      event.messageID == messageID
-    case .assistantContentReplaced(let event):
-      event.messageID == messageID
-    case .assistantDeliveryStatusUpdated(let event):
-      event.messageID == messageID
-    case .assistantGenerationMetricsUpdated(let event):
-      event.messageID == messageID
-    case .messageRemoved(let event):
-      event.messageID == messageID
-    case .assistantMessageAnnotatedAsToolCall(let event):
-      event.messageID == messageID || event.toolCallID == messageID
-    case .toolCallRecorded(let record), .toolCallUpdated(let record):
-      record.id == messageID
-    case .toolResultAppended(let result):
-      result.callID == messageID
-    case .transientAssistantPlaceholdersRemoved, .streamingAssistantMessagesCancelled,
-      .turnStatusChanged:
-      false
-    }
   }
 }
 

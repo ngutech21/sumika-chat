@@ -4,7 +4,6 @@ import SwiftUI
 
 struct ChatTranscript: View {
   let turns: [ChatTurn]
-  let toolCalls: [ToolCallRecord]
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
   let isGenerating: Bool
@@ -14,7 +13,7 @@ struct ChatTranscript: View {
   @State private var renderer = ChatTranscriptRenderer()
 
   var body: some View {
-    let items = renderer.items(for: turns, toolCalls: toolCalls)
+    let items = renderer.items(for: turns)
 
     if items.isEmpty {
       ZStack {
@@ -79,19 +78,16 @@ private final class ChatTranscriptRenderer {
   private var assistantBlockCache: [AssistantMessageRenderKey: [AssistantRenderBlock]] = [:]
 
   func items(
-    for turns: [ChatTurn],
-    toolCalls: [ToolCallRecord]
+    for turns: [ChatTurn]
   ) -> [RenderedChatTurnItem] {
-    let input = ChatTranscriptRenderInput(turns: turns, toolCalls: toolCalls)
+    let input = ChatTranscriptRenderInput(turns: turns)
     guard input != cachedInput else {
       return cachedItems
     }
 
-    let recordsByID = Dictionary(toolCalls.map { ($0.id, $0) }) { _, latest in latest }
     let renderedItems = turns.flatMap { turn in
       let turnGenerationMetrics = turn.items.compactMap(\.generationMetrics).last
       var renderedItems: [RenderedChatTurnItem] = []
-      var renderedToolCallIDs = Set<ToolCallRecord.ID>()
 
       for (offset, item) in turn.items.enumerated() {
         switch item {
@@ -105,6 +101,9 @@ private final class ChatTranscriptRenderer {
               assistantRenderBlocks: []
             ))
         case .assistantMessage(let message):
+          guard message.shouldRenderInTranscript else {
+            continue
+          }
           renderedItems.append(
             RenderedChatTurnItem(
               id: "\(turn.id.uuidString):\(offset):message:\(message.id.uuidString)",
@@ -113,30 +112,10 @@ private final class ChatTranscriptRenderer {
               generationMetrics: message.generationMetrics,
               assistantRenderBlocks: blocks(for: message)
             ))
-        case .toolCall(let id):
-          guard let record = recordsByID[id] else {
-            continue
-          }
-          renderedToolCallIDs.insert(id)
+        case .tool(let record):
           renderedItems.append(
             RenderedChatTurnItem(
-              id: "\(turn.id.uuidString):\(offset):toolCall:\(id.uuidString)",
-              item: item,
-              toolCallRecord: record,
-              generationMetrics: turnGenerationMetrics,
-              assistantRenderBlocks: []
-            ))
-        case .toolResult(let id):
-          if renderedToolCallIDs.contains(id) {
-            continue
-          }
-
-          guard let record = recordsByID[id] else {
-            continue
-          }
-          renderedItems.append(
-            RenderedChatTurnItem(
-              id: "\(turn.id.uuidString):\(offset):toolResult:\(id.uuidString)",
+              id: "\(turn.id.uuidString):\(offset):tool:\(record.id.uuidString)",
               item: item,
               toolCallRecord: record,
               generationMetrics: turnGenerationMetrics,
@@ -179,7 +158,6 @@ private struct RenderedChatTurnItem: Identifiable, Equatable {
 
 private struct ChatTranscriptRenderInput: Equatable {
   let turns: [ChatTurn]
-  let toolCalls: [ToolCallRecord]
 
   var assistantMessages: Set<AssistantMessageRenderKey> {
     Set(
@@ -444,7 +422,7 @@ private struct MessageContentText: View {
   @ViewBuilder
   var body: some View {
     switch item {
-    case .toolCall:
+    case .tool:
       if let toolCallRecord {
         ToolExecutionSummaryView(
           toolCallRecord: toolCallRecord,
@@ -452,14 +430,6 @@ private struct MessageContentText: View {
           onApprove: onApproveToolCall,
           onDeny: onDenyToolCall,
           onAnswerAskUser: onAnswerAskUser
-        )
-      }
-    case .toolResult:
-      if let toolCallRecord {
-        ToolResultSummaryView(
-          toolResult: ToolResultModelMessage(record: toolCallRecord),
-          toolCallRecord: toolCallRecord,
-          generationMetrics: generationMetrics
         )
       }
     case .assistantMessage:
@@ -650,10 +620,8 @@ extension RenderedChatTurnItem {
       "chat.assistantMessage"
     case .userMessage:
       "chat.userMessage"
-    case .toolCall:
+    case .tool:
       "chat.toolCallMessage"
-    case .toolResult:
-      "chat.toolResultMessage"
     }
   }
 
@@ -693,7 +661,7 @@ extension RenderedChatTurnItem {
       !message.content.isEmpty
     case .assistantMessage(let message):
       message.canCopyAssistantContent
-    case .toolCall, .toolResult:
+    case .tool:
       false
     }
   }
@@ -716,7 +684,7 @@ extension RenderedChatTurnItem {
       message.content
     case .assistantMessage(let message):
       message.content
-    case .toolCall, .toolResult:
+    case .tool:
       ""
     }
   }
@@ -730,7 +698,7 @@ extension RenderedChatTurnItem {
 
   private var isToolItem: Bool {
     switch item {
-    case .toolCall, .toolResult:
+    case .tool:
       true
     case .assistantMessage, .userMessage:
       false
@@ -744,6 +712,12 @@ extension ChatTurnItem {
       return nil
     }
     return message.generationMetrics
+  }
+}
+
+extension AssistantTurnMessage {
+  fileprivate var shouldRenderInTranscript: Bool {
+    shouldShowAssistantPlaceholder || !content.isEmpty
   }
 }
 

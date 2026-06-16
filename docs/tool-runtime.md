@@ -89,10 +89,11 @@ flowchart TD
 - `ToolModelObservation` is compact, capped, and purpose-specific. The prompt
   renderer renders it once into `FrozenModelContent`; that frozen content is the
   stable model-facing ledger artifact.
-- `ChatTurn.items` is the canonical source for tool-call and tool-result turn
-  membership. Code that needs reverse lookup derives `toolCallID -> turnID`
-  from the transcript items instead of storing a turn pointer on
-  `ToolCallRecord`.
+- `ChatTurn.items` is the canonical source for tool turn membership. One
+  `.tool(ToolCallRecord)` item carries the call, permission state, and eventual
+  result payload. Code that needs reverse lookup derives `toolCallID -> turnID`
+  from turn items instead of storing a turn pointer on `ToolCallRecord` or a
+  second persisted tool list.
 - Tool observations are untrusted tool output, not user instructions. Missing
   turn ownership is an invalid model-projection state and should fail clearly.
 - `ToolResultPreview` is limited to approval previews and derived compatibility

@@ -56,7 +56,7 @@ extension ChatSession {
 
   var testMessages: [TestTranscriptMessage] {
     get {
-      transcriptItemsForTesting.map { item in
+      transcriptItemsForTesting.filter { $0.isVisibleForTesting }.map { item in
         TestTranscriptMessage(
           id: item.messageID ?? UUID(),
           kind: item.kindForTesting,
@@ -81,16 +81,23 @@ extension ChatSession {
 }
 
 extension ChatTurnItem {
+  var isVisibleForTesting: Bool {
+    switch self {
+    case .assistantMessage(let message):
+      message.shouldShowAssistantPlaceholder || !message.content.isEmpty
+    case .userMessage, .tool:
+      true
+    }
+  }
+
   var kindForTesting: TranscriptItemKindForTesting {
     switch self {
     case .userMessage:
       .user
     case .assistantMessage:
       .assistant
-    case .toolCall:
-      .toolCall
-    case .toolResult:
-      .toolResult
+    case .tool(let record):
+      record.resultPayload == nil ? .toolCall : .toolResult
     }
   }
 
@@ -100,7 +107,7 @@ extension ChatTurnItem {
       message.content
     case .assistantMessage(let message):
       message.content
-    case .toolCall, .toolResult:
+    case .tool:
       ""
     }
   }
@@ -111,7 +118,7 @@ extension ChatTurnItem {
       message.attachments
     case .assistantMessage(let message):
       message.attachments
-    case .toolCall, .toolResult:
+    case .tool:
       []
     }
   }
@@ -131,23 +138,22 @@ extension ChatTurnItem {
   }
 
   func toolCallForTesting(records: [ToolCallRecord]) -> ToolCallModelMessage? {
-    guard case .toolCall(let id) = self,
-      let record = records.first(where: { $0.id == id })
-    else {
+    guard case .tool(let record) = self else {
       return nil
     }
+    _ = records
     return ToolCallModelMessage(request: record.request)
   }
 
   func toolResultForTesting(records: [ToolCallRecord]) -> ToolResultModelMessage? {
-    guard case .toolResult(let id) = self,
-      let record = records.first(where: { $0.id == id }),
+    guard case .tool(let record) = self,
       let payload = record.resultPayload
     else {
       return nil
     }
+    _ = records
     return ToolResultModelMessage(
-      callID: id,
+      callID: record.id,
       toolName: record.request.raw.toolName,
       payload: payload
     )
@@ -160,7 +166,7 @@ func testMessageID(from item: ChatTurnItem) -> UUID? {
     message.id
   case .assistantMessage(let message):
     message.id
-  case .toolCall, .toolResult:
+  case .tool:
     nil
   }
 }
@@ -180,9 +186,47 @@ extension TestTranscriptMessage {
           deliveryStatus: deliveryStatus ?? .complete
         ))
     case .toolCall:
-      .toolCall(id)
+      .tool(makeTestingToolCallRecord(id: id, toolCall: toolCall, toolResult: nil))
     case .toolResult:
-      .toolResult(id)
+      .tool(makeTestingToolCallRecord(id: id, toolCall: toolCall, toolResult: toolResult))
     }
   }
+}
+
+private func makeTestingToolCallRecord(
+  id: UUID,
+  toolCall: ToolCallModelMessage?,
+  toolResult: ToolResultModelMessage?
+) -> ToolCallRecord {
+  let toolName = toolCall?.toolName ?? toolResult?.toolName ?? .invalid
+  let arguments = Dictionary(
+    uniqueKeysWithValues: (toolCall?.arguments ?? []).map { argument in
+      (argument.name, ToolArgumentValue.string(argument.value))
+    }
+  )
+  let raw = RawToolCallRequest(
+    id: id,
+    workspaceID: UUID(),
+    sessionID: UUID(),
+    toolName: toolName,
+    arguments: arguments,
+    rawText: toolCall?.rawText
+  )
+  let request = ToolCallRequest.invalid(
+    raw: raw,
+    input: InvalidToolInput(
+      originalName: toolName.rawValue,
+      rawArguments: arguments,
+      reason: .parserError("Synthetic testing tool record.")
+    )
+  )
+  return ToolCallRecord(
+    request: request,
+    evaluation: ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Synthetic testing tool record.",
+      riskLevel: .low
+    ),
+    state: toolResult.map { $0.completedState } ?? .pending
+  )
 }
