@@ -327,6 +327,69 @@ extension ChatSessionController {
     flushPendingContextUsageRefresh(defaultMode: contextRefreshMode)
   }
 
+  private enum TurnOutcome {
+    case completed
+    case cancelled
+    case failed(error: Error?, cancelsStreaming: Bool)
+  }
+
+  private func completeTurn(
+    _ turnID: ChatTurn.ID,
+    outcome: TurnOutcome
+  ) {
+    guard isCurrentTurn(turnID) else {
+      return
+    }
+
+    applyWorkflowEvents(turnCompletionEvents(turnID, outcome: outcome))
+    if case .failed(let error?, _) = outcome {
+      errorMessage = error.localizedDescription
+    }
+    finishGeneratingTurn(turnID)
+    notifySessionDidChange()
+  }
+
+  private func turnCompletionEvents(
+    _ turnID: ChatTurn.ID,
+    outcome: TurnOutcome
+  ) -> [ChatWorkflowEvent] {
+    switch outcome {
+    case .completed:
+      return [
+        .turnStatusChanged(
+          turnID: turnID,
+          status: .completed,
+          modelContextPolicy: nil
+        )
+      ]
+    case .cancelled:
+      return [
+        .turnStatusChanged(
+          turnID: turnID,
+          status: .cancelled,
+          modelContextPolicy: .excluded
+        ),
+        .streamingAssistantMessagesCancelled(turnID: turnID),
+        .transientAssistantPlaceholdersRemoved,
+      ]
+    case .failed(_, let cancelsStreaming):
+      var events: [ChatWorkflowEvent] = [
+        .turnStatusChanged(
+          turnID: turnID,
+          status: .failed,
+          modelContextPolicy: .excluded
+        )
+      ]
+      if cancelsStreaming {
+        events.append(contentsOf: [
+          .streamingAssistantMessagesCancelled(turnID: turnID),
+          .transientAssistantPlaceholdersRemoved,
+        ])
+      }
+      return events
+    }
+  }
+
   public func sendMessage() {
     sendMessage(workspace: nil, sessionID: nil)
   }
@@ -444,44 +507,14 @@ extension ChatSessionController {
           )
         }
       } catch is CancellationError {
-        guard isCurrentTurn(turnID) else {
-          return
-        }
-        markTurnCancelled(turnID)
-        finishGeneratingTurn(turnID)
-        notifySessionDidChange()
+        completeTurn(turnID, outcome: .cancelled)
         return
       } catch {
-        guard isCurrentTurn(turnID) else {
-          return
-        }
-        applyWorkflowEvents([
-          .turnStatusChanged(
-            turnID: turnID,
-            status: .failed,
-            modelContextPolicy: .excluded
-          ),
-          .streamingAssistantMessagesCancelled(turnID: turnID),
-          .transientAssistantPlaceholdersRemoved,
-        ])
-        errorMessage = error.localizedDescription
-        finishGeneratingTurn(turnID)
-        notifySessionDidChange()
+        completeTurn(turnID, outcome: .failed(error: error, cancelsStreaming: true))
         return
       }
 
-      guard isCurrentTurn(turnID) else {
-        return
-      }
-      applyWorkflowEvents([
-        .turnStatusChanged(
-          turnID: turnID,
-          status: .completed,
-          modelContextPolicy: nil
-        )
-      ])
-      finishGeneratingTurn(turnID)
-      notifySessionDidChange()
+      completeTurn(turnID, outcome: .completed)
     }
   }
 
@@ -757,15 +790,7 @@ extension ChatSessionController {
   }
 
   private func markTurnCancelled(_ turnID: ChatTurn.ID) {
-    applyWorkflowEvents([
-      .turnStatusChanged(
-        turnID: turnID,
-        status: .cancelled,
-        modelContextPolicy: .excluded
-      ),
-      .streamingAssistantMessagesCancelled(turnID: turnID),
-      .transientAssistantPlaceholdersRemoved,
-    ])
+    applyWorkflowEvents(turnCompletionEvents(turnID, outcome: .cancelled))
   }
 
   public func approveToolCall(id toolCallID: ToolCallRecord.ID, in workspace: Workspace) {
@@ -825,7 +850,7 @@ extension ChatSessionController {
 
       guard mergedRecord.status == .completed else {
         applyWorkflowEvents(events)
-        finishApprovedToolFailure(turnID)
+        completeTurn(turnID, outcome: .failed(error: nil, cancelsStreaming: false))
         return
       }
 
@@ -862,14 +887,14 @@ extension ChatSessionController {
         )
       }
     } catch is CancellationError {
-      finishCancelledApprovedToolTurn(turnID)
+      completeTurn(turnID, outcome: .cancelled)
       return
     } catch {
-      finishFailedApprovedToolTurn(turnID, error: error)
+      completeTurn(turnID, outcome: .failed(error: error, cancelsStreaming: true))
       return
     }
 
-    finishCompletedApprovedToolTurn(turnID)
+    completeTurn(turnID, outcome: .completed)
   }
 
   private func approvedToolCompletionEvents(
@@ -888,12 +913,70 @@ extension ChatSessionController {
     return events
   }
 
+  private func answeredAskUserToolEvents(
+    record: ToolCallRecord,
+    nextAssistantMessageID: UUID,
+    turnID: ChatTurn.ID
+  ) -> [ChatWorkflowEvent] {
+    [
+      .toolCallReplaced(record),
+      .toolResultAppended(
+        toolResultMessage(for: record),
+        turnID: turnID
+      ),
+      .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
+      .turnStatusChanged(
+        turnID: turnID,
+        status: .running,
+        modelContextPolicy: nil
+      ),
+    ]
+  }
+
+  private func deniedToolEvents(
+    record: ToolCallRecord,
+    message: String,
+    nextAssistantMessageID: UUID,
+    turnID: ChatTurn.ID
+  ) -> [ChatWorkflowEvent] {
+    [
+      .toolCallReplaced(record),
+      .toolResultAppended(
+        toolResultMessage(for: record, fallback: .permissionDenied(message: message)),
+        turnID: turnID
+      ),
+      .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
+      .turnStatusChanged(
+        turnID: turnID,
+        status: .running,
+        modelContextPolicy: nil
+      ),
+    ]
+  }
+
   private func toolResultMessage(for record: ToolCallRecord) -> ToolResultModelMessage {
-    return ToolResultModelMessage(
+    toolResultMessage(for: record, fallback: .unavailable)
+  }
+
+  private func toolResultMessage(
+    for record: ToolCallRecord,
+    fallback: ToolResultFallback
+  ) -> ToolResultModelMessage {
+    ToolResultModelMessage(
       callID: record.id,
       toolName: record.request.toolName,
-      payload: record.resultPayload
-        ?? .failure(
+      payload: record.resultPayload ?? fallback.payload(for: record)
+    )
+  }
+
+  private enum ToolResultFallback {
+    case unavailable
+    case permissionDenied(message: String)
+
+    func payload(for record: ToolCallRecord) -> ToolResultPayload {
+      switch self {
+      case .unavailable:
+        return .failure(
           ToolFailure(
             toolName: record.request.toolName,
             path: nil,
@@ -901,64 +984,16 @@ extension ChatSessionController {
               "Tool result unavailable for \(record.request.toolName.rawValue)."
             )
           ))
-    )
-  }
-
-  private func finishApprovedToolFailure(_ turnID: ChatTurn.ID) {
-    guard isCurrentTurn(turnID) else {
-      return
+      case .permissionDenied(let message):
+        return .failure(
+          ToolFailure(
+            toolName: record.request.toolName,
+            path: record.evaluation.firstModelFacingPath,
+            reason: .permissionDenied,
+            recovery: .askUser(message: message)
+          ))
+      }
     }
-    applyWorkflowEvents([
-      .turnStatusChanged(
-        turnID: turnID,
-        status: .failed,
-        modelContextPolicy: .excluded
-      )
-    ])
-    finishGeneratingTurn(turnID)
-    notifySessionDidChange()
-  }
-
-  private func finishCancelledApprovedToolTurn(_ turnID: ChatTurn.ID) {
-    guard isCurrentTurn(turnID) else {
-      return
-    }
-    markTurnCancelled(turnID)
-    finishGeneratingTurn(turnID)
-    notifySessionDidChange()
-  }
-
-  private func finishFailedApprovedToolTurn(_ turnID: ChatTurn.ID, error: Error) {
-    guard isCurrentTurn(turnID) else {
-      return
-    }
-    applyWorkflowEvents([
-      .turnStatusChanged(
-        turnID: turnID,
-        status: .failed,
-        modelContextPolicy: .excluded
-      ),
-      .streamingAssistantMessagesCancelled(turnID: turnID),
-      .transientAssistantPlaceholdersRemoved,
-    ])
-    errorMessage = error.localizedDescription
-    finishGeneratingTurn(turnID)
-    notifySessionDidChange()
-  }
-
-  private func finishCompletedApprovedToolTurn(_ turnID: ChatTurn.ID) {
-    guard isCurrentTurn(turnID) else {
-      return
-    }
-    applyWorkflowEvents([
-      .turnStatusChanged(
-        turnID: turnID,
-        status: .completed,
-        modelContextPolicy: nil
-      )
-    ])
-    finishGeneratingTurn(turnID)
-    notifySessionDidChange()
   }
 
   public func answerAskUserToolCall(
@@ -996,19 +1031,12 @@ extension ChatSessionController {
     answeredRecord.events.append(
       ToolCallEvent(actor: .user, kind: .answered, message: "Answered: \(answer)"))
     let nextAssistantMessageID = UUID()
-    applyWorkflowEvents([
-      .toolCallReplaced(answeredRecord),
-      .toolResultAppended(
-        toolResultMessage(for: answeredRecord),
+    applyWorkflowEvents(
+      answeredAskUserToolEvents(
+        record: answeredRecord,
+        nextAssistantMessageID: nextAssistantMessageID,
         turnID: turnID
-      ),
-      .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
-      .turnStatusChanged(
-        turnID: turnID,
-        status: .running,
-        modelContextPolicy: nil
-      ),
-    ])
+      ))
     isGenerating = true
     errorMessage = nil
     refreshContextUsage(toolPromptMode: .afterToolResultCanContinue)
@@ -1036,14 +1064,14 @@ extension ChatSessionController {
           lastNativeToolCalls: generationResult.nativeToolCalls
         )
       } catch is CancellationError {
-        finishCancelledApprovedToolTurn(turnID)
+        completeTurn(turnID, outcome: .cancelled)
         return
       } catch {
-        finishFailedApprovedToolTurn(turnID, error: error)
+        completeTurn(turnID, outcome: .failed(error: error, cancelsStreaming: true))
         return
       }
 
-      finishCompletedApprovedToolTurn(turnID)
+      completeTurn(turnID, outcome: .completed)
     }
   }
 
@@ -1075,19 +1103,13 @@ extension ChatSessionController {
     )
     deniedRecord.events.append(ToolCallEvent(actor: .user, kind: .denied, message: message))
     let nextAssistantMessageID = UUID()
-    applyWorkflowEvents([
-      .toolCallReplaced(deniedRecord),
-      .toolResultAppended(
-        deniedToolResultMessage(for: deniedRecord, message: message),
+    applyWorkflowEvents(
+      deniedToolEvents(
+        record: deniedRecord,
+        message: message,
+        nextAssistantMessageID: nextAssistantMessageID,
         turnID: turnID
-      ),
-      .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: turnID),
-      .turnStatusChanged(
-        turnID: turnID,
-        status: .running,
-        modelContextPolicy: nil
-      ),
-    ])
+      ))
     isGenerating = true
     errorMessage = nil
     appendFinalToolFollowUpBoundaryIfNeeded(
@@ -1110,14 +1132,14 @@ extension ChatSessionController {
           toolLoopIteration: 1
         )
       } catch is CancellationError {
-        finishCancelledApprovedToolTurn(turnID)
+        completeTurn(turnID, outcome: .cancelled)
         return
       } catch {
-        finishFailedApprovedToolTurn(turnID, error: error)
+        completeTurn(turnID, outcome: .failed(error: error, cancelsStreaming: true))
         return
       }
 
-      finishCompletedApprovedToolTurn(turnID)
+      completeTurn(turnID, outcome: .completed)
     }
   }
 
@@ -1167,24 +1189,6 @@ extension ChatSessionController {
       unique.append(attachment)
     }
     return unique
-  }
-
-  private func deniedToolResultMessage(
-    for deniedRecord: ToolCallRecord,
-    message: String
-  ) -> ToolResultModelMessage {
-    ToolResultModelMessage(
-      callID: deniedRecord.id,
-      toolName: deniedRecord.request.toolName,
-      payload: deniedRecord.resultPayload
-        ?? .failure(
-          ToolFailure(
-            toolName: deniedRecord.request.toolName,
-            path: deniedRecord.evaluation.firstModelFacingPath,
-            reason: .permissionDenied,
-            recovery: .askUser(message: message)
-          ))
-    )
   }
 
   private func mergedToolCallRecord(
