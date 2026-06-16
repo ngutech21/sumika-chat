@@ -979,7 +979,6 @@ struct ToolExecutionTests {
     #expect(
       result.evaluation.workspaceRelativePaths == [WorkspaceRelativePath(rawValue: "README.md")])
     #expect(result.resultPreview == nil)
-    #expect(result.events.map(\.kind).contains(.awaitingApproval))
     #expect(
       try String(contentsOf: workspace.rootURL.appending(path: "README.md"), encoding: .utf8)
         == "old")
@@ -1005,16 +1004,6 @@ struct ToolExecutionTests {
     #expect(result.status == .completed)
     #expect(result.evaluation.decision == .requiresApproval)
     #expect(result.resultPreview?.status == .success)
-    let eventKinds = result.events.map(\.kind)
-    #expect(eventKinds.contains(.approved))
-    #expect(eventKinds.contains(.started))
-    guard let approvedIndex = eventKinds.firstIndex(of: .approved),
-      let startedIndex = eventKinds.firstIndex(of: .started)
-    else {
-      Issue.record("Expected approved execution to record approval before start.")
-      return
-    }
-    #expect(approvedIndex < startedIndex)
     #expect(
       try String(contentsOf: workspace.rootURL.appending(path: "README.md"), encoding: .utf8)
         == "new")

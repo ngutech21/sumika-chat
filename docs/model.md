@@ -233,7 +233,6 @@ classDiagram
     id: UUID derived
     request: ToolCallRequest
     evaluation: ToolPermissionEvaluation
-    events: [ToolCallEvent]
     state: ToolCallState
   }
 
@@ -371,36 +370,6 @@ classDiagram
     denied
   }
 
-  class ToolCallEvent {
-    id: UUID
-    timestamp: Date
-    actor: ToolCallActor
-    kind: ToolCallEventKind
-    message: String
-  }
-
-  class ToolCallActor {
-    <<enum>>
-    assistant
-    user
-    system
-    tool
-  }
-
-  class ToolCallEventKind {
-    <<enum>>
-    requested
-    awaitingApproval
-    awaitingUserAnswer
-    answered
-    approved
-    denied
-    started
-    completed
-    failed
-    cancelled
-  }
-
   class ModelContextSnapshot {
     entries: [ModelContextEntry]
   }
@@ -518,7 +487,6 @@ classDiagram
   ToolCallRecord "1" --> "1" ToolCallRequest
   ToolCallRecord "1" --> "1" ToolPermissionEvaluation
   ToolCallRecord "1" --> "1" ToolCallState
-  ToolCallRecord "1" --> "*" ToolCallEvent
   ToolCallRequest --> RawToolCallRequest
   ToolCallRequest --> ToolCallPayload
   RawToolCallRequest --> ToolName
@@ -531,8 +499,6 @@ classDiagram
   ToolCallState --> ToolResultPayload : result payload
   ToolResultPayload --> ToolResultPreview : derived preview
   ToolResultPreview --> ToolResultStatus
-  ToolCallEvent --> ToolCallActor
-  ToolCallEvent --> ToolCallEventKind
 
   ModelContextSnapshot "1" --> "*" ModelContextEntry
   ModelContextEntry --> ModelContextEntryBody

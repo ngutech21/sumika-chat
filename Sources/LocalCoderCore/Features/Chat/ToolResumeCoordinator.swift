@@ -67,9 +67,6 @@ public struct ToolResumeCoordinator: Sendable {
   ) -> ToolResumeResult {
     var answeredRecord = record
     answeredRecord.state = .completed(.askUser(AskUserResult(answer: answer)))
-    answeredRecord.events.append(
-      ToolCallEvent(actor: .user, kind: .answered, message: "Answered: \(answer)"))
-
     let nextAssistantMessageID = UUID()
     let promptMode = ToolPromptMode.afterToolResultCanContinue
     return ToolResumeResult(
@@ -99,8 +96,6 @@ public struct ToolResumeCoordinator: Sendable {
           recovery: .askUser(message: message)
         ))
     )
-    deniedRecord.events.append(ToolCallEvent(actor: .user, kind: .denied, message: message))
-
     let nextAssistantMessageID = UUID()
     let promptMode = ToolPromptMode.afterToolResultFinal
     return ToolResumeResult(

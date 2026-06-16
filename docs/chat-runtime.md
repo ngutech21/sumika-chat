@@ -240,9 +240,9 @@ Gemma 4 native tool-call text.
 - `ChatSession` persists `modelContextSnapshot` and `turns`. Tool-call records
   are derived from the turn event log, not stored as a second top-level list.
 - Sessions without a stored `modelContextSnapshot` do not decode.
-- `ChatTurn.events` is the transcript and tool-lifecycle source of truth. Append
-  an event for every transcript message, assistant update, tool call, tool
-  result, approval transition, and turn lifecycle transition.
+- `ChatSession.turns` is the transcript and tool-state source of truth. Append
+  turn events for every transcript message, assistant update, tool-call state
+  snapshot, tool result, and turn lifecycle transition.
 - Clearing a chat transcript removes turns, derived tool-call state, and
   attachments, but keeps session settings such as system prompt and generation
   settings.

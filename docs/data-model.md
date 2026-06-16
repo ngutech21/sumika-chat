@@ -46,8 +46,6 @@ flowchart TD
   SearchFilesResult --> WorkspaceRelativePath
   TodoWriteResult --> ToolFailureReason
   ToolCallArguments --> ToolArgumentValue
-  ToolCallEvent --> ToolCallActor
-  ToolCallEvent --> ToolCallEventKind
   ToolCallModelMessage --> ToolCallModelArgument
   ToolCallModelMessage --> ToolName
   ToolCallParseOutput --> RawToolCallRequest
@@ -59,7 +57,6 @@ flowchart TD
   ToolCallPayload --> WebFetchInput
   ToolCallPayload --> WebSearchInput
   ToolCallPayload --> WorkspaceDiagnosticsInput
-  ToolCallRecord --> ToolCallEvent
   ToolCallRecord --> ToolCallRequest
   ToolCallRecord --> ToolCallState
   ToolCallRecord --> ToolPermissionEvaluation
@@ -772,19 +769,6 @@ Cases:
 - `object([String: ToolArgumentValue])`
 - `string(String)`
 
-### ToolCallActor
-
-- Kind: `enum`
-- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
-- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
-
-Cases:
-
-- `assistant`
-- `system`
-- `tool`
-- `user`
-
 ### ToolCallArguments
 
 - Kind: `typealias`
@@ -794,44 +778,6 @@ Cases:
 Relations:
 
 - `ToolArgumentValue`
-
-### ToolCallEvent
-
-- Kind: `struct`
-- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
-- Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
-
-Properties:
-
-- `actor: ToolCallActor`
-- `id: UUID`
-- `kind: ToolCallEventKind`
-- `message: String`
-- `timestamp: Date`
-
-Relations:
-
-- `ToolCallActor`
-- `ToolCallEventKind`
-
-### ToolCallEventKind
-
-- Kind: `enum`
-- Source: `Sources/LocalCoderCore/Models/ToolCall.swift`
-- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
-
-Cases:
-
-- `answered`
-- `approved`
-- `awaitingApproval`
-- `awaitingUserAnswer`
-- `cancelled`
-- `completed`
-- `denied`
-- `failed`
-- `requested`
-- `started`
 
 ### ToolCallModelArgument
 
@@ -923,13 +869,11 @@ Relations:
 Properties:
 
 - `evaluation: ToolPermissionEvaluation`
-- `events: [ToolCallEvent]`
 - `request: ToolCallRequest`
 - `state: ToolCallState`
 
 Relations:
 
-- `ToolCallEvent`
 - `ToolCallRequest`
 - `ToolCallState`
 - `ToolPermissionEvaluation`

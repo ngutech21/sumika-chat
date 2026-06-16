@@ -47,7 +47,6 @@ struct ToolResumeCoordinatorTests {
     #expect(result.followUpPromptMode == .afterToolResultCanContinue)
     #expect(result.nextAssistantMessageID != nil)
     #expect(updatedRecord.status == .completed)
-    #expect(updatedRecord.events.last?.kind == .answered)
     #expect(toolResultEvent(from: result.events)?.payload == .askUser(AskUserResult(answer: "yes")))
     #expect(turnStatus(from: result.events) == .running)
   }
@@ -80,7 +79,6 @@ struct ToolResumeCoordinatorTests {
     #expect(result.followUpPromptMode == .afterToolResultFinal)
     #expect(result.nextAssistantMessageID != nil)
     #expect(updatedRecord.status == .denied)
-    #expect(updatedRecord.events.last?.kind == .denied)
     #expect(resultMessage.payload.preview.status == .denied)
     #expect(resultMessage.payload.preview.affectedPaths == [path.rawValue])
     #expect(turnStatus(from: result.events) == .running)

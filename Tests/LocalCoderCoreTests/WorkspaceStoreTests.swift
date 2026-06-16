@@ -125,7 +125,6 @@ struct WorkspaceStoreTests {
     let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary()
     let reloadedToolCall = try #require(reloaded.workspaces.first?.sessions.first?.toolCalls.first)
     #expect(reloadedToolCall == toolCall)
-    #expect(reloadedToolCall.events.first?.actor == .assistant)
     #expect(
       reloadedToolCall.resultPayload
         == .readFile(
@@ -329,22 +328,6 @@ struct WorkspaceStoreTests {
         riskLevel: .low,
         normalizedPaths: ["/tmp/project/README.md"]
       ),
-      events: [
-        ToolCallEvent(
-          id: fixedUUID("00000000-0000-0000-0000-000000000002"),
-          timestamp: Date(timeIntervalSinceReferenceDate: 2),
-          actor: .assistant,
-          kind: .requested,
-          message: "Read README.md"
-        ),
-        ToolCallEvent(
-          id: fixedUUID("00000000-0000-0000-0000-000000000003"),
-          timestamp: Date(timeIntervalSinceReferenceDate: 3),
-          actor: .user,
-          kind: .cancelled,
-          message: "Cancelled by user"
-        ),
-      ],
       state: .completed(
         .readFile(
           .success(

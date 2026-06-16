@@ -252,17 +252,13 @@ public final class ChatTurnCoordinator {
           return
         }
 
-        let mergedRecord = self.mergedToolCallRecord(
-          existing: existingRecord,
-          updated: approvedRecord
-        )
         let resumeResult = self.toolResumeCoordinator.approvedToolResult(
-          record: mergedRecord,
+          record: approvedRecord,
           focusedFileState: session().focusedFileState,
           turnID: turnID
         )
 
-        guard mergedRecord.status == .completed else {
+        guard approvedRecord.status == .completed else {
           emitEvents(resumeResult.events)
           self.failTurn(
             turnID,
@@ -314,7 +310,7 @@ public final class ChatTurnCoordinator {
           turnID: turnID,
           toolLoopIteration: 1
         )
-        if !self.toolResumeCoordinator.isFinalApprovedToolFollowUp(mergedRecord) {
+        if !self.toolResumeCoordinator.isFinalApprovedToolFollowUp(approvedRecord) {
           let shouldComplete = try await self.runToolLoop(
             workspace: workspace,
             sessionID: existingRecord.request.sessionID,
@@ -1005,22 +1001,6 @@ public final class ChatTurnCoordinator {
       return []
     }
     return [.focusedFileStateChanged(updatedState)]
-  }
-
-  private func mergedToolCallRecord(
-    existing: ToolCallRecord,
-    updated: ToolCallRecord
-  ) -> ToolCallRecord {
-    var merged = updated
-    let appendedEvents = updated.events.filter { newEvent in
-      !existing.events.contains { existingEvent in
-        existingEvent.actor == newEvent.actor
-          && existingEvent.kind == newEvent.kind
-          && existingEvent.message == newEvent.message
-      }
-    }
-    merged.events = existing.events + appendedEvents
-    return merged
   }
 
   private func completeTurn(

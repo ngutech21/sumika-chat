@@ -439,7 +439,6 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
 
   public var request: ToolCallRequest
   public var evaluation: ToolPermissionEvaluation
-  public var events: [ToolCallEvent]
   public var state: ToolCallState
 
   public var status: ToolCallStatus {
@@ -461,12 +460,10 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   public init(
     request: ToolCallRequest,
     evaluation: ToolPermissionEvaluation,
-    events: [ToolCallEvent] = [],
     state: ToolCallState
   ) {
     self.request = request
     self.evaluation = evaluation
-    self.events = events
     self.state = state
   }
 }
@@ -533,48 +530,6 @@ public enum ToolCallStatus: String, Codable, Equatable, Sendable {
   case awaitingUserAnswer
   case denied
   case running
-  case completed
-  case failed
-  case cancelled
-}
-
-public struct ToolCallEvent: Codable, Identifiable, Equatable, Sendable {
-  public let id: UUID
-  public var timestamp: Date
-  public var actor: ToolCallActor
-  public var kind: ToolCallEventKind
-  public var message: String
-
-  public init(
-    id: UUID = UUID(),
-    timestamp: Date = Date(),
-    actor: ToolCallActor,
-    kind: ToolCallEventKind,
-    message: String
-  ) {
-    self.id = id
-    self.timestamp = timestamp
-    self.actor = actor
-    self.kind = kind
-    self.message = message
-  }
-}
-
-public enum ToolCallActor: String, Codable, Equatable, Sendable {
-  case assistant
-  case user
-  case system
-  case tool
-}
-
-public enum ToolCallEventKind: String, Codable, Equatable, Sendable {
-  case requested
-  case awaitingApproval
-  case awaitingUserAnswer
-  case answered
-  case approved
-  case denied
-  case started
   case completed
   case failed
   case cancelled

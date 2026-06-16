@@ -147,11 +147,8 @@ struct ChatWorkflowEventApplierTests {
 
   @Test
   func updatesExistingToolCallRecord() {
-    var existing = makeToolCallRecord(status: .awaitingApproval)
+    let existing = makeToolCallRecord(status: .awaitingApproval)
     let updated = makeToolCallRecord(request: existing.request, status: .completed)
-    existing.events.append(
-      ToolCallEvent(actor: .assistant, kind: .requested, message: "Requested.")
-    )
     var state = makeState(toolCalls: [existing])
 
     ChatWorkflowEventApplier().apply(

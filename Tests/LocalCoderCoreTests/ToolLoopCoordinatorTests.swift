@@ -48,10 +48,6 @@ struct ToolLoopCoordinatorTests {
     #expect(record.request.toolName == .readFile)
     #expect(record.request.raw.originalToolName == "READ-FILE")
     #expect(record.status == .completed)
-    #expect(
-      record.events.contains {
-        $0.message == "Tool name normalized: READ-FILE -> read_file."
-      })
   }
 
   @Test
