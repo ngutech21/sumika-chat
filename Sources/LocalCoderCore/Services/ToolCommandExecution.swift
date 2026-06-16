@@ -330,6 +330,45 @@ public protocol CommandProcessRunning: Sendable {
   func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult
 }
 
+private enum CommandProcessWaitOutcome: Sendable {
+  case exited
+  case timedOut
+  case cancelled
+}
+
+private final class ProcessTerminationSignal: @unchecked Sendable {
+  private let lock = NSLock()
+  private var continuation: CheckedContinuation<Void, Never>?
+  private var didTerminate = false
+
+  func signal() {
+    let continuationToResume: CheckedContinuation<Void, Never>?
+    lock.lock()
+    didTerminate = true
+    continuationToResume = continuation
+    continuation = nil
+    lock.unlock()
+
+    continuationToResume?.resume()
+  }
+
+  func wait() async {
+    await withCheckedContinuation { continuation in
+      let continuationToResume: CheckedContinuation<Void, Never>?
+      lock.lock()
+      if didTerminate {
+        continuationToResume = continuation
+      } else {
+        self.continuation = continuation
+        continuationToResume = nil
+      }
+      lock.unlock()
+
+      continuationToResume?.resume()
+    }
+  }
+}
+
 public actor DefaultCommandProcessRunner: CommandProcessRunning {
   private var runningProcesses: [UUID: Process] = [:]
 
@@ -362,8 +401,13 @@ public actor DefaultCommandProcessRunner: CommandProcessRunning {
     process.standardError = stderrPipe
 
     let startedAt = Date()
+    let terminationSignal = ProcessTerminationSignal()
+    process.terminationHandler = { _ in
+      terminationSignal.signal()
+    }
     runningProcesses[id] = process
     defer {
+      process.terminationHandler = nil
       runningProcesses[id] = nil
     }
 
@@ -376,23 +420,11 @@ public actor DefaultCommandProcessRunner: CommandProcessRunning {
       try stderrPipe.fileHandleForReading.readToEnd() ?? Data()
     }
 
-    var timedOut = false
-    var cancelled = false
-    while process.isRunning {
-      if Task.isCancelled {
-        cancelled = true
-        process.terminate()
-        break
-      }
-
-      if Date().timeIntervalSince(startedAt) >= TimeInterval(request.timeoutSeconds) {
-        timedOut = true
-        process.terminate()
-        break
-      }
-
-      try? await Task.sleep(for: .milliseconds(20))
-    }
+    let waitOutcome = await waitForExitOrTimeout(
+      process: process,
+      terminationSignal: terminationSignal,
+      timeoutSeconds: request.timeoutSeconds
+    )
 
     process.waitUntilExit()
     let durationMs = max(Int(Date().timeIntervalSince(startedAt) * 1000), 0)
@@ -404,9 +436,46 @@ public actor DefaultCommandProcessRunner: CommandProcessRunning {
       durationMs: durationMs,
       stdout: String(data: stdoutData, encoding: .utf8) ?? "",
       stderr: String(data: stderrData, encoding: .utf8) ?? "",
-      timedOut: timedOut,
-      cancelled: cancelled
+      timedOut: waitOutcome == .timedOut,
+      cancelled: waitOutcome == .cancelled
     )
+  }
+
+  private func waitForExitOrTimeout(
+    process: Process,
+    terminationSignal: ProcessTerminationSignal,
+    timeoutSeconds: Int
+  ) async -> CommandProcessWaitOutcome {
+    do {
+      return try await withThrowingTaskGroup(of: CommandProcessWaitOutcome.self) { group in
+        group.addTask {
+          await terminationSignal.wait()
+          return .exited
+        }
+
+        group.addTask {
+          do {
+            try await Task.sleep(for: .seconds(timeoutSeconds))
+            return Task.isCancelled ? .cancelled : .timedOut
+          } catch {
+            return .cancelled
+          }
+        }
+
+        let outcome = try await group.next() ?? .exited
+        if outcome != .exited, process.isRunning {
+          process.terminate()
+        }
+        group.cancelAll()
+        return outcome
+      }
+    } catch {
+      if process.isRunning {
+        process.terminate()
+      }
+      await terminationSignal.wait()
+      return .cancelled
+    }
   }
 
   private func terminateProcess(id: UUID) {

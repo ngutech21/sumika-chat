@@ -41,7 +41,6 @@ now resolved (see Resolved), the remaining risks are smaller and cluster in thre
 | P-02 | Low | Perf | Context-usage refresh re-renders the system prompt + re-sums history bytes on every call (~11x/turn) | `Sources/LocalCoderCore/Features/Chat/ContextUsageCoordinator.swift`, `ChatSessionController.swift` |
 | P-05 | Medium | Perf | Full-history FNV cache signature re-hashed ~2x per turn (grows O(transcript)) | `local-coder/Services/GemmaMLXRuntime.swift`, `GemmaSessionCachePolicy.swift` |
 | P-07 | Medium | Perf | `refreshDebounced` does not debounce; no coalescing of usage refreshes | `Sources/LocalCoderCore/Features/Chat/ContextUsageCoordinator.swift` |
-| P-08 | Medium | Perf | Command runner busy-polls `process.isRunning` every 20ms | `Sources/LocalCoderCore/Services/ToolCommandExecution.swift` |
 | P-09 | Low | Perf | Whole library re-encoded to one JSON file on every mutation | `Sources/LocalCoderCore/Services/WorkspaceStore.swift`, `Models/Workspace.swift` |
 | T-01 | High | TypeSafety | `AnyToolExecutor` recovers typed input via `as?` cast + 48-line name switch | `Sources/LocalCoderCore/Services/ToolExecution.swift` |
 | T-02 | Medium | TypeSafety | Cache-debug UI compares raw `cacheMode`/`cacheReason` magic strings | `local-coder/Features/Chat/WorkspaceChatView.swift` |
@@ -107,14 +106,6 @@ calls each do a full synchronous main-actor recount.
 Fix: restore real debouncing (a delayed `Task` the next call cancels) or rename to
 `refresh` and delete the dead `debounceDelay`/`turnTracer` parameters so the name stops
 implying coalescing that does not happen.
-
-#### P-08: Command runner busy-polls every 20ms (Medium)
-
-`DefaultCommandProcessRunner` (`ToolCommandExecution.swift:381-395`) busy-waits on
-`process.isRunning` in a 20ms sleep loop for the full command duration.
-
-Fix: race `process.terminationHandler` (bridged to a continuation) against
-`Task.sleep(timeout)` in a `withThrowingTaskGroup`.
 
 #### P-09: Whole library re-encoded per mutation (Low)
 
@@ -296,6 +287,9 @@ accumulator class.
   allocation are resolved (now a direct byte sum over frozen content; the runtime
   tokenizer path was already removed). The smaller residual is tracked as the reduced
   P-02 above. (commit `336d9ed0`)
+- **P-08** (was Medium / Perf) — `DefaultCommandProcessRunner` no longer busy-polls
+  `process.isRunning`; it bridges `Process.terminationHandler` into a continuation and
+  races process exit against timeout/cancellation in a task group.
 
 ## Recommended order
 
@@ -308,5 +302,4 @@ accumulator class.
    `DebouncedPersistenceScheduler` (Q-03); remove the dead seams (Q-05).
 5. Make trace and cache-debug fields typed (T-02, T-03); collapse duplicated helpers
    (Q-04).
-6. Address the command-runner busy-poll (P-08) and per-mutation library re-encode (P-09)
-   as scaling work.
+6. Address the per-mutation library re-encode (P-09) as scaling work.

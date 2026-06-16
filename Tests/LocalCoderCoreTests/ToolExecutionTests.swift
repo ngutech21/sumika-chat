@@ -1251,6 +1251,48 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func defaultCommandProcessRunnerReturnsTimeoutResult() async throws {
+    let runner = DefaultCommandProcessRunner()
+    let result = try await runner.run(
+      CommandProcessRequest(
+        executableURL: URL(filePath: "/bin/bash"),
+        arguments: ["-c", "sleep 5"],
+        environment: [:],
+        workingDirectoryURL: try makeTemporaryDirectory(),
+        timeoutSeconds: 1
+      )
+    )
+
+    #expect(result.timedOut)
+    #expect(!result.cancelled)
+    #expect(result.durationMs < 5_000)
+  }
+
+  @Test
+  func defaultCommandProcessRunnerReturnsCancelledResult() async throws {
+    let runner = DefaultCommandProcessRunner()
+    let task = Task {
+      try await runner.run(
+        CommandProcessRequest(
+          executableURL: URL(filePath: "/bin/bash"),
+          arguments: ["-c", "sleep 30"],
+          environment: [:],
+          workingDirectoryURL: try makeTemporaryDirectory(),
+          timeoutSeconds: 120
+        )
+      )
+    }
+
+    try await Task.sleep(for: .milliseconds(100))
+    task.cancel()
+    let result = try await task.value
+
+    #expect(!result.timedOut)
+    #expect(result.cancelled)
+    #expect(result.durationMs < 5_000)
+  }
+
+  @Test
   func runCommandStoresFullOutputBehindOutputRefAndReturnsHeadTailPreview() async throws {
     let workspace = try makeWorkspace()
     let sessionID = UUID()
