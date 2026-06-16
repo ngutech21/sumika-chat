@@ -22,6 +22,9 @@ public final class ModelRuntimeController {
   @ObservationIgnored private var downloadTask: Task<Void, Never>?
   @ObservationIgnored private var modelOperationID: UUID
   @ObservationIgnored private var resourceMonitorTask: Task<Void, Never>?
+  private static let resourceMonitorInterval: Duration = .seconds(5)
+  private static let resourceMemoryPublishThresholdBytes: UInt64 = 16 * 1024 * 1024
+  private static let resourceCPUPublishThreshold = 1.0
 
   @ObservationIgnored var onModelDidChange: (@MainActor (StoredModelSettings) -> Void)?
   @ObservationIgnored var onRuntimeDidReset: (@MainActor () -> Void)?
@@ -97,8 +100,11 @@ public final class ModelRuntimeController {
 
     resourceMonitorTask = Task {
       while !Task.isCancelled {
-        processUsage = await resourceMonitor.currentUsage()
-        try? await Task.sleep(for: .seconds(1))
+        let usage = await resourceMonitor.currentUsage()
+        if shouldPublishResourceUsage(usage) {
+          processUsage = usage
+        }
+        try? await Task.sleep(for: Self.resourceMonitorInterval)
       }
     }
   }
@@ -379,5 +385,23 @@ public final class ModelRuntimeController {
     }
 
     return min(max(fraction, 0), 1)
+  }
+
+  private func shouldPublishResourceUsage(_ usage: ProcessResourceUsage?) -> Bool {
+    guard let currentUsage = processUsage else {
+      return usage != nil
+    }
+    guard let usage else {
+      return true
+    }
+
+    let memoryDelta =
+      currentUsage.memoryBytes > usage.memoryBytes
+      ? currentUsage.memoryBytes - usage.memoryBytes
+      : usage.memoryBytes - currentUsage.memoryBytes
+    let cpuDelta = abs(currentUsage.cpuPercent - usage.cpuPercent)
+
+    return memoryDelta >= Self.resourceMemoryPublishThresholdBytes
+      || cpuDelta >= Self.resourceCPUPublishThreshold
   }
 }

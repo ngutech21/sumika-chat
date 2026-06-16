@@ -114,9 +114,6 @@ struct ContentView: View {
         generationSettings: controller.chatSession.generationSettings
       )
     }
-    .onChange(of: controller.draft) {
-      controller.convertDroppedFilePathsInDraft()
-    }
     .onChange(of: selection) {
       if case .session(let sessionID) = selection {
         appState.selectSession(sessionID)

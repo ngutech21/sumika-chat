@@ -10,7 +10,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DERIVED_DATA_DIR="$ROOT_DIR/build/DerivedData"
 APP_BUNDLE="$DERIVED_DATA_DIR/Build/Products/Debug/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
-TRACE_FILE="$HOME/Library/Containers/ngutech21.local-coder/Data/Library/Application Support/local-coder/debug/gemma-trace.jsonl"
+TRACE_FILE="$HOME/Library/Application Support/local-coder/debug/gemma-trace.jsonl"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 pkill -f "$APP_NAME.app/Contents/MacOS/$APP_NAME" >/dev/null 2>&1 || true

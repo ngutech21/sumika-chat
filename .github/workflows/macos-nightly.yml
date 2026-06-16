@@ -42,12 +42,23 @@ jobs:
         timeout-minutes: 10
         run: just lint
 
+      - name: Cache Swift package checkouts
+        uses: actions/cache@v5
+        with:
+          path: |
+            .build/xcode-source-packages
+            .build/repositories
+            .build/checkouts
+            .build/artifacts
+          key: ${{ runner.os }}-macos-nightly-swiftpm-${{ hashFiles('Package.resolved', 'local-coder.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
       - name: Resolve Swift packages
         timeout-minutes: 10
         run: |
           xcodebuild -resolvePackageDependencies \
             -project "$PROJECT" \
-            -scheme "$SCHEME"
+            -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath .build/xcode-source-packages
 
       - name: Build
         timeout-minutes: 20
@@ -56,6 +67,7 @@ jobs:
             -project "$PROJECT" \
             -scheme "$SCHEME" \
             -destination "$DESTINATION" \
+            -clonedSourcePackagesDirPath .build/xcode-source-packages \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Run SwiftPM core tests on macOS
@@ -69,4 +81,5 @@ jobs:
             -project "$PROJECT" \
             -scheme "$SCHEME" \
             -destination "$DESTINATION" \
+            -clonedSourcePackagesDirPath .build/xcode-source-packages \
             CODE_SIGNING_ALLOWED=NO

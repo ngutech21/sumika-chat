@@ -149,58 +149,6 @@ struct ChatAttachmentCoordinatorTests {
   }
 
   @Test
-  func convertDroppedFilePathsPublishesDraftReplacementAndLoadsAttachments() async throws {
-    let attachment = makeAttachment(name: "Dropped.swift", content: "dropped")
-    let loader = AttachmentFakeLoader(
-      result: .success([attachment]),
-      droppedExtraction: DroppedAttachmentExtraction(
-        urls: [URL(filePath: "/tmp/Dropped.swift")],
-        cleanedDraft: "please inspect this"
-      )
-    )
-    let coordinator = ChatAttachmentCoordinator(loader: loader)
-    var events: [ChatAttachmentEvent] = []
-
-    coordinator.convertDroppedFilePaths(
-      in: "please inspect /tmp/Dropped.swift",
-      isGenerating: false,
-      existingAttachments: [],
-      onEvent: { events.append($0) }
-    )
-
-    try await waitUntil {
-      events == [
-        .replaceDraft("please inspect this"),
-        .appendAttachments([attachment]),
-      ]
-    }
-  }
-
-  @Test
-  func convertDroppedFilePathsDoesNothingWhileGenerating() async throws {
-    let attachment = makeAttachment(name: "Dropped.swift", content: "dropped")
-    let loader = AttachmentFakeLoader(
-      result: .success([attachment]),
-      droppedExtraction: DroppedAttachmentExtraction(
-        urls: [URL(filePath: "/tmp/Dropped.swift")],
-        cleanedDraft: "cleaned"
-      )
-    )
-    let coordinator = ChatAttachmentCoordinator(loader: loader)
-    var events: [ChatAttachmentEvent] = []
-
-    coordinator.convertDroppedFilePaths(
-      in: "/tmp/Dropped.swift",
-      isGenerating: true,
-      existingAttachments: [],
-      onEvent: { events.append($0) }
-    )
-
-    #expect(events.isEmpty)
-    #expect(loader.loadCallCount == 0)
-  }
-
-  @Test
   func removeAttachmentPublishesRemovalEvent() {
     let loader = AttachmentFakeLoader(result: .success([]))
     let coordinator = ChatAttachmentCoordinator(loader: loader)
@@ -218,7 +166,6 @@ struct ChatAttachmentCoordinatorTests {
 private final class AttachmentFakeLoader: ChatAttachmentLoading, @unchecked Sendable {
   private let lock = NSLock()
   private let result: Result<[ChatAttachment], Error>
-  private let droppedExtraction: DroppedAttachmentExtraction
   private var _loadCallCount = 0
 
   var loadCallCount: Int {
@@ -227,12 +174,8 @@ private final class AttachmentFakeLoader: ChatAttachmentLoading, @unchecked Send
     return _loadCallCount
   }
 
-  init(
-    result: Result<[ChatAttachment], Error>,
-    droppedExtraction: DroppedAttachmentExtraction = DroppedAttachmentExtraction(cleanedDraft: "")
-  ) {
+  init(result: Result<[ChatAttachment], Error>) {
     self.result = result
-    self.droppedExtraction = droppedExtraction
   }
 
   func loadAttachments(
@@ -245,11 +188,6 @@ private final class AttachmentFakeLoader: ChatAttachmentLoading, @unchecked Send
     _loadCallCount += 1
     lock.unlock()
     return try result.get()
-  }
-
-  func extractDroppedAttachments(from draft: String) -> DroppedAttachmentExtraction {
-    _ = draft
-    return droppedExtraction
   }
 }
 
@@ -286,10 +224,6 @@ private final class AttachmentControlledLoader: ChatAttachmentLoading, @unchecke
     completedCalls += 1
     lock.unlock()
     return call.attachments
-  }
-
-  func extractDroppedAttachments(from draft: String) -> DroppedAttachmentExtraction {
-    DroppedAttachmentExtraction(cleanedDraft: draft)
   }
 
   func resolve(at index: Int, with attachments: [ChatAttachment]) {
