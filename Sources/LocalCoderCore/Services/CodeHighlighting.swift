@@ -408,6 +408,11 @@ public struct CodeHighlightCacheKey: Equatable, Hashable, Sendable {
 public actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
   private var configurations: [ParserLanguage: LanguageConfiguration] = [:]
 
+  private static let cssDimensionRegex: NSRegularExpression? = try? NSRegularExpression(
+    pattern:
+      #"(?<![A-Za-z0-9_.-])(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:px|em|rem|vh|vw|vmin|vmax|ch|ex|cm|mm|in|pt|pc|fr|deg|rad|turn|s|ms|dpi|dpcm|dppx|%)"#
+  )
+
   public init() {}
 
   public func highlight(
@@ -553,9 +558,7 @@ public actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
   }
 
   private func cssDimensionSpans(source: CodeHighlightSource) -> [HighlightSpan] {
-    let pattern =
-      #"(?<![A-Za-z0-9_.-])(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:px|em|rem|vh|vw|vmin|vmax|ch|ex|cm|mm|in|pt|pc|fr|deg|rad|turn|s|ms|dpi|dpcm|dppx|%)"#
-    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+    guard let regex = Self.cssDimensionRegex else {
       return []
     }
 
