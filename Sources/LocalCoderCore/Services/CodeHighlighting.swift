@@ -501,26 +501,48 @@ public actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
     }
     candidateSpans.append(contentsOf: syntheticSpans(for: language, source: source))
 
-    let preferredSpans = candidateSpans.reversed()
+    // Resolve overlaps greedily in preference order (later candidates win). Selected spans
+    // are kept disjoint and sorted by location, so each candidate is tested only against its
+    // two nearest neighbors via binary search instead of scanning every previously selected
+    // span, which was quadratic for code blocks that produce thousands of spans.
     var selectedSpans: [HighlightSpan] = []
 
-    for span in preferredSpans {
-      let overlapsSelectedSpan = selectedSpans.contains { selectedSpan in
-        span.range.location < selectedSpan.range.upperBound
-          && selectedSpan.range.location < span.range.upperBound
-      }
+    for span in candidateSpans.reversed() {
+      let insertionIndex = sortedSpanInsertionIndex(for: span.range.location, in: selectedSpans)
 
-      if !overlapsSelectedSpan {
-        selectedSpans.append(span)
+      let overlapsFollowingSpan =
+        insertionIndex < selectedSpans.count
+        && selectedSpans[insertionIndex].range.location < span.range.upperBound
+      let overlapsPrecedingSpan =
+        insertionIndex > 0
+        && selectedSpans[insertionIndex - 1].range.upperBound > span.range.location
+
+      if !overlapsFollowingSpan, !overlapsPrecedingSpan {
+        selectedSpans.insert(span, at: insertionIndex)
       }
     }
 
-    return selectedSpans.sorted {
-      if $0.range.location != $1.range.location {
-        return $0.range.location < $1.range.location
+    return selectedSpans
+  }
+
+  /// Returns the index at which a span starting at `location` belongs in `spans`, which is
+  /// maintained sorted by `range.location`. Selected spans are pairwise disjoint, so their
+  /// locations are unique and a standard lower-bound binary search is sufficient.
+  private func sortedSpanInsertionIndex(
+    for location: Int,
+    in spans: [HighlightSpan]
+  ) -> Int {
+    var low = 0
+    var high = spans.count
+    while low < high {
+      let mid = (low + high) / 2
+      if spans[mid].range.location < location {
+        low = mid + 1
+      } else {
+        high = mid
       }
-      return $0.range.length < $1.range.length
     }
+    return low
   }
 
   private func syntheticSpans(
