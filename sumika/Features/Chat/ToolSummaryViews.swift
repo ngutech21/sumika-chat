@@ -13,7 +13,7 @@ struct ToolExecutionSummaryView: View {
   private let detailIndent: CGFloat = 17
 
   var body: some View {
-    let toolCall = ToolCallModelMessage(request: toolCallRecord.request)
+    let toolCall = transcriptToolCall
     let resultDisplay = resultDisplayPayload
     let detailsAvailable = hasDetails(resultDisplay: resultDisplay)
     VStack(alignment: .leading, spacing: 6) {
@@ -117,6 +117,12 @@ struct ToolExecutionSummaryView: View {
     return ToolResultModelMessage(record: toolCallRecord).displayPayload(for: toolCallRecord)
   }
 
+  private var transcriptToolCall: ToolCallModelMessage {
+    var toolCall = ToolCallModelMessage(request: toolCallRecord.request)
+    toolCall.arguments = toolCall.transcriptArguments
+    return toolCall
+  }
+
   /// The status shown on the turn's single row. Once a result exists it reflects
   /// the command's own outcome (a tool can finish while its command fails), so a
   /// failed run reads as a failure rather than a misleading success.
@@ -135,8 +141,7 @@ struct ToolExecutionSummaryView: View {
   }
 
   private func hasDetails(resultDisplay: ToolDisplayPayload?) -> Bool {
-    let toolCall = ToolCallModelMessage(request: toolCallRecord.request)
-    if !toolCall.transcriptArguments.isEmpty {
+    if !transcriptToolCall.arguments.isEmpty {
       return true
     }
     if toolCallRecord.approvalPreview?.text.isEmpty == false {
@@ -450,8 +455,8 @@ private struct ToolCallDetailsView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      ForEach(toolCall.transcriptArguments) { argument in
-        Text("\(argument.name): \(argument.value)")
+      ForEach(toolCall.arguments) { argument in
+        Text(verbatim: "\(argument.name): \(argument.value)")
           .lineLimit(2)
       }
 

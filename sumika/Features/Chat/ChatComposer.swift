@@ -609,7 +609,7 @@ private struct ComposerFileDropReceiver: NSViewRepresentable {
     nsView.onTargetedChange = context.coordinator.setTargeted(_:)
     nsView.onDrop = context.coordinator.drop(urls:)
     if !isEnabled {
-      context.coordinator.setTargeted(false)
+      context.coordinator.resetTargetedAfterViewUpdate()
     }
   }
 
@@ -629,7 +629,16 @@ private struct ComposerFileDropReceiver: NSViewRepresentable {
     }
 
     func setTargeted(_ targeted: Bool) {
+      guard isTargeted.wrappedValue != targeted else {
+        return
+      }
       isTargeted.wrappedValue = targeted
+    }
+
+    func resetTargetedAfterViewUpdate() {
+      DispatchQueue.main.async { [weak self] in
+        self?.setTargeted(false)
+      }
     }
 
     func drop(urls: [URL]) {
