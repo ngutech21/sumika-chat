@@ -65,7 +65,7 @@ check-warnings:
     @log=$(mktemp); \
     status=0; \
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean build >"$log" 2>&1 || status=$?; \
-    warnings=$(grep -E "/(local-coder|sumika-chat)/(sumika|SumikaTests|Sources|Tests)/.*: warning:" "$log" || true); \
+    warnings=$(grep -E "/sumika-chat/(sumika|SumikaTests|Sources|Tests)/.*: warning:" "$log" || true); \
     if [ -n "$warnings" ]; then \
         echo "Local source warnings found:"; \
         echo "$warnings"; \

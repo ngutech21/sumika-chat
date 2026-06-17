@@ -1,11 +1,11 @@
 included:
-  - local-coder
+  - sumika
   - Sources
 
 excluded:
   - build
   - DerivedData
-  - local-coder.xcodeproj
+  - Sumika.xcodeproj
 
 disabled_rules:
   - closure_parameter_position
