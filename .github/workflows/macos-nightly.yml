@@ -19,8 +19,8 @@ jobs:
     timeout-minutes: 60
 
     env:
-      PROJECT: local-coder.xcodeproj
-      SCHEME: local-coder
+      PROJECT: sumika.xcodeproj
+      SCHEME: sumika
       DESTINATION: platform=macOS,arch=arm64
 
     steps:
@@ -50,7 +50,7 @@ jobs:
             .build/repositories
             .build/checkouts
             .build/artifacts
-          key: ${{ runner.os }}-macos-nightly-swiftpm-${{ hashFiles('Package.resolved', 'local-coder.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: ${{ runner.os }}-macos-nightly-swiftpm-${{ hashFiles('Package.resolved', 'sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Resolve Swift packages
         timeout-minutes: 10
