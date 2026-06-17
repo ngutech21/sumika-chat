@@ -464,14 +464,14 @@ public actor DefaultCommandProcessRunner: CommandProcessRunning {
 
         let outcome = try await group.next() ?? .exited
         if outcome != .exited, process.isRunning {
-          process.terminate()
+          terminateProcessTree(process)
         }
         group.cancelAll()
         return outcome
       }
     } catch {
       if process.isRunning {
-        process.terminate()
+        terminateProcessTree(process)
       }
       await terminationSignal.wait()
       return .cancelled
@@ -482,8 +482,95 @@ public actor DefaultCommandProcessRunner: CommandProcessRunning {
     guard let process = runningProcesses[id], process.isRunning else {
       return
     }
+    terminateProcessTree(process)
+  }
+}
+
+private func terminateProcessTree(_ process: Process) {
+  let rootPID = process.processIdentifier
+  let descendantPIDs = processDescendantIDs(of: rootPID)
+  terminateProcesses(descendantPIDs.reversed())
+
+  if process.isRunning {
     process.terminate()
   }
+}
+
+private func processDescendantIDs(of rootPID: Int32) -> [Int32] {
+  let processParents = processParentIDs()
+  var descendants: [Int32] = []
+  var pending = [rootPID]
+
+  while let parent = pending.popLast() {
+    let children = processParents.compactMap { pid, parentPID in
+      parentPID == parent ? pid : nil
+    }
+    descendants.append(contentsOf: children)
+    pending.append(contentsOf: children)
+  }
+
+  return descendants
+}
+
+private func processParentIDs() -> [Int32: Int32] {
+  guard
+    let psURL = firstExecutableURL(paths: ["/bin/ps", "/usr/bin/ps"]),
+    let output = runTerminationHelper(psURL, arguments: ["-axo", "pid=,ppid="])
+  else {
+    return [:]
+  }
+
+  var parents: [Int32: Int32] = [:]
+  for line in output.split(whereSeparator: \.isNewline) {
+    let fields = line.split(whereSeparator: \.isWhitespace)
+    guard fields.count >= 2, let pid = Int32(fields[0]), let parentPID = Int32(fields[1]) else {
+      continue
+    }
+    parents[pid] = parentPID
+  }
+  return parents
+}
+
+private func terminateProcesses(_ processIDs: [Int32]) {
+  guard
+    !processIDs.isEmpty,
+    let killURL = firstExecutableURL(paths: ["/bin/kill", "/usr/bin/kill"])
+  else {
+    return
+  }
+
+  _ = runTerminationHelper(
+    killURL,
+    arguments: ["-TERM"] + processIDs.map(String.init)
+  )
+}
+
+private func runTerminationHelper(_ executableURL: URL, arguments: [String]) -> String? {
+  let process = Process()
+  process.executableURL = executableURL
+  process.arguments = arguments
+
+  let outputPipe = Pipe()
+  process.standardOutput = outputPipe
+  process.standardError = Pipe()
+
+  do {
+    try process.run()
+    process.waitUntilExit()
+    let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
+    return String(data: output, encoding: .utf8)
+  } catch {
+    return nil
+  }
+}
+
+private func firstExecutableURL(paths: [String]) -> URL? {
+  for path in paths {
+    if FileManager.default.isExecutableFile(atPath: path) {
+      return URL(filePath: path)
+    }
+  }
+  return nil
 }
 
 public struct RunCommandToolExecutor: TypedToolExecutor {
