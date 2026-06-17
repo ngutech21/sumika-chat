@@ -565,10 +565,8 @@ private func runTerminationHelper(_ executableURL: URL, arguments: [String]) -> 
 }
 
 private func firstExecutableURL(paths: [String]) -> URL? {
-  for path in paths {
-    if FileManager.default.isExecutableFile(atPath: path) {
-      return URL(filePath: path)
-    }
+  for path in paths where FileManager.default.isExecutableFile(atPath: path) {
+    return URL(filePath: path)
   }
   return nil
 }
