@@ -2,16 +2,32 @@ import SumikaCore
 import SwiftUI
 
 struct AppSettingsView: View {
+  @State private var selectedTab = SettingsTab.general
+
   @Binding var appBehaviorSettings: AppBehaviorSettings
   @Binding var webAccessSettings: WebAccessSettings
 
   var body: some View {
-    TabView {
-      generalTab
-        .tabItem { Label("General", systemImage: "gearshape") }
+    VStack(spacing: 0) {
+      Picker("Settings Section", selection: $selectedTab) {
+        Text("General").tag(SettingsTab.general)
+        Text("Web").tag(SettingsTab.web)
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .frame(width: 160)
+      .padding(.top, 14)
+      .padding(.bottom, 8)
 
-      webAccessTab
-        .tabItem { Label("Web", systemImage: "globe") }
+      Group {
+        switch selectedTab {
+        case .general:
+          generalTab
+        case .web:
+          webAccessTab
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .frame(width: 520, height: 360)
   }
@@ -110,6 +126,11 @@ struct AppSettingsView: View {
       set: { webAccessSettings.searxngBaseURL = $0 }
     )
   }
+}
+
+private enum SettingsTab: Hashable {
+  case general
+  case web
 }
 
 #Preview {
