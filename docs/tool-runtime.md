@@ -106,7 +106,7 @@ flowchart TD
   provider-neutral function-tool schema projection. Provider-specific wire
   shapes should adapt from this model instead of becoming the core runtime
   representation.
-- When `LOCAL_CODER_DEBUG_TRACE=1`, `tool_execute` `turn_trace` rows include
+- When `SUMIKA_DEBUG_TRACE=1`, `tool_execute` `turn_trace` rows include
   compact tool-call diagnostics: `toolCallFormat`, `toolValidationStatus`,
   optional `toolValidationError`, optional `toolOriginalName`,
   `toolArgumentKeys`, and short typed `toolArguments` previews. These fields

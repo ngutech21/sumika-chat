@@ -12,7 +12,7 @@ user-visible/runtime impact and risk, not effort.
 ## Summary
 
 The codebase is a SwiftUI/MVVM hybrid with strong service-oriented boundaries: a
-headless `LocalCoderCore` SwiftPM library plus a macOS app target that owns
+headless `SumikaCore` SwiftPM library plus a macOS app target that owns
 SwiftUI/AppKit and the MLX/Gemma backend. The typed tool runtime, explicit chat-turn
 lifecycle, frozen append-only model-context ledger, and KV-cache reuse policy are
 well-designed and well-documented. Type safety is generally excellent: no force
@@ -38,18 +38,18 @@ now resolved (see Resolved), the remaining risks are smaller and cluster in thre
 
 | ID | Severity | Category | Finding | Affected Files |
 | --- | --- | --- | --- | --- |
-| P-02 | Low | Perf | Context-usage refresh re-renders the system prompt + re-sums history bytes on every call (~11x/turn) | `Sources/LocalCoderCore/Features/Chat/ContextUsageCoordinator.swift`, `ChatSessionController.swift`, `ChatTurnCoordinator.swift` |
-| P-05 | Medium | Perf | Full-history FNV cache signature re-hashed ~2x per turn (grows O(transcript)) | `local-coder/Services/GemmaMLXRuntime.swift`, `GemmaSessionCachePolicy.swift` |
-| P-07 | Medium | Perf | `refreshDebounced` does not debounce; no coalescing of usage refreshes | `Sources/LocalCoderCore/Features/Chat/ContextUsageCoordinator.swift` |
-| P-09 | Low | Perf | Whole library re-encoded to one JSON file on every mutation | `Sources/LocalCoderCore/Services/WorkspaceStore.swift`, `Models/Workspace.swift` |
-| T-01 | High | TypeSafety | `AnyToolExecutor` recovers typed input via `as?` cast + 48-line name switch | `Sources/LocalCoderCore/Services/ToolExecution.swift` |
-| T-02 | Medium | TypeSafety | Cache-debug UI compares raw `cacheMode`/`cacheReason` magic strings | `local-coder/Features/Chat/WorkspaceChatView.swift` |
-| T-03 | Medium | TypeSafety | Trace fields (`toolCallFormat`, validation status, cacheMode) passed as raw strings | `Sources/LocalCoderCore/Features/Chat/ToolLoopCoordinator.swift`, `ChatTurnCoordinator.swift` |
-| T-04 | Low | TypeSafety | `ToolName` is a stringly-typed struct; lists can drift without exhaustiveness | `Sources/LocalCoderCore/Models/ToolCall.swift`, `Services/ToolCallRequestValidator.swift` |
-| T-05 | Low | TypeSafety | KVC `setValue(false, forKey: "drawsBackground")` on `WKWebView` | `local-coder/Features/Chat/HTMLPreview.swift` |
-| Q-03 | Medium | Quality | A-04: `AppState` couples navigation, session lifecycle, persistence; 3x duplicated debounced-save | `local-coder/App/AppState.swift` |
-| Q-04 | Medium | Quality | Duplicated logic across result projections and extraction (status maps, diagnostics render, host validation, UTF-8 suffix trimming) | `Sources/LocalCoderCore/Models/ToolCall.swift`, `Models/ToolResultProjection.swift`, `Services/WebAccess.swift`, `Services/WebContentExtraction.swift`, `Services/ToolCommandExecution.swift` |
-| Q-05 | Low | Quality | Dead/placeholder seams: `activeAttachmentContextAttachments` returns `[]`; test-only `streamAssistantReply`; no-op `updateContextUsage` closure | `Sources/LocalCoderCore/Features/Chat/ChatSessionController.swift`, `ChatGenerationCoordinator.swift`, `ChatTurnCoordinator.swift` |
+| P-02 | Low | Perf | Context-usage refresh re-renders the system prompt + re-sums history bytes on every call (~11x/turn) | `Sources/SumikaCore/Features/Chat/ContextUsageCoordinator.swift`, `ChatSessionController.swift`, `ChatTurnCoordinator.swift` |
+| P-05 | Medium | Perf | Full-history FNV cache signature re-hashed ~2x per turn (grows O(transcript)) | `sumika/Services/GemmaMLXRuntime.swift`, `GemmaSessionCachePolicy.swift` |
+| P-07 | Medium | Perf | `refreshDebounced` does not debounce; no coalescing of usage refreshes | `Sources/SumikaCore/Features/Chat/ContextUsageCoordinator.swift` |
+| P-09 | Low | Perf | Whole library re-encoded to one JSON file on every mutation | `Sources/SumikaCore/Services/WorkspaceStore.swift`, `Models/Workspace.swift` |
+| T-01 | High | TypeSafety | `AnyToolExecutor` recovers typed input via `as?` cast + 48-line name switch | `Sources/SumikaCore/Services/ToolExecution.swift` |
+| T-02 | Medium | TypeSafety | Cache-debug UI compares raw `cacheMode`/`cacheReason` magic strings | `sumika/Features/Chat/WorkspaceChatView.swift` |
+| T-03 | Medium | TypeSafety | Trace fields (`toolCallFormat`, validation status, cacheMode) passed as raw strings | `Sources/SumikaCore/Features/Chat/ToolLoopCoordinator.swift`, `ChatTurnCoordinator.swift` |
+| T-04 | Low | TypeSafety | `ToolName` is a stringly-typed struct; lists can drift without exhaustiveness | `Sources/SumikaCore/Models/ToolCall.swift`, `Services/ToolCallRequestValidator.swift` |
+| T-05 | Low | TypeSafety | KVC `setValue(false, forKey: "drawsBackground")` on `WKWebView` | `sumika/Features/Chat/HTMLPreview.swift` |
+| Q-03 | Medium | Quality | A-04: `AppState` couples navigation, session lifecycle, persistence; 3x duplicated debounced-save | `sumika/App/AppState.swift` |
+| Q-04 | Medium | Quality | Duplicated logic across result projections and extraction (status maps, diagnostics render, host validation, UTF-8 suffix trimming) | `Sources/SumikaCore/Models/ToolCall.swift`, `Models/ToolResultProjection.swift`, `Services/WebAccess.swift`, `Services/WebContentExtraction.swift`, `Services/ToolCommandExecution.swift` |
+| Q-05 | Low | Quality | Dead/placeholder seams: `activeAttachmentContextAttachments` returns `[]`; test-only `streamAssistantReply`; no-op `updateContextUsage` closure | `Sources/SumikaCore/Features/Chat/ChatSessionController.swift`, `ChatGenerationCoordinator.swift`, `ChatTurnCoordinator.swift` |
 
 ## Details
 

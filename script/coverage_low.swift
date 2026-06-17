@@ -33,7 +33,7 @@ func localRelativePath(_ path: String, repoRoot: URL) -> String? {
   let url = URL(filePath: path)
   let relative = url.path(percentEncoded: false)
     .replacingOccurrences(of: repoRoot.path(percentEncoded: false) + "/", with: "")
-  guard relative != path, relative.hasPrefix("local-coder/") || relative.hasPrefix("local-coderTests/")
+  guard relative != path, relative.hasPrefix("sumika/") || relative.hasPrefix("SumikaTests/")
   else {
     return nil
   }

@@ -2,7 +2,7 @@
 
 ## Project Goal
 
-`local-coder` is a macOS Swift app for local-first coding with small Gemma models
+`sumika-chat` is a macOS Swift app for local-first coding with small Gemma models
 running through MLX. Keep workflows focused, inspectable, reviewable, and
 explicit: local context, short steps, auditable shell execution, and macOS-native
 SwiftUI/AppKit UI. Do not assume network access is available or desirable.
@@ -11,21 +11,21 @@ SwiftUI/AppKit UI. Do not assume network access is available or desirable.
 
 The project is split into a headless SwiftPM core library and a macOS app target:
 
-- `Package.swift` defines `LocalCoderCore` and `LocalCoderCoreTests`.
-- `Sources/LocalCoderCore/` contains reusable product logic and must not import
+- `Package.swift` defines `SumikaCore` and `SumikaCoreTests`.
+- `Sources/SumikaCore/` contains reusable product logic and must not import
   SwiftUI, AppKit, or MLX-specific implementations.
-- `Tests/LocalCoderCoreTests/` contains headless tests for parsing, permission
+- `Tests/SumikaCoreTests/` contains headless tests for parsing, permission
   evaluation, persistence, runtime configuration, prompt construction, command
   execution, tool execution, and coordinators.
-- `local-coder/` contains the Xcode macOS app target. It imports
-  `LocalCoderCore` and owns SwiftUI/AppKit views, app launch wiring, platform
+- `sumika/` contains the Xcode macOS app target. It imports
+  `SumikaCore` and owns SwiftUI/AppKit views, app launch wiring, platform
   services, and MLX-backed implementations.
-- `local-coderTests/` is for tests that need the app target, SwiftUI/AppKit, or
+- `SumikaTests/` is for tests that need the app target, SwiftUI/AppKit, or
   MLX-specific behavior.
-- `local-coderUITests/` is for local-only end-to-end app flows that need the real
+- `SumikaUITests/` is for local-only end-to-end app flows that need the real
   macOS UI and real MLX/Gemma runtime.
 
-Keep dependencies one-way: app -> `LocalCoderCore`. Views call controllers or app
+Keep dependencies one-way: app -> `SumikaCore`. Views call controllers or app
 state; controllers call coordinators/services; services exchange structured
 models. SwiftUI views must not parse model output, touch the filesystem directly,
 run shell commands, make permission decisions, or know MLX details.
@@ -33,19 +33,19 @@ run shell commands, make permission decisions, or know MLX details.
 For new code, follow the current layout:
 
 ```text
-Sources/LocalCoderCore/
+Sources/SumikaCore/
   Features/
   Models/
   Services/
   Support/
-Tests/LocalCoderCoreTests/
-local-coder/
+Tests/SumikaCoreTests/
+sumika/
   App/
   Features/
   Services/
   Views/
-local-coderTests/
-local-coderUITests/
+SumikaTests/
+SumikaUITests/
 ```
 
 Start small. Do not introduce empty folders or abstractions before there is real
@@ -53,8 +53,8 @@ code to put in them.
 
 ## Core/App Boundaries
 
-- Keep reusable behavior in `LocalCoderCore`; keep MLX/Gemma backends in
-  `local-coder/Services/` behind core protocols.
+- Keep reusable behavior in `SumikaCore`; keep MLX/Gemma backends in
+  `sumika/Services/` behind core protocols.
 - SwiftUI controllers are UI facades only: hold view state, expose small user
   actions, call coordinators/services, and map results back to UI.
 - Workflow lifecycle belongs in coordinators. Execution, side effects,
@@ -64,7 +64,7 @@ code to put in them.
 
 ## Data Model Policy
 
-Local Coder is an unreleased prototype. Do not add backwards compatibility,
+Sumika Chat is an unreleased prototype. Do not add backwards compatibility,
 migrations, legacy decode paths, or fallback fields for old persisted sessions
 unless explicitly requested.
 
@@ -173,13 +173,13 @@ Other useful commands:
 ```sh
 xcrun swift build
 xcrun swift test
-xcodebuild -project local-coder.xcodeproj -scheme local-coder -destination "platform=macOS" build
+xcodebuild -project Sumika.xcodeproj -scheme Sumika -destination "platform=macOS" build
 ./script/build_and_run.sh
 ./script/build_and_run.sh --verify
 ```
 
 CI intentionally runs only headless SwiftPM tests with `xcrun swift test`.
-`just ui-test` is local-only, enables `LOCAL_CODER_DEBUG_TRACE=1`, must never
+`just ui-test` is local-only, enables `SUMIKA_DEBUG_TRACE=1`, must never
 download a model, and should skip cleanly if `gemma4-e4b` is missing. Use
 `just data-model` to regenerate `docs/data-model.md`.
 
@@ -193,20 +193,20 @@ Use the project script before inventing new launch flows:
 ./script/build_and_run.sh --trace
 ```
 
-- `--logs`: stream process logs for `local-coder`.
-- `--telemetry`: stream subsystem logs for `ngutech21.local-coder`.
-- `--trace`: run with `LOCAL_CODER_DEBUG_TRACE=1`.
+- `--logs`: stream process logs for `sumika-chat`.
+- `--telemetry`: stream subsystem logs for `ngutech21.sumika-chat`.
+- `--trace`: run with `SUMIKA_DEBUG_TRACE=1`.
 
 Normal trace:
 
 ```text
-~/Library/Application Support/local-coder/debug/gemma-trace.jsonl
+~/Library/Application Support/sumika-chat/debug/gemma-trace.jsonl
 ```
 
 UI-test per-run traces:
 
 ```text
-~/Library/Application Support/local-coder/debug/traces/
+~/Library/Application Support/sumika-chat/debug/traces/
 ```
 
 Do not create additional chat/model performance trace formats. Extend

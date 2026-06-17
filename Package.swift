@@ -7,14 +7,14 @@ let concurrencyChecking: [SwiftSetting] = [
 ]
 
 let package = Package(
-  name: "LocalCoderCore",
+  name: "SumikaCore",
   platforms: [
     .macOS(.v15)
   ],
   products: [
     .library(
-      name: "LocalCoderCore",
-      targets: ["LocalCoderCore"]
+      name: "SumikaCore",
+      targets: ["SumikaCore"]
     )
   ],
   dependencies: [
@@ -31,7 +31,7 @@ let package = Package(
   ],
   targets: [
     .target(
-      name: "LocalCoderCore",
+      name: "SumikaCore",
       dependencies: [
         .product(name: "Crypto", package: "swift-crypto"),
         .product(name: "SwiftSoup", package: "SwiftSoup"),
@@ -75,8 +75,8 @@ let package = Package(
       swiftSettings: concurrencyChecking
     ),
     .testTarget(
-      name: "LocalCoderCoreTests",
-      dependencies: ["LocalCoderCore"],
+      name: "SumikaCoreTests",
+      dependencies: ["SumikaCore"],
       resources: [.process("Fixtures")],
       swiftSettings: concurrencyChecking
     ),

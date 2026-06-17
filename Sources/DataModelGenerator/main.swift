@@ -3,7 +3,7 @@ import Foundation
 
 let repositoryRoot = URL(filePath: FileManager.default.currentDirectoryPath)
 let modelsDirectory = repositoryRoot.appending(
-  path: "Sources/LocalCoderCore/Models",
+  path: "Sources/SumikaCore/Models",
   directoryHint: .isDirectory
 )
 let outputURL = repositoryRoot.appending(

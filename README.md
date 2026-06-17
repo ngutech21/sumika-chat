@@ -1,8 +1,8 @@
-# local-coder
+# sumika-chat
 
-[![CI](https://github.com/ngutech21/local-coder/actions/workflows/ci.yml/badge.svg)](https://github.com/ngutech21/local-coder/actions/workflows/ci.yml)
-[![Actions Lint](https://github.com/ngutech21/local-coder/actions/workflows/actions-lint.yml/badge.svg)](https://github.com/ngutech21/local-coder/actions/workflows/actions-lint.yml)
-[![Spelling](https://github.com/ngutech21/local-coder/actions/workflows/spelling.yml/badge.svg)](https://github.com/ngutech21/local-coder/actions/workflows/spelling.yml)
+[![CI](https://github.com/ngutech21/sumika-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/ci.yml)
+[![Actions Lint](https://github.com/ngutech21/sumika-chat/actions/workflows/actions-lint.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/actions-lint.yml)
+[![Spelling](https://github.com/ngutech21/sumika-chat/actions/workflows/spelling.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/spelling.yml)
 
 ## Architecture
 
@@ -28,7 +28,7 @@ just lint
 just format
 ```
 
-`just build` and `just test` run the `local-coder` Xcode scheme with a stable DerivedData path under `build/DerivedData`. `just lint` runs SwiftLint using `.swiftlint.yml`. `just format` formats Swift sources with `swift-format`.
+`just build` and `just test` run the `Sumika` Xcode scheme with a stable DerivedData path under `build/DerivedData`. `just lint` runs SwiftLint using `.swiftlint.yml`. `just format` formats Swift sources with `swift-format`.
 
 ## License
 

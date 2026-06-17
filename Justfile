@@ -1,7 +1,7 @@
 set quiet := true
 
-project := "local-coder.xcodeproj"
-scheme := "local-coder"
+project := "Sumika.xcodeproj"
+scheme := "Sumika"
 destination := "platform=macOS,arch=arm64"
 derived_data := "build/DerivedData"
 
@@ -31,10 +31,10 @@ test-app:
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
 
 ui-test:
-    @echo "Gemma trace directory: $HOME/Library/Application Support/local-coder/debug/traces"; LOCAL_CODER_DEBUG_TRACE=1 xcodebuild -quiet -project {{project}} -scheme local-coder-ui-tests -destination "{{destination}}" -derivedDataPath {{derived_data}} -parallel-testing-enabled NO test -only-testing:local-coderUITests/LocalCoderUITests
+    @echo "Gemma trace directory: $HOME/Library/Application Support/sumika-chat/debug/traces"; SUMIKA_DEBUG_TRACE=1 xcodebuild -quiet -project {{project}} -scheme SumikaUITests -destination "{{destination}}" -derivedDataPath {{derived_data}} -parallel-testing-enabled NO test -only-testing:SumikaUITests/SumikaUITests
 
 perf-report scenario="ui-trace":
-    @trace_path="$HOME/Library/Application Support/local-coder/debug/gemma-trace.jsonl"; trace_dir="$HOME/Library/Application Support/local-coder/debug/traces"; latest_trace=""; if [ -d "$trace_dir" ]; then latest_trace="$(ls -t "$trace_dir"/*-ui-test.jsonl 2>/dev/null | head -n 1 || true)"; if [ -n "$latest_trace" ]; then trace_path="$latest_trace"; fi; fi; if [ -z "$latest_trace" ] && [ -f .perf/ui-tests/latest-trace-path.txt ]; then candidate="$(cat .perf/ui-tests/latest-trace-path.txt)"; if [ -f "$candidate" ]; then trace_path="$candidate"; fi; fi; echo "Gemma trace: $trace_path"; xcrun swift script/trace_performance_report.swift "$trace_path" --model-id gemma4-e4b --scenario "{{scenario}}" --limit all
+    @trace_path="$HOME/Library/Application Support/sumika-chat/debug/gemma-trace.jsonl"; trace_dir="$HOME/Library/Application Support/sumika-chat/debug/traces"; latest_trace=""; if [ -d "$trace_dir" ]; then latest_trace="$(ls -t "$trace_dir"/*-ui-test.jsonl 2>/dev/null | head -n 1 || true)"; if [ -n "$latest_trace" ]; then trace_path="$latest_trace"; fi; fi; if [ -z "$latest_trace" ] && [ -f .perf/ui-tests/latest-trace-path.txt ]; then candidate="$(cat .perf/ui-tests/latest-trace-path.txt)"; if [ -f "$candidate" ]; then trace_path="$candidate"; fi; fi; echo "Gemma trace: $trace_path"; xcrun swift script/trace_performance_report.swift "$trace_path" --model-id gemma4-e4b --scenario "{{scenario}}" --limit all
 
 coverage:
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -enableCodeCoverage YES test
@@ -65,7 +65,7 @@ check-warnings:
     @log=$(mktemp); \
     status=0; \
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean build >"$log" 2>&1 || status=$?; \
-    warnings=$(grep -E "/local-coder/(local-coder|local-coderTests|Sources|Tests)/.*: warning:" "$log" || true); \
+    warnings=$(grep -E "/(local-coder|sumika-chat)/(sumika|SumikaTests|Sources|Tests)/.*: warning:" "$log" || true); \
     if [ -n "$warnings" ]; then \
         echo "Local source warnings found:"; \
         echo "$warnings"; \
@@ -103,11 +103,11 @@ final-check: typos format lint test check-warnings
 
 format:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
-    swift-format format --in-place --recursive --parallel local-coder local-coderTests local-coderUITests Sources Tests Package.swift
+    swift-format format --in-place --recursive --parallel sumika SumikaTests SumikaUITests Sources Tests Package.swift
 
 typos:
     typos -q --format brief
 
 periphery:
     periphery scan --retain-public --retain-codable-properties --baseline .periphery-core-baseline --relative-results --disable-update-check
-    periphery scan --project local-coder.xcodeproj --schemes local-coder --retain-public --retain-codable-properties --report-include "local-coder/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check -- -destination platform=macOS
+    periphery scan --project Sumika.xcodeproj --schemes Sumika --retain-public --retain-codable-properties --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check -- -destination platform=macOS
