@@ -32,7 +32,7 @@ jobs:
         run: just lint
 
   core-tests:
-    name: Linux LocalCoderCore
+    name: Linux SumikaChatCore
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
