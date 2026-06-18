@@ -23,6 +23,16 @@ struct WorkspaceChatView: View {
   var body: some View {
     HStack(spacing: 0) {
       VStack(spacing: 0) {
+        WorkspaceChatHeader(
+          workspaceName: workspace.name,
+          isWorkspaceTerminalVisible: isWorkspaceTerminalVisible,
+          onToggleTerminal: {
+            isWorkspaceTerminalVisible.toggle()
+          },
+          onOpenWorkspaceInFinder: onOpenWorkspaceInFinder,
+          onOpenWorkspaceInVisualStudioCode: onOpenWorkspaceInVisualStudioCode
+        )
+
         ChatTranscript(
           turns: controller.chatSession.turns,
           selectedModel: controller.modelRuntime.selectedModel,
@@ -38,16 +48,16 @@ struct WorkspaceChatView: View {
             controller.answerAskUserToolCall(id: toolCallID, answer: answer, in: workspace)
           }
         )
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-          WorkspaceChatComposerHost(
-            controller: controller,
-            workspace: workspace,
-            sessionID: sessionID,
-            onAddAttachments: onAddAttachments,
-            onPreviewCommand: runPreviewCommand(path:),
-            onShowCommand: runShowCommand(path:)
-          )
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        WorkspaceChatComposerHost(
+          controller: controller,
+          workspace: workspace,
+          sessionID: sessionID,
+          onAddAttachments: onAddAttachments,
+          onPreviewCommand: runPreviewCommand(path:),
+          onShowCommand: runShowCommand(path:)
+        )
 
         if isWorkspaceTerminalVisible {
           WorkspaceTerminalPane(
@@ -115,34 +125,6 @@ struct WorkspaceChatView: View {
         await browserToolService.clear()
       }
     }
-    .toolbar {
-      ToolbarItemGroup(placement: .primaryAction) {
-        Button {
-          isWorkspaceTerminalVisible.toggle()
-        } label: {
-          Image(systemName: isWorkspaceTerminalVisible ? "terminal.fill" : "terminal")
-        }
-        .help(isWorkspaceTerminalVisible ? "Hide workspace terminal" : "Show workspace terminal")
-        .accessibilityLabel(
-          isWorkspaceTerminalVisible ? "Hide workspace terminal" : "Show workspace terminal"
-        )
-        .accessibilityIdentifier("workspace.terminalToggleButton")
-
-        Button(action: onOpenWorkspaceInFinder) {
-          Image(systemName: "folder")
-        }
-        .help("Open workspace in Finder")
-        .accessibilityLabel("Open workspace in Finder")
-        .accessibilityIdentifier("workspace.openInFinderButton")
-
-        Button(action: onOpenWorkspaceInVisualStudioCode) {
-          Image(systemName: "curlybraces")
-        }
-        .help("Open workspace in Visual Studio Code")
-        .accessibilityLabel("Open workspace in Visual Studio Code")
-        .accessibilityIdentifier("workspace.openInVSCodeButton")
-      }
-    }
   }
 
   private func runPreviewCommand(path: String) -> Bool {
@@ -168,6 +150,61 @@ struct WorkspaceChatView: View {
     } catch {
       controller.errorMessage = error.localizedDescription
       return false
+    }
+  }
+}
+
+private struct WorkspaceChatHeader: View {
+  let workspaceName: String
+  let isWorkspaceTerminalVisible: Bool
+  let onToggleTerminal: () -> Void
+  let onOpenWorkspaceInFinder: () -> Void
+  let onOpenWorkspaceInVisualStudioCode: () -> Void
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Text(workspaceName)
+        .font(.headline)
+        .lineLimit(1)
+        .truncationMode(.tail)
+
+      Spacer()
+
+      Button(action: onToggleTerminal) {
+        Image(systemName: isWorkspaceTerminalVisible ? "terminal.fill" : "terminal")
+          .frame(width: 28, height: 28)
+      }
+      .buttonStyle(.plain)
+      .help(isWorkspaceTerminalVisible ? "Hide workspace terminal" : "Show workspace terminal")
+      .accessibilityLabel(
+        isWorkspaceTerminalVisible ? "Hide workspace terminal" : "Show workspace terminal"
+      )
+      .accessibilityIdentifier("workspace.terminalToggleButton")
+
+      Button(action: onOpenWorkspaceInFinder) {
+        Image(systemName: "folder")
+          .frame(width: 28, height: 28)
+      }
+      .buttonStyle(.plain)
+      .help("Open workspace in Finder")
+      .accessibilityLabel("Open workspace in Finder")
+      .accessibilityIdentifier("workspace.openInFinderButton")
+
+      Button(action: onOpenWorkspaceInVisualStudioCode) {
+        Image(systemName: "curlybraces")
+          .frame(width: 28, height: 28)
+      }
+      .buttonStyle(.plain)
+      .help("Open workspace in Visual Studio Code")
+      .accessibilityLabel("Open workspace in Visual Studio Code")
+      .accessibilityIdentifier("workspace.openInVSCodeButton")
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 8)
+    .frame(maxWidth: .infinity)
+    .background(.bar)
+    .overlay(alignment: .bottom) {
+      Divider()
     }
   }
 }

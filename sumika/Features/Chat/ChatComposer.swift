@@ -27,8 +27,6 @@ struct ChatComposer: View {
   let onRemoveAttachment: (ChatAttachment.ID) -> Void
   let onSend: () -> Bool
   let onCancel: () -> Void
-  @State private var isDropTarget = false
-  @FocusState private var messageFieldFocused: Bool
   @State private var slashSelectionIndex = 0
   @State private var slashSuggestionsDismissed = false
 
@@ -80,26 +78,8 @@ struct ChatComposer: View {
           .lineLimit(1...5)
           .frame(minHeight: 36, alignment: .topLeading)
           .accessibilityIdentifier("message-field")
-          .focused($messageFieldFocused)
           .disabled(isInputBlocked)
           .onSubmit(sendMessage)
-          .onKeyPress(.upArrow) { moveSlashSelection(by: -1) }
-          .onKeyPress(.downArrow) { moveSlashSelection(by: 1) }
-          .onKeyPress(.tab) { commitSlashSelectionFromKey() }
-          .onKeyPress(.escape) { dismissSlashSuggestions() }
-          .onPasteCommand(of: [UTType.fileURL, UTType.image, UTType.png, UTType.tiff]) {
-            providers in
-            handlePaste(providers)
-          }
-          .background {
-            ComposerKeyCommandMonitor(
-              canHandlePaste: canInterceptPasteCommand,
-              canInsertSoftBreak: canInsertSoftBreak,
-              onPaste: handlePasteboardCommand,
-              onSoftBreak: insertSoftBreak
-            )
-            .frame(width: 0, height: 0)
-          }
 
         HStack(spacing: 8) {
           Button(action: onAddAttachments) {
@@ -108,41 +88,9 @@ struct ChatComposer: View {
           .buttonStyle(.borderless)
           .foregroundStyle(.secondary)
           .disabled(isGenerating || isInputBlocked || modelState != .ready)
-          .help("Add context files")
           .accessibilityLabel("Add context files")
 
-          Menu {
-            ForEach(availableModels) { model in
-              Button {
-                onSelectModel(model)
-              } label: {
-                if model.id == selectedModel.id {
-                  Label(model.displayName, systemImage: "checkmark")
-                } else {
-                  Text(model.displayName)
-                }
-              }
-            }
-          } label: {
-            HStack(spacing: 6) {
-              Text(modelPickerTitle)
-                .lineLimit(1)
-                .truncationMode(.tail)
-              Spacer(minLength: 4)
-              Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.tertiary)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .frame(width: 150, height: 22)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
-          }
-          .buttonStyle(.plain)
-          .disabled(!canChangeModel)
-          .help(modelPickerHelp)
-          .accessibilityIdentifier("chat.modelPicker")
+          modelBadge
 
           if modelState != .ready {
             Button(action: onLoadModel) {
@@ -159,24 +107,11 @@ struct ChatComposer: View {
             }
             .controlSize(.small)
             .disabled(!canLoadSelectedModel)
-            .help(modelLoadHelp)
+            .accessibilityLabel(modelLoadHelp)
             .accessibilityIdentifier("load-model-button")
           }
 
-          Picker("Mode", selection: interactionModeSelection) {
-            ForEach(WorkspaceInteractionMode.allCases, id: \.self) { mode in
-              Text(mode.displayName)
-                .tag(mode)
-                .accessibilityIdentifier("chat.mode.\(mode.rawValue)")
-            }
-          }
-          .pickerStyle(.segmented)
-          .labelsHidden()
-          .frame(width: 190)
-          .controlSize(.small)
-          .disabled(!canChangeInteractionMode)
-          .help("Select interaction mode")
-          .accessibilityIdentifier("chat.modePicker")
+          modeSelector
 
           Spacer()
 
@@ -192,9 +127,8 @@ struct ChatComposer: View {
           }
           .buttonStyle(.plain)
           .accessibilityIdentifier(isGenerating ? "cancel-generation-button" : "send-button")
-          .keyboardShortcut(.return, modifiers: .command)
           .disabled(!isGenerating && !canSend)
-          .help(isGenerating ? "Cancel" : "Send")
+          .accessibilityLabel(isGenerating ? "Cancel" : "Send")
         }
       }
       .padding(.horizontal, 12)
@@ -210,36 +144,60 @@ struct ChatComposer: View {
       .shadow(color: Color.black.opacity(0.14), radius: 16, x: 0, y: 8)
     }
     .padding(16)
-    .background {
-      if isDropTarget {
-        RoundedRectangle(cornerRadius: 10)
-          .fill(Color.accentColor.opacity(0.08))
-          .overlay {
-            RoundedRectangle(cornerRadius: 10)
-              .strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 1)
-          }
-          .padding(6)
-      }
-    }
-    .overlay {
-      ComposerFileDropReceiver(
-        isEnabled: canAcceptAttachments,
-        isTargeted: $isDropTarget,
-        onDrop: onDropAttachments
-      )
-    }
-    .onAppear {
-      messageFieldFocused = true
-    }
   }
 
-  private var interactionModeSelection: Binding<WorkspaceInteractionMode> {
-    Binding(
-      get: { interactionMode },
-      set: { mode in
-        onSelectInteractionMode(mode)
+  private var modeSelector: some View {
+    HStack(spacing: 2) {
+      ForEach(WorkspaceInteractionMode.allCases, id: \.self) { mode in
+        modeButton(mode)
       }
-    )
+    }
+    .padding(2)
+    .frame(width: 104, height: 24)
+    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Mode")
+    .accessibilityValue(interactionMode.displayName)
+    .accessibilityIdentifier("chat.modePicker")
+  }
+
+  private func modeButton(_ mode: WorkspaceInteractionMode) -> some View {
+    let isSelected = mode == interactionMode
+
+    return Button {
+      guard mode != interactionMode else {
+        return
+      }
+      onSelectInteractionMode(mode)
+    } label: {
+      Text(mode.displayName)
+        .font(.caption2.weight(isSelected ? .semibold : .medium))
+        .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+        .frame(width: 48, height: 20)
+        .background(
+          isSelected ? Color.secondary.opacity(0.16) : Color.clear,
+          in: RoundedRectangle(cornerRadius: 4)
+        )
+    }
+    .buttonStyle(.plain)
+    .disabled(!canChangeInteractionMode)
+    .accessibilityLabel(mode.displayName)
+    .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    .accessibilityIdentifier("chat.mode.\(mode.rawValue)")
+  }
+
+  private var modelBadge: some View {
+    Text(modelPickerTitle)
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      .lineLimit(1)
+      .truncationMode(.tail)
+      .padding(.horizontal, 8)
+      .frame(width: 150, height: 24)
+      .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+      .accessibilityLabel("Selected model")
+      .accessibilityValue(modelPickerTitle)
+      .accessibilityIdentifier("chat.selectedModel")
   }
 
   private var visiblePendingAttachments: [ChatAttachment] {
@@ -254,10 +212,6 @@ struct ChatComposer: View {
 
   private var canLoadSelectedModel: Bool {
     !availableModels.isEmpty && modelState != .loading && !isGenerating
-  }
-
-  private var canAcceptAttachments: Bool {
-    !isGenerating && !isInputBlocked && modelState == .ready
   }
 
   private var canActivateSend: Bool {
@@ -282,22 +236,12 @@ struct ChatComposer: View {
       : "Load selected model"
   }
 
-  private var modelPickerHelp: String {
-    availableModels.isEmpty
-      ? "Download a model from Models first"
-      : "Select model for this workspace"
-  }
-
   private var modelPickerTitle: String {
     availableModels.isEmpty ? "No local models" : selectedModel.displayName
   }
 
-  private var canInterceptPasteCommand: Bool {
-    messageFieldFocused && !isGenerating && !isInputBlocked && modelState == .ready
-  }
-
   private var canInsertSoftBreak: Bool {
-    messageFieldFocused && !isInputBlocked
+    !isInputBlocked
   }
 
   private var slashSuggestions: [SlashCommandDescriptor] {
@@ -352,7 +296,6 @@ struct ChatComposer: View {
     draft = descriptor.token + " "
     slashSelectionIndex = 0
     slashSuggestionsDismissed = false
-    messageFieldFocused = true
   }
 
   private func sendMessage() {
@@ -367,13 +310,11 @@ struct ChatComposer: View {
     }
 
     let submittedDraft = draft
-    messageFieldFocused = false
     let shouldClearDraft = onSend()
     Task { @MainActor in
       if shouldClearDraft && (draft.isEmpty || draft == submittedDraft) {
         draft = ""
       }
-      messageFieldFocused = true
     }
   }
 
@@ -581,268 +522,6 @@ private final class AttachmentFileProviderLoader {
       options: nil
     )
     return (index, ChatComposer.fileURL(from: item))
-  }
-}
-
-private struct ComposerFileDropReceiver: NSViewRepresentable {
-  let isEnabled: Bool
-  @Binding var isTargeted: Bool
-  let onDrop: ([URL]) -> Void
-
-  func makeCoordinator() -> Coordinator {
-    Coordinator(isTargeted: $isTargeted, onDrop: onDrop)
-  }
-
-  func makeNSView(context: Context) -> ComposerFileDropView {
-    let view = ComposerFileDropView(frame: .zero)
-    view.setAccessibilityElement(false)
-    view.isDropEnabled = isEnabled
-    view.onTargetedChange = context.coordinator.setTargeted(_:)
-    view.onDrop = context.coordinator.drop(urls:)
-    return view
-  }
-
-  func updateNSView(_ nsView: ComposerFileDropView, context: Context) {
-    context.coordinator.isTargeted = $isTargeted
-    context.coordinator.onDrop = onDrop
-    nsView.isDropEnabled = isEnabled
-    nsView.onTargetedChange = context.coordinator.setTargeted(_:)
-    nsView.onDrop = context.coordinator.drop(urls:)
-    if !isEnabled {
-      context.coordinator.resetTargetedAfterViewUpdate()
-    }
-  }
-
-  static func dismantleNSView(_ nsView: ComposerFileDropView, coordinator: Coordinator) {
-    nsView.onTargetedChange = { _ in }
-    nsView.onDrop = { _ in }
-    nsView.unregisterDraggedTypes()
-  }
-
-  final class Coordinator {
-    var isTargeted: Binding<Bool>
-    var onDrop: ([URL]) -> Void
-
-    init(isTargeted: Binding<Bool>, onDrop: @escaping ([URL]) -> Void) {
-      self.isTargeted = isTargeted
-      self.onDrop = onDrop
-    }
-
-    func setTargeted(_ targeted: Bool) {
-      guard isTargeted.wrappedValue != targeted else {
-        return
-      }
-      isTargeted.wrappedValue = targeted
-    }
-
-    func resetTargetedAfterViewUpdate() {
-      DispatchQueue.main.async { [weak self] in
-        self?.setTargeted(false)
-      }
-    }
-
-    func drop(urls: [URL]) {
-      onDrop(urls)
-    }
-  }
-}
-
-private final class ComposerFileDropView: NSView {
-  var isDropEnabled = true
-  var onTargetedChange: (Bool) -> Void = { _ in }
-  var onDrop: ([URL]) -> Void = { _ in }
-
-  override init(frame frameRect: NSRect) {
-    super.init(frame: frameRect)
-    registerForDraggedTypes(Self.draggedTypes)
-  }
-
-  required init?(coder: NSCoder) {
-    super.init(coder: coder)
-    registerForDraggedTypes(Self.draggedTypes)
-  }
-
-  override var isOpaque: Bool {
-    false
-  }
-
-  override func hitTest(_ point: NSPoint) -> NSView? {
-    guard isDropEnabled else {
-      return nil
-    }
-    guard shouldCaptureDragHitTest else {
-      return nil
-    }
-    return Self.fileURLs(from: NSPasteboard(name: .drag)).isEmpty ? nil : self
-  }
-
-  override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-    guard isDropEnabled else {
-      return []
-    }
-    let urls = Self.fileURLs(from: sender.draggingPasteboard)
-    guard !urls.isEmpty else {
-      return []
-    }
-
-    onTargetedChange(true)
-    return .copy
-  }
-
-  override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-    guard isDropEnabled else {
-      onTargetedChange(false)
-      return []
-    }
-    if Self.fileURLs(from: sender.draggingPasteboard).isEmpty {
-      return []
-    }
-    return .copy
-  }
-
-  override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-    onTargetedChange(false)
-  }
-
-  override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-    guard isDropEnabled else {
-      onTargetedChange(false)
-      return false
-    }
-    let urls = Self.fileURLs(from: sender.draggingPasteboard)
-    onTargetedChange(false)
-    guard !urls.isEmpty else {
-      return false
-    }
-
-    onDrop(urls)
-    return true
-  }
-
-  override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
-    onTargetedChange(false)
-  }
-
-  private var shouldCaptureDragHitTest: Bool {
-    guard let event = window?.currentEvent else {
-      return true
-    }
-
-    switch event.type {
-    case .leftMouseDragged, .leftMouseUp, .periodic:
-      return true
-    default:
-      return false
-    }
-  }
-
-  private static let draggedTypes: [NSPasteboard.PasteboardType] = [
-    .fileURL,
-    NSPasteboard.PasteboardType("NSFilenamesPboardType"),
-  ]
-
-  private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
-    if let urls = pasteboard.readObjects(
-      forClasses: [NSURL.self],
-      options: [.urlReadingFileURLsOnly: true]
-    ) as? [URL],
-      !urls.isEmpty
-    {
-      return urls.map(\.standardizedFileURL)
-    }
-
-    let filenamesType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
-    guard let paths = pasteboard.propertyList(forType: filenamesType) as? [String] else {
-      return []
-    }
-
-    return paths.map { URL(filePath: $0).standardizedFileURL }
-  }
-}
-
-private struct ComposerKeyCommandMonitor: NSViewRepresentable {
-  let canHandlePaste: Bool
-  let canInsertSoftBreak: Bool
-  let onPaste: () -> Bool
-  let onSoftBreak: () -> Bool
-
-  func makeCoordinator() -> Coordinator {
-    Coordinator(parent: self)
-  }
-
-  func makeNSView(context: Context) -> NSView {
-    context.coordinator.installMonitor()
-    let view = NSView(frame: .zero)
-    view.isHidden = true
-    return view
-  }
-
-  func updateNSView(_ nsView: NSView, context: Context) {
-    context.coordinator.parent = self
-  }
-
-  static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-    coordinator.uninstallMonitor()
-  }
-
-  final class Coordinator {
-    var parent: ComposerKeyCommandMonitor
-    private var monitor: Any?
-
-    init(parent: ComposerKeyCommandMonitor) {
-      self.parent = parent
-    }
-
-    func installMonitor() {
-      guard monitor == nil else {
-        return
-      }
-
-      monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-        guard let self else {
-          return event
-        }
-
-        if parent.canInsertSoftBreak, Self.isSoftBreakCommand(event) {
-          return parent.onSoftBreak() ? nil : event
-        }
-
-        if parent.canHandlePaste, Self.isPasteCommand(event) {
-          return parent.onPaste() ? nil : event
-        }
-
-        return event
-      }
-    }
-
-    func uninstallMonitor() {
-      if let monitor {
-        NSEvent.removeMonitor(monitor)
-        self.monitor = nil
-      }
-    }
-
-    private static func isPasteCommand(_ event: NSEvent) -> Bool {
-      let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-      guard flags == .command else {
-        return false
-      }
-
-      return event.charactersIgnoringModifiers?.lowercased() == "v"
-    }
-
-    private static func isSoftBreakCommand(_ event: NSEvent) -> Bool {
-      let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-      guard flags.contains(.shift),
-        !flags.contains(.command),
-        !flags.contains(.control),
-        !flags.contains(.option)
-      else {
-        return false
-      }
-
-      return event.keyCode == 36 || event.keyCode == 76
-    }
   }
 }
 

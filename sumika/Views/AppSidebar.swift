@@ -15,66 +15,30 @@ struct AppSidebar: View {
   }
 
   var body: some View {
-    List(selection: $selection) {
-      Section {
-        NavigationLink(value: AppNavigationSelection.models) {
-          Label("Models", systemImage: "cpu")
-        }
-        .accessibilityIdentifier("sidebar.modelsLink")
-      }
+    VStack(spacing: 0) {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 10) {
+          modelRow
 
-      Section("Workspaces") {
-        ForEach(appState.workspaceLibrary.workspaces) { workspace in
-          DisclosureGroup(isExpanded: expansionBinding(for: workspace.id)) {
-            ForEach(workspace.sessions) { session in
-              NavigationLink(value: AppNavigationSelection.session(session.id)) {
-                Text(sidebarTitle(for: session))
-                  .lineLimit(1)
-                  .truncationMode(.tail)
-              }
-              .accessibilityIdentifier("sidebar.sessionLink")
-              .contextMenu {
-                Button("Rename") {
-                  sessionBeingRenamed = session
-                  renameTitle = session.title
-                }
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Workspaces")
+              .font(.caption)
+              .fontWeight(.semibold)
+              .foregroundStyle(.secondary)
+              .padding(.horizontal, 14)
+              .padding(.top, 2)
 
-                Button("Delete", role: .destructive) {
-                  sessionPendingDeletion = session
-                }
-              }
-            }
-
-            Button {
-              if let sessionID = appState.createSession(in: workspace.id) {
-                selection = .session(sessionID)
-              }
-            } label: {
-              HStack(spacing: 8) {
-                Image(systemName: "plus")
-                  .foregroundStyle(.secondary)
-
-                Text("New Chat")
-              }
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("sidebar.newSessionButton")
-          } label: {
-            Label {
-              Text(workspace.name)
-            } icon: {
-              Image(systemName: isExpanded(workspace.id) ? "folder.fill" : "folder")
-                .foregroundStyle(.tint)
+            ForEach(appState.workspaceLibrary.workspaces) { workspace in
+              workspaceSection(workspace)
             }
           }
-          .accessibilityIdentifier("sidebar.workspaceDisclosure")
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
-    }
-    .accessibilityIdentifier("sidebar.workspaceList")
-    .listStyle(.sidebar)
-    .navigationTitle("Sumika Chat")
-    .safeAreaInset(edge: .bottom, spacing: 0) {
+      .accessibilityIdentifier("sidebar.workspaceList")
+
       HStack(spacing: 0) {
         Button(action: onAddWorkspace) {
           Image(systemName: "plus")
@@ -82,17 +46,20 @@ struct AppSidebar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .padding(.leading, 8)
-        .help("Add Workspace")
+        .frame(width: 36, height: 34)
+        .accessibilityLabel("Add Workspace")
         .accessibilityIdentifier("sidebar.addWorkspaceButton")
 
         ModelRuntimeFooter(processUsage: appState.chatController.modelRuntime.processUsage)
+          .frame(maxWidth: .infinity, alignment: .leading)
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
       .background(.regularMaterial)
       .overlay(alignment: .top) {
         Divider()
       }
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .alert("Rename Session", isPresented: renameAlertBinding) {
       TextField("Session name", text: $renameTitle)
 
@@ -124,6 +91,136 @@ struct AppSidebar: View {
     }
   }
 
+  private var modelRow: some View {
+    Button {
+      selection = .models
+    } label: {
+      HStack(spacing: 8) {
+        Image(systemName: "cpu")
+          .foregroundStyle(.secondary)
+          .frame(width: 16)
+
+        Text("Models")
+          .lineLimit(1)
+
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 8)
+      .frame(height: 28)
+      .background(rowBackground(isSelected: selection == .models))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("sidebar.modelsLink")
+    .accessibilityValue(selection == .models ? "Selected" : "")
+  }
+
+  @ViewBuilder
+  private func workspaceSection(_ workspace: Workspace) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Button {
+        toggleExpansion(for: workspace.id)
+      } label: {
+        HStack(spacing: 6) {
+          Image(systemName: isExpanded(workspace.id) ? "chevron.down" : "chevron.right")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .frame(width: 10)
+
+          Image(systemName: isExpanded(workspace.id) ? "folder.fill" : "folder")
+            .foregroundStyle(.tint)
+            .frame(width: 16)
+
+          Text(workspace.name)
+            .fontWeight(.semibold)
+            .lineLimit(1)
+            .truncationMode(.tail)
+
+          Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("sidebar.workspaceDisclosure")
+      .accessibilityValue(isExpanded(workspace.id) ? "Expanded" : "Collapsed")
+
+      if isExpanded(workspace.id) {
+        VStack(alignment: .leading, spacing: 2) {
+          ForEach(workspace.sessions) { session in
+            sessionRow(session)
+          }
+
+          newSessionButton(for: workspace.id)
+        }
+        .padding(.leading, 18)
+      }
+    }
+  }
+
+  private func sessionRow(_ session: ChatSession) -> some View {
+    let item = AppNavigationSelection.session(session.id)
+    let isSelected = selection == item
+
+    return Button {
+      selection = item
+    } label: {
+      HStack(spacing: 8) {
+        Text(sidebarTitle(for: session))
+          .lineLimit(1)
+          .truncationMode(.tail)
+
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 8)
+      .frame(height: 28)
+      .background(rowBackground(isSelected: isSelected))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("sidebar.sessionLink")
+    .accessibilityValue(isSelected ? "Selected" : "")
+    .contextMenu {
+      Button("Rename") {
+        sessionBeingRenamed = session
+        renameTitle = session.title
+      }
+
+      Button("Delete", role: .destructive) {
+        sessionPendingDeletion = session
+      }
+    }
+  }
+
+  private func newSessionButton(for workspaceID: Workspace.ID) -> some View {
+    Button {
+      if let sessionID = appState.createSession(in: workspaceID) {
+        selection = .session(sessionID)
+      }
+    } label: {
+      HStack(spacing: 8) {
+        Image(systemName: "plus")
+          .foregroundStyle(.secondary)
+          .frame(width: 16)
+
+        Text("New Chat")
+
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 8)
+      .frame(height: 28)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("sidebar.newSessionButton")
+  }
+
+  private func rowBackground(isSelected: Bool) -> some View {
+    RoundedRectangle(cornerRadius: 6, style: .continuous)
+      .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.clear)
+  }
+
   private func sidebarTitle(for session: ChatSession) -> String {
     session.title == ChatSession.defaultTitle ? "Untitled" : session.title
   }
@@ -132,21 +229,16 @@ struct AppSidebar: View {
     !collapsedWorkspaces.contains(workspaceID)
   }
 
-  private func expansionBinding(for workspaceID: Workspace.ID) -> Binding<Bool> {
-    Binding(
-      get: { !collapsedWorkspaces.contains(workspaceID) },
-      set: { isExpanded in
-        withAnimation(.snappy(duration: 0.22)) {
-          var ids = collapsedWorkspaces
-          if isExpanded {
-            ids.remove(workspaceID)
-          } else {
-            ids.insert(workspaceID)
-          }
-          collapsedWorkspaceIDsRaw = ids.map(\.uuidString).sorted().joined(separator: ",")
-        }
+  private func toggleExpansion(for workspaceID: Workspace.ID) {
+    withAnimation(.snappy(duration: 0.18)) {
+      var ids = collapsedWorkspaces
+      if ids.contains(workspaceID) {
+        ids.remove(workspaceID)
+      } else {
+        ids.insert(workspaceID)
       }
-    )
+      collapsedWorkspaceIDsRaw = ids.map(\.uuidString).sorted().joined(separator: ",")
+    }
   }
 
   private var renameAlertBinding: Binding<Bool> {
