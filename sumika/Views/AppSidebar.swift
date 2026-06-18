@@ -127,7 +127,7 @@ struct AppSidebar: View {
             .foregroundStyle(.secondary)
             .frame(width: 10)
 
-          Image(systemName: isExpanded(workspace.id) ? "folder.fill" : "folder")
+          Image(systemName: isExpanded(workspace.id) ? "folder" : "folder.fill")
             .foregroundStyle(.tint)
             .frame(width: 16)
 
