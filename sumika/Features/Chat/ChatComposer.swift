@@ -27,7 +27,8 @@ struct ChatComposer: View {
   let onRemoveAttachment: (ChatAttachment.ID) -> Void
   let onSend: (String) -> Bool
   let onCancel: () -> Void
-  @State private var draft = ""
+  @State private var draftBridge = ComposerDraftBridge()
+  @State private var draftState = ComposerDraftState()
   @State private var slashSelectionIndex = 0
   @State private var slashSuggestionsDismissed = false
   @State private var showModelPicker = false
@@ -84,10 +85,11 @@ struct ChatComposer: View {
 
       VStack(spacing: 8) {
         ComposerTextView(
-          text: $draft,
+          draftBridge: draftBridge,
           placeholder: "Message",
           isDisabled: isInputBlocked,
           canAcceptAttachments: canAcceptAttachments,
+          onTextStateChanged: updateDraftState(_:),
           onSubmit: sendMessage,
           onMoveSlashSelection: moveSlashSelection(by:),
           onCommitSlashSelection: commitSlashSelectionFromKey,
@@ -142,7 +144,7 @@ struct ChatComposer: View {
           }
           .buttonStyle(.plain)
           .accessibilityIdentifier(isGenerating ? "cancel-generation-button" : "send-button")
-          .disabled(!isGenerating && !canSend)
+          .disabled(!isGenerating && !canSubmitDraft)
           .accessibilityLabel(isGenerating ? "Cancel" : "Send")
         }
       }
@@ -271,7 +273,6 @@ struct ChatComposer: View {
   }
 
   private var shouldShowActiveAttachments: Bool {
-    let hasDraftText = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     return !activeAttachments.isEmpty && (hasDraftText || !attachments.isEmpty)
   }
 
@@ -326,14 +327,10 @@ struct ChatComposer: View {
     guard !slashSuggestionsDismissed, !isInputBlocked else {
       return []
     }
-    guard draft.first == "/" else {
+    guard let token = draftState.slashSuggestionPrefix else {
       return []
     }
-    let token = draft.dropFirst()
-    guard !token.contains(where: \.isWhitespace) else {
-      return []
-    }
-    return SlashCommandRegistry.matching(prefix: String(token))
+    return SlashCommandRegistry.matching(prefix: token)
   }
 
   private func clampedSlashIndex(for suggestions: [SlashCommandDescriptor]) -> Int {
@@ -344,11 +341,30 @@ struct ChatComposer: View {
     return min(max(slashSelectionIndex, 0), count - 1)
   }
 
+  private var hasDraftText: Bool {
+    draftState.hasText
+  }
+
   private var canSendCurrentDraft: Bool {
-    if slashCommandParser.parse(draft) != nil {
+    guard hasDraftText else {
+      return false
+    }
+
+    guard let slashCommandText = draftState.slashCommandText else {
+      return canSend
+    }
+
+    if slashCommandParser.parse(slashCommandText) != nil {
       return canRunLocalCommand
     }
-    return canSend && draft.contains { !$0.isWhitespace }
+    return canSend
+  }
+
+  private func updateDraftState(_ state: ComposerDraftState) {
+    guard draftState != state else {
+      return
+    }
+    draftState = state
   }
 
   private func moveSlashSelection(by delta: Int) -> KeyPress.Result {
@@ -379,7 +395,7 @@ struct ChatComposer: View {
   }
 
   private func acceptSlashSuggestion(_ descriptor: SlashCommandDescriptor) {
-    draft = descriptor.token + " "
+    setDraftText(descriptor.token + " ")
     slashSelectionIndex = 0
     slashSuggestionsDismissed = false
   }
@@ -395,13 +411,19 @@ struct ChatComposer: View {
       return
     }
 
-    let submittedDraft = draft
+    let submittedDraft = draftBridge.text
     let shouldClearDraft = onSend(submittedDraft)
     Task { @MainActor in
-      if shouldClearDraft && (draft.isEmpty || draft == submittedDraft) {
-        draft = ""
+      let currentDraft = draftBridge.text
+      if shouldClearDraft && (currentDraft.isEmpty || currentDraft == submittedDraft) {
+        setDraftText("")
       }
     }
+  }
+
+  private func setDraftText(_ text: String) {
+    draftBridge.replaceText(text)
+    updateDraftState(ComposerDraftState(text: text))
   }
 
   private func handlePaste(_ providers: [NSItemProvider]) {
@@ -455,7 +477,7 @@ struct ChatComposer: View {
       return true
     }
 
-    draft.append("\n")
+    setDraftText(draftBridge.text + "\n")
     return true
   }
 
@@ -613,11 +635,58 @@ struct ChatComposer: View {
   ]
 }
 
+private struct ComposerDraftState: Equatable {
+  var hasText = false
+  var slashSuggestionPrefix: String?
+  var slashCommandText: String?
+
+  init() {}
+
+  init(text: String) {
+    hasText = text.contains { !$0.isWhitespace }
+
+    if text.first == "/" {
+      let token = text.dropFirst()
+      if !token.contains(where: \.isWhitespace) {
+        slashSuggestionPrefix = String(token)
+      }
+    }
+
+    if text.first(where: { !$0.isWhitespace }) == "/" {
+      slashCommandText = text
+    }
+  }
+}
+
+private final class ComposerDraftBridge {
+  private weak var textView: ComposerNSTextView?
+  private var storedText = ""
+
+  var text: String {
+    textView?.string ?? storedText
+  }
+
+  func bind(_ textView: ComposerNSTextView) {
+    self.textView = textView
+    storedText = textView.string
+  }
+
+  func noteTextDidChange(_ text: String) {
+    storedText = text
+  }
+
+  func replaceText(_ text: String) {
+    storedText = text
+    textView?.replaceAllText(text)
+  }
+}
+
 private struct ComposerTextView: NSViewRepresentable {
-  @Binding var text: String
+  let draftBridge: ComposerDraftBridge
   let placeholder: String
   let isDisabled: Bool
   let canAcceptAttachments: Bool
+  let onTextStateChanged: (ComposerDraftState) -> Void
   let onSubmit: () -> Void
   let onMoveSlashSelection: (Int) -> KeyPress.Result
   let onCommitSlashSelection: () -> KeyPress.Result
@@ -625,7 +694,7 @@ private struct ComposerTextView: NSViewRepresentable {
   let onPasteboardAttachments: (NSPasteboard) -> Bool
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(text: $text)
+    Coordinator(draftBridge: draftBridge, onTextStateChanged: onTextStateChanged)
   }
 
   func makeNSView(context: Context) -> NSScrollView {
@@ -686,8 +755,12 @@ private struct ComposerTextView: NSViewRepresentable {
       return
     }
 
-    context.coordinator.text = $text
-    textView.placeholder = placeholder
+    context.coordinator.draftBridge = draftBridge
+    context.coordinator.onTextStateChanged = onTextStateChanged
+    draftBridge.bind(textView)
+    if textView.placeholder != placeholder {
+      textView.placeholder = placeholder
+    }
     textView.canAcceptAttachments = canAcceptAttachments
     textView.onSubmit = onSubmit
     textView.onMoveSlashSelection = onMoveSlashSelection
@@ -698,18 +771,6 @@ private struct ComposerTextView: NSViewRepresentable {
     textView.isSelectable = true
     textView.textColor = isDisabled ? .disabledControlTextColor : .labelColor
     textView.frame.size.width = max(scrollView.contentSize.width, 1)
-
-    guard textView.string != text else {
-      textView.needsDisplay = true
-      return
-    }
-
-    let previousSelection = textView.selectedRange()
-    context.coordinator.isUpdatingFromSwiftUI = true
-    textView.string = text
-    context.coordinator.isUpdatingFromSwiftUI = false
-    textView.setSelectedRange(clamped(previousSelection, toUTF16Length: text.utf16.count))
-    textView.needsDisplay = true
   }
 
   private func disableAutomaticTextServices(on textView: NSTextView) {
@@ -726,31 +787,29 @@ private struct ComposerTextView: NSViewRepresentable {
     textView.smartInsertDeleteEnabled = false
   }
 
-  private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
-    let location = min(range.location, length)
-    let rangeLength = min(range.length, length - location)
-    return NSRange(location: location, length: rangeLength)
-  }
-
   final class Coordinator: NSObject, NSTextViewDelegate {
-    var text: Binding<String>
-    var isUpdatingFromSwiftUI = false
+    var draftBridge: ComposerDraftBridge
+    var onTextStateChanged: (ComposerDraftState) -> Void
 
-    init(text: Binding<String>) {
-      self.text = text
+    init(
+      draftBridge: ComposerDraftBridge,
+      onTextStateChanged: @escaping (ComposerDraftState) -> Void
+    ) {
+      self.draftBridge = draftBridge
+      self.onTextStateChanged = onTextStateChanged
     }
 
     func textDidChange(_ notification: Notification) {
-      guard !isUpdatingFromSwiftUI,
-        let textView = notification.object as? NSTextView
-      else {
+      guard let textView = notification.object as? NSTextView else {
         return
       }
 
-      if text.wrappedValue != textView.string {
-        text.wrappedValue = textView.string
+      let previousText = draftBridge.text
+      draftBridge.noteTextDidChange(textView.string)
+      onTextStateChanged(ComposerDraftState(text: textView.string))
+      if previousText.isEmpty != textView.string.isEmpty {
+        textView.needsDisplay = true
       }
-      textView.needsDisplay = true
     }
   }
 }
@@ -768,6 +827,19 @@ private final class ComposerNSTextView: NSTextView {
   var onCommitSlashSelection: (() -> KeyPress.Result)?
   var onDismissSlashSuggestions: (() -> KeyPress.Result)?
   var onPasteboardAttachments: ((NSPasteboard) -> Bool)?
+
+  func replaceAllText(_ newText: String) {
+    guard string != newText else {
+      return
+    }
+
+    let wasEmpty = string.isEmpty
+    string = newText
+    setSelectedRange(NSRange(location: newText.utf16.count, length: 0))
+    if wasEmpty != newText.isEmpty {
+      needsDisplay = true
+    }
+  }
 
   override func draw(_ dirtyRect: NSRect) {
     super.draw(dirtyRect)
