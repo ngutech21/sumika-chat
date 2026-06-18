@@ -458,9 +458,10 @@ nonisolated extension ToolDefinition {
       ),
       ToolParameterDefinition(
         name: "timeoutSeconds",
-        description: "Timeout in seconds.",
-        isRequired: true,
+        description: "Timeout in seconds. Defaults to 120 when omitted.",
+        isRequired: false,
         valueType: .integer,
+        defaultValue: .number(120),
         minimum: 1,
         maximum: 120
       ),

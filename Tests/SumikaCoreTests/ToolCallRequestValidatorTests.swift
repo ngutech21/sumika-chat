@@ -148,6 +148,20 @@ struct ToolCallRequestValidatorTests {
   }
 
   @Test
+  func runCommandDefaultsMissingTimeout() throws {
+    let request = validator.validate(
+      raw(.runCommand, arguments: ["command": .string("just test-core")]),
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(
+      request.payload
+        == .runCommand(
+          RunCommandInput(command: "just test-core", timeoutSeconds: 120)
+        ))
+  }
+
+  @Test
   func invalidPayloadsKeepRawArgumentsAndPreciseReasons() {
     let registry = ToolExecutorRegistry.readOnly.toolRegistry
     let rawArguments: ToolCallArguments = ["path": .string("README.md")]
