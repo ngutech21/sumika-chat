@@ -30,11 +30,12 @@ struct ModelRuntimeFooter: View {
           .font(.caption2)
           .foregroundStyle(.tertiary)
       }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 9)
+      .frame(maxWidth: .infinity, alignment: .leading)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .padding(.horizontal, 14)
-    .padding(.vertical, 9)
     .help("Model runtime resource usage")
     .accessibilityIdentifier("sidebar.modelRuntimeFooter")
     .accessibilityLabel("Model runtime resource usage")

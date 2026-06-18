@@ -425,7 +425,6 @@ final class SumikaUITests: XCTestCase {
 
   @MainActor
   private func loadSelectedModel(in application: XCUIApplication) throws {
-    chooseGemma4E4BIfPickerIsAvailable(in: application)
     let messageField = application.textFields["message-field"]
     let loadButton = application.buttons["load-model-button"]
     let sendButton = application.buttons["send-button"]
@@ -449,27 +448,6 @@ final class SumikaUITests: XCTestCase {
     )
     messageField.typeKey("a", modifierFlags: .command)
     messageField.typeKey(.delete, modifierFlags: [])
-  }
-
-  @MainActor
-  private func chooseGemma4E4BIfPickerIsAvailable(in application: XCUIApplication) {
-    let pickers = application.menuButtons.matching(identifier: "chat.modelPicker")
-    let picker =
-      pickers.allElementsBoundByIndex.first { element in
-        element.exists && element.isEnabled
-          && !element.label.localizedCaseInsensitiveContains("go down")
-      } ?? pickers.element(boundBy: 0)
-    guard picker.waitForExistence(timeout: 5), picker.isEnabled else {
-      return
-    }
-
-    picker.click()
-    let modelItem = application.menuItems["Gemma 4 E4B Experimental"]
-    if modelItem.waitForExistence(timeout: 2) {
-      modelItem.click()
-    } else {
-      application.typeKey(.escape, modifierFlags: [])
-    }
   }
 
   @MainActor

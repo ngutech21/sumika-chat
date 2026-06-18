@@ -3,23 +3,17 @@ import SumikaCore
 import SwiftUI
 
 struct ContentView: View {
-  @AppStorage("contentView.columnVisibility") private var storedColumnVisibility =
-    Self.defaultColumnVisibility.storageValue
   @AppStorage("workspaceChat.isModelContextDebugVisible") private var isModelContextDebugVisible =
     false
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible = false
   @State private var selection: AppNavigationSelection?
   @State private var appState: AppState
   @State private var isSettingsPresented = false
-
-  private static let defaultColumnVisibility = NavigationSplitViewVisibility.all
-
-  private var columnVisibility: Binding<NavigationSplitViewVisibility> {
-    Binding(
-      get: { NavigationSplitViewVisibility(storageValue: storedColumnVisibility) },
-      set: { storedColumnVisibility = $0.storageValue }
-    )
-  }
+  // Sidebar collapse is @State (resets to expanded on launch) so you can never
+  // start in a collapsed-with-no-toggle dead end. Width persists.
+  @State private var isSidebarCollapsed = false
+  @AppStorage("contentView.sidebarWidth") private var sidebarWidth = 300.0
+  @State private var dragStartWidth: Double?
 
   @MainActor
   init() {
@@ -34,64 +28,23 @@ struct ContentView: View {
   var body: some View {
     let controller = appState.chatController
 
-    NavigationSplitView(columnVisibility: columnVisibility) {
-      AppSidebar(
-        appState: appState,
-        selection: $selection,
-        onAddWorkspace: chooseWorkspace
-      )
-      .navigationSplitViewColumnWidth(min: 260, ideal: 300)
-    } detail: {
-      if let selection {
-        switch selection {
-        case .models:
-          ModelsView(
-            modelRuntime: controller.modelRuntime,
-            systemPrompt: Binding(
-              get: { controller.chatSession.systemPrompt },
-              set: { controller.chatSession.systemPrompt = $0 }
-            ),
-            generationSettings: Binding(
-              get: { controller.chatSession.generationSettings },
-              set: { controller.chatSession.generationSettings = $0 }
-            ),
-            contextUsage: controller.contextUsage,
-            errorMessage: controller.errorMessage,
-            canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
-            onPrepareModelRuntimeAction: { cancelGeneration, invalidateContext in
-              controller.prepareForModelRuntimeAction(
-                cancelGeneration: cancelGeneration,
-                invalidateContext: invalidateContext
-              )
-            }
-          )
-          .navigationTitle("Models")
-        case .session:
-          if let workspace = appState.activeWorkspace {
-            WorkspaceChatView(
-              controller: controller,
-              workspace: workspace,
-              sessionID: appState.activeSessionID,
-              browserToolService: appState.browserToolService,
-              isModelContextDebugVisible: $isModelContextDebugVisible,
-              isWorkspaceTerminalVisible: $isTerminalVisible,
-              onAddAttachments: chooseAttachments,
-              onOpenWorkspaceInFinder: appState.openActiveWorkspaceInFinder,
-              onOpenWorkspaceInVisualStudioCode: appState.openActiveWorkspaceInVisualStudioCode
+    HStack(spacing: 0) {
+      if !isSidebarCollapsed {
+        AppSidebar(
+          appState: appState,
+          selection: $selection,
+          onAddWorkspace: chooseWorkspace
+        )
+        .frame(width: sidebarWidth)
+        .background(.bar)
+        .transition(.move(edge: .leading).combined(with: .opacity))
 
-            )
-            .navigationTitle(workspace.name)
-          } else {
-            EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
-              .navigationTitle("Sumika Chat")
-          }
-        }
-      } else {
-        EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
-          .navigationTitle("Sumika Chat")
+        sidebarResizeHandle
       }
+
+      detailContent(controller: controller, isSidebarCollapsed: $isSidebarCollapsed)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    .navigationSplitViewStyle(.balanced)
     .frame(minWidth: 880, minHeight: 560)
     .focusedSceneValue(\.addWorkspaceAction, chooseWorkspace)
     .focusedSceneValue(\.showSettingsAction) {
@@ -151,6 +104,78 @@ struct ContentView: View {
       }
     } message: {
       Text(appState.workspaceErrorMessage ?? "")
+    }
+  }
+
+  private var sidebarResizeHandle: some View {
+    Divider()
+      .overlay {
+        Rectangle()
+          .fill(.clear)
+          .frame(width: 8)
+          .contentShape(Rectangle())
+          .onHover { inside in
+            if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+          }
+          .gesture(
+            DragGesture()
+              .onChanged { value in
+                if dragStartWidth == nil { dragStartWidth = sidebarWidth }
+                let base = dragStartWidth ?? sidebarWidth
+                sidebarWidth = min(max(base + value.translation.width, 220), 460)
+              }
+              .onEnded { _ in dragStartWidth = nil }
+          )
+      }
+  }
+
+  @ViewBuilder
+  private func detailContent(controller: ChatSessionController, isSidebarCollapsed: Binding<Bool>)
+    -> some View
+  {
+    if let selection {
+      switch selection {
+      case .models:
+        ModelsView(
+          modelRuntime: controller.modelRuntime,
+          systemPrompt: Binding(
+            get: { controller.chatSession.systemPrompt },
+            set: { controller.chatSession.systemPrompt = $0 }
+          ),
+          generationSettings: Binding(
+            get: { controller.chatSession.generationSettings },
+            set: { controller.chatSession.generationSettings = $0 }
+          ),
+          contextUsage: controller.contextUsage,
+          errorMessage: controller.errorMessage,
+          canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
+          onPrepareModelRuntimeAction: { cancelGeneration, invalidateContext in
+            controller.prepareForModelRuntimeAction(
+              cancelGeneration: cancelGeneration,
+              invalidateContext: invalidateContext
+            )
+          }
+        )
+      case .session:
+        if let workspace = appState.activeWorkspace {
+          WorkspaceChatView(
+            controller: controller,
+            workspace: workspace,
+            sessionID: appState.activeSessionID,
+            browserToolService: appState.browserToolService,
+            isModelContextDebugVisible: $isModelContextDebugVisible,
+            isWorkspaceTerminalVisible: $isTerminalVisible,
+            isSidebarCollapsed: isSidebarCollapsed,
+            onAddAttachments: chooseAttachments,
+            onOpenWorkspaceInFinder: appState.openActiveWorkspaceInFinder,
+            onOpenWorkspaceInVisualStudioCode: appState.openActiveWorkspaceInVisualStudioCode
+          )
+        } else {
+          EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
+        }
+      }
+    } else {
+      EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
     }
   }
 
@@ -225,34 +250,4 @@ struct ContentView: View {
 
 #Preview {
   ContentView()
-}
-
-extension NavigationSplitViewVisibility {
-  fileprivate init(storageValue: String) {
-    switch storageValue {
-    case Self.all.storageValue:
-      self = .all
-    case Self.doubleColumn.storageValue:
-      self = .doubleColumn
-    case Self.detailOnly.storageValue:
-      self = .detailOnly
-    default:
-      self = .automatic
-    }
-  }
-
-  fileprivate var storageValue: String {
-    switch self {
-    case .automatic:
-      "automatic"
-    case .all:
-      "all"
-    case .doubleColumn:
-      "doubleColumn"
-    case .detailOnly:
-      "detailOnly"
-    default:
-      "automatic"
-    }
-  }
 }
