@@ -34,8 +34,7 @@ final class SumikaUITests: XCTestCase {
     }
 
     let baseline = UITurnBaseline.capture(in: application)
-    let messageField = application.textFields["message-field"]
-    XCTAssertTrue(messageField.waitForExistence(timeout: 30))
+    let messageField = waitForMessageField(in: application)
     messageField.click()
     messageField.typeText("/preview index.html")
 
@@ -419,17 +418,16 @@ final class SumikaUITests: XCTestCase {
       Self.testRunTraceBasename
 
     application.launch()
-    XCTAssertTrue(application.textFields["message-field"].waitForExistence(timeout: 30))
+    _ = waitForMessageField(in: application)
     return application
   }
 
   @MainActor
   private func loadSelectedModel(in application: XCUIApplication) throws {
-    let messageField = application.textFields["message-field"]
+    let messageField = waitForMessageField(in: application)
     let loadButton = application.buttons["load-model-button"]
     let sendButton = application.buttons["send-button"]
     XCTAssertTrue(loadButton.waitForExistence(timeout: 30))
-    XCTAssertTrue(messageField.waitForExistence(timeout: 30))
     XCTAssertTrue(messageField.isEnabled)
     XCTAssertFalse(sendButton.isEnabled)
     XCTAssertTrue(
@@ -498,12 +496,8 @@ final class SumikaUITests: XCTestCase {
     -> UITurnBaseline
   {
     let baseline = UITurnBaseline.capture(in: application)
-    let messageField = application.textFields["message-field"]
-    XCTAssertTrue(
-      waitUntil(timeout: 30) {
-        messageField.exists && messageField.isEnabled
-      }
-    )
+    let messageField = waitForMessageField(in: application)
+    XCTAssertTrue(messageField.isEnabled)
     messageField.click()
     messageField.typeText(prompt)
 
@@ -588,14 +582,38 @@ final class SumikaUITests: XCTestCase {
     in application: XCUIApplication,
     timeout: TimeInterval = 300
   ) {
-    let messageField = application.textFields["message-field"]
     let cancelButton = application.buttons["cancel-generation-button"]
     XCTAssertTrue(
       waitUntil(timeout: timeout) {
-        messageField.exists && messageField.isEnabled && !cancelButton.exists
+        let messageField = self.messageField(in: application)
+        return messageField.exists && messageField.isEnabled && !cancelButton.exists
       },
       "Generation did not become idle before the UI-test timeout."
     )
+  }
+
+  @MainActor
+  private func waitForMessageField(
+    in application: XCUIApplication,
+    timeout: TimeInterval = 30
+  ) -> XCUIElement {
+    XCTAssertTrue(
+      waitUntil(timeout: timeout) {
+        messageField(in: application).exists
+      },
+      "The chat message field did not appear."
+    )
+    return messageField(in: application)
+  }
+
+  @MainActor
+  private func messageField(in application: XCUIApplication) -> XCUIElement {
+    let textField = application.textFields["message-field"]
+    if textField.exists {
+      return textField
+    }
+
+    return application.textViews["message-field"]
   }
 
   @MainActor

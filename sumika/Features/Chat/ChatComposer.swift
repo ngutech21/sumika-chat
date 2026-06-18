@@ -83,18 +83,18 @@ struct ChatComposer: View {
       }
 
       VStack(spacing: 8) {
-        TextField("Message", text: $draft, axis: .vertical)
-          .textFieldStyle(.plain)
-          .autocorrectionDisabled(true)
-          .lineLimit(3, reservesSpace: true)
-          .frame(height: 60, alignment: .topLeading)
-          .accessibilityIdentifier("message-field")
-          .disabled(isInputBlocked)
-          .onSubmit(sendMessage)
-          .onKeyPress(.upArrow) { moveSlashSelection(by: -1) }
-          .onKeyPress(.downArrow) { moveSlashSelection(by: 1) }
-          .onKeyPress(.tab) { commitSlashSelectionFromKey() }
-          .onKeyPress(.escape) { dismissSlashSuggestions() }
+        ComposerTextView(
+          text: $draft,
+          placeholder: "Message",
+          isDisabled: isInputBlocked,
+          canAcceptAttachments: canAcceptAttachments,
+          onSubmit: sendMessage,
+          onMoveSlashSelection: moveSlashSelection(by:),
+          onCommitSlashSelection: commitSlashSelectionFromKey,
+          onDismissSlashSuggestions: dismissSlashSuggestions,
+          onPasteboardAttachments: handlePasteboardAttachments(_:)
+        )
+        .frame(height: 60, alignment: .topLeading)
 
         HStack(spacing: 8) {
           Button(action: onAddAttachments) {
@@ -157,8 +157,6 @@ struct ChatComposer: View {
           .strokeBorder(composerBorderColor, lineWidth: isDropTarget ? 1.5 : 1)
       }
       .shadow(color: Color.black.opacity(0.14), radius: 16, x: 0, y: 8)
-      // Keep paste/drop on native SwiftUI modifiers. The previous custom
-      // NSViewRepresentable overlay was easy to re-enter during layout.
       .onPasteCommand(of: Self.attachmentPasteTypes) { providers in
         handlePaste(providers)
       }
@@ -425,17 +423,21 @@ struct ChatComposer: View {
   }
 
   private func handlePasteboardCommand() -> Bool {
-    guard !isGenerating, !isInputBlocked, modelState == .ready else {
+    handlePasteboardAttachments(.general)
+  }
+
+  private func handlePasteboardAttachments(_ pasteboard: NSPasteboard) -> Bool {
+    guard canAcceptAttachments else {
       return false
     }
 
-    let urls = Self.fileURLsFromPasteboard()
+    let urls = Self.fileURLs(from: pasteboard)
     if !urls.isEmpty {
       onDropAttachments(urls)
       return true
     }
 
-    guard let imageURL = Self.materializePasteboardImage() else {
+    guard let imageURL = Self.materializePasteboardImage(from: pasteboard) else {
       return false
     }
 
@@ -461,7 +463,7 @@ struct ChatComposer: View {
     guard !isGenerating, !isInputBlocked, modelState == .ready else {
       return
     }
-    guard let imageURL = Self.materializePasteboardImage() else {
+    guard let imageURL = Self.materializePasteboardImage(from: .general) else {
       return
     }
 
@@ -535,8 +537,7 @@ struct ChatComposer: View {
     }
   }
 
-  nonisolated private static func fileURLsFromPasteboard() -> [URL] {
-    let pasteboard = NSPasteboard.general
+  nonisolated private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
     if let urls = pasteboard.readObjects(
       forClasses: [NSURL.self],
       options: [.urlReadingFileURLsOnly: true]
@@ -554,8 +555,8 @@ struct ChatComposer: View {
     return paths.map { URL(filePath: $0).standardizedFileURL }
   }
 
-  nonisolated private static func materializePasteboardImage() -> URL? {
-    let pasteboard = NSPasteboard.general
+  nonisolated private static func materializePasteboardImage(from pasteboard: NSPasteboard) -> URL?
+  {
     guard let pngData = pasteboardPNGData(pasteboard) else {
       return nil
     }
@@ -610,6 +611,316 @@ struct ChatComposer: View {
   private static let attachmentDropTypes: [UTType] = [
     .fileURL
   ]
+}
+
+private struct ComposerTextView: NSViewRepresentable {
+  @Binding var text: String
+  let placeholder: String
+  let isDisabled: Bool
+  let canAcceptAttachments: Bool
+  let onSubmit: () -> Void
+  let onMoveSlashSelection: (Int) -> KeyPress.Result
+  let onCommitSlashSelection: () -> KeyPress.Result
+  let onDismissSlashSuggestions: () -> KeyPress.Result
+  let onPasteboardAttachments: (NSPasteboard) -> Bool
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(text: $text)
+  }
+
+  func makeNSView(context: Context) -> NSScrollView {
+    let scrollView = NSScrollView()
+    scrollView.borderType = .noBorder
+    scrollView.drawsBackground = false
+    scrollView.hasHorizontalScroller = false
+    scrollView.hasVerticalScroller = false
+    scrollView.autohidesScrollers = true
+    scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+
+    let textView = ComposerNSTextView()
+    textView.delegate = context.coordinator
+    textView.drawsBackground = false
+    textView.backgroundColor = .clear
+    textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+    textView.textColor = .labelColor
+    textView.insertionPointColor = .labelColor
+    textView.isRichText = false
+    textView.importsGraphics = false
+    textView.allowsUndo = true
+    textView.isHorizontallyResizable = false
+    textView.isVerticallyResizable = true
+    textView.frame = NSRect(
+      origin: .zero,
+      size: NSSize(width: max(scrollView.contentSize.width, 1), height: 60)
+    )
+    textView.minSize = NSSize(width: 0, height: 60)
+    textView.maxSize = NSSize(
+      width: CGFloat.greatestFiniteMagnitude,
+      height: CGFloat.greatestFiniteMagnitude
+    )
+    textView.autoresizingMask = [.width]
+    textView.textContainerInset = .zero
+    textView.textContainer?.lineFragmentPadding = 0
+    textView.textContainer?.widthTracksTextView = true
+    textView.textContainer?.heightTracksTextView = false
+    textView.textContainer?.containerSize = NSSize(
+      width: 0,
+      height: CGFloat.greatestFiniteMagnitude
+    )
+    textView.registerForDraggedTypes([
+      .fileURL,
+      .URL,
+      .png,
+      .tiff,
+    ])
+    textView.setAccessibilityIdentifier("message-field")
+    textView.setAccessibilityLabel("Message")
+
+    disableAutomaticTextServices(on: textView)
+    scrollView.documentView = textView
+    return scrollView
+  }
+
+  func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    guard let textView = scrollView.documentView as? ComposerNSTextView else {
+      return
+    }
+
+    context.coordinator.text = $text
+    textView.placeholder = placeholder
+    textView.canAcceptAttachments = canAcceptAttachments
+    textView.onSubmit = onSubmit
+    textView.onMoveSlashSelection = onMoveSlashSelection
+    textView.onCommitSlashSelection = onCommitSlashSelection
+    textView.onDismissSlashSuggestions = onDismissSlashSuggestions
+    textView.onPasteboardAttachments = onPasteboardAttachments
+    textView.isEditable = !isDisabled
+    textView.isSelectable = true
+    textView.textColor = isDisabled ? .disabledControlTextColor : .labelColor
+    textView.frame.size.width = max(scrollView.contentSize.width, 1)
+
+    guard textView.string != text else {
+      textView.needsDisplay = true
+      return
+    }
+
+    let previousSelection = textView.selectedRange()
+    context.coordinator.isUpdatingFromSwiftUI = true
+    textView.string = text
+    context.coordinator.isUpdatingFromSwiftUI = false
+    textView.setSelectedRange(clamped(previousSelection, toUTF16Length: text.utf16.count))
+    textView.needsDisplay = true
+  }
+
+  private func disableAutomaticTextServices(on textView: NSTextView) {
+    textView.isContinuousSpellCheckingEnabled = false
+    textView.isGrammarCheckingEnabled = false
+    textView.isAutomaticSpellingCorrectionEnabled = false
+    textView.isAutomaticTextCompletionEnabled = false
+    textView.isAutomaticQuoteSubstitutionEnabled = false
+    textView.isAutomaticDashSubstitutionEnabled = false
+    textView.isAutomaticTextReplacementEnabled = false
+    textView.isAutomaticLinkDetectionEnabled = false
+    textView.isAutomaticDataDetectionEnabled = false
+    textView.enabledTextCheckingTypes = 0
+    textView.smartInsertDeleteEnabled = false
+  }
+
+  private func clamped(_ range: NSRange, toUTF16Length length: Int) -> NSRange {
+    let location = min(range.location, length)
+    let rangeLength = min(range.length, length - location)
+    return NSRange(location: location, length: rangeLength)
+  }
+
+  final class Coordinator: NSObject, NSTextViewDelegate {
+    var text: Binding<String>
+    var isUpdatingFromSwiftUI = false
+
+    init(text: Binding<String>) {
+      self.text = text
+    }
+
+    func textDidChange(_ notification: Notification) {
+      guard !isUpdatingFromSwiftUI,
+        let textView = notification.object as? NSTextView
+      else {
+        return
+      }
+
+      if text.wrappedValue != textView.string {
+        text.wrappedValue = textView.string
+      }
+      textView.needsDisplay = true
+    }
+  }
+}
+
+private final class ComposerNSTextView: NSTextView {
+  var placeholder = "" {
+    didSet {
+      needsDisplay = true
+    }
+  }
+
+  var canAcceptAttachments = false
+  var onSubmit: (() -> Void)?
+  var onMoveSlashSelection: ((Int) -> KeyPress.Result)?
+  var onCommitSlashSelection: (() -> KeyPress.Result)?
+  var onDismissSlashSuggestions: (() -> KeyPress.Result)?
+  var onPasteboardAttachments: ((NSPasteboard) -> Bool)?
+
+  override func draw(_ dirtyRect: NSRect) {
+    super.draw(dirtyRect)
+
+    guard string.isEmpty, !placeholder.isEmpty else {
+      return
+    }
+
+    let paragraphStyle = NSMutableParagraphStyle()
+    paragraphStyle.lineBreakMode = .byTruncatingTail
+    let font = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+    let attributes: [NSAttributedString.Key: Any] = [
+      .font: font,
+      .foregroundColor: NSColor.placeholderTextColor,
+      .paragraphStyle: paragraphStyle,
+    ]
+    let horizontalInset = textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0)
+    let rect = NSRect(
+      x: horizontalInset,
+      y: textContainerInset.height,
+      width: max(0, bounds.width - (horizontalInset * 2)),
+      height: font.ascender - font.descender
+    )
+    placeholder.draw(in: rect, withAttributes: attributes)
+  }
+
+  override func keyDown(with event: NSEvent) {
+    switch event.keyCode {
+    case 36, 76:
+      handleReturn(event)
+    case 126:
+      if didHandle(onMoveSlashSelection?(-1)) {
+        return
+      }
+      super.keyDown(with: event)
+    case 125:
+      if didHandle(onMoveSlashSelection?(1)) {
+        return
+      }
+      super.keyDown(with: event)
+    case 48:
+      if didHandle(onCommitSlashSelection?()) {
+        return
+      }
+      super.keyDown(with: event)
+    case 53:
+      if didHandle(onDismissSlashSuggestions?()) {
+        return
+      }
+      super.keyDown(with: event)
+    default:
+      super.keyDown(with: event)
+    }
+  }
+
+  override func paste(_ sender: Any?) {
+    if pasteboardContainsAttachments(.general) {
+      _ = handleAttachmentPasteboard(.general)
+      return
+    }
+
+    pasteAsPlainText(sender)
+  }
+
+  override func pasteAsRichText(_ sender: Any?) {
+    paste(sender)
+  }
+
+  override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    if pasteboardContainsAttachments(sender.draggingPasteboard) {
+      return canAcceptAttachments ? .copy : []
+    }
+
+    return super.draggingEntered(sender)
+  }
+
+  override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+    if pasteboardContainsAttachments(sender.draggingPasteboard) {
+      return canAcceptAttachments ? .copy : []
+    }
+
+    return super.draggingUpdated(sender)
+  }
+
+  override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    if pasteboardContainsAttachments(sender.draggingPasteboard) {
+      return handleAttachmentPasteboard(sender.draggingPasteboard)
+    }
+
+    return super.performDragOperation(sender)
+  }
+
+  private func handleReturn(_ event: NSEvent) {
+    guard isEditable else {
+      return
+    }
+
+    if hasMarkedText() {
+      super.keyDown(with: event)
+      return
+    }
+
+    let insertNewline = !event.modifierFlags.isDisjoint(with: [.shift, .option])
+    if insertNewline {
+      insertText("\n", replacementRange: selectedRange())
+      return
+    }
+
+    onSubmit?()
+  }
+
+  private func handleAttachmentPasteboard(_ pasteboard: NSPasteboard) -> Bool {
+    guard canAcceptAttachments else {
+      return false
+    }
+
+    return onPasteboardAttachments?(pasteboard) ?? false
+  }
+
+  private func pasteboardContainsAttachments(_ pasteboard: NSPasteboard) -> Bool {
+    if pasteboard.canReadObject(
+      forClasses: [NSURL.self],
+      options: [.urlReadingFileURLsOnly: true]
+    ) {
+      return true
+    }
+
+    if pasteboard.availableType(from: [.fileURL, .png, .tiff]) != nil {
+      return true
+    }
+
+    let filenamesType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
+    if pasteboard.availableType(from: [filenamesType]) != nil {
+      return true
+    }
+
+    return pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
+  }
+
+  private func didHandle(_ result: KeyPress.Result?) -> Bool {
+    guard let result else {
+      return false
+    }
+
+    switch result {
+    case .handled:
+      return true
+    case .ignored:
+      return false
+    @unknown default:
+      return false
+    }
+  }
 }
 
 @MainActor
