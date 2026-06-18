@@ -246,14 +246,15 @@ flowchart TD
   can be launched by `run_command`. The command tool still owns explicit
   approval, request revalidation, foreground-only execution, timeout handling,
   output capture, and audit state.
-- `run_command` uses a required timeout that is clamped to the supported range
-  before execution. It captures stdout, stderr, exit code, duration, timeout,
-  cancellation, preview truncation metadata, and an `outputRef` as a structured
-  `RunCommandResult`. A non-zero process exit is still a completed tool
-  execution so the model can inspect output and repair; it must not become a
-  controller error. Display and model-observation projections derive command
-  outcome separately: only exit code `0` without timeout or cancellation is
-  `success`; non-zero, missing exit code, timeout, or cancellation is `failed`.
+- `run_command` uses an optional timeout that defaults to 120 seconds when
+  omitted and is clamped to the supported range before execution. It captures
+  stdout, stderr, exit code, duration, timeout, cancellation, preview truncation
+  metadata, and an `outputRef` as a structured `RunCommandResult`. A non-zero
+  process exit is still a completed tool execution so the model can inspect
+  output and repair; it must not become a controller error. Display and
+  model-observation projections derive command outcome separately: only exit
+  code `0` without timeout or cancellation is `success`; non-zero, missing exit
+  code, timeout, or cancellation is `failed`.
 - After an actual `run_command` process is started, the full stdout/stderr is
   recorded in ephemeral latest-command state keyed by workspace, session, and
   `outputRef`. The model-facing `RunCommandResult` contains only command

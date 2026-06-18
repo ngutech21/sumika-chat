@@ -1,6 +1,8 @@
 import Foundation
 
 public struct RunCommandInput: Codable, Equatable, Sendable {
+  public static let defaultTimeoutSeconds = 120
+
   public let command: String
   public let timeoutSeconds: Int
   public let reason: String?
@@ -26,6 +28,8 @@ public struct RunCommandInput: Codable, Equatable, Sendable {
       let value = Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
     {
       timeoutSeconds = value
+    } else if !container.contains(.timeoutSeconds) {
+      timeoutSeconds = Self.defaultTimeoutSeconds
     } else {
       throw RunCommandInputValidationError.invalidTimeout
     }

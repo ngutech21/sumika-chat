@@ -1572,13 +1572,13 @@ struct ToolExecutionTests {
   }
 
   @Test
-  func invalidRunCommandArgumentsFailBeforeApproval() async throws {
+  func runCommandDefaultsMissingTimeoutBeforeApproval() async throws {
     let workspace = try makeWorkspace()
     let registry = ToolExecutorRegistry([
       AnyToolExecutor(RunCommandToolExecutor(processRunner: SpyCommandProcessRunner()))
     ])
 
-    let missingTimeout = await ToolOrchestrator(executorRegistry: registry).execute(
+    let result = await ToolOrchestrator(executorRegistry: registry).execute(
       request: request(
         .runCommand,
         workspace: workspace,
@@ -1586,6 +1586,18 @@ struct ToolExecutionTests {
       ),
       workspace: workspace
     )
+
+    #expect(result.status == .awaitingApproval)
+    #expect(result.resultPreview?.text.contains("Timeout: 120 seconds") == true)
+  }
+
+  @Test
+  func invalidRunCommandArgumentsFailBeforeApproval() async throws {
+    let workspace = try makeWorkspace()
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(RunCommandToolExecutor(processRunner: SpyCommandProcessRunner()))
+    ])
+
     let invalidTimeout = await ToolOrchestrator(executorRegistry: registry).execute(
       request: request(
         .runCommand,
@@ -1610,10 +1622,6 @@ struct ToolExecutionTests {
       workspace: workspace
     )
 
-    #expect(missingTimeout.status == .failed)
-    #expect(
-      missingTimeout.resultPreview?.text.contains("Missing required argument: timeoutSeconds")
-        == true)
     #expect(invalidTimeout.status == .failed)
     #expect(
       invalidTimeout.resultPreview?.text.contains("timeoutSeconds must be an integer") == true)

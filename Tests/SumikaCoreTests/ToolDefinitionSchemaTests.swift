@@ -75,9 +75,10 @@ struct ToolDefinitionSchemaTests {
 
     #expect(definition.capabilities == [.runCommand])
     #expect(definition.riskLevel == .high)
-    #expect(schema.parameters.required == ["command", "timeoutSeconds"])
+    #expect(schema.parameters.required == ["command"])
     #expect(schema.parameters.properties["command"]?.type == .string)
     #expect(schema.parameters.properties["timeoutSeconds"]?.type == .integer)
+    #expect(schema.parameters.properties["timeoutSeconds"]?.defaultValue == .number(120))
     #expect(schema.parameters.properties["timeoutSeconds"]?.minimum == 1)
     #expect(schema.parameters.properties["timeoutSeconds"]?.maximum == 120)
     #expect(schema.parameters.properties["reason"]?.type == .string)
