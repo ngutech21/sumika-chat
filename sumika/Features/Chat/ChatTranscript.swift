@@ -154,6 +154,40 @@ private struct RenderedChatTurnItem: Identifiable, Equatable {
   let toolCallRecord: ToolCallRecord?
   let generationMetrics: ChatGenerationMetrics?
   let assistantRenderBlocks: [AssistantRenderBlock]
+
+  var scrollRevision: Int {
+    switch item {
+    case .userMessage(let message):
+      message.content.utf8.count + message.attachments.count
+    case .assistantMessage(let message):
+      message.content.utf8.count + message.attachments.count
+    case .tool(let record):
+      record.status.scrollRevision
+    }
+  }
+}
+
+extension ToolCallStatus {
+  fileprivate var scrollRevision: Int {
+    switch self {
+    case .pending:
+      0
+    case .awaitingApproval:
+      1
+    case .awaitingUserAnswer:
+      2
+    case .denied:
+      3
+    case .running:
+      4
+    case .completed:
+      5
+    case .failed:
+      6
+    case .cancelled:
+      7
+    }
+  }
 }
 
 private struct ChatTranscriptRenderInput: Equatable {
@@ -215,10 +249,20 @@ private struct ChatTranscriptScrollContent: View {
       .onChange(of: scrollAnchorID) { _, _ in
         scrollToBottom(with: scrollProxy)
       }
-      .onChange(of: items) { _, _ in
+      .onChange(of: scrollTarget) { _, _ in
         scrollToBottom(with: scrollProxy)
       }
     }
+  }
+
+  private var scrollTarget: ChatTranscriptScrollTarget? {
+    if showsGenerationIndicator {
+      return ChatTranscriptScrollTarget(id: generationIndicatorID, revision: items.count)
+    }
+    guard let item = items.last else {
+      return nil
+    }
+    return ChatTranscriptScrollTarget(id: item.id, revision: item.scrollRevision)
   }
 
   private var scrollAnchorID: String? {
@@ -238,6 +282,11 @@ private struct ChatTranscriptScrollContent: View {
   }
 
   private let generationIndicatorID = "chat.transcript.generationIndicator"
+}
+
+private struct ChatTranscriptScrollTarget: Equatable {
+  let id: String
+  let revision: Int
 }
 
 private struct ChatBubble: View {

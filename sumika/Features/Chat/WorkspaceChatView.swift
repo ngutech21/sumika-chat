@@ -3,7 +3,7 @@ import SumikaCore
 import SwiftUI
 
 struct WorkspaceChatView: View {
-  @Bindable var controller: ChatSessionController
+  let controller: ChatSessionController
   let workspace: Workspace
   let sessionID: ChatSession.ID?
   let browserToolService: HTMLPreviewBrowserToolService
@@ -228,26 +228,25 @@ private struct WorkspaceChatHeader: View {
 }
 
 private struct WorkspaceChatComposerHost: View {
-  @Bindable var controller: ChatSessionController
+  let controller: ChatSessionController
   let workspace: Workspace
   let sessionID: ChatSession.ID?
   let onAddAttachments: () -> Void
   let onPreviewCommand: (String) -> Bool
   let onShowCommand: (String) -> Bool
-  @State private var draft = ""
 
   private let slashCommandParser = SlashCommandParser()
 
-  private var onSend: () -> Bool {
-    {
-      switch handleLocalSlashCommand() {
+  private var onSend: (String) -> Bool {
+    { submittedDraft in
+      switch handleLocalSlashCommand(submittedDraft) {
       case .handled(let shouldClearDraft):
         return shouldClearDraft
       case .notHandled:
         break
       }
 
-      controller.draft = draft
+      controller.draft = submittedDraft
       if let sessionID {
         controller.sendMessage(in: workspace, sessionID: sessionID)
       } else {
@@ -258,22 +257,26 @@ private struct WorkspaceChatComposerHost: View {
   }
 
   var body: some View {
+    let localDownloadedModels = downloadedModels
+    let isGenerating = controller.isGenerating
+    let isInputBlocked = controller.isInputBlocked
+
     ChatComposer(
-      draft: $draft,
       attachments: controller.chatSession.pendingAttachments,
       activeAttachments: controller.activeAttachmentContextAttachments,
-      availableModels: downloadedModels,
-      selectedModel: composerSelectedModel,
+      availableModels: localDownloadedModels,
+      selectedModel: composerSelectedModel(from: localDownloadedModels),
       modelState: controller.modelRuntime.modelState,
       interactionMode: controller.chatSession.interactionMode,
       todoState: visibleTodoState,
       contextUsage: controller.contextUsage,
-      canChangeModel: !downloadedModels.isEmpty && !controller.isGenerating
+      canChangeModel: !localDownloadedModels.isEmpty && !isGenerating
         && controller.modelRuntime.canChangeModel,
-      canChangeInteractionMode: controller.canChangeInteractionMode,
-      canSend: canSend || canRunSlashCommand,
-      isGenerating: controller.isGenerating,
-      isInputBlocked: controller.isInputBlocked,
+      canChangeInteractionMode: !isGenerating && !isInputBlocked,
+      canSend: controller.modelRuntime.modelState == .ready && !isGenerating && !isInputBlocked,
+      canRunLocalCommand: !isGenerating && !isInputBlocked,
+      isGenerating: isGenerating,
+      isInputBlocked: isInputBlocked,
       errorMessage: controller.errorMessage,
       onSelectInteractionMode: controller.setInteractionMode,
       onSelectModel: selectModel(_:),
@@ -284,19 +287,6 @@ private struct WorkspaceChatComposerHost: View {
       onSend: onSend,
       onCancel: controller.cancelGeneration
     )
-  }
-
-  private var canRunSlashCommand: Bool {
-    !controller.isGenerating
-      && !controller.isInputBlocked
-      && slashCommandParser.parse(draft) != nil
-  }
-
-  private var canSend: Bool {
-    controller.modelRuntime.modelState == .ready
-      && draft.contains { !$0.isWhitespace }
-      && !controller.isGenerating
-      && !controller.isInputBlocked
   }
 
   private var visibleTodoState: TodoState? {
@@ -313,7 +303,7 @@ private struct WorkspaceChatComposerHost: View {
     controller.modelRuntime.availableModels.filter { controller.modelRuntime.isModelDownloaded($0) }
   }
 
-  private var composerSelectedModel: ManagedModel {
+  private func composerSelectedModel(from downloadedModels: [ManagedModel]) -> ManagedModel {
     if downloadedModels.contains(controller.modelRuntime.selectedModel) {
       return controller.modelRuntime.selectedModel
     }
@@ -345,7 +335,7 @@ private struct WorkspaceChatComposerHost: View {
     controller.modelRuntime.loadSelectedModel()
   }
 
-  private func handleLocalSlashCommand() -> LocalSlashCommandResult {
+  private func handleLocalSlashCommand(_ draft: String) -> LocalSlashCommandResult {
     let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmedDraft.hasPrefix("/") else {
       return .notHandled
@@ -372,7 +362,6 @@ private struct WorkspaceChatComposerHost: View {
         return .handled(shouldClearDraft: false)
       }
     }
-    draft = ""
     return .handled(shouldClearDraft: true)
   }
 
@@ -383,7 +372,7 @@ private struct WorkspaceChatComposerHost: View {
 }
 
 private struct ModelContextDebugPane: View {
-  @Bindable var controller: ChatSessionController
+  let controller: ChatSessionController
   let workspace: Workspace
   let sessionID: ChatSession.ID?
   let onClose: () -> Void

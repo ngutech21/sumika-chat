@@ -4,7 +4,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ChatComposer: View {
-  @Binding var draft: String
   let attachments: [ChatAttachment]
   let activeAttachments: [ChatAttachment]
   let availableModels: [ManagedModel]
@@ -16,6 +15,7 @@ struct ChatComposer: View {
   let canChangeModel: Bool
   let canChangeInteractionMode: Bool
   let canSend: Bool
+  let canRunLocalCommand: Bool
   let isGenerating: Bool
   let isInputBlocked: Bool
   let errorMessage: String?
@@ -25,14 +25,22 @@ struct ChatComposer: View {
   let onAddAttachments: () -> Void
   let onDropAttachments: ([URL]) -> Void
   let onRemoveAttachment: (ChatAttachment.ID) -> Void
-  let onSend: () -> Bool
+  let onSend: (String) -> Bool
   let onCancel: () -> Void
+  @State private var draft = ""
   @State private var slashSelectionIndex = 0
   @State private var slashSuggestionsDismissed = false
   @State private var showModelPicker = false
   @State private var isDropTarget = false
 
+  private let slashCommandParser = SlashCommandParser()
+
   var body: some View {
+    let suggestions = slashSuggestions
+    let selectedSlashIndex = clampedSlashIndex(for: suggestions)
+    let canSubmitDraft = canSendCurrentDraft
+    let canActivateSend = isGenerating || canSubmitDraft
+
     VStack(alignment: .leading, spacing: 8) {
       if let errorMessage {
         Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -64,10 +72,10 @@ struct ChatComposer: View {
           .transition(.opacity.combined(with: .move(edge: .top)))
       }
 
-      if !slashSuggestions.isEmpty {
+      if !suggestions.isEmpty {
         SlashCommandSuggestionList(
-          suggestions: slashSuggestions,
-          selectedIndex: clampedSlashIndex,
+          suggestions: suggestions,
+          selectedIndex: selectedSlashIndex,
           onSelect: acceptSlashSuggestion,
           onHighlight: { slashSelectionIndex = $0 }
         )
@@ -77,8 +85,9 @@ struct ChatComposer: View {
       VStack(spacing: 8) {
         TextField("Message", text: $draft, axis: .vertical)
           .textFieldStyle(.plain)
-          .lineLimit(1...5)
-          .frame(minHeight: 36, alignment: .topLeading)
+          .autocorrectionDisabled(true)
+          .lineLimit(3, reservesSpace: true)
+          .frame(height: 60, alignment: .topLeading)
           .accessibilityIdentifier("message-field")
           .disabled(isInputBlocked)
           .onSubmit(sendMessage)
@@ -126,9 +135,9 @@ struct ChatComposer: View {
           Button(action: isGenerating ? onCancel : sendMessage) {
             Image(systemName: isGenerating ? "stop.fill" : "arrow.up")
               .font(.system(size: 13, weight: .bold))
-              .foregroundStyle(sendButtonForeground)
+              .foregroundStyle(sendButtonForeground(canActivateSend: canActivateSend))
               .frame(width: 28, height: 28)
-              .background(sendButtonBackground, in: Circle())
+              .background(sendButtonBackground(canActivateSend: canActivateSend), in: Circle())
               .contentShape(Circle())
           }
           .buttonStyle(.plain)
@@ -276,15 +285,11 @@ struct ChatComposer: View {
     !isGenerating && !isInputBlocked && modelState == .ready
   }
 
-  private var canActivateSend: Bool {
-    isGenerating || canSend
-  }
-
-  private var sendButtonBackground: Color {
+  private func sendButtonBackground(canActivateSend: Bool) -> Color {
     canActivateSend ? Color.accentColor : Color.secondary.opacity(0.25)
   }
 
-  private var sendButtonForeground: Color {
+  private func sendButtonForeground(canActivateSend: Bool) -> Color {
     canActivateSend ? Color.white : Color.secondary
   }
 
@@ -333,12 +338,19 @@ struct ChatComposer: View {
     return SlashCommandRegistry.matching(prefix: String(token))
   }
 
-  private var clampedSlashIndex: Int {
-    let count = slashSuggestions.count
+  private func clampedSlashIndex(for suggestions: [SlashCommandDescriptor]) -> Int {
+    let count = suggestions.count
     guard count > 0 else {
       return 0
     }
     return min(max(slashSelectionIndex, 0), count - 1)
+  }
+
+  private var canSendCurrentDraft: Bool {
+    if slashCommandParser.parse(draft) != nil {
+      return canRunLocalCommand
+    }
+    return canSend && draft.contains { !$0.isWhitespace }
   }
 
   private func moveSlashSelection(by delta: Int) -> KeyPress.Result {
@@ -346,7 +358,8 @@ struct ChatComposer: View {
     guard !suggestions.isEmpty else {
       return .ignored
     }
-    slashSelectionIndex = min(max(clampedSlashIndex + delta, 0), suggestions.count - 1)
+    let selectedIndex = clampedSlashIndex(for: suggestions)
+    slashSelectionIndex = min(max(selectedIndex + delta, 0), suggestions.count - 1)
     return .handled
   }
 
@@ -355,7 +368,7 @@ struct ChatComposer: View {
     guard !suggestions.isEmpty else {
       return .ignored
     }
-    acceptSlashSuggestion(suggestions[clampedSlashIndex])
+    acceptSlashSuggestion(suggestions[clampedSlashIndex(for: suggestions)])
     return .handled
   }
 
@@ -376,16 +389,16 @@ struct ChatComposer: View {
   private func sendMessage() {
     let suggestions = slashSuggestions
     if !suggestions.isEmpty {
-      acceptSlashSuggestion(suggestions[clampedSlashIndex])
+      acceptSlashSuggestion(suggestions[clampedSlashIndex(for: suggestions)])
       return
     }
 
-    guard canSend else {
+    guard canSendCurrentDraft else {
       return
     }
 
     let submittedDraft = draft
-    let shouldClearDraft = onSend()
+    let shouldClearDraft = onSend(submittedDraft)
     Task { @MainActor in
       if shouldClearDraft && (draft.isEmpty || draft == submittedDraft) {
         draft = ""

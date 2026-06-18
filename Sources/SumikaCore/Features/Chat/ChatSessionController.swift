@@ -50,11 +50,11 @@ public final class ChatSessionController {
   }
 
   public var hasPendingApproval: Bool {
-    chatSession.toolCalls.contains { $0.status == .awaitingApproval }
+    chatSession.containsToolCall { $0.status == .awaitingApproval }
   }
 
   public var hasPendingUserAnswer: Bool {
-    chatSession.toolCalls.contains { $0.status == .awaitingUserAnswer }
+    chatSession.containsToolCall { $0.status == .awaitingUserAnswer }
   }
 
   public var isInputBlocked: Bool {
@@ -821,6 +821,19 @@ extension ChatSessionController {
 extension ManagedModel {
   fileprivate func supports(interactionMode: WorkspaceInteractionMode) -> Bool {
     interactionMode == .chat || supportsWorkspaceTools
+  }
+}
+
+extension ChatSession {
+  fileprivate func containsToolCall(_ predicate: (ToolCallRecord) -> Bool) -> Bool {
+    turns.contains { turn in
+      turn.items.contains { item in
+        guard case .tool(let record) = item else {
+          return false
+        }
+        return predicate(record)
+      }
+    }
   }
 }
 
