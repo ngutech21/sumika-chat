@@ -595,7 +595,7 @@ struct ChatComposer: View {
   ]
 
   private static let attachmentDropTypes: [UTType] = [
-    .fileURL,
+    .fileURL
   ]
 }
 

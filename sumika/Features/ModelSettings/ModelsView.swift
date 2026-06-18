@@ -121,7 +121,7 @@ struct ModelsView: View {
     }
 
     return
-      "\(modelRuntime.selectedModel.estimatedDownloadSize), \(modelRuntime.selectedModel.summary.lowercased())"
+      "\(modelRuntime.selectedModel.estimatedDownloadSize), \(modelRuntime.selectedModel.detail.lowercased())"
   }
 
   private var effectiveDownloadState: ModelDownloadState {

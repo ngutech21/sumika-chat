@@ -35,12 +35,9 @@ public struct ToolCallingPolicy: Codable, Equatable, Sendable {
 public struct ManagedModel: Identifiable, Equatable, Sendable {
   public let id: String
   public let displayName: String
-  public let shortName: String
-  public let summary: String
   public let detail: String
   public let huggingFaceRepoID: String
   public let localDirectoryName: String
-  public let parameterSize: String
   public let estimatedDownloadSize: String
   public let isRecommended: Bool
   public let requiresLargeMemory: Bool
@@ -76,14 +73,11 @@ public enum ManagedModelCatalog {
   public static let models: [ManagedModel] = [
     ManagedModel(
       id: "gemma4-e2b",
-      displayName: "Gemma 4 E2B",
-      shortName: "E2B",
-      summary: "Small model",
+      displayName: "Gemma 4 e2b",
       detail: "Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-e2b-it-4bit",
       localDirectoryName: "gemma4-e2b",
-      parameterSize: "E2B",
-      estimatedDownloadSize: "3.6 GB",
+      estimatedDownloadSize: "2 GB",
       isRecommended: false,
       requiresLargeMemory: false,
       stability: .stable,
@@ -95,13 +89,10 @@ public enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "gemma4-e4b",
-      displayName: "Gemma 4 E4B",
-      shortName: "E4B",
-      summary: "Coding model",
+      displayName: "Gemma 4 e4b",
       detail: "Gemma 4 coding model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-4bit",
       localDirectoryName: "gemma4-e4b",
-      parameterSize: "E4B",
       estimatedDownloadSize: "4.5 GB",
       isRecommended: true,
       requiresLargeMemory: false,
@@ -114,14 +105,27 @@ public enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "gemma4-12b-4bit",
-      displayName: "Gemma 4 12b 4bit",
-      shortName: "412b",
-      summary: "Larger coding model",
+      displayName: "Gemma 4 12b",
       detail: "Larger Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-12B-it-4bit",
       localDirectoryName: "gemma-4-12B-it-4bit",
-      parameterSize: "12B",
       estimatedDownloadSize: "12.7 GB",
+      isRecommended: false,
+      requiresLargeMemory: true,
+      stability: .stable,
+      toolCallingPolicy: .nativeGemma4,
+      supportsImageInput: true,
+      defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
+      defaultGenerationSettings: .codingDefault,
+      defaultContextTokenLimit: defaultContextTokenLimit
+    ),
+    ManagedModel(
+      id: "gemma4-26b-4bit",
+      displayName: "Gemma 4 26b",
+      detail: "Larger Gemma 4 model with local vision support.",
+      huggingFaceRepoID: "mlx-community/gemma-4-26b-a4b-it-4bit",
+      localDirectoryName: "gemma-4-26b-a4b-it-4bit",
+      estimatedDownloadSize: "15.6 GB",
       isRecommended: false,
       requiresLargeMemory: true,
       stability: .stable,
