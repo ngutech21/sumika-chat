@@ -9,7 +9,8 @@ struct WorkspaceChatView: View {
   let browserToolService: HTMLPreviewBrowserToolService
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
-  @Binding var isSidebarCollapsed: Bool
+  let isSidebarCollapsed: Bool
+  let onToggleSidebar: () -> Void
   let onAddAttachments: () -> Void
   let onOpenWorkspaceInFinder: () -> Void
   let onOpenWorkspaceInVisualStudioCode: () -> Void
@@ -27,11 +28,7 @@ struct WorkspaceChatView: View {
         WorkspaceChatHeader(
           workspaceName: workspace.name,
           isSidebarCollapsed: isSidebarCollapsed,
-          onToggleSidebar: {
-            withAnimation(.snappy(duration: 0.2)) {
-              isSidebarCollapsed.toggle()
-            }
-          },
+          onToggleSidebar: onToggleSidebar,
           isWorkspaceTerminalVisible: isWorkspaceTerminalVisible,
           onToggleTerminal: {
             isWorkspaceTerminalVisible.toggle()

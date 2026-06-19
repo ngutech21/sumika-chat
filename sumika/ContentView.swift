@@ -42,7 +42,7 @@ struct ContentView: View {
         sidebarResizeHandle
       }
 
-      detailContent(controller: controller, isSidebarCollapsed: $isSidebarCollapsed)
+      detailContent(controller: controller)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .frame(minWidth: 880, minHeight: 560)
@@ -131,9 +131,7 @@ struct ContentView: View {
   }
 
   @ViewBuilder
-  private func detailContent(controller: ChatSessionController, isSidebarCollapsed: Binding<Bool>)
-    -> some View
-  {
+  private func detailContent(controller: ChatSessionController) -> some View {
     if let selection {
       switch selection {
       case .models:
@@ -167,6 +165,7 @@ struct ContentView: View {
             isModelContextDebugVisible: $isModelContextDebugVisible,
             isWorkspaceTerminalVisible: $isTerminalVisible,
             isSidebarCollapsed: isSidebarCollapsed,
+            onToggleSidebar: toggleSidebarVisibility,
             onAddAttachments: chooseAttachments,
             onOpenWorkspaceInFinder: appState.openActiveWorkspaceInFinder,
             onOpenWorkspaceInVisualStudioCode: appState.openActiveWorkspaceInVisualStudioCode
@@ -177,6 +176,12 @@ struct ContentView: View {
       }
     } else {
       EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
+    }
+  }
+
+  private func toggleSidebarVisibility() {
+    withAnimation(.snappy(duration: 0.2)) {
+      isSidebarCollapsed.toggle()
     }
   }
 
