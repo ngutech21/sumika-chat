@@ -36,20 +36,9 @@ struct WorkspaceChatView: View {
           onOpenWorkspaceInVisualStudioCode: onOpenWorkspaceInVisualStudioCode
         )
 
-        ChatTranscript(
-          turns: controller.chatSession.turns,
-          selectedModel: controller.modelRuntime.selectedModel,
-          modelState: controller.modelRuntime.modelState,
-          isGenerating: controller.isGenerating,
-          onApproveToolCall: { toolCallID in
-            controller.approveToolCall(id: toolCallID, in: workspace)
-          },
-          onDenyToolCall: { toolCallID in
-            controller.denyToolCall(id: toolCallID)
-          },
-          onAnswerAskUser: { toolCallID, answer in
-            controller.answerAskUserToolCall(id: toolCallID, answer: answer, in: workspace)
-          }
+        ChatTranscriptHost(
+          controller: controller,
+          workspace: workspace
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
