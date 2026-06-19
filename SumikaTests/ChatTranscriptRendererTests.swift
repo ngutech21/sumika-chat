@@ -138,7 +138,7 @@ struct ChatTranscriptRendererTests {
     let parser = AssistantBlockParserSpy()
     let renderer = ChatTranscriptRenderer(assistantBlocks: parser.blocks)
 
-    _ = renderer.items(for: [
+    let initialItems = renderer.items(for: [
       ChatTurn(
         id: turnID,
         status: .running,
@@ -148,6 +148,8 @@ struct ChatTranscriptRendererTests {
         ]
       )
     ])
+    let initialAssistantRevision = initialItems[0].renderRevision
+    let initialToolRevision = initialItems[1].renderRevision
 
     let items = renderer.items(for: [
       ChatTurn(
@@ -169,8 +171,122 @@ struct ChatTranscriptRendererTests {
     #expect(parser.parsedContents == ["Done"])
     #expect(items.count == 2)
     #expect(items[0].generationMetrics == metrics)
+    #expect(items[0].renderRevision != initialAssistantRevision)
     #expect(items[1].toolCallRecord?.status == .completed)
     #expect(items[1].generationMetrics == metrics)
+    #expect(items[1].renderRevision != initialToolRevision)
+  }
+
+  @Test
+  func toolHeaderPreviewAndResultChangesAffectRenderRevision() {
+    let toolID = UUID()
+    let approvalPreview = ToolResultPreview(text: "Reload preview A")
+    let initialRecord = makeToolCallRecord(
+      id: toolID,
+      status: .awaitingApproval,
+      hard: false,
+      approvalPreview: approvalPreview
+    )
+    let headerChangedRecord = makeToolCallRecord(
+      id: toolID,
+      status: .awaitingApproval,
+      hard: true,
+      approvalPreview: approvalPreview
+    )
+    let previewChangedRecord = makeToolCallRecord(
+      id: toolID,
+      status: .awaitingApproval,
+      hard: false,
+      approvalPreview: ToolResultPreview(text: "Reload preview B")
+    )
+    let completedSoftRecord = makeToolCallRecord(id: toolID, status: .completed, hard: false)
+    let completedHardRecord = makeToolCallRecord(id: toolID, status: .completed, hard: true)
+
+    let initialItem = renderedToolItem(initialRecord)
+
+    #expect(initialItem.renderRevision != renderedToolItem(headerChangedRecord).renderRevision)
+    #expect(initialItem.renderRevision != renderedToolItem(previewChangedRecord).renderRevision)
+    #expect(
+      renderedToolItem(completedSoftRecord).renderRevision
+        != renderedToolItem(completedHardRecord).renderRevision
+    )
+  }
+
+  @Test
+  func assistantBlockCodeChangesAffectRenderRevision() {
+    let message = AssistantTurnMessage(id: UUID(), content: "```swift\nprint(1)")
+    let openCodeItem = renderedAssistantItem(
+      message,
+      blocks: [
+        .codeBlock(
+          .init(
+            id: .init(rawValue: "code"),
+            language: "swift",
+            text: "print(1)",
+            isClosed: false
+          ))
+      ]
+    )
+    let closedCodeItem = renderedAssistantItem(
+      message,
+      blocks: [
+        .codeBlock(
+          .init(
+            id: .init(rawValue: "code"),
+            language: "swift",
+            text: "print(1)",
+            isClosed: true
+          ))
+      ]
+    )
+    let changedCodeItem = renderedAssistantItem(
+      message,
+      blocks: [
+        .codeBlock(
+          .init(
+            id: .init(rawValue: "code"),
+            language: "swift",
+            text: "print(2)",
+            isClosed: false
+          ))
+      ]
+    )
+
+    #expect(openCodeItem.renderRevision != closedCodeItem.renderRevision)
+    #expect(openCodeItem.renderRevision != changedCodeItem.renderRevision)
+  }
+
+  @Test
+  func attachmentIdentityAndDisplayChangesAffectMessageRevision() {
+    let attachmentID = UUID()
+    let userID = UUID()
+    let assistantID = UUID()
+    let firstAttachment = makeAttachment(id: attachmentID, displayName: "first.txt")
+    let renamedAttachment = makeAttachment(id: attachmentID, displayName: "renamed.txt")
+    let replacedAttachment = makeAttachment(id: UUID(), displayName: "first.txt")
+
+    let firstUserItem = renderedUserItem(
+      UserTurnMessage(id: userID, content: "Use this", attachments: [firstAttachment])
+    )
+    let renamedUserItem = renderedUserItem(
+      UserTurnMessage(id: userID, content: "Use this", attachments: [renamedAttachment])
+    )
+    let replacedUserItem = renderedUserItem(
+      UserTurnMessage(id: userID, content: "Use this", attachments: [replacedAttachment])
+    )
+
+    let firstAssistantItem = renderedAssistantItem(
+      AssistantTurnMessage(id: assistantID, content: "Attached", attachments: [firstAttachment]),
+      blocks: [parsedBlock(for: "Attached")]
+    )
+    let renamedAssistantItem = renderedAssistantItem(
+      AssistantTurnMessage(id: assistantID, content: "Attached", attachments: [renamedAttachment]),
+      blocks: [parsedBlock(for: "Attached")]
+    )
+
+    #expect(firstUserItem.renderRevision != renamedUserItem.renderRevision)
+    #expect(firstUserItem.renderRevision != replacedUserItem.renderRevision)
+    #expect(firstAssistantItem.renderRevision != renamedAssistantItem.renderRevision)
   }
 
   @Test
@@ -254,18 +370,72 @@ private func parsedBlock(for content: String) -> AssistantRenderBlock {
     ))
 }
 
+private func renderedUserItem(_ message: UserTurnMessage) -> RenderedChatTurnItem {
+  RenderedChatTurnItem(
+    id: "turn:user:\(message.id.uuidString)",
+    item: .userMessage(message),
+    toolCallRecord: nil,
+    generationMetrics: nil,
+    assistantRenderBlocks: []
+  )
+}
+
+private func renderedAssistantItem(
+  _ message: AssistantTurnMessage,
+  blocks: [AssistantRenderBlock]
+) -> RenderedChatTurnItem {
+  RenderedChatTurnItem(
+    id: "turn:assistant:\(message.id.uuidString)",
+    item: .assistantMessage(message),
+    toolCallRecord: nil,
+    generationMetrics: message.generationMetrics,
+    assistantRenderBlocks: blocks
+  )
+}
+
+private func renderedToolItem(_ record: ToolCallRecord) -> RenderedChatTurnItem {
+  RenderedChatTurnItem(
+    id: "turn:tool:\(record.id.uuidString)",
+    item: .tool(record),
+    toolCallRecord: record,
+    generationMetrics: nil,
+    assistantRenderBlocks: []
+  )
+}
+
+private func makeAttachment(
+  id: UUID,
+  displayName: String
+) -> ChatAttachment {
+  ChatAttachment(
+    id: id,
+    url: URL(fileURLWithPath: "/tmp/\(displayName)"),
+    displayName: displayName,
+    kind: .text,
+    content: "Attachment body",
+    metadata: ChatAttachmentMetadata(
+      mimeType: nil,
+      byteCount: 15,
+      contentSHA256: "attachment-body"
+    )
+  )
+}
+
 private func makeToolCallRecord(
   id: UUID,
-  status: ToolCallStatus
+  status: ToolCallStatus,
+  hard: Bool = false,
+  approvalPreview: ToolResultPreview? = nil
 ) -> ToolCallRecord {
   let request = ToolCallRequest.validated(
     raw: RawToolCallRequest(
       id: id,
       workspaceID: UUID(),
       sessionID: UUID(),
-      toolName: .browserRefresh
+      toolName: .browserRefresh,
+      arguments: ["hard": .bool(hard)]
     ),
-    payload: .browserRefresh(BrowserRefreshInput())
+    payload: .browserRefresh(BrowserRefreshInput(hard: hard))
   )
   return ToolCallRecord(
     request: request,
@@ -274,23 +444,27 @@ private func makeToolCallRecord(
       reason: "Allowed for test.",
       riskLevel: .low
     ),
-    state: toolCallState(status: status)
+    state: toolCallState(status: status, hard: hard, approvalPreview: approvalPreview)
   )
 }
 
-private func toolCallState(status: ToolCallStatus) -> ToolCallState {
+private func toolCallState(
+  status: ToolCallStatus,
+  hard: Bool,
+  approvalPreview: ToolResultPreview?
+) -> ToolCallState {
   switch status {
   case .pending:
     return .pending
   case .awaitingApproval:
-    return .awaitingApproval(preview: nil)
+    return .awaitingApproval(preview: approvalPreview)
   case .awaitingUserAnswer:
     return .awaitingUserAnswer
   case .running:
     return .running
   case .completed:
     return .completed(
-      .browserRefresh(.success(path: nil, url: nil, hard: false)))
+      .browserRefresh(.success(path: nil, url: nil, hard: hard)))
   case .denied:
     return .denied(
       .failure(ToolFailure(toolName: .browserRefresh, path: nil, reason: .permissionDenied)))
