@@ -379,7 +379,7 @@ private struct ModelContextDebugPane: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       switch documentResult {
-      case .success(let document)?:
+      case .success(let document):
         header(for: document)
         RuntimeCacheDebugSection(snapshot: controller.runtimeCacheDebugSnapshot)
         Divider()
@@ -393,7 +393,7 @@ private struct ModelContextDebugPane: View {
           .padding(16)
           .frame(maxWidth: .infinity, alignment: .leading)
         }
-      case .failure(let error)?:
+      case .failure(let error):
         ContentUnavailableView(
           "Model Context Unavailable",
           systemImage: "exclamationmark.triangle",

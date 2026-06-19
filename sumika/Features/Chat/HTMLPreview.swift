@@ -74,6 +74,22 @@ private struct HTMLPreviewConsoleMessagePayload: Decodable {
   let column: Int?
 }
 
+private struct BrowserHandlerRegistrationKey: Equatable {
+  let webViewID: ObjectIdentifier
+  let serviceID: ObjectIdentifier
+  let preview: HTMLPreviewState
+
+  init(
+    webView: WKWebView,
+    service: HTMLPreviewBrowserToolService,
+    preview: HTMLPreviewState
+  ) {
+    self.webViewID = ObjectIdentifier(webView)
+    self.serviceID = ObjectIdentifier(service)
+    self.preview = preview
+  }
+}
+
 private enum HTMLPreviewConsoleBridgeScript {
   static let handlerName = "htmlPreviewConsole"
 
@@ -383,22 +399,6 @@ struct HTMLPreviewWebView: NSViewRepresentable {
       registeredBrowserHandlerKey = nil
       Task {
         await service?.clear()
-      }
-    }
-
-    private struct BrowserHandlerRegistrationKey: Equatable {
-      let webViewID: ObjectIdentifier
-      let serviceID: ObjectIdentifier
-      let preview: HTMLPreviewState
-
-      init(
-        webView: WKWebView,
-        service: HTMLPreviewBrowserToolService,
-        preview: HTMLPreviewState
-      ) {
-        self.webViewID = ObjectIdentifier(webView)
-        self.serviceID = ObjectIdentifier(service)
-        self.preview = preview
       }
     }
 
