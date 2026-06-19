@@ -47,27 +47,6 @@ struct ContentView: View {
       }
       .frame(minWidth: 880, minHeight: 560)
       .focusedSceneValue(\.addWorkspaceAction, chooseWorkspace)
-      .onChange(of: controller.chatSession.systemPrompt) {
-        controller.refreshContextUsage()
-        controller.modelRuntime.saveSelectedModelSettings(
-          systemPrompt: controller.chatSession.systemPrompt,
-          generationSettings: controller.chatSession.generationSettings
-        )
-        appState.persistActiveSession()
-      }
-      .onChange(of: controller.chatSession.generationSettings) {
-        controller.modelRuntime.saveSelectedModelSettings(
-          systemPrompt: controller.chatSession.systemPrompt,
-          generationSettings: controller.chatSession.generationSettings
-        )
-        appState.persistActiveSession()
-      }
-      .onChange(of: controller.modelRuntime.modelContextTokenLimit) {
-        controller.modelRuntime.saveSelectedModelSettings(
-          systemPrompt: controller.chatSession.systemPrompt,
-          generationSettings: controller.chatSession.generationSettings
-        )
-      }
       .onChange(of: selection) {
         if case .session(let sessionID) = selection {
           appState.selectSession(sessionID)
@@ -129,25 +108,9 @@ struct ContentView: View {
     if let selection {
       switch selection {
       case .models:
-        ModelsView(
-          modelRuntime: controller.modelRuntime,
-          systemPrompt: Binding(
-            get: { controller.chatSession.systemPrompt },
-            set: { controller.chatSession.systemPrompt = $0 }
-          ),
-          generationSettings: Binding(
-            get: { controller.chatSession.generationSettings },
-            set: { controller.chatSession.generationSettings = $0 }
-          ),
-          contextUsage: controller.contextUsage,
-          errorMessage: controller.errorMessage,
-          canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
-          onPrepareModelRuntimeAction: { cancelGeneration, invalidateContext in
-            controller.prepareForModelRuntimeAction(
-              cancelGeneration: cancelGeneration,
-              invalidateContext: invalidateContext
-            )
-          }
+        ModelsRouteHost(
+          controller: controller,
+          onPersistActiveSession: appState.persistActiveSession
         )
       case .session:
         WorkspaceRouteHost(
@@ -215,6 +178,53 @@ struct ContentView: View {
 
 #Preview {
   ContentView()
+}
+
+private struct ModelsRouteHost: View {
+  let controller: ChatSessionController
+  let onPersistActiveSession: () -> Void
+
+  var body: some View {
+    ModelsView(
+      modelRuntime: controller.modelRuntime,
+      systemPrompt: Binding(
+        get: { controller.chatSession.systemPrompt },
+        set: { controller.chatSession.systemPrompt = $0 }
+      ),
+      generationSettings: Binding(
+        get: { controller.chatSession.generationSettings },
+        set: { controller.chatSession.generationSettings = $0 }
+      ),
+      contextUsage: controller.contextUsage,
+      errorMessage: controller.errorMessage,
+      canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
+      onPrepareModelRuntimeAction: { cancelGeneration, invalidateContext in
+        controller.prepareForModelRuntimeAction(
+          cancelGeneration: cancelGeneration,
+          invalidateContext: invalidateContext
+        )
+      }
+    )
+    .onChange(of: controller.chatSession.systemPrompt) {
+      controller.refreshContextUsage()
+      saveSelectedModelSettings()
+      onPersistActiveSession()
+    }
+    .onChange(of: controller.chatSession.generationSettings) {
+      saveSelectedModelSettings()
+      onPersistActiveSession()
+    }
+    .onChange(of: controller.modelRuntime.modelContextTokenLimit) {
+      saveSelectedModelSettings()
+    }
+  }
+
+  private func saveSelectedModelSettings() {
+    controller.modelRuntime.saveSelectedModelSettings(
+      systemPrompt: controller.chatSession.systemPrompt,
+      generationSettings: controller.chatSession.generationSettings
+    )
+  }
 }
 
 private struct WorkspaceCommandHost<Content: View>: View {
