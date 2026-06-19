@@ -13,7 +13,6 @@ struct ContentView: View {
   @State private var isSidebarCollapsed = false
   @AppStorage("contentView.sidebarWidth") private var sidebarWidth = 300.0
   @State private var dragStartWidth: Double?
-  @State private var workspacePendingRemoval: Workspace?
 
   @MainActor
   init() {
@@ -28,84 +27,79 @@ struct ContentView: View {
   var body: some View {
     let controller = appState.chatController
 
-    HStack(spacing: 0) {
-      if !isSidebarCollapsed {
-        AppSidebar(
-          appState: appState,
-          selection: $selection,
-          onAddWorkspace: chooseWorkspace
+    WorkspaceCommandHost(appState: appState) {
+      HStack(spacing: 0) {
+        if !isSidebarCollapsed {
+          AppSidebar(
+            appState: appState,
+            selection: $selection,
+            onAddWorkspace: chooseWorkspace
+          )
+          .frame(width: sidebarWidth)
+          .background(.bar)
+          .transition(.move(edge: .leading).combined(with: .opacity))
+
+          sidebarResizeHandle
+        }
+
+        detailContent(controller: controller)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+      .frame(minWidth: 880, minHeight: 560)
+      .focusedSceneValue(\.addWorkspaceAction, chooseWorkspace)
+      .onChange(of: controller.chatSession.systemPrompt) {
+        controller.refreshContextUsage()
+        controller.modelRuntime.saveSelectedModelSettings(
+          systemPrompt: controller.chatSession.systemPrompt,
+          generationSettings: controller.chatSession.generationSettings
         )
-        .frame(width: sidebarWidth)
-        .background(.bar)
-        .transition(.move(edge: .leading).combined(with: .opacity))
-
-        sidebarResizeHandle
+        appState.persistActiveSession()
       }
-
-      detailContent(controller: controller)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    .frame(minWidth: 880, minHeight: 560)
-    .focusedSceneValue(\.addWorkspaceAction, chooseWorkspace)
-    .focusedSceneValue(\.removeWorkspaceAction, removeWorkspaceMenuAction)
-    .onChange(of: controller.chatSession.systemPrompt) {
-      controller.refreshContextUsage()
-      controller.modelRuntime.saveSelectedModelSettings(
-        systemPrompt: controller.chatSession.systemPrompt,
-        generationSettings: controller.chatSession.generationSettings
-      )
-      appState.persistActiveSession()
-    }
-    .onChange(of: controller.chatSession.generationSettings) {
-      controller.modelRuntime.saveSelectedModelSettings(
-        systemPrompt: controller.chatSession.systemPrompt,
-        generationSettings: controller.chatSession.generationSettings
-      )
-      appState.persistActiveSession()
-    }
-    .onChange(of: controller.modelRuntime.modelContextTokenLimit) {
-      controller.modelRuntime.saveSelectedModelSettings(
-        systemPrompt: controller.chatSession.systemPrompt,
-        generationSettings: controller.chatSession.generationSettings
-      )
-    }
-    .onChange(of: selection) {
-      if case .session(let sessionID) = selection {
-        appState.selectSession(sessionID)
+      .onChange(of: controller.chatSession.generationSettings) {
+        controller.modelRuntime.saveSelectedModelSettings(
+          systemPrompt: controller.chatSession.systemPrompt,
+          generationSettings: controller.chatSession.generationSettings
+        )
+        appState.persistActiveSession()
       }
-    }
-    .onChange(of: appState.activeSessionID) {
-      if let sessionID = appState.activeSessionID {
-        selection = .session(sessionID)
-      } else if selection != .models {
-        selection = nil
+      .onChange(of: controller.modelRuntime.modelContextTokenLimit) {
+        controller.modelRuntime.saveSelectedModelSettings(
+          systemPrompt: controller.chatSession.systemPrompt,
+          generationSettings: controller.chatSession.generationSettings
+        )
       }
-    }
-    .onAppear {
-      appState.startModelRuntimeServices()
-      let modelRuntime = controller.modelRuntime
-      let hasDownloadedModel = modelRuntime.availableModels.contains {
-        modelRuntime.isModelDownloaded($0)
+      .onChange(of: selection) {
+        if case .session(let sessionID) = selection {
+          appState.selectSession(sessionID)
+        }
       }
-      if !hasDownloadedModel {
-        selection = .models
-      } else if let sessionID = appState.activeSessionID {
-        selection = .session(sessionID)
+      .onChange(of: appState.activeSessionID) {
+        if let sessionID = appState.activeSessionID {
+          selection = .session(sessionID)
+        } else if selection != .models {
+          selection = nil
+        }
       }
-    }
-    .modifier(
-      WorkspaceErrorAlert(
-        isPresented: workspaceErrorAlertBinding,
-        message: appState.workspaceErrorMessage ?? "",
-        onDismiss: { appState.workspaceErrorMessage = nil }
+      .onAppear {
+        appState.startModelRuntimeServices()
+        let modelRuntime = controller.modelRuntime
+        let hasDownloadedModel = modelRuntime.availableModels.contains {
+          modelRuntime.isModelDownloaded($0)
+        }
+        if !hasDownloadedModel {
+          selection = .models
+        } else if let sessionID = appState.activeSessionID {
+          selection = .session(sessionID)
+        }
+      }
+      .modifier(
+        WorkspaceErrorAlert(
+          isPresented: workspaceErrorAlertBinding,
+          message: appState.workspaceErrorMessage ?? "",
+          onDismiss: { appState.workspaceErrorMessage = nil }
+        )
       )
-    )
-    .modifier(
-      RemoveWorkspaceAlert(
-        workspace: $workspacePendingRemoval,
-        onRemove: { workspace in appState.removeWorkspace(workspace.id) }
-      )
-    )
+    }
   }
 
   private var sidebarResizeHandle: some View {
@@ -196,18 +190,6 @@ struct ContentView: View {
     )
   }
 
-  private var removeWorkspaceMenuAction: (() -> Void)? {
-    guard appState.activeWorkspace != nil else {
-      return nil
-    }
-
-    return removeActiveWorkspace
-  }
-
-  private func removeActiveWorkspace() {
-    workspacePendingRemoval = appState.activeWorkspace
-  }
-
   private func chooseWorkspace() {
     let panel = NSOpenPanel()
     panel.canChooseFiles = false
@@ -241,6 +223,40 @@ struct ContentView: View {
 
 #Preview {
   ContentView()
+}
+
+private struct WorkspaceCommandHost<Content: View>: View {
+  let appState: AppState
+  let content: Content
+  @State private var workspacePendingRemoval: Workspace?
+
+  init(appState: AppState, @ViewBuilder content: () -> Content) {
+    self.appState = appState
+    self.content = content()
+  }
+
+  var body: some View {
+    content
+      .focusedSceneValue(\.removeWorkspaceAction, removeWorkspaceMenuAction)
+      .modifier(
+        RemoveWorkspaceAlert(
+          workspace: $workspacePendingRemoval,
+          onRemove: { workspace in appState.removeWorkspace(workspace.id) }
+        )
+      )
+  }
+
+  private var removeWorkspaceMenuAction: (() -> Void)? {
+    guard appState.activeWorkspace != nil else {
+      return nil
+    }
+
+    return removeActiveWorkspace
+  }
+
+  private func removeActiveWorkspace() {
+    workspacePendingRemoval = appState.activeWorkspace
+  }
 }
 
 private struct WorkspaceErrorAlert: ViewModifier {
