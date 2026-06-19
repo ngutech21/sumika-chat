@@ -19,11 +19,11 @@ struct SumikaApp: App {
   }
 
   var body: some Scene {
-    WindowGroup {
+    Window("Sumika Chat", id: "main") {
       ContentView(appState: appState)
     }
     .commands {
-      CommandGroup(after: .newItem) {
+      CommandGroup(replacing: .newItem) {
         Button("Add Workspace…") {
           addWorkspaceAction?()
         }
