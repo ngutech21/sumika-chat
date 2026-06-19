@@ -647,6 +647,9 @@ struct NativeTranscriptCellActions {
 }
 
 final class NativeChatMessageCellView: NSTableCellView {
+  private let contentHost = NSView()
+  private var hostedContentView: NSView?
+  private var alignmentConstraints: [NSLayoutConstraint] = []
   private var currentRowID: String?
   private var actions: NativeTranscriptCellActions?
   private var askUserPopUpButton: NSPopUpButton?
@@ -656,6 +659,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     self.identifier = identifier
     wantsLayer = true
     layer?.backgroundColor = NSColor.clear.cgColor
+    setupContentHost()
   }
 
   @available(*, unavailable)
@@ -668,7 +672,6 @@ final class NativeChatMessageCellView: NSTableCellView {
     currentRowID = nil
     actions = nil
     askUserPopUpButton = nil
-    subviews.forEach { $0.removeFromSuperview() }
   }
 
   func configure(
@@ -679,7 +682,6 @@ final class NativeChatMessageCellView: NSTableCellView {
     currentRowID = row.id
     self.actions = actions
     askUserPopUpButton = nil
-    subviews.forEach { $0.removeFromSuperview() }
 
     let contentView: NSView
     switch row.body {
@@ -689,32 +691,56 @@ final class NativeChatMessageCellView: NSTableCellView {
       contentView = makeContentView(for: item, rowID: row.id, state: state)
     }
 
-    addSubview(contentView)
-    contentView.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([
-      contentView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-      contentView.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
-    ])
-
-    switch row.body {
-    case .item(let item) where item.isNativeUserMessage:
-      NSLayoutConstraint.activate([
-        contentView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -44),
-        contentView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 80),
-        contentView.widthAnchor.constraint(
-          lessThanOrEqualToConstant: item.nativeMaximumBubbleWidth),
-      ])
-    default:
-      NSLayoutConstraint.activate([
-        contentView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
-        contentView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -80),
-        contentView.widthAnchor.constraint(lessThanOrEqualToConstant: 680),
-      ])
-    }
+    replaceHostedContent(with: contentView)
+    updateAlignment(for: row.body)
 
     setAccessibilityElement(true)
     setAccessibilityIdentifier(row.accessibilityIdentifier)
     setAccessibilityLabel(row.accessibilityLabel)
+  }
+
+  private func setupContentHost() {
+    contentHost.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(contentHost)
+    NSLayoutConstraint.activate([
+      contentHost.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+      contentHost.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
+    ])
+  }
+
+  private func replaceHostedContent(with contentView: NSView) {
+    hostedContentView?.removeFromSuperview()
+    hostedContentView = contentView
+
+    contentHost.addSubview(contentView)
+    contentView.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      contentView.topAnchor.constraint(equalTo: contentHost.topAnchor),
+      contentView.leadingAnchor.constraint(equalTo: contentHost.leadingAnchor),
+      contentView.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor),
+      contentView.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor),
+    ])
+  }
+
+  private func updateAlignment(for body: NativeTranscriptRow.Body) {
+    NSLayoutConstraint.deactivate(alignmentConstraints)
+
+    switch body {
+    case .item(let item) where item.isNativeUserMessage:
+      alignmentConstraints = [
+        contentHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -44),
+        contentHost.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 80),
+        contentHost.widthAnchor.constraint(
+          lessThanOrEqualToConstant: item.nativeMaximumBubbleWidth),
+      ]
+    default:
+      alignmentConstraints = [
+        contentHost.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+        contentHost.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -80),
+        contentHost.widthAnchor.constraint(lessThanOrEqualToConstant: 680),
+      ]
+    }
+    NSLayoutConstraint.activate(alignmentConstraints)
   }
 
   private func makeContentView(
