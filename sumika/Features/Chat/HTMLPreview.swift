@@ -334,6 +334,7 @@ struct HTMLPreviewWebView: NSViewRepresentable {
     var browserToolService: HTMLPreviewBrowserToolService?
     var onConsoleMessage: @Sendable (HTMLPreviewConsoleEntry) -> Void = { _ in }
     private let loadWaiter = HTMLPreviewLoadWaiter()
+    private var registeredBrowserHandlerKey: BrowserHandlerRegistrationKey?
 
     init(preview: HTMLPreviewState, refreshID: UUID) {
       self.preview = preview
@@ -341,10 +342,24 @@ struct HTMLPreviewWebView: NSViewRepresentable {
     }
 
     func registerBrowserHandlers(for webView: WKWebView) {
+      guard let browserToolService else {
+        registeredBrowserHandlerKey = nil
+        return
+      }
+
       let preview = self.preview
-      let service = browserToolService
+      let registrationKey = BrowserHandlerRegistrationKey(
+        webView: webView,
+        service: browserToolService,
+        preview: preview
+      )
+      guard registeredBrowserHandlerKey != registrationKey else {
+        return
+      }
+      registeredBrowserHandlerKey = registrationKey
+
       Task {
-        await service?.register(
+        await browserToolService.register(
           refreshHandler: { [weak webView, weak self] input in
             guard let webView, let self else {
               return .failed(
@@ -365,8 +380,25 @@ struct HTMLPreviewWebView: NSViewRepresentable {
 
     func unregisterBrowserHandlers() {
       let service = browserToolService
+      registeredBrowserHandlerKey = nil
       Task {
         await service?.clear()
+      }
+    }
+
+    private struct BrowserHandlerRegistrationKey: Equatable {
+      let webViewID: ObjectIdentifier
+      let serviceID: ObjectIdentifier
+      let preview: HTMLPreviewState
+
+      init(
+        webView: WKWebView,
+        service: HTMLPreviewBrowserToolService,
+        preview: HTMLPreviewState
+      ) {
+        self.webViewID = ObjectIdentifier(webView)
+        self.serviceID = ObjectIdentifier(service)
+        self.preview = preview
       }
     }
 
