@@ -11,6 +11,7 @@ public final class ChatSessionController {
   public var chatSession = ChatSession.codingDefault
   public var contextUsage: ChatContextUsage?
   public var runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
+  public private(set) var modelContextDebugRevision = 0
   public var draft = ""
   public var isGenerating = false
   public var errorMessage: String?
@@ -207,6 +208,7 @@ extension ChatSessionController {
       self.disableUnsupportedInteractionModeIfNeeded()
       self.chatSession.systemPrompt = settings.systemPrompt
       self.chatSession.generationSettings = settings.generationSettings
+      self.invalidateModelContextDebugDocument()
       self.notifySessionDidChange()
     }
     modelRuntime.onRuntimeDidReset = { [weak self] in
@@ -242,6 +244,7 @@ extension ChatSessionController {
     chatSession = session
     chatSession.pendingAttachments = []
     disableUnsupportedInteractionModeIfNeeded()
+    invalidateModelContextDebugDocument()
 
     if didResetRuntime {
       invalidateContextUsage()
@@ -279,6 +282,7 @@ extension ChatSessionController {
 
     chatSession.interactionMode = mode
     errorMessage = nil
+    invalidateModelContextDebugDocument()
     clearRuntimeContextForReuse()
     refreshContextUsage(toolPromptMode: mode == .chat ? .disabled : .enabled(true))
     notifySessionDidChange()
@@ -320,6 +324,7 @@ extension ChatSessionController {
       agentToolOrchestrator: toolOrchestrator,
       turnTracer: turnTracer
     )
+    invalidateModelContextDebugDocument()
     if shouldRefreshContext {
       clearRuntimeContextForReuse()
       refreshContextUsage()
@@ -414,6 +419,7 @@ extension ChatSessionController {
   public func clearChatHistory() {
     transcriptMutator.clearTranscript(in: &chatSession)
     runtimeCacheDebugSnapshot = nil
+    invalidateModelContextDebugDocument()
     invalidateContextUsage()
     notifySessionDidChange()
 
@@ -457,6 +463,10 @@ extension ChatSessionController {
     contextUsageCoordinator.invalidate(onEvent: handleContextUsageEvent(_:))
   }
 
+  private func invalidateModelContextDebugDocument() {
+    modelContextDebugRevision &+= 1
+  }
+
   private func clearRuntimeContextForReuse() {
     runtimeCacheDebugSnapshot = nil
     let operationID = modelRuntime.currentOperationID()
@@ -470,7 +480,10 @@ extension ChatSessionController {
   }
 
   private func flushPendingContextUsageRefresh(defaultMode: ToolPromptMode) {
-    activeModelContextDebugToolPromptMode = nil
+    if activeModelContextDebugToolPromptMode != nil {
+      activeModelContextDebugToolPromptMode = nil
+      invalidateModelContextDebugDocument()
+    }
     if let pendingAgentToolExecutorRegistry {
       self.pendingAgentToolExecutorRegistry = nil
       applyAgentToolExecutorRegistry(
@@ -718,7 +731,14 @@ extension ChatSessionController {
       session: { [weak self] in self?.chatSession ?? .codingDefault },
       emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
       setActiveToolPromptMode: { [weak self] mode in
-        self?.activeModelContextDebugToolPromptMode = mode
+        guard let self else {
+          return
+        }
+        guard self.activeModelContextDebugToolPromptMode != mode else {
+          return
+        }
+        self.activeModelContextDebugToolPromptMode = mode
+        self.invalidateModelContextDebugDocument()
       },
       updateRuntimeCacheDebugSnapshot: { [weak self] snapshot in
         self?.runtimeCacheDebugSnapshot = snapshot
@@ -740,6 +760,9 @@ extension ChatSessionController {
 
   private func applyWorkflowEvents(_ events: [ChatWorkflowEvent]) {
     let diagnostics = workflowEventApplier.apply(events, to: &chatSession)
+    if events.contains(where: \.affectsModelContextDebugDocument) {
+      invalidateModelContextDebugDocument()
+    }
     guard !diagnostics.isEmpty else {
       return
     }
@@ -815,6 +838,35 @@ extension ChatSessionController {
 
   private func unsupportedImageInputMessage(for model: ManagedModel) -> String {
     "\(model.displayName) cannot analyze images. Select a Gemma 4 vision-capable model or remove the image attachment."
+  }
+}
+
+extension ChatWorkflowEvent {
+  fileprivate var affectsModelContextDebugDocument: Bool {
+    switch self {
+    case .modelContextEntryAppended,
+      .nativeAssistantBoundaryAppended,
+      .toolResultAppended,
+      .assistantMessageAppended,
+      .todoStateChanged,
+      .finalToolResultFollowUpBoundaryAppended:
+      return true
+    case .turnStatusChanged(_, _, let modelContextPolicy):
+      return modelContextPolicy != nil
+    case .turnAppended,
+      .userMessageAppended,
+      .assistantMessageAnnotatedAsToolCall,
+      .assistantAnnotatedAsNativeToolCall,
+      .toolCallAppended,
+      .toolCallUpdated,
+      .assistantPlaceholderAppended,
+      .assistantChunkAppended,
+      .assistantGenerationCompleted,
+      .focusedFileStateChanged,
+      .streamingAssistantMessagesCancelled,
+      .transientAssistantPlaceholdersRemoved:
+      return false
+    }
   }
 }
 

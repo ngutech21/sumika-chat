@@ -376,12 +376,13 @@ private struct ModelContextDebugPane: View {
   let workspace: Workspace
   let sessionID: ChatSession.ID?
   let onClose: () -> Void
+  @State private var documentResult: Result<ModelContextDebugDocument, Error>?
   @State private var didCopy = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       switch documentResult {
-      case .success(let document):
+      case .success(let document)?:
         header(for: document)
         RuntimeCacheDebugSection(snapshot: controller.runtimeCacheDebugSnapshot)
         Divider()
@@ -395,13 +396,16 @@ private struct ModelContextDebugPane: View {
           .padding(16)
           .frame(maxWidth: .infinity, alignment: .leading)
         }
-      case .failure(let error):
+      case .failure(let error)?:
         ContentUnavailableView(
           "Model Context Unavailable",
           systemImage: "exclamationmark.triangle",
           description: Text(error.localizedDescription)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+      case nil:
+        ProgressView()
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }
     .frame(width: 380)
@@ -411,15 +415,35 @@ private struct ModelContextDebugPane: View {
       Divider()
     }
     .accessibilityIdentifier("modelContextDebug.pane")
+    .task(id: documentRequestID) {
+      refreshDocument()
+    }
   }
 
-  private var documentResult: Result<ModelContextDebugDocument, Error> {
-    Result {
+  private var documentRequestID: ModelContextDebugRequestID {
+    ModelContextDebugRequestID(
+      controllerID: ObjectIdentifier(controller),
+      workspaceID: workspace.id,
+      sessionID: sessionID,
+      revision: controller.modelContextDebugRevision
+    )
+  }
+
+  @MainActor
+  private func refreshDocument() {
+    documentResult = Result {
       try controller.modelContextDebugDocument(
         workspace: workspace,
         sessionID: sessionID
       )
     }
+  }
+
+  private struct ModelContextDebugRequestID: Equatable {
+    let controllerID: ObjectIdentifier
+    let workspaceID: Workspace.ID
+    let sessionID: ChatSession.ID?
+    let revision: Int
   }
 
   private func header(for document: ModelContextDebugDocument) -> some View {
