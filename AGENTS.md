@@ -132,6 +132,14 @@ product/session state. Persist it on `ChatSession` and trace
 - The primary screen is the coding workflow. Use dense macOS-native layouts, show
   model context and generated diffs, and provide clear loading/generating/
   cancelled/failed/applied states.
+- Keep SwiftUI state at the smallest component that renders or mutates it.
+  Root/container views should own only shell state such as selection, routing,
+  window/sidebar layout, and command routing. Move fast-changing child-only
+  state into dedicated hosts, especially streaming transcript text, console
+  logs, terminal output, progress/resource usage, preview/debug refresh state,
+  hover/drop state, and editor drafts. Before adding state or broad observable
+  reads, identify what will be invalidated and avoid full-window invalidation
+  for AX-sensitive panes such as `WKWebView`, terminals, and large scroll views.
 
 ## Build And Test
 

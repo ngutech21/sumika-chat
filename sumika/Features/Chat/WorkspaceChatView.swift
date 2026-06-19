@@ -15,8 +15,7 @@ struct WorkspaceChatView: View {
   let onOpenWorkspaceInFinder: () -> Void
   let onOpenWorkspaceInVisualStudioCode: () -> Void
   @State private var htmlPreview: HTMLPreviewState?
-  @State private var htmlPreviewRefreshID = UUID()
-  @State private var htmlPreviewConsoleEntries: [HTMLPreviewConsoleEntry] = []
+  @State private var htmlPreviewRequestID = UUID()
   @State private var filePreview: FilePreviewState?
 
   private let htmlPreviewResolver = HTMLPreviewResolver()
@@ -76,41 +75,12 @@ struct WorkspaceChatView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-      if let htmlPreview {
-        HTMLPreviewPane(
-          preview: htmlPreview,
-          refreshID: htmlPreviewRefreshID,
-          browserToolService: browserToolService,
-          consoleEntries: htmlPreviewConsoleEntries,
-          onConsoleMessage: { entry in
-            Task { @MainActor in
-              htmlPreviewConsoleEntries.append(entry)
-            }
-          },
-          onRefresh: {
-            htmlPreviewConsoleEntries.removeAll()
-            htmlPreviewRefreshID = UUID()
-          },
-          onClose: {
-            htmlPreviewConsoleEntries.removeAll()
-            self.htmlPreview = nil
-            Task {
-              await browserToolService.clear()
-            }
-          }
-        )
-        .transition(.move(edge: .trailing).combined(with: .opacity))
-      }
-
-      if let filePreview {
-        FilePreviewPane(
-          preview: filePreview,
-          onClose: {
-            self.filePreview = nil
-          }
-        )
-        .transition(.move(edge: .trailing).combined(with: .opacity))
-      }
+      WorkspacePreviewHost(
+        htmlPreview: $htmlPreview,
+        htmlPreviewRequestID: htmlPreviewRequestID,
+        filePreview: $filePreview,
+        browserToolService: browserToolService
+      )
 
       if isModelContextDebugVisible {
         ModelContextDebugPane(
@@ -134,8 +104,8 @@ struct WorkspaceChatView: View {
   private func runPreviewCommand(path: String) -> Bool {
     do {
       htmlPreview = try htmlPreviewResolver.resolve(path: path, in: workspace)
+      htmlPreviewRequestID = UUID()
       filePreview = nil
-      htmlPreviewConsoleEntries.removeAll()
       controller.draft = ""
       controller.errorMessage = nil
       return true
@@ -155,6 +125,65 @@ struct WorkspaceChatView: View {
       controller.errorMessage = error.localizedDescription
       return false
     }
+  }
+}
+
+private struct WorkspacePreviewHost: View {
+  @Binding var htmlPreview: HTMLPreviewState?
+  let htmlPreviewRequestID: UUID
+  @Binding var filePreview: FilePreviewState?
+  let browserToolService: HTMLPreviewBrowserToolService
+  @State private var htmlPreviewRefreshID = UUID()
+  @State private var htmlPreviewConsoleEntries: [HTMLPreviewConsoleEntry] = []
+
+  var body: some View {
+    previewContent
+      .onChange(of: htmlPreviewRequestID) {
+        resetHTMLPreviewConsole()
+      }
+  }
+
+  @ViewBuilder
+  private var previewContent: some View {
+    if let htmlPreview {
+      HTMLPreviewPane(
+        preview: htmlPreview,
+        refreshID: htmlPreviewRefreshID,
+        browserToolService: browserToolService,
+        consoleEntries: htmlPreviewConsoleEntries,
+        onConsoleMessage: { entry in
+          Task { @MainActor in
+            htmlPreviewConsoleEntries.append(entry)
+          }
+        },
+        onRefresh: {
+          resetHTMLPreviewConsole()
+          htmlPreviewRefreshID = UUID()
+        },
+        onClose: {
+          resetHTMLPreviewConsole()
+          self.htmlPreview = nil
+          Task {
+            await browserToolService.clear()
+          }
+        }
+      )
+      .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
+
+    if let filePreview {
+      FilePreviewPane(
+        preview: filePreview,
+        onClose: {
+          self.filePreview = nil
+        }
+      )
+      .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
+  }
+
+  private func resetHTMLPreviewConsole() {
+    htmlPreviewConsoleEntries.removeAll()
   }
 }
 
