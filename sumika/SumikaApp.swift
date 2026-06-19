@@ -9,7 +9,6 @@ struct SumikaApp: App {
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible =
     false
   @FocusedValue(\.addWorkspaceAction) private var addWorkspaceAction
-  @FocusedValue(\.showSettingsAction) private var showSettingsAction
   @State private var appState: AppState
 
   @MainActor
@@ -30,19 +29,25 @@ struct SumikaApp: App {
         .keyboardShortcut("o", modifiers: [.command, .shift])
         .disabled(addWorkspaceAction == nil)
       }
-      CommandGroup(replacing: .appSettings) {
-        Button("Settings…") {
-          showSettingsAction?()
-        }
-        .keyboardShortcut(",", modifiers: .command)
-        .disabled(showSettingsAction == nil)
-      }
       CommandGroup(after: .sidebar) {
         Toggle("Model Context Debug", isOn: $isModelContextDebugVisible)
           .keyboardShortcut("0", modifiers: [.command, .option])
         Toggle("Console", isOn: $isTerminalVisible)
           .keyboardShortcut("T", modifiers: [.command, .option])
       }
+    }
+
+    Settings {
+      AppSettingsView(
+        appBehaviorSettings: Binding(
+          get: { appState.activeAppBehaviorSettings },
+          set: { appState.updateActiveAppBehaviorSettings($0) }
+        ),
+        webAccessSettings: Binding(
+          get: { appState.activeWebAccessSettings },
+          set: { appState.updateActiveWebAccessSettings($0) }
+        )
+      )
     }
   }
 }
@@ -51,18 +56,9 @@ private struct AddWorkspaceActionKey: FocusedValueKey {
   typealias Value = () -> Void
 }
 
-private struct ShowSettingsActionKey: FocusedValueKey {
-  typealias Value = () -> Void
-}
-
 extension FocusedValues {
   var addWorkspaceAction: (() -> Void)? {
     get { self[AddWorkspaceActionKey.self] }
     set { self[AddWorkspaceActionKey.self] = newValue }
-  }
-
-  var showSettingsAction: (() -> Void)? {
-    get { self[ShowSettingsActionKey.self] }
-    set { self[ShowSettingsActionKey.self] = newValue }
   }
 }

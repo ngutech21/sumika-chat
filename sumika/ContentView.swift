@@ -8,7 +8,6 @@ struct ContentView: View {
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible = false
   @State private var selection: AppNavigationSelection?
   @State private var appState: AppState
-  @State private var isSettingsPresented = false
   // Sidebar collapse is @State (resets to expanded on launch) so you can never
   // start in a collapsed-with-no-toggle dead end. Width persists.
   @State private var isSidebarCollapsed = false
@@ -47,12 +46,6 @@ struct ContentView: View {
     }
     .frame(minWidth: 880, minHeight: 560)
     .focusedSceneValue(\.addWorkspaceAction, chooseWorkspace)
-    .focusedSceneValue(\.showSettingsAction) {
-      isSettingsPresented = true
-    }
-    .sheet(isPresented: $isSettingsPresented) {
-      settingsSheet
-    }
     .onChange(of: controller.chatSession.systemPrompt) {
       controller.refreshContextUsage()
       controller.modelRuntime.saveSelectedModelSettings(
@@ -176,33 +169,6 @@ struct ContentView: View {
       }
     } else {
       EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
-    }
-  }
-
-  private var settingsSheet: some View {
-    VStack(spacing: 0) {
-      AppSettingsView(
-        appBehaviorSettings: Binding(
-          get: { appState.activeAppBehaviorSettings },
-          set: { appState.updateActiveAppBehaviorSettings($0) }
-        ),
-        webAccessSettings: Binding(
-          get: { appState.activeWebAccessSettings },
-          set: { appState.updateActiveWebAccessSettings($0) }
-        )
-      )
-
-      Divider()
-
-      HStack {
-        Spacer()
-        Button("Done") {
-          isSettingsPresented = false
-        }
-        .keyboardShortcut(.defaultAction)
-      }
-      .padding(.horizontal, 20)
-      .padding(.vertical, 12)
     }
   }
 

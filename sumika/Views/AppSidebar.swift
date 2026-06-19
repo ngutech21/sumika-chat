@@ -50,6 +50,16 @@ struct AppSidebar: View {
         .accessibilityLabel("Add Workspace")
         .accessibilityIdentifier("sidebar.addWorkspaceButton")
 
+        SettingsLink {
+          Image(systemName: "gearshape")
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .frame(width: 36, height: 34)
+        .accessibilityLabel("Settings")
+        .accessibilityIdentifier("sidebar.settingsButton")
+
         ModelRuntimeFooter(processUsage: appState.chatController.modelRuntime.processUsage)
           .frame(maxWidth: .infinity, alignment: .leading)
       }
