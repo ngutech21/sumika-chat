@@ -567,7 +567,8 @@ enum NativeTranscriptRowMeasurer {
         width: contentWidth - 24
       )
       let attachmentHeight = CGFloat(message.attachments.count) * 24
-      return max(44, textHeight + attachmentHeight + 34)
+      let copyControlHeight: CGFloat = message.content.isEmpty ? 0 : 24
+      return max(44, textHeight + attachmentHeight + copyControlHeight + 34)
 
     case .assistantMessage:
       if item.shouldShowAssistantPlaceholder {
@@ -837,24 +838,26 @@ final class NativeChatMessageCellView: NSTableCellView {
     rowID: String,
     isCopied: Bool
   ) -> NSView {
+    let outerStack = verticalStack(spacing: 4)
+    outerStack.alignment = .trailing
+
     let stack = verticalStack(spacing: 7)
     if !message.attachments.isEmpty {
       stack.addArrangedSubview(makeAttachmentLabels(message.attachments))
     }
     stack.addArrangedSubview(makeTextLabel(message.content, color: .labelColor))
-    stack.addArrangedSubview(
-      makeCopyButton(
-        rowID: rowID,
-        content: message.content,
-        isCopied: isCopied,
-        alignment: .right
+    outerStack.addArrangedSubview(
+      paddedContainer(
+        stack,
+        fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12),
+        cornerRadius: 10
+      ))
+    if !message.content.isEmpty {
+      outerStack.addArrangedSubview(
+        makeCopyIconButton(rowID: rowID, content: message.content, isCopied: isCopied)
       )
-    )
-    return paddedContainer(
-      stack,
-      fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12),
-      cornerRadius: 10
-    )
+    }
+    return outerStack
   }
 
   private func makeAssistantMessageView(
@@ -895,12 +898,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     let footer = horizontalStack(spacing: 8)
     if item.canNativeCopyMessageContent {
       footer.addArrangedSubview(
-        makeCopyButton(
-          rowID: rowID,
-          content: item.content,
-          isCopied: isCopied,
-          alignment: .left
-        )
+        makeCopyIconButton(rowID: rowID, content: item.content, isCopied: isCopied)
       )
     }
     if let metrics = item.visibleGenerationMetrics {
@@ -922,7 +920,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     let toolCall = record.transcriptToolCall
 
     let header = horizontalStack(spacing: 7)
-    header.addArrangedSubview(makeSecondaryLabel(record.status.nativeDisplayName))
+    header.addArrangedSubview(makeToolStatusIndicator(status: record.status))
     let nameLabel = makeTextLabel(toolCall.toolName.rawValue, color: .labelColor)
     nameLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
     header.addArrangedSubview(nameLabel)
@@ -935,7 +933,11 @@ final class NativeChatMessageCellView: NSTableCellView {
     header.addArrangedSubview(spacer())
     if record.hasNativeToolDetails {
       header.addArrangedSubview(
-        makeSmallButton(title: state.isToolExpanded ? "Hide" : "Details") { [weak self] in
+        makeIconButton(
+          systemSymbolName: state.isToolExpanded ? "chevron.down" : "chevron.right",
+          accessibilityLabel: state.isToolExpanded ? "Hide details" : "Show details",
+          tintColor: .tertiaryLabelColor
+        ) { [weak self] in
           self?.actions?.toggleToolExpansion(rowID)
         }
       )
@@ -1126,24 +1128,71 @@ final class NativeChatMessageCellView: NSTableCellView {
     return label
   }
 
-  private func makeCopyButton(
-    rowID: String,
-    content: String,
-    isCopied: Bool,
-    alignment: NSLayoutConstraint.Attribute
-  ) -> NSView {
-    let row = horizontalStack(spacing: 0)
-    let button = makeSmallButton(title: isCopied ? "Copied" : "Copy") { [weak self] in
+  private func makeToolStatusIndicator(status: ToolCallStatus) -> NSView {
+    if status.nativeIsInProgress {
+      let spinner = NSProgressIndicator()
+      spinner.translatesAutoresizingMaskIntoConstraints = false
+      spinner.style = .spinning
+      spinner.controlSize = .small
+      spinner.startAnimation(nil)
+      NSLayoutConstraint.activate([
+        spinner.widthAnchor.constraint(equalToConstant: 13),
+        spinner.heightAnchor.constraint(equalToConstant: 13),
+      ])
+      spinner.setAccessibilityElement(false)
+      return spinner
+    }
+
+    let imageView = NSImageView()
+    imageView.translatesAutoresizingMaskIntoConstraints = false
+    imageView.image = NSImage(
+      systemSymbolName: status.nativeQuietSystemImage,
+      accessibilityDescription: nil
+    )
+    imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+    imageView.contentTintColor = status.nativeQuietColor
+    imageView.setAccessibilityElement(false)
+    NSLayoutConstraint.activate([
+      imageView.widthAnchor.constraint(equalToConstant: 13),
+      imageView.heightAnchor.constraint(equalToConstant: 13),
+    ])
+    return imageView
+  }
+
+  private func makeCopyIconButton(rowID: String, content: String, isCopied: Bool) -> NSButton {
+    makeIconButton(
+      systemSymbolName: isCopied ? "checkmark" : "doc.on.doc",
+      accessibilityLabel: isCopied ? "Copied" : "Copy message",
+      tintColor: .secondaryLabelColor
+    ) { [weak self] in
       self?.actions?.copy(rowID, content)
     }
-    if alignment == .right {
-      row.addArrangedSubview(spacer())
-      row.addArrangedSubview(button)
-    } else {
-      row.addArrangedSubview(button)
-      row.addArrangedSubview(spacer())
-    }
-    return row
+  }
+
+  private func makeIconButton(
+    systemSymbolName: String,
+    accessibilityLabel: String,
+    tintColor: NSColor,
+    action: @escaping () -> Void
+  ) -> NSButton {
+    let button = NativeActionButton(title: "")
+    button.translatesAutoresizingMaskIntoConstraints = false
+    button.image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: nil)
+    button.image?.isTemplate = true
+    button.contentTintColor = tintColor
+    button.imagePosition = .imageOnly
+    button.bezelStyle = .inline
+    button.isBordered = false
+    button.controlSize = .small
+    button.setButtonType(.momentaryPushIn)
+    button.actionHandler = action
+    button.toolTip = accessibilityLabel
+    button.setAccessibilityLabel(accessibilityLabel)
+    NSLayoutConstraint.activate([
+      button.widthAnchor.constraint(equalToConstant: 18),
+      button.heightAnchor.constraint(equalToConstant: 18),
+    ])
+    return button
   }
 
   private func makeSmallButton(title: String, action: @escaping () -> Void) -> NSButton {
@@ -1394,6 +1443,45 @@ extension ToolCallStatus {
       "failed"
     case .cancelled:
       "cancelled"
+    }
+  }
+
+  fileprivate var nativeIsInProgress: Bool {
+    switch self {
+    case .pending, .running:
+      true
+    case .awaitingApproval, .awaitingUserAnswer, .denied, .completed, .failed, .cancelled:
+      false
+    }
+  }
+
+  fileprivate var nativeQuietSystemImage: String {
+    switch self {
+    case .completed:
+      "checkmark"
+    case .failed, .denied:
+      "xmark"
+    case .cancelled:
+      "minus"
+    case .awaitingApproval, .awaitingUserAnswer:
+      "exclamationmark"
+    case .pending, .running:
+      "ellipsis"
+    }
+  }
+
+  fileprivate var nativeQuietColor: NSColor {
+    switch self {
+    case .completed:
+      .systemGreen
+    case .failed, .denied:
+      .systemOrange
+    case .cancelled:
+      .secondaryLabelColor
+    case .awaitingApproval, .awaitingUserAnswer:
+      .systemOrange
+    case .pending, .running:
+      .secondaryLabelColor
     }
   }
 }
