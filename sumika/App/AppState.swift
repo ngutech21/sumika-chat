@@ -186,6 +186,19 @@ final class AppState {
     }
   }
 
+  func removeWorkspace(_ workspaceID: Workspace.ID) {
+    let wasActiveWorkspace = workspaceLibrary.activeWorkspaceID == workspaceID
+    persistActiveSession()
+    guard workspaceLibraryController.removeWorkspace(workspaceID) else {
+      return
+    }
+    saveLibrary()
+
+    if wasActiveWorkspace {
+      loadActiveSession()
+    }
+  }
+
   func updateActiveWebAccessSettings(_ settings: WebAccessSettings) {
     activeWebAccessSettings = settings
     let previousSaveTask = saveWebAccessSettingsTask
@@ -287,6 +300,7 @@ final class AppState {
 
   private func loadActiveSession() {
     guard let activeSession else {
+      chatController.loadSession(emptySessionForNoActiveWorkspace())
       return
     }
 
@@ -336,6 +350,15 @@ final class AppState {
       generationSettings: generationSettings,
       interactionMode: .chat
     )
+  }
+
+  private func emptySessionForNoActiveWorkspace() -> ChatSession {
+    Self.defaultSessionFactory(
+      selectedModelID: defaultSessionModelID,
+      systemPrompt: defaultSessionSystemPrompt,
+      generationSettings: defaultSessionGenerationSettings
+    )
+    .makeSession()
   }
 
   private func saveLibrary() {

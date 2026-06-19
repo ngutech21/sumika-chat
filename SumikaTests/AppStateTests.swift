@@ -309,6 +309,69 @@ struct AppStateTests {
   }
 
   @Test
+  func removeWorkspaceDeletesOnlySumikaLibraryEntryAndKeepsFolder() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let workspaceURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+    let markerURL = workspaceURL.appending(path: "keep.txt", directoryHint: .notDirectory)
+    let workspaceGenerationSettings = ChatGenerationSettings(
+      temperature: 0.42,
+      topP: 0.75,
+      topK: 12,
+      maxTokens: 128
+    )
+    try Data("keep".utf8).write(to: markerURL)
+    defer {
+      try? FileManager.default.removeItem(at: workspaceURL)
+    }
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: workspaceURL,
+      sessions: [
+        ChatSession(
+          id: sessionID,
+          systemPrompt: "Workspace private system prompt",
+          generationSettings: workspaceGenerationSettings
+        )
+      ]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: sessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.isWorkspaceLibraryLoading
+    }
+
+    appState.removeWorkspace(workspaceID)
+
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      library.workspaces.isEmpty
+    }
+    #expect(savedLibrary.workspaces.isEmpty)
+    #expect(savedLibrary.activeWorkspaceID == nil)
+    #expect(savedLibrary.activeSessionID == nil)
+    #expect(FileManager.default.fileExists(atPath: markerURL.path(percentEncoded: false)))
+    #expect(appState.chatController.chatSession.id != sessionID)
+    #expect(appState.chatController.chatSession.systemPrompt != "Workspace private system prompt")
+    #expect(
+      appState.chatController.chatSession.generationSettings
+        != workspaceGenerationSettings)
+  }
+
+  @Test
   func autoloadLastModelDefaultsOffAndDoesNotLoadOnStartup() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()

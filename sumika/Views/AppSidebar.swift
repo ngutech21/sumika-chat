@@ -7,6 +7,7 @@ struct AppSidebar: View {
   let onAddWorkspace: () -> Void
   @State private var sessionBeingRenamed: ChatSession?
   @State private var sessionPendingDeletion: ChatSession?
+  @State private var workspacePendingRemoval: Workspace?
   @State private var renameTitle = ""
   @AppStorage("sidebar.collapsedWorkspaceIDs") private var collapsedWorkspaceIDsRaw = ""
 
@@ -99,6 +100,24 @@ struct AppSidebar: View {
     } message: { session in
       Text("This permanently removes “\(session.title)” and its saved chat history.")
     }
+    .alert(
+      "Remove Workspace from Sumika?",
+      isPresented: removeWorkspaceAlertBinding,
+      presenting: workspacePendingRemoval
+    ) { workspace in
+      Button("Cancel", role: .cancel) {
+        workspacePendingRemoval = nil
+      }
+
+      Button("Remove", role: .destructive) {
+        appState.removeWorkspace(workspace.id)
+        workspacePendingRemoval = nil
+      }
+    } message: { workspace in
+      Text(
+        "This removes “\(workspace.name)” and its saved Sumika chats from the app. The folder on disk will not be deleted."
+      )
+    }
   }
 
   private var modelRow: some View {
@@ -155,6 +174,11 @@ struct AppSidebar: View {
       .buttonStyle(.plain)
       .accessibilityIdentifier("sidebar.workspaceDisclosure")
       .accessibilityValue(isExpanded(workspace.id) ? "Expanded" : "Collapsed")
+      .contextMenu {
+        Button("Remove Workspace", role: .destructive) {
+          workspacePendingRemoval = workspace
+        }
+      }
 
       if isExpanded(workspace.id) {
         VStack(alignment: .leading, spacing: 2) {
@@ -269,6 +293,17 @@ struct AppSidebar: View {
       set: { isPresented in
         if !isPresented {
           sessionPendingDeletion = nil
+        }
+      }
+    )
+  }
+
+  private var removeWorkspaceAlertBinding: Binding<Bool> {
+    Binding(
+      get: { workspacePendingRemoval != nil },
+      set: { isPresented in
+        if !isPresented {
+          workspacePendingRemoval = nil
         }
       }
     )

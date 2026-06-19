@@ -189,6 +189,31 @@ public struct WorkspaceLibraryController {
     return true
   }
 
+  @discardableResult
+  public mutating func removeWorkspace(_ workspaceID: Workspace.ID) -> Bool {
+    guard let removedWorkspaceIndex = workspaceIndex(for: workspaceID) else {
+      return false
+    }
+
+    let wasActiveWorkspace = library.activeWorkspaceID == workspaceID
+    library.workspaces.remove(at: removedWorkspaceIndex)
+
+    if wasActiveWorkspace {
+      guard !library.workspaces.isEmpty else {
+        library.activeWorkspaceID = nil
+        library.activeSessionID = nil
+        return true
+      }
+
+      let replacementWorkspaceIndex = min(removedWorkspaceIndex, library.workspaces.count - 1)
+      let replacementWorkspace = library.workspaces[replacementWorkspaceIndex]
+      library.activeWorkspaceID = replacementWorkspace.id
+      library.activeSessionID = replacementWorkspace.sessions.first?.id
+    }
+
+    return true
+  }
+
   public mutating func replaceLibrary(_ library: WorkspaceLibrary) {
     self.library = library
   }

@@ -107,6 +107,79 @@ struct WorkspaceLibraryControllerTests {
   }
 
   @Test
+  func removeInactiveWorkspaceLeavesActiveSelectionUnchanged() {
+    let activeWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000501")
+    let activeSessionID = fixedUUID("00000000-0000-0000-0000-000000000502")
+    let removedWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000503")
+    let removedSessionID = fixedUUID("00000000-0000-0000-0000-000000000504")
+    let activeWorkspace = Workspace(
+      id: activeWorkspaceID,
+      name: "Active",
+      rootURL: URL(filePath: "/tmp/active", directoryHint: .isDirectory),
+      sessions: [makeSession(id: activeSessionID)]
+    )
+    let removedWorkspace = Workspace(
+      id: removedWorkspaceID,
+      name: "Removed",
+      rootURL: URL(filePath: "/tmp/removed", directoryHint: .isDirectory),
+      sessions: [makeSession(id: removedSessionID)]
+    )
+    var controller = makeController(
+      library: WorkspaceLibrary(
+        workspaces: [activeWorkspace, removedWorkspace],
+        activeWorkspaceID: activeWorkspaceID,
+        activeSessionID: activeSessionID
+      )
+    )
+
+    let didRemove = controller.removeWorkspace(removedWorkspaceID)
+
+    #expect(didRemove)
+    #expect(controller.library.workspaces.map(\.id) == [activeWorkspaceID])
+    #expect(controller.library.activeWorkspaceID == activeWorkspaceID)
+    #expect(controller.library.activeSessionID == activeSessionID)
+  }
+
+  @Test
+  func removeActiveWorkspaceSelectsNextAvailableWorkspaceOrClearsSelection() {
+    let firstWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000601")
+    let firstSessionID = fixedUUID("00000000-0000-0000-0000-000000000602")
+    let secondWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000603")
+    let secondSessionID = fixedUUID("00000000-0000-0000-0000-000000000604")
+    let firstWorkspace = Workspace(
+      id: firstWorkspaceID,
+      name: "First",
+      rootURL: URL(filePath: "/tmp/first", directoryHint: .isDirectory),
+      sessions: [makeSession(id: firstSessionID)]
+    )
+    let secondWorkspace = Workspace(
+      id: secondWorkspaceID,
+      name: "Second",
+      rootURL: URL(filePath: "/tmp/second", directoryHint: .isDirectory),
+      sessions: [makeSession(id: secondSessionID)]
+    )
+    var controller = makeController(
+      library: WorkspaceLibrary(
+        workspaces: [firstWorkspace, secondWorkspace],
+        activeWorkspaceID: firstWorkspaceID,
+        activeSessionID: firstSessionID
+      )
+    )
+
+    let didRemoveFirstWorkspace = controller.removeWorkspace(firstWorkspaceID)
+    #expect(didRemoveFirstWorkspace)
+    #expect(controller.library.workspaces.map(\.id) == [secondWorkspaceID])
+    #expect(controller.library.activeWorkspaceID == secondWorkspaceID)
+    #expect(controller.library.activeSessionID == secondSessionID)
+
+    let didRemoveSecondWorkspace = controller.removeWorkspace(secondWorkspaceID)
+    #expect(didRemoveSecondWorkspace)
+    #expect(controller.library.workspaces.isEmpty)
+    #expect(controller.library.activeWorkspaceID == nil)
+    #expect(controller.library.activeSessionID == nil)
+  }
+
+  @Test
   func normalizeLoadedLibraryRepairsInvalidActiveIDsAndEmptySessions() throws {
     let validWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000301")
     let invalidWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000302")

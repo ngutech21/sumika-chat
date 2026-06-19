@@ -13,6 +13,7 @@ struct ContentView: View {
   @State private var isSidebarCollapsed = false
   @AppStorage("contentView.sidebarWidth") private var sidebarWidth = 300.0
   @State private var dragStartWidth: Double?
+  @State private var workspacePendingRemoval: Workspace?
 
   @MainActor
   init() {
@@ -46,6 +47,7 @@ struct ContentView: View {
     }
     .frame(minWidth: 880, minHeight: 560)
     .focusedSceneValue(\.addWorkspaceAction, chooseWorkspace)
+    .focusedSceneValue(\.removeWorkspaceAction, removeWorkspaceMenuAction)
     .onChange(of: controller.chatSession.systemPrompt) {
       controller.refreshContextUsage()
       controller.modelRuntime.saveSelectedModelSettings(
@@ -91,13 +93,19 @@ struct ContentView: View {
         selection = .session(sessionID)
       }
     }
-    .alert("Workspace Error", isPresented: workspaceErrorAlertBinding) {
-      Button("OK", role: .cancel) {
-        appState.workspaceErrorMessage = nil
-      }
-    } message: {
-      Text(appState.workspaceErrorMessage ?? "")
-    }
+    .modifier(
+      WorkspaceErrorAlert(
+        isPresented: workspaceErrorAlertBinding,
+        message: appState.workspaceErrorMessage ?? "",
+        onDismiss: { appState.workspaceErrorMessage = nil }
+      )
+    )
+    .modifier(
+      RemoveWorkspaceAlert(
+        workspace: $workspacePendingRemoval,
+        onRemove: { workspace in appState.removeWorkspace(workspace.id) }
+      )
+    )
   }
 
   private var sidebarResizeHandle: some View {
@@ -183,6 +191,18 @@ struct ContentView: View {
     )
   }
 
+  private var removeWorkspaceMenuAction: (() -> Void)? {
+    guard appState.activeWorkspace != nil else {
+      return nil
+    }
+
+    return removeActiveWorkspace
+  }
+
+  private func removeActiveWorkspace() {
+    workspacePendingRemoval = appState.activeWorkspace
+  }
+
   private func chooseWorkspace() {
     let panel = NSOpenPanel()
     panel.canChooseFiles = false
@@ -216,4 +236,57 @@ struct ContentView: View {
 
 #Preview {
   ContentView()
+}
+
+private struct WorkspaceErrorAlert: ViewModifier {
+  @Binding var isPresented: Bool
+  let message: String
+  let onDismiss: () -> Void
+
+  func body(content: Content) -> some View {
+    content.alert("Workspace Error", isPresented: $isPresented) {
+      Button("OK", role: .cancel) {
+        onDismiss()
+      }
+    } message: {
+      Text(message)
+    }
+  }
+}
+
+private struct RemoveWorkspaceAlert: ViewModifier {
+  @Binding var workspace: Workspace?
+  let onRemove: (Workspace) -> Void
+
+  func body(content: Content) -> some View {
+    content.alert(
+      "Remove Workspace from Sumika?",
+      isPresented: isPresented,
+      presenting: workspace
+    ) { workspace in
+      Button("Cancel", role: .cancel) {
+        self.workspace = nil
+      }
+
+      Button("Remove", role: .destructive) {
+        onRemove(workspace)
+        self.workspace = nil
+      }
+    } message: { workspace in
+      Text(
+        "This removes “\(workspace.name)” and its saved Sumika chats from the app. The folder on disk will not be deleted."
+      )
+    }
+  }
+
+  private var isPresented: Binding<Bool> {
+    Binding(
+      get: { workspace != nil },
+      set: { isPresented in
+        if !isPresented {
+          workspace = nil
+        }
+      }
+    )
+  }
 }
