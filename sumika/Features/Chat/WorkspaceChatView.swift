@@ -69,12 +69,14 @@ struct WorkspaceChatView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-      WorkspacePreviewHost(
-        htmlPreview: $htmlPreview,
-        htmlPreviewRequestID: htmlPreviewRequestID,
-        filePreview: $filePreview,
-        browserToolService: browserToolService
-      )
+      if isPreviewVisible {
+        WorkspacePreviewHost(
+          htmlPreview: $htmlPreview,
+          htmlPreviewRequestID: htmlPreviewRequestID,
+          filePreview: $filePreview,
+          browserToolService: browserToolService
+        )
+      }
 
       if isModelContextDebugVisible {
         ModelContextDebugPane(
@@ -93,6 +95,10 @@ struct WorkspaceChatView: View {
         await browserToolService.clear()
       }
     }
+  }
+
+  private var isPreviewVisible: Bool {
+    htmlPreview != nil || filePreview != nil
   }
 
   private func runPreviewCommand(path: String) -> Bool {
