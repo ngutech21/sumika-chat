@@ -204,12 +204,16 @@ extension ChatSessionController {
         return
       }
 
-      self.clearChatHistory()
       self.disableUnsupportedInteractionModeIfNeeded()
       self.chatSession.systemPrompt = settings.systemPrompt
       self.chatSession.generationSettings = settings.generationSettings
+      self.runtimeCacheDebugSnapshot = nil
       self.invalidateModelContextDebugDocument()
+      self.invalidateContextUsage()
       self.notifySessionDidChange()
+
+      self.clearRuntimeContextForReuse()
+      self.refreshContextUsage()
     }
     modelRuntime.onRuntimeDidReset = { [weak self] in
       guard let self else {

@@ -40,35 +40,10 @@ struct AppSidebar: View {
       }
       .accessibilityIdentifier("sidebar.workspaceList")
 
-      HStack(spacing: 0) {
-        Button(action: onAddWorkspace) {
-          Image(systemName: "plus")
-            .frame(width: 22, height: 22)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .frame(width: 36, height: 34)
-        .accessibilityLabel("Add Workspace")
-        .accessibilityIdentifier("sidebar.addWorkspaceButton")
-
-        SettingsLink {
-          Image(systemName: "gearshape")
-            .frame(width: 22, height: 22)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .frame(width: 36, height: 34)
-        .accessibilityLabel("Settings")
-        .accessibilityIdentifier("sidebar.settingsButton")
-
-        ModelRuntimeFooter(processUsage: appState.chatController.modelRuntime.processUsage)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(.regularMaterial)
-      .overlay(alignment: .top) {
-        Divider()
-      }
+      SidebarRuntimeFooter(
+        modelRuntime: appState.chatController.modelRuntime,
+        onAddWorkspace: onAddWorkspace
+      )
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .alert("Rename Session", isPresented: renameAlertBinding) {
@@ -307,5 +282,42 @@ struct AppSidebar: View {
         }
       }
     )
+  }
+}
+
+private struct SidebarRuntimeFooter: View {
+  let modelRuntime: ModelRuntimeController
+  let onAddWorkspace: () -> Void
+
+  var body: some View {
+    HStack(spacing: 0) {
+      Button(action: onAddWorkspace) {
+        Image(systemName: "plus")
+          .frame(width: 22, height: 22)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.borderless)
+      .frame(width: 36, height: 34)
+      .accessibilityLabel("Add Workspace")
+      .accessibilityIdentifier("sidebar.addWorkspaceButton")
+
+      SettingsLink {
+        Image(systemName: "gearshape")
+          .frame(width: 22, height: 22)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.borderless)
+      .frame(width: 36, height: 34)
+      .accessibilityLabel("Settings")
+      .accessibilityIdentifier("sidebar.settingsButton")
+
+      ModelRuntimeFooter(processUsage: modelRuntime.processUsage)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(.regularMaterial)
+    .overlay(alignment: .top) {
+      Divider()
+    }
   }
 }

@@ -92,6 +92,28 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func selectModelPreservesTranscriptAndClearsRuntimeContext() async throws {
+    let runtime = CountingClearContextRuntime()
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let originalTurn = ChatTurn(
+      status: .completed,
+      items: [.userMessage(UserTurnMessage(content: "old session"))]
+    )
+    let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b"))
+    controller.modelRuntime.modelState = .ready
+    controller.chatSession.turns = [originalTurn]
+    controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
+
+    controller.modelRuntime.selectModel(targetModel)
+
+    try await waitUntilAsync { await runtime.clearContextCount == 1 }
+    let snapshot = controller.sessionSnapshot(updating: controller.chatSession)
+    #expect(controller.chatSession.turns == [originalTurn])
+    #expect(snapshot.turns == [originalTurn])
+    #expect(snapshot.selectedModelID == targetModel.id)
+  }
+
+  @Test
   func defaultsToChatInteractionMode() {
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
