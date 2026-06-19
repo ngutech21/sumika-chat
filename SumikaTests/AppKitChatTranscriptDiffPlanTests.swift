@@ -85,6 +85,42 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func codeOnlyHighlightUpdateDoesNotChangeRowDiffOrHeightCache() {
+    var cache = NativeTranscriptHeightCache()
+    let row = nativeAssistantCodeRow(id: "assistant", revision: 1, code: "let value = 1")
+    let plan = NativeTranscriptDiffPlan.make(
+      previousIDs: [row.id],
+      previousRevisions: [row.id: row.revision],
+      currentIDs: [row.id],
+      currentRevisions: [row.id: row.revision]
+    )
+
+    _ = cache.height(for: row, width: 640)
+    _ = cache.height(for: row, width: 640)
+
+    #expect(plan.action == .reconfigureRows)
+    #expect(plan.changedIDs.isEmpty)
+    #expect(cache.cachedEntryCount == 1)
+  }
+
+  @Test
+  func codeContentChangesAffectHeightCacheRevision() {
+    var cache = NativeTranscriptHeightCache()
+    let row = nativeAssistantCodeRow(id: "assistant", revision: 1, code: "let value = 1")
+    let revisedRow = nativeAssistantCodeRow(
+      id: "assistant",
+      revision: 2,
+      code: "let value = 1\nlet other = 2"
+    )
+
+    _ = cache.height(for: row, width: 640)
+    let revisedHeight = cache.height(for: revisedRow, width: 640)
+
+    #expect(cache.cachedEntryCount == 2)
+    #expect(revisedHeight > 0)
+  }
+
+  @Test
   func expandedToolRowsUseExpandedHeightCacheKey() {
     var cache = NativeTranscriptHeightCache()
     let row = nativeToolRow(id: "tool", revision: 1)
@@ -169,6 +205,33 @@ private func nativeAssistantRow(id: String, revision: Int) -> NativeTranscriptRo
         generationMetrics: nil,
         assistantRenderBlocks: [
           .paragraph(.init(id: .init(rawValue: "answer"), text: "Answer"))
+        ]
+      ))
+  )
+}
+
+private func nativeAssistantCodeRow(
+  id: String,
+  revision: Int,
+  code: String
+) -> NativeTranscriptRow {
+  NativeTranscriptRow(
+    id: id,
+    revision: revision,
+    body: .item(
+      RenderedChatTurnItem(
+        id: id,
+        item: .assistantMessage(AssistantTurnMessage(content: code)),
+        toolCallRecord: nil,
+        generationMetrics: nil,
+        assistantRenderBlocks: [
+          .codeBlock(
+            .init(
+              id: .init(rawValue: "code"),
+              language: "js",
+              text: code,
+              isClosed: true
+            ))
         ]
       ))
   )

@@ -45,12 +45,6 @@ struct AssistantMessageContent: View {
   }
 }
 
-private enum ChatCodeHighlightingBackend {
-  private static let sharedBackend: any CodeHighlightingBackend =
-    SwiftTreeSitterCodeHighlightingBackend()
-  static let sharedStreamingHighlighter = StreamingCodeHighlighter(backend: sharedBackend)
-}
-
 struct CodeBlockView: View {
   let codeBlock: AssistantRenderBlock.CodeBlock
   let codeHighlighter: StreamingCodeHighlighter

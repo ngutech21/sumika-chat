@@ -52,6 +52,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     private var revisionsByID: [String: Int] = [:]
     private var cellStateStore = NativeTranscriptCoordinatorState()
     private var heightCache = NativeTranscriptHeightCache()
+    private var markdownCache = NativeTranscriptMarkdownCache()
+    private let codeHighlightStore = NativeTranscriptCodeHighlightStore()
     private var pinnedToBottom = true
     private var pendingHeightInvalidationRows = IndexSet()
     private var pendingHeightInvalidationWorkItem: DispatchWorkItem?
@@ -159,7 +161,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       rowsByID = newRowsByID
       rowIDs = newRowIDs
       revisionsByID = newRevisionsByID
-      pruneCoordinatorState(activeRowIDs: Set(newRowIDs))
+      pruneCoordinatorState(activeRows: rows)
       scrollView.setAccessibilityValue(accessibilityValue)
       tableView.tableColumns.first?.width = max(scrollView.contentSize.width, 1)
 
@@ -215,6 +217,26 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         row: row,
         state: cellStateStore.state(for: row.id),
         actions: NativeTranscriptCellActions(
+          markdownAttributedString: { [weak self] markdown in
+            guard let self else {
+              return NativeTranscriptMarkdownRenderer.attributedString(for: markdown)
+            }
+            return self.markdownCache.attributedString(for: markdown)
+          },
+          highlightedCode: { [weak self] rowID, codeBlock in
+            self?.codeHighlightStore.highlightedCode(rowID: rowID, codeBlock: codeBlock)
+          },
+          requestCodeHighlight: { [weak self] rowID, codeBlock in
+            guard let self else {
+              return
+            }
+            self.codeHighlightStore.requestHighlight(
+              rowID: rowID,
+              codeBlock: codeBlock
+            ) { [weak self] updatedRowID in
+              self?.reconfigureRows(ids: [updatedRowID])
+            }
+          },
           copy: { [weak self] rowID, content in
             self?.copy(content: content, from: rowID)
           },
@@ -350,9 +372,44 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       }
     }
 
-    private func pruneCoordinatorState(activeRowIDs: Set<String>) {
+    private func pruneCoordinatorState(activeRows: [NativeTranscriptRow]) {
+      let activeRowIDs = Set(activeRows.map(\.id))
       cellStateStore.prune(activeRowIDs: activeRowIDs)
       heightCache.prune(activeRowIDs: activeRowIDs)
+      markdownCache.prune(activeTexts: activeMarkdownTexts(in: activeRows))
+      codeHighlightStore.prune(activeDescriptors: activeCodeHighlightDescriptors(in: activeRows))
+    }
+
+    private func activeMarkdownTexts(in rows: [NativeTranscriptRow]) -> Set<String> {
+      Set(
+        rows.flatMap { row -> [String] in
+          guard case .item(let item) = row.body else {
+            return []
+          }
+          return item.assistantRenderBlocks.compactMap { block in
+            guard case .paragraph(let paragraph) = block else {
+              return nil
+            }
+            return paragraph.text
+          }
+        })
+    }
+
+    private func activeCodeHighlightDescriptors(
+      in rows: [NativeTranscriptRow]
+    ) -> Set<NativeTranscriptCodeHighlightDescriptor> {
+      Set(
+        rows.flatMap { row -> [NativeTranscriptCodeHighlightDescriptor] in
+          guard case .item(let item) = row.body else {
+            return []
+          }
+          return item.assistantRenderBlocks.compactMap { block in
+            guard case .codeBlock(let codeBlock) = block else {
+              return nil
+            }
+            return NativeTranscriptCodeHighlightDescriptor(rowID: row.id, codeBlock: codeBlock)
+          }
+        })
     }
   }
 }
@@ -520,18 +577,19 @@ enum NativeTranscriptRowMeasurer {
         switch block {
         case .paragraph(let paragraph):
           return total
-            + measuredTextHeight(
-              paragraph.text,
-              font: .systemFont(ofSize: NSFont.systemFontSize),
+            + NativeTranscriptMarkdownRenderer.measuredHeight(
+              for: paragraph.text,
               width: contentWidth
             ) + 8
         case .codeBlock(let codeBlock):
+          let languageHeaderHeight: CGFloat =
+            codeBlock.language?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? 22 : 0
           return total
-            + measuredTextHeight(
-              codeBlock.text.isEmpty ? " " : codeBlock.text,
-              font: .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+            + NativeTranscriptCodeRenderer.measuredHeight(
+              for: codeBlock.text.isEmpty ? " " : codeBlock.text,
               width: contentWidth - 24
-            ) + 34
+            ) + languageHeaderHeight + 38
         }
       }
       let metricsHeight: CGFloat = item.visibleGenerationMetrics == nil ? 0 : 18
@@ -638,6 +696,9 @@ struct NativeTranscriptCoordinatorState: Equatable {
 }
 
 struct NativeTranscriptCellActions {
+  var markdownAttributedString: (String) -> NSAttributedString
+  var highlightedCode: (String, AssistantRenderBlock.CodeBlock) -> HighlightedCode?
+  var requestCodeHighlight: (String, AssistantRenderBlock.CodeBlock) -> Void
   var copy: (String, String) -> Void
   var approve: (ToolCallRecord.ID) -> Void
   var deny: (ToolCallRecord.ID) -> Void
@@ -813,9 +874,20 @@ final class NativeChatMessageCellView: NSTableCellView {
       for block in item.assistantRenderBlocks {
         switch block {
         case .paragraph(let paragraph):
-          stack.addArrangedSubview(makeTextLabel(paragraph.text, color: .labelColor))
+          stack.addArrangedSubview(
+            makeAttributedTextLabel(
+              actions?.markdownAttributedString(paragraph.text)
+                ?? NativeTranscriptMarkdownRenderer.attributedString(for: paragraph.text)
+            )
+          )
         case .codeBlock(let codeBlock):
-          stack.addArrangedSubview(makeCodeBlockView(codeBlock))
+          actions?.requestCodeHighlight(rowID, codeBlock)
+          stack.addArrangedSubview(
+            makeCodeBlockView(
+              codeBlock,
+              highlightedCode: actions?.highlightedCode(rowID, codeBlock)
+            )
+          )
         }
       }
     }
@@ -990,39 +1062,42 @@ final class NativeChatMessageCellView: NSTableCellView {
     return stack
   }
 
-  private func makeCodeBlockView(_ codeBlock: AssistantRenderBlock.CodeBlock) -> NSView {
+  private func makeCodeBlockView(
+    _ codeBlock: AssistantRenderBlock.CodeBlock,
+    highlightedCode: HighlightedCode?
+  ) -> NSView {
     let stack = verticalStack(spacing: 4)
     if let language = codeBlock.language, !language.isEmpty {
       stack.addArrangedSubview(makeSecondaryLabel(language))
     }
+    let language = CodeLanguage(fenceLanguage: codeBlock.language)
+    let attributedCode =
+      highlightedCode.map(NativeTranscriptCodeRenderer.attributedString)
+      ?? NativeTranscriptCodeRenderer.plainAttributedString(
+        code: codeBlock.text.isEmpty ? " " : codeBlock.text,
+        language: language
+      )
     stack.addArrangedSubview(
-      paddedContainer(
-        makeCodeLikeLabel(codeBlock.text.isEmpty ? " " : codeBlock.text),
+      borderedPaddedContainer(
+        makeCodeAttributedLabel(attributedCode),
         fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.08),
-        cornerRadius: 6
+        strokeColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12),
+        cornerRadius: 8
       )
     )
     return stack
   }
 
   private func makeTextLabel(_ text: String, color: NSColor) -> NSTextField {
-    let label = NSTextField(labelWithAttributedString: nativeLinkedAttributedString(for: text))
-    label.font = .systemFont(ofSize: NSFont.systemFontSize)
+    let label = makeAttributedTextLabel(NativeTranscriptMarkdownRenderer.linkifiedPlainText(text))
     label.textColor = color
-    label.maximumNumberOfLines = 0
-    label.lineBreakMode = .byWordWrapping
-    label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     return label
   }
 
   private func makeCodeLikeLabel(_ text: String) -> NSTextField {
-    let label = NSTextField(wrappingLabelWithString: text)
-    label.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-    label.textColor = .labelColor
-    label.maximumNumberOfLines = 0
-    label.lineBreakMode = .byWordWrapping
-    label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    return label
+    makeCodeAttributedLabel(
+      NativeTranscriptCodeRenderer.plainAttributedString(code: text, language: nil)
+    )
   }
 
   private func makeSecondaryLabel(_ text: String) -> NSTextField {
@@ -1032,6 +1107,22 @@ final class NativeChatMessageCellView: NSTableCellView {
     label.maximumNumberOfLines = 0
     label.lineBreakMode = .byWordWrapping
     label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    return label
+  }
+
+  private func makeAttributedTextLabel(_ attributedString: NSAttributedString) -> NSTextField {
+    let label = NSTextField(labelWithAttributedString: attributedString)
+    label.maximumNumberOfLines = 0
+    label.lineBreakMode = .byWordWrapping
+    label.isSelectable = true
+    label.allowsEditingTextAttributes = true
+    label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    return label
+  }
+
+  private func makeCodeAttributedLabel(_ attributedString: NSAttributedString) -> NSTextField {
+    let label = makeAttributedTextLabel(attributedString)
+    label.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
     return label
   }
 
@@ -1081,6 +1172,18 @@ final class NativeChatMessageCellView: NSTableCellView {
       view.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
       view.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
     ])
+    return container
+  }
+
+  private func borderedPaddedContainer(
+    _ view: NSView,
+    fillColor: NSColor,
+    strokeColor: NSColor,
+    cornerRadius: CGFloat
+  ) -> NSView {
+    let container = paddedContainer(view, fillColor: fillColor, cornerRadius: cornerRadius)
+    container.layer?.borderColor = strokeColor.cgColor
+    container.layer?.borderWidth = 1
     return container
   }
 
