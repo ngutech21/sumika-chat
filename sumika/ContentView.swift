@@ -150,23 +150,15 @@ struct ContentView: View {
           }
         )
       case .session:
-        if let workspace = appState.activeWorkspace {
-          WorkspaceChatView(
-            controller: controller,
-            workspace: workspace,
-            sessionID: appState.activeSessionID,
-            browserToolService: appState.browserToolService,
-            isModelContextDebugVisible: $isModelContextDebugVisible,
-            isWorkspaceTerminalVisible: $isTerminalVisible,
-            isSidebarCollapsed: isSidebarCollapsed,
-            onToggleSidebar: toggleSidebarVisibility,
-            onAddAttachments: chooseAttachments,
-            onOpenWorkspaceInFinder: appState.openActiveWorkspaceInFinder,
-            onOpenWorkspaceInVisualStudioCode: appState.openActiveWorkspaceInVisualStudioCode
-          )
-        } else {
-          EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
-        }
+        WorkspaceRouteHost(
+          appState: appState,
+          isModelContextDebugVisible: $isModelContextDebugVisible,
+          isWorkspaceTerminalVisible: $isTerminalVisible,
+          isSidebarCollapsed: isSidebarCollapsed,
+          onToggleSidebar: toggleSidebarVisibility,
+          onAddAttachments: chooseAttachments,
+          onAddWorkspace: chooseWorkspace
+        )
       }
     } else {
       EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
@@ -256,6 +248,36 @@ private struct WorkspaceCommandHost<Content: View>: View {
 
   private func removeActiveWorkspace() {
     workspacePendingRemoval = appState.activeWorkspace
+  }
+}
+
+private struct WorkspaceRouteHost: View {
+  let appState: AppState
+  @Binding var isModelContextDebugVisible: Bool
+  @Binding var isWorkspaceTerminalVisible: Bool
+  let isSidebarCollapsed: Bool
+  let onToggleSidebar: () -> Void
+  let onAddAttachments: () -> Void
+  let onAddWorkspace: () -> Void
+
+  var body: some View {
+    if let workspace = appState.activeWorkspace {
+      WorkspaceChatView(
+        controller: appState.chatController,
+        workspace: workspace,
+        sessionID: appState.activeSessionID,
+        browserToolService: appState.browserToolService,
+        isModelContextDebugVisible: $isModelContextDebugVisible,
+        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
+        isSidebarCollapsed: isSidebarCollapsed,
+        onToggleSidebar: onToggleSidebar,
+        onAddAttachments: onAddAttachments,
+        onOpenWorkspaceInFinder: appState.openActiveWorkspaceInFinder,
+        onOpenWorkspaceInVisualStudioCode: appState.openActiveWorkspaceInVisualStudioCode
+      )
+    } else {
+      EmptyWorkspaceView(onAddWorkspace: onAddWorkspace)
+    }
   }
 }
 
