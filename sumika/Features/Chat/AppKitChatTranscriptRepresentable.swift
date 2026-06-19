@@ -496,6 +496,74 @@ enum NativeTranscriptScrollDecision {
   }
 }
 
+struct NativeToolDetailContent: Equatable {
+  var argumentLines: [String]
+  var permissionLines: [String]
+  var outputTitle: String?
+  var outputText: String?
+  var affectedPaths: [String]
+  var flags: [String]
+
+  init(record: ToolCallRecord) {
+    argumentLines = record.transcriptToolCall.arguments.map { argument in
+      "\(argument.name): \(argument.value)"
+    }
+
+    permissionLines = Self.permissionLines(for: record)
+
+    if let payload = record.resultPayload {
+      let display = ToolResultProjector.project(payload: payload, request: record.request).display
+      outputTitle = display.nativeOutputTitle
+      outputText = display.nativeOutputText
+      affectedPaths = display.nativeAffectedPaths
+      flags = display.nativeFlags
+    } else if let preview = record.approvalPreview {
+      outputTitle = "Preview"
+      outputText = preview.text.isEmpty ? nil : preview.text
+      affectedPaths = preview.affectedPaths
+      flags = preview.nativeFlags
+    } else {
+      outputTitle = nil
+      outputText = nil
+      affectedPaths = []
+      flags = []
+    }
+  }
+
+  var isEmpty: Bool {
+    argumentLines.isEmpty
+      && permissionLines.isEmpty
+      && outputText == nil
+      && affectedPaths.isEmpty
+      && flags.isEmpty
+  }
+
+  var textLines: [String] {
+    var lines = argumentLines + permissionLines
+    if !affectedPaths.isEmpty {
+      lines.append("Affected: \(affectedPaths.joined(separator: ", "))")
+    }
+    if !flags.isEmpty {
+      lines.append(flags.joined(separator: " · "))
+    }
+    return lines
+  }
+
+  private static func permissionLines(for record: ToolCallRecord) -> [String] {
+    switch record.status {
+    case .awaitingApproval:
+      [
+        "Risk: \(record.evaluation.riskLevel.rawValue)",
+        "Reason: \(record.evaluation.reason)",
+      ]
+    case .denied where !record.evaluation.reason.isEmpty:
+      ["Denied: \(record.evaluation.reason)"]
+    default:
+      []
+    }
+  }
+}
+
 struct NativeTranscriptHeightCache {
   private var heightsByKey: [Key: CGFloat] = [:]
 
@@ -599,14 +667,23 @@ enum NativeTranscriptRowMeasurer {
     case .tool(let record):
       var height: CGFloat = 34
       if state.isToolExpanded {
-        height += CGFloat(record.transcriptToolCall.arguments.count) * 18
-        if let preview = record.resultPreview ?? record.approvalPreview, !preview.text.isEmpty {
+        let details = NativeToolDetailContent(record: record)
+        height += detailLinesHeight(
+          details.textLines,
+          width: contentWidth
+        )
+        if let outputText = details.outputText {
+          if let outputTitle = details.outputTitle {
+            height += detailLinesHeight([outputTitle], width: contentWidth)
+          }
           height +=
-            measuredTextHeight(
-              preview.text,
-              font: .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+            NativeTranscriptCodeRenderer.measuredHeight(
+              for: outputText,
               width: contentWidth - 24
-            ) + 28
+            ) + 46
+        }
+        if details.isEmpty == false {
+          height += 8
         }
       }
       if record.status == .awaitingApproval {
@@ -620,6 +697,22 @@ enum NativeTranscriptRowMeasurer {
       }
       return height
     }
+  }
+
+  private static func detailLinesHeight(_ lines: [String], width: CGFloat) -> CGFloat {
+    guard !lines.isEmpty else {
+      return 0
+    }
+    let lineHeight = lines.reduce(CGFloat(0)) { total, line in
+      total
+        + measuredTextHeight(
+          line,
+          font: .systemFont(ofSize: NSFont.smallSystemFontSize),
+          width: width
+        )
+    }
+    let stackSpacing = CGFloat(max(0, lines.count - 1)) * 5
+    return lineHeight + stackSpacing
   }
 
   private static func measuredTextHeight(
@@ -984,19 +1077,39 @@ final class NativeChatMessageCellView: NSTableCellView {
 
   private func makeToolDetails(record: ToolCallRecord) -> NSView {
     let stack = verticalStack(spacing: 5)
-    let toolCall = record.transcriptToolCall
-    for argument in toolCall.arguments {
-      stack.addArrangedSubview(makeSecondaryLabel("\(argument.name): \(argument.value)"))
+    let details = NativeToolDetailContent(record: record)
+
+    for line in details.argumentLines {
+      stack.addArrangedSubview(makeSecondaryLabel(line))
     }
-    if let preview = record.resultPreview ?? record.approvalPreview, !preview.text.isEmpty {
+
+    for line in details.permissionLines {
+      stack.addArrangedSubview(makeSecondaryLabel(line))
+    }
+
+    if let outputText = details.outputText {
+      if let title = details.outputTitle {
+        stack.addArrangedSubview(makeSecondaryLabel(title))
+      }
       stack.addArrangedSubview(
         paddedContainer(
-          makeCodeLikeLabel(preview.text),
+          makeCodeLikeLabel(outputText),
           fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.08),
           cornerRadius: 6
         )
       )
     }
+
+    if !details.affectedPaths.isEmpty {
+      stack.addArrangedSubview(
+        makeSecondaryLabel("Affected: \(details.affectedPaths.joined(separator: ", "))")
+      )
+    }
+
+    if !details.flags.isEmpty {
+      stack.addArrangedSubview(makeSecondaryLabel(details.flags.joined(separator: " · ")))
+    }
+
     return stack
   }
 
@@ -1389,8 +1502,98 @@ extension ToolCallRecord {
   }
 
   fileprivate var hasNativeToolDetails: Bool {
-    !transcriptToolCall.arguments.isEmpty || resultPreview?.text.isEmpty == false
-      || approvalPreview?.text.isEmpty == false
+    !NativeToolDetailContent(record: self).isEmpty
+  }
+}
+
+extension ToolDisplayPayload {
+  fileprivate var nativeOutputTitle: String? {
+    switch self {
+    case .fileContent:
+      "File content"
+    case .fileList:
+      "Files"
+    case .searchResults:
+      "Matches"
+    case .workspaceDiff:
+      "Diff"
+    case .summary(_, let text, _):
+      text.isEmpty ? nil : "Result"
+    }
+  }
+
+  fileprivate var nativeOutputText: String? {
+    let text =
+      switch self {
+      case .fileContent(_, let content):
+        content.text
+      case .fileList(_, let entries, _):
+        entries.isEmpty
+          ? "(empty)"
+          : entries.map { entry in
+            entry.kind == .directory ? entry.path.rawValue + "/" : entry.path.rawValue
+          }.joined(separator: "\n")
+      case .searchResults(_, _, let matches, _):
+        matches.isEmpty
+          ? "(no matches)"
+          : matches.map { "\($0.path.rawValue):\($0.line): \($0.snippet)" }
+            .joined(separator: "\n")
+      case .workspaceDiff(_, let content):
+        content.text
+      case .summary(_, let text, _):
+        text
+      }
+    return text.isEmpty ? nil : text
+  }
+
+  fileprivate var nativeAffectedPaths: [String] {
+    switch self {
+    case .fileContent(let path, _):
+      [path.rawValue]
+    case .fileList(let root, _, _), .searchResults(let root, _, _, _):
+      [root.rawValue]
+    case .workspaceDiff(let path, _):
+      path.map { [$0.rawValue] } ?? []
+    case .summary(_, _, let paths):
+      paths.map(\.rawValue)
+    }
+  }
+
+  fileprivate var nativeFlags: [String] {
+    switch self {
+    case .fileContent(_, let content), .workspaceDiff(_, let content):
+      content.nativeFlags
+    case .fileList(_, _, let truncated), .searchResults(_, _, _, let truncated):
+      truncated ? ["truncated"] : []
+    case .summary:
+      []
+    }
+  }
+}
+
+extension ToolTextOutput {
+  fileprivate var nativeFlags: [String] {
+    var flags: [String] = []
+    if truncated {
+      flags.append("truncated")
+    }
+    if redacted {
+      flags.append("redacted")
+    }
+    return flags
+  }
+}
+
+extension ToolResultPreview {
+  fileprivate var nativeFlags: [String] {
+    var flags: [String] = []
+    if truncated {
+      flags.append("truncated")
+    }
+    if redacted {
+      flags.append("redacted")
+    }
+    return flags
   }
 }
 

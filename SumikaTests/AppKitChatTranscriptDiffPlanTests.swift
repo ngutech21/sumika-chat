@@ -137,6 +137,63 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func expandedToolRowsMeasureWrappingDetailLines() {
+    let shortRow = nativeToolRow(
+      id: "tool-short",
+      revision: 1,
+      record: nativeApprovalToolRecord(reason: "Needs permission.")
+    )
+    let longRow = nativeToolRow(
+      id: "tool-long",
+      revision: 1,
+      record: nativeApprovalToolRecord(
+        reason:
+          "Needs permission because this command can modify multiple generated files and should remain inspectable before execution."
+      )
+    )
+
+    let shortHeight = NativeTranscriptRowMeasurer.height(
+      for: shortRow,
+      width: 360,
+      state: NativeTranscriptCellState(isToolExpanded: true)
+    )
+    let longHeight = NativeTranscriptRowMeasurer.height(
+      for: longRow,
+      width: 360,
+      state: NativeTranscriptCellState(isToolExpanded: true)
+    )
+
+    #expect(longHeight > shortHeight)
+  }
+
+  @Test
+  func nativeToolDetailsIncludeApprovalPreviewAndPermissionReason() {
+    let record = nativeApprovalToolRecord()
+    let details = NativeToolDetailContent(record: record)
+
+    #expect(details.argumentLines.contains("command: uv test"))
+    #expect(details.permissionLines.contains("Risk: high"))
+    #expect(details.permissionLines.contains("Reason: Needs permission."))
+    #expect(details.outputTitle == "Preview")
+    #expect(details.outputText == "Runs tests.")
+    #expect(details.affectedPaths == ["Package.swift"])
+    #expect(details.flags == ["truncated"])
+    #expect(!details.isEmpty)
+  }
+
+  @Test
+  func nativeToolDetailsProjectCompletedCommandOutput() {
+    let record = nativeCompletedCommandToolRecord()
+    let details = NativeToolDetailContent(record: record)
+
+    #expect(details.argumentLines.contains("command: swift test"))
+    #expect(details.outputTitle == "Result")
+    #expect(details.outputText?.contains("Tests passed.") == true)
+    #expect(details.affectedPaths == ["."])
+    #expect(details.flags.isEmpty)
+  }
+
+  @Test
   func coordinatorStateIsStoredByRowIDAndPrunedByActiveRows() {
     var store = NativeTranscriptCoordinatorState()
 
@@ -237,8 +294,11 @@ private func nativeAssistantCodeRow(
   )
 }
 
-private func nativeToolRow(id: String, revision: Int) -> NativeTranscriptRow {
-  let record = nativeToolRecord()
+private func nativeToolRow(
+  id: String,
+  revision: Int,
+  record: ToolCallRecord = nativeToolRecord()
+) -> NativeTranscriptRow {
   return NativeTranscriptRow(
     id: id,
     revision: revision,
@@ -277,5 +337,61 @@ private func nativeToolRecord() -> ToolCallRecord {
           url: "http://localhost:3000",
           hard: true
         )))
+  )
+}
+
+private func nativeApprovalToolRecord(reason: String = "Needs permission.") -> ToolCallRecord {
+  let request = nativeRunCommandRequest(command: "uv test")
+  return ToolCallRecord(
+    request: request,
+    evaluation: ToolPermissionEvaluation(
+      decision: .requiresApproval,
+      reason: reason,
+      riskLevel: .high
+    ),
+    state: .awaitingApproval(
+      preview: ToolResultPreview(
+        text: "Runs tests.",
+        truncated: true,
+        affectedPaths: ["Package.swift"]
+      ))
+  )
+}
+
+private func nativeCompletedCommandToolRecord() -> ToolCallRecord {
+  let request = nativeRunCommandRequest(command: "swift test")
+  return ToolCallRecord(
+    request: request,
+    evaluation: ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Allowed for test.",
+      riskLevel: .low
+    ),
+    state: .completed(
+      .runCommand(
+        RunCommandResult(
+          command: "swift test",
+          timeoutSeconds: 120,
+          exitCode: 0,
+          durationMs: 1_000,
+          stdout: ToolTextOutput(text: "Tests passed."),
+          stderr: ToolTextOutput(text: "")
+        )))
+  )
+}
+
+private func nativeRunCommandRequest(command: String) -> ToolCallRequest {
+  ToolCallRequest.validated(
+    raw: RawToolCallRequest(
+      workspaceID: UUID(),
+      sessionID: UUID(),
+      toolName: .runCommand,
+      arguments: ["command": .string(command)]
+    ),
+    payload: .runCommand(
+      RunCommandInput(
+        command: command,
+        timeoutSeconds: RunCommandInput.defaultTimeoutSeconds
+      ))
   )
 }
