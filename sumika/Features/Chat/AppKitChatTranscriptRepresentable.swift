@@ -667,134 +667,28 @@ enum NativeTranscriptRowMeasurer {
     width: CGFloat,
     state: NativeTranscriptCellState = NativeTranscriptCellState()
   ) -> CGFloat {
-    switch row.body {
-    case .generationIndicator:
-      return 54
-    case .item(let item):
-      return height(for: item, width: width, state: state)
-    }
-  }
-
-  private static func height(
-    for item: RenderedChatTurnItem,
-    width: CGFloat,
-    state: NativeTranscriptCellState
-  ) -> CGFloat {
-    let contentWidth = max(min(width - 140, item.nativeMaximumBubbleWidth), 220)
-    switch item.item {
-    case .userMessage(let message):
-      let textHeight = measuredTextHeight(
-        message.content,
-        font: .systemFont(ofSize: NSFont.systemFontSize),
-        width: contentWidth - 24
-      )
-      let attachmentHeight = NativeTranscriptAttachmentPreviewMetrics.height(
-        for: message.attachments
-      )
-      let contentSpacing: CGFloat =
-        !message.attachments.isEmpty && !message.content.isEmpty ? 7 : 0
-      let copyControlHeight: CGFloat = message.content.isEmpty ? 0 : 24
-      return max(44, textHeight + attachmentHeight + contentSpacing + copyControlHeight + 34)
-
-    case .assistantMessage(let message):
-      if item.shouldShowAssistantPlaceholder {
-        return 48
-      }
-      let attachmentHeight = NativeTranscriptAttachmentPreviewMetrics.height(
-        for: message.attachments
-      )
-      let blocksHeight = item.assistantRenderBlocks.reduce(CGFloat(0)) { total, block in
-        switch block {
-        case .paragraph(let paragraph):
-          return total
-            + NativeTranscriptMarkdownRenderer.measuredHeight(
-              for: paragraph.text,
-              width: contentWidth
-            ) + 8
-        case .codeBlock(let codeBlock):
-          let languageHeaderHeight: CGFloat =
-            codeBlock.language?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? 22 : 0
-          return total
-            + NativeTranscriptCodeRenderer.measuredHeight(
-              for: codeBlock.text.isEmpty ? " " : codeBlock.text,
-              width: contentWidth - 24
-            ) + languageHeaderHeight + 38
-        }
-      }
-      let metricsHeight: CGFloat = item.visibleGenerationMetrics == nil ? 0 : 18
-      let attachmentSpacing: CGFloat =
-        attachmentHeight > 0 && (!item.assistantRenderBlocks.isEmpty || !message.content.isEmpty)
-        ? 8 : 0
-      return max(44, attachmentHeight + attachmentSpacing + blocksHeight + metricsHeight + 28)
-
-    case .tool(let record):
-      var height: CGFloat = 34
-      if state.isToolExpanded {
-        let details = NativeToolDetailContent(record: record)
-        height += detailLinesHeight(
-          details.textLines,
-          width: contentWidth
-        )
-        if let outputText = details.outputText {
-          if let outputTitle = details.outputTitle {
-            height += detailLinesHeight([outputTitle], width: contentWidth)
-          }
-          height +=
-            NativeTranscriptCodeRenderer.measuredHeight(
-              for: outputText,
-              width: contentWidth - 24
-            ) + 46
-        }
-        if details.isEmpty == false {
-          height += 8
-        }
-      }
-      if record.status == .awaitingApproval {
-        height += 32
-      }
-      if record.status == .awaitingUserAnswer, record.nativeAskUserInput != nil {
-        height += 58
-      }
-      if item.generationMetrics != nil {
-        height += 18
-      }
-      return height
-    }
-  }
-
-  private static func detailLinesHeight(_ lines: [String], width: CGFloat) -> CGFloat {
-    guard !lines.isEmpty else {
-      return 0
-    }
-    let lineHeight = lines.reduce(CGFloat(0)) { total, line in
-      total
-        + measuredTextHeight(
-          line,
-          font: .systemFont(ofSize: NSFont.smallSystemFontSize),
-          width: width
-        )
-    }
-    let stackSpacing = CGFloat(max(0, lines.count - 1)) * 5
-    return lineHeight + stackSpacing
-  }
-
-  private static func measuredTextHeight(
-    _ text: String,
-    font: NSFont,
-    width: CGFloat
-  ) -> CGFloat {
-    let measuredText = text.isEmpty ? " " : text
-    let attributedString = NSAttributedString(
-      string: measuredText,
-      attributes: [.font: font]
+    NativeChatMessageCellView.measuredHeight(
+      for: row,
+      width: width,
+      state: state,
+      actions: measuringActions
     )
-    let rect = attributedString.boundingRect(
-      with: NSSize(width: width, height: .greatestFiniteMagnitude),
-      options: [.usesLineFragmentOrigin, .usesFontLeading]
-    )
-    return ceil(rect.height)
   }
+
+  private static let measuringActions = NativeTranscriptCellActions(
+    markdownBlocks: NativeTranscriptMarkdownRenderer.blocks,
+    highlightedCode: { _, _ in nil },
+    requestCodeHighlight: { _, _ in },
+    attachmentThumbnail: { _, _ in nil },
+    requestAttachmentThumbnail: { _, _, _ in },
+    showImageAttachment: { _, _ in },
+    copy: { _, _ in },
+    approve: { _ in },
+    deny: { _ in },
+    answerAskUser: { _, _, _ in },
+    toggleToolExpansion: { _ in },
+    updateAskUserSelection: { _, _ in }
+  )
 }
 
 struct NativeTranscriptCellState: Equatable {
@@ -854,18 +748,18 @@ struct NativeTranscriptCoordinatorState: Equatable {
 }
 
 struct NativeTranscriptCellActions {
-  var markdownBlocks: (String) -> [NativeMarkdownBlock]
-  var highlightedCode: (String, AssistantRenderBlock.CodeBlock) -> HighlightedCode?
-  var requestCodeHighlight: (String, AssistantRenderBlock.CodeBlock) -> Void
-  var attachmentThumbnail: (ChatAttachment, Int) -> NSImage?
-  var requestAttachmentThumbnail: (String, ChatAttachment, Int) -> Void
-  var showImageAttachment: (ChatAttachment, NSView) -> Void
-  var copy: (String, String) -> Void
-  var approve: (ToolCallRecord.ID) -> Void
-  var deny: (ToolCallRecord.ID) -> Void
-  var answerAskUser: (String, ToolCallRecord.ID, String) -> Void
-  var toggleToolExpansion: (String) -> Void
-  var updateAskUserSelection: (String, String) -> Void
+  var markdownBlocks: @MainActor (String) -> [NativeMarkdownBlock]
+  var highlightedCode: @MainActor (String, AssistantRenderBlock.CodeBlock) -> HighlightedCode?
+  var requestCodeHighlight: @MainActor (String, AssistantRenderBlock.CodeBlock) -> Void
+  var attachmentThumbnail: @MainActor (ChatAttachment, Int) -> NSImage?
+  var requestAttachmentThumbnail: @MainActor (String, ChatAttachment, Int) -> Void
+  var showImageAttachment: @MainActor (ChatAttachment, NSView) -> Void
+  var copy: @MainActor (String, String) -> Void
+  var approve: @MainActor (ToolCallRecord.ID) -> Void
+  var deny: @MainActor (ToolCallRecord.ID) -> Void
+  var answerAskUser: @MainActor (String, ToolCallRecord.ID, String) -> Void
+  var toggleToolExpansion: @MainActor (String) -> Void
+  var updateAskUserSelection: @MainActor (String, String) -> Void
 }
 
 final class NativeChatMessageCellView: NSTableCellView {
@@ -882,6 +776,31 @@ final class NativeChatMessageCellView: NSTableCellView {
     wantsLayer = true
     layer?.backgroundColor = NSColor.clear.cgColor
     setupContentHost()
+  }
+
+  static func measuredHeight(
+    for row: NativeTranscriptRow,
+    width: CGFloat,
+    state: NativeTranscriptCellState,
+    actions: NativeTranscriptCellActions
+  ) -> CGFloat {
+    let constrainedWidth = max(width, 1)
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Measuring")
+    )
+    cell.translatesAutoresizingMaskIntoConstraints = false
+    cell.configure(row: row, state: state, actions: actions)
+    cell.setFrameSize(NSSize(width: constrainedWidth, height: 1))
+
+    let widthConstraint = cell.widthAnchor.constraint(equalToConstant: constrainedWidth)
+    widthConstraint.isActive = true
+    defer {
+      widthConstraint.isActive = false
+    }
+
+    cell.needsLayout = true
+    cell.layoutSubtreeIfNeeded()
+    return ceil(max(44, cell.fittingSize.height))
   }
 
   @available(*, unavailable)
