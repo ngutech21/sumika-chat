@@ -121,6 +121,57 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func heightCachePrunesStaleRevisionsForActiveRows() {
+    var cache = NativeTranscriptHeightCache()
+    let row = nativeAssistantCodeRow(id: "assistant", revision: 1, code: "let value = 1")
+    let revisedRow = nativeAssistantCodeRow(
+      id: "assistant",
+      revision: 2,
+      code: "let value = 1\nlet other = 2"
+    )
+
+    _ = cache.height(for: row, width: 640)
+    _ = cache.height(for: revisedRow, width: 640)
+    #expect(cache.cachedEntryCount == 2)
+
+    cache.prune(activeRows: [revisedRow])
+    #expect(cache.cachedEntryCount == 1)
+
+    _ = cache.height(for: revisedRow, width: 640)
+    #expect(cache.cachedEntryCount == 1)
+  }
+
+  @Test
+  func heightMeasurementUsesProvidedMarkdownBlocks() {
+    var markdownBlockRequests = 0
+    var cache = NativeTranscriptHeightCache()
+    let row = nativeAssistantMarkdownRow(
+      id: "assistant",
+      revision: 1,
+      markdown: "**cached** markdown"
+    )
+
+    _ = cache.height(
+      for: row,
+      width: 640,
+      markdownBlocks: { markdown in
+        markdownBlockRequests += 1
+        return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+      }
+    )
+    _ = cache.height(
+      for: row,
+      width: 640,
+      markdownBlocks: { markdown in
+        markdownBlockRequests += 1
+        return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+      }
+    )
+
+    #expect(markdownBlockRequests == 1)
+  }
+
+  @Test
   func tableContentChangesAffectRowRevisionAndHeightCache() {
     var cache = NativeTranscriptHeightCache()
     let row = nativeAssistantMarkdownRow(

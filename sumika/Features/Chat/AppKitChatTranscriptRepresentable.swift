@@ -189,7 +189,13 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       return heightCache.height(
         for: rowModel,
         width: width,
-        state: cellStateStore.state(for: rowModel.id)
+        state: cellStateStore.state(for: rowModel.id),
+        markdownBlocks: { [weak self] markdown in
+          guard let self else {
+            return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+          }
+          return self.markdownCache.blocks(for: markdown)
+        }
       )
     }
 
@@ -407,7 +413,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     private func pruneCoordinatorState(activeRows: [NativeTranscriptRow]) {
       let activeRowIDs = Set(activeRows.map(\.id))
       cellStateStore.prune(activeRowIDs: activeRowIDs)
-      heightCache.prune(activeRowIDs: activeRowIDs)
+      heightCache.prune(activeRows: activeRows)
       markdownCache.prune(activeTexts: activeMarkdownTexts(in: activeRows))
       codeHighlightStore.prune(activeDescriptors: activeCodeHighlightDescriptors(in: activeRows))
       attachmentThumbnailStore.prune(
@@ -628,7 +634,9 @@ struct NativeTranscriptHeightCache {
   mutating func height(
     for row: NativeTranscriptRow,
     width: CGFloat,
-    state: NativeTranscriptCellState = NativeTranscriptCellState()
+    state: NativeTranscriptCellState = NativeTranscriptCellState(),
+    markdownBlocks: @escaping @MainActor (String) -> [NativeMarkdownBlock] =
+      NativeTranscriptMarkdownRenderer.blocks
   ) -> CGFloat {
     let normalizedWidth = Int(width.rounded(.down))
     let key = Key(
@@ -640,7 +648,12 @@ struct NativeTranscriptHeightCache {
     if let height = heightsByKey[key] {
       return height
     }
-    let height = NativeTranscriptRowMeasurer.height(for: row, width: width, state: state)
+    let height = NativeTranscriptRowMeasurer.height(
+      for: row,
+      width: width,
+      state: state,
+      markdownBlocks: markdownBlocks
+    )
     heightsByKey[key] = height
     return height
   }
@@ -649,8 +662,15 @@ struct NativeTranscriptHeightCache {
     heightsByKey = heightsByKey.filter { $0.key.rowID != rowID }
   }
 
-  mutating func prune(activeRowIDs: Set<String>) {
-    heightsByKey = heightsByKey.filter { activeRowIDs.contains($0.key.rowID) }
+  mutating func prune(activeRows: [NativeTranscriptRow]) {
+    let activeRevisions = Set(
+      activeRows.map { ActiveRevision(rowID: $0.id, revision: $0.revision) }
+    )
+    heightsByKey = heightsByKey.filter {
+      activeRevisions.contains(
+        ActiveRevision(rowID: $0.key.rowID, revision: $0.key.revision)
+      )
+    }
   }
 
   struct Key: Hashable {
@@ -659,36 +679,47 @@ struct NativeTranscriptHeightCache {
     let width: Int
     let isToolExpanded: Bool
   }
+
+  private struct ActiveRevision: Hashable {
+    let rowID: String
+    let revision: Int
+  }
 }
 
 enum NativeTranscriptRowMeasurer {
   static func height(
     for row: NativeTranscriptRow,
     width: CGFloat,
-    state: NativeTranscriptCellState = NativeTranscriptCellState()
+    state: NativeTranscriptCellState = NativeTranscriptCellState(),
+    markdownBlocks: @escaping @MainActor (String) -> [NativeMarkdownBlock] =
+      NativeTranscriptMarkdownRenderer.blocks
   ) -> CGFloat {
     NativeChatMessageCellView.measuredHeight(
       for: row,
       width: width,
       state: state,
-      actions: measuringActions
+      actions: measuringActions(markdownBlocks: markdownBlocks)
     )
   }
 
-  private static let measuringActions = NativeTranscriptCellActions(
-    markdownBlocks: NativeTranscriptMarkdownRenderer.blocks,
-    highlightedCode: { _, _ in nil },
-    requestCodeHighlight: { _, _ in },
-    attachmentThumbnail: { _, _ in nil },
-    requestAttachmentThumbnail: { _, _, _ in },
-    showImageAttachment: { _, _ in },
-    copy: { _, _ in },
-    approve: { _ in },
-    deny: { _ in },
-    answerAskUser: { _, _, _ in },
-    toggleToolExpansion: { _ in },
-    updateAskUserSelection: { _, _ in }
-  )
+  private static func measuringActions(
+    markdownBlocks: @escaping @MainActor (String) -> [NativeMarkdownBlock]
+  ) -> NativeTranscriptCellActions {
+    NativeTranscriptCellActions(
+      markdownBlocks: markdownBlocks,
+      highlightedCode: { _, _ in nil },
+      requestCodeHighlight: { _, _ in },
+      attachmentThumbnail: { _, _ in nil },
+      requestAttachmentThumbnail: { _, _, _ in },
+      showImageAttachment: { _, _ in },
+      copy: { _, _ in },
+      approve: { _ in },
+      deny: { _ in },
+      answerAskUser: { _, _, _ in },
+      toggleToolExpansion: { _ in },
+      updateAskUserSelection: { _, _ in }
+    )
+  }
 }
 
 struct NativeTranscriptCellState: Equatable {
