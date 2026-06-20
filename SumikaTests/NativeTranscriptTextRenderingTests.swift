@@ -12,16 +12,21 @@ struct NativeTranscriptTextRenderingTests {
       for: """
         # Title
         - **bold**
+        - *italic*
         `code`
         """
     )
 
     #expect(rendered.string.contains("Title"))
     #expect(rendered.string.contains("• bold"))
+    #expect(rendered.string.contains("• italic"))
     #expect(rendered.string.contains("code"))
     #expect(rendered.hasFontTrait(.boldFontMask, inText: "Title"))
     #expect(rendered.hasFontTrait(.boldFontMask, inText: "bold"))
+    #expect(rendered.hasFontTrait(.italicFontMask, inText: "italic"))
     #expect(rendered.hasMonospacedFont(inText: "code"))
+    #expect(rendered.hasBackgroundColor(inText: "code"))
+    #expect(rendered.fontSize(inText: "Title") > NSFont.systemFontSize)
   }
 
   @Test
@@ -44,6 +49,48 @@ struct NativeTranscriptTextRenderingTests {
 
     #expect(rendered.string.contains("[broken](http://"))
     #expect(rendered.hasLink(inText: "https://sumika.local"))
+  }
+
+  @Test
+  func markdownRendererHandlesNestedOrderedAndUnorderedLists() {
+    let rendered = NativeTranscriptMarkdownRenderer.attributedString(
+      for: """
+        1. Parent
+           - Child
+        2. Next
+        """
+    )
+
+    #expect(rendered.string.contains("1. Parent"))
+    #expect(rendered.string.contains("  • Child"))
+    #expect(rendered.string.contains("2. Next"))
+  }
+
+  @Test
+  func markdownRendererKeepsTablesReadableAndStylesHeader() {
+    let rendered = NativeTranscriptMarkdownRenderer.attributedString(
+      for: """
+        | Name | Value |
+        | --- | --- |
+        | Model | Gemma |
+        | State | Ready |
+        """
+    )
+
+    #expect(rendered.string.contains("Name | Value"))
+    #expect(rendered.string.contains("Model | Gemma"))
+    #expect(rendered.string.contains("State | Ready"))
+    #expect(rendered.hasFontTrait(.boldFontMask, inText: "Name"))
+  }
+
+  @Test
+  func markdownRendererKeepsBlockQuotesReadable() {
+    let rendered = NativeTranscriptMarkdownRenderer.attributedString(
+      for: "> quoted **text**"
+    )
+
+    #expect(rendered.string.contains("> quoted text"))
+    #expect(rendered.hasFontTrait(.boldFontMask, inText: "text"))
   }
 
   @Test
@@ -230,6 +277,17 @@ extension NSAttributedString {
 
   fileprivate func foregroundColor(inText text: String) -> NSColor? {
     attribute(.foregroundColor, inText: text) as? NSColor
+  }
+
+  fileprivate func hasBackgroundColor(inText text: String) -> Bool {
+    attribute(.backgroundColor, inText: text) != nil
+  }
+
+  fileprivate func fontSize(inText text: String) -> CGFloat {
+    guard let font = attribute(.font, inText: text) as? NSFont else {
+      return 0
+    }
+    return font.pointSize
   }
 
   fileprivate func hasFontTrait(_ trait: NSFontTraitMask, inText text: String) -> Bool {

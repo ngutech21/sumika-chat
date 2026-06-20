@@ -1034,7 +1034,7 @@ final class NativeChatMessageCellView: NSTableCellView {
   ) -> NSView {
     let stack = verticalStack(spacing: 8)
     if item.shouldShowAssistantPlaceholder {
-      stack.addArrangedSubview(makeSecondaryLabel(item.assistantPlaceholderTitle))
+      stack.addArrangedSubview(makeGenerationIndicator(title: item.assistantPlaceholderTitle))
       return stack
     }
 
@@ -1241,14 +1241,15 @@ final class NativeChatMessageCellView: NSTableCellView {
     actions?.updateAskUserSelection(rowID, title)
   }
 
-  private func makeGenerationIndicator() -> NSView {
+  private func makeGenerationIndicator(title: String = "Generating") -> NSView {
     let row = horizontalStack(spacing: 8)
     let spinner = NSProgressIndicator()
     spinner.style = .spinning
     spinner.controlSize = .small
+    spinner.isDisplayedWhenStopped = false
     spinner.startAnimation(nil)
     row.addArrangedSubview(spinner)
-    row.addArrangedSubview(makeSecondaryLabel("Generating"))
+    row.addArrangedSubview(makeSecondaryLabel(title))
     return row
   }
 
