@@ -167,6 +167,64 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func imageAttachmentsUsePreviewHeightInUserRows() {
+    let textRow = nativeUserRow(
+      id: "user-text-attachment",
+      revision: 1,
+      attachments: [nativeTextAttachment(displayName: "notes.txt")]
+    )
+    let imageRow = nativeUserRow(
+      id: "user-image-attachment",
+      revision: 1,
+      attachments: [nativeImageAttachment(displayName: "screen.png")]
+    )
+
+    let textHeight = NativeTranscriptRowMeasurer.height(for: textRow, width: 640)
+    let imageHeight = NativeTranscriptRowMeasurer.height(for: imageRow, width: 640)
+
+    #expect(imageHeight > textHeight + 80)
+  }
+
+  @Test
+  func imageAttachmentsUsePreviewHeightInAssistantRows() {
+    let row = nativeAssistantRow(
+      id: "assistant-image-attachment",
+      revision: 1,
+      attachments: [nativeImageAttachment(displayName: "result.png")]
+    )
+
+    let height = NativeTranscriptRowMeasurer.height(for: row, width: 640)
+
+    #expect(height > NativeTranscriptAttachmentPreviewMetrics.imageHeight)
+  }
+
+  @Test
+  func attachmentThumbnailDescriptorTracksContentSignature() {
+    let attachmentID = AttachmentID()
+    let first = nativeImageAttachment(
+      id: attachmentID,
+      displayName: "screen.png",
+      contentSHA256: "first"
+    )
+    let second = nativeImageAttachment(
+      id: attachmentID,
+      displayName: "screen.png",
+      contentSHA256: "second"
+    )
+
+    let firstDescriptor = NativeAttachmentThumbDescriptor(
+      attachment: first,
+      maxPixelSize: 360
+    )
+    let secondDescriptor = NativeAttachmentThumbDescriptor(
+      attachment: second,
+      maxPixelSize: 360
+    )
+
+    #expect(firstDescriptor != secondDescriptor)
+  }
+
+  @Test
   func nativeToolDetailsIncludeApprovalPreviewAndPermissionReason() {
     let record = nativeApprovalToolRecord()
     let details = NativeToolDetailContent(record: record)
@@ -235,14 +293,18 @@ private func revisionMap(_ rows: [NativeTranscriptRow]) -> [String: Int] {
   Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.revision) })
 }
 
-private func nativeUserRow(id: String, revision: Int) -> NativeTranscriptRow {
+private func nativeUserRow(
+  id: String,
+  revision: Int,
+  attachments: [ChatAttachment] = []
+) -> NativeTranscriptRow {
   NativeTranscriptRow(
     id: id,
     revision: revision,
     body: .item(
       RenderedChatTurnItem(
         id: id,
-        item: .userMessage(UserTurnMessage(content: "Question")),
+        item: .userMessage(UserTurnMessage(content: "Question", attachments: attachments)),
         toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: []
@@ -250,14 +312,20 @@ private func nativeUserRow(id: String, revision: Int) -> NativeTranscriptRow {
   )
 }
 
-private func nativeAssistantRow(id: String, revision: Int) -> NativeTranscriptRow {
+private func nativeAssistantRow(
+  id: String,
+  revision: Int,
+  attachments: [ChatAttachment] = []
+) -> NativeTranscriptRow {
   NativeTranscriptRow(
     id: id,
     revision: revision,
     body: .item(
       RenderedChatTurnItem(
         id: id,
-        item: .assistantMessage(AssistantTurnMessage(content: "Answer")),
+        item: .assistantMessage(
+          AssistantTurnMessage(content: "Answer", attachments: attachments)
+        ),
         toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [
@@ -392,6 +460,39 @@ private func nativeRunCommandRequest(command: String) -> ToolCallRequest {
       RunCommandInput(
         command: command,
         timeoutSeconds: RunCommandInput.defaultTimeoutSeconds
+      ))
+  )
+}
+
+private func nativeTextAttachment(
+  id: AttachmentID = AttachmentID(),
+  displayName: String
+) -> ChatAttachment {
+  ChatAttachment(
+    id: id,
+    displayName: displayName,
+    payload: .text(
+      TextAttachmentPayload(
+        content: "Attachment body",
+        byteSize: 15,
+        contentSHA256: "text-\(displayName)"
+      ))
+  )
+}
+
+private func nativeImageAttachment(
+  id: AttachmentID = AttachmentID(),
+  displayName: String,
+  contentSHA256: String = "image-hash"
+) -> ChatAttachment {
+  ChatAttachment(
+    id: id,
+    displayName: displayName,
+    payload: .image(
+      ImageAttachmentPayload(
+        mimeType: "image/png",
+        byteSize: 1024,
+        contentSHA256: contentSHA256
       ))
   )
 }

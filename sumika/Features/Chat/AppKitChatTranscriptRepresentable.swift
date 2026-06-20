@@ -54,6 +54,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     private var heightCache = NativeTranscriptHeightCache()
     private var markdownCache = NativeTranscriptMarkdownCache()
     private let codeHighlightStore = NativeTranscriptCodeHighlightStore()
+    private let attachmentThumbnailStore = NativeTranscriptAttachmentThumbnailStore()
+    private var attachmentPreviewPopover: NSPopover?
     private var pinnedToBottom = true
     private var pendingHeightInvalidationRows = IndexSet()
     private var pendingHeightInvalidationWorkItem: DispatchWorkItem?
@@ -237,6 +239,24 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
               self?.reconfigureRows(ids: [updatedRowID])
             }
           },
+          attachmentThumbnail: { [weak self] attachment, maxPixelSize in
+            self?.attachmentThumbnailStore.thumbnail(
+              for: attachment,
+              maxPixelSize: maxPixelSize
+            )
+          },
+          requestAttachmentThumbnail: { [weak self] rowID, attachment, maxPixelSize in
+            self?.attachmentThumbnailStore.requestThumbnail(
+              rowID: rowID,
+              attachment: attachment,
+              maxPixelSize: maxPixelSize
+            ) { [weak self] updatedRowID in
+              self?.reconfigureRows(ids: [updatedRowID])
+            }
+          },
+          showImageAttachment: { [weak self] attachment, sourceView in
+            self?.showImageAttachment(attachment, relativeTo: sourceView)
+          },
           copy: { [weak self] rowID, content in
             self?.copy(content: content, from: rowID)
           },
@@ -258,6 +278,18 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
           }
         )
       )
+    }
+
+    private func showImageAttachment(_ attachment: ChatAttachment, relativeTo sourceView: NSView) {
+      let popover = NSPopover()
+      popover.behavior = .transient
+      popover.animates = true
+      popover.contentViewController = NativeAttachmentImagePreviewController(
+        imageURL: attachmentThumbnailStore.imageURL(for: attachment),
+        displayName: attachment.displayName
+      )
+      attachmentPreviewPopover = popover
+      popover.show(relativeTo: sourceView.bounds, of: sourceView, preferredEdge: .minY)
     }
 
     private func copy(content: String, from rowID: String) {
@@ -378,6 +410,9 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       heightCache.prune(activeRowIDs: activeRowIDs)
       markdownCache.prune(activeTexts: activeMarkdownTexts(in: activeRows))
       codeHighlightStore.prune(activeDescriptors: activeCodeHighlightDescriptors(in: activeRows))
+      attachmentThumbnailStore.prune(
+        activeDescriptors: activeAttachmentThumbnailDescriptors(in: activeRows)
+      )
     }
 
     private func activeMarkdownTexts(in rows: [NativeTranscriptRow]) -> Set<String> {
@@ -409,6 +444,25 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
             }
             return NativeTranscriptCodeHighlightDescriptor(rowID: row.id, codeBlock: codeBlock)
           }
+        })
+    }
+
+    private func activeAttachmentThumbnailDescriptors(
+      in rows: [NativeTranscriptRow]
+    ) -> Set<NativeAttachmentThumbDescriptor> {
+      Set(
+        rows.flatMap { row -> [NativeAttachmentThumbDescriptor] in
+          guard case .item(let item) = row.body else {
+            return []
+          }
+          return item.nativeAttachments
+            .filter { $0.kind == .image }
+            .map {
+              NativeAttachmentThumbDescriptor(
+                attachment: $0,
+                maxPixelSize: NativeTranscriptAttachmentPreviewMetrics.maxImagePixelSize
+              )
+            }
         })
     }
   }
@@ -634,14 +688,21 @@ enum NativeTranscriptRowMeasurer {
         font: .systemFont(ofSize: NSFont.systemFontSize),
         width: contentWidth - 24
       )
-      let attachmentHeight = CGFloat(message.attachments.count) * 24
+      let attachmentHeight = NativeTranscriptAttachmentPreviewMetrics.height(
+        for: message.attachments
+      )
+      let contentSpacing: CGFloat =
+        !message.attachments.isEmpty && !message.content.isEmpty ? 7 : 0
       let copyControlHeight: CGFloat = message.content.isEmpty ? 0 : 24
-      return max(44, textHeight + attachmentHeight + copyControlHeight + 34)
+      return max(44, textHeight + attachmentHeight + contentSpacing + copyControlHeight + 34)
 
-    case .assistantMessage:
+    case .assistantMessage(let message):
       if item.shouldShowAssistantPlaceholder {
         return 48
       }
+      let attachmentHeight = NativeTranscriptAttachmentPreviewMetrics.height(
+        for: message.attachments
+      )
       let blocksHeight = item.assistantRenderBlocks.reduce(CGFloat(0)) { total, block in
         switch block {
         case .paragraph(let paragraph):
@@ -662,7 +723,10 @@ enum NativeTranscriptRowMeasurer {
         }
       }
       let metricsHeight: CGFloat = item.visibleGenerationMetrics == nil ? 0 : 18
-      return max(44, blocksHeight + metricsHeight + 28)
+      let attachmentSpacing: CGFloat =
+        attachmentHeight > 0 && (!item.assistantRenderBlocks.isEmpty || !message.content.isEmpty)
+        ? 8 : 0
+      return max(44, attachmentHeight + attachmentSpacing + blocksHeight + metricsHeight + 28)
 
     case .tool(let record):
       var height: CGFloat = 34
@@ -793,6 +857,9 @@ struct NativeTranscriptCellActions {
   var markdownAttributedString: (String) -> NSAttributedString
   var highlightedCode: (String, AssistantRenderBlock.CodeBlock) -> HighlightedCode?
   var requestCodeHighlight: (String, AssistantRenderBlock.CodeBlock) -> Void
+  var attachmentThumbnail: (ChatAttachment, Int) -> NSImage?
+  var requestAttachmentThumbnail: (String, ChatAttachment, Int) -> Void
+  var showImageAttachment: (ChatAttachment, NSView) -> Void
   var copy: (String, String) -> Void
   var approve: (ToolCallRecord.ID) -> Void
   var deny: (ToolCallRecord.ID) -> Void
@@ -936,9 +1003,16 @@ final class NativeChatMessageCellView: NSTableCellView {
 
     let stack = verticalStack(spacing: 7)
     if !message.attachments.isEmpty {
-      stack.addArrangedSubview(makeAttachmentLabels(message.attachments))
+      stack.addArrangedSubview(
+        makeAttachmentPreviews(
+          message.attachments,
+          rowID: rowID,
+          alignsTrailing: true
+        ))
     }
-    stack.addArrangedSubview(makeTextLabel(message.content, color: .labelColor))
+    if !message.content.isEmpty {
+      stack.addArrangedSubview(makeTextLabel(message.content, color: .labelColor))
+    }
     outerStack.addArrangedSubview(
       paddedContainer(
         stack,
@@ -964,8 +1038,19 @@ final class NativeChatMessageCellView: NSTableCellView {
       return stack
     }
 
+    if !item.nativeAttachments.isEmpty {
+      stack.addArrangedSubview(
+        makeAttachmentPreviews(
+          item.nativeAttachments,
+          rowID: rowID,
+          alignsTrailing: false
+        ))
+    }
+
     if item.assistantRenderBlocks.isEmpty {
-      stack.addArrangedSubview(makeTextLabel(item.content, color: .labelColor))
+      if !item.content.isEmpty {
+        stack.addArrangedSubview(makeTextLabel(item.content, color: .labelColor))
+      }
     } else {
       for block in item.assistantRenderBlocks {
         switch block {
@@ -1167,16 +1252,6 @@ final class NativeChatMessageCellView: NSTableCellView {
     return row
   }
 
-  private func makeAttachmentLabels(_ attachments: [ChatAttachment]) -> NSView {
-    let stack = verticalStack(spacing: 4)
-    for attachment in attachments {
-      stack.addArrangedSubview(
-        makeSecondaryLabel("\(attachment.kind.rawValue): \(attachment.displayName)")
-      )
-    }
-    return stack
-  }
-
   private func makeCodeBlockView(
     _ codeBlock: AssistantRenderBlock.CodeBlock,
     highlightedCode: HighlightedCode?
@@ -1375,6 +1450,145 @@ final class NativeChatMessageCellView: NSTableCellView {
   }
 }
 
+extension NativeChatMessageCellView {
+  fileprivate func makeAttachmentPreviews(
+    _ attachments: [ChatAttachment],
+    rowID: String,
+    alignsTrailing: Bool
+  ) -> NSView {
+    let stack = verticalStack(spacing: 4)
+    stack.alignment = alignsTrailing ? .trailing : .leading
+    for attachment in attachments {
+      stack.addArrangedSubview(makeAttachmentPreview(attachment, rowID: rowID))
+    }
+    return stack
+  }
+
+  fileprivate func makeAttachmentPreview(_ attachment: ChatAttachment, rowID: String) -> NSView {
+    switch attachment.kind {
+    case .image:
+      return makeImageAttachmentPreview(attachment, rowID: rowID)
+    case .text:
+      return makeTextAttachmentPreview(attachment)
+    }
+  }
+
+  fileprivate func makeImageAttachmentPreview(_ attachment: ChatAttachment, rowID: String) -> NSView
+  {
+    let stack = verticalStack(spacing: 0)
+    stack.alignment = .leading
+    let maxPixelSize = NativeTranscriptAttachmentPreviewMetrics.maxImagePixelSize
+    actions?.requestAttachmentThumbnail(rowID, attachment, maxPixelSize)
+    let imageView = makeAttachmentImageView(
+      actions?.attachmentThumbnail(attachment, maxPixelSize)
+    )
+    stack.addArrangedSubview(imageView)
+
+    let nameLabel = makeSecondaryLabel(attachment.displayName)
+    nameLabel.maximumNumberOfLines = 1
+    nameLabel.lineBreakMode = .byTruncatingMiddle
+    NSLayoutConstraint.activate([
+      nameLabel.widthAnchor.constraint(
+        lessThanOrEqualToConstant: NativeTranscriptAttachmentPreviewMetrics.imageSize.width
+      )
+    ])
+    stack.addArrangedSubview(nameLabel)
+
+    let container = clickableContainer(stack)
+    container.toolTip = attachment.displayPath
+    container.setAccessibilityElement(true)
+    container.setAccessibilityRole(.button)
+    container.setAccessibilityLabel("Attached image \(attachment.displayName)")
+    container.actionHandler = { [weak self, attachment] sourceView in
+      self?.actions?.showImageAttachment(attachment, sourceView)
+    }
+    return container
+  }
+
+  fileprivate func makeTextAttachmentPreview(_ attachment: ChatAttachment) -> NSView {
+    let row = horizontalStack(spacing: 7)
+    row.addArrangedSubview(makeAttachmentSymbol("doc.text"))
+    let label = makeSecondaryLabel(attachment.displayName)
+    label.maximumNumberOfLines = 1
+    label.lineBreakMode = .byTruncatingMiddle
+    row.addArrangedSubview(label)
+    let container = paddedContainer(
+      row,
+      fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12),
+      cornerRadius: 8
+    )
+    container.toolTip = attachment.displayPath
+    container.setAccessibilityElement(true)
+    container.setAccessibilityLabel("Attached file \(attachment.displayName)")
+    return container
+  }
+
+  fileprivate func makeAttachmentImageView(_ image: NSImage?) -> NSView {
+    let size = NativeTranscriptAttachmentPreviewMetrics.imageSize
+    let container = NSView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+    container.wantsLayer = true
+    container.layer?.cornerRadius = 5
+    container.layer?.masksToBounds = true
+
+    if let image {
+      let imageView = NSImageView()
+      imageView.image = image
+      imageView.imageScaling = .scaleProportionallyUpOrDown
+      imageView.translatesAutoresizingMaskIntoConstraints = false
+      container.addSubview(imageView)
+      NSLayoutConstraint.activate([
+        imageView.topAnchor.constraint(equalTo: container.topAnchor),
+        imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+      ])
+    } else {
+      let placeholder = makeAttachmentSymbol("photo")
+      container.addSubview(placeholder)
+      placeholder.translatesAutoresizingMaskIntoConstraints = false
+      NSLayoutConstraint.activate([
+        placeholder.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+        placeholder.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      ])
+    }
+
+    NSLayoutConstraint.activate([
+      container.widthAnchor.constraint(equalToConstant: size.width),
+      container.heightAnchor.constraint(equalToConstant: size.height),
+    ])
+    return container
+  }
+
+  fileprivate func clickableContainer(_ view: NSView) -> NativeAttachmentPreviewClickView {
+    let container = NativeAttachmentPreviewClickView()
+    container.addSubview(view)
+    view.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      view.topAnchor.constraint(equalTo: container.topAnchor),
+      view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+    return container
+  }
+
+  fileprivate func makeAttachmentSymbol(_ systemSymbolName: String) -> NSImageView {
+    let imageView = NSImageView()
+    imageView.translatesAutoresizingMaskIntoConstraints = false
+    imageView.image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: nil)
+    imageView.image?.isTemplate = true
+    imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+    imageView.contentTintColor = .secondaryLabelColor
+    imageView.setAccessibilityElement(false)
+    NSLayoutConstraint.activate([
+      imageView.widthAnchor.constraint(equalToConstant: 16),
+      imageView.heightAnchor.constraint(equalToConstant: 16),
+    ])
+    return imageView
+  }
+}
+
 private final class NativeActionButton: NSButton {
   var actionHandler: (() -> Void)?
 
@@ -1392,6 +1606,144 @@ private final class NativeActionButton: NSButton {
 
   @objc private func performAction() {
     actionHandler?()
+  }
+}
+
+private final class NativeAttachmentPreviewClickView: NSView {
+  var actionHandler: ((NSView) -> Void)?
+
+  override var acceptsFirstResponder: Bool {
+    true
+  }
+
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    bounds.contains(point) ? self : nil
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    guard bounds.contains(convert(event.locationInWindow, from: nil)) else {
+      return
+    }
+    actionHandler?(self)
+  }
+
+  override func accessibilityPerformPress() -> Bool {
+    actionHandler?(self)
+    return true
+  }
+
+  override func keyDown(with event: NSEvent) {
+    if event.keyCode == 36 || event.keyCode == 49 {
+      actionHandler?(self)
+    } else {
+      super.keyDown(with: event)
+    }
+  }
+
+  override func resetCursorRects() {
+    addCursorRect(bounds, cursor: .pointingHand)
+  }
+}
+
+private final class NativeAttachmentImagePreviewController: NSViewController {
+  private let imageURL: URL?
+  private let displayName: String
+
+  init(imageURL: URL?, displayName: String) {
+    self.imageURL = imageURL
+    self.displayName = displayName
+    super.init(nibName: nil, bundle: nil)
+    preferredContentSize = NSSize(width: 640, height: 480)
+  }
+
+  @available(*, unavailable)
+  required init?(coder _: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  override func loadView() {
+    let stack = NSStackView()
+    stack.orientation = .vertical
+    stack.alignment = .leading
+    stack.spacing = 10
+    stack.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+    stack.translatesAutoresizingMaskIntoConstraints = false
+
+    let root = NSView()
+    root.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.topAnchor.constraint(equalTo: root.topAnchor),
+      stack.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+      stack.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+    ])
+
+    if let image = imageURL.flatMap(NSImage.init(contentsOf:)) {
+      stack.addArrangedSubview(makeImageView(image))
+    } else {
+      stack.addArrangedSubview(makeUnavailableView())
+    }
+
+    let nameLabel = NSTextField(labelWithString: displayName)
+    nameLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+    nameLabel.textColor = .secondaryLabelColor
+    nameLabel.lineBreakMode = .byTruncatingMiddle
+    nameLabel.maximumNumberOfLines = 1
+    stack.addArrangedSubview(nameLabel)
+
+    self.view = root
+  }
+
+  private func makeImageView(_ image: NSImage) -> NSImageView {
+    let imageView = NSImageView()
+    imageView.image = image
+    imageView.imageScaling = .scaleProportionallyUpOrDown
+    imageView.translatesAutoresizingMaskIntoConstraints = false
+
+    let fittedSize = fittedImageSize(for: image.size)
+    NSLayoutConstraint.activate([
+      imageView.widthAnchor.constraint(equalToConstant: fittedSize.width),
+      imageView.heightAnchor.constraint(equalToConstant: fittedSize.height),
+    ])
+    preferredContentSize = NSSize(width: fittedSize.width + 24, height: fittedSize.height + 54)
+    return imageView
+  }
+
+  private func makeUnavailableView() -> NSView {
+    let stack = NSStackView()
+    stack.orientation = .vertical
+    stack.alignment = .centerX
+    stack.spacing = 8
+
+    let imageView = NSImageView()
+    imageView.image = NSImage(systemSymbolName: "photo", accessibilityDescription: nil)
+    imageView.image?.isTemplate = true
+    imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 34, weight: .regular)
+    imageView.contentTintColor = .secondaryLabelColor
+    stack.addArrangedSubview(imageView)
+
+    let label = NSTextField(labelWithString: "Image Unavailable")
+    label.textColor = .secondaryLabelColor
+    stack.addArrangedSubview(label)
+
+    NSLayoutConstraint.activate([
+      stack.widthAnchor.constraint(equalToConstant: 360),
+      stack.heightAnchor.constraint(equalToConstant: 240),
+    ])
+    preferredContentSize = NSSize(width: 384, height: 294)
+    return stack
+  }
+
+  private func fittedImageSize(for imageSize: NSSize) -> NSSize {
+    let maximumSize = NSSize(width: 900, height: 700)
+    guard imageSize.width > 0, imageSize.height > 0 else {
+      return NSSize(width: 360, height: 240)
+    }
+    let scale = min(maximumSize.width / imageSize.width, maximumSize.height / imageSize.height, 1)
+    return NSSize(
+      width: max(1, imageSize.width * scale),
+      height: max(1, imageSize.height * scale)
+    )
   }
 }
 
@@ -1483,6 +1835,17 @@ extension RenderedChatTurnItem {
       message.canCopyAssistantContent
     case .tool:
       false
+    }
+  }
+
+  fileprivate var nativeAttachments: [ChatAttachment] {
+    switch item {
+    case .userMessage(let message):
+      message.attachments
+    case .assistantMessage(let message):
+      message.attachments
+    case .tool:
+      []
     }
   }
 }
