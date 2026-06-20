@@ -5,9 +5,10 @@ import SumikaCore
 
 struct NativeTranscriptMarkdownCache {
   private var attributedStringsByText: [String: NSAttributedString] = [:]
+  private var blocksByText: [String: [NativeMarkdownBlock]] = [:]
 
   var cachedEntryCount: Int {
-    attributedStringsByText.count
+    Set(attributedStringsByText.keys).union(blocksByText.keys).count
   }
 
   mutating func attributedString(for markdown: String) -> NSAttributedString {
@@ -19,18 +20,63 @@ struct NativeTranscriptMarkdownCache {
     return attributedString
   }
 
+  mutating func blocks(for markdown: String) -> [NativeMarkdownBlock] {
+    if let cached = blocksByText[markdown] {
+      return cached
+    }
+    let blocks = NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+    blocksByText[markdown] = blocks
+    return blocks
+  }
+
   mutating func prune(activeTexts: Set<String>) {
     attributedStringsByText = attributedStringsByText.filter { activeTexts.contains($0.key) }
+    blocksByText = blocksByText.filter { activeTexts.contains($0.key) }
   }
+}
+
+enum NativeMarkdownBlock {
+  case text(NSAttributedString)
+  case table(NativeMarkdownTable)
+}
+
+struct NativeMarkdownTable {
+  var header: [NativeMarkdownTableCell]
+  var rows: [[NativeMarkdownTableCell]]
+
+  var columnCount: Int {
+    max(header.count, rows.map(\.count).max() ?? 0)
+  }
+
+  var isEmpty: Bool {
+    columnCount == 0
+  }
+}
+
+struct NativeMarkdownTableCell {
+  var attributedString: NSAttributedString
 }
 
 enum NativeTranscriptMarkdownRenderer {
   static func attributedString(for markdown: String) -> NSAttributedString {
+    flattenedAttributedString(for: blocks(for: markdown))
+  }
+
+  static func blocks(for markdown: String) -> [NativeMarkdownBlock] {
     renderMarkdown(markdown)
   }
 
   static func measuredHeight(for markdown: String, width: CGFloat) -> CGFloat {
-    measuredHeight(for: attributedString(for: markdown), width: width)
+    let blocks = blocks(for: markdown)
+    return blocks.enumerated().reduce(CGFloat(0)) { total, entry in
+      let blockSpacing = entry.offset == 0 ? 0 : CGFloat(8)
+      switch entry.element {
+      case .text(let attributedString):
+        return total + blockSpacing + measuredHeight(for: attributedString, width: width)
+      case .table(let table):
+        return total + blockSpacing + NativeMarkdownTableMetrics.height(for: table, width: width)
+      }
+    }
   }
 
   static func measuredHeight(for attributedString: NSAttributedString, width: CGFloat) -> CGFloat {
@@ -53,11 +99,72 @@ enum NativeTranscriptMarkdownRenderer {
     return attributedString
   }
 
-  private static func renderMarkdown(_ markdown: String) -> NSAttributedString {
+  static func attributedString(for table: NativeMarkdownTable) -> NSAttributedString {
+    let result = NSMutableAttributedString()
+    appendTableRow(table.header, to: result, isHeader: true)
+    for row in table.rows {
+      if result.length > 0 {
+        result.append(NSAttributedString(string: "\n"))
+      }
+      appendTableRow(row, to: result, isHeader: false)
+    }
+    return result
+  }
+
+  private static func renderMarkdown(_ markdown: String) -> [NativeMarkdownBlock] {
     let source = markdown.isEmpty ? " " : markdown
     let document = Document(parsing: source)
     let renderer = NativeTranscriptMarkdownASTRenderer()
-    return renderer.render(document)
+    return renderer.renderBlocks(document)
+  }
+
+  private static func flattenedAttributedString(
+    for blocks: [NativeMarkdownBlock]
+  ) -> NSAttributedString {
+    let result = NSMutableAttributedString()
+    for (index, block) in blocks.enumerated() {
+      if index > 0 {
+        result.append(NSAttributedString(string: "\n"))
+      }
+      switch block {
+      case .text(let attributedString):
+        result.append(attributedString)
+      case .table(let table):
+        result.append(attributedString(for: table))
+      }
+    }
+    if result.length == 0 {
+      result.append(linkifiedPlainText(" "))
+    }
+    return result
+  }
+
+  private static func appendTableRow(
+    _ row: [NativeMarkdownTableCell],
+    to result: NSMutableAttributedString,
+    isHeader: Bool
+  ) {
+    for (index, cell) in row.enumerated() {
+      if index > 0 {
+        result.append(
+          NSAttributedString(
+            string: " | ",
+            attributes: [
+              .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+              .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+          ))
+      }
+      let cellText = NSMutableAttributedString(attributedString: cell.attributedString)
+      if isHeader {
+        cellText.addAttribute(
+          .font,
+          value: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
+          range: NSRange(location: 0, length: cellText.length)
+        )
+      }
+      result.append(cellText)
+    }
   }
 
   static func applyLinks(to attributedString: NSMutableAttributedString, sourceText: String) {
@@ -105,12 +212,132 @@ enum NativeTranscriptMarkdownRenderer {
   }
 }
 
-private final class NativeTranscriptMarkdownASTRenderer {
-  private let result = NSMutableAttributedString()
+private final class NativeTranscriptInlineAccumulator {
+  private let result: NSMutableAttributedString
 
-  func render(_ document: Document) -> NSAttributedString {
+  init(result: NSMutableAttributedString) {
+    self.result = result
+  }
+
+  func renderInlineChildren(of markup: Markup, style: NativeTranscriptInlineStyle) {
+    for child in markup.children {
+      renderInline(child, style: style)
+    }
+  }
+
+  private func renderInline(_ markup: Markup, style: NativeTranscriptInlineStyle) {
+    switch markup {
+    case let text as Text:
+      appendText(text.string, attributes: inlineAttributes(style: style))
+
+    case let code as InlineCode:
+      appendText(
+        code.code,
+        attributes: inlineAttributes(
+          style: style,
+          font: .monospacedSystemFont(ofSize: style.font.pointSize * 0.92, weight: .regular),
+          backgroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.16)
+        )
+      )
+
+    case is SoftBreak:
+      appendText(" ", attributes: inlineAttributes(style: style))
+
+    case is LineBreak:
+      appendText("\n", attributes: inlineAttributes(style: style))
+
+    case let strong as Strong:
+      renderInlineChildren(of: strong, style: style.withFontTrait(.boldFontMask))
+
+    case let emphasis as Emphasis:
+      renderInlineChildren(of: emphasis, style: style.withFontTrait(.italicFontMask))
+
+    case let link as Link:
+      let linkStyle = style.withLink(URL(string: link.destination ?? ""))
+      if link.isEmpty, let destination = link.destination {
+        appendText(destination, attributes: inlineAttributes(style: linkStyle))
+      } else {
+        renderInlineChildren(of: link, style: linkStyle)
+      }
+
+    case let strikethrough as Strikethrough:
+      renderInlineChildren(of: strikethrough, style: style.withStrikethrough())
+
+    default:
+      if let plain = markup as? any PlainTextConvertibleMarkup {
+        appendText(plain.plainText, attributes: inlineAttributes(style: style))
+      } else if !markup.isEmpty {
+        renderInlineChildren(of: markup, style: style)
+      } else {
+        appendText(markup.format(), attributes: inlineAttributes(style: style))
+      }
+    }
+  }
+
+  private func appendText(_ text: String, attributes: [NSAttributedString.Key: Any]) {
+    result.append(NSAttributedString(string: text, attributes: attributes))
+  }
+
+  private func inlineAttributes(
+    style: NativeTranscriptInlineStyle,
+    font: NSFont? = nil,
+    color: NSColor? = nil,
+    backgroundColor: NSColor? = nil
+  ) -> [NSAttributedString.Key: Any] {
+    var attributes: [NSAttributedString.Key: Any] = [
+      .font: font ?? style.font,
+      .foregroundColor: color ?? style.color,
+      .paragraphStyle: style.paragraphStyle,
+    ]
+    if let backgroundColor {
+      attributes[.backgroundColor] = backgroundColor
+    }
+    if let linkURL = style.linkURL {
+      attributes[.link] = linkURL
+      attributes[.foregroundColor] = NSColor.linkColor
+      attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+    }
+    if style.isStrikethrough {
+      attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+    }
+    return attributes
+  }
+}
+
+private struct NativeTranscriptInlineStyle {
+  var font: NSFont
+  var color: NSColor = .labelColor
+  var paragraphStyle: NSParagraphStyle
+  var linkURL: URL?
+  var isStrikethrough = false
+
+  func withFontTrait(_ trait: NSFontTraitMask) -> NativeTranscriptInlineStyle {
+    var copy = self
+    copy.font = NSFontManager.shared.convert(font, toHaveTrait: trait)
+    return copy
+  }
+
+  func withLink(_ url: URL?) -> NativeTranscriptInlineStyle {
+    var copy = self
+    copy.linkURL = url
+    return copy
+  }
+
+  func withStrikethrough() -> NativeTranscriptInlineStyle {
+    var copy = self
+    copy.isStrikethrough = true
+    return copy
+  }
+}
+
+private final class NativeTranscriptMarkdownASTRenderer {
+  private var blocks: [NativeMarkdownBlock] = []
+  private let textResult = NSMutableAttributedString()
+
+  func renderBlocks(_ document: Document) -> [NativeMarkdownBlock] {
     renderBlockChildren(of: document, depth: 0, quoteDepth: 0)
-    if result.length == 0 {
+    flushTextBlock()
+    if blocks.isEmpty {
       appendText(
         " ",
         attributes: inlineAttributes(
@@ -118,9 +345,9 @@ private final class NativeTranscriptMarkdownASTRenderer {
           paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle()
         )
       )
+      flushTextBlock()
     }
-    NativeTranscriptMarkdownRenderer.applyLinks(to: result, sourceText: result.string)
-    return result
+    return blocks
   }
 
   private func renderBlockChildren(of markup: Markup, depth: Int, quoteDepth: Int) {
@@ -172,7 +399,13 @@ private final class NativeTranscriptMarkdownASTRenderer {
       renderBlockChildren(of: quote, depth: depth, quoteDepth: quoteDepth + 1)
 
     case let table as Table:
-      renderTable(table, depth: depth, quoteDepth: quoteDepth)
+      flushTextBlock()
+      let nativeTable = projectTable(table)
+      if nativeTable.isEmpty {
+        renderFallback(table)
+      } else {
+        blocks.append(.table(nativeTable))
+      }
 
     case let codeBlock as CodeBlock:
       appendBlockPrefix(depth: depth, quoteDepth: quoteDepth)
@@ -269,47 +502,63 @@ private final class NativeTranscriptMarkdownASTRenderer {
     }
   }
 
-  private func renderTable(_ table: Table, depth: Int, quoteDepth: Int) {
-    if !table.head.isEmpty {
-      renderTableRow(table.head, depth: depth, quoteDepth: quoteDepth, isHeader: true)
-    }
-    for row in table.body.children {
+  private func projectTable(_ table: Table) -> NativeMarkdownTable {
+    let header =
+      table.head.isEmpty
+      ? []
+      : projectTableRow(table.head, isHeader: true)
+    let rows = table.body.children.compactMap { row -> [NativeMarkdownTableCell]? in
       guard let row = row as? Table.Row else {
-        continue
+        return nil
       }
-      appendNewlineIfNeeded()
-      renderTableRow(row, depth: depth, quoteDepth: quoteDepth, isHeader: false)
+      return projectTableRow(row, isHeader: false)
+    }
+    return NativeMarkdownTable(header: header, rows: rows)
+  }
+
+  private func projectTableRow(
+    _ row: Markup,
+    isHeader: Bool
+  ) -> [NativeMarkdownTableCell] {
+    row.children.map { cell in
+      NativeMarkdownTableCell(
+        attributedString: tableCellAttributedString(
+          for: cell,
+          isHeader: isHeader
+        )
+      )
     }
   }
 
-  private func renderTableRow(
-    _ row: Markup,
-    depth: Int,
-    quoteDepth: Int,
+  private func tableCellAttributedString(
+    for cell: Markup,
     isHeader: Bool
-  ) {
-    appendBlockPrefix(depth: depth, quoteDepth: quoteDepth)
+  ) -> NSAttributedString {
+    let cellResult = NSMutableAttributedString()
     let font: NSFont =
       isHeader
       ? .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
       : .systemFont(ofSize: NSFont.systemFontSize)
-    let style = InlineStyle(
-      font: font,
-      paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(spacingAfter: 2)
+    let renderer = NativeTranscriptInlineAccumulator(result: cellResult)
+    renderer.renderInlineChildren(
+      of: cell,
+      style: NativeTranscriptInlineStyle(
+        font: font,
+        paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(spacingAfter: 0)
+      )
     )
-    for (index, cell) in row.children.enumerated() {
-      if index > 0 {
-        appendText(
-          " | ",
+    if cellResult.length == 0 {
+      cellResult.append(
+        NSAttributedString(
+          string: " ",
           attributes: inlineAttributes(
-            font: .systemFont(ofSize: NSFont.systemFontSize),
-            color: .secondaryLabelColor,
-            paragraphStyle: style.paragraphStyle
+            font: font,
+            paragraphStyle: NativeTranscriptMarkdownRenderer.paragraphStyle(spacingAfter: 0)
           )
-        )
-      }
-      renderInlineChildren(of: cell, style: style)
+        ))
     }
+    NativeTranscriptMarkdownRenderer.applyLinks(to: cellResult, sourceText: cellResult.string)
+    return cellResult
   }
 
   private func renderInlineChildren(of markup: Markup, style: InlineStyle) {
@@ -417,21 +666,30 @@ private final class NativeTranscriptMarkdownASTRenderer {
   }
 
   private func appendBlockSeparatorIfNeeded() {
-    guard result.length > 0, !result.string.hasSuffix("\n") else {
+    guard textResult.length > 0, !textResult.string.hasSuffix("\n") else {
       return
     }
-    result.append(NSAttributedString(string: "\n"))
+    textResult.append(NSAttributedString(string: "\n"))
   }
 
   private func appendNewlineIfNeeded() {
-    guard !result.string.hasSuffix("\n") else {
+    guard !textResult.string.hasSuffix("\n") else {
       return
     }
-    result.append(NSAttributedString(string: "\n"))
+    textResult.append(NSAttributedString(string: "\n"))
   }
 
   private func appendText(_ text: String, attributes: [NSAttributedString.Key: Any]) {
-    result.append(NSAttributedString(string: text, attributes: attributes))
+    textResult.append(NSAttributedString(string: text, attributes: attributes))
+  }
+
+  private func flushTextBlock() {
+    guard textResult.length > 0 else {
+      return
+    }
+    NativeTranscriptMarkdownRenderer.applyLinks(to: textResult, sourceText: textResult.string)
+    blocks.append(.text(NSAttributedString(attributedString: textResult)))
+    textResult.deleteCharacters(in: NSRange(location: 0, length: textResult.length))
   }
 
   private func inlineAttributes(
@@ -498,6 +756,93 @@ private final class NativeTranscriptMarkdownASTRenderer {
       copy.isStrikethrough = true
       return copy
     }
+  }
+}
+
+enum NativeMarkdownTableMetrics {
+  static let horizontalPadding: CGFloat = 9
+  static let verticalPadding: CGFloat = 6
+  static let borderWidth: CGFloat = 1
+  static let separatorWidth: CGFloat = 1
+  static let minimumRowHeight: CGFloat = 28
+  static let minimumColumnWidth: CGFloat = 150
+  static let maximumPreferredWidth: CGFloat = 620
+  static let cornerRadius: CGFloat = 7
+
+  static func height(for table: NativeMarkdownTable, width: CGFloat) -> CGFloat {
+    guard !table.isEmpty else {
+      return 0
+    }
+    let rows = normalizedRows(for: table)
+    guard !rows.isEmpty else {
+      return 0
+    }
+    let columnWidth = self.columnWidth(for: table, width: effectiveWidth(for: table, width: width))
+    let rowHeights = rows.map { row in
+      rowHeight(for: row, columnWidth: columnWidth)
+    }
+    let separatorHeight = CGFloat(max(0, rowHeights.count - 1)) * separatorWidth
+    return ceil(rowHeights.reduce(0, +) + separatorHeight + borderWidth * 2)
+  }
+
+  static func effectiveWidth(for table: NativeMarkdownTable, width: CGFloat) -> CGFloat {
+    min(width, preferredWidth(for: table))
+  }
+
+  static func preferredWidth(for table: NativeMarkdownTable) -> CGFloat {
+    let columnCount = max(table.columnCount, 1)
+    let separatorSpace = CGFloat(max(0, columnCount - 1)) * separatorWidth
+    let borderSpace = borderWidth * 2
+    let contentWidth = CGFloat(columnCount) * minimumColumnWidth
+    return min(contentWidth + separatorSpace + borderSpace, maximumPreferredWidth)
+  }
+
+  static func columnWidth(for table: NativeMarkdownTable, width: CGFloat) -> CGFloat {
+    let columnCount = max(table.columnCount, 1)
+    let separatorSpace = CGFloat(max(0, columnCount - 1)) * separatorWidth
+    let contentWidth = max(width - borderWidth * 2 - separatorSpace, CGFloat(columnCount) * 44)
+    return floor(contentWidth / CGFloat(columnCount))
+  }
+
+  static func normalizedRows(for table: NativeMarkdownTable) -> [[NativeMarkdownTableCell]] {
+    let emptyCell = NativeMarkdownTableCell(attributedString: NSAttributedString(string: " "))
+    let columnCount = max(table.columnCount, 1)
+    let allRows = (table.header.isEmpty ? [] : [table.header]) + table.rows
+    return allRows.map { row in
+      if row.count >= columnCount {
+        return Array(row.prefix(columnCount))
+      }
+      return row + Array(repeating: emptyCell, count: columnCount - row.count)
+    }
+  }
+
+  static func rowHeight(
+    for row: [NativeMarkdownTableCell],
+    columnWidth: CGFloat
+  ) -> CGFloat {
+    let textWidth = max(columnWidth - horizontalPadding * 2, 12)
+    let textHeight = row.reduce(CGFloat(0)) { maxHeight, cell in
+      max(maxHeight, measuredTextHeight(cell.attributedString, width: textWidth))
+    }
+    return max(minimumRowHeight, ceil(textHeight + verticalPadding * 2))
+  }
+
+  private static func measuredTextHeight(
+    _ attributedString: NSAttributedString,
+    width: CGFloat
+  ) -> CGFloat {
+    let measuredString =
+      attributedString.length == 0
+      ? NSAttributedString(
+        string: " ",
+        attributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
+      )
+      : attributedString
+    let rect = measuredString.boundingRect(
+      with: NSSize(width: width, height: .greatestFiniteMagnitude),
+      options: [.usesLineFragmentOrigin, .usesFontLeading]
+    )
+    return ceil(rect.height)
   }
 }
 

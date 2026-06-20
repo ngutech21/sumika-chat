@@ -219,11 +219,11 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         row: row,
         state: cellStateStore.state(for: row.id),
         actions: NativeTranscriptCellActions(
-          markdownAttributedString: { [weak self] markdown in
+          markdownBlocks: { [weak self] markdown in
             guard let self else {
-              return NativeTranscriptMarkdownRenderer.attributedString(for: markdown)
+              return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
             }
-            return self.markdownCache.attributedString(for: markdown)
+            return self.markdownCache.blocks(for: markdown)
           },
           highlightedCode: { [weak self] rowID, codeBlock in
             self?.codeHighlightStore.highlightedCode(rowID: rowID, codeBlock: codeBlock)
@@ -854,7 +854,7 @@ struct NativeTranscriptCoordinatorState: Equatable {
 }
 
 struct NativeTranscriptCellActions {
-  var markdownAttributedString: (String) -> NSAttributedString
+  var markdownBlocks: (String) -> [NativeMarkdownBlock]
   var highlightedCode: (String, AssistantRenderBlock.CodeBlock) -> HighlightedCode?
   var requestCodeHighlight: (String, AssistantRenderBlock.CodeBlock) -> Void
   var attachmentThumbnail: (ChatAttachment, Int) -> NSImage?
@@ -1055,12 +1055,11 @@ final class NativeChatMessageCellView: NSTableCellView {
       for block in item.assistantRenderBlocks {
         switch block {
         case .paragraph(let paragraph):
-          stack.addArrangedSubview(
-            makeAttributedTextLabel(
-              actions?.markdownAttributedString(paragraph.text)
-                ?? NativeTranscriptMarkdownRenderer.attributedString(for: paragraph.text)
-            )
-          )
+          for markdownBlock in actions?.markdownBlocks(paragraph.text)
+            ?? NativeTranscriptMarkdownRenderer.blocks(for: paragraph.text)
+          {
+            stack.addArrangedSubview(makeMarkdownBlockView(markdownBlock))
+          }
         case .codeBlock(let codeBlock):
           actions?.requestCodeHighlight(rowID, codeBlock)
           stack.addArrangedSubview(
@@ -1086,6 +1085,15 @@ final class NativeChatMessageCellView: NSTableCellView {
       stack.addArrangedSubview(footer)
     }
     return stack
+  }
+
+  private func makeMarkdownBlockView(_ block: NativeMarkdownBlock) -> NSView {
+    switch block {
+    case .text(let attributedString):
+      makeAttributedTextLabel(attributedString)
+    case .table(let table):
+      NativeTranscriptTableView(table: table)
+    }
   }
 
   private func makeToolView(
@@ -1587,6 +1595,166 @@ extension NativeChatMessageCellView {
       imageView.heightAnchor.constraint(equalToConstant: 16),
     ])
     return imageView
+  }
+}
+
+private final class NativeTranscriptTableView: NSView {
+  private let table: NativeMarkdownTable
+  private let rows: [[NativeMarkdownTableCell]]
+  private let labels: [[NSTextField]]
+
+  override var isFlipped: Bool {
+    true
+  }
+
+  init(table: NativeMarkdownTable) {
+    self.table = table
+    self.rows = NativeMarkdownTableMetrics.normalizedRows(for: table)
+    self.labels = rows.map { row in
+      row.map { cell in
+        let label = NSTextField(labelWithAttributedString: cell.attributedString)
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.isSelectable = true
+        label.allowsEditingTextAttributes = true
+        label.drawsBackground = false
+        label.isBordered = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return label
+      }
+    }
+    super.init(frame: .zero)
+
+    wantsLayer = false
+    setContentHuggingPriority(.defaultLow, for: .horizontal)
+    setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    setContentHuggingPriority(.required, for: .vertical)
+    setAccessibilityElement(true)
+    setAccessibilityRole(.group)
+    setAccessibilityLabel("Markdown table")
+
+    for row in labels {
+      for label in row {
+        addSubview(label)
+      }
+    }
+  }
+
+  @available(*, unavailable)
+  required init?(coder _: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  override var intrinsicContentSize: NSSize {
+    let width = measuredWidth
+    return NSSize(
+      width: NativeMarkdownTableMetrics.preferredWidth(for: table),
+      height: NativeMarkdownTableMetrics.height(for: table, width: width)
+    )
+  }
+
+  override func setFrameSize(_ newSize: NSSize) {
+    let oldWidth = frame.width
+    super.setFrameSize(newSize)
+    guard abs(oldWidth - newSize.width) >= 1 else {
+      return
+    }
+    invalidateIntrinsicContentSize()
+    needsDisplay = true
+  }
+
+  override func layout() {
+    super.layout()
+    guard !rows.isEmpty else {
+      return
+    }
+    let columnWidth = NativeMarkdownTableMetrics.columnWidth(for: table, width: measuredWidth)
+    var rowOriginY = NativeMarkdownTableMetrics.borderWidth
+    for (rowIndex, row) in rows.enumerated() {
+      let rowHeight = NativeMarkdownTableMetrics.rowHeight(for: row, columnWidth: columnWidth)
+      var columnOriginX = NativeMarkdownTableMetrics.borderWidth
+      for columnIndex in row.indices {
+        let label = labels[rowIndex][columnIndex]
+        label.frame = NSRect(
+          x: columnOriginX + NativeMarkdownTableMetrics.horizontalPadding,
+          y: rowOriginY + NativeMarkdownTableMetrics.verticalPadding,
+          width: max(columnWidth - NativeMarkdownTableMetrics.horizontalPadding * 2, 12),
+          height: max(rowHeight - NativeMarkdownTableMetrics.verticalPadding * 2, 12)
+        )
+        columnOriginX += columnWidth + NativeMarkdownTableMetrics.separatorWidth
+      }
+      rowOriginY += rowHeight + NativeMarkdownTableMetrics.separatorWidth
+    }
+  }
+
+  override func draw(_ dirtyRect: NSRect) {
+    super.draw(dirtyRect)
+    guard !rows.isEmpty else {
+      return
+    }
+
+    let boundsPath = NSBezierPath(
+      roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5),
+      xRadius: NativeMarkdownTableMetrics.cornerRadius,
+      yRadius: NativeMarkdownTableMetrics.cornerRadius
+    )
+    NSColor.secondaryLabelColor.withAlphaComponent(0.045).setFill()
+    boundsPath.fill()
+    NSColor.secondaryLabelColor.withAlphaComponent(0.14).setStroke()
+    boundsPath.lineWidth = NativeMarkdownTableMetrics.borderWidth
+    boundsPath.stroke()
+
+    let columnWidth = NativeMarkdownTableMetrics.columnWidth(for: table, width: measuredWidth)
+    let rowHeights = rows.map { row in
+      NativeMarkdownTableMetrics.rowHeight(for: row, columnWidth: columnWidth)
+    }
+
+    if !table.header.isEmpty, let headerHeight = rowHeights.first {
+      let headerRect = NSRect(
+        x: NativeMarkdownTableMetrics.borderWidth,
+        y: NativeMarkdownTableMetrics.borderWidth,
+        width: bounds.width - NativeMarkdownTableMetrics.borderWidth * 2,
+        height: headerHeight
+      )
+      NSColor.secondaryLabelColor.withAlphaComponent(0.075).setFill()
+      headerRect.fill()
+    }
+
+    NSColor.secondaryLabelColor.withAlphaComponent(0.10).setStroke()
+    let separatorPath = NSBezierPath()
+    var rowSeparatorY = NativeMarkdownTableMetrics.borderWidth
+    for rowHeight in rowHeights.dropLast() {
+      rowSeparatorY += rowHeight + NativeMarkdownTableMetrics.separatorWidth / 2
+      separatorPath.move(to: NSPoint(x: NativeMarkdownTableMetrics.borderWidth, y: rowSeparatorY))
+      separatorPath.line(
+        to: NSPoint(x: bounds.width - NativeMarkdownTableMetrics.borderWidth, y: rowSeparatorY)
+      )
+      rowSeparatorY += NativeMarkdownTableMetrics.separatorWidth / 2
+    }
+
+    var columnSeparatorX = NativeMarkdownTableMetrics.borderWidth + columnWidth
+    for _ in 1..<max(table.columnCount, 1) {
+      separatorPath.move(
+        to: NSPoint(x: columnSeparatorX, y: NativeMarkdownTableMetrics.borderWidth))
+      separatorPath.line(
+        to: NSPoint(
+          x: columnSeparatorX,
+          y: bounds.height - NativeMarkdownTableMetrics.borderWidth)
+      )
+      columnSeparatorX += columnWidth + NativeMarkdownTableMetrics.separatorWidth
+    }
+    separatorPath.lineWidth = NativeMarkdownTableMetrics.separatorWidth
+    separatorPath.stroke()
+  }
+
+  private var measuredWidth: CGFloat {
+    let width =
+      bounds.width > 0
+      ? bounds.width
+      : NativeMarkdownTableMetrics.preferredWidth(
+        for: table)
+    return max(width, 220)
   }
 }
 

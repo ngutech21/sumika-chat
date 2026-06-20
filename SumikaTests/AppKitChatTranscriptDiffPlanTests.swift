@@ -121,6 +121,44 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func tableContentChangesAffectRowRevisionAndHeightCache() {
+    var cache = NativeTranscriptHeightCache()
+    let row = nativeAssistantMarkdownRow(
+      id: "assistant",
+      revision: 1,
+      markdown: """
+        | Name | Value |
+        | --- | --- |
+        | Model | Gemma |
+        """
+    )
+    let revisedRow = nativeAssistantMarkdownRow(
+      id: "assistant",
+      revision: 2,
+      markdown: """
+        | Name | Value |
+        | --- | --- |
+        | Model | Gemma |
+        | State | Ready |
+        """
+    )
+    let plan = NativeTranscriptDiffPlan.make(
+      previousIDs: [row.id],
+      previousRevisions: [row.id: row.revision],
+      currentIDs: [revisedRow.id],
+      currentRevisions: [revisedRow.id: revisedRow.revision]
+    )
+
+    _ = cache.height(for: row, width: 640)
+    let revisedHeight = cache.height(for: revisedRow, width: 640)
+
+    #expect(plan.action == .reconfigureRows)
+    #expect(plan.changedIDs == ["assistant"])
+    #expect(cache.cachedEntryCount == 2)
+    #expect(revisedHeight > 0)
+  }
+
+  @Test
   func expandedToolRowsUseExpandedHeightCacheKey() {
     var cache = NativeTranscriptHeightCache()
     let row = nativeToolRow(id: "tool", revision: 1)
@@ -357,6 +395,27 @@ private func nativeAssistantCodeRow(
               text: code,
               isClosed: true
             ))
+        ]
+      ))
+  )
+}
+
+private func nativeAssistantMarkdownRow(
+  id: String,
+  revision: Int,
+  markdown: String
+) -> NativeTranscriptRow {
+  NativeTranscriptRow(
+    id: id,
+    revision: revision,
+    body: .item(
+      RenderedChatTurnItem(
+        id: id,
+        item: .assistantMessage(AssistantTurnMessage(content: markdown)),
+        toolCallRecord: nil,
+        generationMetrics: nil,
+        assistantRenderBlocks: [
+          .paragraph(.init(id: .init(rawValue: "markdown"), text: markdown))
         ]
       ))
   )

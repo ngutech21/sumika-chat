@@ -84,6 +84,90 @@ struct NativeTranscriptTextRenderingTests {
   }
 
   @Test
+  func markdownRendererProjectsTablesAsNativeBlocks() throws {
+    let blocks = NativeTranscriptMarkdownRenderer.blocks(
+      for: """
+        Intro
+
+        | Name | Value |
+        | --- | --- |
+        | Model | **Gemma** |
+        """
+    )
+
+    #expect(blocks.count == 2)
+    guard case .text(let text) = blocks[0] else {
+      Issue.record("Expected leading text block")
+      return
+    }
+    guard case .table(let table) = blocks[1] else {
+      Issue.record("Expected table block")
+      return
+    }
+
+    #expect(text.string.contains("Intro"))
+    #expect(table.columnCount == 2)
+    #expect(table.header[0].attributedString.string == "Name")
+    #expect(table.rows[0][1].attributedString.string == "Gemma")
+    #expect(table.header[0].attributedString.hasFontTrait(.boldFontMask, inText: "Name"))
+    #expect(table.rows[0][1].attributedString.hasFontTrait(.boldFontMask, inText: "Gemma"))
+  }
+
+  @Test
+  func markdownRendererKeepsInlineCodeAndLinksInsideTableCells() throws {
+    let blocks = NativeTranscriptMarkdownRenderer.blocks(
+      for: """
+        | Kind | Value |
+        | --- | --- |
+        | Link | [Sumika](https://example.com) |
+        | Code | `gemma` |
+        """
+    )
+    let table = try tableBlock(in: blocks)
+
+    #expect(table.rows[0][1].attributedString.hasLink(inText: "Sumika"))
+    #expect(table.rows[1][1].attributedString.hasMonospacedFont(inText: "gemma"))
+    #expect(table.rows[1][1].attributedString.hasBackgroundColor(inText: "gemma"))
+  }
+
+  @Test
+  func markdownTableMeasurementHandlesWrappingCellContent() throws {
+    let blocks = NativeTranscriptMarkdownRenderer.blocks(
+      for: """
+        | Name | Description |
+        | --- | --- |
+        | Gemma | This is a longer description that should wrap across multiple lines in a narrow transcript table cell. |
+        """
+    )
+    let table = try tableBlock(in: blocks)
+
+    let narrowHeight = NativeMarkdownTableMetrics.height(for: table, width: 260)
+    let wideHeight = NativeMarkdownTableMetrics.height(for: table, width: 640)
+
+    #expect(narrowHeight > 0)
+    #expect(wideHeight > 0)
+    #expect(narrowHeight > wideHeight)
+  }
+
+  @Test
+  func markdownTableUsesReadablePreferredWidthWhenRenderedWithoutSiblingText() throws {
+    let blocks = NativeTranscriptMarkdownRenderer.blocks(
+      for: """
+        | Robot Name | Model Type | Primary Function |
+        | --- | --- | --- |
+        | Aero-X1 | Aerial Drone | Surveillance & Mapping |
+        """
+    )
+    let table = try tableBlock(in: blocks)
+
+    #expect(NativeMarkdownTableMetrics.preferredWidth(for: table) >= 450)
+    #expect(
+      NativeMarkdownTableMetrics.effectiveWidth(for: table, width: 680)
+        == NativeMarkdownTableMetrics.preferredWidth(for: table)
+    )
+  }
+
+  @Test
   func markdownRendererKeepsBlockQuotesReadable() {
     let rendered = NativeTranscriptMarkdownRenderer.attributedString(
       for: "> quoted **text**"
@@ -261,6 +345,18 @@ private func codeBlock(id: String, code: String) -> AssistantRenderBlock.CodeBlo
     isClosed: true
   )
 }
+
+private func tableBlock(in blocks: [NativeMarkdownBlock]) throws -> NativeMarkdownTable {
+  for block in blocks {
+    if case .table(let table) = block {
+      return table
+    }
+  }
+  Issue.record("Expected table block")
+  throw TestFailure()
+}
+
+private struct TestFailure: Error {}
 
 extension NSAttributedString {
   fileprivate func hasLink(inText text: String) -> Bool {
