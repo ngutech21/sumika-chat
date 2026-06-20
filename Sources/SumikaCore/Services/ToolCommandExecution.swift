@@ -340,164 +340,159 @@ private enum CommandProcessWaitOutcome: Sendable {
   case cancelled
 }
 
-private final class ProcessTerminationSignal: @unchecked Sendable {
+private final class ProcessExitSignal: @unchecked Sendable {
   private let lock = NSLock()
-  private var continuation: CheckedContinuation<Void, Never>?
-  private var didTerminate = false
+  private var continuations: [CheckedContinuation<Void, Never>] = []
+  private var didExit = false
 
-  func signal() {
-    let continuationToResume: CheckedContinuation<Void, Never>?
+  init(process: Process) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      process.waitUntilExit()
+      self.signal()
+    }
+  }
+
+  private func signal() {
+    let continuationsToResume: [CheckedContinuation<Void, Never>]
     lock.lock()
-    didTerminate = true
-    continuationToResume = continuation
-    continuation = nil
+    didExit = true
+    continuationsToResume = continuations
+    continuations.removeAll(keepingCapacity: false)
     lock.unlock()
 
-    continuationToResume?.resume()
+    continuationsToResume.forEach { $0.resume() }
   }
 
   func wait() async {
     await withCheckedContinuation { continuation in
-      let continuationToResume: CheckedContinuation<Void, Never>?
+      let shouldResumeImmediately: Bool
       lock.lock()
-      if didTerminate {
-        continuationToResume = continuation
+      if didExit {
+        shouldResumeImmediately = true
       } else {
-        self.continuation = continuation
-        continuationToResume = nil
+        continuations.append(continuation)
+        shouldResumeImmediately = false
       }
       lock.unlock()
 
-      continuationToResume?.resume()
+      if shouldResumeImmediately {
+        continuation.resume()
+      }
     }
   }
 }
 
 public actor DefaultCommandProcessRunner: CommandProcessRunning {
-  private var runningProcesses: [UUID: Process] = [:]
-
   public init() {}
 
-  public func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult {
-    let id = UUID()
-    return try await withTaskCancellationHandler {
-      try await runProcess(id: id, request: request)
-    } onCancel: {
-      Task {
-        await self.terminateProcess(id: id)
-      }
-    }
+  public nonisolated func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult {
+    try await runCommandProcess(request)
+  }
+}
+
+private func runCommandProcess(_ request: CommandProcessRequest) async throws -> CommandProcessResult {
+  let process = Process()
+  process.executableURL = request.executableURL
+  process.arguments = request.arguments
+  process.environment = request.environment
+  process.currentDirectoryURL = request.workingDirectoryURL
+
+  let stdoutPipe = Pipe()
+  let stderrPipe = Pipe()
+  process.standardOutput = stdoutPipe
+  process.standardError = stderrPipe
+
+  let startedAt = Date()
+  try process.run()
+  let exitSignal = ProcessExitSignal(process: process)
+
+  let stdoutTask = Task {
+    try await readPipeToEnd(stdoutPipe.fileHandleForReading)
+  }
+  let stderrTask = Task {
+    try await readPipeToEnd(stderrPipe.fileHandleForReading)
   }
 
-  private func runProcess(
-    id: UUID,
-    request: CommandProcessRequest
-  ) async throws -> CommandProcessResult {
-    let process = Process()
-    process.executableURL = request.executableURL
-    process.arguments = request.arguments
-    process.environment = request.environment
-    process.currentDirectoryURL = request.workingDirectoryURL
-
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-
-    let startedAt = Date()
-    let terminationSignal = ProcessTerminationSignal()
-    process.terminationHandler = { _ in
-      terminationSignal.signal()
-    }
-    runningProcesses[id] = process
-    defer {
-      process.terminationHandler = nil
-      runningProcesses[id] = nil
-    }
-
-    try process.run()
-
-    let stdoutTask = Task {
-      try stdoutPipe.fileHandleForReading.readToEnd() ?? Data()
-    }
-    let stderrTask = Task {
-      try stderrPipe.fileHandleForReading.readToEnd() ?? Data()
-    }
-
-    let waitOutcome = await waitForExitOrTimeout(
+  let waitOutcome = await withTaskCancellationHandler {
+    await waitForExitOrTimeout(
       process: process,
-      terminationSignal: terminationSignal,
+      exitSignal: exitSignal,
       timeoutSeconds: request.timeoutSeconds
     )
-
-    process.waitUntilExit()
-    let durationMs = max(Int(Date().timeIntervalSince(startedAt) * 1000), 0)
-    let stdoutData = try await stdoutTask.value
-    let stderrData = try await stderrTask.value
-
-    return CommandProcessResult(
-      exitCode: process.terminationStatus,
-      durationMs: durationMs,
-      stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-      stderr: String(data: stderrData, encoding: .utf8) ?? "",
-      timedOut: waitOutcome == .timedOut,
-      cancelled: waitOutcome == .cancelled
-    )
+  } onCancel: {
+    if process.isRunning {
+      terminateProcessTree(process)
+    }
   }
 
-  private func waitForExitOrTimeout(
-    process: Process,
-    terminationSignal: ProcessTerminationSignal,
-    timeoutSeconds: Int
-  ) async -> CommandProcessWaitOutcome {
-    do {
-      return try await withThrowingTaskGroup(of: CommandProcessWaitOutcome.self) { group in
-        group.addTask {
-          await terminationSignal.wait()
-          return .exited
-        }
+  let durationMs = max(Int(Date().timeIntervalSince(startedAt) * 1000), 0)
+  let stdoutData = try await stdoutTask.value
+  let stderrData = try await stderrTask.value
 
-        group.addTask {
-          do {
-            try await Task.sleep(for: .seconds(timeoutSeconds))
-            return Task.isCancelled ? .cancelled : .timedOut
-          } catch {
-            return .cancelled
-          }
-        }
+  return CommandProcessResult(
+    exitCode: process.terminationStatus,
+    durationMs: durationMs,
+    stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+    stderr: String(data: stderrData, encoding: .utf8) ?? "",
+    timedOut: waitOutcome == .timedOut,
+    cancelled: waitOutcome == .cancelled
+  )
+}
 
-        let outcome = try await group.next() ?? .exited
-        if outcome != .exited, process.isRunning {
-          terminateProcessTree(process)
-        }
-        group.cancelAll()
-        return outcome
+private func waitForExitOrTimeout(
+  process: Process,
+  exitSignal: ProcessExitSignal,
+  timeoutSeconds: Int
+) async -> CommandProcessWaitOutcome {
+  do {
+    return try await withThrowingTaskGroup(of: CommandProcessWaitOutcome.self) { group in
+      group.addTask {
+        await exitSignal.wait()
+        return .exited
       }
-    } catch {
-      if process.isRunning {
+
+      group.addTask {
+        do {
+          try await Task.sleep(for: .seconds(timeoutSeconds))
+          return Task.isCancelled ? .cancelled : .timedOut
+        } catch {
+          return .cancelled
+        }
+      }
+
+      let outcome = try await group.next() ?? .exited
+      if outcome != .exited, process.isRunning {
         terminateProcessTree(process)
+        await exitSignal.wait()
       }
-      await terminationSignal.wait()
-      return .cancelled
+      group.cancelAll()
+      return outcome
     }
+  } catch {
+    if process.isRunning {
+      terminateProcessTree(process)
+    }
+    await exitSignal.wait()
+    return .cancelled
   }
+}
 
-  private func terminateProcess(id: UUID) {
-    guard let process = runningProcesses[id], process.isRunning else {
-      return
+private func readPipeToEnd(_ fileHandle: FileHandle) async throws -> Data {
+  try await withCheckedThrowingContinuation { continuation in
+    DispatchQueue.global(qos: .userInitiated).async {
+      do {
+        continuation.resume(returning: try fileHandle.readToEnd() ?? Data())
+      } catch {
+        continuation.resume(throwing: error)
+      }
     }
-    terminateProcessTree(process)
   }
 }
 
 private func terminateProcessTree(_ process: Process) {
   let rootPID = process.processIdentifier
   let descendantPIDs = processDescendantIDs(of: rootPID)
-  terminateProcesses(descendantPIDs.reversed())
-
-  if process.isRunning {
-    process.terminate()
-  }
+  terminateProcesses(descendantPIDs.reversed() + [rootPID])
 }
 
 private func processDescendantIDs(of rootPID: Int32) -> [Int32] {
@@ -545,7 +540,7 @@ private func terminateProcesses(_ processIDs: [Int32]) {
 
   _ = runTerminationHelper(
     killURL,
-    arguments: ["-TERM"] + processIDs.map(String.init)
+    arguments: ["-KILL"] + processIDs.map(String.init)
   )
 }
 
