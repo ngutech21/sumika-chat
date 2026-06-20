@@ -135,14 +135,79 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
   let generationMetrics: ChatGenerationMetrics?
   let assistantRenderBlocks: [AssistantRenderBlock]
 
-  var scrollRevision: Int {
+  var renderRevision: Int {
+    var hasher = Hasher()
+    hasher.combine(id)
+    hasher.combine(generationMetrics?.generatedTokenCount)
+    hasher.combine(generationMetrics?.tokensPerSecond)
+    hasher.combine(generationMetrics?.durationMs)
+
     switch item {
     case .userMessage(let message):
-      message.content.utf8.count + message.attachments.count
+      hasher.combine("user")
+      hasher.combine(message.content)
+      hasher.combineAttachmentRevision(message.attachments)
+
     case .assistantMessage(let message):
-      message.content.utf8.count + message.attachments.count
+      hasher.combine("assistant")
+      hasher.combine(message.content)
+      hasher.combine(message.deliveryStatus.rawValue)
+      hasher.combineAttachmentRevision(message.attachments)
+      for block in assistantRenderBlocks {
+        hasher.combine(block.id.rawValue)
+        switch block {
+        case .paragraph(let paragraph):
+          hasher.combine("paragraph")
+          hasher.combine(paragraph.text)
+        case .codeBlock(let codeBlock):
+          hasher.combine("code")
+          hasher.combine(codeBlock.language)
+          hasher.combine(codeBlock.text)
+          hasher.combine(codeBlock.isClosed)
+        }
+      }
+
     case .tool(let record):
-      record.status.scrollRevision
+      hasher.combine("tool")
+      hasher.combine(record.status.rawValue)
+      hasher.combine(record.request.toolName.rawValue)
+      hasher.combine(record.request.raw.originalToolName)
+      hasher.combine(record.request.raw.rawText)
+      for argument in record.request.rawArguments.sorted(by: { $0.key < $1.key }) {
+        hasher.combine(argument.key)
+        hasher.combine(argument.value.displayValue)
+      }
+      hasher.combine(record.approvalPreview?.status.rawValue)
+      hasher.combine(record.approvalPreview?.text)
+      hasher.combine(record.approvalPreview?.truncated)
+      hasher.combine(record.approvalPreview?.redacted)
+      hasher.combine(record.approvalPreview?.affectedPaths.joined(separator: "\n"))
+      hasher.combine(record.resultPreview?.status.rawValue)
+      hasher.combine(record.resultPreview?.text)
+      hasher.combine(record.resultPreview?.truncated)
+      hasher.combine(record.resultPreview?.redacted)
+      hasher.combine(record.resultPreview?.affectedPaths.joined(separator: "\n"))
+      hasher.combine(record.resultPayload?.text)
+      hasher.combine(record.resultPayload?.status.rawValue)
+    }
+
+    return hasher.finalize()
+  }
+
+  var scrollRevision: Int {
+    renderRevision
+  }
+}
+
+extension Hasher {
+  fileprivate mutating func combineAttachmentRevision(_ attachments: [ChatAttachment]) {
+    for attachment in attachments {
+      combine(attachment.id)
+      combine(attachment.displayName)
+      combine(attachment.kind.rawValue)
+      combine(attachment.byteSize)
+      combine(attachment.contentSignature)
+      combine(attachment.mimeType)
     }
   }
 }

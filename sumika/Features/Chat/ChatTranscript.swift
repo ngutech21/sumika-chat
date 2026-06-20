@@ -29,7 +29,7 @@ struct ChatTranscript: View {
       .accessibilityValue(modelState.accessibilityValue)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else {
-      ChatTranscriptScrollContent(
+      AppKitChatTranscriptRepresentable(
         items: items,
         showsGenerationIndicator: shouldShowTranscriptGenerationIndicator(for: items),
         accessibilityValue: modelState.accessibilityValue,

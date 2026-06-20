@@ -18,6 +18,7 @@
 		F92000012FD2000000A270C /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = F92000032FD2000000A270C /* MarkdownUI */; };
 		F93000012FD3000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
 		F95000012FE0000000A270C /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F95000032FE0000000A270C /* SwiftTerm */; };
+		F96000012FF0000000A270C /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = F96000032FF0000000A270C /* Markdown */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -92,6 +93,7 @@
 				F92000012FD2000000A270C /* MarkdownUI in Frameworks */,
 				F93000012FD3000000A270C /* SumikaCore in Frameworks */,
 				F95000012FE0000000A270C /* SwiftTerm in Frameworks */,
+				F96000012FF0000000A270C /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -196,6 +198,7 @@
 				F92000032FD2000000A270C /* MarkdownUI */,
 				F93000032FD3000000A270C /* SumikaCore */,
 				F95000032FE0000000A270C /* SwiftTerm */,
+				F96000032FF0000000A270C /* Markdown */,
 			);
 			productName = "Sumika Chat";
 			productReference = F9D7F5FB2FCC80CD00FECA78 /* Sumika Chat.app */;
@@ -240,6 +243,7 @@
 				F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */,
 				F92000022FD2000000A270C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				F96000022FF0000000A270C /* XCRemoteSwiftPackageReference "swift-markdown" */,
 				F93000022FD3000000A270C /* XCLocalSwiftPackageReference "." */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -729,6 +733,14 @@
 				minimumVersion = 1.13.0;
 			};
 		};
+		F96000022FF0000000A270C /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swiftlang/swift-markdown.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.8.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -786,6 +798,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		F96000032FF0000000A270C /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F96000022FF0000000A270C /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
