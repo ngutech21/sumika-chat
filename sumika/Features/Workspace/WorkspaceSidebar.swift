@@ -1,10 +1,15 @@
 import SumikaCore
 import SwiftUI
 
-struct AppSidebar: View {
-  let appState: AppState
+struct WorkspaceSidebar: View {
+  let workspaceState: WorkspaceFeatureState
+  let modelRuntime: ModelRuntimeController
   @Binding var selection: AppNavigationSelection?
   let onAddWorkspace: () -> Void
+  let onCreateSession: (Workspace.ID) -> ChatSession.ID?
+  let onRenameSession: (ChatSession.ID, String) -> Void
+  let onDeleteSession: (ChatSession.ID) -> Void
+  let onRemoveWorkspace: (Workspace.ID) -> Void
   @State private var sessionBeingRenamed: ChatSession?
   @State private var sessionPendingDeletion: ChatSession?
   @State private var workspacePendingRemoval: Workspace?
@@ -29,7 +34,7 @@ struct AppSidebar: View {
               .padding(.horizontal, 14)
               .padding(.top, 2)
 
-            ForEach(appState.workspaceLibrary.workspaces) { workspace in
+            ForEach(workspaceState.library.workspaces) { workspace in
               workspaceSection(workspace)
             }
           }
@@ -41,7 +46,7 @@ struct AppSidebar: View {
       .accessibilityIdentifier("sidebar.workspaceList")
 
       SidebarRuntimeFooter(
-        modelRuntime: appState.chatController.modelRuntime,
+        modelRuntime: modelRuntime,
         onAddWorkspace: onAddWorkspace
       )
     }
@@ -56,7 +61,7 @@ struct AppSidebar: View {
 
       Button("Rename") {
         if let sessionBeingRenamed {
-          appState.renameSession(sessionBeingRenamed.id, title: renameTitle)
+          onRenameSession(sessionBeingRenamed.id, renameTitle)
         }
         sessionBeingRenamed = nil
         renameTitle = ""
@@ -69,7 +74,7 @@ struct AppSidebar: View {
       }
 
       Button("Delete", role: .destructive) {
-        appState.deleteSession(session.id)
+        onDeleteSession(session.id)
         sessionPendingDeletion = nil
       }
     } message: { session in
@@ -85,7 +90,7 @@ struct AppSidebar: View {
       }
 
       Button("Remove", role: .destructive) {
-        appState.removeWorkspace(workspace.id)
+        onRemoveWorkspace(workspace.id)
         workspacePendingRemoval = nil
       }
     } message: { workspace in
@@ -204,7 +209,7 @@ struct AppSidebar: View {
 
   private func newSessionButton(for workspaceID: Workspace.ID) -> some View {
     Button {
-      if let sessionID = appState.createSession(in: workspaceID) {
+      if let sessionID = onCreateSession(workspaceID) {
         selection = .session(sessionID)
       }
     } label: {

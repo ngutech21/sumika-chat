@@ -40,7 +40,7 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
 
     #expect(appState.chatController.chatSession.interactionMode == .chat)
@@ -85,12 +85,12 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
-    guard let activeWorkspace = appState.activeWorkspace else {
+    guard let activeWorkspace = appState.workspaceState.activeWorkspace else {
       throw AppStateTestFailure.missingWorkspace
     }
-    let activeSessionID = try #require(appState.activeSessionID)
+    let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.chatController.modelRuntime.modelState = .ready
     appState.chatController.draft = "Persist this"
 
@@ -141,7 +141,7 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
         && appState.activeWebAccessSettings.policy == .askEachTime
     }
 
@@ -171,7 +171,7 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
 
     let first = WebAccessSettings(policy: .allow, provider: .duckDuckGo)
@@ -191,7 +191,7 @@ struct AppStateTests {
   }
 
   @Test
-  func openActiveWorkspaceInFinderDelegatesActiveRootURL() async throws {
+  func workspaceStateOpenInFinderUsesActiveRootURL() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()
     let workspaceURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -217,21 +217,21 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
 
-    appState.openActiveWorkspaceInFinder()
+    appState.workspaceState.openActiveWorkspaceInFinder()
 
     try await waitUntil {
       opener.requests.count == 1
     }
     #expect(opener.requests.first?.url == workspaceURL)
     #expect(opener.requests.first?.destination == .finder)
-    #expect(appState.workspaceErrorMessage == nil)
+    #expect(appState.workspaceState.errorMessage == nil)
   }
 
   @Test
-  func openActiveWorkspaceInVisualStudioCodeDelegatesActiveRootURL() async throws {
+  func workspaceStateOpenInVisualStudioCodeUsesActiveRootURL() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()
     let workspaceURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -257,17 +257,17 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
 
-    appState.openActiveWorkspaceInVisualStudioCode()
+    appState.workspaceState.openActiveWorkspaceInVisualStudioCode()
 
     try await waitUntil {
       opener.requests.count == 1
     }
     #expect(opener.requests.first?.url == workspaceURL)
     #expect(opener.requests.first?.destination == .visualStudioCode)
-    #expect(appState.workspaceErrorMessage == nil)
+    #expect(appState.workspaceState.errorMessage == nil)
   }
 
   @Test
@@ -297,13 +297,13 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
 
-    appState.openActiveWorkspaceInVisualStudioCode()
+    appState.workspaceState.openActiveWorkspaceInVisualStudioCode()
 
     try await waitUntil {
-      appState.workspaceErrorMessage
+      appState.workspaceState.errorMessage
         == "Visual Studio Code was not found in /Applications or ~/Applications."
     }
   }
@@ -352,7 +352,7 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
 
     appState.removeWorkspace(workspaceID)
@@ -389,7 +389,7 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
     appState.startModelRuntimeServices()
 
@@ -413,7 +413,7 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
     appState.startModelRuntimeServices()
 
@@ -459,7 +459,7 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
 
     appState.startModelRuntimeServices()
@@ -488,7 +488,7 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
 
     appState.startModelRuntimeServices()
@@ -520,7 +520,7 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
     appState.startModelRuntimeServices()
 
@@ -575,7 +575,7 @@ struct AppStateTests {
     let probe = BrowserToolProbe()
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
     await appState.browserToolService.register(
       refreshHandler: { input in
@@ -598,10 +598,10 @@ struct AppStateTests {
         )
       }
     )
-    guard let workspace = appState.activeWorkspace else {
+    guard let workspace = appState.workspaceState.activeWorkspace else {
       throw AppStateTestFailure.missingWorkspace
     }
-    let activeSessionID = try #require(appState.activeSessionID)
+    let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.chatController.setInteractionMode(.agent)
     appState.chatController.modelRuntime.modelState = .ready
     appState.chatController.draft = "refresh the preview"
@@ -642,12 +642,12 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
-    guard let activeWorkspace = appState.activeWorkspace else {
+    guard let activeWorkspace = appState.workspaceState.activeWorkspace else {
       throw AppStateTestFailure.missingWorkspace
     }
-    let activeSessionID = try #require(appState.activeSessionID)
+    let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.chatController.modelRuntime.modelState = .ready
     appState.chatController.setInteractionMode(.agent)
     appState.chatController.draft = "inspect the project"
@@ -690,7 +690,7 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.isWorkspaceLibraryLoading
+      !appState.workspaceState.isLoading
     }
     let updatedSettings = AppBehaviorSettings(todoWriteToolEnabled: true)
     appState.updateActiveAppBehaviorSettings(updatedSettings)
@@ -698,10 +698,10 @@ struct AppStateTests {
       await appBehaviorSettingsStore.settings() == updatedSettings
     }
 
-    guard let activeWorkspace = appState.activeWorkspace else {
+    guard let activeWorkspace = appState.workspaceState.activeWorkspace else {
       throw AppStateTestFailure.missingWorkspace
     }
-    let activeSessionID = try #require(appState.activeSessionID)
+    let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.chatController.modelRuntime.modelState = .ready
     appState.chatController.setInteractionMode(.agent)
     appState.chatController.draft = "inspect the project"

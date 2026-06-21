@@ -5,27 +5,17 @@ import SumikaCore
 @MainActor
 @Observable
 final class AppState {
-  var workspaceLibrary: WorkspaceLibrary {
-    get { workspaceLibraryController.library }
-    set { workspaceLibraryController.replaceLibrary(newValue) }
-  }
-  var workspaceErrorMessage: String?
-  var isWorkspaceLibraryLoading = true
-
+  let workspaceState: WorkspaceFeatureState
   @ObservationIgnored let chatController: ChatSessionController
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
-  private var workspaceLibraryController: WorkspaceLibraryController
-  @ObservationIgnored private let workspaceStore: any WorkspaceStoring
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private let webAccessSettingsStore: any WebAccessSettingsStoring
   @ObservationIgnored private let appBehaviorSettingsStore: any AppBehaviorSettingsStoring
-  @ObservationIgnored private let workspaceOpener: any WorkspaceOpening
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
   @ObservationIgnored private var defaultSessionSystemPrompt =
     ManagedModelCatalog.defaultModel.defaultSystemPrompt
   @ObservationIgnored private var defaultSessionGenerationSettings =
     ManagedModelCatalog.defaultModel.defaultGenerationSettings
-  @ObservationIgnored private var saveLibraryTask: Task<Void, Never>?
   @ObservationIgnored private var saveWebAccessSettingsTask: Task<Void, Never>?
   @ObservationIgnored private var saveAppBehaviorSettingsTask: Task<Void, Never>?
   @ObservationIgnored private var didAttemptAutoloadLastModel = false
@@ -73,14 +63,14 @@ final class AppState {
     browserToolService: HTMLPreviewBrowserToolService,
     chatController: ChatSessionController
   ) {
-    self.workspaceStore = workspaceStore
     self.modelSettingsStore = modelSettingsStore
     self.webAccessSettingsStore = webAccessSettingsStore
     self.appBehaviorSettingsStore = appBehaviorSettingsStore
-    self.workspaceOpener = workspaceOpener
     self.browserToolService = browserToolService
     self.chatController = chatController
-    self.workspaceLibraryController = WorkspaceLibraryController(
+    self.workspaceState = WorkspaceFeatureState(
+      workspaceStore: workspaceStore,
+      workspaceOpener: workspaceOpener,
       defaultSessionFactory: Self.defaultSessionFactory(
         selectedModelID: defaultSessionModelID,
         systemPrompt: defaultSessionSystemPrompt,
@@ -119,84 +109,39 @@ final class AppState {
     )
   }
 
-  var activeWorkspace: Workspace? {
-    workspaceLibraryController.activeWorkspace
-  }
-
-  var activeSession: ChatSession? {
-    workspaceLibraryController.activeSession
-  }
-
-  var activeSessionID: ChatSession.ID? {
-    workspaceLibraryController.activeSessionID
-  }
-
   @discardableResult
   func addWorkspace(from url: URL) -> ChatSession.ID? {
-    let rootURL = url.standardizedFileURL.resolvingSymlinksInPath()
     persistActiveSession()
     refreshDefaultSessionFactory()
-    let sessionID = workspaceLibraryController.addWorkspace(
-      name: rootURL.lastPathComponent,
-      rootURL: rootURL,
-      bookmarkData: makeSecurityScopedBookmarkData(for: rootURL)
-    )
-    saveLibrary()
-    loadActiveSession()
-    return sessionID
+    let change = workspaceState.addWorkspace(from: url)
+    loadActiveSession(ifNeededFor: change)
+    return change.activeSessionID
   }
 
   @discardableResult
   func createSession(in workspaceID: Workspace.ID? = nil) -> ChatSession.ID? {
     refreshDefaultSessionFactory()
-    guard let sessionID = workspaceLibraryController.createSession(in: workspaceID) else {
-      return nil
-    }
-    saveLibrary()
-    loadActiveSession()
-    return sessionID
+    let change = workspaceState.createSession(in: workspaceID)
+    loadActiveSession(ifNeededFor: change)
+    return change.activeSessionID
   }
 
   func selectSession(_ sessionID: ChatSession.ID) {
     persistActiveSession()
-    guard workspaceLibraryController.selectSession(sessionID) else {
-      return
-    }
-    saveLibrary()
-    loadActiveSession()
-  }
-
-  func renameSession(_ sessionID: ChatSession.ID, title: String) {
-    guard workspaceLibraryController.renameSession(sessionID, title: title) else {
-      return
-    }
-    saveLibrary()
+    let change = workspaceState.selectSession(sessionID)
+    loadActiveSession(ifNeededFor: change)
   }
 
   func deleteSession(_ sessionID: ChatSession.ID) {
-    let wasActiveSession = workspaceLibrary.activeSessionID == sessionID
     refreshDefaultSessionFactory()
-    guard workspaceLibraryController.deleteSession(sessionID) else {
-      return
-    }
-    saveLibrary()
-
-    if wasActiveSession {
-      loadActiveSession()
-    }
+    let change = workspaceState.deleteSession(sessionID)
+    loadActiveSession(ifNeededFor: change)
   }
 
   func removeWorkspace(_ workspaceID: Workspace.ID) {
-    let wasActiveWorkspace = workspaceLibrary.activeWorkspaceID == workspaceID
     persistActiveSession()
-    guard workspaceLibraryController.removeWorkspace(workspaceID) else {
-      return
-    }
-    saveLibrary()
-
-    if wasActiveWorkspace {
-      loadActiveSession()
-    }
+    let change = workspaceState.removeWorkspace(workspaceID)
+    loadActiveSession(ifNeededFor: change)
   }
 
   func updateActiveWebAccessSettings(_ settings: WebAccessSettings) {
@@ -207,11 +152,11 @@ final class AppState {
       do {
         try await webAccessSettingsStore.save(settings: settings)
         await MainActor.run {
-          workspaceErrorMessage = nil
+          workspaceState.errorMessage = nil
         }
       } catch {
         await MainActor.run {
-          workspaceErrorMessage = error.localizedDescription
+          workspaceState.errorMessage = error.localizedDescription
         }
       }
     }
@@ -226,11 +171,11 @@ final class AppState {
       do {
         try await appBehaviorSettingsStore.save(settings: settings)
         await MainActor.run {
-          workspaceErrorMessage = nil
+          workspaceState.errorMessage = nil
         }
       } catch {
         await MainActor.run {
-          workspaceErrorMessage = error.localizedDescription
+          workspaceState.errorMessage = error.localizedDescription
         }
       }
     }
@@ -242,69 +187,33 @@ final class AppState {
     attemptAutoloadLastModelIfReady()
   }
 
-  func openActiveWorkspaceInFinder() {
-    openActiveWorkspace(destination: .finder)
-  }
-
-  func openActiveWorkspaceInVisualStudioCode() {
-    openActiveWorkspace(destination: .visualStudioCode)
-  }
-
   func persistActiveSession() {
     guard
-      let currentSession = activeSession
+      let currentSession = workspaceState.activeSession
     else {
       return
     }
 
-    workspaceLibraryController.persistActiveSessionSnapshot(
+    workspaceState.persistActiveSessionSnapshot(
       chatController.sessionSnapshot(updating: currentSession)
     )
-    saveLibrary()
-  }
-
-  private func normalizeLoadedLibrary() {
-    let resolvedLibrary = WorkspaceLibrary(
-      workspaces: workspaceLibrary.workspaces.map(resolveBookmarkedWorkspace),
-      activeWorkspaceID: workspaceLibrary.activeWorkspaceID,
-      activeSessionID: workspaceLibrary.activeSessionID
-    )
-    workspaceLibraryController.replaceLibrary(resolvedLibrary)
-    workspaceLibraryController.normalizeLoadedLibrary()
-    saveLibrary()
-  }
-
-  private func resolveBookmarkedWorkspace(_ workspace: Workspace) -> Workspace {
-    guard let bookmarkData = workspace.bookmarkData else {
-      return workspace
-    }
-
-    do {
-      var isStale = false
-      let resolvedURL = try URL(
-        resolvingBookmarkData: bookmarkData,
-        options: [.withSecurityScope],
-        relativeTo: nil,
-        bookmarkDataIsStale: &isStale
-      )
-      var resolvedWorkspace = workspace
-      resolvedWorkspace.rootURL = resolvedURL.standardizedFileURL.resolvingSymlinksInPath()
-      if isStale {
-        resolvedWorkspace.bookmarkData = makeSecurityScopedBookmarkData(for: resolvedURL)
-      }
-      return resolvedWorkspace
-    } catch {
-      return workspace
-    }
   }
 
   private func loadActiveSession() {
-    guard let activeSession else {
+    guard let activeSession = workspaceState.activeSession else {
       chatController.loadSession(emptySessionForNoActiveWorkspace())
       return
     }
 
     chatController.loadSession(activeSession)
+  }
+
+  private func loadActiveSession(ifNeededFor change: WorkspaceSelectionChange) {
+    guard change.activeSessionChanged else {
+      return
+    }
+
+    loadActiveSession()
   }
 
   private func loadWebAccessSettings() {
@@ -318,7 +227,7 @@ final class AppState {
   }
 
   private func refreshDefaultSessionFactory() {
-    workspaceLibraryController.defaultSessionFactory = makeDefaultSessionFactory()
+    workspaceState.updateDefaultSessionFactory(makeDefaultSessionFactory())
   }
 
   private func makeDefaultSessionFactory() -> DefaultChatSessionFactory {
@@ -361,33 +270,8 @@ final class AppState {
     .makeSession()
   }
 
-  private func saveLibrary() {
-    let library = workspaceLibrary
-    let previousSaveTask = saveLibraryTask
-    saveLibraryTask = Task { [workspaceStore] in
-      await previousSaveTask?.value
-      do {
-        let startedAt = Date()
-        try await workspaceStore.saveLibrary(library)
-        await GemmaDebugTraceStore.shared.traceTurnEvent(
-          TurnTraceEvent(
-            phase: .persist,
-            durationMs: Date().timeIntervalSince(startedAt) * 1000
-          )
-        )
-        await MainActor.run {
-          workspaceErrorMessage = nil
-        }
-      } catch {
-        await MainActor.run {
-          workspaceErrorMessage = error.localizedDescription
-        }
-      }
-    }
-  }
-
   private func loadStoredLibrary() {
-    Task { [modelSettingsStore, workspaceStore, appBehaviorSettingsStore] in
+    Task { [modelSettingsStore, appBehaviorSettingsStore] in
       let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
       let selectedModelID = await modelSettingsStore.selectedModelID(
         availableModelIDs: availableModelIDs)
@@ -395,19 +279,16 @@ final class AppState {
         ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
       let settings = await modelSettingsStore.settings(for: selectedModel)
       let appBehaviorSettings = await appBehaviorSettingsStore.settings()
-      let library = await workspaceStore.loadLibrary()
 
       activeAppBehaviorSettings = appBehaviorSettings
       applyAppBehaviorSettings(appBehaviorSettings)
       defaultSessionModelID = selectedModel.id
       defaultSessionSystemPrompt = settings.systemPrompt
       defaultSessionGenerationSettings = settings.generationSettings
-      self.refreshDefaultSessionFactory()
-      self.workspaceLibraryController.replaceLibrary(library)
-      self.normalizeLoadedLibrary()
+      let defaultSessionFactory = self.makeDefaultSessionFactory()
+      await self.workspaceState.loadLibrary(defaultSessionFactory: defaultSessionFactory)
       self.loadActiveSession()
       self.loadWebAccessSettings()
-      self.isWorkspaceLibraryLoading = false
       self.attemptAutoloadLastModelIfReady()
     }
   }
@@ -425,23 +306,4 @@ final class AppState {
     chatController.modelRuntime.loadSelectedModel()
   }
 
-  private func openActiveWorkspace(destination: WorkspaceOpenDestination) {
-    guard let workspace = activeWorkspace else {
-      workspaceErrorMessage = WorkspaceOpenError.noActiveWorkspace.localizedDescription
-      return
-    }
-
-    Task {
-      do {
-        try await workspaceOpener.open(workspace.rootURL, destination: destination)
-        workspaceErrorMessage = nil
-      } catch {
-        workspaceErrorMessage = error.localizedDescription
-      }
-    }
-  }
-
-  private func makeSecurityScopedBookmarkData(for url: URL) -> Data? {
-    try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil)
-  }
 }

@@ -27,13 +27,23 @@ struct ContentView: View {
   var body: some View {
     let controller = appState.chatController
 
-    WorkspaceCommandHost(appState: appState) {
+    WorkspaceCommandHost(
+      workspaceState: appState.workspaceState,
+      onRemoveWorkspace: appState.removeWorkspace
+    ) {
       HStack(spacing: 0) {
         if !isSidebarCollapsed {
-          AppSidebar(
-            appState: appState,
+          WorkspaceSidebar(
+            workspaceState: appState.workspaceState,
+            modelRuntime: appState.chatController.modelRuntime,
             selection: $selection,
-            onAddWorkspace: chooseWorkspace
+            onAddWorkspace: chooseWorkspace,
+            onCreateSession: { workspaceID in appState.createSession(in: workspaceID) },
+            onRenameSession: { sessionID, title in
+              appState.workspaceState.renameSession(sessionID, title: title)
+            },
+            onDeleteSession: appState.deleteSession,
+            onRemoveWorkspace: appState.removeWorkspace
           )
           .frame(width: sidebarWidth)
           .background(.bar)
@@ -52,8 +62,8 @@ struct ContentView: View {
           appState.selectSession(sessionID)
         }
       }
-      .onChange(of: appState.activeSessionID) {
-        if let sessionID = appState.activeSessionID {
+      .onChange(of: appState.workspaceState.activeSessionID) {
+        if let sessionID = appState.workspaceState.activeSessionID {
           selection = .session(sessionID)
         } else if selection != .models {
           selection = nil
@@ -67,15 +77,15 @@ struct ContentView: View {
         }
         if !hasDownloadedModel {
           selection = .models
-        } else if let sessionID = appState.activeSessionID {
+        } else if let sessionID = appState.workspaceState.activeSessionID {
           selection = .session(sessionID)
         }
       }
       .modifier(
         WorkspaceErrorAlert(
           isPresented: workspaceErrorAlertBinding,
-          message: appState.workspaceErrorMessage ?? "",
-          onDismiss: { appState.workspaceErrorMessage = nil }
+          message: appState.workspaceState.errorMessage ?? "",
+          onDismiss: { appState.workspaceState.errorMessage = nil }
         )
       )
     }
@@ -136,10 +146,10 @@ struct ContentView: View {
 
   private var workspaceErrorAlertBinding: Binding<Bool> {
     Binding(
-      get: { appState.workspaceErrorMessage != nil },
+      get: { appState.workspaceState.errorMessage != nil },
       set: { isPresented in
         if !isPresented {
-          appState.workspaceErrorMessage = nil
+          appState.workspaceState.errorMessage = nil
         }
       }
     )
@@ -227,40 +237,6 @@ private struct ModelsRouteHost: View {
   }
 }
 
-private struct WorkspaceCommandHost<Content: View>: View {
-  let appState: AppState
-  let content: Content
-  @State private var workspacePendingRemoval: Workspace?
-
-  init(appState: AppState, @ViewBuilder content: () -> Content) {
-    self.appState = appState
-    self.content = content()
-  }
-
-  var body: some View {
-    content
-      .focusedSceneValue(\.removeWorkspaceAction, removeWorkspaceMenuAction)
-      .modifier(
-        RemoveWorkspaceAlert(
-          workspace: $workspacePendingRemoval,
-          onRemove: { workspace in appState.removeWorkspace(workspace.id) }
-        )
-      )
-  }
-
-  private var removeWorkspaceMenuAction: (() -> Void)? {
-    guard appState.activeWorkspace != nil else {
-      return nil
-    }
-
-    return removeActiveWorkspace
-  }
-
-  private func removeActiveWorkspace() {
-    workspacePendingRemoval = appState.activeWorkspace
-  }
-}
-
 private struct WorkspaceRouteHost: View {
   let appState: AppState
   @Binding var isModelContextDebugVisible: Bool
@@ -271,75 +247,23 @@ private struct WorkspaceRouteHost: View {
   let onAddWorkspace: () -> Void
 
   var body: some View {
-    if let workspace = appState.activeWorkspace {
+    if let workspace = appState.workspaceState.activeWorkspace {
       WorkspaceChatView(
         controller: appState.chatController,
         workspace: workspace,
-        sessionID: appState.activeSessionID,
+        sessionID: appState.workspaceState.activeSessionID,
         browserToolService: appState.browserToolService,
         isModelContextDebugVisible: $isModelContextDebugVisible,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
         isSidebarCollapsed: isSidebarCollapsed,
         onToggleSidebar: onToggleSidebar,
         onAddAttachments: onAddAttachments,
-        onOpenWorkspaceInFinder: appState.openActiveWorkspaceInFinder,
-        onOpenWorkspaceInVisualStudioCode: appState.openActiveWorkspaceInVisualStudioCode
+        onOpenWorkspaceInFinder: appState.workspaceState.openActiveWorkspaceInFinder,
+        onOpenWorkspaceInVisualStudioCode: appState.workspaceState
+          .openActiveWorkspaceInVisualStudioCode
       )
     } else {
       EmptyWorkspaceView(onAddWorkspace: onAddWorkspace)
     }
-  }
-}
-
-private struct WorkspaceErrorAlert: ViewModifier {
-  @Binding var isPresented: Bool
-  let message: String
-  let onDismiss: () -> Void
-
-  func body(content: Content) -> some View {
-    content.alert("Workspace Error", isPresented: $isPresented) {
-      Button("OK", role: .cancel) {
-        onDismiss()
-      }
-    } message: {
-      Text(message)
-    }
-  }
-}
-
-private struct RemoveWorkspaceAlert: ViewModifier {
-  @Binding var workspace: Workspace?
-  let onRemove: (Workspace) -> Void
-
-  func body(content: Content) -> some View {
-    content.alert(
-      "Remove Workspace from Sumika?",
-      isPresented: isPresented,
-      presenting: workspace
-    ) { workspace in
-      Button("Cancel", role: .cancel) {
-        self.workspace = nil
-      }
-
-      Button("Remove", role: .destructive) {
-        onRemove(workspace)
-        self.workspace = nil
-      }
-    } message: { workspace in
-      Text(
-        "This removes “\(workspace.name)” and its saved Sumika chats from the app. The folder on disk will not be deleted."
-      )
-    }
-  }
-
-  private var isPresented: Binding<Bool> {
-    Binding(
-      get: { workspace != nil },
-      set: { isPresented in
-        if !isPresented {
-          workspace = nil
-        }
-      }
-    )
   }
 }
