@@ -8,109 +8,79 @@ struct ContentView: View {
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible = false
   @State private var selection: AppNavigationSelection?
   @State private var appState: AppState
-  // Sidebar collapse is @State (resets to expanded on launch) so you can never
-  // start in a collapsed-with-no-toggle dead end. Width persists.
-  @State private var isSidebarCollapsed = false
-  @AppStorage("contentView.sidebarWidth") private var sidebarWidth = 300.0
-  @State private var dragStartWidth: Double?
+  @State private var workspaceChatActions: WorkspaceChatActions
 
   @MainActor
   init() {
-    _appState = State(initialValue: AppState())
+    let appState = AppState()
+    _appState = State(initialValue: appState)
+    _workspaceChatActions = State(
+      initialValue: WorkspaceChatActions(workspaceState: appState.workspaceState)
+    )
   }
 
   @MainActor
   init(appState: AppState) {
     _appState = State(initialValue: appState)
+    _workspaceChatActions = State(
+      initialValue: WorkspaceChatActions(workspaceState: appState.workspaceState)
+    )
   }
 
   var body: some View {
     let controller = appState.chatController
 
-    WorkspaceCommandHost(
-      workspaceState: appState.workspaceState,
-      onRemoveWorkspace: appState.removeWorkspace
-    ) {
-      HStack(spacing: 0) {
-        if !isSidebarCollapsed {
-          WorkspaceSidebar(
-            sidebarState: appState.workspaceState.sidebarState,
-            modelRuntime: appState.chatController.modelRuntime,
-            selection: $selection,
-            onAddWorkspace: chooseWorkspace,
-            onCreateSession: { workspaceID in appState.createSession(in: workspaceID) },
-            onRenameSession: { sessionID, title in
-              appState.workspaceState.renameSession(sessionID, title: title)
-            },
-            onDeleteSession: appState.deleteSession,
-            onRemoveWorkspace: appState.removeWorkspace
-          )
-          .frame(width: sidebarWidth)
-          .background(.bar)
-          .transition(.move(edge: .leading).combined(with: .opacity))
-
-          sidebarResizeHandle
-        }
-
-        detailContent(controller: controller)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-      }
-      .frame(minWidth: 880, minHeight: 560)
-      .focusedSceneValue(\.addWorkspaceAction, chooseWorkspace)
-      .onChange(of: selection) {
-        if case .session(let sessionID) = selection {
-          appState.selectSession(sessionID)
-        }
-      }
-      .onChange(of: appState.workspaceState.activeSessionID) {
-        if let sessionID = appState.workspaceState.activeSessionID {
-          selection = .session(sessionID)
-        } else if selection != .models {
-          selection = nil
-        }
-      }
-      .onAppear {
-        appState.startModelRuntimeServices()
-        let modelRuntime = controller.modelRuntime
-        let hasDownloadedModel = modelRuntime.availableModels.contains {
-          modelRuntime.isModelDownloaded($0)
-        }
-        if !hasDownloadedModel {
-          selection = .models
-        } else if let sessionID = appState.workspaceState.activeSessionID {
-          selection = .session(sessionID)
-        }
-      }
-      .modifier(
-        WorkspaceErrorAlert(
-          isPresented: workspaceErrorAlertBinding,
-          message: appState.workspaceState.errorMessage ?? "",
-          onDismiss: { appState.workspaceState.errorMessage = nil }
-        )
+    NavigationSplitView {
+      WorkspaceSidebar(
+        sidebarState: appState.workspaceState.sidebarState,
+        modelRuntime: appState.chatController.modelRuntime,
+        selection: $selection,
+        onAddWorkspace: chooseWorkspace,
+        onCreateSession: { workspaceID in appState.createSession(in: workspaceID) },
+        onRenameSession: { sessionID, title in
+          appState.workspaceState.renameSession(sessionID, title: title)
+        },
+        onDeleteSession: appState.deleteSession,
+        onRemoveWorkspace: appState.removeWorkspace
       )
+      .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 460)
+      .background(.bar)
+    } detail: {
+      detailContent(controller: controller)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-  }
-
-  private var sidebarResizeHandle: some View {
-    Divider()
-      .overlay {
-        Rectangle()
-          .fill(.clear)
-          .frame(width: 8)
-          .contentShape(Rectangle())
-          .onHover { inside in
-            if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-          }
-          .gesture(
-            DragGesture()
-              .onChanged { value in
-                if dragStartWidth == nil { dragStartWidth = sidebarWidth }
-                let base = dragStartWidth ?? sidebarWidth
-                sidebarWidth = min(max(base + value.translation.width, 220), 460)
-              }
-              .onEnded { _ in dragStartWidth = nil }
-          )
+    .frame(minWidth: 880, minHeight: 560)
+    .onChange(of: selection) {
+      if case .session(let sessionID) = selection {
+        appState.selectSession(sessionID)
       }
+    }
+    .onChange(of: appState.workspaceState.activeSessionID) {
+      if let sessionID = appState.workspaceState.activeSessionID {
+        selection = .session(sessionID)
+      } else if selection != .models {
+        selection = nil
+      }
+    }
+    .onAppear {
+      appState.startModelRuntimeServices()
+      let modelRuntime = controller.modelRuntime
+      let hasDownloadedModel = modelRuntime.availableModels.contains {
+        modelRuntime.isModelDownloaded($0)
+      }
+      if !hasDownloadedModel {
+        selection = .models
+      } else if let sessionID = appState.workspaceState.activeSessionID {
+        selection = .session(sessionID)
+      }
+    }
+    .modifier(
+      WorkspaceErrorAlert(
+        isPresented: workspaceErrorAlertBinding,
+        message: appState.workspaceState.errorMessage ?? "",
+        onDismiss: { appState.workspaceState.errorMessage = nil }
+      )
+    )
   }
 
   @ViewBuilder
@@ -128,24 +98,14 @@ struct ContentView: View {
           activeSessionID: appState.workspaceState.activeSessionID,
           controller: appState.chatController,
           browserToolService: appState.browserToolService,
+          workspaceChatActions: workspaceChatActions,
           isModelContextDebugVisible: $isModelContextDebugVisible,
           isWorkspaceTerminalVisible: $isTerminalVisible,
-          isSidebarCollapsed: isSidebarCollapsed,
-          onToggleSidebar: toggleSidebarVisibility,
-          onAddWorkspace: chooseWorkspace,
-          onOpenWorkspaceInFinder: appState.workspaceState.openActiveWorkspaceInFinder,
-          onOpenWorkspaceInVisualStudioCode: appState.workspaceState
-            .openActiveWorkspaceInVisualStudioCode
+          onAddWorkspace: chooseWorkspace
         )
       }
     } else {
       EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
-    }
-  }
-
-  private func toggleSidebarVisibility() {
-    withAnimation(.snappy(duration: 0.2)) {
-      isSidebarCollapsed.toggle()
     }
   }
 
@@ -234,13 +194,10 @@ private struct WorkspaceRouteHost: View {
   let activeSessionID: ChatSession.ID?
   let controller: ChatSessionController
   let browserToolService: HTMLPreviewBrowserToolService
+  let workspaceChatActions: WorkspaceChatActions
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
-  let isSidebarCollapsed: Bool
-  let onToggleSidebar: () -> Void
   let onAddWorkspace: () -> Void
-  let onOpenWorkspaceInFinder: () -> Void
-  let onOpenWorkspaceInVisualStudioCode: () -> Void
 
   var body: some View {
     if let context = activeWorkspaceContext {
@@ -249,13 +206,11 @@ private struct WorkspaceRouteHost: View {
         context: context,
         sessionID: activeSessionID,
         browserToolService: browserToolService,
+        workspaceChatActions: workspaceChatActions,
         isModelContextDebugVisible: $isModelContextDebugVisible,
-        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
-        isSidebarCollapsed: isSidebarCollapsed,
-        onToggleSidebar: onToggleSidebar,
-        onOpenWorkspaceInFinder: onOpenWorkspaceInFinder,
-        onOpenWorkspaceInVisualStudioCode: onOpenWorkspaceInVisualStudioCode
+        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible
       )
+      .equatable()
     } else {
       EmptyWorkspaceView(onAddWorkspace: onAddWorkspace)
     }

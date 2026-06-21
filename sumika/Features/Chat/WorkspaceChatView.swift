@@ -1,18 +1,25 @@
 import SumikaCore
 import SwiftUI
 
-struct WorkspaceChatView: View {
+struct WorkspaceChatView: View, Equatable {
   let controller: ChatSessionController
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let browserToolService: HTMLPreviewBrowserToolService
+  let workspaceChatActions: WorkspaceChatActions
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
-  let isSidebarCollapsed: Bool
-  let onToggleSidebar: () -> Void
-  let onOpenWorkspaceInFinder: () -> Void
-  let onOpenWorkspaceInVisualStudioCode: () -> Void
   @State private var previewState = WorkspacePreviewFeatureState()
+
+  static func == (lhs: WorkspaceChatView, rhs: WorkspaceChatView) -> Bool {
+    ObjectIdentifier(lhs.controller) == ObjectIdentifier(rhs.controller)
+      && lhs.context == rhs.context
+      && lhs.sessionID == rhs.sessionID
+      && ObjectIdentifier(lhs.browserToolService) == ObjectIdentifier(rhs.browserToolService)
+      && ObjectIdentifier(lhs.workspaceChatActions) == ObjectIdentifier(rhs.workspaceChatActions)
+      && lhs.isModelContextDebugVisible == rhs.isModelContextDebugVisible
+      && lhs.isWorkspaceTerminalVisible == rhs.isWorkspaceTerminalVisible
+  }
 
   var body: some View {
     #if DEBUG
@@ -26,23 +33,29 @@ struct WorkspaceChatView: View {
         context: context,
         sessionID: sessionID,
         previewState: previewState,
-        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
-        isSidebarCollapsed: isSidebarCollapsed,
-        onToggleSidebar: onToggleSidebar,
-        onOpenWorkspaceInFinder: onOpenWorkspaceInFinder,
-        onOpenWorkspaceInVisualStudioCode: onOpenWorkspaceInVisualStudioCode
+        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible
       )
+      .equatable()
 
       WorkspacePreviewSlot(
         previewState: previewState,
         browserToolService: browserToolService
       )
+      .equatable()
 
       WorkspaceDebugSlot(
         controller: controller,
         context: context,
         sessionID: sessionID,
         isModelContextDebugVisible: $isModelContextDebugVisible
+      )
+      .equatable()
+    }
+    .navigationTitle(context.name)
+    .toolbar {
+      WorkspaceChatToolbar(
+        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
+        workspaceChatActions: workspaceChatActions
       )
     }
     .onDisappear {
@@ -54,16 +67,20 @@ struct WorkspaceChatView: View {
 
 }
 
-private struct WorkspaceChatMainColumn: View {
+private struct WorkspaceChatMainColumn: View, Equatable {
   let controller: ChatSessionController
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let previewState: WorkspacePreviewFeatureState
   @Binding var isWorkspaceTerminalVisible: Bool
-  let isSidebarCollapsed: Bool
-  let onToggleSidebar: () -> Void
-  let onOpenWorkspaceInFinder: () -> Void
-  let onOpenWorkspaceInVisualStudioCode: () -> Void
+
+  static func == (lhs: WorkspaceChatMainColumn, rhs: WorkspaceChatMainColumn) -> Bool {
+    ObjectIdentifier(lhs.controller) == ObjectIdentifier(rhs.controller)
+      && lhs.context == rhs.context
+      && lhs.sessionID == rhs.sessionID
+      && ObjectIdentifier(lhs.previewState) == ObjectIdentifier(rhs.previewState)
+      && lhs.isWorkspaceTerminalVisible == rhs.isWorkspaceTerminalVisible
+  }
 
   var body: some View {
     #if DEBUG
@@ -72,17 +89,7 @@ private struct WorkspaceChatMainColumn: View {
     #endif
 
     VStack(spacing: 0) {
-      WorkspaceChatHeader(
-        workspaceName: context.name,
-        isSidebarCollapsed: isSidebarCollapsed,
-        onToggleSidebar: onToggleSidebar,
-        isWorkspaceTerminalVisible: isWorkspaceTerminalVisible,
-        onToggleTerminal: {
-          isWorkspaceTerminalVisible.toggle()
-        },
-        onOpenWorkspaceInFinder: onOpenWorkspaceInFinder,
-        onOpenWorkspaceInVisualStudioCode: onOpenWorkspaceInVisualStudioCode
-      )
+      Divider()
 
       ChatTranscriptHost(
         controller: controller,
@@ -102,14 +109,20 @@ private struct WorkspaceChatMainColumn: View {
         context: context,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible
       )
+      .equatable()
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }
 
-private struct WorkspaceTerminalSlot: View {
+private struct WorkspaceTerminalSlot: View, Equatable {
   let context: WorkspaceChatContext
   @Binding var isWorkspaceTerminalVisible: Bool
+
+  static func == (lhs: WorkspaceTerminalSlot, rhs: WorkspaceTerminalSlot) -> Bool {
+    lhs.context == rhs.context
+      && lhs.isWorkspaceTerminalVisible == rhs.isWorkspaceTerminalVisible
+  }
 
   var body: some View {
     #if DEBUG
@@ -133,9 +146,14 @@ private struct WorkspaceTerminalSlot: View {
   }
 }
 
-private struct WorkspacePreviewSlot: View {
+private struct WorkspacePreviewSlot: View, Equatable {
   let previewState: WorkspacePreviewFeatureState
   let browserToolService: HTMLPreviewBrowserToolService
+
+  static func == (lhs: WorkspacePreviewSlot, rhs: WorkspacePreviewSlot) -> Bool {
+    ObjectIdentifier(lhs.previewState) == ObjectIdentifier(rhs.previewState)
+      && ObjectIdentifier(lhs.browserToolService) == ObjectIdentifier(rhs.browserToolService)
+  }
 
   var body: some View {
     #if DEBUG
@@ -152,11 +170,18 @@ private struct WorkspacePreviewSlot: View {
   }
 }
 
-private struct WorkspaceDebugSlot: View {
+private struct WorkspaceDebugSlot: View, Equatable {
   let controller: ChatSessionController
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   @Binding var isModelContextDebugVisible: Bool
+
+  static func == (lhs: WorkspaceDebugSlot, rhs: WorkspaceDebugSlot) -> Bool {
+    ObjectIdentifier(lhs.controller) == ObjectIdentifier(rhs.controller)
+      && lhs.context == rhs.context
+      && lhs.sessionID == rhs.sessionID
+      && lhs.isModelContextDebugVisible == rhs.isModelContextDebugVisible
+  }
 
   var body: some View {
     #if DEBUG
@@ -178,68 +203,38 @@ private struct WorkspaceDebugSlot: View {
   }
 }
 
-private struct WorkspaceChatHeader: View {
-  let workspaceName: String
-  let isSidebarCollapsed: Bool
-  let onToggleSidebar: () -> Void
-  let isWorkspaceTerminalVisible: Bool
-  let onToggleTerminal: () -> Void
-  let onOpenWorkspaceInFinder: () -> Void
-  let onOpenWorkspaceInVisualStudioCode: () -> Void
+private struct WorkspaceChatToolbar: ToolbarContent {
+  @Binding var isWorkspaceTerminalVisible: Bool
+  let workspaceChatActions: WorkspaceChatActions
 
-  var body: some View {
-    HStack(spacing: 8) {
-      Button(action: onToggleSidebar) {
-        Image(systemName: "sidebar.left")
-          .frame(width: 28, height: 28)
-      }
-      .buttonStyle(.plain)
-      .help(isSidebarCollapsed ? "Show sidebar" : "Hide sidebar")
-      .accessibilityLabel(isSidebarCollapsed ? "Show sidebar" : "Hide sidebar")
-      .accessibilityIdentifier("workspace.sidebarToggleButton")
-
-      Text(workspaceName)
-        .font(.headline)
-        .lineLimit(1)
-        .truncationMode(.tail)
-
-      Spacer()
-
+  var body: some ToolbarContent {
+    ToolbarItemGroup(placement: .primaryAction) {
       Button(action: onToggleTerminal) {
         Image(systemName: isWorkspaceTerminalVisible ? "terminal.fill" : "terminal")
-          .frame(width: 28, height: 28)
       }
-      .buttonStyle(.plain)
       .help(isWorkspaceTerminalVisible ? "Hide workspace terminal" : "Show workspace terminal")
       .accessibilityLabel(
         isWorkspaceTerminalVisible ? "Hide workspace terminal" : "Show workspace terminal"
       )
       .accessibilityIdentifier("workspace.terminalToggleButton")
 
-      Button(action: onOpenWorkspaceInFinder) {
+      Button(action: workspaceChatActions.openWorkspaceInFinder) {
         Image(systemName: "folder")
-          .frame(width: 28, height: 28)
       }
-      .buttonStyle(.plain)
       .help("Open workspace in Finder")
       .accessibilityLabel("Open workspace in Finder")
       .accessibilityIdentifier("workspace.openInFinderButton")
 
-      Button(action: onOpenWorkspaceInVisualStudioCode) {
+      Button(action: workspaceChatActions.openWorkspaceInVisualStudioCode) {
         Image(systemName: "curlybraces")
-          .frame(width: 28, height: 28)
       }
-      .buttonStyle(.plain)
       .help("Open workspace in Visual Studio Code")
       .accessibilityLabel("Open workspace in Visual Studio Code")
       .accessibilityIdentifier("workspace.openInVSCodeButton")
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 8)
-    .frame(maxWidth: .infinity)
-    .background(.bar)
-    .overlay(alignment: .bottom) {
-      Divider()
-    }
+  }
+
+  private func onToggleTerminal() {
+    isWorkspaceTerminalVisible.toggle()
   }
 }

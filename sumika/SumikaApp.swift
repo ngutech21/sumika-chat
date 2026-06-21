@@ -1,5 +1,5 @@
-//
-
+import AppKit
+import SumikaCore
 import SwiftUI
 
 @main
@@ -8,8 +8,6 @@ struct SumikaApp: App {
     false
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible =
     false
-  @FocusedValue(\.addWorkspaceAction) private var addWorkspaceAction
-  @FocusedValue(\.removeWorkspaceAction) private var removeWorkspaceAction
   @State private var appState: AppState
 
   @MainActor
@@ -25,16 +23,15 @@ struct SumikaApp: App {
     .commands {
       CommandGroup(replacing: .newItem) {
         Button("Add Workspace…") {
-          addWorkspaceAction?()
+          chooseWorkspace()
         }
         .keyboardShortcut("o", modifiers: [.command, .shift])
-        .disabled(addWorkspaceAction == nil)
 
         Button("Remove Workspace…") {
-          removeWorkspaceAction?()
+          confirmRemoveActiveWorkspace()
         }
         .keyboardShortcut(.delete, modifiers: [.command, .shift])
-        .disabled(removeWorkspaceAction == nil)
+        .disabled(appState.workspaceState.activeWorkspaceContext == nil)
       }
       CommandGroup(after: .sidebar) {
         Toggle("Model Context Debug", isOn: $isModelContextDebugVisible)
@@ -51,24 +48,36 @@ struct SumikaApp: App {
       )
     }
   }
-}
 
-private struct AddWorkspaceActionKey: FocusedValueKey {
-  typealias Value = () -> Void
-}
+  private func chooseWorkspace() {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.canCreateDirectories = false
+    panel.message = "Choose a folder to use as a Sumika Chat workspace."
+    panel.prompt = "Add Workspace"
 
-private struct RemoveWorkspaceActionKey: FocusedValueKey {
-  typealias Value = () -> Void
-}
-
-extension FocusedValues {
-  var addWorkspaceAction: (() -> Void)? {
-    get { self[AddWorkspaceActionKey.self] }
-    set { self[AddWorkspaceActionKey.self] = newValue }
+    if panel.runModal() == .OK, let url = panel.url {
+      _ = appState.addWorkspace(from: url)
+    }
   }
 
-  var removeWorkspaceAction: (() -> Void)? {
-    get { self[RemoveWorkspaceActionKey.self] }
-    set { self[RemoveWorkspaceActionKey.self] = newValue }
+  private func confirmRemoveActiveWorkspace() {
+    guard let workspace = appState.workspaceState.activeWorkspace else {
+      return
+    }
+
+    let alert = NSAlert()
+    alert.messageText = "Remove Workspace from Sumika?"
+    alert.informativeText =
+      "This removes “\(workspace.name)” and its saved Sumika chats from the app. The folder on disk will not be deleted."
+    alert.alertStyle = .warning
+    alert.addButton(withTitle: "Remove")
+    alert.addButton(withTitle: "Cancel")
+
+    if alert.runModal() == .alertFirstButtonReturn {
+      appState.removeWorkspace(workspace.id)
+    }
   }
 }

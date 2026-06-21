@@ -59,6 +59,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     private var pinnedToBottom = true
     private var pendingHeightInvalidationRows = IndexSet()
     private var pendingHeightInvalidationWorkItem: DispatchWorkItem?
+    private var shouldScrollAfterHeightInvalidation = false
 
     init(
       onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
@@ -165,18 +166,29 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       revisionsByID = newRevisionsByID
       pruneCoordinatorState(activeRows: rows)
       scrollView.setAccessibilityValue(accessibilityValue)
-      tableView.tableColumns.first?.width = max(scrollView.contentSize.width, 1)
+      let didChangeColumnWidth = updateColumnWidth(in: scrollView)
 
       switch plan.action {
       case .snapshot:
         applySnapshot(rowIDs: newRowIDs, animatingDifferences: false)
-        scheduleHeightInvalidation(for: IndexSet(integersIn: 0..<newRowIDs.count))
+        scheduleHeightInvalidation(
+          for: IndexSet(integersIn: 0..<newRowIDs.count),
+          scrollToBottomAfterFlush: wasPinnedToBottom || shouldScrollAfterAppend
+        )
       case .reconfigureRows:
         reconfigureVisibleRows(changedIDs: plan.changedIDs)
-        scheduleHeightInvalidation(for: rowIndexes(for: plan.changedIDs))
+        var invalidationRows = rowIndexes(for: plan.changedIDs)
+        if didChangeColumnWidth {
+          invalidationRows.formUnion(IndexSet(integersIn: 0..<newRowIDs.count))
+        }
+        scheduleHeightInvalidation(
+          for: invalidationRows,
+          scrollToBottomAfterFlush: wasPinnedToBottom && didChangeColumnWidth
+        )
       }
 
-      if wasPinnedToBottom || shouldScrollAfterAppend {
+      let hasRowChanges = plan.action == .snapshot || !plan.changedIDs.isEmpty
+      if shouldScrollAfterAppend || (wasPinnedToBottom && hasRowChanges) {
         scrollToBottom(scrollView)
       }
     }
@@ -211,6 +223,18 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         return
       }
       pinnedToBottom = isPinnedToBottom(scrollView)
+    }
+
+    private func updateColumnWidth(in scrollView: NSScrollView) -> Bool {
+      guard let tableColumn = tableView?.tableColumns.first else {
+        return false
+      }
+      let targetWidth = max(scrollView.contentSize.width, 1)
+      guard abs(tableColumn.width - targetWidth) >= 0.5 else {
+        return false
+      }
+      tableColumn.width = targetWidth
+      return true
     }
 
     private func applySnapshot(rowIDs: [String], animatingDifferences: Bool) {
@@ -315,7 +339,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       cellStateStore.toggleToolExpansion(rowID: rowID)
       heightCache.invalidate(rowID: rowID)
       reconfigureRows(ids: [rowID])
-      scheduleHeightInvalidation(for: rowIndexes(for: [rowID]))
+      scheduleHeightInvalidation(for: rowIndexes(for: [rowID]), scrollToBottomAfterFlush: false)
     }
 
     private func reconfigureRows(ids: Set<String>) {
@@ -346,11 +370,16 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       }
     }
 
-    private func scheduleHeightInvalidation(for rowIndexes: IndexSet) {
+    private func scheduleHeightInvalidation(
+      for rowIndexes: IndexSet,
+      scrollToBottomAfterFlush: Bool
+    ) {
       guard !rowIndexes.isEmpty else {
         return
       }
       pendingHeightInvalidationRows.formUnion(rowIndexes)
+      shouldScrollAfterHeightInvalidation =
+        shouldScrollAfterHeightInvalidation || scrollToBottomAfterFlush
       guard pendingHeightInvalidationWorkItem == nil else {
         return
       }
@@ -370,9 +399,14 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         return
       }
       let rows = pendingHeightInvalidationRows
+      let shouldScrollToBottom = shouldScrollAfterHeightInvalidation
       pendingHeightInvalidationRows.removeAll()
+      shouldScrollAfterHeightInvalidation = false
       pendingHeightInvalidationWorkItem = nil
       tableView.noteHeightOfRows(withIndexesChanged: rows)
+      if shouldScrollToBottom, let scrollView = tableView.enclosingScrollView {
+        scrollToBottom(scrollView)
+      }
     }
 
     private func rowIndexes(for rowIDs: Set<String>) -> IndexSet {
@@ -404,6 +438,10 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
           return
         }
         let targetY = max(documentView.bounds.height - scrollView.contentView.bounds.height, 0)
+        guard abs(scrollView.contentView.bounds.origin.y - targetY) >= 0.5 else {
+          self.pinnedToBottom = true
+          return
+        }
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
         scrollView.reflectScrolledClipView(scrollView.contentView)
         self.pinnedToBottom = true

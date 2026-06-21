@@ -1,46 +1,6 @@
 import SumikaCore
 import SwiftUI
 
-struct WorkspaceCommandHost<Content: View>: View {
-  let workspaceState: WorkspaceFeatureState
-  let onRemoveWorkspace: (Workspace.ID) -> Void
-  let content: Content
-  @State private var workspacePendingRemoval: Workspace?
-
-  init(
-    workspaceState: WorkspaceFeatureState,
-    onRemoveWorkspace: @escaping (Workspace.ID) -> Void,
-    @ViewBuilder content: () -> Content
-  ) {
-    self.workspaceState = workspaceState
-    self.onRemoveWorkspace = onRemoveWorkspace
-    self.content = content()
-  }
-
-  var body: some View {
-    content
-      .focusedSceneValue(\.removeWorkspaceAction, removeWorkspaceMenuAction)
-      .modifier(
-        RemoveWorkspaceAlert(
-          workspace: $workspacePendingRemoval,
-          onRemove: { workspace in onRemoveWorkspace(workspace.id) }
-        )
-      )
-  }
-
-  private var removeWorkspaceMenuAction: (() -> Void)? {
-    guard workspaceState.activeWorkspace != nil else {
-      return nil
-    }
-
-    return removeActiveWorkspace
-  }
-
-  private func removeActiveWorkspace() {
-    workspacePendingRemoval = workspaceState.activeWorkspace
-  }
-}
-
 struct WorkspaceErrorAlert: ViewModifier {
   @Binding var isPresented: Bool
   let message: String
