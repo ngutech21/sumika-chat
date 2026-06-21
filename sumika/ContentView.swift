@@ -124,12 +124,18 @@ struct ContentView: View {
         )
       case .session:
         WorkspaceRouteHost(
-          appState: appState,
+          activeWorkspace: appState.workspaceState.activeWorkspace,
+          activeSessionID: appState.workspaceState.activeSessionID,
+          controller: appState.chatController,
+          browserToolService: appState.browserToolService,
           isModelContextDebugVisible: $isModelContextDebugVisible,
           isWorkspaceTerminalVisible: $isTerminalVisible,
           isSidebarCollapsed: isSidebarCollapsed,
           onToggleSidebar: toggleSidebarVisibility,
-          onAddWorkspace: chooseWorkspace
+          onAddWorkspace: chooseWorkspace,
+          onOpenWorkspaceInFinder: appState.workspaceState.openActiveWorkspaceInFinder,
+          onOpenWorkspaceInVisualStudioCode: appState.workspaceState
+            .openActiveWorkspaceInVisualStudioCode
         )
       }
     } else {
@@ -224,27 +230,31 @@ private struct ModelsRouteHost: View {
 }
 
 private struct WorkspaceRouteHost: View {
-  let appState: AppState
+  let activeWorkspace: Workspace?
+  let activeSessionID: ChatSession.ID?
+  let controller: ChatSessionController
+  let browserToolService: HTMLPreviewBrowserToolService
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
   let isSidebarCollapsed: Bool
   let onToggleSidebar: () -> Void
   let onAddWorkspace: () -> Void
+  let onOpenWorkspaceInFinder: () -> Void
+  let onOpenWorkspaceInVisualStudioCode: () -> Void
 
   var body: some View {
-    if let workspace = appState.workspaceState.activeWorkspace {
+    if let workspace = activeWorkspace {
       WorkspaceChatView(
-        controller: appState.chatController,
+        controller: controller,
         workspace: workspace,
-        sessionID: appState.workspaceState.activeSessionID,
-        browserToolService: appState.browserToolService,
+        sessionID: activeSessionID,
+        browserToolService: browserToolService,
         isModelContextDebugVisible: $isModelContextDebugVisible,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
         isSidebarCollapsed: isSidebarCollapsed,
         onToggleSidebar: onToggleSidebar,
-        onOpenWorkspaceInFinder: appState.workspaceState.openActiveWorkspaceInFinder,
-        onOpenWorkspaceInVisualStudioCode: appState.workspaceState
-          .openActiveWorkspaceInVisualStudioCode
+        onOpenWorkspaceInFinder: onOpenWorkspaceInFinder,
+        onOpenWorkspaceInVisualStudioCode: onOpenWorkspaceInVisualStudioCode
       )
     } else {
       EmptyWorkspaceView(onAddWorkspace: onAddWorkspace)
