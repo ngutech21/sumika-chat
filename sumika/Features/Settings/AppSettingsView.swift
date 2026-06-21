@@ -2,10 +2,9 @@ import SumikaCore
 import SwiftUI
 
 struct AppSettingsView: View {
+  let settingsState: SettingsFeatureState
+  let onUpdateAppBehaviorSettings: (AppBehaviorSettings) -> Void
   @State private var selectedTab = SettingsTab.general
-
-  @Binding var appBehaviorSettings: AppBehaviorSettings
-  @Binding var webAccessSettings: WebAccessSettings
 
   var body: some View {
     VStack(spacing: 0) {
@@ -30,6 +29,18 @@ struct AppSettingsView: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .frame(width: 520, height: 360)
+    .alert(
+      "Settings Error",
+      isPresented: settingsErrorPresentedBinding,
+      actions: {
+        Button("OK") {
+          settingsState.errorMessage = nil
+        }
+      },
+      message: {
+        Text(settingsState.errorMessage ?? "")
+      }
+    )
   }
 
   private var generalTab: some View {
@@ -69,10 +80,13 @@ struct AppSettingsView: View {
             Text(provider.displayName).tag(provider)
           }
         }
-        .disabled(webAccessSettings.policy == .off)
+        .disabled(settingsState.webAccessSettings.policy == .off)
 
         TextField("SearXNG URL", text: webSearXNGURLBinding)
-          .disabled(webAccessSettings.policy == .off || webAccessSettings.provider != .searxng)
+          .disabled(
+            settingsState.webAccessSettings.policy == .off
+              || settingsState.webAccessSettings.provider != .searxng
+          )
       } header: {
         Text("Web Access")
       } footer: {
@@ -86,44 +100,67 @@ struct AppSettingsView: View {
 
   private var autoloadLastModelBinding: Binding<Bool> {
     Binding(
-      get: { appBehaviorSettings.autoloadLastModel },
+      get: { settingsState.appBehaviorSettings.autoloadLastModel },
       set: { isEnabled in
-        var updatedSettings = appBehaviorSettings
+        var updatedSettings = settingsState.appBehaviorSettings
         updatedSettings.autoloadLastModel = isEnabled
-        appBehaviorSettings = updatedSettings
+        onUpdateAppBehaviorSettings(updatedSettings)
       }
     )
   }
 
   private var todoWriteToolEnabledBinding: Binding<Bool> {
     Binding(
-      get: { appBehaviorSettings.todoWriteToolEnabled },
+      get: { settingsState.appBehaviorSettings.todoWriteToolEnabled },
       set: { isEnabled in
-        var updatedSettings = appBehaviorSettings
+        var updatedSettings = settingsState.appBehaviorSettings
         updatedSettings.todoWriteToolEnabled = isEnabled
-        appBehaviorSettings = updatedSettings
+        onUpdateAppBehaviorSettings(updatedSettings)
       }
     )
   }
 
   private var webPolicyBinding: Binding<WebAccessPolicy> {
     Binding(
-      get: { webAccessSettings.policy },
-      set: { webAccessSettings.policy = $0 }
+      get: { settingsState.webAccessSettings.policy },
+      set: { policy in
+        var updatedSettings = settingsState.webAccessSettings
+        updatedSettings.policy = policy
+        settingsState.updateWebAccessSettings(updatedSettings)
+      }
     )
   }
 
   private var webProviderBinding: Binding<WebSearchProvider> {
     Binding(
-      get: { webAccessSettings.provider },
-      set: { webAccessSettings.provider = $0 }
+      get: { settingsState.webAccessSettings.provider },
+      set: { provider in
+        var updatedSettings = settingsState.webAccessSettings
+        updatedSettings.provider = provider
+        settingsState.updateWebAccessSettings(updatedSettings)
+      }
     )
   }
 
   private var webSearXNGURLBinding: Binding<String> {
     Binding(
-      get: { webAccessSettings.searxngBaseURL },
-      set: { webAccessSettings.searxngBaseURL = $0 }
+      get: { settingsState.webAccessSettings.searxngBaseURL },
+      set: { searxngBaseURL in
+        var updatedSettings = settingsState.webAccessSettings
+        updatedSettings.searxngBaseURL = searxngBaseURL
+        settingsState.updateWebAccessSettings(updatedSettings)
+      }
+    )
+  }
+
+  private var settingsErrorPresentedBinding: Binding<Bool> {
+    Binding(
+      get: { settingsState.errorMessage != nil },
+      set: { isPresented in
+        if !isPresented {
+          settingsState.errorMessage = nil
+        }
+      }
     )
   }
 }
@@ -135,7 +172,7 @@ private enum SettingsTab: Hashable {
 
 #Preview {
   AppSettingsView(
-    appBehaviorSettings: .constant(AppBehaviorSettings()),
-    webAccessSettings: .constant(WebAccessSettings())
+    settingsState: SettingsFeatureState(),
+    onUpdateAppBehaviorSettings: { _ in }
   )
 }

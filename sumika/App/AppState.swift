@@ -6,21 +6,16 @@ import SumikaCore
 @Observable
 final class AppState {
   let workspaceState: WorkspaceFeatureState
+  let settingsState: SettingsFeatureState
   @ObservationIgnored let chatController: ChatSessionController
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
-  @ObservationIgnored private let webAccessSettingsStore: any WebAccessSettingsStoring
-  @ObservationIgnored private let appBehaviorSettingsStore: any AppBehaviorSettingsStoring
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
   @ObservationIgnored private var defaultSessionSystemPrompt =
     ManagedModelCatalog.defaultModel.defaultSystemPrompt
   @ObservationIgnored private var defaultSessionGenerationSettings =
     ManagedModelCatalog.defaultModel.defaultGenerationSettings
-  @ObservationIgnored private var saveWebAccessSettingsTask: Task<Void, Never>?
-  @ObservationIgnored private var saveAppBehaviorSettingsTask: Task<Void, Never>?
   @ObservationIgnored private var didAttemptAutoloadLastModel = false
-  var activeWebAccessSettings = WebAccessSettings.disabled
-  var activeAppBehaviorSettings = AppBehaviorSettings()
 
   convenience init(
     workspaceStore: any WorkspaceStoring = WorkspaceStore(),
@@ -64,10 +59,12 @@ final class AppState {
     chatController: ChatSessionController
   ) {
     self.modelSettingsStore = modelSettingsStore
-    self.webAccessSettingsStore = webAccessSettingsStore
-    self.appBehaviorSettingsStore = appBehaviorSettingsStore
     self.browserToolService = browserToolService
     self.chatController = chatController
+    self.settingsState = SettingsFeatureState(
+      webAccessSettingsStore: webAccessSettingsStore,
+      appBehaviorSettingsStore: appBehaviorSettingsStore
+    )
     self.workspaceState = WorkspaceFeatureState(
       workspaceStore: workspaceStore,
       workspaceOpener: workspaceOpener,
@@ -144,41 +141,9 @@ final class AppState {
     loadActiveSession(ifNeededFor: change)
   }
 
-  func updateActiveWebAccessSettings(_ settings: WebAccessSettings) {
-    activeWebAccessSettings = settings
-    let previousSaveTask = saveWebAccessSettingsTask
-    saveWebAccessSettingsTask = Task { [webAccessSettingsStore] in
-      await previousSaveTask?.value
-      do {
-        try await webAccessSettingsStore.save(settings: settings)
-        await MainActor.run {
-          workspaceState.errorMessage = nil
-        }
-      } catch {
-        await MainActor.run {
-          workspaceState.errorMessage = error.localizedDescription
-        }
-      }
-    }
-  }
-
-  func updateActiveAppBehaviorSettings(_ settings: AppBehaviorSettings) {
-    activeAppBehaviorSettings = settings
+  func updateAppBehaviorSettings(_ settings: AppBehaviorSettings) {
+    settingsState.updateAppBehaviorSettings(settings)
     applyAppBehaviorSettings(settings)
-    let previousSaveTask = saveAppBehaviorSettingsTask
-    saveAppBehaviorSettingsTask = Task { [appBehaviorSettingsStore] in
-      await previousSaveTask?.value
-      do {
-        try await appBehaviorSettingsStore.save(settings: settings)
-        await MainActor.run {
-          workspaceState.errorMessage = nil
-        }
-      } catch {
-        await MainActor.run {
-          workspaceState.errorMessage = error.localizedDescription
-        }
-      }
-    }
   }
 
   func startModelRuntimeServices() {
@@ -214,12 +179,6 @@ final class AppState {
     }
 
     loadActiveSession()
-  }
-
-  private func loadWebAccessSettings() {
-    Task { [webAccessSettingsStore] in
-      activeWebAccessSettings = await webAccessSettingsStore.settings()
-    }
   }
 
   private func applyAppBehaviorSettings(_ settings: AppBehaviorSettings) {
@@ -271,30 +230,28 @@ final class AppState {
   }
 
   private func loadStoredLibrary() {
-    Task { [modelSettingsStore, appBehaviorSettingsStore] in
+    Task { [modelSettingsStore] in
       let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
       let selectedModelID = await modelSettingsStore.selectedModelID(
         availableModelIDs: availableModelIDs)
       let selectedModel =
         ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
       let settings = await modelSettingsStore.settings(for: selectedModel)
-      let appBehaviorSettings = await appBehaviorSettingsStore.settings()
+      await settingsState.load()
 
-      activeAppBehaviorSettings = appBehaviorSettings
-      applyAppBehaviorSettings(appBehaviorSettings)
+      applyAppBehaviorSettings(settingsState.appBehaviorSettings)
       defaultSessionModelID = selectedModel.id
       defaultSessionSystemPrompt = settings.systemPrompt
       defaultSessionGenerationSettings = settings.generationSettings
       let defaultSessionFactory = self.makeDefaultSessionFactory()
       await self.workspaceState.loadLibrary(defaultSessionFactory: defaultSessionFactory)
       self.loadActiveSession()
-      self.loadWebAccessSettings()
       self.attemptAutoloadLastModelIfReady()
     }
   }
 
   private func attemptAutoloadLastModelIfReady() {
-    guard activeAppBehaviorSettings.autoloadLastModel,
+    guard settingsState.appBehaviorSettings.autoloadLastModel,
       !didAttemptAutoloadLastModel,
       chatController.modelRuntime.modelState == .notLoaded,
       chatController.modelRuntime.isSelectedModelDownloaded()

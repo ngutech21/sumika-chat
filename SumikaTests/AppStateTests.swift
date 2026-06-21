@@ -142,7 +142,7 @@ struct AppStateTests {
 
     try await waitUntil {
       !appState.workspaceState.isLoading
-        && appState.activeWebAccessSettings.policy == .askEachTime
+        && appState.settingsState.webAccessSettings.policy == .askEachTime
     }
 
     let updated = WebAccessSettings(
@@ -150,12 +150,12 @@ struct AppStateTests {
       provider: .searxng,
       searxngBaseURL: "https://search.example"
     )
-    appState.updateActiveWebAccessSettings(updated)
+    appState.settingsState.updateWebAccessSettings(updated)
 
     try await waitUntil {
       await webAccessSettingsStore.settings() == updated
     }
-    #expect(appState.activeWebAccessSettings == updated)
+    #expect(appState.settingsState.webAccessSettings == updated)
   }
 
   @Test
@@ -180,14 +180,14 @@ struct AppStateTests {
       provider: .searxng,
       searxngBaseURL: "https://search.example"
     )
-    appState.updateActiveWebAccessSettings(first)
-    appState.updateActiveWebAccessSettings(second)
+    appState.settingsState.updateWebAccessSettings(first)
+    appState.settingsState.updateWebAccessSettings(second)
 
     try await waitUntil(timeout: 3) {
       await webAccessSettingsStore.saveCount() == 2
     }
     #expect(await webAccessSettingsStore.settings() == second)
-    #expect(appState.activeWebAccessSettings == second)
+    #expect(appState.settingsState.webAccessSettings == second)
   }
 
   @Test
@@ -393,8 +393,8 @@ struct AppStateTests {
     }
     appState.startModelRuntimeServices()
 
-    #expect(appState.activeAppBehaviorSettings == AppBehaviorSettings())
-    #expect(!appState.activeAppBehaviorSettings.todoWriteToolEnabled)
+    #expect(appState.settingsState.appBehaviorSettings == AppBehaviorSettings())
+    #expect(!appState.settingsState.appBehaviorSettings.todoWriteToolEnabled)
     #expect(controller.modelRuntime.modelState == .notLoaded)
   }
 
@@ -418,12 +418,12 @@ struct AppStateTests {
     appState.startModelRuntimeServices()
 
     let updated = AppBehaviorSettings(autoloadLastModel: true)
-    appState.updateActiveAppBehaviorSettings(updated)
+    appState.updateAppBehaviorSettings(updated)
 
     try await waitUntil {
       await appBehaviorSettingsStore.settings() == updated
     }
-    #expect(appState.activeAppBehaviorSettings == updated)
+    #expect(appState.settingsState.appBehaviorSettings == updated)
     #expect(await runtime.loadCount() == 0)
     #expect(appState.chatController.modelRuntime.modelState == .notLoaded)
   }
@@ -468,7 +468,7 @@ struct AppStateTests {
       appState.chatController.modelRuntime.modelState == .ready
     }
 
-    #expect(appState.activeAppBehaviorSettings.autoloadLastModel)
+    #expect(appState.settingsState.appBehaviorSettings.autoloadLastModel)
     #expect(await runtime.loadCount() == 1)
   }
 
@@ -493,7 +493,7 @@ struct AppStateTests {
 
     appState.startModelRuntimeServices()
 
-    #expect(appState.activeAppBehaviorSettings.autoloadLastModel)
+    #expect(appState.settingsState.appBehaviorSettings.autoloadLastModel)
     #expect(appState.chatController.modelRuntime.modelState == .notLoaded)
     #expect(await runtime.loadCount() == 0)
   }
@@ -524,7 +524,7 @@ struct AppStateTests {
     }
     appState.startModelRuntimeServices()
 
-    #expect(appState.activeAppBehaviorSettings.autoloadLastModel)
+    #expect(appState.settingsState.appBehaviorSettings.autoloadLastModel)
     #expect(appState.chatController.modelRuntime.modelState == .notLoaded)
     #expect(await runtime.loadCount() == 0)
   }
@@ -693,7 +693,7 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
     let updatedSettings = AppBehaviorSettings(todoWriteToolEnabled: true)
-    appState.updateActiveAppBehaviorSettings(updatedSettings)
+    appState.updateAppBehaviorSettings(updatedSettings)
     try await waitUntil {
       await appBehaviorSettingsStore.settings() == updatedSettings
     }

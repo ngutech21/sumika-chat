@@ -46,14 +46,8 @@ struct SumikaApp: App {
 
     Settings {
       AppSettingsView(
-        appBehaviorSettings: Binding(
-          get: { appState.activeAppBehaviorSettings },
-          set: { appState.updateActiveAppBehaviorSettings($0) }
-        ),
-        webAccessSettings: Binding(
-          get: { appState.activeWebAccessSettings },
-          set: { appState.updateActiveWebAccessSettings($0) }
-        )
+        settingsState: appState.settingsState,
+        onUpdateAppBehaviorSettings: appState.updateAppBehaviorSettings
       )
     }
   }
