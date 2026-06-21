@@ -2,7 +2,7 @@ import SumikaCore
 import SwiftUI
 
 struct WorkspaceSidebar: View {
-  let workspaceState: WorkspaceFeatureState
+  let sidebarState: WorkspaceSidebarState
   let modelRuntime: ModelRuntimeController
   @Binding var selection: AppNavigationSelection?
   let onAddWorkspace: () -> Void
@@ -10,9 +10,9 @@ struct WorkspaceSidebar: View {
   let onRenameSession: (ChatSession.ID, String) -> Void
   let onDeleteSession: (ChatSession.ID) -> Void
   let onRemoveWorkspace: (Workspace.ID) -> Void
-  @State private var sessionBeingRenamed: ChatSession?
-  @State private var sessionPendingDeletion: ChatSession?
-  @State private var workspacePendingRemoval: Workspace?
+  @State private var sessionBeingRenamed: WorkspaceSidebarSession?
+  @State private var sessionPendingDeletion: WorkspaceSidebarSession?
+  @State private var workspacePendingRemoval: WorkspaceSidebarWorkspace?
   @State private var renameTitle = ""
   @AppStorage("sidebar.collapsedWorkspaceIDs") private var collapsedWorkspaceIDsRaw = ""
 
@@ -34,7 +34,7 @@ struct WorkspaceSidebar: View {
               .padding(.horizontal, 14)
               .padding(.top, 2)
 
-            ForEach(workspaceState.library.workspaces) { workspace in
+            ForEach(sidebarState.workspaces) { workspace in
               workspaceSection(workspace)
             }
           }
@@ -125,7 +125,7 @@ struct WorkspaceSidebar: View {
   }
 
   @ViewBuilder
-  private func workspaceSection(_ workspace: Workspace) -> some View {
+  private func workspaceSection(_ workspace: WorkspaceSidebarWorkspace) -> some View {
     VStack(alignment: .leading, spacing: 2) {
       Button {
         toggleExpansion(for: workspace.id)
@@ -173,7 +173,7 @@ struct WorkspaceSidebar: View {
     }
   }
 
-  private func sessionRow(_ session: ChatSession) -> some View {
+  private func sessionRow(_ session: WorkspaceSidebarSession) -> some View {
     let item = AppNavigationSelection.session(session.id)
     let isSelected = selection == item
 
@@ -181,7 +181,7 @@ struct WorkspaceSidebar: View {
       selection = item
     } label: {
       HStack(spacing: 8) {
-        Text(sidebarTitle(for: session))
+        Text(session.displayTitle)
           .lineLimit(1)
           .truncationMode(.tail)
 
@@ -233,10 +233,6 @@ struct WorkspaceSidebar: View {
   private func rowBackground(isSelected: Bool) -> some View {
     RoundedRectangle(cornerRadius: 6, style: .continuous)
       .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.clear)
-  }
-
-  private func sidebarTitle(for session: ChatSession) -> String {
-    session.title == ChatSession.defaultTitle ? "Untitled" : session.title
   }
 
   private func isExpanded(_ workspaceID: Workspace.ID) -> Bool {

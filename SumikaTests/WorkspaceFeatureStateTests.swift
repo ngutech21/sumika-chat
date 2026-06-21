@@ -163,6 +163,87 @@ struct WorkspaceFeatureStateTests {
   }
 
   @Test
+  func persistActiveSessionSnapshotDoesNotChangeSidebarStateForTurnOnlyUpdates() async throws {
+    let activeSessionID = UUID()
+    let workspaceID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        ChatSession(id: activeSessionID, title: "Active")
+      ]
+    )
+    let state = WorkspaceFeatureState(
+      workspaceStore: WorkspaceFeatureInMemoryStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: activeSessionID
+        )
+      ),
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+    )
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+    let sidebarStateBeforePersist = state.sidebarState
+
+    let snapshot = ChatSession(
+      id: activeSessionID,
+      title: "Active",
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [.userMessage(UserTurnMessage(content: "New persisted turn"))]
+        )
+      ]
+    )
+    state.persistActiveSessionSnapshot(snapshot)
+
+    #expect(state.sidebarState == sidebarStateBeforePersist)
+  }
+
+  @Test
+  func persistActiveSessionSnapshotUpdatesSidebarStateWhenTitleChanges() async throws {
+    let activeSessionID = UUID()
+    let workspaceID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        ChatSession(id: activeSessionID, title: ChatSession.defaultTitle)
+      ]
+    )
+    let state = WorkspaceFeatureState(
+      workspaceStore: WorkspaceFeatureInMemoryStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: activeSessionID
+        )
+      ),
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+    )
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+
+    let snapshot = ChatSession(
+      id: activeSessionID,
+      title: "Saved Active",
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [.userMessage(UserTurnMessage(content: "First prompt"))]
+        )
+      ]
+    )
+    state.persistActiveSessionSnapshot(snapshot)
+
+    #expect(state.sidebarState.workspaces.first?.sessions.first?.title == "Saved Active")
+  }
+
+  @Test
   func openingActiveWorkspaceUsesWorkspaceURLAndReportsErrors() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()

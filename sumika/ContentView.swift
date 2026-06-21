@@ -34,7 +34,7 @@ struct ContentView: View {
       HStack(spacing: 0) {
         if !isSidebarCollapsed {
           WorkspaceSidebar(
-            workspaceState: appState.workspaceState,
+            sidebarState: appState.workspaceState.sidebarState,
             modelRuntime: appState.chatController.modelRuntime,
             selection: $selection,
             onAddWorkspace: chooseWorkspace,
