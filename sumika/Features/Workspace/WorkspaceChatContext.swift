@@ -31,4 +31,16 @@ struct WorkspaceChatContext: Equatable, Identifiable, Sendable {
       updatedAt: Self.placeholderDate
     )
   }
+
+  func workspace(containing sessionID: ChatSession.ID) -> Workspace {
+    Workspace(
+      id: id,
+      name: name,
+      rootURL: rootURL,
+      bookmarkData: bookmarkData,
+      sessions: [ChatSession(id: sessionID)],
+      createdAt: Self.placeholderDate,
+      updatedAt: Self.placeholderDate
+    )
+  }
 }

@@ -22,7 +22,7 @@ struct WorkspaceChatComposerHost: View {
       if let sessionID {
         return controller.sendMessage(
           prompt: submittedDraft,
-          in: context.workspaceWithoutSessions,
+          in: context.workspace(containing: sessionID),
           sessionID: sessionID
         )
       }

@@ -24,10 +24,15 @@ struct WorkspaceSelectionChange: Equatable {
 final class WorkspaceFeatureState {
   var errorMessage: String?
   var isLoading = true
+  private(set) var activeWorkspaceContext: WorkspaceChatContext?
+  private(set) var activeSessionID: ChatSession.ID?
 
   var library: WorkspaceLibrary {
     get { workspaceLibraryController.library }
-    set { workspaceLibraryController.replaceLibrary(newValue) }
+    set {
+      workspaceLibraryController.replaceLibrary(newValue)
+      syncActiveWorkspaceProjection()
+    }
   }
 
   var activeWorkspace: Workspace? {
@@ -36,10 +41,6 @@ final class WorkspaceFeatureState {
 
   var activeSession: ChatSession? {
     workspaceLibraryController.activeSession
-  }
-
-  var activeSessionID: ChatSession.ID? {
-    workspaceLibraryController.activeSessionID
   }
 
   private var workspaceLibraryController: WorkspaceLibraryController
@@ -69,6 +70,7 @@ final class WorkspaceFeatureState {
     let library = await workspaceStore.loadLibrary()
     workspaceLibraryController.replaceLibrary(library)
     normalizeLoadedLibrary()
+    syncActiveWorkspaceProjection()
     isLoading = false
     return .changed(activeSessionID)
   }
@@ -81,6 +83,7 @@ final class WorkspaceFeatureState {
       rootURL: rootURL,
       bookmarkData: makeSecurityScopedBookmarkData(for: rootURL)
     )
+    syncActiveWorkspaceProjection()
     saveLibrary()
     return .changed(sessionID)
   }
@@ -90,6 +93,7 @@ final class WorkspaceFeatureState {
     guard let sessionID = workspaceLibraryController.createSession(in: workspaceID) else {
       return .unchanged
     }
+    syncActiveWorkspaceProjection()
     saveLibrary()
     return .changed(sessionID)
   }
@@ -99,6 +103,7 @@ final class WorkspaceFeatureState {
     guard workspaceLibraryController.selectSession(sessionID) else {
       return .unchanged
     }
+    syncActiveWorkspaceProjection()
     saveLibrary()
     return .changed(activeSessionID)
   }
@@ -107,6 +112,7 @@ final class WorkspaceFeatureState {
     guard workspaceLibraryController.renameSession(sessionID, title: title) else {
       return
     }
+    syncActiveWorkspaceProjection()
     saveLibrary()
   }
 
@@ -116,6 +122,7 @@ final class WorkspaceFeatureState {
     guard workspaceLibraryController.deleteSession(sessionID) else {
       return .unchanged
     }
+    syncActiveWorkspaceProjection()
     saveLibrary()
     return wasActiveSession ? .changed(activeSessionID) : .unchanged
   }
@@ -126,12 +133,14 @@ final class WorkspaceFeatureState {
     guard workspaceLibraryController.removeWorkspace(workspaceID) else {
       return .unchanged
     }
+    syncActiveWorkspaceProjection()
     saveLibrary()
     return wasActiveWorkspace ? .changed(activeSessionID) : .unchanged
   }
 
   func persistActiveSessionSnapshot(_ snapshot: ChatSession) {
     workspaceLibraryController.persistActiveSessionSnapshot(snapshot)
+    syncActiveWorkspaceProjection()
     saveLibrary()
   }
 
@@ -151,7 +160,20 @@ final class WorkspaceFeatureState {
     )
     workspaceLibraryController.replaceLibrary(resolvedLibrary)
     workspaceLibraryController.normalizeLoadedLibrary()
+    syncActiveWorkspaceProjection()
     saveLibrary()
+  }
+
+  private func syncActiveWorkspaceProjection() {
+    let nextContext = activeWorkspace.map(WorkspaceChatContext.init)
+    if activeWorkspaceContext != nextContext {
+      activeWorkspaceContext = nextContext
+    }
+
+    let nextSessionID = workspaceLibraryController.activeSessionID
+    if activeSessionID != nextSessionID {
+      activeSessionID = nextSessionID
+    }
   }
 
   private func resolveBookmarkedWorkspace(_ workspace: Workspace) -> Workspace {

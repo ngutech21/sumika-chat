@@ -37,6 +37,9 @@ struct WorkspaceFeatureStateTests {
     #expect(change.activeSessionChanged)
     #expect(change.activeSessionID == state.activeSessionID)
     #expect(state.activeWorkspace?.id == workspaceID)
+    #expect(state.activeWorkspaceContext?.id == workspaceID)
+    #expect(state.activeWorkspaceContext?.name == "Project")
+    #expect(state.activeWorkspaceContext?.rootURL == workspace.rootURL)
     #expect(state.activeSession?.systemPrompt == "Loaded default")
 
     let savedLibrary = try await waitForWorkspaceFeatureSavedLibrary(in: store) { library in
@@ -73,26 +76,35 @@ struct WorkspaceFeatureStateTests {
     )
 
     await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+    #expect(state.activeWorkspaceContext == WorkspaceChatContext(workspace: workspace))
+    #expect(state.activeSessionID == firstSessionID)
 
     let createdChange = state.createSession(in: workspaceID)
     #expect(createdChange.activeSessionChanged)
     #expect(createdChange.activeSessionID == state.activeSessionID)
     #expect(createdChange.activeSessionID != firstSessionID)
+    #expect(state.activeWorkspaceContext == WorkspaceChatContext(workspace: workspace))
 
     let selectedChange = state.selectSession(secondSessionID)
     #expect(selectedChange.activeSessionChanged)
     #expect(selectedChange.activeSessionID == secondSessionID)
+    #expect(state.activeSessionID == secondSessionID)
+    #expect(state.activeWorkspaceContext == WorkspaceChatContext(workspace: workspace))
 
     state.renameSession(secondSessionID, title: "Renamed")
     #expect(state.activeSession?.title == "Renamed")
+    #expect(state.activeWorkspaceContext == WorkspaceChatContext(workspace: workspace))
 
     let deletedChange = state.deleteSession(secondSessionID)
     #expect(deletedChange.activeSessionChanged)
     #expect(deletedChange.activeSessionID != secondSessionID)
+    #expect(state.activeWorkspaceContext == WorkspaceChatContext(workspace: workspace))
 
     let removedChange = state.removeWorkspace(workspaceID)
     #expect(removedChange.activeSessionChanged)
     #expect(removedChange.activeSessionID == nil)
+    #expect(state.activeWorkspaceContext == nil)
+    #expect(state.activeSessionID == nil)
   }
 
   @Test
@@ -122,10 +134,23 @@ struct WorkspaceFeatureStateTests {
       defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
     )
     await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+    let contextBeforePersist = state.activeWorkspaceContext
+    let activeSessionIDBeforePersist = state.activeSessionID
 
-    var snapshot = try #require(state.activeSession)
-    snapshot.title = "Saved Active"
+    let snapshot = ChatSession(
+      id: activeSessionID,
+      title: "Saved Active",
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [.userMessage(UserTurnMessage(content: "New persisted turn"))]
+        )
+      ]
+    )
     state.persistActiveSessionSnapshot(snapshot)
+
+    #expect(state.activeWorkspaceContext == contextBeforePersist)
+    #expect(state.activeSessionID == activeSessionIDBeforePersist)
 
     let savedLibrary = try await waitForWorkspaceFeatureSavedLibrary(in: store) { library in
       library.workspaces.first?

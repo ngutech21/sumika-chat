@@ -4,6 +4,7 @@ import SwiftUI
 struct ChatTranscriptHost: View {
   let controller: ChatSessionController
   let context: WorkspaceChatContext
+  let sessionID: ChatSession.ID?
 
   var body: some View {
     #if DEBUG
@@ -17,7 +18,7 @@ struct ChatTranscriptHost: View {
       modelState: controller.modelRuntime.modelState,
       isGenerating: controller.isGenerating,
       onApproveToolCall: { toolCallID in
-        controller.approveToolCall(id: toolCallID, in: context.workspaceWithoutSessions)
+        controller.approveToolCall(id: toolCallID, in: toolWorkspace)
       },
       onDenyToolCall: { toolCallID in
         controller.denyToolCall(id: toolCallID)
@@ -26,9 +27,13 @@ struct ChatTranscriptHost: View {
         controller.answerAskUserToolCall(
           id: toolCallID,
           answer: answer,
-          in: context.workspaceWithoutSessions
+          in: toolWorkspace
         )
       }
     )
+  }
+
+  private var toolWorkspace: Workspace {
+    context.workspace(containing: sessionID ?? controller.chatSession.id)
   }
 }

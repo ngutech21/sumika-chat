@@ -124,7 +124,7 @@ struct ContentView: View {
         )
       case .session:
         WorkspaceRouteHost(
-          activeWorkspaceContext: appState.workspaceState.activeWorkspace.map(WorkspaceChatContext.init),
+          activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
           activeSessionID: appState.workspaceState.activeSessionID,
           controller: appState.chatController,
           browserToolService: appState.browserToolService,

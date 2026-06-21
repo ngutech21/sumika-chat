@@ -86,7 +86,8 @@ private struct WorkspaceChatMainColumn: View {
 
       ChatTranscriptHost(
         controller: controller,
-        context: context
+        context: context,
+        sessionID: sessionID
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
 
