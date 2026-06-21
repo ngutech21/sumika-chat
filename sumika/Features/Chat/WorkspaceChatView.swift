@@ -10,7 +10,6 @@ struct WorkspaceChatView: View {
   @Binding var isWorkspaceTerminalVisible: Bool
   let isSidebarCollapsed: Bool
   let onToggleSidebar: () -> Void
-  let onAddAttachments: () -> Void
   let onOpenWorkspaceInFinder: () -> Void
   let onOpenWorkspaceInVisualStudioCode: () -> Void
   @State private var previewState = WorkspacePreviewFeatureState()
@@ -45,9 +44,7 @@ struct WorkspaceChatView: View {
           controller: controller,
           workspace: workspace,
           sessionID: sessionID,
-          onAddAttachments: onAddAttachments,
-          onPreviewCommand: runPreviewCommand(path:),
-          onShowCommand: runShowCommand(path:)
+          previewState: previewState
         )
 
         if isWorkspaceTerminalVisible {
@@ -89,29 +86,6 @@ struct WorkspaceChatView: View {
     }
   }
 
-  private func runPreviewCommand(path: String) -> Bool {
-    do {
-      try previewState.showHTMLPreview(path: path, in: workspace)
-      controller.draft = ""
-      controller.errorMessage = nil
-      return true
-    } catch {
-      controller.errorMessage = error.localizedDescription
-      return false
-    }
-  }
-
-  private func runShowCommand(path: String) -> Bool {
-    do {
-      try previewState.showFilePreview(path: path, in: workspace)
-      controller.draft = ""
-      controller.errorMessage = nil
-      return true
-    } catch {
-      controller.errorMessage = error.localizedDescription
-      return false
-    }
-  }
 }
 
 private struct WorkspaceChatHeader: View {

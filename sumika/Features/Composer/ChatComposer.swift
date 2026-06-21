@@ -17,7 +17,6 @@ struct ChatComposer: View {
   let canSend: Bool
   let canRunLocalCommand: Bool
   let isGenerating: Bool
-  let isInputBlocked: Bool
   let errorMessage: String?
   let onSelectInteractionMode: (WorkspaceInteractionMode) -> Void
   let onSelectModel: (ManagedModel) -> Void
@@ -87,7 +86,7 @@ struct ChatComposer: View {
         ComposerTextView(
           draftBridge: draftBridge,
           placeholder: "Message",
-          isDisabled: isInputBlocked,
+          isDisabled: false,
           canAcceptAttachments: canAcceptAttachments,
           onTextStateChanged: updateDraftState(_:),
           onSubmit: sendMessage,
@@ -104,7 +103,7 @@ struct ChatComposer: View {
           }
           .buttonStyle(.borderless)
           .foregroundStyle(.secondary)
-          .disabled(isGenerating || isInputBlocked || modelState != .ready)
+          .disabled(isGenerating || modelState != .ready)
           .accessibilityLabel("Add context files")
 
           modelPicker
@@ -281,7 +280,7 @@ struct ChatComposer: View {
   }
 
   private var canAcceptAttachments: Bool {
-    !isGenerating && !isInputBlocked && modelState == .ready
+    !isGenerating && modelState == .ready
   }
 
   private func sendButtonBackground(canActivateSend: Bool) -> Color {
@@ -320,11 +319,11 @@ struct ChatComposer: View {
   }
 
   private var canInsertSoftBreak: Bool {
-    !isInputBlocked
+    true
   }
 
   private var slashSuggestions: [SlashCommandDescriptor] {
-    guard !slashSuggestionsDismissed, !isInputBlocked else {
+    guard !slashSuggestionsDismissed else {
       return []
     }
     guard let token = draftState.slashSuggestionPrefix else {
@@ -482,7 +481,7 @@ struct ChatComposer: View {
   }
 
   private func handleImagePasteFromPasteboard() {
-    guard !isGenerating, !isInputBlocked, modelState == .ready else {
+    guard !isGenerating, modelState == .ready else {
       return
     }
     guard let imageURL = Self.materializePasteboardImage(from: .general) else {

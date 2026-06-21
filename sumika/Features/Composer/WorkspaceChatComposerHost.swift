@@ -1,3 +1,4 @@
+import AppKit
 import SumikaCore
 import SwiftUI
 
@@ -5,11 +6,9 @@ struct WorkspaceChatComposerHost: View {
   let controller: ChatSessionController
   let workspace: Workspace
   let sessionID: ChatSession.ID?
-  let onAddAttachments: () -> Void
-  let onPreviewCommand: (String) -> Bool
-  let onShowCommand: (String) -> Bool
+  let previewState: WorkspacePreviewFeatureState
 
-  private let slashCommandParser = SlashCommandParser()
+  private static let slashCommandParser = SlashCommandParser()
 
   private var onSend: (String) -> Bool {
     { submittedDraft in
@@ -37,45 +36,34 @@ struct WorkspaceChatComposerHost: View {
     #endif
 
     let localDownloadedModels = downloadedModels
+    let composerState = controller.composerSessionState
     let isGenerating = controller.isGenerating
-    let isInputBlocked = controller.isInputBlocked
 
     ChatComposer(
-      attachments: controller.chatSession.pendingAttachments,
-      activeAttachments: controller.activeAttachmentContextAttachments,
+      attachments: composerState.pendingAttachments,
+      activeAttachments: composerState.activeAttachments,
       availableModels: localDownloadedModels,
       selectedModel: composerSelectedModel(from: localDownloadedModels),
       modelState: controller.modelRuntime.modelState,
-      interactionMode: controller.chatSession.interactionMode,
-      todoState: visibleTodoState,
+      interactionMode: composerState.interactionMode,
+      todoState: composerState.todoState,
       contextUsage: controller.contextUsage,
       canChangeModel: !localDownloadedModels.isEmpty && !isGenerating
         && controller.modelRuntime.canChangeModel,
-      canChangeInteractionMode: !isGenerating && !isInputBlocked,
-      canSend: controller.modelRuntime.modelState == .ready && !isGenerating && !isInputBlocked,
-      canRunLocalCommand: !isGenerating && !isInputBlocked,
+      canChangeInteractionMode: !isGenerating,
+      canSend: controller.modelRuntime.modelState == .ready && !isGenerating,
+      canRunLocalCommand: !isGenerating,
       isGenerating: isGenerating,
-      isInputBlocked: isInputBlocked,
       errorMessage: controller.errorMessage,
       onSelectInteractionMode: controller.setInteractionMode,
       onSelectModel: selectModel(_:),
       onLoadModel: loadSelectedModel,
-      onAddAttachments: onAddAttachments,
+      onAddAttachments: chooseAttachments,
       onDropAttachments: controller.addAttachments,
       onRemoveAttachment: controller.removeAttachment,
       onSend: onSend,
       onCancel: controller.cancelGeneration
     )
-  }
-
-  private var visibleTodoState: TodoState? {
-    guard controller.chatSession.interactionMode == .agent,
-      let todoState = controller.chatSession.todoState,
-      !todoState.items.isEmpty
-    else {
-      return nil
-    }
-    return todoState
   }
 
   private var downloadedModels: [ManagedModel] {
@@ -126,22 +114,60 @@ struct WorkspaceChatComposerHost: View {
       return .notHandled
     }
 
-    guard let command = slashCommandParser.parse(trimmedDraft) else {
+    guard let command = Self.slashCommandParser.parse(trimmedDraft) else {
       controller.errorMessage = descriptor.usage
       return .handled(shouldClearDraft: false)
     }
 
     switch command {
     case .preview(let path):
-      guard onPreviewCommand(path) else {
+      guard runPreviewCommand(path: path) else {
         return .handled(shouldClearDraft: false)
       }
     case .show(let path):
-      guard onShowCommand(path) else {
+      guard runShowCommand(path: path) else {
         return .handled(shouldClearDraft: false)
       }
     }
     return .handled(shouldClearDraft: true)
+  }
+
+  private func chooseAttachments() {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = true
+    panel.canCreateDirectories = false
+    panel.message = "Choose text files to add as model context."
+    panel.prompt = "Add"
+
+    if panel.runModal() == .OK {
+      controller.addAttachments(from: panel.urls)
+    }
+  }
+
+  private func runPreviewCommand(path: String) -> Bool {
+    do {
+      try previewState.showHTMLPreview(path: path, in: workspace)
+      controller.draft = ""
+      controller.errorMessage = nil
+      return true
+    } catch {
+      controller.errorMessage = error.localizedDescription
+      return false
+    }
+  }
+
+  private func runShowCommand(path: String) -> Bool {
+    do {
+      try previewState.showFilePreview(path: path, in: workspace)
+      controller.draft = ""
+      controller.errorMessage = nil
+      return true
+    } catch {
+      controller.errorMessage = error.localizedDescription
+      return false
+    }
   }
 
   private enum LocalSlashCommandResult {

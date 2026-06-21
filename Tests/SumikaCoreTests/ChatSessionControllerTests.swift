@@ -27,6 +27,74 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func canSendIgnoresPendingToolInteractions() {
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+    let approvalRecord = makeToolCallRecord(status: .awaitingApproval)
+    let askUserRecord = makeToolCallRecord(status: .awaitingUserAnswer)
+    controller.modelRuntime.modelState = .ready
+    controller.draft = "continue with a new instruction"
+    controller.chatSession.turns = [
+      ChatTurn(status: .awaitingApproval, items: [.tool(approvalRecord)]),
+      ChatTurn(status: .awaitingUserAnswer, items: [.tool(askUserRecord)]),
+    ]
+
+    #expect(controller.hasPendingApproval)
+    #expect(controller.hasPendingUserAnswer)
+    #expect(controller.canSend)
+  }
+
+  @Test
+  func composerSessionStateIgnoresTranscriptOnlyChanges() {
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+    controller.chatSession.pendingAttachments = [makeAttachment(name: "notes.swift")]
+    controller.chatSession.interactionMode = .agent
+    let originalState = controller.composerSessionState
+
+    controller.chatSession.turns.append(
+      ChatTurn(
+        status: .completed,
+        items: [.userMessage(UserTurnMessage(content: "transcript-only change"))]
+      ))
+
+    #expect(controller.composerSessionState == originalState)
+  }
+
+  @Test
+  func composerSessionStateTracksComposerRelevantSessionFields() {
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+    let attachment = makeAttachment(name: "screenshot.png", kind: .image)
+    let todoState = TodoState(items: [
+      TodoItem(id: "1", content: "Inspect files", status: .completed),
+      TodoItem(id: "2", content: "Run tests", status: .pending),
+    ])
+
+    controller.chatSession.pendingAttachments = [attachment]
+    controller.chatSession.activeAttachmentContext = ActiveAttachmentContext(
+      attachmentIDs: [attachment.id]
+    )
+    controller.chatSession.todoState = todoState
+
+    #expect(controller.composerSessionState.pendingAttachments == [attachment])
+    #expect(controller.composerSessionState.activeAttachments == [attachment])
+    #expect(controller.composerSessionState.interactionMode == .chat)
+    #expect(controller.composerSessionState.todoState == nil)
+
+    controller.chatSession.interactionMode = .agent
+
+    #expect(controller.composerSessionState.interactionMode == .agent)
+    #expect(controller.composerSessionState.todoState == todoState)
+  }
+
+  @Test
   func loadSessionAndSnapshotPreserveFocusedFileState() {
     let path = WorkspaceRelativePath(rawValue: "README.md")
     let focusedFileState = FocusedFileState(
@@ -1189,6 +1257,61 @@ struct ChatSessionControllerTests {
         )
       ]
     )
+  }
+
+  private func makeAttachment(
+    name: String,
+    kind: ChatAttachmentKind = .text
+  ) -> ChatAttachment {
+    ChatAttachment(
+      url: URL(filePath: "/tmp/\(name)"),
+      displayName: name,
+      kind: kind,
+      content: "fixture"
+    )
+  }
+
+  private func makeToolCallRecord(status: ToolCallStatus) -> ToolCallRecord {
+    ToolCallRecord(
+      request: ToolCallRequest.validated(
+        raw: RawToolCallRequest(
+          workspaceID: UUID(),
+          sessionID: UUID(),
+          toolName: .listFiles
+        ),
+        payload: .listFiles(ListFilesInput(path: nil))
+      ),
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Allowed for test.",
+        riskLevel: .low
+      ),
+      state: toolCallState(status: status)
+    )
+  }
+
+  private func toolCallState(status: ToolCallStatus) -> ToolCallState {
+    switch status {
+    case .pending:
+      return .pending
+    case .awaitingApproval:
+      return .awaitingApproval(preview: nil)
+    case .awaitingUserAnswer:
+      return .awaitingUserAnswer
+    case .running:
+      return .running
+    case .completed:
+      return .completed(
+        .listFiles(ListFilesResult(root: WorkspaceRelativePath(rawValue: "."), entries: [])))
+    case .denied:
+      return .denied(
+        .failure(ToolFailure(toolName: .listFiles, path: nil, reason: .permissionDenied)))
+    case .failed:
+      return .failed(
+        .failure(ToolFailure(toolName: .listFiles, path: nil, reason: .executionError("Failed."))))
+    case .cancelled:
+      return .cancelled
+    }
   }
 
   private func makeModelDirectory(config: String) throws -> URL {

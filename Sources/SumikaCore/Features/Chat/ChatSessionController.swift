@@ -8,7 +8,12 @@ import Observation
 @MainActor
 @Observable
 public final class ChatSessionController {
-  public var chatSession = ChatSession.codingDefault
+  public var chatSession = ChatSession.codingDefault {
+    didSet {
+      syncComposerSessionState()
+    }
+  }
+  public private(set) var composerSessionState = ChatComposerSessionState()
   public var contextUsage: ChatContextUsage?
   public var runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
   public private(set) var modelContextDebugRevision = 0
@@ -46,8 +51,6 @@ public final class ChatSessionController {
     modelRuntime.modelState == .ready
       && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && !isGenerating
-      && !hasPendingApproval
-      && !hasPendingUserAnswer
   }
 
   public var hasPendingApproval: Bool {
@@ -63,7 +66,7 @@ public final class ChatSessionController {
   }
 
   public var canChangeInteractionMode: Bool {
-    !isGenerating && !isInputBlocked
+    !isGenerating
   }
 
   public convenience init() {
@@ -193,6 +196,7 @@ public final class ChatSessionController {
     )
     self.attachmentCoordinator = ChatAttachmentCoordinator(loader: chatAttachmentLoader)
     self.chatSession = chatSession
+    self.composerSessionState = Self.composerSessionState(for: chatSession)
     configureModelRuntimeCallbacks()
   }
 }
@@ -229,6 +233,41 @@ extension ChatSessionController {
     modelRuntime.onError = { [weak self] message in
       self?.errorMessage = message
     }
+  }
+
+  private func syncComposerSessionState() {
+    let nextState = Self.composerSessionState(for: chatSession)
+    guard composerSessionState != nextState else {
+      return
+    }
+    composerSessionState = nextState
+  }
+
+  private static func composerSessionState(for session: ChatSession) -> ChatComposerSessionState {
+    ChatComposerSessionState(
+      pendingAttachments: session.pendingAttachments,
+      activeAttachments: activeAttachments(in: session),
+      interactionMode: session.interactionMode,
+      todoState: visibleTodoState(in: session)
+    )
+  }
+
+  private static func activeAttachments(in session: ChatSession) -> [ChatAttachment] {
+    let activeIDs = Set(session.activeAttachmentContext.attachmentIDs)
+    guard !activeIDs.isEmpty else {
+      return []
+    }
+    return session.pendingAttachments.filter { activeIDs.contains($0.id) }
+  }
+
+  private static func visibleTodoState(in session: ChatSession) -> TodoState? {
+    guard session.interactionMode == .agent,
+      let todoState = session.todoState,
+      !todoState.items.isEmpty
+    else {
+      return nil
+    }
+    return todoState
   }
 
   public func setSessionChangeHandler(_ handler: (@MainActor @Sendable () -> Void)?) {
@@ -371,6 +410,7 @@ extension ChatSessionController {
 
     let sentAttachments = attachmentsForTurn
     updateDefaultSessionTitleIfNeeded(fromFirstPrompt: prompt)
+    interruptPendingToolInteractionsForNewUserMessage()
     draft = ""
     errorMessage = nil
     chatSession.pendingAttachments.removeAll()
@@ -387,6 +427,78 @@ extension ChatSessionController {
       runtimeContextClearCoordinator: runtimeContextClearCoordinator,
       callbacks: turnCallbacks()
     )
+  }
+
+  private func interruptPendingToolInteractionsForNewUserMessage() {
+    var events: [ChatWorkflowEvent] = []
+    var interruptedTurnIDs: [ChatTurn.ID] = []
+
+    for turn in chatSession.turns {
+      var didInterruptTurn = false
+      for item in turn.items {
+        guard case .tool(let record) = item else {
+          continue
+        }
+
+        switch record.status {
+        case .awaitingApproval:
+          let deniedRecord = deniedInterruptedToolCall(record)
+          events.append(.toolCallUpdated(deniedRecord))
+          events.append(.toolResultAppended(toolResultMessage(for: deniedRecord), turnID: turn.id))
+          didInterruptTurn = true
+        case .awaitingUserAnswer:
+          var cancelledRecord = record
+          cancelledRecord.state = .cancelled
+          events.append(.toolCallUpdated(cancelledRecord))
+          didInterruptTurn = true
+        case .pending, .running, .completed, .denied, .failed, .cancelled:
+          continue
+        }
+      }
+
+      guard didInterruptTurn else {
+        continue
+      }
+      interruptedTurnIDs.append(turn.id)
+      events.append(
+        .turnStatusChanged(
+          turnID: turn.id,
+          status: .cancelled,
+          modelContextPolicy: .excluded
+        ))
+      events.append(.streamingAssistantMessagesCancelled(turnID: turn.id))
+    }
+
+    guard !interruptedTurnIDs.isEmpty else {
+      return
+    }
+
+    events.append(.transientAssistantPlaceholdersRemoved)
+    applyWorkflowEvents(events)
+  }
+
+  private func deniedInterruptedToolCall(_ record: ToolCallRecord) -> ToolCallRecord {
+    var deniedRecord = record
+    deniedRecord.state = .denied(interruptedToolFailurePayload(for: record))
+    return deniedRecord
+  }
+
+  private func toolResultMessage(for record: ToolCallRecord) -> ToolResultModelMessage {
+    ToolResultModelMessage(
+      callID: record.id,
+      toolName: record.request.toolName,
+      payload: record.resultPayload ?? interruptedToolFailurePayload(for: record)
+    )
+  }
+
+  private func interruptedToolFailurePayload(for record: ToolCallRecord) -> ToolResultPayload {
+    .failure(
+      ToolFailure(
+        toolName: record.request.toolName,
+        path: record.evaluation.firstModelFacingPath,
+        reason: .permissionDenied,
+        recovery: .askUser(message: "Tool call interrupted by a new user message.")
+      ))
   }
 
   private func updateDefaultSessionTitleIfNeeded(fromFirstPrompt prompt: String) {
@@ -581,7 +693,7 @@ extension ChatSessionController {
   }
 
   public var activeAttachmentContextAttachments: [ChatAttachment] {
-    []
+    composerSessionState.activeAttachments
   }
 
   private func notifySessionDidChange() {

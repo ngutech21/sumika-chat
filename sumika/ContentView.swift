@@ -129,7 +129,6 @@ struct ContentView: View {
           isWorkspaceTerminalVisible: $isTerminalVisible,
           isSidebarCollapsed: isSidebarCollapsed,
           onToggleSidebar: toggleSidebarVisibility,
-          onAddAttachments: chooseAttachments,
           onAddWorkspace: chooseWorkspace
         )
       }
@@ -171,19 +170,6 @@ struct ContentView: View {
     }
   }
 
-  private func chooseAttachments() {
-    let panel = NSOpenPanel()
-    panel.canChooseFiles = true
-    panel.canChooseDirectories = false
-    panel.allowsMultipleSelection = true
-    panel.canCreateDirectories = false
-    panel.message = "Choose text files to add as model context."
-    panel.prompt = "Add"
-
-    if panel.runModal() == .OK {
-      appState.chatController.addAttachments(from: panel.urls)
-    }
-  }
 }
 
 #Preview {
@@ -243,7 +229,6 @@ private struct WorkspaceRouteHost: View {
   @Binding var isWorkspaceTerminalVisible: Bool
   let isSidebarCollapsed: Bool
   let onToggleSidebar: () -> Void
-  let onAddAttachments: () -> Void
   let onAddWorkspace: () -> Void
 
   var body: some View {
@@ -257,7 +242,6 @@ private struct WorkspaceRouteHost: View {
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
         isSidebarCollapsed: isSidebarCollapsed,
         onToggleSidebar: onToggleSidebar,
-        onAddAttachments: onAddAttachments,
         onOpenWorkspaceInFinder: appState.workspaceState.openActiveWorkspaceInFinder,
         onOpenWorkspaceInVisualStudioCode: appState.workspaceState
           .openActiveWorkspaceInVisualStudioCode

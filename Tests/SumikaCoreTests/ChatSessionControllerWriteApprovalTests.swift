@@ -43,6 +43,96 @@ struct ChatSessionControllerWriteApprovalTests {
   }
 
   @Test
+  func pendingApprovalDoesNotBlockCanSend() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("movies.html"),
+              "content": .string("<!doctype html>\n<html>Movies</html>\n"),
+            ]
+          ))
+      ]
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.draft = "create a html file in the current folder"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
+
+    controller.draft = "skip that and explain the current state"
+
+    #expect(controller.hasPendingApproval)
+    #expect(controller.canSend)
+  }
+
+  @Test
+  func sendingNewMessageInterruptsPendingApprovalWithoutResumingOldTurn() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("movies.html"),
+              "content": .string("<!doctype html>\n<html>Movies</html>\n"),
+            ]
+          ))
+      ],
+      [.chunk("I will explain the current state instead.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.draft = "create a html file in the current folder"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
+    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
+
+    controller.draft = "skip that and explain the current state"
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil {
+      controller.chatSession.turns.count == 2 && !controller.isGenerating
+    }
+
+    let outputURL = workspace.rootURL.appending(path: "movies.html")
+    #expect(!FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)))
+    #expect(controller.chatSession.turns[0].status == .cancelled)
+    #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
+    #expect(controller.chatSession.toolCalls.first?.status == .denied)
+    #expect(controller.chatSession.toolCalls.first?.resultPreview?.status == .denied)
+    #expect(controller.chatSession.turns[1].status == .completed)
+    #expect(controller.chatSession.testMessages.last?.content == "I will explain the current state instead.")
+
+    controller.approveToolCall(id: toolCallID, in: workspace)
+    await Task.yield()
+
+    #expect(controller.chatSession.toolCalls.first?.status == .denied)
+    #expect(controller.chatSession.turns[0].status == .cancelled)
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 2)
+    #expect(
+      capturedMessages[1].contains { message in
+        message.role == .user && message.content.contains("skip that and explain the current state")
+      })
+    #expect(
+      !capturedMessages[1].contains { message in
+        message.role == .user && message.content.contains("create a html file")
+      })
+  }
+
+  @Test
   func approvingNativeWriteFileWritesContentAndAllowsFinalAssistantResponse() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

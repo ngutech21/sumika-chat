@@ -312,6 +312,65 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func sendingNewMessageInterruptsPendingAskUserWithoutResumingOldTurn() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "ask_user",
+            arguments: [
+              "question": .string("Which implementation should I use?"),
+              "option1": .string("Minimal fix"),
+              "option2": .string("Broader refactor"),
+            ]
+          ))
+      ],
+      [.chunk("I will follow the new instruction.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.draft = "implement the feature"
+
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingUserAnswer }
+    let record = try #require(controller.chatSession.toolCalls.first)
+
+    controller.draft = "ignore that question and use the broader refactor"
+    controller.sendMessage(in: workspace, sessionID: sessionID)
+
+    try await waitUntil {
+      controller.chatSession.turns.count == 2 && !controller.isGenerating
+    }
+
+    #expect(controller.chatSession.turns[0].status == .cancelled)
+    #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
+    #expect(controller.chatSession.toolCalls.first?.status == .cancelled)
+    #expect(controller.chatSession.turns[1].status == .completed)
+    #expect(controller.chatSession.testMessages.last?.content == "I will follow the new instruction.")
+
+    controller.answerAskUserToolCall(id: record.id, answer: "Minimal fix", in: workspace)
+    await Task.yield()
+
+    #expect(controller.chatSession.toolCalls.first?.status == .cancelled)
+    #expect(controller.chatSession.turns[0].status == .cancelled)
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 2)
+    #expect(
+      capturedMessages[1].contains { message in
+        message.role == .user
+          && message.content.contains("ignore that question and use the broader refactor")
+      })
+    #expect(
+      !capturedMessages[1].contains { message in
+        message.role == .user && message.content.contains("User answered:")
+      })
+  }
+
+  @Test
   func failedEditFileResultLetsModelRecoverWithReadFile() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
