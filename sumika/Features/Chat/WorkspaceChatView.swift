@@ -13,12 +13,7 @@ struct WorkspaceChatView: View {
   let onAddAttachments: () -> Void
   let onOpenWorkspaceInFinder: () -> Void
   let onOpenWorkspaceInVisualStudioCode: () -> Void
-  @State private var htmlPreview: HTMLPreviewState?
-  @State private var htmlPreviewRequestID = UUID()
-  @State private var filePreview: FilePreviewState?
-
-  private let htmlPreviewResolver = HTMLPreviewResolver()
-  private let filePreviewResolver = FilePreviewResolver()
+  @State private var previewState = WorkspacePreviewFeatureState()
 
   var body: some View {
     #if DEBUG
@@ -68,11 +63,9 @@ struct WorkspaceChatView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-      if isPreviewVisible {
+      if previewState.isVisible {
         WorkspacePreviewHost(
-          htmlPreview: $htmlPreview,
-          htmlPreviewRequestID: htmlPreviewRequestID,
-          filePreview: $filePreview,
+          previewState: previewState,
           browserToolService: browserToolService
         )
       }
@@ -96,15 +89,9 @@ struct WorkspaceChatView: View {
     }
   }
 
-  private var isPreviewVisible: Bool {
-    htmlPreview != nil || filePreview != nil
-  }
-
   private func runPreviewCommand(path: String) -> Bool {
     do {
-      htmlPreview = try htmlPreviewResolver.resolve(path: path, in: workspace)
-      htmlPreviewRequestID = UUID()
-      filePreview = nil
+      try previewState.showHTMLPreview(path: path, in: workspace)
       controller.draft = ""
       controller.errorMessage = nil
       return true
@@ -116,7 +103,7 @@ struct WorkspaceChatView: View {
 
   private func runShowCommand(path: String) -> Bool {
     do {
-      filePreview = try filePreviewResolver.resolve(path: path, in: workspace)
+      try previewState.showFilePreview(path: path, in: workspace)
       controller.draft = ""
       controller.errorMessage = nil
       return true

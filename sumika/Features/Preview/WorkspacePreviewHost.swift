@@ -1,9 +1,7 @@
 import SwiftUI
 
 struct WorkspacePreviewHost: View {
-  @Binding var htmlPreview: HTMLPreviewState?
-  let htmlPreviewRequestID: UUID
-  @Binding var filePreview: FilePreviewState?
+  let previewState: WorkspacePreviewFeatureState
   let browserToolService: HTMLPreviewBrowserToolService
   @State private var htmlPreviewRefreshID = UUID()
   @State private var htmlPreviewConsoleEntries: [HTMLPreviewConsoleEntry] = []
@@ -15,14 +13,14 @@ struct WorkspacePreviewHost: View {
     #endif
 
     previewContent
-      .onChange(of: htmlPreviewRequestID) {
+      .onChange(of: previewState.htmlPreviewRequestID) {
         resetHTMLPreviewConsole()
       }
   }
 
   @ViewBuilder
   private var previewContent: some View {
-    if let htmlPreview {
+    if let htmlPreview = previewState.htmlPreview {
       HTMLPreviewPane(
         preview: htmlPreview,
         refreshID: htmlPreviewRefreshID,
@@ -39,7 +37,7 @@ struct WorkspacePreviewHost: View {
         },
         onClose: {
           resetHTMLPreviewConsole()
-          self.htmlPreview = nil
+          previewState.closeHTMLPreview()
           Task {
             await browserToolService.clear()
           }
@@ -48,11 +46,11 @@ struct WorkspacePreviewHost: View {
       .transition(.move(edge: .trailing).combined(with: .opacity))
     }
 
-    if let filePreview {
+    if let filePreview = previewState.filePreview {
       FilePreviewPane(
         preview: filePreview,
         onClose: {
-          self.filePreview = nil
+          previewState.closeFilePreview()
         }
       )
       .transition(.move(edge: .trailing).combined(with: .opacity))
