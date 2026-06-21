@@ -40,23 +40,23 @@
 
 /* Begin PBXFileReference section */
 		F9071FA72FCDAD93000A270C /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
-		F910000A2FD0720000A270C /* SumikaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "SumikaTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		F940000A2FD4000000A270C /* SumikaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "SumikaUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		F910000A2FD0720000A270C /* SumikaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SumikaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F940000A2FD4000000A270C /* SumikaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SumikaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F9D7F5FB2FCC80CD00FECA78 /* Sumika Chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Sumika Chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F91000092FD0720000A270C /* SumikaTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "SumikaTests";
+			path = SumikaTests;
 			sourceTree = "<group>";
 		};
 		F94000092FD4000000A270C /* SumikaUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "SumikaUITests";
+			path = SumikaUITests;
 			sourceTree = "<group>";
 		};
-		F9D7F5FD2FCC80CD00FECA78 /* Sumika */ = {
+		F9D7F5FD2FCC80CD00FECA78 /* sumika */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = sumika;
 			sourceTree = "<group>";
@@ -104,7 +104,7 @@
 			isa = PBXGroup;
 			children = (
 				F9071FA72FCDAD93000A270C /* LICENSE */,
-				F9D7F5FD2FCC80CD00FECA78 /* Sumika */,
+				F9D7F5FD2FCC80CD00FECA78 /* sumika */,
 				F91000092FD0720000A270C /* SumikaTests */,
 				F94000092FD4000000A270C /* SumikaUITests */,
 				F9D7F5FC2FCC80CD00FECA78 /* Products */,
@@ -140,10 +140,10 @@
 			fileSystemSynchronizedGroups = (
 				F91000092FD0720000A270C /* SumikaTests */,
 			);
-			name = "SumikaTests";
+			name = SumikaTests;
 			packageProductDependencies = (
 			);
-			productName = "SumikaTests";
+			productName = SumikaTests;
 			productReference = F910000A2FD0720000A270C /* SumikaTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
@@ -163,10 +163,10 @@
 			fileSystemSynchronizedGroups = (
 				F94000092FD4000000A270C /* SumikaUITests */,
 			);
-			name = "SumikaUITests";
+			name = SumikaUITests;
 			packageProductDependencies = (
 			);
-			productName = "SumikaUITests";
+			productName = SumikaUITests;
 			productReference = F940000A2FD4000000A270C /* SumikaUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
@@ -183,7 +183,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				F9D7F5FD2FCC80CD00FECA78 /* Sumika */,
+				F9D7F5FD2FCC80CD00FECA78 /* sumika */,
 			);
 			name = Sumika;
 			packageProductDependencies = (
@@ -550,11 +550,13 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sumika Chat";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -563,7 +565,6 @@
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_CFBundleDisplayName = "Sumika Chat";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
@@ -595,13 +596,24 @@
 				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				AUTOMATION_APPLE_EVENTS = NO;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = G8Z2RHV3P5;
 				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sumika Chat";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -610,7 +622,6 @@
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_CFBundleDisplayName = "Sumika Chat";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
@@ -619,10 +630,16 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=targeted";
-				PRODUCT_BUNDLE_IDENTIFIER = "ngutech21.sumika-chat";
+				PRODUCT_BUNDLE_IDENTIFIER = sumika.chat;
 				PRODUCT_MODULE_NAME = Sumika;
 				PRODUCT_NAME = "Sumika Chat";
 				REGISTER_APP_GROUPS = YES;
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = macosx;
