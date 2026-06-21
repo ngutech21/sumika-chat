@@ -19,9 +19,8 @@ struct ChatSessionControllerToolLoopTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "read the README repeatedly"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "read the README repeatedly", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !controller.isGenerating }
 
@@ -59,9 +58,7 @@ struct ChatSessionControllerToolLoopTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "make a focused change"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !controller.isGenerating }
 
@@ -75,8 +72,7 @@ struct ChatSessionControllerToolLoopTests {
     #expect(capturedSystemPrompts[1].contains("- [pending] Run tests"))
 
     controller.setInteractionMode(.agent)
-    controller.draft = "inspect without plan"
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "inspect without plan", in: workspace, sessionID: sessionID)
     try await waitUntil { !controller.isGenerating }
 
     let promptsAfterSecondAgentTurn = await runtime.capturedSystemPrompts
@@ -112,9 +108,7 @@ struct ChatSessionControllerToolLoopTests {
     )
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "make a focused change"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !controller.isGenerating }
 
@@ -168,9 +162,7 @@ struct ChatSessionControllerToolLoopTests {
     )
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "make a focused change"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
 
     controller.configureAgentTools(todoWriteEnabled: true)
@@ -191,8 +183,7 @@ struct ChatSessionControllerToolLoopTests {
     let firstToolContext = try #require(capturedToolContexts.first ?? nil)
     #expect(firstToolContext.registry.definition(for: .todoWrite) == nil)
 
-    controller.draft = "continue"
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "continue", in: workspace, sessionID: sessionID)
     try await waitUntil { !controller.isGenerating }
 
     let prompts = await runtime.capturedSystemPrompts
@@ -232,9 +223,7 @@ struct ChatSessionControllerToolLoopTests {
     )
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "make a focused change"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
 
     controller.configureAgentTools(todoWriteEnabled: false)
@@ -251,8 +240,7 @@ struct ChatSessionControllerToolLoopTests {
     let firstToolContext = try #require(capturedToolContexts.first ?? nil)
     #expect(firstToolContext.registry.definition(for: .todoWrite) != nil)
 
-    controller.draft = "continue"
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "continue", in: workspace, sessionID: sessionID)
     try await waitUntil { !controller.isGenerating }
 
     let prompts = await runtime.capturedSystemPrompts
@@ -280,9 +268,7 @@ struct ChatSessionControllerToolLoopTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "implement the feature"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "implement the feature", in: workspace, sessionID: sessionID)
 
     try await waitUntil { controller.chatSession.turns.first?.status == .awaitingUserAnswer }
 
@@ -332,14 +318,13 @@ struct ChatSessionControllerToolLoopTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "implement the feature"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "implement the feature", in: workspace, sessionID: sessionID)
     try await waitUntil { controller.chatSession.turns.first?.status == .awaitingUserAnswer }
     let record = try #require(controller.chatSession.toolCalls.first)
 
-    controller.draft = "ignore that question and use the broader refactor"
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "ignore that question and use the broader refactor", in: workspace,
+      sessionID: sessionID)
 
     try await waitUntil {
       controller.chatSession.turns.count == 2 && !controller.isGenerating
@@ -349,7 +334,8 @@ struct ChatSessionControllerToolLoopTests {
     #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
     #expect(controller.chatSession.toolCalls.first?.status == .cancelled)
     #expect(controller.chatSession.turns[1].status == .completed)
-    #expect(controller.chatSession.testMessages.last?.content == "I will follow the new instruction.")
+    #expect(
+      controller.chatSession.testMessages.last?.content == "I will follow the new instruction.")
 
     controller.answerAskUserToolCall(id: record.id, answer: "Minimal fix", in: workspace)
     await Task.yield()
@@ -398,9 +384,8 @@ struct ChatSessionControllerToolLoopTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "replace missing text in README"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "replace missing text in README", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !controller.isGenerating }
 
@@ -448,12 +433,10 @@ struct ChatSessionControllerToolLoopTests {
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
 
-    controller.draft = "read README.md"
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "read README.md", in: workspace, sessionID: sessionID)
     try await waitUntil { !controller.isGenerating }
 
-    controller.draft = "list files"
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "list files", in: workspace, sessionID: sessionID)
     try await waitUntil { !controller.isGenerating && controller.chatSession.toolCalls.count == 2 }
 
     #expect(controller.chatSession.turns.count == 2)

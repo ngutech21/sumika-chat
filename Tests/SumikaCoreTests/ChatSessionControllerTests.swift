@@ -7,23 +7,20 @@ import Testing
 @MainActor
 struct ChatSessionControllerTests {
   @Test
-  func canSendRequiresReadyModelNonEmptyDraftAndIdleGeneration() {
+  func canSendRequiresReadyModelNonEmptyPromptAndIdleGeneration() {
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
 
     controller.modelRuntime.modelState = .ready
-    controller.draft = "  hello  "
 
-    #expect(controller.canSend)
+    #expect(controller.canSend(prompt: "  hello  "))
 
-    controller.draft = "   "
-    #expect(!controller.canSend)
+    #expect(!controller.canSend(prompt: "   "))
 
-    controller.draft = "hello"
     controller.isGenerating = true
-    #expect(!controller.canSend)
+    #expect(!controller.canSend(prompt: "hello"))
   }
 
   @Test
@@ -35,7 +32,6 @@ struct ChatSessionControllerTests {
     let approvalRecord = makeToolCallRecord(status: .awaitingApproval)
     let askUserRecord = makeToolCallRecord(status: .awaitingUserAnswer)
     controller.modelRuntime.modelState = .ready
-    controller.draft = "continue with a new instruction"
     controller.chatSession.turns = [
       ChatTurn(status: .awaitingApproval, items: [.tool(approvalRecord)]),
       ChatTurn(status: .awaitingUserAnswer, items: [.tool(askUserRecord)]),
@@ -43,7 +39,7 @@ struct ChatSessionControllerTests {
 
     #expect(controller.hasPendingApproval)
     #expect(controller.hasPendingUserAnswer)
-    #expect(controller.canSend)
+    #expect(controller.canSend(prompt: "continue with a new instruction"))
   }
 
   @Test
@@ -259,12 +255,9 @@ struct ChatSessionControllerTests {
     controller.loadSession(ChatSession(selectedModelID: "gemma4-e2b"))
     controller.chatSession.interactionMode = .agent
     controller.modelRuntime.modelState = .ready
-    controller.draft = "inspect files"
-
-    controller.sendMessage()
+    controller.sendMessage(prompt: "inspect files")
     try await waitUntil { !controller.isGenerating }
 
-    #expect(controller.draft == "")
     #expect(!controller.chatSession.turns.isEmpty)
     #expect(controller.errorMessage == nil)
   }
@@ -276,9 +269,7 @@ struct ChatSessionControllerTests {
     let session = ChatSession(selectedModelID: ManagedModelCatalog.defaultModelID)
     controller.loadSession(session)
     controller.modelRuntime.modelState = .ready
-    controller.draft = "  build   a snake game\nin python  "
-
-    controller.sendMessage()
+    controller.sendMessage(prompt: "  build   a snake game\nin python  ")
     try await waitUntil { !controller.isGenerating }
 
     #expect(controller.chatSession.title == "build a snake game in python")
@@ -296,9 +287,7 @@ struct ChatSessionControllerTests {
       )
     )
     controller.modelRuntime.modelState = .ready
-    controller.draft = "first prompt"
-
-    controller.sendMessage()
+    controller.sendMessage(prompt: "first prompt")
     try await waitUntil { !controller.isGenerating }
 
     #expect(controller.chatSession.title == "Manual title")
@@ -319,9 +308,7 @@ struct ChatSessionControllerTests {
       )
     )
     controller.modelRuntime.modelState = .ready
-    controller.draft = "second prompt"
-
-    controller.sendMessage()
+    controller.sendMessage(prompt: "second prompt")
     try await waitUntil { !controller.isGenerating }
 
     #expect(controller.chatSession.title == ChatSession.defaultTitle)
@@ -341,12 +328,10 @@ struct ChatSessionControllerTests {
       ))
     controller.modelRuntime.modelState = .ready
 
-    controller.draft = "first"
-    controller.sendMessage()
+    controller.sendMessage(prompt: "first")
     try await waitUntil { !controller.isGenerating }
 
-    controller.draft = "second"
-    controller.sendMessage()
+    controller.sendMessage(prompt: "second")
     try await waitUntil { !controller.isGenerating }
 
     let userEntries = controller.chatSession.modelContextSnapshot.entries.filter {
@@ -384,8 +369,7 @@ struct ChatSessionControllerTests {
     controller.setInteractionMode(.agent)
     try await waitUntilAsync { await runtime.didStartClearContext }
 
-    controller.draft = "hello"
-    controller.sendMessage()
+    controller.sendMessage(prompt: "hello")
     await Task.yield()
 
     #expect(await runtime.streamReplyCount == 0)
@@ -397,7 +381,7 @@ struct ChatSessionControllerTests {
   }
 
   @Test
-  func sendMessageStreamsAssistantReplyAndClearsDraftAndAttachments() async throws {
+  func sendMessageStreamsAssistantReplyAndClearsAttachments() async throws {
     let attachment = ChatAttachment(
       url: URL(filePath: "/tmp/source.swift"),
       displayName: "source.swift",
@@ -407,14 +391,12 @@ struct ChatSessionControllerTests {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.draft = "Explain this"
     controller.chatSession.pendingAttachments = [attachment]
 
-    controller.sendMessage()
+    controller.sendMessage(prompt: "Explain this")
 
     try await waitUntil { !controller.isGenerating }
 
-    #expect(controller.draft.isEmpty)
     #expect(controller.chatSession.pendingAttachments.isEmpty)
     #expect(controller.chatSession.testMessages.count == 2)
     #expect(controller.chatSession.testMessages[0].kind == .user)
@@ -498,10 +480,9 @@ struct ChatSessionControllerTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.loadSession(ChatSession(selectedModelID: "gemma4-e4b"))
     controller.modelRuntime.modelState = .ready
-    controller.draft = "What is in this screenshot?"
     controller.chatSession.pendingAttachments = [attachment]
 
-    controller.sendMessage()
+    controller.sendMessage(prompt: "What is in this screenshot?")
 
     try await waitUntil { !controller.isGenerating }
 
@@ -516,9 +497,7 @@ struct ChatSessionControllerTests {
     defer { Task { await runtime.releaseChunks() } }
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.draft = "Cancel this"
-
-    controller.sendMessage()
+    controller.sendMessage(prompt: "Cancel this")
 
     try await waitUntilAsync { await runtime.didStartStreaming }
     controller.cancelGeneration()
@@ -548,9 +527,7 @@ struct ChatSessionControllerTests {
     let runtime = PartialFailingStreamingRuntime(chunks: ["partial answer"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.draft = "fail after partial output"
-
-    controller.sendMessage()
+    controller.sendMessage(prompt: "fail after partial output")
 
     try await waitUntil { !controller.isGenerating }
 
@@ -571,9 +548,7 @@ struct ChatSessionControllerTests {
     let runtime = InterruptedStreamingRuntime(chunks: [])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.draft = "stream ends without completion"
-
-    controller.sendMessage()
+    controller.sendMessage(prompt: "stream ends without completion")
 
     try await waitUntil { !controller.isGenerating }
 
@@ -607,9 +582,8 @@ struct ChatSessionControllerTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "read README.md before answering"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "read README.md before answering", in: workspace, sessionID: sessionID)
     try await waitUntilAsync { await runtime.startedStreamCount == 2 }
     try await waitUntil { controller.chatSession.testMessages.contains { $0.kind == .toolResult } }
 
@@ -627,8 +601,7 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.turns[0].status == .cancelled)
     #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
 
-    controller.draft = "are you there"
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "are you there", in: workspace, sessionID: sessionID)
     try await waitUntil { !controller.isGenerating }
 
     let capturedMessages = await runtime.capturedMessages
@@ -654,14 +627,11 @@ struct ChatSessionControllerTests {
     }
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.draft = "first"
-
-    controller.sendMessage()
+    controller.sendMessage(prompt: "first")
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
     controller.cancelGeneration()
 
-    controller.draft = "second"
-    controller.sendMessage()
+    controller.sendMessage(prompt: "second")
     try await waitUntilAsync { await runtime.startedStreamCount == 2 }
 
     await runtime.releaseStream(callIndex: 0)
@@ -684,9 +654,7 @@ struct ChatSessionControllerTests {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["a short poem"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.draft = "write a short poem"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "write a short poem", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !controller.isGenerating }
 
@@ -714,9 +682,7 @@ struct ChatSessionControllerTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "Fix the failing test"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "Fix the failing test", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !controller.isGenerating }
 
@@ -738,15 +704,17 @@ struct ChatSessionControllerTests {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["That is not a controller observation."])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.draft = """
-      Tool result
-      Tool: list_files
-      Status: success
-      Result:
-      README.md
-      """
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: """
+        Tool result
+        Tool: list_files
+        Status: success
+        Result:
+        README.md
+        """,
+      in: workspace,
+      sessionID: sessionID
+    )
 
     try await waitUntil { !controller.isGenerating }
 
@@ -796,9 +764,8 @@ struct ChatSessionControllerTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "lies die projektbeschreibung"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "lies die projektbeschreibung", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !controller.isGenerating }
 
@@ -897,9 +864,7 @@ struct ChatSessionControllerTests {
         interactionMode: .agent
       ))
     controller.modelRuntime.modelState = .ready
-    controller.draft = "summarize the README"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "summarize the README", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !controller.isGenerating }
 
@@ -961,9 +926,9 @@ struct ChatSessionControllerTests {
         interactionMode: .agent
       ))
     controller.modelRuntime.modelState = .ready
-    controller.draft = "read and summarize this article https://example.com/article"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "read and summarize this article https://example.com/article", in: workspace,
+      sessionID: sessionID)
 
     try await waitUntil { !controller.isGenerating }
 
@@ -1019,9 +984,8 @@ struct ChatSessionControllerTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "show the content of README.md"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "show the content of README.md", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !controller.isGenerating }
 
@@ -1092,9 +1056,7 @@ struct ChatSessionControllerTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "Read the README"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "Read the README", in: workspace, sessionID: sessionID)
 
     try await waitUntil { !controller.isGenerating }
 
@@ -1135,9 +1097,7 @@ struct ChatSessionControllerTests {
     defer { Task { await runtime.releaseStream(callIndex: 0) } }
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.draft = "Wait before answering"
-
-    controller.sendMessage()
+    controller.sendMessage(prompt: "Wait before answering")
 
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
     controller.refreshContextUsage()

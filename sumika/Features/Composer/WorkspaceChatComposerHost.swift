@@ -19,13 +19,10 @@ struct WorkspaceChatComposerHost: View {
         break
       }
 
-      controller.draft = submittedDraft
       if let sessionID {
-        controller.sendMessage(in: workspace, sessionID: sessionID)
-      } else {
-        controller.sendMessage(in: workspace)
+        return controller.sendMessage(prompt: submittedDraft, in: workspace, sessionID: sessionID)
       }
-      return controller.draft.isEmpty
+      return controller.sendMessage(prompt: submittedDraft, in: workspace)
     }
   }
 
@@ -149,7 +146,6 @@ struct WorkspaceChatComposerHost: View {
   private func runPreviewCommand(path: String) -> Bool {
     do {
       try previewState.showHTMLPreview(path: path, in: workspace)
-      controller.draft = ""
       controller.errorMessage = nil
       return true
     } catch {
@@ -161,7 +157,6 @@ struct WorkspaceChatComposerHost: View {
   private func runShowCommand(path: String) -> Bool {
     do {
       try previewState.showFilePreview(path: path, in: workspace)
-      controller.draft = ""
       controller.errorMessage = nil
       return true
     } catch {

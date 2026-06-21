@@ -17,7 +17,6 @@ public final class ChatSessionController {
   public var contextUsage: ChatContextUsage?
   public var runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
   public private(set) var modelContextDebugRevision = 0
-  public var draft = ""
   public var isGenerating = false
   public var errorMessage: String?
 
@@ -47,9 +46,9 @@ public final class ChatSessionController {
     )
   #endif
 
-  public var canSend: Bool {
+  public func canSend(prompt: String) -> Bool {
     modelRuntime.modelState == .ready
-      && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && !isGenerating
   }
 
@@ -382,36 +381,46 @@ extension ChatSessionController {
     flushPendingContextUsageRefresh(defaultMode: contextRefreshMode)
   }
 
-  public func sendMessage() {
-    sendMessage(workspace: nil, sessionID: nil)
+  @discardableResult
+  public func sendMessage(prompt: String) -> Bool {
+    sendMessage(prompt: prompt, workspace: nil, sessionID: nil)
   }
 
-  public func sendMessage(in workspace: Workspace, sessionID: ChatSession.ID) {
-    sendMessage(workspace: workspace, sessionID: sessionID)
+  @discardableResult
+  public func sendMessage(
+    prompt: String,
+    in workspace: Workspace,
+    sessionID: ChatSession.ID
+  ) -> Bool {
+    sendMessage(prompt: prompt, workspace: workspace, sessionID: sessionID)
   }
 
-  public func sendMessage(in workspace: Workspace) {
-    sendMessage(workspace: workspace, sessionID: workspace.sessions.first?.id)
+  @discardableResult
+  public func sendMessage(prompt: String, in workspace: Workspace) -> Bool {
+    sendMessage(prompt: prompt, workspace: workspace, sessionID: workspace.sessions.first?.id)
   }
 
-  private func sendMessage(workspace: Workspace?, sessionID: ChatSession.ID?) {
-    let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard canSend else { return }
+  private func sendMessage(
+    prompt rawPrompt: String,
+    workspace: Workspace?,
+    sessionID: ChatSession.ID?
+  ) -> Bool {
+    let prompt = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard canSend(prompt: rawPrompt) else { return false }
     guard modelRuntime.selectedModel.supports(interactionMode: chatSession.interactionMode) else {
       errorMessage = unsupportedInteractionModeMessage(for: modelRuntime.selectedModel)
-      return
+      return false
     }
     let attachmentsForTurn = attachmentsForCurrentTurn()
     guard modelRuntime.selectedModel.supportsImageInput || !attachmentsForTurn.hasImages
     else {
       errorMessage = unsupportedImageInputMessage(for: modelRuntime.selectedModel)
-      return
+      return false
     }
 
     let sentAttachments = attachmentsForTurn
     updateDefaultSessionTitleIfNeeded(fromFirstPrompt: prompt)
     interruptPendingToolInteractionsForNewUserMessage()
-    draft = ""
     errorMessage = nil
     chatSession.pendingAttachments.removeAll()
     chatSession.activeAttachmentContext = .empty
@@ -427,6 +436,7 @@ extension ChatSessionController {
       runtimeContextClearCoordinator: runtimeContextClearCoordinator,
       callbacks: turnCallbacks()
     )
+    return true
   }
 
   private func interruptPendingToolInteractionsForNewUserMessage() {

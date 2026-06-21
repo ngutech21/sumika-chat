@@ -92,9 +92,8 @@ struct AppStateTests {
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.chatController.modelRuntime.modelState = .ready
-    appState.chatController.draft = "Persist this"
-
-    appState.chatController.sendMessage(in: activeWorkspace, sessionID: activeSessionID)
+    appState.chatController.sendMessage(
+      prompt: "Persist this", in: activeWorkspace, sessionID: activeSessionID)
 
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
       let savedSession = library.workspaces.first?
@@ -604,9 +603,8 @@ struct AppStateTests {
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.chatController.setInteractionMode(.agent)
     appState.chatController.modelRuntime.modelState = .ready
-    appState.chatController.draft = "refresh the preview"
-
-    appState.chatController.sendMessage(in: workspace, sessionID: activeSessionID)
+    appState.chatController.sendMessage(
+      prompt: "refresh the preview", in: workspace, sessionID: activeSessionID)
 
     try await waitUntil {
       !appState.chatController.isGenerating
@@ -650,9 +648,8 @@ struct AppStateTests {
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.chatController.modelRuntime.modelState = .ready
     appState.chatController.setInteractionMode(.agent)
-    appState.chatController.draft = "inspect the project"
-
-    appState.chatController.sendMessage(in: activeWorkspace, sessionID: activeSessionID)
+    appState.chatController.sendMessage(
+      prompt: "inspect the project", in: activeWorkspace, sessionID: activeSessionID)
 
     try await waitUntil {
       !appState.chatController.isGenerating
@@ -704,9 +701,8 @@ struct AppStateTests {
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.chatController.modelRuntime.modelState = .ready
     appState.chatController.setInteractionMode(.agent)
-    appState.chatController.draft = "inspect the project"
-
-    appState.chatController.sendMessage(in: activeWorkspace, sessionID: activeSessionID)
+    appState.chatController.sendMessage(
+      prompt: "inspect the project", in: activeWorkspace, sessionID: activeSessionID)
 
     try await waitUntil {
       !appState.chatController.isGenerating

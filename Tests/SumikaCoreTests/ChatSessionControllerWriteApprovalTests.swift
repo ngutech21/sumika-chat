@@ -25,9 +25,8 @@ struct ChatSessionControllerWriteApprovalTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "create a html file in the current folder"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
 
     try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
 
@@ -61,15 +60,12 @@ struct ChatSessionControllerWriteApprovalTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "create a html file in the current folder"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
     try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
 
-    controller.draft = "skip that and explain the current state"
-
     #expect(controller.hasPendingApproval)
-    #expect(controller.canSend)
+    #expect(controller.canSend(prompt: "skip that and explain the current state"))
   }
 
   @Test
@@ -92,14 +88,13 @@ struct ChatSessionControllerWriteApprovalTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "create a html file in the current folder"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
     try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
     let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
 
-    controller.draft = "skip that and explain the current state"
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "skip that and explain the current state", in: workspace, sessionID: sessionID)
 
     try await waitUntil {
       controller.chatSession.turns.count == 2 && !controller.isGenerating
@@ -112,7 +107,9 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(controller.chatSession.toolCalls.first?.status == .denied)
     #expect(controller.chatSession.toolCalls.first?.resultPreview?.status == .denied)
     #expect(controller.chatSession.turns[1].status == .completed)
-    #expect(controller.chatSession.testMessages.last?.content == "I will explain the current state instead.")
+    #expect(
+      controller.chatSession.testMessages.last?.content
+        == "I will explain the current state instead.")
 
     controller.approveToolCall(id: toolCallID, in: workspace)
     await Task.yield()
@@ -153,9 +150,8 @@ struct ChatSessionControllerWriteApprovalTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "create a html file in the current folder"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(
+      prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
     try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
     let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
 
@@ -203,9 +199,7 @@ struct ChatSessionControllerWriteApprovalTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
-    controller.draft = "update the readme"
-
-    controller.sendMessage(in: workspace, sessionID: sessionID)
+    controller.sendMessage(prompt: "update the readme", in: workspace, sessionID: sessionID)
     try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
     let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
 
