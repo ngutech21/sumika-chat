@@ -11,12 +11,13 @@ struct WorkspaceTerminalConfiguration: Equatable {
   let environment: [String: String]
 
   init(
-    workspace: Workspace,
+    workspaceName: String,
+    rootURL: URL,
     processEnvironment: [String: String] = ProcessInfo.processInfo.environment
   ) {
     self.init(
-      workspaceName: workspace.name,
-      workingDirectoryPath: workspace.normalizedRootPath,
+      workspaceName: workspaceName,
+      workingDirectoryPath: Workspace.normalizedPath(for: rootURL),
       processEnvironment: processEnvironment
     )
   }

@@ -124,7 +124,7 @@ struct ContentView: View {
         )
       case .session:
         WorkspaceRouteHost(
-          activeWorkspace: appState.workspaceState.activeWorkspace,
+          activeWorkspaceContext: appState.workspaceState.activeWorkspace.map(WorkspaceChatContext.init),
           activeSessionID: appState.workspaceState.activeSessionID,
           controller: appState.chatController,
           browserToolService: appState.browserToolService,
@@ -230,7 +230,7 @@ private struct ModelsRouteHost: View {
 }
 
 private struct WorkspaceRouteHost: View {
-  let activeWorkspace: Workspace?
+  let activeWorkspaceContext: WorkspaceChatContext?
   let activeSessionID: ChatSession.ID?
   let controller: ChatSessionController
   let browserToolService: HTMLPreviewBrowserToolService
@@ -243,10 +243,10 @@ private struct WorkspaceRouteHost: View {
   let onOpenWorkspaceInVisualStudioCode: () -> Void
 
   var body: some View {
-    if let workspace = activeWorkspace {
+    if let context = activeWorkspaceContext {
       WorkspaceChatView(
         controller: controller,
-        workspace: workspace,
+        context: context,
         sessionID: activeSessionID,
         browserToolService: browserToolService,
         isModelContextDebugVisible: $isModelContextDebugVisible,

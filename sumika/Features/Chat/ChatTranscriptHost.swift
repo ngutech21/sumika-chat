@@ -3,7 +3,7 @@ import SwiftUI
 
 struct ChatTranscriptHost: View {
   let controller: ChatSessionController
-  let workspace: Workspace
+  let context: WorkspaceChatContext
 
   var body: some View {
     #if DEBUG
@@ -17,13 +17,17 @@ struct ChatTranscriptHost: View {
       modelState: controller.modelRuntime.modelState,
       isGenerating: controller.isGenerating,
       onApproveToolCall: { toolCallID in
-        controller.approveToolCall(id: toolCallID, in: workspace)
+        controller.approveToolCall(id: toolCallID, in: context.workspaceWithoutSessions)
       },
       onDenyToolCall: { toolCallID in
         controller.denyToolCall(id: toolCallID)
       },
       onAnswerAskUser: { toolCallID, answer in
-        controller.answerAskUserToolCall(id: toolCallID, answer: answer, in: workspace)
+        controller.answerAskUserToolCall(
+          id: toolCallID,
+          answer: answer,
+          in: context.workspaceWithoutSessions
+        )
       }
     )
   }

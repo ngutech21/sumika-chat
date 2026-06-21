@@ -3,7 +3,7 @@ import SwiftUI
 
 struct WorkspaceChatView: View {
   let controller: ChatSessionController
-  let workspace: Workspace
+  let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let browserToolService: HTMLPreviewBrowserToolService
   @Binding var isModelContextDebugVisible: Bool
@@ -21,63 +21,29 @@ struct WorkspaceChatView: View {
     #endif
 
     HStack(spacing: 0) {
-      VStack(spacing: 0) {
-        WorkspaceChatHeader(
-          workspaceName: workspace.name,
-          isSidebarCollapsed: isSidebarCollapsed,
-          onToggleSidebar: onToggleSidebar,
-          isWorkspaceTerminalVisible: isWorkspaceTerminalVisible,
-          onToggleTerminal: {
-            isWorkspaceTerminalVisible.toggle()
-          },
-          onOpenWorkspaceInFinder: onOpenWorkspaceInFinder,
-          onOpenWorkspaceInVisualStudioCode: onOpenWorkspaceInVisualStudioCode
-        )
+      WorkspaceChatMainColumn(
+        controller: controller,
+        context: context,
+        sessionID: sessionID,
+        previewState: previewState,
+        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
+        isSidebarCollapsed: isSidebarCollapsed,
+        onToggleSidebar: onToggleSidebar,
+        onOpenWorkspaceInFinder: onOpenWorkspaceInFinder,
+        onOpenWorkspaceInVisualStudioCode: onOpenWorkspaceInVisualStudioCode
+      )
 
-        ChatTranscriptHost(
-          controller: controller,
-          workspace: workspace
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      WorkspacePreviewSlot(
+        previewState: previewState,
+        browserToolService: browserToolService
+      )
 
-        WorkspaceChatComposerHost(
-          controller: controller,
-          workspace: workspace,
-          sessionID: sessionID,
-          previewState: previewState
-        )
-
-        if isWorkspaceTerminalVisible {
-          WorkspaceTerminalPane(
-            configuration: WorkspaceTerminalConfiguration(workspace: workspace),
-            onClose: {
-              isWorkspaceTerminalVisible = false
-            }
-          )
-          .id(workspace.id)
-          .transition(.opacity.combined(with: .move(edge: .bottom)))
-        }
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-      if previewState.isVisible {
-        WorkspacePreviewHost(
-          previewState: previewState,
-          browserToolService: browserToolService
-        )
-      }
-
-      if isModelContextDebugVisible {
-        ModelContextDebugPane(
-          controller: controller,
-          workspace: workspace,
-          sessionID: sessionID,
-          onClose: {
-            isModelContextDebugVisible = false
-          }
-        )
-        .transition(.move(edge: .trailing).combined(with: .opacity))
-      }
+      WorkspaceDebugSlot(
+        controller: controller,
+        context: context,
+        sessionID: sessionID,
+        isModelContextDebugVisible: $isModelContextDebugVisible
+      )
     }
     .onDisappear {
       Task {
@@ -86,6 +52,129 @@ struct WorkspaceChatView: View {
     }
   }
 
+}
+
+private struct WorkspaceChatMainColumn: View {
+  let controller: ChatSessionController
+  let context: WorkspaceChatContext
+  let sessionID: ChatSession.ID?
+  let previewState: WorkspacePreviewFeatureState
+  @Binding var isWorkspaceTerminalVisible: Bool
+  let isSidebarCollapsed: Bool
+  let onToggleSidebar: () -> Void
+  let onOpenWorkspaceInFinder: () -> Void
+  let onOpenWorkspaceInVisualStudioCode: () -> Void
+
+  var body: some View {
+    #if DEBUG
+      // swiftlint:disable:next redundant_discardable_let
+      let _ = Self._printChanges()
+    #endif
+
+    VStack(spacing: 0) {
+      WorkspaceChatHeader(
+        workspaceName: context.name,
+        isSidebarCollapsed: isSidebarCollapsed,
+        onToggleSidebar: onToggleSidebar,
+        isWorkspaceTerminalVisible: isWorkspaceTerminalVisible,
+        onToggleTerminal: {
+          isWorkspaceTerminalVisible.toggle()
+        },
+        onOpenWorkspaceInFinder: onOpenWorkspaceInFinder,
+        onOpenWorkspaceInVisualStudioCode: onOpenWorkspaceInVisualStudioCode
+      )
+
+      ChatTranscriptHost(
+        controller: controller,
+        context: context
+      )
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+      WorkspaceChatComposerHost(
+        controller: controller,
+        context: context,
+        sessionID: sessionID,
+        previewState: previewState
+      )
+
+      WorkspaceTerminalSlot(
+        context: context,
+        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible
+      )
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+private struct WorkspaceTerminalSlot: View {
+  let context: WorkspaceChatContext
+  @Binding var isWorkspaceTerminalVisible: Bool
+
+  var body: some View {
+    #if DEBUG
+      // swiftlint:disable:next redundant_discardable_let
+      let _ = Self._printChanges()
+    #endif
+
+    if isWorkspaceTerminalVisible {
+      WorkspaceTerminalPane(
+        configuration: WorkspaceTerminalConfiguration(
+          workspaceName: context.name,
+          rootURL: context.rootURL
+        ),
+        onClose: {
+          isWorkspaceTerminalVisible = false
+        }
+      )
+      .id(context.id)
+      .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+  }
+}
+
+private struct WorkspacePreviewSlot: View {
+  let previewState: WorkspacePreviewFeatureState
+  let browserToolService: HTMLPreviewBrowserToolService
+
+  var body: some View {
+    #if DEBUG
+      // swiftlint:disable:next redundant_discardable_let
+      let _ = Self._printChanges()
+    #endif
+
+    if previewState.isVisible {
+      WorkspacePreviewHost(
+        previewState: previewState,
+        browserToolService: browserToolService
+      )
+    }
+  }
+}
+
+private struct WorkspaceDebugSlot: View {
+  let controller: ChatSessionController
+  let context: WorkspaceChatContext
+  let sessionID: ChatSession.ID?
+  @Binding var isModelContextDebugVisible: Bool
+
+  var body: some View {
+    #if DEBUG
+      // swiftlint:disable:next redundant_discardable_let
+      let _ = Self._printChanges()
+    #endif
+
+    if isModelContextDebugVisible {
+      ModelContextDebugPane(
+        controller: controller,
+        context: context,
+        sessionID: sessionID,
+        onClose: {
+          isModelContextDebugVisible = false
+        }
+      )
+      .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
+  }
 }
 
 private struct WorkspaceChatHeader: View {

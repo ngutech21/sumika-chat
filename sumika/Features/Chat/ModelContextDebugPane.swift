@@ -4,7 +4,7 @@ import SwiftUI
 
 struct ModelContextDebugPane: View {
   let controller: ChatSessionController
-  let workspace: Workspace
+  let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let onClose: () -> Void
   @State private var documentResult: Result<ModelContextDebugDocument, Error>?
@@ -54,7 +54,7 @@ struct ModelContextDebugPane: View {
   private var documentRequestID: ModelContextDebugRequestID {
     ModelContextDebugRequestID(
       controllerID: ObjectIdentifier(controller),
-      workspaceID: workspace.id,
+      workspaceID: context.id,
       sessionID: sessionID,
       revision: controller.modelContextDebugRevision
     )
@@ -64,7 +64,7 @@ struct ModelContextDebugPane: View {
   private func refreshDocument() {
     documentResult = Result {
       try controller.modelContextDebugDocument(
-        workspace: workspace,
+        workspace: context.workspaceWithoutSessions,
         sessionID: sessionID
       )
     }

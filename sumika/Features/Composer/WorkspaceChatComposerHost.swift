@@ -4,7 +4,7 @@ import SwiftUI
 
 struct WorkspaceChatComposerHost: View {
   let controller: ChatSessionController
-  let workspace: Workspace
+  let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let previewState: WorkspacePreviewFeatureState
 
@@ -20,9 +20,13 @@ struct WorkspaceChatComposerHost: View {
       }
 
       if let sessionID {
-        return controller.sendMessage(prompt: submittedDraft, in: workspace, sessionID: sessionID)
+        return controller.sendMessage(
+          prompt: submittedDraft,
+          in: context.workspaceWithoutSessions,
+          sessionID: sessionID
+        )
       }
-      return controller.sendMessage(prompt: submittedDraft, in: workspace)
+      return controller.sendMessage(prompt: submittedDraft, in: context.workspaceWithoutSessions)
     }
   }
 
@@ -145,7 +149,7 @@ struct WorkspaceChatComposerHost: View {
 
   private func runPreviewCommand(path: String) -> Bool {
     do {
-      try previewState.showHTMLPreview(path: path, in: workspace)
+      try previewState.showHTMLPreview(path: path, in: context.workspaceWithoutSessions)
       controller.errorMessage = nil
       return true
     } catch {
@@ -156,7 +160,7 @@ struct WorkspaceChatComposerHost: View {
 
   private func runShowCommand(path: String) -> Bool {
     do {
-      try previewState.showFilePreview(path: path, in: workspace)
+      try previewState.showFilePreview(path: path, in: context.workspaceWithoutSessions)
       controller.errorMessage = nil
       return true
     } catch {

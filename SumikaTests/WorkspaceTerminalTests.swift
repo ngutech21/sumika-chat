@@ -7,13 +7,11 @@ import Testing
 struct WorkspaceTerminalTests {
   @Test
   func terminalConfigurationUsesWorkspaceRootAsWorkingDirectoryAndPWD() {
-    let workspace = Workspace(
-      name: "Project",
-      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory)
-    )
+    let rootURL = URL(filePath: "/tmp/project", directoryHint: .isDirectory)
 
     let configuration = WorkspaceTerminalConfiguration(
-      workspace: workspace,
+      workspaceName: "Project",
+      rootURL: rootURL,
       processEnvironment: [
         "SHELL": "/bin/bash",
         "PATH": "/usr/bin:/bin",
@@ -22,8 +20,8 @@ struct WorkspaceTerminalTests {
     )
 
     #expect(configuration.workspaceName == "Project")
-    #expect(configuration.workingDirectoryPath == Workspace.normalizedPath(for: workspace.rootURL))
-    #expect(configuration.environment["PWD"] == Workspace.normalizedPath(for: workspace.rootURL))
+    #expect(configuration.workingDirectoryPath == Workspace.normalizedPath(for: rootURL))
+    #expect(configuration.environment["PWD"] == Workspace.normalizedPath(for: rootURL))
     #expect(configuration.environment["CUSTOM"] == "value")
   }
 
