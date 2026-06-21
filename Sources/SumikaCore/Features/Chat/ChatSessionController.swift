@@ -14,9 +14,8 @@ public final class ChatSessionController {
     }
   }
   public private(set) var composerSessionState = ChatComposerSessionState()
+  public private(set) var modelContextDebugState = ModelContextDebugState()
   public var contextUsage: ChatContextUsage?
-  public var runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
-  public private(set) var modelContextDebugRevision = 0
   public var isGenerating = false
   public var errorMessage: String?
 
@@ -210,7 +209,7 @@ extension ChatSessionController {
       self.disableUnsupportedInteractionModeIfNeeded()
       self.chatSession.systemPrompt = settings.systemPrompt
       self.chatSession.generationSettings = settings.generationSettings
-      self.runtimeCacheDebugSnapshot = nil
+      self.updateRuntimeCacheDebugSnapshot(nil)
       self.invalidateModelContextDebugDocument()
       self.invalidateContextUsage()
       self.notifySessionDidChange()
@@ -223,7 +222,7 @@ extension ChatSessionController {
         return
       }
 
-      self.runtimeCacheDebugSnapshot = nil
+      self.updateRuntimeCacheDebugSnapshot(nil)
       self.invalidateContextUsage()
     }
     modelRuntime.onContextUsageShouldRefresh = { [weak self] in
@@ -282,7 +281,7 @@ extension ChatSessionController {
     let didResetRuntime = modelRuntime.applySessionModel(model)
     errorMessage = nil
     contextUsage = nil
-    runtimeCacheDebugSnapshot = nil
+    updateRuntimeCacheDebugSnapshot(nil)
     chatSession = session
     chatSession.pendingAttachments = []
     disableUnsupportedInteractionModeIfNeeded()
@@ -544,7 +543,7 @@ extension ChatSessionController {
 
   public func clearChatHistory() {
     transcriptMutator.clearTranscript(in: &chatSession)
-    runtimeCacheDebugSnapshot = nil
+    updateRuntimeCacheDebugSnapshot(nil)
     invalidateModelContextDebugDocument()
     invalidateContextUsage()
     notifySessionDidChange()
@@ -589,12 +588,31 @@ extension ChatSessionController {
     contextUsageCoordinator.invalidate(onEvent: handleContextUsageEvent(_:))
   }
 
+  private func updateRuntimeCacheDebugSnapshot(_ snapshot: RuntimeCacheDebugSnapshot?) {
+    let nextState = ModelContextDebugState(
+      runtimeCacheDebugSnapshot: snapshot,
+      documentRevision: modelContextDebugState.documentRevision
+    )
+    updateModelContextDebugState(nextState)
+  }
+
   private func invalidateModelContextDebugDocument() {
-    modelContextDebugRevision &+= 1
+    let nextState = ModelContextDebugState(
+      runtimeCacheDebugSnapshot: modelContextDebugState.runtimeCacheDebugSnapshot,
+      documentRevision: modelContextDebugState.documentRevision &+ 1
+    )
+    updateModelContextDebugState(nextState)
+  }
+
+  private func updateModelContextDebugState(_ nextState: ModelContextDebugState) {
+    guard modelContextDebugState != nextState else {
+      return
+    }
+    modelContextDebugState = nextState
   }
 
   private func clearRuntimeContextForReuse() {
-    runtimeCacheDebugSnapshot = nil
+    updateRuntimeCacheDebugSnapshot(nil)
     let operationID = modelRuntime.currentOperationID()
     runtimeContextClearCoordinator.clear(operationID: operationID) { [weak self] error in
       if let error {
@@ -867,7 +885,7 @@ extension ChatSessionController {
         self.invalidateModelContextDebugDocument()
       },
       updateRuntimeCacheDebugSnapshot: { [weak self] snapshot in
-        self?.runtimeCacheDebugSnapshot = snapshot
+        self?.updateRuntimeCacheDebugSnapshot(snapshot)
       },
       refreshContextUsage: { [weak self] mode in
         self?.refreshContextUsage(toolPromptMode: mode)

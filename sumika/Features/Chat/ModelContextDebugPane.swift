@@ -2,10 +2,42 @@ import AppKit
 import SumikaCore
 import SwiftUI
 
-struct ModelContextDebugPane: View {
+struct ModelContextDebugHost: View {
   let controller: ChatSessionController
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
+  let onClose: () -> Void
+
+  var body: some View {
+    #if DEBUG
+      // swiftlint:disable:next redundant_discardable_let
+      let _ = Self._printChanges()
+    #endif
+
+    let debugState = controller.modelContextDebugState
+    ModelContextDebugPane(
+      debugState: debugState,
+      requestID: ModelContextDebugRequestID(
+        controllerID: ObjectIdentifier(controller),
+        workspaceID: context.id,
+        sessionID: sessionID,
+        documentRevision: debugState.documentRevision
+      ),
+      makeDocument: {
+        try controller.modelContextDebugDocument(
+          workspace: context.workspaceWithoutSessions,
+          sessionID: sessionID
+        )
+      },
+      onClose: onClose
+    )
+  }
+}
+
+struct ModelContextDebugPane: View {
+  let debugState: ModelContextDebugState
+  let requestID: ModelContextDebugRequestID
+  let makeDocument: @MainActor () throws -> ModelContextDebugDocument
   let onClose: () -> Void
   @State private var documentResult: Result<ModelContextDebugDocument, Error>?
   @State private var didCopy = false
@@ -15,7 +47,7 @@ struct ModelContextDebugPane: View {
       switch documentResult {
       case .success(let document):
         header(for: document)
-        RuntimeCacheDebugSection(snapshot: controller.runtimeCacheDebugSnapshot)
+        RuntimeCacheDebugSection(snapshot: debugState.runtimeCacheDebugSnapshot)
         Divider()
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 10) {
@@ -46,35 +78,16 @@ struct ModelContextDebugPane: View {
       Divider()
     }
     .accessibilityIdentifier("modelContextDebug.pane")
-    .task(id: documentRequestID) {
+    .task(id: requestID) {
       refreshDocument()
     }
-  }
-
-  private var documentRequestID: ModelContextDebugRequestID {
-    ModelContextDebugRequestID(
-      controllerID: ObjectIdentifier(controller),
-      workspaceID: context.id,
-      sessionID: sessionID,
-      revision: controller.modelContextDebugRevision
-    )
   }
 
   @MainActor
   private func refreshDocument() {
     documentResult = Result {
-      try controller.modelContextDebugDocument(
-        workspace: context.workspaceWithoutSessions,
-        sessionID: sessionID
-      )
+      try makeDocument()
     }
-  }
-
-  private struct ModelContextDebugRequestID: Equatable {
-    let controllerID: ObjectIdentifier
-    let workspaceID: Workspace.ID
-    let sessionID: ChatSession.ID?
-    let revision: Int
   }
 
   private func header(for document: ModelContextDebugDocument) -> some View {
@@ -141,6 +154,13 @@ struct ModelContextDebugPane: View {
       didCopy = false
     }
   }
+}
+
+struct ModelContextDebugRequestID: Equatable {
+  let controllerID: ObjectIdentifier
+  let workspaceID: Workspace.ID
+  let sessionID: ChatSession.ID?
+  let documentRevision: Int
 }
 
 private struct ModelContextDebugMetric: View {

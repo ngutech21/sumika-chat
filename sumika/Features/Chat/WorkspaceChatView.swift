@@ -164,7 +164,7 @@ private struct WorkspaceDebugSlot: View {
     #endif
 
     if isModelContextDebugVisible {
-      ModelContextDebugPane(
+      ModelContextDebugHost(
         controller: controller,
         context: context,
         sessionID: sessionID,

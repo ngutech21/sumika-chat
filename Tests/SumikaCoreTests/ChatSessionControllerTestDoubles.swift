@@ -545,6 +545,7 @@ final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sen
 actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private let turns: [[ChatModelStreamEvent]]
   private let failingStreamReplyCalls: Set<Int>
+  private let debugSnapshot: RuntimeCacheDebugSnapshot?
   private var streamReplyCount = 0
   private(set) var capturedMessages: [[ProjectedModelContextEntry]] = []
   private(set) var capturedAttachments: [[ChatAttachment]] = []
@@ -552,14 +553,20 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private(set) var capturedToolContexts: [ChatRuntimeToolContext?] = []
   private(set) var capturedContextUsageSystemPrompts: [String] = []
 
-  init(chunks: [String] = []) {
+  init(chunks: [String] = [], debugSnapshot: RuntimeCacheDebugSnapshot? = nil) {
     self.turns = [chunks.map(ChatModelStreamEvent.chunk)]
     self.failingStreamReplyCalls = []
+    self.debugSnapshot = debugSnapshot
   }
 
-  init(eventTurns: [[ChatModelStreamEvent]], failingStreamReplyCalls: Set<Int> = []) {
+  init(
+    eventTurns: [[ChatModelStreamEvent]],
+    failingStreamReplyCalls: Set<Int> = [],
+    debugSnapshot: RuntimeCacheDebugSnapshot? = nil
+  ) {
     self.turns = eventTurns
     self.failingStreamReplyCalls = failingStreamReplyCalls
+    self.debugSnapshot = debugSnapshot
   }
 
   func load(configuration: ChatModelConfiguration) async throws {
@@ -569,6 +576,10 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   func unload() async {}
 
   func clearContext() async {}
+
+  func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
+    debugSnapshot
+  }
 
   func contextUsage(
     for transcript: ModelContextSnapshot,

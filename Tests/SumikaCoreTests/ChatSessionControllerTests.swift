@@ -249,6 +249,42 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func modelContextDebugStateTracksRevisionAndRuntimeCacheSnapshot() async throws {
+    let generationID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000123"))
+    let snapshot = RuntimeCacheDebugSnapshot(
+      generationID: generationID,
+      recordedAt: Date(timeIntervalSince1970: 1_234),
+      cacheMode: "session_reused",
+      cacheReason: "append_only_delta_reused",
+      reuseStrategy: "append_history_delta",
+      appendDeltaStartIndex: 1,
+      contextSignature: "current",
+      previousContextSignature: "previous",
+      appendOnly: true,
+      reusedMessageCount: 2,
+      appendedMessageCount: 1
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"], debugSnapshot: snapshot)
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let initialRevision = controller.modelContextDebugState.documentRevision
+
+    controller.loadSession(ChatSession(selectedModelID: ManagedModelCatalog.defaultModelID))
+
+    #expect(controller.modelContextDebugState.documentRevision > initialRevision)
+
+    controller.modelRuntime.modelState = .ready
+    controller.sendMessage(prompt: "hello")
+
+    try await waitUntil { controller.modelContextDebugState.runtimeCacheDebugSnapshot == snapshot }
+
+    let revisionAfterSend = controller.modelContextDebugState.documentRevision
+    controller.clearChatHistory()
+
+    #expect(controller.modelContextDebugState.runtimeCacheDebugSnapshot == nil)
+    #expect(controller.modelContextDebugState.documentRevision > revisionAfterSend)
+  }
+
+  @Test
   func sendMessageAllowsExperimentalGemma4PersistedToolMode() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["native mode response"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
