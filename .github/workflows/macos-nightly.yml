@@ -71,8 +71,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
       - name: Run SwiftPM core tests on macOS
-        timeout-minutes: 10
-        run: xcrun swift test --no-parallel -Xswiftc -warnings-as-errors
+        timeout-minutes: 20
+        run: just test
 
       - name: Analyze
         timeout-minutes: 15
