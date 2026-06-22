@@ -486,6 +486,11 @@ public struct AnyToolExecutor: Sendable {
 }
 
 public struct ToolExecutorRegistry: Sendable {
+  private static let chatWebExecutors = [
+    AnyToolExecutor(WebSearchToolExecutor()),
+    AnyToolExecutor(WebFetchToolExecutor()),
+  ]
+
   private static let readOnlyExecutors = [
     AnyToolExecutor(ReadFileToolExecutor()),
     AnyToolExecutor(ShowFileToolExecutor()),
@@ -521,6 +526,8 @@ public struct ToolExecutorRegistry: Sendable {
     ])
     return executors
   }
+
+  public static let chatWeb = ToolExecutorRegistry(chatWebExecutors)
 
   public static let readOnly = ToolExecutorRegistry(readOnlyExecutors)
 

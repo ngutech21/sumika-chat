@@ -25,6 +25,7 @@ public final class ChatSessionController {
   @ObservationIgnored private let contextUsageCoordinator: ContextUsageCoordinator
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
   @ObservationIgnored private var toolOrchestrator: ToolOrchestrator
+  @ObservationIgnored private var chatWebToolOrchestrator: ToolOrchestrator
   @ObservationIgnored private var toolLoopCoordinator: ToolLoopCoordinator
   @ObservationIgnored private let turnTracer: any TurnTracing
   @ObservationIgnored private let chatTurnCoordinator: ChatTurnCoordinator
@@ -64,7 +65,7 @@ public final class ChatSessionController {
   }
 
   public var canChangeInteractionMode: Bool {
-    !isGenerating
+    !isGenerating && !isInputBlocked
   }
 
   public convenience init() {
@@ -186,7 +187,9 @@ public final class ChatSessionController {
       initialOperationID: modelOperationID
     )
     self.toolOrchestrator = toolOrchestrator
+    self.chatWebToolOrchestrator = toolOrchestrator.replacingExecutorRegistry(.chatWeb)
     self.toolLoopCoordinator = ToolLoopCoordinator(
+      chatWebToolOrchestrator: chatWebToolOrchestrator,
       agentToolOrchestrator: toolOrchestrator,
       turnTracer: turnTracer
     )
@@ -357,7 +360,9 @@ extension ChatSessionController {
     shouldRefreshContext: Bool
   ) {
     toolOrchestrator = toolOrchestrator.replacingExecutorRegistry(executorRegistry)
+    chatWebToolOrchestrator = toolOrchestrator.replacingExecutorRegistry(.chatWeb)
     toolLoopCoordinator = ToolLoopCoordinator(
+      chatWebToolOrchestrator: chatWebToolOrchestrator,
       agentToolOrchestrator: toolOrchestrator,
       turnTracer: turnTracer
     )
@@ -782,10 +787,22 @@ extension ChatSessionController {
       existingRecord,
       in: workspace,
       turnID: turnID,
-      toolOrchestrator: toolOrchestrator,
+      toolOrchestrator: toolOrchestrator(for: existingRecord),
       runtime: turnRuntimeContext(),
       callbacks: turnCallbacks()
     )
+  }
+
+  private func toolOrchestrator(for record: ToolCallRecord) -> ToolOrchestrator {
+    guard chatSession.interactionMode == .chat else {
+      return toolOrchestrator
+    }
+    switch record.request.toolName {
+    case .webSearch, .webFetch:
+      return chatWebToolOrchestrator
+    default:
+      return toolOrchestrator
+    }
   }
 
   public func answerAskUserToolCall(

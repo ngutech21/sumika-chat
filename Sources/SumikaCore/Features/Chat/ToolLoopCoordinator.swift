@@ -8,6 +8,16 @@ public protocol ToolOrchestrating: Sendable {
 
 extension ToolOrchestrator: ToolOrchestrating {}
 
+public enum ToolExecutionProfile: Equatable, Sendable {
+  case disabled
+  case chatWeb
+  case agent
+
+  public var allowsToolLoop: Bool {
+    self != .disabled
+  }
+}
+
 public struct ToolLoopRequest: Sendable {
   public let workspace: Workspace
   public let sessionID: ChatSession.ID
@@ -16,6 +26,7 @@ public struct ToolLoopRequest: Sendable {
   public let items: [ChatTurnItem]
   public let focusedFileState: FocusedFileState
   public let interactionMode: WorkspaceInteractionMode
+  public let toolProfile: ToolExecutionProfile
   public let followUpPromptMode: ToolPromptMode
   public let toolLoopIteration: Int?
   public let toolCallingPolicy: ToolCallingPolicy
@@ -29,6 +40,7 @@ public struct ToolLoopRequest: Sendable {
     items: [ChatTurnItem],
     focusedFileState: FocusedFileState = .empty,
     interactionMode: WorkspaceInteractionMode = .agent,
+    toolProfile: ToolExecutionProfile = .agent,
     followUpPromptMode: ToolPromptMode = .afterToolResultCanContinue,
     toolLoopIteration: Int? = nil,
     toolCallingPolicy: ToolCallingPolicy = .nativeGemma4,
@@ -41,6 +53,7 @@ public struct ToolLoopRequest: Sendable {
     self.items = items
     self.focusedFileState = focusedFileState
     self.interactionMode = interactionMode
+    self.toolProfile = toolProfile
     self.followUpPromptMode = followUpPromptMode
     self.toolLoopIteration = toolLoopIteration
     self.toolCallingPolicy = toolCallingPolicy
@@ -49,16 +62,20 @@ public struct ToolLoopRequest: Sendable {
 }
 
 public struct ToolLoopCoordinator: Sendable {
+  private let chatWebToolOrchestrator: any ToolOrchestrating
   private let agentToolOrchestrator: any ToolOrchestrating
   private let focusedFileReducer: FocusedFileStateReducer
   private let turnTracer: any TurnTracing
 
   public init(
+    chatWebToolOrchestrator: any ToolOrchestrating = ToolOrchestrator(
+      executorRegistry: .chatWeb),
     agentToolOrchestrator: any ToolOrchestrating = ToolOrchestrator(
       executorRegistry: .codingAgent),
     focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer(),
     turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
+    self.chatWebToolOrchestrator = chatWebToolOrchestrator
     self.agentToolOrchestrator = agentToolOrchestrator
     self.focusedFileReducer = focusedFileReducer
     self.turnTracer = turnTracer
@@ -68,9 +85,18 @@ public struct ToolLoopCoordinator: Sendable {
     agentToolOrchestrator.toolRegistry
   }
 
+  public func toolRegistry(for profile: ToolExecutionProfile) -> ToolRegistry {
+    guard let orchestrator = toolOrchestrator(for: profile) else {
+      return ToolRegistry(tools: [])
+    }
+    return orchestrator.toolRegistry
+  }
+
   public func run(_ request: ToolLoopRequest) async throws -> ChatWorkflowStep? {
     try Task.checkCancellation()
-    guard request.interactionMode != .chat else {
+    guard let toolOrchestrator = toolOrchestrator(for: request.toolProfile),
+      !toolOrchestrator.toolRegistry.tools.isEmpty
+    else {
       return nil
     }
 
@@ -82,7 +108,7 @@ public struct ToolLoopCoordinator: Sendable {
         ToolLoopNativeToolParser.parse(
           request.nativeToolCalls,
           policy: request.toolCallingPolicy,
-          registry: toolOrchestrator(for: request.interactionMode).toolRegistry,
+          registry: toolOrchestrator.toolRegistry,
           workspaceID: request.workspace.id,
           sessionID: request.sessionID
         )
@@ -125,10 +151,14 @@ public struct ToolLoopCoordinator: Sendable {
     )
   }
 
-  private func toolOrchestrator(for mode: WorkspaceInteractionMode) -> any ToolOrchestrating {
-    switch mode {
-    case .chat, .agent:
-      agentToolOrchestrator
+  private func toolOrchestrator(for profile: ToolExecutionProfile) -> (any ToolOrchestrating)? {
+    switch profile {
+    case .disabled:
+      return nil
+    case .chatWeb:
+      return chatWebToolOrchestrator
+    case .agent:
+      return agentToolOrchestrator
     }
   }
 
@@ -147,7 +177,10 @@ public struct ToolLoopCoordinator: Sendable {
 
     for output in outputs {
       let executeStartedAt = Date()
-      let record = await toolOrchestrator(for: request.interactionMode).execute(
+      guard let toolOrchestrator = toolOrchestrator(for: request.toolProfile) else {
+        return ChatWorkflowStep(events: events, continuation: .none)
+      }
+      let record = await toolOrchestrator.execute(
         request: output.request,
         workspace: request.workspace
       )

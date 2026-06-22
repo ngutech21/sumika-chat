@@ -265,7 +265,9 @@ flowchart TD
   returns generic `path:line[:column]: error|warning|note: message`
   diagnostics for paths inside the workspace. It does not run commands or
   return raw stdout/stderr.
-- `web_search` and `web_fetch` are Agent-only web tools. They are provider
+- `web_search` and `web_fetch` are web tools available to Chat and Agent
+  through explicit tool profiles. Chat uses a web-only registry containing only
+  these two tools; Agent uses the coding-agent registry. They are provider
   independent in the model-facing API and are gated by global
   `WebAccessPolicy`: off, ask each time, or allow. The model
   must not include private source code, secrets, full logs, or local paths in

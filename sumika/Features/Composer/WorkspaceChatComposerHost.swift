@@ -51,7 +51,7 @@ struct WorkspaceChatComposerHost: View {
       contextUsage: controller.contextUsage,
       canChangeModel: !localDownloadedModels.isEmpty && !isGenerating
         && controller.modelRuntime.canChangeModel,
-      canChangeInteractionMode: !isGenerating,
+      canChangeInteractionMode: controller.canChangeInteractionMode,
       canSend: controller.modelRuntime.modelState == .ready && !isGenerating,
       canRunLocalCommand: !isGenerating,
       isGenerating: isGenerating,

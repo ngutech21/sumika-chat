@@ -91,7 +91,7 @@ struct AppSettingsView: View {
         Text("Web Access")
       } footer: {
         Text(
-          "Lets the Agent search the web. Pick a provider, or point at a self-hosted SearXNG instance."
+          "Lets Chat and Agent use public web tools. Pick a provider, or point at a self-hosted SearXNG instance."
         )
       }
     }

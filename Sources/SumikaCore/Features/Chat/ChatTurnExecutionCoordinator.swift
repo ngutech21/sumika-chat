@@ -241,7 +241,13 @@ struct ChatTurnExecutionCoordinator {
     remainingIterations initialRemainingIterations: Int? = nil,
     lastNativeToolCalls: [ChatRuntimeToolCall] = []
   ) async throws -> Bool {
-    guard interactionMode.allowsToolLoop, let workspace, let sessionID else {
+    let toolProfile = activeToolProfile(
+      workspace: workspace,
+      sessionID: sessionID,
+      interactionMode: interactionMode,
+      selectedModel: runtime.selectedModel
+    )
+    guard toolProfile.allowsToolLoop, let workspace, let sessionID else {
       return true
     }
 
@@ -253,7 +259,7 @@ struct ChatTurnExecutionCoordinator {
     while remainingIterations > 0 {
       let toolLoopIteration = (maxToolLoopIterations - remainingIterations) + 1
       let followUpPromptMode: ToolPromptMode =
-        followUpPromptMode(for: interactionMode, remainingIterations: remainingIterations)
+        followUpPromptMode(for: toolProfile, remainingIterations: remainingIterations)
       guard
         let step = try await runtime.toolLoopCoordinator.run(
           ToolLoopRequest(
@@ -264,6 +270,7 @@ struct ChatTurnExecutionCoordinator {
             items: callbacks.session().turns.flatMap(\.items),
             focusedFileState: callbacks.session().focusedFileState,
             interactionMode: interactionMode,
+            toolProfile: toolProfile,
             followUpPromptMode: followUpPromptMode,
             toolLoopIteration: toolLoopIteration,
             toolCallingPolicy: toolCallingPolicy,
@@ -312,32 +319,37 @@ struct ChatTurnExecutionCoordinator {
     return true
   }
 
-  func toolsAvailable(
+  func activeToolProfile(
     workspace: Workspace?,
     sessionID: ChatSession.ID?,
     interactionMode: WorkspaceInteractionMode,
     selectedModel: ManagedModel
-  ) -> Bool {
+  ) -> ToolExecutionProfile {
     let toolAvailability = toolPromptPolicy.toolAvailability(
       workspace: workspace,
       sessionID: sessionID
     )
-    return toolAvailability == .availableForWorkspace
-      && interactionMode != .chat
-      && selectedModel.supportsWorkspaceTools
+    guard toolAvailability == .availableForWorkspace,
+      selectedModel.supportsWorkspaceTools
+    else {
+      return .disabled
+    }
+    switch interactionMode {
+    case .chat:
+      return .chatWeb
+    case .agent:
+      return .agent
+    }
   }
 
   func toolPromptMode(
-    for interactionMode: WorkspaceInteractionMode,
-    toolsAvailable: Bool
+    for toolProfile: ToolExecutionProfile
   ) -> ToolPromptMode {
-    guard toolsAvailable else {
+    switch toolProfile {
+    case .disabled:
       return .disabled
-    }
-
-    switch interactionMode {
-    case .chat:
-      return .disabled
+    case .chatWeb:
+      return .chatWeb
     case .agent:
       return .enabled(true)
     }
@@ -388,15 +400,13 @@ struct ChatTurnExecutionCoordinator {
     sessionID: ChatSession.ID?,
     selectedModel: ManagedModel
   ) -> ToolPromptMode {
-    let toolAvailability = toolPromptPolicy.toolAvailability(
-      workspace: workspace,
-      sessionID: sessionID
-    )
     return toolPromptMode(
-      for: session.interactionMode,
-      toolsAvailable: toolAvailability == .availableForWorkspace
-        && session.interactionMode != .chat
-        && selectedModel.supportsWorkspaceTools
+      for: activeToolProfile(
+        workspace: workspace,
+        sessionID: sessionID,
+        interactionMode: session.interactionMode,
+        selectedModel: selectedModel
+      )
     )
   }
 
@@ -412,7 +422,7 @@ struct ChatTurnExecutionCoordinator {
     switch toolPromptMode {
     case .disabled, .enabled(false):
       return nil
-    case .inspect, .afterInspectToolResultCanContinue, .afterToolResultCanContinue,
+    case .chatWeb, .afterChatWebToolResultCanContinue, .afterToolResultCanContinue,
       .afterToolResultFinal, .enabled(true):
       break
     }
@@ -425,16 +435,18 @@ struct ChatTurnExecutionCoordinator {
   }
 
   private func followUpPromptMode(
-    for interactionMode: WorkspaceInteractionMode,
+    for toolProfile: ToolExecutionProfile,
     remainingIterations: Int
   ) -> ToolPromptMode {
     guard remainingIterations > 1 else {
       return .afterToolResultFinal
     }
 
-    switch interactionMode {
-    case .chat:
+    switch toolProfile {
+    case .disabled:
       return .disabled
+    case .chatWeb:
+      return .afterChatWebToolResultCanContinue
     case .agent:
       return .afterToolResultCanContinue
     }
@@ -445,8 +457,8 @@ struct ChatTurnExecutionCoordinator {
     toolLoopCoordinator: ToolLoopCoordinator
   ) -> ToolRegistry {
     switch toolPromptMode {
-    case .inspect, .afterInspectToolResultCanContinue:
-      return ToolExecutorRegistry.readOnly.toolRegistry
+    case .chatWeb, .afterChatWebToolResultCanContinue:
+      return toolLoopCoordinator.toolRegistry(for: .chatWeb)
     case .enabled(true), .afterToolResultCanContinue:
       return toolLoopCoordinator.toolRegistry
     case .disabled, .enabled(false), .afterToolResultFinal:
@@ -504,17 +516,6 @@ struct ChatTurnExecutionCoordinator {
           interactionMode: interactionMode
         )
       )
-    }
-  }
-}
-
-extension WorkspaceInteractionMode {
-  var allowsToolLoop: Bool {
-    switch self {
-    case .chat:
-      false
-    case .agent:
-      true
     }
   }
 }

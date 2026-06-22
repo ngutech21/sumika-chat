@@ -1032,6 +1032,255 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func chatModeNativeWebSearchRunsWithWebOnlyTools() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "web_search",
+            arguments: ["query": .string("Swift concurrency")]
+          ))
+      ],
+      [.chunk("The current docs say Swift has structured concurrency.")],
+    ])
+    let orchestrator = ToolOrchestrator(
+      executorRegistry: .codingAgent,
+      webSearcher: ChatControllerFakeSearcher(),
+      webAccessSettingsProvider: {
+        WebAccessSettings(policy: .allow, provider: .duckDuckGo)
+      }
+    )
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: orchestrator
+    )
+    controller.loadSession(
+      ChatSession(
+        id: sessionID,
+        selectedModelID: "gemma4-e2b",
+        interactionMode: .chat
+      ))
+    controller.modelRuntime.modelState = .ready
+    controller.sendMessage(
+      prompt: "what is current in Swift concurrency?", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let record = try #require(controller.chatSession.toolCalls.first)
+    #expect(record.request.toolName == .webSearch)
+    #expect(record.status == .completed)
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 2)
+    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .user }))
+    #expect(followUp.content.contains("Tool observation:"))
+    #expect(followUp.content.contains("Swift docs fixture."))
+  }
+
+  @Test
+  func chatModeNativeWebFetchFollowUpIncludesToolObservation() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "web_fetch",
+            arguments: ["url": .string("https://example.com/article")]
+          ))
+      ],
+      [.chunk("The article says fetched fixture text.")],
+    ])
+    let orchestrator = ToolOrchestrator(
+      executorRegistry: .codingAgent,
+      webFetcher: ChatControllerFakeFetcher(),
+      webAccessSettingsProvider: {
+        WebAccessSettings(policy: .allow, provider: .duckDuckGo)
+      }
+    )
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: orchestrator
+    )
+    controller.loadSession(
+      ChatSession(
+        id: sessionID,
+        selectedModelID: "gemma4-e2b",
+        interactionMode: .chat
+      ))
+    controller.modelRuntime.modelState = .ready
+    controller.sendMessage(
+      prompt: "read and summarize this article https://example.com/article",
+      in: workspace,
+      sessionID: sessionID
+    )
+
+    try await waitUntil { !controller.isGenerating }
+
+    let record = try #require(controller.chatSession.toolCalls.first)
+    #expect(record.request.toolName == .webFetch)
+    #expect(record.status == .completed)
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 2)
+    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .user }))
+    #expect(followUp.content.contains("tool=\"web_fetch\""))
+    #expect(followUp.content.contains("Fetched fixture text."))
+  }
+
+  @Test
+  func chatModeDoesNotExposeWorkspaceTools() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          ))
+      ],
+      [.chunk("I cannot read local files in Chat mode.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgent,
+        webAccessSettingsProvider: {
+          WebAccessSettings(policy: .allow, provider: .duckDuckGo)
+        }
+      )
+    )
+    controller.loadSession(
+      ChatSession(
+        id: sessionID,
+        selectedModelID: "gemma4-e2b",
+        interactionMode: .chat
+      ))
+    controller.modelRuntime.modelState = .ready
+    controller.sendMessage(prompt: "read README.md", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let record = try #require(controller.chatSession.toolCalls.first)
+    #expect(record.request.toolName == .readFile)
+    #expect(record.status == .failed)
+    #expect(
+      record.resultPreview?.text.contains(
+        "Tool is not available in the active registry: read_file."
+      ) == true)
+  }
+
+  @Test
+  func chatModeWebFetchRequiresApprovalWhenPolicyAsksEachTime() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "web_fetch",
+            arguments: ["url": .string("https://example.com/article")]
+          ))
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          ))
+      ],
+      [.chunk("Approved fetch completed.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgent,
+        webFetcher: ChatControllerFakeFetcher(),
+        webAccessSettingsProvider: {
+          WebAccessSettings(policy: .askEachTime, provider: .duckDuckGo)
+        }
+      )
+    )
+    controller.loadSession(
+      ChatSession(
+        id: sessionID,
+        selectedModelID: "gemma4-e2b",
+        interactionMode: .chat
+      ))
+    controller.modelRuntime.modelState = .ready
+    controller.sendMessage(
+      prompt: "fetch https://example.com/article", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
+    let pending = try #require(controller.chatSession.toolCalls.first)
+    #expect(pending.status == .awaitingApproval)
+    #expect(pending.approvalPreview?.text.contains("Web fetch requires approval") == true)
+
+    controller.setInteractionMode(.agent)
+    #expect(controller.chatSession.interactionMode == .chat)
+
+    controller.approveToolCall(id: pending.id, in: workspace)
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.toolCalls.count == 2)
+    #expect(controller.chatSession.toolCalls.first?.status == .completed)
+    let blockedRead = try #require(controller.chatSession.toolCalls.last)
+    #expect(blockedRead.request.toolName == .readFile)
+    #expect(blockedRead.status == .failed)
+    #expect(
+      blockedRead.resultPreview?.text.contains(
+        "Tool is not available in the active registry: read_file."
+      ) == true)
+    #expect(controller.chatSession.testMessages.last?.content == "Approved fetch completed.")
+  }
+
+  @Test
+  func chatModeWebAccessOffDeniesWebTools() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "web_search",
+            arguments: ["query": .string("Swift concurrency")]
+          ))
+      ],
+      [.chunk("I cannot search because web access is disabled.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgent,
+        webSearcher: ChatControllerFakeSearcher(),
+        webAccessSettingsProvider: {
+          WebAccessSettings(policy: .off, provider: .duckDuckGo)
+        }
+      )
+    )
+    controller.loadSession(
+      ChatSession(
+        id: sessionID,
+        selectedModelID: "gemma4-e2b",
+        interactionMode: .chat
+      ))
+    controller.modelRuntime.modelState = .ready
+    controller.sendMessage(prompt: "search Swift concurrency", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let record = try #require(controller.chatSession.toolCalls.first)
+    #expect(record.request.toolName == .webSearch)
+    #expect(record.status == .denied)
+  }
+
+  @Test
   func sendMessageDisplaysShowFileResultDirectlyWithoutModelFollowUp() async throws {
     let rootURL = FileManager.default.temporaryDirectory.appending(
       path: "sumika-chat-tests-\(UUID().uuidString)",
@@ -1393,6 +1642,22 @@ private struct ChatControllerFakeFetcher: WebFetching {
       contentType: "text/plain",
       content: ToolTextOutput(text: "Fetched fixture text."),
       byteCount: 21
+    )
+  }
+}
+
+private struct ChatControllerFakeSearcher: WebSearching {
+  func search(_ request: WebSearchRequest) async -> WebSearchToolResult {
+    WebSearchToolResult(
+      query: request.query,
+      provider: request.settings.provider,
+      results: [
+        WebSearchResult(
+          title: "Swift Documentation",
+          url: "https://www.swift.org/documentation/",
+          snippet: "Swift docs fixture."
+        )
+      ]
     )
   }
 }

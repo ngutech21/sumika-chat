@@ -73,6 +73,65 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func chatWebProfileExecutesWebSearchOnly() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let coordinator = ToolLoopCoordinator(
+      chatWebToolOrchestrator: ToolOrchestrator(
+        executorRegistry: .chatWeb,
+        webSearcher: FakeSearchService(),
+        webAccessSettingsProvider: {
+          WebAccessSettings(policy: .allow, provider: .duckDuckGo)
+        }
+      ))
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        interactionMode: .chat,
+        toolProfile: .chatWeb,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "web_search",
+            arguments: ["query": .string("Swift concurrency")]
+          )
+        ]
+      )
+    )
+
+    #expect(toolCall(from: result)?.toolName == .webSearch)
+    #expect(toolCallRecord(from: result)?.status == .completed)
+    #expect(resumePromptMode(from: result) == .afterChatWebToolResultCanContinue)
+  }
+
+  @Test
+  func chatWebProfileDoesNotExposeWorkspaceTools() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        interactionMode: .chat,
+        toolProfile: .chatWeb,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")])
+        ]
+      )
+    )
+
+    let record = try #require(toolCallRecord(from: result))
+    #expect(record.request.toolName == .readFile)
+    #expect(record.status == .failed)
+    #expect(
+      completedToolResult(from: result)?.preview.text.contains(
+        "Tool is not available in the active registry: read_file."
+      ) == true)
+  }
+
+  @Test
   func nativeMultipleIndependentToolCallsExecuteTogether() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -287,6 +346,8 @@ struct ToolLoopCoordinatorTests {
     sessionID: ChatSession.ID,
     assistantMessageID: UUID = UUID(),
     userContent: String? = nil,
+    interactionMode: WorkspaceInteractionMode = .agent,
+    toolProfile: ToolExecutionProfile = .agent,
     nativeToolCalls: [ChatRuntimeToolCall]
   ) -> ToolLoopRequest {
     var items: [ChatTurnItem] = []
@@ -294,6 +355,15 @@ struct ToolLoopCoordinatorTests {
       items.append(.userMessage(UserTurnMessage(content: userContent)))
     }
     items.append(.assistantMessage(AssistantTurnMessage(id: assistantMessageID, content: "")))
+    let followUpPromptMode: ToolPromptMode
+    switch toolProfile {
+    case .disabled:
+      followUpPromptMode = .disabled
+    case .chatWeb:
+      followUpPromptMode = .afterChatWebToolResultCanContinue
+    case .agent:
+      followUpPromptMode = .afterToolResultCanContinue
+    }
 
     return ToolLoopRequest(
       workspace: workspace,
@@ -301,7 +371,9 @@ struct ToolLoopCoordinatorTests {
       turnID: UUID(),
       assistantMessageID: assistantMessageID,
       items: items,
-      interactionMode: .agent,
+      interactionMode: interactionMode,
+      toolProfile: toolProfile,
+      followUpPromptMode: followUpPromptMode,
       toolCallingPolicy: .nativeGemma4,
       nativeToolCalls: nativeToolCalls
     )
@@ -426,6 +498,22 @@ struct ToolLoopCoordinatorTests {
       return todoState
     }
     return nil
+  }
+}
+
+private struct FakeSearchService: WebSearching {
+  func search(_ request: WebSearchRequest) async -> WebSearchToolResult {
+    WebSearchToolResult(
+      query: request.query,
+      provider: request.settings.provider,
+      results: [
+        WebSearchResult(
+          title: "Swift Concurrency",
+          url: "https://www.swift.org/documentation/",
+          snippet: "Swift docs fixture."
+        )
+      ]
+    )
   }
 }
 

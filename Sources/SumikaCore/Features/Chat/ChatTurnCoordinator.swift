@@ -82,15 +82,14 @@ public final class ChatTurnCoordinator {
     callbacks: ChatTurnCallbacks
   ) -> ChatTurn.ID {
     let interactionMode = callbacks.session().interactionMode
-    let toolsAvailable = executionCoordinator.toolsAvailable(
+    let toolProfile = executionCoordinator.activeToolProfile(
       workspace: workspace,
       sessionID: sessionID,
       interactionMode: interactionMode,
       selectedModel: runtime.selectedModel
     )
     let initialToolPromptMode = executionCoordinator.toolPromptMode(
-      for: interactionMode,
-      toolsAvailable: toolsAvailable
+      for: toolProfile
     )
     let turnID = UUID()
     let userMessageID = UUID()
@@ -128,7 +127,7 @@ public final class ChatTurnCoordinator {
       guard self.isActive(turnID) else {
         return .stop
       }
-      if toolsAvailable && interactionMode.allowsToolLoop {
+      if toolProfile.allowsToolLoop {
         let shouldComplete = try await executionCoordinator.runToolLoop(
           workspace: workspace,
           sessionID: sessionID,

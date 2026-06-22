@@ -583,6 +583,19 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func chatWebRegistryContainsOnlyWebTools() {
+    #expect(
+      ToolExecutorRegistry.chatWeb.definitions == [
+        .webSearch,
+        .webFetch,
+      ])
+    #expect(!ToolExecutorRegistry.chatWeb.definitions.map(\.name).contains(.readFile))
+    #expect(!ToolExecutorRegistry.chatWeb.definitions.map(\.name).contains(.writeFile))
+    #expect(!ToolExecutorRegistry.chatWeb.definitions.map(\.name).contains(.runCommand))
+    #expect(!ToolExecutorRegistry.chatWeb.definitions.map(\.name).contains(.askUser))
+  }
+
+  @Test
   func runCommandDefinitionIsAvailableOnlyInCodingAgentRegistry() {
     let definition = ToolDefinition.runCommand
 

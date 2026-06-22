@@ -34,10 +34,17 @@ struct ToolTurnResumeCoordinator {
       return .stop
     }
 
+    let toolProfile = executionCoordinator.activeToolProfile(
+      workspace: workspace,
+      sessionID: existingRecord.request.sessionID,
+      interactionMode: callbacks.session().interactionMode,
+      selectedModel: runtime.selectedModel
+    )
     let resumeResult = toolResumeCoordinator.approvedToolResult(
       record: approvedRecord,
       focusedFileState: callbacks.session().focusedFileState,
-      turnID: turnID
+      turnID: turnID,
+      toolProfile: toolProfile
     )
 
     guard approvedRecord.status == .completed else {

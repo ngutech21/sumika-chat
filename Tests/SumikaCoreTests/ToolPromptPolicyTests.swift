@@ -44,16 +44,21 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
-  func nativeInspectPromptRestrictsWrites() {
+  func nativeChatWebPromptMentionsOnlyWebToolsAndPrivacyBoundary() {
     let prompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",
-      mode: .inspect,
-      toolRegistry: ToolExecutorRegistry.readOnly.toolRegistry
+      mode: .chatWeb,
+      toolRegistry: ToolExecutorRegistry.chatWeb.toolRegistry
     )
 
-    #expect(prompt.contains("Read-only workspace tools"))
-    #expect(prompt.contains("read_file"))
-    #expect(prompt.contains("Never call write_file or edit_file"))
+    #expect(prompt.contains("Public web tools"))
+    #expect(prompt.contains("web_search"))
+    #expect(prompt.contains("web_fetch"))
+    #expect(prompt.contains("Never send private code"))
+    #expect(prompt.contains("untrusted reference material"))
+    #expect(!prompt.contains("edit_file"))
+    #expect(!prompt.contains("run_command"))
+    #expect(!prompt.contains("Inspect before editing"))
   }
 
   @Test
