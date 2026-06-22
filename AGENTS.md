@@ -9,45 +9,21 @@ SwiftUI/AppKit UI. Do not assume network access is available or desirable.
 
 ## Architecture Rules
 
-The project is split into a headless SwiftPM core library and a macOS app target:
+Follow the existing layout:
 
-- `Package.swift` defines `SumikaCore` and `SumikaCoreTests`.
-- `Sources/SumikaCore/` contains reusable product logic and must not import
-  SwiftUI, AppKit, or MLX-specific implementations.
-- `Tests/SumikaCoreTests/` contains headless tests for parsing, permission
-  evaluation, persistence, runtime configuration, prompt construction, command
-  execution, tool execution, and coordinators.
-- `sumika/` contains the Xcode macOS app target. It imports
-  `SumikaCore` and owns SwiftUI/AppKit views, app launch wiring, platform
-  services, and MLX-backed implementations.
-- `SumikaTests/` is for tests that need the app target, SwiftUI/AppKit, or
-  MLX-specific behavior.
-- `SumikaUITests/` is for local-only end-to-end app flows that need the real
-  macOS UI and real MLX/Gemma runtime.
+- Core logic: `Sources/SumikaCore/`
+- Core tests: `Tests/SumikaCoreTests/`
+- macOS app/UI/platform/MLX: `sumika/`
+- App tests: `SumikaTests/`
+- UI/runtime tests: `SumikaUITests/`
 
 Keep dependencies one-way: app -> `SumikaCore`. Views call controllers or app
 state; controllers call coordinators/services; services exchange structured
 models. SwiftUI views must not parse model output, touch the filesystem directly,
 run shell commands, make permission decisions, or know MLX details.
 
-For new code, follow the current layout:
 
-```text
-Sources/SumikaCore/
-  Features/
-  Models/
-  Services/
-  Support/
-Tests/SumikaCoreTests/
-sumika/
-  App/
-  Features/
-  Services/
-  Views/
-SumikaTests/
-SumikaUITests/
-```
-
+Do not create new top-level folders or abstractions unless real code requires them.
 Start small. Do not introduce empty folders or abstractions before there is real
 code to put in them.
 
@@ -99,12 +75,17 @@ Keep the persisted data model minimal and SSOT-first:
 
 ## Tool Runtime
 
-Follow `docs/tool-runtime.md` when adding or changing tools. Tools are registered
-through the typed runtime, parsers emit neutral `ToolCallRequest` values,
-registry membership controls availability, and concrete tools receive typed
-inputs. Denied tools and approval-required tools are distinct: write, patch, and
-command tools must enter awaiting-approval before execution. Update
-`docs/tool-runtime.md` when the contract changes.
+Follow `docs/tool-runtime.md` when adding or changing tools.
+
+Rules:
+
+- Tools are registered through the typed runtime.
+- Parsers emit neutral `ToolCallRequest` values.
+- Registry membership controls availability.
+- Concrete tools receive typed inputs.
+- Denied tools and approval-required tools are distinct.
+- Write, patch, and command tools must enter awaiting-approval before execution.
+- Update `docs/tool-runtime.md` when the tool contract changes.
 
 ## Workspace Interaction Modes
 
