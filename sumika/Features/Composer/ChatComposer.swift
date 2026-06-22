@@ -813,7 +813,7 @@ private struct ComposerTextView: NSViewRepresentable {
   }
 }
 
-private final class ComposerNSTextView: NSTextView {
+final class ComposerNSTextView: NSTextView {
   var placeholder = "" {
     didSet {
       needsDisplay = true
@@ -866,6 +866,10 @@ private final class ComposerNSTextView: NSTextView {
   }
 
   override func keyDown(with event: NSEvent) {
+    if shouldHandleAttachmentPasteShortcut(event), handleAttachmentPasteboard(.general) {
+      return
+    }
+
     switch event.keyCode {
     case 36, 76:
       handleReturn(event)
@@ -956,6 +960,22 @@ private final class ComposerNSTextView: NSTextView {
     }
 
     return onPasteboardAttachments?(pasteboard) ?? false
+  }
+
+  private func shouldHandleAttachmentPasteShortcut(_ event: NSEvent) -> Bool {
+    guard event.keyCode == 9 else {
+      return false
+    }
+
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    guard flags.contains(.control),
+      !flags.contains(.command),
+      !flags.contains(.option)
+    else {
+      return false
+    }
+
+    return pasteboardContainsAttachments(.general)
   }
 
   private func pasteboardContainsAttachments(_ pasteboard: NSPasteboard) -> Bool {
