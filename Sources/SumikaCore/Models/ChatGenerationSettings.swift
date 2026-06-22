@@ -21,7 +21,15 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
     self.maxKVSize = maxKVSize
   }
 
-  public static let codingDefault = ChatGenerationSettings(
+  public static let chatDefault = ChatGenerationSettings(
+    temperature: 1,
+    topP: 1,
+    topK: 0,
+    maxTokens: 2048,
+    maxKVSize: nil
+  )
+
+  public static let agentDefault = ChatGenerationSettings(
     temperature: 0,
     topP: 1,
     topK: 0,

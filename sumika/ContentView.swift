@@ -149,13 +149,9 @@ private struct ModelsRouteHost: View {
   var body: some View {
     ModelsView(
       modelRuntime: controller.modelRuntime,
-      systemPrompt: Binding(
-        get: { controller.chatSession.systemPrompt },
-        set: { controller.chatSession.systemPrompt = $0 }
-      ),
-      generationSettings: Binding(
-        get: { controller.chatSession.generationSettings },
-        set: { controller.chatSession.generationSettings = $0 }
+      modeSettings: Binding(
+        get: { controller.chatSession.modeSettings },
+        set: { controller.chatSession.modeSettings = $0 }
       ),
       contextUsage: controller.contextUsage,
       errorMessage: controller.errorMessage,
@@ -167,12 +163,8 @@ private struct ModelsRouteHost: View {
         )
       }
     )
-    .onChange(of: controller.chatSession.systemPrompt) {
+    .onChange(of: controller.chatSession.modeSettings) {
       controller.refreshContextUsage()
-      saveSelectedModelSettings()
-      onPersistActiveSession()
-    }
-    .onChange(of: controller.chatSession.generationSettings) {
       saveSelectedModelSettings()
       onPersistActiveSession()
     }
@@ -183,8 +175,7 @@ private struct ModelsRouteHost: View {
 
   private func saveSelectedModelSettings() {
     controller.modelRuntime.saveSelectedModelSettings(
-      systemPrompt: controller.chatSession.systemPrompt,
-      generationSettings: controller.chatSession.generationSettings
+      modeSettings: controller.chatSession.modeSettings
     )
   }
 }

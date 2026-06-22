@@ -82,10 +82,10 @@ struct GemmaMLXRuntimeTemplateTests {
 
     let decision = GemmaSessionCachePolicy.cacheDecision(
       cachedPrefix: prefix,
-      cachedSettings: .codingDefault,
+      cachedSettings: .agentDefault,
       cachedState: .clean,
       currentHistory: prefix,
-      currentSettings: .codingDefault
+      currentSettings: .agentDefault
     )
 
     #expect(decision.shouldReuse)
@@ -115,10 +115,10 @@ struct GemmaMLXRuntimeTemplateTests {
 
     let decision = GemmaSessionCachePolicy.cacheDecision(
       cachedPrefix: cachedPrefix,
-      cachedSettings: .codingDefault,
+      cachedSettings: .agentDefault,
       cachedState: .clean,
       currentHistory: currentHistory,
-      currentSettings: .codingDefault
+      currentSettings: .agentDefault
     )
 
     // Identical rendered text, different prefilled image: never reuse.
@@ -414,7 +414,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func renderedContextSignatureIsDeterministicForSameHistoryAndSettings() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let history = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -430,7 +430,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func renderedContextSignatureChangesWhenRenderedHistoryChanges() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let history = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -454,7 +454,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func renderedContextSignatureChangesWhenSystemPromptChanges() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let history = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -486,7 +486,7 @@ struct GemmaMLXRuntimeTemplateTests {
       .user("hello"),
       .assistant("hi"),
     ])
-    var changedSettings = ChatGenerationSettings.codingDefault
+    var changedSettings = ChatGenerationSettings.agentDefault
     changedSettings.maxTokens = 128
     changedSettings.temperature = 0.9
     changedSettings.topP = 0.5
@@ -494,7 +494,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     let first = GemmaSessionCachePolicy.renderedContextSignature(
       for: history,
-      settings: .codingDefault
+      settings: .agentDefault
     )
     let second = GemmaSessionCachePolicy.renderedContextSignature(
       for: history,
@@ -511,12 +511,12 @@ struct GemmaMLXRuntimeTemplateTests {
       .user("hello"),
       .assistant("hi"),
     ])
-    var changedSettings = ChatGenerationSettings.codingDefault
+    var changedSettings = ChatGenerationSettings.agentDefault
     changedSettings.maxKVSize = 16_384
 
     let first = GemmaSessionCachePolicy.renderedContextSignature(
       for: history,
-      settings: .codingDefault
+      settings: .agentDefault
     )
     let second = GemmaSessionCachePolicy.renderedContextSignature(
       for: history,
@@ -544,12 +544,12 @@ struct GemmaMLXRuntimeTemplateTests {
 
     let first = GemmaSessionCachePolicy.renderedContextSignature(
       for: history,
-      settings: .codingDefault,
+      settings: .agentDefault,
       nativeToolSchemaHash: readOnlyToolSchemaHash
     )
     let second = GemmaSessionCachePolicy.renderedContextSignature(
       for: history,
-      settings: .codingDefault,
+      settings: .agentDefault,
       nativeToolSchemaHash: codingToolSchemaHash
     )
 
@@ -561,7 +561,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func renderedContextSignatureChangesWhenProjectionModeChanges() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let history = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -587,7 +587,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionInvalidatesWhenRendererVersionChanges() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -616,7 +616,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReportsNewSessionWhenNoCacheExists() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let history = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello")
     ])
@@ -675,7 +675,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReportsRenderedContextSignatureChangeSeparatelyFromRendererVersion() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -712,7 +712,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionInvalidatesWhenSystemPromptChangesWithoutHistoryChange() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -743,7 +743,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReusesWhenCacheSystemPromptIsUnchanged() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -772,7 +772,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionInvalidatesWhenProjectionModeChanges() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -938,7 +938,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReusesOnlyExactRenderedPrefix() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -962,7 +962,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReusesExactNativeToolSchemaPrefix() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -997,7 +997,7 @@ struct GemmaMLXRuntimeTemplateTests {
   // dropping to an empty registry) must reuse the cached prefix.
   @Test
   func cacheDecisionReusesWhenOnlyNativeToolSchemaChanges() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -1029,7 +1029,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReusesExactNoToolSchemaPrefix() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -1094,10 +1094,10 @@ struct GemmaMLXRuntimeTemplateTests {
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: history)
     let decision = GemmaSessionCachePolicy.cacheDecision(
       cachedPrefix: prefix,
-      cachedSettings: .codingDefault,
+      cachedSettings: .agentDefault,
       cachedState: .clean,
       currentHistory: prefix,
-      currentSettings: .codingDefault
+      currentSettings: .agentDefault
     )
 
     #expect(history.map(\.role) == [.user, .assistant])
@@ -1217,10 +1217,10 @@ struct GemmaMLXRuntimeTemplateTests {
 
     let decision = GemmaSessionCachePolicy.cacheDecision(
       cachedPrefix: cachedPrefix,
-      cachedSettings: .codingDefault,
+      cachedSettings: .agentDefault,
       cachedState: .clean,
       currentHistory: currentHistory,
-      currentSettings: .codingDefault
+      currentSettings: .agentDefault
     )
 
     // Same position, same bytes: the prefilled prompt and the history
@@ -1293,10 +1293,10 @@ struct GemmaMLXRuntimeTemplateTests {
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: history)
     let decision = GemmaSessionCachePolicy.cacheDecision(
       cachedPrefix: prefix,
-      cachedSettings: .codingDefault,
+      cachedSettings: .agentDefault,
       cachedState: .clean,
       currentHistory: prefix,
-      currentSettings: .codingDefault
+      currentSettings: .agentDefault
     )
 
     #expect(history.map(\.role) == [.user, .assistant])
@@ -1314,7 +1314,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReusesCleanAppendOnlyHistoryAsDelta() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -1346,7 +1346,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReusesNativeToolCallBoundaryFollowUpDelta() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let nativeToolCall = ChatRuntimeToolCall(
       name: "read_file",
       arguments: ["path": .string("README.md")]
@@ -1378,7 +1378,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionTracesSameTurnNativeToolCallBoundaryReuseAsAppendOnly() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let nativeToolCall = ChatRuntimeToolCall(
       name: "read_file",
       arguments: ["path": .string("README.md")]
@@ -1408,7 +1408,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReusesNativeToolCallBoundaryAfterAssistantPreamble() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let nativeToolCall = ChatRuntimeToolCall(
       name: "read_file",
       arguments: ["path": .string("README.md")]
@@ -1441,7 +1441,7 @@ struct GemmaMLXRuntimeTemplateTests {
   // Gemma) still reuses the cached prefix as a delta.
   @Test
   func cacheDecisionReusesAppendOnlyHistoryWhenNativeToolSchemaChanges() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -1482,7 +1482,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionKeepsDirtyAppendOnlyHistoryInvalidated() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -1512,7 +1512,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReportsNativeToolCallBoundaryInvalidation() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("call a native tool")
     ])
@@ -1534,7 +1534,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionInvalidatesWhenRenderedHistoryChanges() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -1564,7 +1564,7 @@ struct GemmaMLXRuntimeTemplateTests {
   func cacheDecisionReusesWhenOnlySamplingSettingsChange() {
     // Sampling params and maxTokens are applied at decode time and do not change the
     // KV-cache prefix, so changing them must keep the cached session reusable.
-    var changedSettings = ChatGenerationSettings.codingDefault
+    var changedSettings = ChatGenerationSettings.agentDefault
     changedSettings.maxTokens = 128
     changedSettings.temperature = 0.9
     changedSettings.topP = 0.5
@@ -1576,7 +1576,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     let decision = GemmaSessionCachePolicy.cacheDecision(
       cachedPrefix: prefix,
-      cachedSettings: .codingDefault,
+      cachedSettings: .agentDefault,
       cachedState: .clean,
       currentHistory: prefix,
       currentSettings: changedSettings
@@ -1591,7 +1591,7 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func cacheDecisionInvalidatesWhenMaxKVSizeChanges() {
     // maxKVSize controls cache rotation/eviction, so it must still invalidate.
-    var changedSettings = ChatGenerationSettings.codingDefault
+    var changedSettings = ChatGenerationSettings.agentDefault
     changedSettings.maxKVSize = 2048
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
@@ -1600,7 +1600,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     let decision = GemmaSessionCachePolicy.cacheDecision(
       cachedPrefix: prefix,
-      cachedSettings: .codingDefault,
+      cachedSettings: .agentDefault,
       cachedState: .clean,
       currentHistory: prefix,
       currentSettings: changedSettings
@@ -1615,7 +1615,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReportsCurrentPromptContextMismatchSeparatelyFromBasePrompt() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = [
       GemmaMessageSnapshot(
         role: "user",
@@ -1670,7 +1670,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReportsAttachedFileContextMismatchSeparatelyFromBasePrompt() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = [
       GemmaMessageSnapshot(
         role: "user",
@@ -1727,7 +1727,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionReportsBasePromptMismatch() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = [
       GemmaMessageSnapshot(
         role: "user",
@@ -1771,7 +1771,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionInvalidatesInFlightSessionAsInterrupted() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -1792,7 +1792,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheDecisionInvalidatesAfterDirtyStreamLifecycle() {
-    let settings = ChatGenerationSettings.codingDefault
+    let settings = ChatGenerationSettings.agentDefault
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),

@@ -303,7 +303,7 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
 
   private func callbacks() -> ChatTurnCallbacks {
     ChatTurnCallbacks(
-      session: { [weak self] in self?.session ?? .codingDefault },
+      session: { [weak self] in self?.session ?? .defaultSession },
       emitEvents: { [weak self] events in self?.emit(events) },
       setActiveToolPromptMode: { _ in },
       updateRuntimeCacheDebugSnapshot: { _ in },
@@ -333,8 +333,8 @@ private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
       ChatSession(
         id: sessionID,
         selectedModelID: ManagedModelCatalog.defaultModelID,
-        systemPrompt: ChatPromptDefaults.codingSystemPrompt,
-        generationSettings: .codingDefault
+        systemPrompt: ChatPromptDefaults.agentSystemPrompt,
+        generationSettings: .agentDefault
       )
     ]
   )

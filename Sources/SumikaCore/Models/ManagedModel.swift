@@ -44,9 +44,16 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
   public let stability: ManagedModelStability
   public let toolCallingPolicy: ToolCallingPolicy
   public let supportsImageInput: Bool
-  public let defaultSystemPrompt: String
-  public let defaultGenerationSettings: ChatGenerationSettings
+  public let defaultModeSettings: ChatModeSettingsSet
   public let defaultContextTokenLimit: Int
+
+  public var defaultSystemPrompt: String {
+    defaultModeSettings.agent.systemPrompt
+  }
+
+  public var defaultGenerationSettings: ChatGenerationSettings {
+    defaultModeSettings.agent.generationSettings
+  }
 
   public var toolCallingStrategy: ToolCallingStrategy {
     toolCallingPolicy.strategy
@@ -83,8 +90,7 @@ public enum ManagedModelCatalog {
       stability: .stable,
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
-      defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
-      defaultGenerationSettings: .codingDefault,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
@@ -99,8 +105,7 @@ public enum ManagedModelCatalog {
       stability: .stable,
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
-      defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
-      defaultGenerationSettings: .codingDefault,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
@@ -115,8 +120,7 @@ public enum ManagedModelCatalog {
       stability: .stable,
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
-      defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
-      defaultGenerationSettings: .codingDefault,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
@@ -131,8 +135,7 @@ public enum ManagedModelCatalog {
       stability: .stable,
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
-      defaultSystemPrompt: ChatPromptDefaults.codingSystemPrompt,
-      defaultGenerationSettings: .codingDefault,
+      defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
   ]

@@ -249,8 +249,8 @@ struct ChatSessionControllerWriteApprovalTests {
         ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
-          systemPrompt: ChatPromptDefaults.codingSystemPrompt,
-          generationSettings: .codingDefault
+          systemPrompt: ChatPromptDefaults.agentSystemPrompt,
+          generationSettings: .agentDefault
         )
       ]
     )

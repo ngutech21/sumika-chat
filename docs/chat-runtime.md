@@ -252,8 +252,8 @@ Gemma 4 native tool-call text.
   copy. It is separate from the UI transcript so prompt bytes and cache prefixes
   stay stable after later transcript projections change.
 - Clearing a chat transcript removes turns, derived tool-call projections, and
-  attachments, but keeps session settings such as system prompt and generation
-  settings.
+  attachments, but keeps session settings such as per-mode system prompts and
+  generation settings.
 
 ## Adding Chat Workflow Behavior
 

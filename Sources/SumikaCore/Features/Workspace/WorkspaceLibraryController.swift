@@ -2,9 +2,18 @@ import Foundation
 
 public struct DefaultChatSessionFactory: Equatable, Sendable {
   public var selectedModelID: ManagedModel.ID
-  public var systemPrompt: String
-  public var generationSettings: ChatGenerationSettings
+  public var modeSettings: ChatModeSettingsSet
   public var interactionMode: WorkspaceInteractionMode
+
+  public init(
+    selectedModelID: ManagedModel.ID,
+    modeSettings: ChatModeSettingsSet,
+    interactionMode: WorkspaceInteractionMode = .chat
+  ) {
+    self.selectedModelID = selectedModelID
+    self.modeSettings = modeSettings
+    self.interactionMode = interactionMode
+  }
 
   public init(
     selectedModelID: ManagedModel.ID,
@@ -12,10 +21,15 @@ public struct DefaultChatSessionFactory: Equatable, Sendable {
     generationSettings: ChatGenerationSettings,
     interactionMode: WorkspaceInteractionMode = .chat
   ) {
-    self.selectedModelID = selectedModelID
-    self.systemPrompt = systemPrompt
-    self.generationSettings = generationSettings
-    self.interactionMode = interactionMode
+    let settings = ChatModeSettings(
+      systemPrompt: systemPrompt,
+      generationSettings: generationSettings
+    )
+    self.init(
+      selectedModelID: selectedModelID,
+      modeSettings: ChatModeSettingsSet(chat: settings, agent: settings),
+      interactionMode: interactionMode
+    )
   }
 
   public func makeSession(
@@ -26,8 +40,7 @@ public struct DefaultChatSessionFactory: Equatable, Sendable {
     ChatSession(
       title: title,
       selectedModelID: selectedModelID,
-      systemPrompt: systemPrompt,
-      generationSettings: generationSettings,
+      modeSettings: modeSettings,
       interactionMode: interactionMode,
       createdAt: createdAt,
       updatedAt: updatedAt

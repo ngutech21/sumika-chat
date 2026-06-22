@@ -5,6 +5,55 @@ import Testing
 
 struct ChatSessionTests {
   @Test
+  func activeModeSettingsFollowInteractionMode() {
+    var session = ChatSession(
+      modeSettings: ChatModeSettingsSet(
+        chat: ChatModeSettings(
+          systemPrompt: "Chat prompt",
+          generationSettings: ChatGenerationSettings(
+            temperature: 1.0, topP: 0.95, topK: 20, maxTokens: 512)),
+        agent: ChatModeSettings(
+          systemPrompt: "Agent prompt",
+          generationSettings: ChatGenerationSettings(
+            temperature: 0.1, topP: 0.8, topK: 10, maxTokens: 256))
+      ),
+      interactionMode: .chat
+    )
+
+    #expect(session.systemPrompt == "Chat prompt")
+    #expect(session.generationSettings.temperature == 1.0)
+
+    session.interactionMode = .agent
+
+    #expect(session.systemPrompt == "Agent prompt")
+    #expect(session.generationSettings.temperature == 0.1)
+  }
+
+  @Test
+  func updatingActivePromptMutatesOnlyActiveMode() {
+    var session = ChatSession()
+
+    session.systemPrompt = "Custom chat prompt"
+    session.generationSettings.temperature = 1.4
+
+    #expect(session.modeSettings.chat.systemPrompt == "Custom chat prompt")
+    #expect(session.modeSettings.chat.generationSettings.temperature == 1.4)
+    #expect(session.modeSettings.agent.systemPrompt == ChatPromptDefaults.agentSystemPrompt)
+    #expect(session.modeSettings.agent.generationSettings == .agentDefault)
+  }
+
+  @Test
+  func encodingPersistsModeSettingsOwner() throws {
+    let session = ChatSession()
+    let object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(session)) as? [String: Any])
+
+    #expect(object["modeSettings"] != nil)
+    #expect(object["systemPrompt"] == nil)
+    #expect(object["generationSettings"] == nil)
+  }
+
+  @Test
   func decodingResolvesInterruptedStreamingTurns() throws {
     let completeID = UUID()
     let partialID = UUID()

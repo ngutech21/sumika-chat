@@ -105,7 +105,7 @@ struct WorkspaceStoreTests {
       selectedModelID: "gemma4-e4b",
       turns: [turn],
       systemPrompt: "Use short answers.",
-      generationSettings: .codingDefault
+      generationSettings: .agentDefault
     )
     let workspace = Workspace(
       id: workspaceID,
@@ -163,7 +163,7 @@ struct WorkspaceStoreTests {
       selectedModelID: "gemma4-e4b",
       focusedFileState: focusedFileState,
       systemPrompt: "Use short answers.",
-      generationSettings: .codingDefault
+      generationSettings: .agentDefault
     )
     let workspace = Workspace(
       name: "Project",
@@ -189,7 +189,7 @@ struct WorkspaceStoreTests {
     let session = ChatSession(
       selectedModelID: "gemma4-e4b",
       systemPrompt: "Use short answers.",
-      generationSettings: .codingDefault,
+      generationSettings: .agentDefault,
       todoState: todoState
     )
     let workspace = Workspace(
@@ -219,6 +219,20 @@ struct WorkspaceStoreTests {
   }
 
   @Test
+  func chatSessionDecodeRequiresTodoStateKey() throws {
+    let session = ChatSession(selectedModelID: "gemma4-e4b")
+    var object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(session)) as? [String: Any]
+    )
+    object.removeValue(forKey: "todoState")
+    let data = try JSONSerialization.data(withJSONObject: object)
+
+    #expect(throws: DecodingError.self) {
+      _ = try JSONDecoder().decode(ChatSession.self, from: data)
+    }
+  }
+
+  @Test
   func chatSessionDecodeRequiresModelContextSnapshot() throws {
     let legacySession = LegacyChatSession(
       id: UUID(),
@@ -226,7 +240,7 @@ struct WorkspaceStoreTests {
       selectedModelID: "gemma4-e4b",
       messages: [LegacyStoredMessage(content: "hello")],
       systemPrompt: "Legacy prompt",
-      generationSettings: .codingDefault,
+      generationSettings: .agentDefault,
       createdAt: Date(),
       updatedAt: Date()
     )
@@ -253,7 +267,7 @@ struct WorkspaceStoreTests {
         turns: [],
         focusedFileState: .empty,
         systemPrompt: "Legacy prompt",
-        generationSettings: .codingDefault,
+        generationSettings: .agentDefault,
         interactionMode: .agent
       ),
       createdAt: Date(),
@@ -284,7 +298,7 @@ struct WorkspaceStoreTests {
         )
       ],
       systemPrompt: "Use short answers.",
-      generationSettings: .codingDefault
+      generationSettings: .agentDefault
     )
     let data = try JSONEncoder().encode(session)
     let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -292,6 +306,9 @@ struct WorkspaceStoreTests {
 
     #expect(object["transcript"] == nil)
     #expect(object["pendingAttachments"] == nil)
+    #expect(object["modeSettings"] != nil)
+    #expect(object["systemPrompt"] == nil)
+    #expect(object["generationSettings"] == nil)
     #expect(object["modelContextSnapshot"] != nil)
     #expect(decoded.pendingAttachments.isEmpty)
     #expect(decoded == session)

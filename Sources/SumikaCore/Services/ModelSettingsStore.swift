@@ -1,17 +1,33 @@
 import Foundation
 
 public struct StoredModelSettings: Codable, Equatable, Sendable {
-  public var systemPrompt: String
-  public var generationSettings: ChatGenerationSettings
+  public var modeSettings: ChatModeSettingsSet
   public var contextTokenLimit: Int
+  public var systemPrompt: String {
+    modeSettings.agent.systemPrompt
+  }
+  public var generationSettings: ChatGenerationSettings {
+    modeSettings.agent.generationSettings
+  }
 
   public init(
-    systemPrompt: String = ChatPromptDefaults.codingSystemPrompt,
-    generationSettings: ChatGenerationSettings = .codingDefault,
+    modeSettings: ChatModeSettingsSet = .defaultSettings,
     contextTokenLimit: Int = ManagedModelCatalog.defaultContextTokenLimit
   ) {
-    self.systemPrompt = systemPrompt
-    self.generationSettings = generationSettings
+    self.modeSettings = modeSettings
+    self.contextTokenLimit = contextTokenLimit
+  }
+
+  public init(
+    systemPrompt: String,
+    generationSettings: ChatGenerationSettings,
+    contextTokenLimit: Int = ManagedModelCatalog.defaultContextTokenLimit
+  ) {
+    let settings = ChatModeSettings(
+      systemPrompt: systemPrompt,
+      generationSettings: generationSettings
+    )
+    self.modeSettings = ChatModeSettingsSet(chat: settings, agent: settings)
     self.contextTokenLimit = contextTokenLimit
   }
 
@@ -65,8 +81,7 @@ public actor ModelSettingsStore: ModelSettingsStoring {
   public func settings(for model: ManagedModel) async -> StoredModelSettings {
     guard let stored = readSettingsFile().modelSettings[model.id] else {
       return StoredModelSettings(
-        systemPrompt: model.defaultSystemPrompt,
-        generationSettings: model.defaultGenerationSettings,
+        modeSettings: model.defaultModeSettings,
         contextTokenLimit: model.defaultContextTokenLimit
       )
     }

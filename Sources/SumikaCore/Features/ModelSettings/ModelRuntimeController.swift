@@ -227,13 +227,9 @@ public final class ModelRuntimeController {
     }
   }
 
-  public func saveSelectedModelSettings(
-    systemPrompt: String,
-    generationSettings: ChatGenerationSettings
-  ) {
+  public func saveSelectedModelSettings(modeSettings: ChatModeSettingsSet) {
     let settings = StoredModelSettings(
-      systemPrompt: systemPrompt,
-      generationSettings: generationSettings,
+      modeSettings: modeSettings,
       contextTokenLimit: modelContextTokenLimit
     )
 
@@ -245,6 +241,19 @@ public final class ModelRuntimeController {
         onError?(error.localizedDescription)
       }
     }
+  }
+
+  public func saveSelectedModelSettings(
+    systemPrompt: String,
+    generationSettings: ChatGenerationSettings
+  ) {
+    let settings = ChatModeSettings(
+      systemPrompt: systemPrompt,
+      generationSettings: generationSettings
+    )
+    saveSelectedModelSettings(
+      modeSettings: ChatModeSettingsSet(chat: settings, agent: settings)
+    )
   }
 
   public func loadPersistedModelSelection(notifyModelDidChange: Bool = false) {

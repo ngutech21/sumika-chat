@@ -25,8 +25,7 @@ classDiagram
     modelContextSnapshot: ModelContextSnapshot
     turns: [ChatTurn]
     focusedFileState: FocusedFileState
-    systemPrompt: String
-    generationSettings: ChatGenerationSettings
+    modeSettings: ChatModeSettingsSet
     interactionMode: WorkspaceInteractionMode
     todoState: TodoState?
     pendingAttachments: [ChatAttachment] transient
@@ -50,8 +49,7 @@ classDiagram
     stability: ManagedModelStability
     toolCallingPolicy: ToolCallingPolicy
     supportsImageInput: Bool
-    defaultSystemPrompt: String
-    defaultGenerationSettings: ChatGenerationSettings
+    defaultModeSettings: ChatModeSettingsSet
     defaultContextTokenLimit: Int
   }
 
@@ -426,7 +424,7 @@ classDiagram
   ChatSession "1" --> "1" ActiveAttachmentContext
   ChatSession "0..1" --> "1" TodoState
   ChatSession --> ManagedModel : selected model ID
-  ChatSession --> ChatGenerationSettings
+  ChatSession --> ChatModeSettingsSet
   ChatSession --> WorkspaceInteractionMode
   ChatSession --> ChatAttachment : transient attachments
 

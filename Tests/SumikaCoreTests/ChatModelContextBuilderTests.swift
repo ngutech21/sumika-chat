@@ -31,7 +31,7 @@ struct ChatModelContextBuilderTests {
       ],
       pendingAttachments: [],
       systemPrompt: "System",
-      generationSettings: .codingDefault
+      generationSettings: .agentDefault
     )
 
     let transcript = ChatModelContextBuilder().transcript(from: state)
@@ -57,7 +57,7 @@ struct ChatModelContextBuilderTests {
       ],
       pendingAttachments: [],
       systemPrompt: "System",
-      generationSettings: .codingDefault
+      generationSettings: .agentDefault
     )
 
     let transcript = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
@@ -208,7 +208,7 @@ struct ChatModelContextBuilderTests {
       ],
       pendingAttachments: [],
       systemPrompt: "System",
-      generationSettings: .codingDefault
+      generationSettings: .agentDefault
     )
     let before = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
 

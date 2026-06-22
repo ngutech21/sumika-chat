@@ -8,7 +8,7 @@ import Observation
 @MainActor
 @Observable
 public final class ChatSessionController {
-  public var chatSession = ChatSession.codingDefault {
+  public var chatSession = ChatSession.defaultSession {
     didSet {
       syncComposerSessionState()
     }
@@ -84,8 +84,7 @@ public final class ChatSessionController {
   ) {
     let selectedModel = ManagedModelCatalog.defaultModel
     let storedSettings = StoredModelSettings(
-      systemPrompt: selectedModel.defaultSystemPrompt,
-      generationSettings: selectedModel.defaultGenerationSettings,
+      modeSettings: selectedModel.defaultModeSettings,
       contextTokenLimit: selectedModel.defaultContextTokenLimit
     )
     self.init(
@@ -96,8 +95,7 @@ public final class ChatSessionController {
         modelContextSnapshot: ModelContextSnapshot(),
         turns: [],
         pendingAttachments: [],
-        systemPrompt: storedSettings.systemPrompt,
-        generationSettings: storedSettings.generationSettings
+        modeSettings: storedSettings.modeSettings
       ),
       modelSettingsStore: settingsStore,
       modelDownloader: downloader,
@@ -127,7 +125,7 @@ public final class ChatSessionController {
       selectedModelID: ManagedModelCatalog.defaultModelID,
       modelPath: modelPath,
       modelContextTokenLimit: ManagedModelCatalog.defaultModel.defaultContextTokenLimit,
-      chatSession: .codingDefault,
+      chatSession: .defaultSession,
       modelSettingsStore: modelSettingsStore,
       modelDownloader: modelDownloader,
       runtime: runtime,
@@ -207,8 +205,7 @@ extension ChatSessionController {
       }
 
       self.disableUnsupportedInteractionModeIfNeeded()
-      self.chatSession.systemPrompt = settings.systemPrompt
-      self.chatSession.generationSettings = settings.generationSettings
+      self.chatSession.modeSettings = settings.modeSettings
       self.updateRuntimeCacheDebugSnapshot(nil)
       self.invalidateModelContextDebugDocument()
       self.invalidateContextUsage()
@@ -304,8 +301,7 @@ extension ChatSessionController {
     snapshot.modelContextSnapshot = chatSession.modelContextSnapshot
     snapshot.turns = chatSession.turns
     snapshot.focusedFileState = chatSession.focusedFileState
-    snapshot.systemPrompt = chatSession.systemPrompt
-    snapshot.generationSettings = chatSession.generationSettings
+    snapshot.modeSettings = chatSession.modeSettings
     snapshot.interactionMode = chatSession.interactionMode
     snapshot.pendingAttachments = []
     snapshot.updatedAt = Date()
@@ -872,7 +868,7 @@ extension ChatSessionController {
 
   private func turnCallbacks() -> ChatTurnCallbacks {
     ChatTurnCallbacks(
-      session: { [weak self] in self?.chatSession ?? .codingDefault },
+      session: { [weak self] in self?.chatSession ?? .defaultSession },
       emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
       setActiveToolPromptMode: { [weak self] mode in
         guard let self else {

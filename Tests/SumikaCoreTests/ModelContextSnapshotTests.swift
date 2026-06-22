@@ -182,7 +182,7 @@ struct ModelContextSnapshotTests {
         ]
       ),
       systemPrompt: "Fallback prompt should not rewrite frozen history.",
-      generationSettings: .codingDefault
+      generationSettings: .agentDefault
     )
     let data = try JSONEncoder().encode(session)
     var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -199,7 +199,7 @@ struct ModelContextSnapshotTests {
     let turnID = UUID()
     let callID = UUID()
     let mutator = ChatTranscriptMutator()
-    var state = ChatSession.codingDefault
+    var state = ChatSession.defaultSession
     mutator.appendModelContextEntry(
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,

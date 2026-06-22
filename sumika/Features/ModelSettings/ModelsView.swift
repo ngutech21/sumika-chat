@@ -3,8 +3,7 @@ import SwiftUI
 
 struct ModelsView: View {
   @Bindable var modelRuntime: ModelRuntimeController
-  @Binding var systemPrompt: String
-  @Binding var generationSettings: ChatGenerationSettings
+  @Binding var modeSettings: ChatModeSettingsSet
   let contextUsage: ChatContextUsage?
   let errorMessage: String?
   let canChangeModel: Bool
@@ -101,8 +100,7 @@ struct ModelsView: View {
 
       ModelAdvancedSettings(
         model: modelRuntime.selectedModel,
-        systemPrompt: $systemPrompt,
-        generationSettings: $generationSettings,
+        modeSettings: $modeSettings,
         contextTokenLimit: $modelRuntime.modelContextTokenLimit,
         canChangeContextTokenLimit: modelRuntime.modelState == .notLoaded
       )

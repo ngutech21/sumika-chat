@@ -17,8 +17,19 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   }
   public internal(set) var turns: [ChatTurn]
   public var focusedFileState: FocusedFileState
-  public var systemPrompt: String
-  public var generationSettings: ChatGenerationSettings
+  public var modeSettings: ChatModeSettingsSet
+  public var activeModeSettings: ChatModeSettings {
+    get { modeSettings[interactionMode] }
+    set { modeSettings[interactionMode] = newValue }
+  }
+  public var systemPrompt: String {
+    get { activeModeSettings.systemPrompt }
+    set { activeModeSettings.systemPrompt = newValue }
+  }
+  public var generationSettings: ChatGenerationSettings {
+    get { activeModeSettings.generationSettings }
+    set { activeModeSettings.generationSettings = newValue }
+  }
   public var interactionMode: WorkspaceInteractionMode
   public var todoState: TodoState?
   public var pendingAttachments: [ChatAttachment]
@@ -34,8 +45,9 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     turns: [ChatTurn] = [],
     pendingAttachments: [ChatAttachment] = [],
     focusedFileState: FocusedFileState = .empty,
-    systemPrompt: String = ChatPromptDefaults.codingSystemPrompt,
-    generationSettings: ChatGenerationSettings = .codingDefault,
+    modeSettings: ChatModeSettingsSet = .defaultSettings,
+    systemPrompt: String? = nil,
+    generationSettings: ChatGenerationSettings? = nil,
     interactionMode: WorkspaceInteractionMode = .chat,
     todoState: TodoState? = nil,
     activeAttachmentContext: ActiveAttachmentContext = .empty,
@@ -48,9 +60,19 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.modelContextSnapshot = modelContextSnapshot
     self.turns = turns
     self.focusedFileState = focusedFileState
-    self.systemPrompt = systemPrompt
-    self.generationSettings = generationSettings
     self.interactionMode = interactionMode
+    var resolvedModeSettings = modeSettings
+    if systemPrompt != nil || generationSettings != nil {
+      var activeSettings = resolvedModeSettings[interactionMode]
+      if let systemPrompt {
+        activeSettings.systemPrompt = systemPrompt
+      }
+      if let generationSettings {
+        activeSettings.generationSettings = generationSettings
+      }
+      resolvedModeSettings[interactionMode] = activeSettings
+    }
+    self.modeSettings = resolvedModeSettings
     self.todoState = todoState
     self.pendingAttachments = pendingAttachments
     self.activeAttachmentContext = activeAttachmentContext
@@ -58,7 +80,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.updatedAt = updatedAt
   }
 
-  public static let codingDefault = ChatSession()
+  public static let defaultSession = ChatSession()
 
   public static func == (lhs: ChatSession, rhs: ChatSession) -> Bool {
     lhs.id == rhs.id
@@ -67,8 +89,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       && lhs.modelContextSnapshot == rhs.modelContextSnapshot
       && lhs.turns == rhs.turns
       && lhs.focusedFileState == rhs.focusedFileState
-      && lhs.systemPrompt == rhs.systemPrompt
-      && lhs.generationSettings == rhs.generationSettings
+      && lhs.modeSettings == rhs.modeSettings
       && lhs.interactionMode == rhs.interactionMode
       && lhs.todoState == rhs.todoState
       && lhs.activeAttachmentContext == rhs.activeAttachmentContext
@@ -83,8 +104,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     case modelContextSnapshot
     case turns
     case focusedFileState
-    case systemPrompt
-    case generationSettings
+    case modeSettings
     case interactionMode
     case todoState
     case activeAttachmentContext
@@ -105,11 +125,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       in: try container.decode([ChatTurn].self, forKey: .turns)
     )
     focusedFileState = try container.decode(FocusedFileState.self, forKey: .focusedFileState)
-    systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
-    generationSettings = try container.decode(
-      ChatGenerationSettings.self,
-      forKey: .generationSettings
-    )
+    modeSettings = try container.decode(ChatModeSettingsSet.self, forKey: .modeSettings)
     interactionMode = try container.decode(
       WorkspaceInteractionMode.self,
       forKey: .interactionMode
@@ -132,8 +148,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     try container.encode(modelContextSnapshot, forKey: .modelContextSnapshot)
     try container.encode(turns, forKey: .turns)
     try container.encode(focusedFileState, forKey: .focusedFileState)
-    try container.encode(systemPrompt, forKey: .systemPrompt)
-    try container.encode(generationSettings, forKey: .generationSettings)
+    try container.encode(modeSettings, forKey: .modeSettings)
     try container.encode(interactionMode, forKey: .interactionMode)
     try container.encode(todoState, forKey: .todoState)
     try container.encode(activeAttachmentContext, forKey: .activeAttachmentContext)

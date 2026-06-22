@@ -11,10 +11,8 @@ final class AppState {
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
-  @ObservationIgnored private var defaultSessionSystemPrompt =
-    ManagedModelCatalog.defaultModel.defaultSystemPrompt
-  @ObservationIgnored private var defaultSessionGenerationSettings =
-    ManagedModelCatalog.defaultModel.defaultGenerationSettings
+  @ObservationIgnored private var defaultSessionModeSettings =
+    ManagedModelCatalog.defaultModel.defaultModeSettings
   @ObservationIgnored private var didAttemptAutoloadLastModel = false
 
   convenience init(
@@ -70,8 +68,7 @@ final class AppState {
       workspaceOpener: workspaceOpener,
       defaultSessionFactory: Self.defaultSessionFactory(
         selectedModelID: defaultSessionModelID,
-        systemPrompt: defaultSessionSystemPrompt,
-        generationSettings: defaultSessionGenerationSettings
+        modeSettings: defaultSessionModeSettings
       )
     )
 
@@ -195,27 +192,23 @@ final class AppState {
     {
       return Self.defaultSessionFactory(
         selectedModelID: chatController.modelRuntime.selectedModelID,
-        systemPrompt: chatController.chatSession.systemPrompt,
-        generationSettings: chatController.chatSession.generationSettings
+        modeSettings: chatController.chatSession.modeSettings
       )
     }
 
     return Self.defaultSessionFactory(
       selectedModelID: defaultSessionModelID,
-      systemPrompt: defaultSessionSystemPrompt,
-      generationSettings: defaultSessionGenerationSettings
+      modeSettings: defaultSessionModeSettings
     )
   }
 
   private static func defaultSessionFactory(
     selectedModelID: ManagedModel.ID,
-    systemPrompt: String,
-    generationSettings: ChatGenerationSettings
+    modeSettings: ChatModeSettingsSet
   ) -> DefaultChatSessionFactory {
     DefaultChatSessionFactory(
       selectedModelID: selectedModelID,
-      systemPrompt: systemPrompt,
-      generationSettings: generationSettings,
+      modeSettings: modeSettings,
       interactionMode: .chat
     )
   }
@@ -223,8 +216,7 @@ final class AppState {
   private func emptySessionForNoActiveWorkspace() -> ChatSession {
     Self.defaultSessionFactory(
       selectedModelID: defaultSessionModelID,
-      systemPrompt: defaultSessionSystemPrompt,
-      generationSettings: defaultSessionGenerationSettings
+      modeSettings: defaultSessionModeSettings
     )
     .makeSession()
   }
@@ -241,8 +233,7 @@ final class AppState {
 
       applyAppBehaviorSettings(settingsState.appBehaviorSettings)
       defaultSessionModelID = selectedModel.id
-      defaultSessionSystemPrompt = settings.systemPrompt
-      defaultSessionGenerationSettings = settings.generationSettings
+      defaultSessionModeSettings = settings.modeSettings
       let defaultSessionFactory = self.makeDefaultSessionFactory()
       await self.workspaceState.loadLibrary(defaultSessionFactory: defaultSessionFactory)
       self.loadActiveSession()

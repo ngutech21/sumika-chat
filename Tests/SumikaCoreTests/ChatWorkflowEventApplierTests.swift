@@ -544,7 +544,7 @@ private func makeState(
   turns: [ChatTurn] = [],
   attachments: [ChatAttachment] = [],
   systemPrompt: String = "System",
-  generationSettings: ChatGenerationSettings = .codingDefault
+  generationSettings: ChatGenerationSettings = .agentDefault
 ) -> ChatSession {
   let resolvedTurns =
     turns.isEmpty && !items.isEmpty

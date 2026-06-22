@@ -24,7 +24,6 @@ flowchart TD
   InvalidToolResult --> InvalidToolCallReason
   ListFilesResult --> WorkspaceFileEntry
   ListFilesResult --> WorkspaceRelativePath
-  ManagedModel --> ChatGenerationSettings
   ManagedModel --> ManagedModelStability
   ManagedModel --> ToolCallingPolicy
   ManagedModelCatalog --> ManagedModel
@@ -423,8 +422,7 @@ Relations:
 Properties:
 
 - `defaultContextTokenLimit: Int`
-- `defaultGenerationSettings: ChatGenerationSettings`
-- `defaultSystemPrompt: String`
+- `defaultModeSettings: ChatModeSettingsSet`
 - `detail: String`
 - `displayName: String`
 - `estimatedDownloadSize: String`
@@ -432,17 +430,13 @@ Properties:
 - `id: String`
 - `isRecommended: Bool`
 - `localDirectoryName: String`
-- `parameterSize: String`
 - `requiresLargeMemory: Bool`
-- `shortName: String`
 - `stability: ManagedModelStability`
-- `summary: String`
 - `supportsImageInput: Bool`
 - `toolCallingPolicy: ToolCallingPolicy`
 
 Relations:
 
-- `ChatGenerationSettings`
 - `ManagedModelStability`
 - `ToolCallingPolicy`
 

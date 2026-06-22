@@ -41,7 +41,7 @@ public actor WorkspaceStore: WorkspaceStoring {
     } catch {
       // The file exists but cannot be decoded. Returning an empty library
       // silently discards every workspace, so surface the failure loudly
-      // instead of swallowing it. (Prototype: no migration / legacy decode.)
+      // instead of swallowing it.
       reportLoadFailure(error)
       return WorkspaceLibrary()
     }

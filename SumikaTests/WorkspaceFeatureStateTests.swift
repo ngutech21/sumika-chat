@@ -325,7 +325,7 @@ private func makeWorkspaceFeatureDefaultFactory(
   DefaultChatSessionFactory(
     selectedModelID: ManagedModelCatalog.defaultModelID,
     systemPrompt: systemPrompt,
-    generationSettings: .codingDefault
+    generationSettings: .agentDefault
   )
 }
 

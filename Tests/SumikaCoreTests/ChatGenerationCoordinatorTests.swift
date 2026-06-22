@@ -19,7 +19,7 @@ struct ChatGenerationCoordinatorTests {
     let assistantContent = try await coordinator.streamAssistantReply(
       transcript: ModelContextSnapshot(),
       systemPrompt: "Answer normally.",
-      settings: .codingDefault,
+      settings: .agentDefault,
       appendChunk: { _ in },
       updateGenerationMetrics: { metrics in
         updatedMetrics = metrics
@@ -47,7 +47,7 @@ struct ChatGenerationCoordinatorTests {
       try await coordinator.streamAssistantReply(
         transcript: ModelContextSnapshot(),
         systemPrompt: "Answer normally.",
-        settings: .codingDefault,
+        settings: .agentDefault,
         appendChunk: { chunks.append($0) },
         updateGenerationMetrics: { _ in },
         updateContextUsage: {}
@@ -70,7 +70,7 @@ struct ChatGenerationCoordinatorTests {
     _ = try await coordinator.streamAssistantReply(
       transcript: ModelContextSnapshot(),
       systemPrompt: "Answer normally.",
-      settings: .codingDefault,
+      settings: .agentDefault,
       appendChunk: { chunks.append($0) },
       updateGenerationMetrics: { _ in },
       updateContextUsage: {}
@@ -106,7 +106,7 @@ struct ChatGenerationCoordinatorTests {
     _ = try await coordinator.streamAssistantReply(
       transcript: ModelContextSnapshot(),
       systemPrompt: "Answer normally.",
-      settings: .codingDefault,
+      settings: .agentDefault,
       appendChunk: { _ in },
       updateGenerationMetrics: { _ in },
       updateRuntimeCacheDebugSnapshot: { snapshot in
@@ -137,7 +137,7 @@ struct ChatGenerationCoordinatorTests {
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "hi")
       ]),
       systemPrompt: "Answer normally.",
-      settings: .codingDefault,
+      settings: .agentDefault,
       appendChunk: { _ in },
       updateGenerationMetrics: { _ in },
       updateContextUsage: {}
@@ -173,7 +173,7 @@ struct ChatGenerationCoordinatorTests {
         operationID: operationID,
         transcript: ModelContextSnapshot(),
         systemPrompt: "Answer normally.",
-        settings: .codingDefault,
+        settings: .agentDefault,
         appendChunk: { chunks.append($0) },
         updateGenerationMetrics: { _ in },
         updateContextUsage: {}

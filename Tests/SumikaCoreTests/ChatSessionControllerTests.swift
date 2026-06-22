@@ -103,7 +103,7 @@ struct ChatSessionControllerTests {
       selectedModelID: ManagedModelCatalog.defaultModelID,
       focusedFileState: focusedFileState,
       systemPrompt: "System",
-      generationSettings: .codingDefault,
+      generationSettings: .agentDefault,
       interactionMode: .agent
     )
     let controller = ChatSessionController(
@@ -126,7 +126,7 @@ struct ChatSessionControllerTests {
     let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
       systemPrompt: "System",
-      generationSettings: .codingDefault,
+      generationSettings: .agentDefault,
       interactionMode: .agent
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -143,7 +143,7 @@ struct ChatSessionControllerTests {
     let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
       systemPrompt: "System",
-      generationSettings: .codingDefault,
+      generationSettings: .agentDefault,
       interactionMode: .agent
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -218,6 +218,54 @@ struct ChatSessionControllerTests {
 
     #expect(controller.chatSession.interactionMode == .agent)
     #expect(controller.errorMessage == nil)
+  }
+
+  @Test
+  func runtimeRequestsUseActiveModePromptAndGenerationSettings() async throws {
+    let chatSettings = ChatGenerationSettings(
+      temperature: 1.2,
+      topP: 0.95,
+      topK: 30,
+      maxTokens: 768
+    )
+    let agentSettings = ChatGenerationSettings(
+      temperature: 0.1,
+      topP: 0.7,
+      topK: 10,
+      maxTokens: 256
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.chunk("chat response")],
+      [.chunk("agent response")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.chatSession.modeSettings = ChatModeSettingsSet(
+      chat: ChatModeSettings(
+        systemPrompt: "Chat mode prompt",
+        generationSettings: chatSettings
+      ),
+      agent: ChatModeSettings(
+        systemPrompt: "Agent mode prompt",
+        generationSettings: agentSettings
+      )
+    )
+
+    #expect(controller.sendMessage(prompt: "hello"))
+    try await waitUntilAsync { await runtime.capturedGenerationSettings.count == 1 }
+
+    controller.setInteractionMode(.agent)
+    #expect(controller.sendMessage(prompt: "inspect"))
+    try await waitUntilAsync { await runtime.capturedGenerationSettings.count == 2 }
+
+    let prompts = await runtime.capturedSystemPrompts
+    let settings = await runtime.capturedGenerationSettings
+    #expect(prompts[0].contains("Chat mode prompt"))
+    #expect(!prompts[0].contains("Agent mode prompt"))
+    #expect(settings[0] == chatSettings)
+    #expect(prompts[1].contains("Agent mode prompt"))
+    #expect(!prompts[1].contains("Chat mode prompt"))
+    #expect(settings[1] == agentSettings)
   }
 
   @Test
@@ -782,8 +830,8 @@ struct ChatSessionControllerTests {
         ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
-          systemPrompt: ChatPromptDefaults.codingSystemPrompt,
-          generationSettings: .codingDefault
+          systemPrompt: ChatPromptDefaults.agentSystemPrompt,
+          generationSettings: .agentDefault
         )
       ]
     )
@@ -1003,8 +1051,8 @@ struct ChatSessionControllerTests {
         ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
-          systemPrompt: ChatPromptDefaults.codingSystemPrompt,
-          generationSettings: .codingDefault
+          systemPrompt: ChatPromptDefaults.agentSystemPrompt,
+          generationSettings: .agentDefault
         )
       ]
     )
@@ -1071,8 +1119,8 @@ struct ChatSessionControllerTests {
         ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
-          systemPrompt: ChatPromptDefaults.codingSystemPrompt,
-          generationSettings: .codingDefault
+          systemPrompt: ChatPromptDefaults.agentSystemPrompt,
+          generationSettings: .agentDefault
         )
       ]
     )
@@ -1248,8 +1296,8 @@ struct ChatSessionControllerTests {
         ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
-          systemPrompt: ChatPromptDefaults.codingSystemPrompt,
-          generationSettings: .codingDefault
+          systemPrompt: ChatPromptDefaults.agentSystemPrompt,
+          generationSettings: .agentDefault
         )
       ]
     )

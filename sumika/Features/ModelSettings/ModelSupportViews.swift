@@ -208,17 +208,24 @@ struct ModelRuntimeStatus: View {
 
 struct ModelAdvancedSettings: View {
   let model: ManagedModel
-  @Binding var systemPrompt: String
-  @Binding var generationSettings: ChatGenerationSettings
+  @Binding var modeSettings: ChatModeSettingsSet
   @Binding var contextTokenLimit: Int
   let canChangeContextTokenLimit: Bool
+  @State private var selectedMode = WorkspaceInteractionMode.chat
 
   var body: some View {
     Group {
       Section("Generation") {
+        Picker("Mode", selection: $selectedMode) {
+          ForEach(WorkspaceInteractionMode.allCases, id: \.self) { mode in
+            Text(mode.displayName).tag(mode)
+          }
+        }
+        .pickerStyle(.segmented)
+
         VStack(alignment: .leading, spacing: 6) {
-          Label("System Prompt", systemImage: "text.quote")
-          TextField("System Prompt", text: $systemPrompt, axis: .vertical)
+          Label("\(selectedMode.displayName) System Prompt", systemImage: "text.quote")
+          TextField("System Prompt", text: selectedSystemPrompt, axis: .vertical)
             .textFieldStyle(.roundedBorder)
             .lineLimit(4...8)
             .labelsHidden()
@@ -230,15 +237,20 @@ struct ModelAdvancedSettings: View {
           HStack {
             Label("Creativity", systemImage: "thermometer.variable")
             Spacer()
-            Text(generationSettings.temperature.formatted(.number.precision(.fractionLength(1))))
-              .foregroundStyle(.secondary)
-              .monospacedDigit()
+            Text(
+              selectedGenerationSettings.wrappedValue.temperature.formatted(
+                .number.precision(.fractionLength(1)))
+            )
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
           }
-          Slider(value: $generationSettings.temperature, in: 0...2, step: 0.1)
+          Slider(value: selectedTemperature, in: 0...2, step: 0.1)
         }
 
-        Stepper(value: $generationSettings.maxTokens, in: 128...8192, step: 128) {
-          SettingValueLabel(title: "Response Length", value: "\(generationSettings.maxTokens)")
+        Stepper(value: selectedMaxTokens, in: 128...8192, step: 128) {
+          SettingValueLabel(
+            title: "Response Length",
+            value: "\(selectedGenerationSettings.wrappedValue.maxTokens)")
         }
 
         Stepper(value: $contextTokenLimit, in: 4096...131072, step: 4096) {
@@ -255,21 +267,26 @@ struct ModelAdvancedSettings: View {
         Stepper(value: maxKVSizeValue, in: 4096...131072, step: 4096) {
           SettingValueLabel(title: "KV Cache Limit", value: formattedMaxKVSize)
         }
-        .disabled(generationSettings.maxKVSize == nil)
+        .disabled(selectedGenerationSettings.wrappedValue.maxKVSize == nil)
 
         VStack(alignment: .leading, spacing: 6) {
           HStack {
             Label("Top P", systemImage: "chart.line.uptrend.xyaxis")
             Spacer()
-            Text(generationSettings.topP.formatted(.number.precision(.fractionLength(2))))
-              .foregroundStyle(.secondary)
-              .monospacedDigit()
+            Text(
+              selectedGenerationSettings.wrappedValue.topP.formatted(
+                .number.precision(.fractionLength(2)))
+            )
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
           }
-          Slider(value: $generationSettings.topP, in: 0.05...1, step: 0.05)
+          Slider(value: selectedTopP, in: 0.05...1, step: 0.05)
         }
 
-        Stepper(value: $generationSettings.topK, in: 0...200, step: 10) {
-          SettingValueLabel(title: "Top K", value: "\(generationSettings.topK)")
+        Stepper(value: selectedTopK, in: 0...200, step: 10) {
+          SettingValueLabel(
+            title: "Top K",
+            value: "\(selectedGenerationSettings.wrappedValue.topK)")
         }
 
         LabeledContent("Hugging Face") {
@@ -284,9 +301,11 @@ struct ModelAdvancedSettings: View {
             .foregroundStyle(.secondary)
         }
 
-        Button("Coding Defaults") {
-          systemPrompt = model.defaultSystemPrompt
-          generationSettings = model.defaultGenerationSettings
+        Button("Reset \(selectedMode.displayName) Defaults") {
+          modeSettings[selectedMode] = model.defaultModeSettings[selectedMode]
+        }
+
+        Button("Reset Context Length") {
           contextTokenLimit = model.defaultContextTokenLimit
         }
       }
@@ -298,26 +317,69 @@ struct ModelAdvancedSettings: View {
   }
 
   private var formattedMaxKVSize: String {
-    guard let maxKVSize = generationSettings.maxKVSize else {
+    guard let maxKVSize = selectedGenerationSettings.wrappedValue.maxKVSize else {
       return "Runtime"
     }
 
     return "\(maxKVSize / 1024)K"
   }
 
+  private var selectedSystemPrompt: Binding<String> {
+    Binding(
+      get: { modeSettings[selectedMode].systemPrompt },
+      set: { modeSettings[selectedMode].systemPrompt = $0 }
+    )
+  }
+
+  private var selectedGenerationSettings: Binding<ChatGenerationSettings> {
+    Binding(
+      get: { modeSettings[selectedMode].generationSettings },
+      set: { modeSettings[selectedMode].generationSettings = $0 }
+    )
+  }
+
+  private var selectedTemperature: Binding<Double> {
+    Binding(
+      get: { selectedGenerationSettings.wrappedValue.temperature },
+      set: { selectedGenerationSettings.wrappedValue.temperature = $0 }
+    )
+  }
+
+  private var selectedMaxTokens: Binding<Int> {
+    Binding(
+      get: { selectedGenerationSettings.wrappedValue.maxTokens },
+      set: { selectedGenerationSettings.wrappedValue.maxTokens = $0 }
+    )
+  }
+
+  private var selectedTopP: Binding<Double> {
+    Binding(
+      get: { selectedGenerationSettings.wrappedValue.topP },
+      set: { selectedGenerationSettings.wrappedValue.topP = $0 }
+    )
+  }
+
+  private var selectedTopK: Binding<Int> {
+    Binding(
+      get: { selectedGenerationSettings.wrappedValue.topK },
+      set: { selectedGenerationSettings.wrappedValue.topK = $0 }
+    )
+  }
+
   private var maxKVSizeEnabled: Binding<Bool> {
     Binding(
-      get: { generationSettings.maxKVSize != nil },
+      get: { selectedGenerationSettings.wrappedValue.maxKVSize != nil },
       set: { isEnabled in
-        generationSettings.maxKVSize = isEnabled ? contextTokenLimit : nil
+        selectedGenerationSettings.wrappedValue.maxKVSize =
+          isEnabled ? contextTokenLimit : nil
       }
     )
   }
 
   private var maxKVSizeValue: Binding<Int> {
     Binding(
-      get: { generationSettings.maxKVSize ?? contextTokenLimit },
-      set: { generationSettings.maxKVSize = $0 }
+      get: { selectedGenerationSettings.wrappedValue.maxKVSize ?? contextTokenLimit },
+      set: { selectedGenerationSettings.wrappedValue.maxKVSize = $0 }
     )
   }
 }

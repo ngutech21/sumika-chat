@@ -29,9 +29,16 @@ struct ModelManagementTests {
     )
     let model = try #require(ManagedModelCatalog.model(id: "gemma4-e2b"))
     let settings = StoredModelSettings(
-      systemPrompt: "Use short answers.",
-      generationSettings: ChatGenerationSettings(
-        temperature: 0.4, topP: 0.8, topK: 20, maxTokens: 512, maxKVSize: 16_384),
+      modeSettings: ChatModeSettingsSet(
+        chat: ChatModeSettings(
+          systemPrompt: "Use short conversational answers.",
+          generationSettings: ChatGenerationSettings(
+            temperature: 1.1, topP: 0.9, topK: 30, maxTokens: 768)),
+        agent: ChatModeSettings(
+          systemPrompt: "Use short coding steps.",
+          generationSettings: ChatGenerationSettings(
+            temperature: 0.4, topP: 0.8, topK: 20, maxTokens: 512, maxKVSize: 16_384))
+      ),
       contextTokenLimit: 32_768
     )
 
@@ -61,9 +68,11 @@ struct ModelManagementTests {
 
     let settings = await store.settings(for: ManagedModelCatalog.defaultModel)
 
-    #expect(settings.systemPrompt == ChatPromptDefaults.codingSystemPrompt)
-    #expect(settings.generationSettings == .codingDefault)
-    #expect(settings.generationSettings.maxKVSize == nil)
+    #expect(settings.modeSettings == ManagedModelCatalog.defaultModel.defaultModeSettings)
+    #expect(settings.modeSettings.chat.systemPrompt == ChatPromptDefaults.chatSystemPrompt)
+    #expect(settings.modeSettings.chat.generationSettings == .chatDefault)
+    #expect(settings.modeSettings.agent.systemPrompt == ChatPromptDefaults.agentSystemPrompt)
+    #expect(settings.modeSettings.agent.generationSettings == .agentDefault)
     #expect(settings.contextTokenLimit == ManagedModelCatalog.defaultModel.defaultContextTokenLimit)
   }
 
@@ -74,15 +83,29 @@ struct ModelManagementTests {
     let firstModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b"))
     let secondModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-4bit"))
     let firstSettings = StoredModelSettings(
-      systemPrompt: "Use tiny-model defaults.",
-      generationSettings: ChatGenerationSettings(
-        temperature: 0.1, topP: 0.7, topK: 10, maxTokens: 256),
+      modeSettings: ChatModeSettingsSet(
+        chat: ChatModeSettings(
+          systemPrompt: "Use tiny-model chat defaults.",
+          generationSettings: ChatGenerationSettings(
+            temperature: 1.0, topP: 0.9, topK: 20, maxTokens: 512)),
+        agent: ChatModeSettings(
+          systemPrompt: "Use tiny-model agent defaults.",
+          generationSettings: ChatGenerationSettings(
+            temperature: 0.1, topP: 0.7, topK: 10, maxTokens: 256))
+      ),
       contextTokenLimit: 16_384
     )
     let secondSettings = StoredModelSettings(
-      systemPrompt: "Use large-model defaults.",
-      generationSettings: ChatGenerationSettings(
-        temperature: 0.3, topP: 0.9, topK: 30, maxTokens: 1024),
+      modeSettings: ChatModeSettingsSet(
+        chat: ChatModeSettings(
+          systemPrompt: "Use large-model chat defaults.",
+          generationSettings: ChatGenerationSettings(
+            temperature: 1.2, topP: 0.95, topK: 40, maxTokens: 2048)),
+        agent: ChatModeSettings(
+          systemPrompt: "Use large-model agent defaults.",
+          generationSettings: ChatGenerationSettings(
+            temperature: 0.3, topP: 0.9, topK: 30, maxTokens: 1024))
+      ),
       contextTokenLimit: 131_072
     )
 

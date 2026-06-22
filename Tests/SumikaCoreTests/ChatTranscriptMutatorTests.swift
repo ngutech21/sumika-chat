@@ -414,7 +414,7 @@ private func makeState(
   attachments: [ChatAttachment] = [],
   todoState: TodoState? = nil,
   systemPrompt: String = "System",
-  generationSettings: ChatGenerationSettings = .codingDefault
+  generationSettings: ChatGenerationSettings = .agentDefault
 ) -> ChatSession {
   let resolvedTurns =
     turns.isEmpty && !items.isEmpty

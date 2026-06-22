@@ -15,7 +15,7 @@ struct AppStateTests {
       id: sessionID,
       selectedModelID: ManagedModelCatalog.defaultModelID,
       systemPrompt: "System",
-      generationSettings: .codingDefault,
+      generationSettings: .agentDefault,
       interactionMode: .chat
     )
     let workspace = Workspace(

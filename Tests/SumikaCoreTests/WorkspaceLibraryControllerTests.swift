@@ -17,7 +17,7 @@ struct WorkspaceLibraryControllerTests {
           id: sessionID,
           selectedModelID: "gemma4-e4b",
           systemPrompt: "Existing",
-          generationSettings: .codingDefault
+          generationSettings: .agentDefault
         )
       ]
     )
@@ -258,7 +258,7 @@ struct WorkspaceLibraryControllerTests {
       defaultSessionFactory: DefaultChatSessionFactory(
         selectedModelID: "gemma4-e4b",
         systemPrompt: "Default system",
-        generationSettings: .codingDefault
+        generationSettings: .agentDefault
       ),
       now: now
     )
@@ -273,7 +273,7 @@ struct WorkspaceLibraryControllerTests {
       title: title,
       selectedModelID: "gemma4-e4b",
       systemPrompt: "System",
-      generationSettings: .codingDefault
+      generationSettings: .agentDefault
     )
   }
 

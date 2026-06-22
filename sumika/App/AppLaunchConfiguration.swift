@@ -131,8 +131,7 @@ enum AppLaunchConfiguration {
     let session = ChatSession(
       title: "UI Performance",
       selectedModelID: selectedModel.id,
-      systemPrompt: selectedModel.defaultSystemPrompt,
-      generationSettings: selectedModel.defaultGenerationSettings,
+      modeSettings: selectedModel.defaultModeSettings,
       interactionMode: .chat
     )
     let workspace = Workspace(

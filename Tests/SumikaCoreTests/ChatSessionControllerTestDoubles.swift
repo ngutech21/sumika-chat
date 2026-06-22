@@ -550,6 +550,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private(set) var capturedMessages: [[ProjectedModelContextEntry]] = []
   private(set) var capturedAttachments: [[ChatAttachment]] = []
   private(set) var capturedSystemPrompts: [String] = []
+  private(set) var capturedGenerationSettings: [ChatGenerationSettings] = []
   private(set) var capturedToolContexts: [ChatRuntimeToolContext?] = []
   private(set) var capturedContextUsageSystemPrompts: [String] = []
 
@@ -601,12 +602,11 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = settings
-
     capturedMessages.append(
       transcript.projectedEntries(mode: .fullHistory))
     capturedAttachments.append(attachments)
     capturedSystemPrompts.append(systemPrompt)
+    capturedGenerationSettings.append(settings)
     let callIndex = streamReplyCount
     let events = turns[min(callIndex, turns.count - 1)]
     streamReplyCount += 1
