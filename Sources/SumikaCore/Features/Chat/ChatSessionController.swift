@@ -246,6 +246,7 @@ extension ChatSessionController {
       pendingAttachments: session.pendingAttachments,
       activeAttachments: activeAttachments(in: session),
       interactionMode: session.interactionMode,
+      reasoningEnabled: session.generationSettings.reasoningEnabled,
       todoState: visibleTodoState(in: session)
     )
   }
@@ -325,6 +326,21 @@ extension ChatSessionController {
     invalidateModelContextDebugDocument()
     clearRuntimeContextForReuse()
     refreshContextUsage(toolPromptMode: mode == .chat ? .disabled : .enabled(true))
+    notifySessionDidChange()
+  }
+
+  public func setReasoningEnabled(_ isEnabled: Bool) {
+    guard canChangeInteractionMode, chatSession.generationSettings.reasoningEnabled != isEnabled
+    else {
+      return
+    }
+
+    chatSession.generationSettings.reasoningEnabled = isEnabled
+    errorMessage = nil
+    invalidateModelContextDebugDocument()
+    clearRuntimeContextForReuse()
+    refreshContextUsage(
+      toolPromptMode: chatSession.interactionMode == .chat ? .disabled : .enabled(true))
     notifySessionDidChange()
   }
 
@@ -676,6 +692,7 @@ extension ChatSessionController {
       transcript: transcript,
       attachments: attachmentsForCurrentTurn(),
       systemPrompt: renderedSystemPrompt,
+      reasoningEnabled: chatSession.generationSettings.reasoningEnabled,
       contextTokenLimit: modelRuntime.modelContextTokenLimit,
       runtimeIsBusy: isGenerating || runtimeContextClearCoordinator.hasPendingClear,
       interactionMode: chatSession.interactionMode
@@ -1017,7 +1034,10 @@ extension ChatWorkflowEvent {
       .toolCallAppended,
       .toolCallUpdated,
       .assistantPlaceholderAppended,
+      .assistantThinkingPlaceholderAppended,
       .assistantChunkAppended,
+      .assistantThinkingChunkAppended,
+      .assistantThinkingCompleted,
       .assistantGenerationCompleted,
       .focusedFileStateChanged,
       .streamingAssistantMessagesCancelled,

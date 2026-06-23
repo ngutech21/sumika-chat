@@ -87,12 +87,14 @@ public struct ModelLifecycleCoordinator: Sendable {
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String,
+    reasoningEnabled: Bool,
     operationID: UUID
   ) async throws -> ChatContextUsage {
     try await runtimeOperations.contextUsage(
       for: transcript,
       attachments: attachments,
       systemPrompt: systemPrompt,
+      reasoningEnabled: reasoningEnabled,
       operationID: operationID
     )
   }

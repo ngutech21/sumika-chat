@@ -464,7 +464,8 @@ private actor RuntimeControllerRecordingRuntime: ChatModelRuntime {
   func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
-    systemPrompt: String
+    systemPrompt: String,
+    reasoningEnabled: Bool
   ) async throws -> ChatContextUsage {
     ChatContextUsage(usedTokens: 0, tokenLimit: nil)
   }
@@ -517,7 +518,8 @@ private actor RuntimeControllerRaceLoadingRuntime: ChatModelRuntime {
   func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
-    systemPrompt: String
+    systemPrompt: String,
+    reasoningEnabled: Bool
   ) async throws -> ChatContextUsage {
     _ = transcript
     _ = attachments
@@ -577,7 +579,8 @@ private actor RuntimeControllerDelayedUnloadRuntime: ChatModelRuntime {
   func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
-    systemPrompt: String
+    systemPrompt: String,
+    reasoningEnabled: Bool
   ) async throws -> ChatContextUsage {
     _ = transcript
     _ = attachments

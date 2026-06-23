@@ -867,7 +867,8 @@ private actor AppStateTestRuntime: ChatModelRuntime {
   func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
-    systemPrompt: String
+    systemPrompt: String,
+    reasoningEnabled: Bool
   ) async throws -> ChatContextUsage {
     _ = transcript
     _ = attachments
@@ -1005,6 +1006,8 @@ extension ChatSession {
     turns.flatMap(\.items).compactMap { item in
       switch item {
       case .userMessage(let message):
+        message.content
+      case .assistantThinking(let message):
         message.content
       case .assistantMessage(let message):
         message.content

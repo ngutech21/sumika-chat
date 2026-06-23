@@ -530,6 +530,30 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func renderedContextSignatureChangesWhenReasoningSettingChanges() {
+    let history = GemmaHistoryRenderer.messageSnapshot(from: [
+      .user("hello"),
+      .assistant("hi"),
+    ])
+    var changedSettings = ChatGenerationSettings.agentDefault
+    changedSettings.reasoningEnabled = false
+
+    let first = GemmaSessionCachePolicy.renderedContextSignature(
+      for: history,
+      settings: .agentDefault
+    )
+    let second = GemmaSessionCachePolicy.renderedContextSignature(
+      for: history,
+      settings: changedSettings
+    )
+
+    #expect(first != second)
+    #expect(first.renderedHistoryHash == second.renderedHistoryHash)
+    #expect(first.generationSettingsHash != second.generationSettingsHash)
+    #expect(first.nativeToolSchemaHash == second.nativeToolSchemaHash)
+  }
+
+  @Test
   func renderedContextSignatureChangesWhenNativeToolSchemaChanges() {
     let history = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
@@ -1948,6 +1972,100 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func thoughtChannelParserSplitsThoughtBlocksAcrossChunks() {
+    var parser = GemmaThoughtChannelParser()
+
+    let segments = [
+      parser.append("<|chan"),
+      parser.append("nel|>thought The user said hey."),
+      parser.append(" I should greet them.<chan"),
+      parser.append("nel|>Hello"),
+      parser.append(" there."),
+      parser.finish(),
+    ].flatMap { $0 }
+
+    #expect(
+      segments == [
+        .thinking(" The user said hey."),
+        .thinking(" I should greet them."),
+        .visible("Hello"),
+        .visible(" there."),
+      ])
+  }
+
+  @Test
+  func thoughtChannelParserSupportsAsymmetricThoughtMarker() {
+    var parser = GemmaThoughtChannelParser()
+
+    let segments = [
+      parser.append("<|chan"),
+      parser.append("nel>thought I should answer."),
+      parser.append("<channel|>Done."),
+      parser.finish(),
+    ].flatMap { $0 }
+
+    #expect(
+      segments == [
+        .thinking(" I should answer."),
+        .visible("Done."),
+      ])
+  }
+
+  @Test
+  func modelStreamSeparatesThoughtChannelChunks() async throws {
+    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let completionRecorder = GemmaStreamCompletionRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("<|channel>thought"))
+      continuation.yield(.chunk(" The user said hey."))
+      continuation.yield(.chunk("<channel|>Hello"))
+      continuation.yield(.chunk(" there."))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 8,
+            promptTime: 0.1,
+            generationTime: 0.1
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = GemmaModelStreamProcessor.modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { output in
+        await completionRecorder.record(output)
+      },
+      markCancelled: { _ in },
+      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    var chunks: [String] = []
+    var thinkingChunks: [String] = []
+    var iterator = stream.makeAsyncIterator()
+    while let event = try await iterator.next() {
+      switch event {
+      case .chunk(let chunk):
+        chunks.append(chunk)
+      case .thinkingChunk(let chunk):
+        thinkingChunks.append(chunk)
+      case .toolCall, .completed:
+        break
+      }
+    }
+
+    #expect(chunks.joined() == "Hello there.")
+    #expect(thinkingChunks.joined() == " The user said hey.")
+    #expect(await completionRecorder.firstOutput == "Hello there.")
+    #expect(await memoryClearRecorder.reasons.isEmpty)
+  }
+
+  @Test
   func cancellationModelStreamDoesNotClearMemoryCache() async throws {
     let memoryClearRecorder = GemmaMemoryClearRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
@@ -2392,6 +2510,18 @@ private actor GemmaStreamInvalidationRecorder {
 
   func record(_ reason: GemmaSessionInvalidationReason) {
     reasons.append(reason)
+  }
+}
+
+private actor GemmaStreamCompletionRecorder {
+  private var outputs: [String] = []
+
+  var firstOutput: String? {
+    outputs.first
+  }
+
+  func record(_ output: String) {
+    outputs.append(output)
   }
 }
 

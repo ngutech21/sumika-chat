@@ -6,19 +6,22 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
   public var topK: Int
   public var maxTokens: Int
   public var maxKVSize: Int?
+  public var reasoningEnabled: Bool
 
   public init(
     temperature: Double,
     topP: Double,
     topK: Int,
     maxTokens: Int,
-    maxKVSize: Int? = nil
+    maxKVSize: Int? = nil,
+    reasoningEnabled: Bool = true
   ) {
     self.temperature = temperature
     self.topP = topP
     self.topK = topK
     self.maxTokens = maxTokens
     self.maxKVSize = maxKVSize
+    self.reasoningEnabled = reasoningEnabled
   }
 
   public static let chatDefault = ChatGenerationSettings(

@@ -7,6 +7,7 @@ public struct ContextUsageSnapshot: Sendable {
   public let transcript: ModelContextSnapshot
   public let attachments: [ChatAttachment]
   public let systemPrompt: String
+  public let reasoningEnabled: Bool
   public let contextTokenLimit: Int?
   public let runtimeIsBusy: Bool
   public let interactionMode: WorkspaceInteractionMode?
@@ -18,6 +19,7 @@ public struct ContextUsageSnapshot: Sendable {
     transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String,
+    reasoningEnabled: Bool = true,
     contextTokenLimit: Int? = nil,
     runtimeIsBusy: Bool = false,
     interactionMode: WorkspaceInteractionMode? = nil
@@ -28,6 +30,7 @@ public struct ContextUsageSnapshot: Sendable {
     self.transcript = transcript
     self.attachments = attachments
     self.systemPrompt = systemPrompt
+    self.reasoningEnabled = reasoningEnabled
     self.contextTokenLimit = contextTokenLimit
     self.runtimeIsBusy = runtimeIsBusy
     self.interactionMode = interactionMode

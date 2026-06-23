@@ -112,9 +112,33 @@ public struct ChatTranscriptMutator: Sendable {
     )
   }
 
+  public func appendAssistantThinkingPlaceholder(
+    id: UUID,
+    turnID: ChatTurn.ID? = nil,
+    to state: inout ChatSession
+  ) {
+    appendItem(
+      .assistantThinking(
+        AssistantThinkingMessage(id: id, content: "", deliveryStatus: .streaming)
+      ),
+      toTurn: turnID,
+      in: &state
+    )
+  }
+
   public func appendChunk(_ chunk: String, to messageID: UUID, in state: inout ChatSession) {
     updateTurn(containingMessageID: messageID, in: &state) { turn in
       turn.appendAssistantChunk(chunk, to: messageID)
+    }
+  }
+
+  public func appendThinkingChunk(
+    _ chunk: String,
+    to messageID: UUID,
+    in state: inout ChatSession
+  ) {
+    updateTurn(containingMessageID: messageID, in: &state) { turn in
+      turn.appendAssistantThinkingChunk(chunk, to: messageID)
     }
   }
 
@@ -135,6 +159,16 @@ public struct ChatTranscriptMutator: Sendable {
   ) {
     updateTurn(containingMessageID: messageID, in: &state) { turn in
       turn.updateAssistantDeliveryStatus(status, for: messageID)
+    }
+  }
+
+  public func updateThinkingDeliveryStatus(
+    _ status: AssistantThinkingMessage.DeliveryStatus,
+    for messageID: UUID,
+    in state: inout ChatSession
+  ) {
+    updateTurn(containingMessageID: messageID, in: &state) { turn in
+      turn.updateAssistantThinkingDeliveryStatus(status, for: messageID)
     }
   }
 

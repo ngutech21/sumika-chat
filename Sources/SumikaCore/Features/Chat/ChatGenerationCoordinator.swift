@@ -67,6 +67,7 @@ public struct ChatGenerationCoordinator {
     systemPrompt: String,
     settings: ChatGenerationSettings,
     appendChunk: (String) -> Void,
+    appendThinkingChunk: (String) -> Void = { _ in },
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void = { _ in },
     updateContextUsage: () async -> Void
@@ -82,6 +83,7 @@ public struct ChatGenerationCoordinator {
       settings: settings,
       toolContext: nil,
       appendChunk: appendChunk,
+      appendThinkingChunk: appendThinkingChunk,
       updateGenerationMetrics: updateGenerationMetrics,
       updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot,
       updateContextUsage: updateContextUsage
@@ -100,6 +102,7 @@ public struct ChatGenerationCoordinator {
     settings: ChatGenerationSettings,
     toolContext: ChatRuntimeToolContext? = nil,
     appendChunk: (String) -> Void,
+    appendThinkingChunk: (String) -> Void = { _ in },
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void = { _ in },
     updateContextUsage: () async -> Void
@@ -131,6 +134,7 @@ public struct ChatGenerationCoordinator {
         settings: settings,
         toolContext: toolContext,
         appendChunk: appendChunk,
+        appendThinkingChunk: appendThinkingChunk,
         updateGenerationMetrics: updateGenerationMetrics,
         updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot,
         updateContextUsage: updateContextUsage
@@ -149,6 +153,7 @@ public struct ChatGenerationCoordinator {
     settings: ChatGenerationSettings,
     toolContext: ChatRuntimeToolContext?,
     appendChunk: (String) -> Void,
+    appendThinkingChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
     updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void,
     updateContextUsage: () async -> Void
@@ -167,9 +172,11 @@ public struct ChatGenerationCoordinator {
     await updateRuntimeCacheDebugSnapshot(runtimeCacheDebugSnapshot)
 
     var bufferedChunk = ""
+    var bufferedThinkingChunk = ""
     var generatedContent = ""
     var nativeToolCalls: [ChatRuntimeToolCall] = []
     var lastFlushDate = Date()
+    var lastThinkingFlushDate = Date()
     var didComplete = false
     var shouldFlushBufferedChunksOnExit = true
 
@@ -202,13 +209,33 @@ public struct ChatGenerationCoordinator {
       lastFlushDate = Date()
     }
 
+    func flushBufferedThinkingChunks() {
+      guard !bufferedThinkingChunk.isEmpty else {
+        return
+      }
+      guard !Task.isCancelled else {
+        bufferedThinkingChunk = ""
+        return
+      }
+
+      appendThinkingChunk(bufferedThinkingChunk)
+      bufferedThinkingChunk = ""
+      lastThinkingFlushDate = Date()
+    }
+
     func shouldFlushBufferedChunks() -> Bool {
       bufferedChunk.count >= streamingFlushCharacterLimit
         || Date().timeIntervalSince(lastFlushDate) >= streamingFlushInterval
     }
 
+    func shouldFlushBufferedThinkingChunks() -> Bool {
+      bufferedThinkingChunk.count >= streamingFlushCharacterLimit
+        || Date().timeIntervalSince(lastThinkingFlushDate) >= streamingFlushInterval
+    }
+
     defer {
       if shouldFlushBufferedChunksOnExit {
+        flushBufferedThinkingChunks()
         flushBufferedChunks()
       }
     }
@@ -224,10 +251,17 @@ public struct ChatGenerationCoordinator {
           if shouldFlushBufferedChunks() {
             flushBufferedChunks()
           }
+        case .thinkingChunk(let chunk):
+          bufferedThinkingChunk += chunk
+          if shouldFlushBufferedThinkingChunks() {
+            flushBufferedThinkingChunks()
+          }
         case .toolCall(let toolCall):
+          flushBufferedThinkingChunks()
           flushBufferedChunks()
           nativeToolCalls.append(toolCall)
         case .completed(let metrics):
+          flushBufferedThinkingChunks()
           flushBufferedChunks()
           let completedMetrics = try await generationMetrics(
             from: metrics,
@@ -244,6 +278,7 @@ public struct ChatGenerationCoordinator {
     } catch is CancellationError {
       shouldFlushBufferedChunksOnExit = false
       bufferedChunk = ""
+      bufferedThinkingChunk = ""
       throw CancellationError()
     }
 

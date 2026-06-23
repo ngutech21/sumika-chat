@@ -269,6 +269,45 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func setReasoningEnabledMutatesOnlyActiveModeSettings() {
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+    controller.chatSession = ChatSession(
+      modeSettings: ChatModeSettingsSet(
+        chat: ChatModeSettings(
+          systemPrompt: "Chat mode prompt",
+          generationSettings: ChatGenerationSettings(
+            temperature: 1,
+            topP: 1,
+            topK: 0,
+            maxTokens: 256,
+            reasoningEnabled: true
+          )
+        ),
+        agent: ChatModeSettings(
+          systemPrompt: "Agent mode prompt",
+          generationSettings: ChatGenerationSettings(
+            temperature: 0,
+            topP: 1,
+            topK: 0,
+            maxTokens: 256,
+            reasoningEnabled: true
+          )
+        )
+      ),
+      interactionMode: .chat
+    )
+
+    controller.setReasoningEnabled(false)
+
+    #expect(!controller.chatSession.modeSettings.chat.generationSettings.reasoningEnabled)
+    #expect(controller.chatSession.modeSettings.agent.generationSettings.reasoningEnabled)
+    #expect(!controller.composerSessionState.reasoningEnabled)
+  }
+
+  @Test
   func modelContextDebugDocumentUsesWorkspaceToolAvailability() throws {
     let session = ChatSession(
       selectedModelID: "gemma4-e2b",
@@ -1625,6 +1664,8 @@ struct ChatSessionControllerTests {
   private func messageID(from item: ChatTurnItem) -> UUID? {
     switch item {
     case .userMessage(let message):
+      message.id
+    case .assistantThinking(let message):
       message.id
     case .assistantMessage(let message):
       message.id

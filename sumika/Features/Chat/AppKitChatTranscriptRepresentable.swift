@@ -303,6 +303,9 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
           toggleToolExpansion: { [weak self] rowID in
             self?.toggleToolExpansion(rowID: rowID)
           },
+          toggleThinkingExpansion: { [weak self] rowID in
+            self?.toggleThinkingExpansion(rowID: rowID)
+          },
           updateAskUserSelection: { [weak self] rowID, answer in
             self?.cellStateStore.updateAskUserSelection(answer, rowID: rowID)
           }
@@ -337,6 +340,13 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
 
     private func toggleToolExpansion(rowID: String) {
       cellStateStore.toggleToolExpansion(rowID: rowID)
+      heightCache.invalidate(rowID: rowID)
+      reconfigureRows(ids: [rowID])
+      scheduleHeightInvalidation(for: rowIndexes(for: [rowID]), scrollToBottomAfterFlush: false)
+    }
+
+    private func toggleThinkingExpansion(rowID: String) {
+      cellStateStore.toggleThinkingExpansion(rowID: rowID)
       heightCache.invalidate(rowID: rowID)
       reconfigureRows(ids: [rowID])
       scheduleHeightInvalidation(for: rowIndexes(for: [rowID]), scrollToBottomAfterFlush: false)
@@ -755,6 +765,7 @@ enum NativeTranscriptRowMeasurer {
       deny: { _ in },
       answerAskUser: { _, _, _ in },
       toggleToolExpansion: { _ in },
+      toggleThinkingExpansion: { _ in },
       updateAskUserSelection: { _, _ in }
     )
   }
@@ -763,15 +774,18 @@ enum NativeTranscriptRowMeasurer {
 struct NativeTranscriptCellState: Equatable {
   var isCopied: Bool
   var isToolExpanded: Bool
+  var isThinkingExpanded: Bool
   var askUserSelection: String?
 
   init(
     isCopied: Bool = false,
     isToolExpanded: Bool = false,
+    isThinkingExpanded: Bool = false,
     askUserSelection: String? = nil
   ) {
     self.isCopied = isCopied
     self.isToolExpanded = isToolExpanded
+    self.isThinkingExpanded = isThinkingExpanded
     self.askUserSelection = askUserSelection
   }
 }
@@ -779,12 +793,14 @@ struct NativeTranscriptCellState: Equatable {
 struct NativeTranscriptCoordinatorState: Equatable {
   private var copiedRowIDs: Set<String> = []
   private var expandedToolRowIDs: Set<String> = []
+  private var expandedThinkingRowIDs: Set<String> = []
   private var askUserSelections: [String: String] = [:]
 
   func state(for rowID: String) -> NativeTranscriptCellState {
     NativeTranscriptCellState(
       isCopied: copiedRowIDs.contains(rowID),
       isToolExpanded: expandedToolRowIDs.contains(rowID),
+      isThinkingExpanded: expandedThinkingRowIDs.contains(rowID),
       askUserSelection: askUserSelections[rowID]
     )
   }
@@ -805,6 +821,14 @@ struct NativeTranscriptCoordinatorState: Equatable {
     }
   }
 
+  mutating func toggleThinkingExpansion(rowID: String) {
+    if expandedThinkingRowIDs.contains(rowID) {
+      expandedThinkingRowIDs.remove(rowID)
+    } else {
+      expandedThinkingRowIDs.insert(rowID)
+    }
+  }
+
   mutating func updateAskUserSelection(_ answer: String, rowID: String) {
     askUserSelections[rowID] = answer
   }
@@ -812,6 +836,7 @@ struct NativeTranscriptCoordinatorState: Equatable {
   mutating func prune(activeRowIDs: Set<String>) {
     copiedRowIDs = copiedRowIDs.intersection(activeRowIDs)
     expandedToolRowIDs = expandedToolRowIDs.intersection(activeRowIDs)
+    expandedThinkingRowIDs = expandedThinkingRowIDs.intersection(activeRowIDs)
     askUserSelections = askUserSelections.filter { activeRowIDs.contains($0.key) }
   }
 }
@@ -828,6 +853,7 @@ struct NativeTranscriptCellActions {
   var deny: @MainActor (ToolCallRecord.ID) -> Void
   var answerAskUser: @MainActor (String, ToolCallRecord.ID, String) -> Void
   var toggleToolExpansion: @MainActor (String) -> Void
+  var toggleThinkingExpansion: @MainActor (String) -> Void
   var updateAskUserSelection: @MainActor (String, String) -> Void
 }
 
@@ -965,6 +991,12 @@ final class NativeChatMessageCellView: NSTableCellView {
         rowID: rowID,
         isCopied: state.isCopied
       )
+    case .assistantThinking(let message):
+      return makeAssistantThinkingView(
+        message: message,
+        rowID: rowID,
+        state: state
+      )
     case .assistantMessage:
       return makeAssistantMessageView(
         item: item,
@@ -1013,6 +1045,44 @@ final class NativeChatMessageCellView: NSTableCellView {
       )
     }
     return outerStack
+  }
+
+  private func makeAssistantThinkingView(
+    message: AssistantThinkingMessage,
+    rowID: String,
+    state: NativeTranscriptCellState
+  ) -> NSView {
+    let stack = verticalStack(spacing: 6)
+    let isExpanded = state.isThinkingExpanded || message.deliveryStatus == .streaming
+
+    let header = horizontalStack(spacing: 7)
+    header.addArrangedSubview(nativeThinkingStatusIndicator(status: message.deliveryStatus))
+    let title = makeSecondaryLabel("Reasoning")
+    title.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+    header.addArrangedSubview(title)
+    header.addArrangedSubview(spacer())
+    header.addArrangedSubview(
+      makeIconButton(
+        systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
+        accessibilityLabel: isExpanded ? "Hide reasoning" : "Show reasoning",
+        tintColor: .tertiaryLabelColor
+      ) { [weak self] in
+        self?.actions?.toggleThinkingExpansion(rowID)
+      }
+    )
+    stack.addArrangedSubview(header)
+
+    if isExpanded, !message.content.isEmpty {
+      let content = makeTextLabel(message.content, color: .secondaryLabelColor)
+      stack.addArrangedSubview(content)
+    }
+
+    return borderedPaddedContainer(
+      stack,
+      fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.06),
+      strokeColor: NSColor.secondaryLabelColor.withAlphaComponent(0.10),
+      cornerRadius: 8
+    )
   }
 
   private func makeAssistantMessageView(
@@ -1904,6 +1974,36 @@ private final class NativeAttachmentImagePreviewController: NSViewController {
   }
 }
 
+private func nativeThinkingStatusIndicator(
+  status: AssistantThinkingMessage.DeliveryStatus
+) -> NSView {
+  if status == .streaming {
+    let spinner = NSProgressIndicator()
+    spinner.translatesAutoresizingMaskIntoConstraints = false
+    spinner.style = .spinning
+    spinner.controlSize = .small
+    spinner.startAnimation(nil)
+    NSLayoutConstraint.activate([
+      spinner.widthAnchor.constraint(equalToConstant: 13),
+      spinner.heightAnchor.constraint(equalToConstant: 13),
+    ])
+    spinner.setAccessibilityElement(false)
+    return spinner
+  }
+
+  let imageView = NSImageView()
+  imageView.translatesAutoresizingMaskIntoConstraints = false
+  imageView.image = NSImage(systemSymbolName: "brain", accessibilityDescription: nil)
+  imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+  imageView.contentTintColor = .tertiaryLabelColor
+  imageView.setAccessibilityElement(false)
+  NSLayoutConstraint.activate([
+    imageView.widthAnchor.constraint(equalToConstant: 13),
+    imageView.heightAnchor.constraint(equalToConstant: 13),
+  ])
+  return imageView
+}
+
 private func nativeLinkedAttributedString(for text: String) -> NSAttributedString {
   let attributedString = NSMutableAttributedString(
     string: text,
@@ -1925,7 +2025,7 @@ private func nativeLinkedAttributedString(for text: String) -> NSAttributedStrin
 }
 
 extension NativeTranscriptRow {
-  fileprivate var accessibilityIdentifier: String {
+  var accessibilityIdentifier: String {
     switch body {
     case .generationIndicator:
       "chat.generationSpinner"
@@ -1947,6 +2047,8 @@ extension NativeTranscriptRow {
 extension RenderedChatTurnItem {
   fileprivate var nativeAccessibilityIdentifier: String {
     switch item {
+    case .assistantThinking:
+      "chat.assistantThinking"
     case .assistantMessage:
       "chat.assistantMessage"
     case .userMessage:
@@ -1960,6 +2062,8 @@ extension RenderedChatTurnItem {
     switch item {
     case .userMessage(let message):
       "User message \(message.content)"
+    case .assistantThinking(let message):
+      "Assistant reasoning \(message.content)"
     case .assistantMessage(let message):
       shouldShowAssistantPlaceholder
         ? assistantPlaceholderTitle : "Assistant message \(message.content)"
@@ -1979,7 +2083,7 @@ extension RenderedChatTurnItem {
     switch item {
     case .tool:
       460
-    case .assistantMessage, .userMessage:
+    case .assistantThinking, .assistantMessage, .userMessage:
       680
     }
   }
@@ -1988,6 +2092,8 @@ extension RenderedChatTurnItem {
     switch item {
     case .userMessage(let message):
       !message.content.isEmpty
+    case .assistantThinking:
+      false
     case .assistantMessage(let message):
       message.canCopyAssistantContent
     case .tool:
@@ -1999,6 +2105,8 @@ extension RenderedChatTurnItem {
     switch item {
     case .userMessage(let message):
       message.attachments
+    case .assistantThinking:
+      []
     case .assistantMessage(let message):
       message.attachments
     case .tool:

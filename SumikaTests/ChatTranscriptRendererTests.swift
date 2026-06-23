@@ -10,6 +10,7 @@ struct ChatTranscriptRendererTests {
   func initialRenderKeepsTranscriptOrderAndParsesVisibleAssistantMessages() {
     let turnID = UUID()
     let userID = UUID()
+    let thinkingID = UUID()
     let assistantID = UUID()
     let toolID = UUID()
     let placeholderID = UUID()
@@ -23,6 +24,9 @@ struct ChatTranscriptRendererTests {
         status: .running,
         items: [
           .userMessage(UserTurnMessage(id: userID, content: "Question")),
+          .assistantThinking(
+            AssistantThinkingMessage(id: thinkingID, content: "Working through it.")
+          ),
           .assistantMessage(AssistantTurnMessage(id: assistantID, content: "Answer")),
           .tool(toolRecord),
           .assistantMessage(
@@ -35,6 +39,7 @@ struct ChatTranscriptRendererTests {
     #expect(
       items.map(\.id) == [
         "\(turnID.uuidString):user:\(userID.uuidString)",
+        "\(turnID.uuidString):thinking:\(thinkingID.uuidString)",
         "\(turnID.uuidString):assistant:\(assistantID.uuidString)",
         "\(turnID.uuidString):tool:\(toolID.uuidString)",
         "\(turnID.uuidString):assistant:\(placeholderID.uuidString)",

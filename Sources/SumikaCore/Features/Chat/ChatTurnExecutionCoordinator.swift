@@ -132,6 +132,8 @@ struct ChatTurnExecutionCoordinator {
     async throws
     -> ChatGenerationResult
   {
+    let assistantThinkingMessageID = UUID()
+    var didAppendAssistantThinking = false
     let toolCallingPolicy = runtime.selectedModel.toolCallingPolicy
     callbacks.setActiveToolPromptMode(toolPromptMode)
     let systemPromptStartedAt = Date()
@@ -191,16 +193,41 @@ struct ChatTurnExecutionCoordinator {
           )
         ])
       },
+      appendThinkingChunk: { chunk in
+        guard isActive(turnID) else {
+          return
+        }
+        var events: [ChatWorkflowEvent] = []
+        if !didAppendAssistantThinking {
+          didAppendAssistantThinking = true
+          events.append(
+            .assistantThinkingPlaceholderAppended(
+              messageID: assistantThinkingMessageID,
+              turnID: turnID
+            ))
+        }
+        events.append(
+          .assistantThinkingChunkAppended(
+            chunk: chunk,
+            messageID: assistantThinkingMessageID
+          ))
+        callbacks.emitEvents(events)
+      },
       updateGenerationMetrics: { metrics in
         guard isActive(turnID) else {
           return
         }
-        callbacks.emitEvents([
+        var events: [ChatWorkflowEvent] = []
+        if didAppendAssistantThinking {
+          events.append(.assistantThinkingCompleted(messageID: assistantThinkingMessageID))
+        }
+        events.append(
           .assistantGenerationCompleted(
             messageID: assistantMessageID,
             metrics: metrics
           )
-        ])
+        )
+        callbacks.emitEvents(events)
       },
       updateRuntimeCacheDebugSnapshot: { snapshot in
         guard isActive(turnID) else {

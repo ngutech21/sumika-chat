@@ -50,6 +50,8 @@ nonisolated enum GemmaModelStreamProcessor {
       .makeStream(bufferingPolicy: .unbounded)
     let task = Task {
       var output = ""
+      var visibleOutput = ""
+      var thoughtParser = GemmaThoughtChannelParser()
       var completedMetrics: ChatGenerationMetrics?
       let iterationStartedAt = Date()
       var firstChunkAt: Date?
@@ -92,7 +94,11 @@ nonisolated enum GemmaModelStreamProcessor {
               }
             }
             output += chunk
-            if case .terminated = continuation.yield(.chunk(chunk)) {
+            if yieldSegments(
+              thoughtParser.append(chunk),
+              to: continuation,
+              visibleOutput: &visibleOutput
+            ) {
               didTerminateDownstream = true
               break generationLoop
             }
@@ -110,6 +116,14 @@ nonisolated enum GemmaModelStreamProcessor {
           }
 
           if let info = generation.info {
+            if yieldSegments(
+              thoughtParser.finish(),
+              to: continuation,
+              visibleOutput: &visibleOutput
+            ) {
+              didTerminateDownstream = true
+              break generationLoop
+            }
             let decodeStartedAt = firstChunkAt ?? iterationStartedAt
             let durationMs = Date().timeIntervalSince(decodeStartedAt) * 1000
             let metrics = ChatGenerationMetrics(
@@ -153,6 +167,7 @@ nonisolated enum GemmaModelStreamProcessor {
         await finalizeStream(
           continuation: continuation,
           output: output,
+          visibleOutput: visibleOutput,
           completedMetrics: completedMetrics,
           didTerminateDownstream: didTerminateDownstream,
           didCompleteNaturally: didCompleteNaturally,
@@ -209,9 +224,31 @@ nonisolated enum GemmaModelStreamProcessor {
     return GemmaModelStreamPlan(stream: outputStream, task: task)
   }
 
+  nonisolated private static func yieldSegments(
+    _ segments: [GemmaThoughtChannelSegment],
+    to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
+    visibleOutput: inout String
+  ) -> Bool {
+    for segment in segments {
+      switch segment {
+      case .visible(let visibleChunk):
+        visibleOutput += visibleChunk
+        if case .terminated = continuation.yield(.chunk(visibleChunk)) {
+          return true
+        }
+      case .thinking(let thinkingChunk):
+        if case .terminated = continuation.yield(.thinkingChunk(thinkingChunk)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
   nonisolated private static func finalizeStream(
     continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     output: String,
+    visibleOutput: String,
     completedMetrics: ChatGenerationMetrics?,
     didTerminateDownstream: Bool,
     didCompleteNaturally: Bool,
@@ -253,9 +290,9 @@ nonisolated enum GemmaModelStreamProcessor {
     }
 
     if !nativeToolCalls.isEmpty {
-      await markNativeToolCallBoundary(output, nativeToolCalls)
+      await markNativeToolCallBoundary(visibleOutput, nativeToolCalls)
     } else {
-      await markCompleted(output)
+      await markCompleted(visibleOutput)
     }
     await GemmaDebugTraceStore.shared.traceResponse(
       id: traceID,
@@ -315,4 +352,122 @@ nonisolated enum GemmaModelStreamProcessor {
     }
   }
 
+}
+
+nonisolated enum GemmaThoughtChannelSegment: Equatable {
+  case visible(String)
+  case thinking(String)
+}
+
+nonisolated struct GemmaThoughtChannelParser {
+  private static let thoughtMarkers = [
+    "<|channel|>thought",
+    "<|channel>thought",
+  ]
+  private static let closeMarker = "<channel|>"
+
+  private var pending = ""
+  private var isReadingThought = false
+
+  mutating func append(_ chunk: String) -> [GemmaThoughtChannelSegment] {
+    pending += chunk
+    var segments: [GemmaThoughtChannelSegment] = []
+
+    while !pending.isEmpty {
+      if isReadingThought {
+        guard let closeRange = pending.range(of: Self.closeMarker) else {
+          let retained = longestSuffixMatchingPrefix(in: pending, of: Self.closeMarker)
+          let emitEnd = pending.index(pending.endIndex, offsetBy: -retained.count)
+          appendSegment(.thinking(String(pending[..<emitEnd])), to: &segments)
+          pending = retained
+          return segments
+        }
+        appendSegment(.thinking(String(pending[..<closeRange.lowerBound])), to: &segments)
+        pending.removeSubrange(pending.startIndex..<closeRange.upperBound)
+        isReadingThought = false
+        continue
+      }
+
+      if let thoughtRange = Self.firstMarkerRange(in: pending, markers: Self.thoughtMarkers) {
+        appendSegment(.visible(String(pending[..<thoughtRange.lowerBound])), to: &segments)
+        pending.removeSubrange(pending.startIndex..<thoughtRange.upperBound)
+        isReadingThought = true
+        continue
+      }
+
+      let retained = longestSuffixMatchingAnyPrefix(in: pending, of: Self.thoughtMarkers)
+      let emitEnd = pending.index(pending.endIndex, offsetBy: -retained.count)
+      appendSegment(.visible(String(pending[..<emitEnd])), to: &segments)
+      pending = retained
+      return segments
+    }
+
+    return segments
+  }
+
+  mutating func finish() -> [GemmaThoughtChannelSegment] {
+    defer {
+      pending = ""
+      isReadingThought = false
+    }
+    guard !pending.isEmpty else {
+      return []
+    }
+    return [isReadingThought ? .thinking(pending) : .visible(pending)]
+  }
+
+  private func appendSegment(
+    _ segment: GemmaThoughtChannelSegment,
+    to segments: inout [GemmaThoughtChannelSegment]
+  ) {
+    switch segment {
+    case .visible(let text), .thinking(let text):
+      guard !text.isEmpty else {
+        return
+      }
+      segments.append(segment)
+    }
+  }
+
+  private static func firstMarkerRange(
+    in value: String,
+    markers: [String]
+  ) -> Range<String.Index>? {
+    markers
+      .compactMap { value.range(of: $0) }
+      .min { lhs, rhs in
+        if lhs.lowerBound == rhs.lowerBound {
+          return lhs.upperBound > rhs.upperBound
+        }
+        return lhs.lowerBound < rhs.lowerBound
+      }
+  }
+}
+
+nonisolated private func longestSuffixMatchingPrefix(in value: String, of marker: String) -> String
+{
+  guard !value.isEmpty, !marker.isEmpty else {
+    return ""
+  }
+  let maxLength = Swift.min(value.count, marker.count - 1)
+  guard maxLength > 0 else {
+    return ""
+  }
+
+  for length in stride(from: maxLength, through: 1, by: -1) {
+    let suffix = String(value.suffix(length))
+    if marker.hasPrefix(suffix) {
+      return suffix
+    }
+  }
+  return ""
+}
+
+nonisolated private func longestSuffixMatchingAnyPrefix(
+  in value: String,
+  of markers: [String]
+) -> String {
+  markers
+    .map { longestSuffixMatchingPrefix(in: value, of: $0) }
+    .max { lhs, rhs in lhs.count < rhs.count } ?? ""
 }

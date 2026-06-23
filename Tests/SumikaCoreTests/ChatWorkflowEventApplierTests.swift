@@ -318,6 +318,36 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
+  func appendsStreamedAssistantThinkingOutsideModelContext() {
+    let turnID = UUID()
+    let thinkingID = UUID()
+    let assistantID = UUID()
+    var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
+
+    ChatWorkflowEventApplier().apply(
+      [
+        .assistantThinkingPlaceholderAppended(messageID: thinkingID, turnID: turnID),
+        .assistantThinkingChunkAppended(chunk: "Inspecting the prompt.", messageID: thinkingID),
+        .assistantThinkingCompleted(messageID: thinkingID),
+        .assistantPlaceholderAppended(messageID: assistantID, turnID: turnID),
+        .assistantChunkAppended(chunk: "Visible answer.", messageID: assistantID),
+        .assistantGenerationCompleted(messageID: assistantID, metrics: nil),
+      ],
+      to: &state
+    )
+
+    #expect(state.modelContextSnapshot.entries.isEmpty)
+    #expect(state.turns[0].items.map(\.messageID) == [thinkingID, assistantID])
+    guard case .assistantThinking(let thinkingMessage) = state.turns[0].items[0] else {
+      Issue.record("Expected assistant thinking item.")
+      return
+    }
+    #expect(thinkingMessage.content == "Inspecting the prompt.")
+    #expect(thinkingMessage.deliveryStatus == .complete)
+    #expect(state.turns[0].items[1].contentForTesting == "Visible answer.")
+  }
+
+  @Test
   func appendsFinalToolResultFollowUpBoundary() {
     let turnID = UUID()
     let content = "Use the preceding tool result to answer the user's request."

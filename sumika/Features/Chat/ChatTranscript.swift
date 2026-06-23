@@ -343,6 +343,8 @@ private struct MessageContentText: View {
           onAnswerAskUser: onAnswerAskUser
         )
       }
+    case .assistantThinking(let message):
+      AssistantThinkingContent(message: message)
     case .assistantMessage:
       AssistantMessageContent(blocks: assistantRenderBlocks)
     case .userMessage(let message):
@@ -350,6 +352,44 @@ private struct MessageContentText: View {
         .font(.body)
         .fixedSize(horizontal: false, vertical: true)
     }
+  }
+}
+
+private struct AssistantThinkingContent: View {
+  let message: AssistantThinkingMessage
+  @State private var isExpanded = false
+
+  private var isVisible: Bool {
+    isExpanded || message.deliveryStatus == .streaming
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Button {
+        isExpanded.toggle()
+      } label: {
+        HStack(spacing: 6) {
+          Image(systemName: isVisible ? "chevron.down" : "chevron.right")
+          Text("Reasoning")
+            .font(.caption.weight(.medium))
+          if message.deliveryStatus == .streaming {
+            ProgressView()
+              .controlSize(.small)
+          }
+        }
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(.secondary)
+
+      if isVisible, !message.content.isEmpty {
+        Text(message.content)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .padding(8)
+    .background(.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
   }
 }
 
@@ -527,6 +567,8 @@ extension RenderedChatTurnItem {
 
   fileprivate var accessibilityIdentifier: String {
     switch item {
+    case .assistantThinking:
+      "chat.assistantThinking"
     case .assistantMessage:
       "chat.assistantMessage"
     case .userMessage:
@@ -570,6 +612,8 @@ extension RenderedChatTurnItem {
     switch item {
     case .userMessage(let message):
       !message.content.isEmpty
+    case .assistantThinking:
+      false
     case .assistantMessage(let message):
       message.canCopyAssistantContent
     case .tool:
@@ -593,6 +637,8 @@ extension RenderedChatTurnItem {
     switch item {
     case .userMessage(let message):
       message.content
+    case .assistantThinking(let message):
+      message.content
     case .assistantMessage(let message):
       message.content
     case .tool:
@@ -611,7 +657,7 @@ extension RenderedChatTurnItem {
     switch item {
     case .tool:
       true
-    case .assistantMessage, .userMessage:
+    case .assistantThinking, .assistantMessage, .userMessage:
       false
     }
   }

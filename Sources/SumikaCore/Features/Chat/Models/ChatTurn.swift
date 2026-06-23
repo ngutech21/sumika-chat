@@ -39,6 +39,16 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     }
   }
 
+  mutating func appendAssistantThinkingChunk(
+    _ chunk: String,
+    to messageID: UUID,
+    at timestamp: Date = Date()
+  ) {
+    updateAssistantThinkingMessage(messageID, at: timestamp) { message in
+      message.content += chunk
+    }
+  }
+
   mutating func replaceAssistantContent(
     _ content: String,
     for messageID: UUID,
@@ -60,6 +70,16 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     }
   }
 
+  mutating func updateAssistantThinkingDeliveryStatus(
+    _ status: AssistantThinkingMessage.DeliveryStatus,
+    for messageID: UUID,
+    at timestamp: Date = Date()
+  ) {
+    updateAssistantThinkingMessage(messageID, at: timestamp) { message in
+      message.deliveryStatus = status
+    }
+  }
+
   mutating func updateAssistantGenerationMetrics(
     _ metrics: ChatGenerationMetrics?,
     for messageID: UUID,
@@ -73,14 +93,18 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
   mutating func markStreamingAssistantMessagesCancelled(at timestamp: Date = Date()) {
     var didUpdate = false
     items = items.map { item in
-      guard case .assistantMessage(var message) = item,
-        message.deliveryStatus == .streaming
-      else {
+      switch item {
+      case .assistantMessage(var message) where message.deliveryStatus == .streaming:
+        message.deliveryStatus = .cancelled
+        didUpdate = true
+        return .assistantMessage(message)
+      case .assistantThinking(var message) where message.deliveryStatus == .streaming:
+        message.deliveryStatus = .cancelled
+        didUpdate = true
+        return .assistantThinking(message)
+      default:
         return item
       }
-      message.deliveryStatus = .cancelled
-      didUpdate = true
-      return .assistantMessage(message)
     }
     if didUpdate {
       updatedAt = timestamp
@@ -194,6 +218,15 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     }
   }
 
+  private func assistantThinkingMessageIndex(id messageID: UUID) -> Int? {
+    items.firstIndex { item in
+      guard case .assistantThinking(let message) = item else {
+        return false
+      }
+      return message.id == messageID
+    }
+  }
+
   private mutating func updateAssistantMessage(
     _ messageID: UUID,
     at timestamp: Date,
@@ -209,6 +242,21 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     updatedAt = timestamp
   }
 
+  private mutating func updateAssistantThinkingMessage(
+    _ messageID: UUID,
+    at timestamp: Date,
+    update: (inout AssistantThinkingMessage) -> Void
+  ) {
+    guard let index = assistantThinkingMessageIndex(id: messageID),
+      case .assistantThinking(var message) = items[index]
+    else {
+      return
+    }
+    update(&message)
+    items[index] = .assistantThinking(message)
+    updatedAt = timestamp
+  }
+
   private func toolItemIndex(id toolCallID: ToolCallRecord.ID) -> Int? {
     items.firstIndex { item in
       guard case .tool(let record) = item else {
@@ -221,6 +269,7 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
 
 public enum ChatTurnItem: Codable, Equatable, Sendable {
   case userMessage(UserTurnMessage)
+  case assistantThinking(AssistantThinkingMessage)
   case assistantMessage(AssistantTurnMessage)
   case tool(ToolCallRecord)
 }
@@ -269,6 +318,28 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
+public struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendable {
+  public enum DeliveryStatus: String, Codable, Equatable, Sendable {
+    case complete
+    case streaming
+    case cancelled
+  }
+
+  public let id: UUID
+  public var content: String
+  public var deliveryStatus: DeliveryStatus
+
+  public init(
+    id: UUID = UUID(),
+    content: String,
+    deliveryStatus: DeliveryStatus = .complete
+  ) {
+    self.id = id
+    self.content = content
+    self.deliveryStatus = deliveryStatus
+  }
+}
+
 public enum ChatTurnStatus: String, Codable, Equatable, Sendable {
   case running
   case awaitingApproval
@@ -287,6 +358,8 @@ nonisolated extension ChatTurnItem {
   public var messageID: UUID? {
     switch self {
     case .userMessage(let message):
+      message.id
+    case .assistantThinking(let message):
       message.id
     case .assistantMessage(let message):
       message.id

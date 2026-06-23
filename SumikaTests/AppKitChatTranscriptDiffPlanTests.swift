@@ -55,6 +55,13 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func thinkingRowUsesDedicatedAccessibilityIdentifier() {
+    let row = nativeThinkingRow(id: "thinking", revision: 1)
+
+    #expect(row.accessibilityIdentifier == "chat.assistantThinking")
+  }
+
+  @Test
   func heightCacheKeysByRowRevisionAndWidth() {
     var cache = NativeTranscriptHeightCache()
     let row = NativeTranscriptRow(
@@ -420,6 +427,26 @@ private func nativeAssistantRow(
         assistantRenderBlocks: [
           .paragraph(.init(id: .init(rawValue: "answer"), text: "Answer"))
         ]
+      ))
+  )
+}
+
+private func nativeThinkingRow(
+  id: String,
+  revision: Int
+) -> NativeTranscriptRow {
+  NativeTranscriptRow(
+    id: id,
+    revision: revision,
+    body: .item(
+      RenderedChatTurnItem(
+        id: id,
+        item: .assistantThinking(
+          AssistantThinkingMessage(content: "Inspecting the prompt.")
+        ),
+        toolCallRecord: nil,
+        generationMetrics: nil,
+        assistantRenderBlocks: []
       ))
   )
 }

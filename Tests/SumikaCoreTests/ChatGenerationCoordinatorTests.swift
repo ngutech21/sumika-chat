@@ -80,6 +80,38 @@ struct ChatGenerationCoordinatorTests {
   }
 
   @Test
+  func thinkingChunksStreamSeparatelyFromAssistantContent() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.thinkingChunk("I should inspect this."), .chunk("Visible answer.")]
+    ])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+    var visibleChunks: [String] = []
+    var thinkingChunks: [String] = []
+    var didUpdateContextUsage = false
+
+    let result = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelContextSnapshot(),
+      systemPrompt: "Answer normally.",
+      settings: .agentDefault,
+      appendChunk: { visibleChunks.append($0) },
+      appendThinkingChunk: { thinkingChunks.append($0) },
+      updateGenerationMetrics: { _ in },
+      updateContextUsage: {
+        didUpdateContextUsage = true
+      }
+    )
+
+    #expect(result.assistantContent == "Visible answer.")
+    #expect(visibleChunks == ["Visible answer."])
+    #expect(thinkingChunks == ["I should inspect this."])
+    #expect(didUpdateContextUsage)
+  }
+
+  @Test
   func streamingPublishesRuntimeCacheDebugSnapshotAfterStreamStarts() async throws {
     let generationID = UUID()
     let runtimeSnapshot = RuntimeCacheDebugSnapshot(
@@ -241,7 +273,8 @@ private actor RuntimeCacheSnapshotRuntime: ChatModelRuntime {
   func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
-    systemPrompt: String
+    systemPrompt: String,
+    reasoningEnabled: Bool
   ) async throws -> ChatContextUsage {
     _ = transcript
     _ = attachments
@@ -293,7 +326,8 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
   func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
-    systemPrompt: String
+    systemPrompt: String,
+    reasoningEnabled: Bool
   ) async throws -> ChatContextUsage {
     _ = transcript
     _ = attachments

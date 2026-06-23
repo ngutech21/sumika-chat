@@ -35,8 +35,19 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
     messageID: UUID,
     turnID: ChatTurn.ID
   )
+  case assistantThinkingPlaceholderAppended(
+    messageID: UUID,
+    turnID: ChatTurn.ID
+  )
   case assistantChunkAppended(
     chunk: String,
+    messageID: UUID
+  )
+  case assistantThinkingChunkAppended(
+    chunk: String,
+    messageID: UUID
+  )
+  case assistantThinkingCompleted(
     messageID: UUID
   )
   case assistantGenerationCompleted(
@@ -179,8 +190,14 @@ public struct ChatWorkflowEventApplier: Sendable {
       }
     case .assistantPlaceholderAppended(let messageID, let turnID):
       mutator.appendAssistantPlaceholder(id: messageID, turnID: turnID, to: &state)
+    case .assistantThinkingPlaceholderAppended(let messageID, let turnID):
+      mutator.appendAssistantThinkingPlaceholder(id: messageID, turnID: turnID, to: &state)
     case .assistantChunkAppended(let chunk, let messageID):
       mutator.appendChunk(chunk, to: messageID, in: &state)
+    case .assistantThinkingChunkAppended(let chunk, let messageID):
+      mutator.appendThinkingChunk(chunk, to: messageID, in: &state)
+    case .assistantThinkingCompleted(let messageID):
+      mutator.updateThinkingDeliveryStatus(.complete, for: messageID, in: &state)
     case .assistantGenerationCompleted(let messageID, let metrics):
       mutator.updateGenerationMetrics(metrics, for: messageID, in: &state)
       mutator.updateDeliveryStatus(.complete, for: messageID, in: &state)
@@ -250,12 +267,15 @@ public struct ChatWorkflowEventApplier: Sendable {
       return []
     case .toolResultAppended(_, let turnID),
       .assistantPlaceholderAppended(_, let turnID),
+      .assistantThinkingPlaceholderAppended(_, let turnID),
       .assistantMessageAppended(_, _, _, let turnID),
       .finalToolResultFollowUpBoundaryAppended(_, let turnID),
       .turnStatusChanged(let turnID, _, _),
       .streamingAssistantMessagesCancelled(let turnID):
       return missingTurnDiagnostics([turnID], event: event, in: state)
     case .assistantChunkAppended(_, let messageID),
+      .assistantThinkingChunkAppended(_, let messageID),
+      .assistantThinkingCompleted(let messageID),
       .assistantGenerationCompleted(let messageID, _):
       return missingMessageDiagnostics([messageID], event: event, in: state)
     case .focusedFileStateChanged, .todoStateChanged, .transientAssistantPlaceholdersRemoved:

@@ -33,6 +33,14 @@ final class ChatTranscriptRenderer {
         let key = ChatTranscriptRenderItemKey(turnID: turn.id, item: item)
 
         switch item {
+        case .assistantThinking(let message):
+          guard message.shouldRenderInTranscript else {
+            continue
+          }
+          activeItemKeys.insert(key)
+          let input = RenderedItemCacheInput(item: item, generationMetrics: nil)
+          renderedItems.append(renderedItem(for: key, input: input))
+
         case .assistantMessage(let message):
           guard message.shouldRenderInTranscript else {
             continue
@@ -78,6 +86,15 @@ final class ChatTranscriptRenderer {
   ) -> RenderedChatTurnItem {
     switch input.item {
     case .userMessage:
+      return RenderedChatTurnItem(
+        id: id,
+        item: input.item,
+        toolCallRecord: nil,
+        generationMetrics: nil,
+        assistantRenderBlocks: []
+      )
+
+    case .assistantThinking:
       return RenderedChatTurnItem(
         id: id,
         item: input.item,
@@ -147,6 +164,11 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
       hasher.combine("user")
       hasher.combine(message.content)
       hasher.combineAttachmentRevision(message.attachments)
+
+    case .assistantThinking(let message):
+      hasher.combine("thinking")
+      hasher.combine(message.content)
+      hasher.combine(message.deliveryStatus.rawValue)
 
     case .assistantMessage(let message):
       hasher.combine("assistant")
@@ -242,6 +264,9 @@ private struct ChatTranscriptRenderItemKey: Hashable {
     case .userMessage(let message):
       kind = .userMessage
       itemID = message.id
+    case .assistantThinking(let message):
+      kind = .assistantThinking
+      itemID = message.id
     case .assistantMessage(let message):
       kind = .assistantMessage
       itemID = message.id
@@ -253,6 +278,7 @@ private struct ChatTranscriptRenderItemKey: Hashable {
 
   enum Kind: String {
     case userMessage = "user"
+    case assistantThinking = "thinking"
     case assistantMessage = "assistant"
     case tool = "tool"
   }
@@ -287,6 +313,12 @@ extension ChatTurnItem {
       return nil
     }
     return message.generationMetrics
+  }
+}
+
+extension AssistantThinkingMessage {
+  fileprivate var shouldRenderInTranscript: Bool {
+    deliveryStatus == .streaming || !content.isEmpty
   }
 }
 

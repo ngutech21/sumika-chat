@@ -110,7 +110,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
-    systemPrompt: String
+    systemPrompt: String,
+    reasoningEnabled: Bool
   ) async throws -> ChatContextUsage {
     guard let modelContainer else {
       throw GemmaMLXRuntimeError.modelNotLoaded
@@ -123,7 +124,11 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
     .map { ["role": $0.role.rawValue, "content": $0.content] as [String: any Sendable] }
     let usedTokens = try await modelContainer.perform { context in
-      try context.tokenizer.applyChatTemplate(messages: rawMessages).count
+      try context.tokenizer.applyChatTemplate(
+        messages: rawMessages,
+        tools: nil,
+        additionalContext: Self.chatTemplateAdditionalContext(reasoningEnabled: reasoningEnabled)
+      ).count
     }
 
     return ChatContextUsage(usedTokens: usedTokens, tokenLimit: contextTokenLimit)
@@ -181,6 +186,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       topP: Float(settings.topP),
       topK: settings.topK
     )
+    let additionalContext = Self.chatTemplateAdditionalContext(
+      reasoningEnabled: settings.reasoningEnabled)
     let toolSpecs = GemmaNativeToolSchema.toolSpecs(from: toolContext)
     let nativeToolSchemaHash = GemmaSessionCachePolicy.nativeToolSchemaSignature(from: toolContext)
     let cacheSystemPrompt = toolContext?.cacheSystemPrompt ?? systemPrompt
@@ -203,6 +210,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       cacheSystemPrompt: cacheSystemPrompt,
       settings: settings,
       generateParameters: generateParameters,
+      additionalContext: additionalContext,
       projectionMode: projectionMode,
       nativeToolSchemaHash: nativeToolSchemaHash,
       generationID: generationID
@@ -329,6 +337,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     cacheSystemPrompt: String,
     settings: ChatGenerationSettings,
     generateParameters: GenerateParameters,
+    additionalContext: [String: any Sendable],
     projectionMode: ModelContextProjectionMode,
     nativeToolSchemaHash: String,
     generationID: GemmaGenerationID
@@ -359,6 +368,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       // Sampling params no longer invalidate the prefix, so push the current values
       // onto the reused session to ensure a mid-session change still takes effect.
       cached.session.generateParameters = generateParameters
+      cached.session.additionalContext = additionalContext
       cachedSession = CachedGemmaSession(
         session: cached.session,
         prefix: cached.prefix,
@@ -382,7 +392,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       modelContainer,
       instructions: GemmaHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt),
       history: history,
-      generateParameters: generateParameters
+      generateParameters: generateParameters,
+      additionalContext: additionalContext
     )
     cachedSession = CachedGemmaSession(
       session: session,
@@ -551,4 +562,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 
   nonisolated private static let maxMLXCacheBytes = 512 * 1024 * 1024
+
+  nonisolated private static func chatTemplateAdditionalContext(
+    reasoningEnabled: Bool
+  ) -> [String: any Sendable] {
+    ["enable_thinking": reasoningEnabled]
+  }
 }

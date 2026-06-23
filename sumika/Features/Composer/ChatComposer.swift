@@ -10,6 +10,7 @@ struct ChatComposer: View {
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
   let interactionMode: WorkspaceInteractionMode
+  let reasoningEnabled: Bool
   let todoState: TodoState?
   let contextUsage: ChatContextUsage?
   let canChangeModel: Bool
@@ -19,6 +20,7 @@ struct ChatComposer: View {
   let isGenerating: Bool
   let errorMessage: String?
   let onSelectInteractionMode: (WorkspaceInteractionMode) -> Void
+  let onSetReasoningEnabled: (Bool) -> Void
   let onSelectModel: (ManagedModel) -> Void
   let onLoadModel: () -> Void
   let onAddAttachments: () -> Void
@@ -128,6 +130,7 @@ struct ChatComposer: View {
           }
 
           modeSelector
+          reasoningToggle
 
           Spacer()
 
@@ -206,6 +209,33 @@ struct ChatComposer: View {
     .accessibilityLabel(mode.displayName)
     .accessibilityValue(isSelected ? "Selected" : "Not selected")
     .accessibilityIdentifier("chat.mode.\(mode.rawValue)")
+  }
+
+  private var reasoningToggle: some View {
+    Button {
+      onSetReasoningEnabled(!reasoningEnabled)
+    } label: {
+      HStack(spacing: 5) {
+        Image(systemName: "lightbulb")
+          .font(.system(size: 10, weight: .semibold))
+        Text("Reasoning")
+          .font(.caption2.weight(reasoningEnabled ? .semibold : .medium))
+          .lineLimit(1)
+      }
+      .foregroundStyle(reasoningEnabled ? Color.primary : Color.secondary)
+      .padding(.horizontal, 7)
+      .frame(width: 86, height: 24)
+      .background(
+        reasoningEnabled ? Color.secondary.opacity(0.16) : Color.secondary.opacity(0.08),
+        in: RoundedRectangle(cornerRadius: 5)
+      )
+    }
+    .buttonStyle(.plain)
+    .disabled(!canChangeInteractionMode)
+    .help(reasoningEnabled ? "Disable model reasoning" : "Enable model reasoning")
+    .accessibilityLabel("Reasoning")
+    .accessibilityValue(reasoningEnabled ? "On" : "Off")
+    .accessibilityIdentifier("chat.reasoningToggle")
   }
 
   // Clickable model picker. Uses a button + `.popover` rather than a native

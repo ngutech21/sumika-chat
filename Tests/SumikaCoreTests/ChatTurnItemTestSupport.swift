@@ -83,6 +83,8 @@ extension ChatSession {
 extension ChatTurnItem {
   var isVisibleForTesting: Bool {
     switch self {
+    case .assistantThinking(let message):
+      message.deliveryStatus == .streaming || !message.content.isEmpty
     case .assistantMessage(let message):
       message.shouldShowAssistantPlaceholder || !message.content.isEmpty
     case .userMessage, .tool:
@@ -94,6 +96,8 @@ extension ChatTurnItem {
     switch self {
     case .userMessage:
       .user
+    case .assistantThinking:
+      .assistant
     case .assistantMessage:
       .assistant
     case .tool(let record):
@@ -104,6 +108,8 @@ extension ChatTurnItem {
   var contentForTesting: String {
     switch self {
     case .userMessage(let message):
+      message.content
+    case .assistantThinking(let message):
       message.content
     case .assistantMessage(let message):
       message.content
@@ -116,6 +122,8 @@ extension ChatTurnItem {
     switch self {
     case .userMessage(let message):
       message.attachments
+    case .assistantThinking:
+      []
     case .assistantMessage(let message):
       message.attachments
     case .tool:
@@ -163,6 +171,8 @@ extension ChatTurnItem {
 func testMessageID(from item: ChatTurnItem) -> UUID? {
   switch item {
   case .userMessage(let message):
+    message.id
+  case .assistantThinking(let message):
     message.id
   case .assistantMessage(let message):
     message.id

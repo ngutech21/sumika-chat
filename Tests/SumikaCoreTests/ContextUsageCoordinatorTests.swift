@@ -278,7 +278,8 @@ private actor ContextUsageFakeRuntime: ChatModelRuntime {
   func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
-    systemPrompt: String
+    systemPrompt: String,
+    reasoningEnabled: Bool
   ) async throws -> ChatContextUsage {
     _ = transcript
     _ = attachments
@@ -334,7 +335,8 @@ private actor ContextUsageDelayedClearRuntime: ChatModelRuntime {
   func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
-    systemPrompt: String
+    systemPrompt: String,
+    reasoningEnabled: Bool
   ) async throws -> ChatContextUsage {
     _ = transcript
     _ = attachments

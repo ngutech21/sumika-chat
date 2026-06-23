@@ -283,6 +283,7 @@ nonisolated enum GemmaSessionCachePolicy {
   ) -> Bool {
     guard let cached else { return true }
     return cached.maxKVSize != current.maxKVSize
+      || cached.reasoningEnabled != current.reasoningEnabled
   }
 
   nonisolated private static func generationSettingsSignature(
@@ -290,10 +291,11 @@ nonisolated enum GemmaSessionCachePolicy {
   ) -> String {
     // Only settings that change the KV-cache prefill belong in the cache signature.
     // Sampling params (temperature/topP/topK) and maxTokens are applied at decode
-    // time and never alter the cached prefix, so they must not invalidate it. Only
-    // maxKVSize matters here, because it controls cache rotation/eviction.
+    // time and never alter the cached prefix, so they must not invalidate it.
+    // maxKVSize controls cache rotation; reasoning changes the chat template.
     hashSignature { updateString in
       updateString(settings.maxKVSize.map(String.init) ?? "nil")
+      updateString(settings.reasoningEnabled ? "reasoning-on" : "reasoning-off")
     }
   }
 

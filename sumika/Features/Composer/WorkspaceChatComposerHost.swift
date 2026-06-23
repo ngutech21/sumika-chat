@@ -47,6 +47,7 @@ struct WorkspaceChatComposerHost: View {
       selectedModel: composerSelectedModel(from: localDownloadedModels),
       modelState: controller.modelRuntime.modelState,
       interactionMode: composerState.interactionMode,
+      reasoningEnabled: composerState.reasoningEnabled,
       todoState: composerState.todoState,
       contextUsage: controller.contextUsage,
       canChangeModel: !localDownloadedModels.isEmpty && !isGenerating
@@ -57,6 +58,7 @@ struct WorkspaceChatComposerHost: View {
       isGenerating: isGenerating,
       errorMessage: controller.errorMessage,
       onSelectInteractionMode: controller.setInteractionMode,
+      onSetReasoningEnabled: controller.setReasoningEnabled,
       onSelectModel: selectModel(_:),
       onLoadModel: loadSelectedModel,
       onAddAttachments: chooseAttachments,

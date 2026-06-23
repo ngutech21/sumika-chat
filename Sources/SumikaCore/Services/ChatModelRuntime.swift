@@ -9,7 +9,8 @@ public protocol ChatModelRuntime: Sendable {
   func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
-    systemPrompt: String
+    systemPrompt: String,
+    reasoningEnabled: Bool
   ) async throws -> ChatContextUsage
   func streamReply(
     for transcript: ModelContextSnapshot,
@@ -28,6 +29,7 @@ public protocol ChatModelRuntime: Sendable {
 
 public enum ChatModelStreamEvent: Sendable {
   case chunk(String)
+  case thinkingChunk(String)
   case toolCall(ChatRuntimeToolCall)
   case completed(ChatGenerationMetrics?)
 }
@@ -109,9 +111,11 @@ public struct MockChatRuntime: ChatModelRuntime {
   public func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
-    systemPrompt: String
+    systemPrompt: String,
+    reasoningEnabled: Bool
   ) async throws -> ChatContextUsage {
     _ = systemPrompt
+    _ = reasoningEnabled
     let projectedContent = transcript.projectedEntries(mode: .fullHistory).map(\.content)
     let content = (attachments.map(\.content) + projectedContent).joined(separator: "\n")
     let tokenEstimate = content.split(whereSeparator: \.isWhitespace).count
