@@ -66,7 +66,9 @@ final class WorkspaceFeatureState {
   }
 
   @discardableResult
-  func loadLibrary(defaultSessionFactory: DefaultChatSessionFactory) async -> WorkspaceSelectionChange {
+  func loadLibrary(defaultSessionFactory: DefaultChatSessionFactory) async
+    -> WorkspaceSelectionChange
+  {
     updateDefaultSessionFactory(defaultSessionFactory)
     let library = await workspaceStore.loadLibrary()
     workspaceLibraryController.replaceLibrary(library)

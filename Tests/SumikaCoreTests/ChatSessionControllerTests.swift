@@ -749,12 +749,13 @@ struct ChatSessionControllerTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 1)
+    #expect(capturedSystemPrompts[0].contains("Available tools:"))
+    #expect(capturedSystemPrompts[0].contains("web_search"))
+    #expect(capturedSystemPrompts[0].contains("web_fetch"))
     #expect(!capturedSystemPrompts[0].contains("read_file"))
     #expect(!capturedSystemPrompts[0].contains("list_files"))
-    #expect(!capturedSystemPrompts[0].contains("Available tools:"))
 
     let capturedContextUsageSystemPrompts = await runtime.capturedContextUsageSystemPrompts
-    #expect(!capturedContextUsageSystemPrompts.contains { $0.contains("Available tools:") })
     #expect(!capturedContextUsageSystemPrompts.contains { $0.contains("read_file") })
   }
 

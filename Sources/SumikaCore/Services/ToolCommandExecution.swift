@@ -340,57 +340,75 @@ private enum CommandProcessWaitOutcome: Sendable {
   case cancelled
 }
 
-private final class ProcessExitSignal: @unchecked Sendable {
+private final class PipeDataCollector: @unchecked Sendable {
+  private let fileHandle: FileHandle
   private let lock = NSLock()
-  private var continuations: [CheckedContinuation<Void, Never>] = []
-  private var didExit = false
+  private var data = Data()
+  private var reachedEnd = false
 
-  init(process: Process) {
-    DispatchQueue.global(qos: .userInitiated).async {
-      process.waitUntilExit()
-      self.signal()
+  init(fileHandle: FileHandle) {
+    self.fileHandle = fileHandle
+    fileHandle.readabilityHandler = { [weak self] handle in
+      let chunk = handle.availableData
+      if chunk.isEmpty {
+        handle.readabilityHandler = nil
+      }
+      self?.record(chunk)
     }
   }
 
-  private func signal() {
-    let continuationsToResume: [CheckedContinuation<Void, Never>]
+  func snapshot(afterExitDrain duration: Duration) async -> Data {
+    if !hasReachedEnd {
+      try? await Task.sleep(for: duration)
+    }
+
+    return snapshotAndClose()
+  }
+
+  func close() {
+    _ = snapshotAndClose()
+  }
+
+  private func snapshotAndClose() -> Data {
+    fileHandle.readabilityHandler = nil
+    try? fileHandle.close()
+
     lock.lock()
-    didExit = true
-    continuationsToResume = continuations
-    continuations.removeAll(keepingCapacity: false)
+    let snapshot = data
     lock.unlock()
-
-    continuationsToResume.forEach { $0.resume() }
+    return snapshot
   }
 
-  func wait() async {
-    await withCheckedContinuation { continuation in
-      let shouldResumeImmediately: Bool
-      lock.lock()
-      if didExit {
-        shouldResumeImmediately = true
-      } else {
-        continuations.append(continuation)
-        shouldResumeImmediately = false
-      }
-      lock.unlock()
+  private var hasReachedEnd: Bool {
+    lock.lock()
+    let value = reachedEnd
+    lock.unlock()
+    return value
+  }
 
-      if shouldResumeImmediately {
-        continuation.resume()
-      }
+  private func record(_ chunk: Data) {
+    lock.lock()
+    if chunk.isEmpty {
+      reachedEnd = true
+    } else {
+      data.append(chunk)
     }
+    lock.unlock()
   }
 }
 
 public actor DefaultCommandProcessRunner: CommandProcessRunning {
   public init() {}
 
-  public nonisolated func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult {
+  public nonisolated func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult
+  {
     try await runCommandProcess(request)
   }
 }
 
-private func runCommandProcess(_ request: CommandProcessRequest) async throws -> CommandProcessResult {
+private func runCommandProcess(_ request: CommandProcessRequest) async throws
+  -> CommandProcessResult
+{
   let process = Process()
   process.executableURL = request.executableURL
   process.arguments = request.arguments
@@ -401,24 +419,24 @@ private func runCommandProcess(_ request: CommandProcessRequest) async throws ->
   let stderrPipe = Pipe()
   process.standardOutput = stdoutPipe
   process.standardError = stderrPipe
+  let stdoutCollector = PipeDataCollector(fileHandle: stdoutPipe.fileHandleForReading)
+  let stderrCollector = PipeDataCollector(fileHandle: stderrPipe.fileHandleForReading)
 
   let startedAt = Date()
-  try process.run()
-  let exitSignal = ProcessExitSignal(process: process)
-
-  let stdoutTask = Task {
-    try await readPipeToEnd(stdoutPipe.fileHandleForReading)
-  }
-  let stderrTask = Task {
-    try await readPipeToEnd(stderrPipe.fileHandleForReading)
+  do {
+    try process.run()
+  } catch {
+    stdoutCollector.close()
+    stderrCollector.close()
+    throw error
   }
 
   let waitOutcome = await withTaskCancellationHandler {
-    await waitForExitOrTimeout(
+    let outcome = await waitForExitOrTimeout(
       process: process,
-      exitSignal: exitSignal,
       timeoutSeconds: request.timeoutSeconds
     )
+    return Task.isCancelled ? .cancelled : outcome
   } onCancel: {
     if process.isRunning {
       terminateProcessTree(process)
@@ -426,14 +444,15 @@ private func runCommandProcess(_ request: CommandProcessRequest) async throws ->
   }
 
   let durationMs = max(Int(Date().timeIntervalSince(startedAt) * 1000), 0)
-  let stdoutData = try await stdoutTask.value
-  let stderrData = try await stderrTask.value
+  let pipeDrainGrace: Duration = .milliseconds(25)
+  async let stdoutData = stdoutCollector.snapshot(afterExitDrain: pipeDrainGrace)
+  async let stderrData = stderrCollector.snapshot(afterExitDrain: pipeDrainGrace)
 
   return CommandProcessResult(
-    exitCode: process.terminationStatus,
+    exitCode: process.isRunning ? nil : process.terminationStatus,
     durationMs: durationMs,
-    stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-    stderr: String(data: stderrData, encoding: .utf8) ?? "",
+    stdout: String(data: await stdoutData, encoding: .utf8) ?? "",
+    stderr: String(data: await stderrData, encoding: .utf8) ?? "",
     timedOut: waitOutcome == .timedOut,
     cancelled: waitOutcome == .cancelled
   )
@@ -441,13 +460,12 @@ private func runCommandProcess(_ request: CommandProcessRequest) async throws ->
 
 private func waitForExitOrTimeout(
   process: Process,
-  exitSignal: ProcessExitSignal,
   timeoutSeconds: Int
 ) async -> CommandProcessWaitOutcome {
   do {
     return try await withThrowingTaskGroup(of: CommandProcessWaitOutcome.self) { group in
       group.addTask {
-        await exitSignal.wait()
+        await waitUntilProcessExits(process)
         return .exited
       }
 
@@ -463,7 +481,7 @@ private func waitForExitOrTimeout(
       let outcome = try await group.next() ?? .exited
       if outcome != .exited, process.isRunning {
         terminateProcessTree(process)
-        await exitSignal.wait()
+        _ = await waitUntilProcessExits(process, timeoutMilliseconds: 1_000)
       }
       group.cancelAll()
       return outcome
@@ -472,20 +490,27 @@ private func waitForExitOrTimeout(
     if process.isRunning {
       terminateProcessTree(process)
     }
-    await exitSignal.wait()
+    _ = await waitUntilProcessExits(process, timeoutMilliseconds: 1_000)
     return .cancelled
   }
 }
 
-private func readPipeToEnd(_ fileHandle: FileHandle) async throws -> Data {
-  try await withCheckedThrowingContinuation { continuation in
-    DispatchQueue.global(qos: .userInitiated).async {
-      do {
-        continuation.resume(returning: try fileHandle.readToEnd() ?? Data())
-      } catch {
-        continuation.resume(throwing: error)
-      }
+private func waitUntilProcessExits(
+  _ process: Process,
+  timeoutMilliseconds: Int? = nil
+) async {
+  let deadline = timeoutMilliseconds.map {
+    Date().addingTimeInterval(TimeInterval($0) / 1_000)
+  }
+
+  while process.isRunning {
+    if Task.isCancelled {
+      return
     }
+    if let deadline, Date() >= deadline {
+      return
+    }
+    try? await Task.sleep(for: .milliseconds(10))
   }
 }
 

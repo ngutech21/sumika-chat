@@ -142,7 +142,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       accessibilityValue: String,
       in scrollView: NSScrollView
     ) {
-      guard let tableView else {
+      guard tableView != nil else {
         return
       }
 

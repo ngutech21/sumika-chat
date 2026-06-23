@@ -91,7 +91,9 @@ Rules:
 
 The chat composer has a manual `WorkspaceInteractionMode` per session:
 
-- `chat`: normal conversation; no tool schemas or tool loop.
+- `chat`: normal conversation with public web tools only
+  (`ToolExecutorRegistry.chatWeb`, `web_search`, `web_fetch`); no workspace
+  tools, writes, shell commands, or local file access.
 - `agent`: coding-agent workflow with `ToolExecutorRegistry.codingAgent`,
   write/edit tools, and approval flow.
 

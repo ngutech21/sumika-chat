@@ -1275,6 +1275,7 @@ struct ToolExecutionTests {
   @Test
   func defaultCommandProcessRunnerReturnsTimeoutResult() async throws {
     let runner = DefaultCommandProcessRunner()
+    let startedAt = Date()
     let result = try await runner.run(
       CommandProcessRequest(
         executableURL: URL(filePath: "/bin/bash"),
@@ -1284,10 +1285,32 @@ struct ToolExecutionTests {
         timeoutSeconds: 1
       )
     )
+    let elapsedMs = max(Int(Date().timeIntervalSince(startedAt) * 1000), 0)
 
     #expect(result.timedOut)
     #expect(!result.cancelled)
     #expect(result.durationMs < 5_000)
+    #expect(elapsedMs < 3_000)
+  }
+
+  @Test
+  func defaultCommandProcessRunnerCapturesOutput() async throws {
+    let runner = DefaultCommandProcessRunner()
+    let result = try await runner.run(
+      CommandProcessRequest(
+        executableURL: URL(filePath: "/bin/bash"),
+        arguments: ["-c", "printf 'out'; printf 'err' >&2"],
+        environment: [:],
+        workingDirectoryURL: try makeTemporaryDirectory(),
+        timeoutSeconds: 5
+      )
+    )
+
+    #expect(result.exitCode == 0)
+    #expect(result.stdout == "out")
+    #expect(result.stderr == "err")
+    #expect(!result.timedOut)
+    #expect(!result.cancelled)
   }
 
   @Test
