@@ -34,19 +34,29 @@ struct ModelsView: View {
           )
         }
       } header: {
-        Text("Available models")
-      } footer: {
-        Text(
-          "Downloads are explicit so you stay in control of storage and network use."
-        )
+        Text("Choose a model")
       }
 
       Section {
-        ModelRuntimeStatus(
+        CurrentModelSummary(
+          model: modelRuntime.selectedModel,
           modelState: modelRuntime.modelState,
           downloadState: effectiveDownloadState,
-          contextUsage: contextUsage,
-          processUsage: modelRuntime.processUsage
+          actionTitle: currentModelActionTitle,
+          actionSystemImage: currentModelActionSystemImage,
+          isActionDisabled: isCurrentModelActionDisabled,
+          onAction: {
+            if shouldDownloadSelectedModel {
+              onPrepareModelRuntimeAction(false, false)
+              modelRuntime.downloadSelectedModel()
+            } else if modelRuntime.modelState == .ready {
+              onPrepareModelRuntimeAction(true, true)
+              modelRuntime.unloadModel()
+            } else {
+              onPrepareModelRuntimeAction(false, true)
+              modelRuntime.loadSelectedModel()
+            }
+          }
         )
 
         if case .downloading(let progress) = modelRuntime.downloadState {
@@ -59,67 +69,40 @@ struct ModelsView: View {
             .foregroundStyle(.red)
             .textSelection(.enabled)
         }
-
-        HStack(spacing: 10) {
-          Spacer()
-
-          Button {
-            onPrepareModelRuntimeAction(false, false)
-            modelRuntime.downloadSelectedModel()
-          } label: {
-            Label("Download", systemImage: "square.and.arrow.down")
-          }
-          .disabled(
-            !canChangeModel
-              || modelRuntime.downloadState.isDownloading
-              || modelRuntime.isModelDownloaded(modelRuntime.selectedModel))
-
-          Button {
-            if modelRuntime.modelState == .ready {
-              onPrepareModelRuntimeAction(true, true)
-              modelRuntime.unloadModel()
-            } else {
-              onPrepareModelRuntimeAction(false, true)
-              modelRuntime.loadSelectedModel()
-            }
-          } label: {
-            Label(modelActionTitle, systemImage: modelActionSystemImage)
-          }
-          .buttonStyle(.borderedProminent)
-          .accessibilityIdentifier(
-            modelRuntime.modelState == .ready ? "unload-model-button" : "load-model-button"
-          )
-          .disabled(isModelActionDisabled)
-        }
       } header: {
-        Text(modelRuntime.selectedModel.displayName)
+        Text("Current model")
           .textCase(nil)
-      } footer: {
-        Text(selectedModelStatusText)
       }
 
-      ModelAdvancedSettings(
-        model: modelRuntime.selectedModel,
-        modeSettings: $modeSettings,
-        contextTokenLimit: $modelRuntime.modelContextTokenLimit,
-        canChangeContextTokenLimit: modelRuntime.modelState == .notLoaded
-      )
+      Section {
+        DisclosureGroup {
+          ModelRuntimeStatus(
+            modelState: modelRuntime.modelState,
+            downloadState: effectiveDownloadState,
+            contextUsage: contextUsage,
+            processUsage: modelRuntime.processUsage
+          )
+
+          ModelAdvancedSettings(
+            model: modelRuntime.selectedModel,
+            modeSettings: $modeSettings,
+            contextTokenLimit: $modelRuntime.modelContextTokenLimit,
+            canChangeContextTokenLimit: modelRuntime.modelState == .notLoaded
+          )
+        } label: {
+          HStack(spacing: 12) {
+            Text("Advanced settings")
+              .font(.body.weight(.medium))
+            Text("System prompt, creativity, response length...")
+              .foregroundStyle(.secondary)
+            Spacer()
+            Image(systemName: "gearshape")
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
     }
     .formStyle(.grouped)
-  }
-
-  private var selectedModelStatusText: String {
-    if modelRuntime.selectedModel.stability == .experimental {
-      return
-        "\(modelRuntime.selectedModel.estimatedDownloadSize), experimental"
-    }
-
-    if modelRuntime.selectedModel.requiresLargeMemory {
-      return "\(modelRuntime.selectedModel.estimatedDownloadSize), needs a lot of memory"
-    }
-
-    return
-      "\(modelRuntime.selectedModel.estimatedDownloadSize), \(modelRuntime.selectedModel.detail.lowercased())"
   }
 
   private var effectiveDownloadState: ModelDownloadState {
@@ -132,18 +115,32 @@ struct ModelsView: View {
     return modelRuntime.downloadState
   }
 
-  private var modelActionTitle: String {
-    modelRuntime.modelState == .ready ? "Unload" : "Load"
+  private var shouldDownloadSelectedModel: Bool {
+    !modelRuntime.isModelDownloaded(modelRuntime.selectedModel)
   }
 
-  private var modelActionSystemImage: String {
-    modelRuntime.modelState == .ready ? "eject" : "play.fill"
+  private var currentModelActionTitle: String {
+    if shouldDownloadSelectedModel {
+      return "Download"
+    }
+
+    return modelRuntime.modelState == .ready ? "Unload" : "Load"
   }
 
-  private var isModelActionDisabled: Bool {
-    modelRuntime.modelState == .loading
+  private var currentModelActionSystemImage: String {
+    if shouldDownloadSelectedModel {
+      return "square.and.arrow.down"
+    }
+
+    return modelRuntime.modelState == .ready ? "eject" : "play.fill"
+  }
+
+  private var isCurrentModelActionDisabled: Bool {
+    if shouldDownloadSelectedModel {
+      return !canChangeModel || modelRuntime.downloadState.isDownloading
+    }
+
+    return modelRuntime.modelState == .loading
       || modelRuntime.downloadState.isDownloading
-      || (modelRuntime.modelState != .ready
-        && !modelRuntime.isModelDownloaded(modelRuntime.selectedModel))
   }
 }

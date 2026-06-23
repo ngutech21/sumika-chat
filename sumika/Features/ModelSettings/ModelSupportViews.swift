@@ -147,6 +147,88 @@ struct ManagedModelRow: View {
   }
 }
 
+struct CurrentModelSummary: View {
+  let model: ManagedModel
+  let modelState: ModelLoadState
+  let downloadState: ModelDownloadState
+  let actionTitle: String
+  let actionSystemImage: String
+  let isActionDisabled: Bool
+  let onAction: () -> Void
+
+  var body: some View {
+    HStack(spacing: 16) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text(summaryTitle)
+          .font(.title3.weight(.semibold))
+          .foregroundStyle(.primary)
+
+        Text(summarySubtitle)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+      }
+
+      Spacer(minLength: 16)
+
+      Button(action: onAction) {
+        Label(actionTitle, systemImage: actionSystemImage)
+      }
+      .buttonStyle(.borderedProminent)
+      .accessibilityIdentifier(actionAccessibilityIdentifier)
+      .disabled(isActionDisabled)
+    }
+    .padding(.vertical, 8)
+  }
+
+  private var summaryTitle: String {
+    if modelState == .ready {
+      return "\(model.displayName) is active"
+    }
+
+    return model.displayName
+  }
+
+  private var summarySubtitle: String {
+    switch modelState {
+    case .ready:
+      return "Ready to use in your chats"
+    case .loading:
+      return "Loading"
+    case .failed(let message):
+      return message
+    case .notLoaded:
+      return notLoadedSubtitle
+    }
+  }
+
+  private var notLoadedSubtitle: String {
+    switch downloadState {
+    case .downloaded:
+      return "Ready to load"
+    case .idle:
+      return "Download required before loading"
+    case .downloading(let progress):
+      if let progress {
+        return "Downloading \(progress.formatted(.percent.precision(.fractionLength(0))))"
+      }
+      return "Downloading"
+    case .failed:
+      return "Download failed"
+    }
+  }
+
+  private var actionAccessibilityIdentifier: String {
+    switch actionTitle {
+    case "Download":
+      return "download-model-button"
+    case "Unload":
+      return "unload-model-button"
+    default:
+      return "load-model-button"
+    }
+  }
+}
+
 struct ModelRuntimeStatus: View {
   let modelState: ModelLoadState
   let downloadState: ModelDownloadState
@@ -214,8 +296,11 @@ struct ModelAdvancedSettings: View {
   @State private var selectedMode = WorkspaceInteractionMode.chat
 
   var body: some View {
-    Group {
-      Section("Generation") {
+    VStack(alignment: .leading, spacing: 18) {
+      VStack(alignment: .leading, spacing: 12) {
+        Text("Generation")
+          .font(.headline)
+
         Picker("Mode", selection: $selectedMode) {
           ForEach(WorkspaceInteractionMode.allCases, id: \.self) { mode in
             Text(mode.displayName).tag(mode)
@@ -259,7 +344,12 @@ struct ModelAdvancedSettings: View {
         .disabled(!canChangeContextTokenLimit)
       }
 
-      Section("Advanced") {
+      Divider()
+
+      VStack(alignment: .leading, spacing: 12) {
+        Text("Advanced")
+          .font(.headline)
+
         Toggle(isOn: maxKVSizeEnabled) {
           SettingValueLabel(title: "Custom KV Cache", value: formattedMaxKVSize)
         }
@@ -310,6 +400,7 @@ struct ModelAdvancedSettings: View {
         }
       }
     }
+    .padding(.vertical, 8)
   }
 
   private var formattedContextTokenLimit: String {
