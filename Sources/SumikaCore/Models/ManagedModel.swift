@@ -138,6 +138,21 @@ public enum ManagedModelCatalog {
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
+    ManagedModel(
+      id: "gemma4-26b-qat-4bit",
+      displayName: "Gemma 4 26b qat",
+      detail: "Larger Gemma 4 qat model with local vision support.",
+      huggingFaceRepoID: "mlx-community/gemma-4-26B-A4B-it-qat-4bit",
+      localDirectoryName: "gemma-4-26B-A4B-it-qat-4bit",
+      estimatedDownloadSize: "15.6 GB",
+      isRecommended: false,
+      requiresLargeMemory: true,
+      stability: .stable,
+      toolCallingPolicy: .nativeGemma4,
+      supportsImageInput: true,
+      defaultModeSettings: .defaultSettings,
+      defaultContextTokenLimit: defaultContextTokenLimit
+    ),
   ]
 
   public static var defaultModel: ManagedModel {
