@@ -205,7 +205,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func chatSessionDecodeRequiresActiveAttachmentContext() throws {
+  func chatSessionDecodeDefaultsMissingActiveAttachmentContext() throws {
     let session = ChatSession(selectedModelID: "gemma4-e4b")
     var object = try #require(
       JSONSerialization.jsonObject(with: JSONEncoder().encode(session)) as? [String: Any]
@@ -213,13 +213,12 @@ struct WorkspaceStoreTests {
     object.removeValue(forKey: "activeAttachmentContext")
     let data = try JSONSerialization.data(withJSONObject: object)
 
-    #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(ChatSession.self, from: data)
-    }
+    let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
+    #expect(decoded.activeAttachmentContext == .empty)
   }
 
   @Test
-  func chatSessionDecodeRequiresTodoStateKey() throws {
+  func chatSessionDecodeDefaultsMissingTodoState() throws {
     let session = ChatSession(selectedModelID: "gemma4-e4b")
     var object = try #require(
       JSONSerialization.jsonObject(with: JSONEncoder().encode(session)) as? [String: Any]
@@ -227,13 +226,12 @@ struct WorkspaceStoreTests {
     object.removeValue(forKey: "todoState")
     let data = try JSONSerialization.data(withJSONObject: object)
 
-    #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(ChatSession.self, from: data)
-    }
+    let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
+    #expect(decoded.todoState == nil)
   }
 
   @Test
-  func chatSessionDecodeRequiresModelContextSnapshot() throws {
+  func chatSessionDecodeDefaultsMissingModelContextSnapshot() throws {
     let legacySession = LegacyChatSession(
       id: UUID(),
       title: "Legacy",
@@ -246,13 +244,14 @@ struct WorkspaceStoreTests {
     )
     let data = try JSONEncoder().encode(legacySession)
 
-    #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(ChatSession.self, from: data)
-    }
+    let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
+    #expect(decoded.modelContextSnapshot == ModelContextSnapshot())
+    #expect(decoded.title == "Legacy")
+    #expect(decoded.systemPrompt == "Legacy prompt")
   }
 
   @Test
-  func chatSessionRejectsTranscriptWrapper() throws {
+  func chatSessionDecodeToleratesTranscriptWrapper() throws {
     let wrappedSession = TranscriptWrappedChatSession(
       id: UUID(),
       title: "Wrapped",
@@ -275,9 +274,9 @@ struct WorkspaceStoreTests {
     )
     let data = try JSONEncoder().encode(wrappedSession)
 
-    #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(ChatSession.self, from: data)
-    }
+    let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
+    #expect(decoded.title == "Wrapped")
+    #expect(decoded.modelContextSnapshot == ModelContextSnapshot())
   }
 
   @Test

@@ -466,6 +466,34 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
     self.evaluation = evaluation
     self.state = state
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case request
+    case evaluation
+    case state
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    request = try container.decode(ToolCallRequest.self, forKey: .request)
+    evaluation = try container.decodeIfPresent(
+      ToolPermissionEvaluation.self,
+      forKey: .evaluation,
+      default: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Loaded from a record without stored permission metadata.",
+        riskLevel: .low
+      )
+    )
+    state = try container.decodeIfPresent(ToolCallState.self, forKey: .state, default: .pending)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(request, forKey: .request)
+    try container.encode(evaluation, forKey: .evaluation)
+    try container.encode(state, forKey: .state)
+  }
 }
 
 public enum ToolCallState: Codable, Equatable, Sendable {
@@ -1205,6 +1233,37 @@ public struct ToolResultPreview: Codable, Equatable, Sendable {
     self.affectedPaths = affectedPaths
     self.resultPayload = resultPayload
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case status
+    case text
+    case truncated
+    case redacted
+    case affectedPaths
+    case resultPayload
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    status = try container.decodeIfPresent(
+      ToolResultStatus.self, forKey: .status, default: .success)
+    text = try container.decodeIfPresent(String.self, forKey: .text, default: "")
+    truncated = try container.decodeIfPresent(Bool.self, forKey: .truncated, default: false)
+    redacted = try container.decodeIfPresent(Bool.self, forKey: .redacted, default: false)
+    affectedPaths = try container.decodeIfPresent(
+      [String].self, forKey: .affectedPaths, default: [])
+    resultPayload = try container.decodeIfPresent(ToolResultPayload.self, forKey: .resultPayload)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(status, forKey: .status)
+    try container.encode(text, forKey: .text)
+    try container.encode(truncated, forKey: .truncated)
+    try container.encode(redacted, forKey: .redacted)
+    try container.encode(affectedPaths, forKey: .affectedPaths)
+    try container.encodeIfPresent(resultPayload, forKey: .resultPayload)
+  }
 }
 
 public enum ToolResultStatus: String, Codable, Equatable, Sendable {
@@ -1775,12 +1834,20 @@ public struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    decision = try container.decode(ToolPermissionDecision.self, forKey: .decision)
-    reason = try container.decode(String.self, forKey: .reason)
-    riskLevel = try container.decode(ToolRiskLevel.self, forKey: .riskLevel)
-    normalizedPaths = try container.decode([String].self, forKey: .normalizedPaths)
-    workspaceRelativePaths =
-      try container.decode([WorkspaceRelativePath].self, forKey: .workspaceRelativePaths)
+    decision = try container.decodeIfPresent(
+      ToolPermissionDecision.self,
+      forKey: .decision,
+      default: .allowed
+    )
+    reason = try container.decodeIfPresent(String.self, forKey: .reason, default: "")
+    riskLevel = try container.decodeIfPresent(ToolRiskLevel.self, forKey: .riskLevel, default: .low)
+    normalizedPaths = try container.decodeIfPresent(
+      [String].self, forKey: .normalizedPaths, default: [])
+    workspaceRelativePaths = try container.decodeIfPresent(
+      [WorkspaceRelativePath].self,
+      forKey: .workspaceRelativePaths,
+      default: []
+    )
   }
 
   public func encode(to encoder: Encoder) throws {

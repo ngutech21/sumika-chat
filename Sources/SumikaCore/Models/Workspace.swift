@@ -27,6 +27,43 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     self.updatedAt = updatedAt
   }
 
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case name
+    case rootURL
+    case bookmarkData
+    case sessions
+    case createdAt
+    case updatedAt
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let decodedRootURL = try container.decode(URL.self, forKey: .rootURL)
+    id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
+    name = try container.decodeIfPresent(
+      String.self,
+      forKey: .name,
+      default: decodedRootURL.lastPathComponent
+    )
+    rootURL = decodedRootURL
+    bookmarkData = try container.decodeIfPresent(Data.self, forKey: .bookmarkData)
+    sessions = try container.decodeIfPresent([ChatSession].self, forKey: .sessions, default: [])
+    createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt, default: Date())
+    updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: createdAt)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(name, forKey: .name)
+    try container.encode(rootURL, forKey: .rootURL)
+    try container.encodeIfPresent(bookmarkData, forKey: .bookmarkData)
+    try container.encode(sessions, forKey: .sessions)
+    try container.encode(createdAt, forKey: .createdAt)
+    try container.encode(updatedAt, forKey: .updatedAt)
+  }
+
   public var normalizedRootPath: String {
     Self.normalizedPath(for: rootURL)
   }
@@ -201,5 +238,25 @@ public struct WorkspaceLibrary: Codable, Equatable, Sendable {
     self.workspaces = workspaces
     self.activeWorkspaceID = activeWorkspaceID
     self.activeSessionID = activeSessionID
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case workspaces
+    case activeWorkspaceID
+    case activeSessionID
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces, default: [])
+    activeWorkspaceID = try container.decodeIfPresent(Workspace.ID.self, forKey: .activeWorkspaceID)
+    activeSessionID = try container.decodeIfPresent(ChatSession.ID.self, forKey: .activeSessionID)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(workspaces, forKey: .workspaces)
+    try container.encodeIfPresent(activeWorkspaceID, forKey: .activeWorkspaceID)
+    try container.encodeIfPresent(activeSessionID, forKey: .activeSessionID)
   }
 }

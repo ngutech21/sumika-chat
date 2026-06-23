@@ -12,6 +12,31 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
     self.autoloadLastModel = autoloadLastModel
     self.todoWriteToolEnabled = todoWriteToolEnabled
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case autoloadLastModel
+    case todoWriteToolEnabled
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    autoloadLastModel =
+      try container.decodeIfPresent(
+        Bool.self,
+        forKey: .autoloadLastModel
+      ) ?? false
+    todoWriteToolEnabled =
+      try container.decodeIfPresent(
+        Bool.self,
+        forKey: .todoWriteToolEnabled
+      ) ?? false
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(autoloadLastModel, forKey: .autoloadLastModel)
+    try container.encode(todoWriteToolEnabled, forKey: .todoWriteToolEnabled)
+  }
 }
 
 protocol AppBehaviorSettingsStoring: Sendable {

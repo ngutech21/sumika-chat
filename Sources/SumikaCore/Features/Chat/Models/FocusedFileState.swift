@@ -19,6 +19,37 @@ public struct FocusedFileState: Codable, Equatable, Sendable {
   }
 
   public static let empty = FocusedFileState()
+
+  private enum CodingKeys: String, CodingKey {
+    case activePath
+    case recentPaths
+    case snapshots
+    case focusedAttachments
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    activePath = try container.decodeIfPresent(WorkspaceRelativePath.self, forKey: .activePath)
+    recentPaths = try container.decodeLossyArray([FocusedPath].self, forKey: .recentPaths)
+    snapshots = try container.decodeIfPresent(
+      [WorkspaceRelativePath: FocusedFileSnapshot].self,
+      forKey: .snapshots,
+      default: [:]
+    )
+    focusedAttachments = try container.decodeIfPresent(
+      [AttachmentID].self,
+      forKey: .focusedAttachments,
+      default: []
+    )
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encodeIfPresent(activePath, forKey: .activePath)
+    try container.encode(recentPaths, forKey: .recentPaths)
+    try container.encode(snapshots, forKey: .snapshots)
+    try container.encode(focusedAttachments, forKey: .focusedAttachments)
+  }
 }
 
 public struct FocusedPath: Codable, Equatable, Sendable {

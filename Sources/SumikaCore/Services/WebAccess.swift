@@ -55,6 +55,34 @@ public struct WebAccessSettings: Codable, Equatable, Sendable {
   }
 
   public static let disabled = WebAccessSettings()
+
+  private enum CodingKeys: String, CodingKey {
+    case policy
+    case provider
+    case searxngBaseURL
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    policy = try container.decodeIfPresent(WebAccessPolicy.self, forKey: .policy, default: .off)
+    provider = try container.decodeIfPresent(
+      WebSearchProvider.self,
+      forKey: .provider,
+      default: .duckDuckGo
+    )
+    searxngBaseURL = try container.decodeIfPresent(
+      String.self,
+      forKey: .searxngBaseURL,
+      default: ""
+    )
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(policy, forKey: .policy)
+    try container.encode(provider, forKey: .provider)
+    try container.encode(searxngBaseURL, forKey: .searxngBaseURL)
+  }
 }
 
 public protocol WebAccessSettingsStoring: Sendable {
@@ -62,9 +90,26 @@ public protocol WebAccessSettingsStoring: Sendable {
   func save(settings: WebAccessSettings) async throws
 }
 
+private enum WebAccessSettingsFileCodingKeys: String, CodingKey {
+  case settings
+}
+
 public actor WebAccessSettingsStore: WebAccessSettingsStoring {
   private struct SettingsFile: Codable {
     var settings: WebAccessSettings
+
+    init(settings: WebAccessSettings) {
+      self.settings = settings
+    }
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: WebAccessSettingsFileCodingKeys.self)
+      settings = try container.decodeIfPresent(
+        WebAccessSettings.self,
+        forKey: .settings,
+        default: .disabled
+      )
+    }
   }
 
   private let settingsURL: URL

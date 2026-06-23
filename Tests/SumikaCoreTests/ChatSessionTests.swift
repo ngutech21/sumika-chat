@@ -54,6 +54,26 @@ struct ChatSessionTests {
   }
 
   @Test
+  func decodingPartialModeSettingsUsesModeSpecificDefaults() throws {
+    var object = try #require(
+      JSONSerialization.jsonObject(
+        with: JSONEncoder().encode(ChatModeSettingsSet.defaultSettings)
+      ) as? [String: Any]
+    )
+    var chat = try #require(object["chat"] as? [String: Any])
+    chat.removeValue(forKey: "systemPrompt")
+    chat.removeValue(forKey: "generationSettings")
+    object["chat"] = chat
+    object.removeValue(forKey: "agent")
+    let data = try JSONSerialization.data(withJSONObject: object)
+
+    let decoded = try JSONDecoder().decode(ChatModeSettingsSet.self, from: data)
+
+    #expect(decoded.chat == ChatModeSettingsSet.defaultSettings.chat)
+    #expect(decoded.agent == ChatModeSettingsSet.defaultSettings.agent)
+  }
+
+  @Test
   func decodingResolvesInterruptedStreamingTurns() throws {
     let completeID = UUID()
     let partialID = UUID()

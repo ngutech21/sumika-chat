@@ -24,6 +24,40 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     self.updatedAt = updatedAt
   }
 
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case status
+    case modelContextPolicy
+    case items
+    case createdAt
+    case updatedAt
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
+    status = try container.decodeIfPresent(
+      ChatTurnStatus.self, forKey: .status, default: .completed)
+    modelContextPolicy = try container.decodeIfPresent(
+      ChatTurnModelContextPolicy.self,
+      forKey: .modelContextPolicy,
+      default: .included
+    )
+    items = try container.decodeLossyArray([ChatTurnItem].self, forKey: .items)
+    createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt, default: Date())
+    updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: createdAt)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(status, forKey: .status)
+    try container.encode(modelContextPolicy, forKey: .modelContextPolicy)
+    try container.encode(items, forKey: .items)
+    try container.encode(createdAt, forKey: .createdAt)
+    try container.encode(updatedAt, forKey: .updatedAt)
+  }
+
   mutating func appendItem(_ item: ChatTurnItem, at timestamp: Date = Date()) {
     items.append(item)
     updatedAt = timestamp
@@ -288,6 +322,26 @@ public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
     self.content = content
     self.attachments = attachments
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case content
+    case attachments
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
+    content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
+    attachments = try container.decodeLossyArray([ChatAttachment].self, forKey: .attachments)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(content, forKey: .content)
+    try container.encode(attachments, forKey: .attachments)
+  }
 }
 
 public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
@@ -316,6 +370,39 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
     self.generationMetrics = generationMetrics
     self.deliveryStatus = deliveryStatus
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case content
+    case attachments
+    case generationMetrics
+    case deliveryStatus
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
+    content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
+    attachments = try container.decodeLossyArray([ChatAttachment].self, forKey: .attachments)
+    generationMetrics = try container.decodeIfPresent(
+      ChatGenerationMetrics.self,
+      forKey: .generationMetrics
+    )
+    deliveryStatus = try container.decodeIfPresent(
+      DeliveryStatus.self,
+      forKey: .deliveryStatus,
+      default: .complete
+    )
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(content, forKey: .content)
+    try container.encode(attachments, forKey: .attachments)
+    try container.encodeIfPresent(generationMetrics, forKey: .generationMetrics)
+    try container.encode(deliveryStatus, forKey: .deliveryStatus)
+  }
 }
 
 public struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendable {
@@ -337,6 +424,30 @@ public struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendab
     self.id = id
     self.content = content
     self.deliveryStatus = deliveryStatus
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case content
+    case deliveryStatus
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
+    content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
+    deliveryStatus = try container.decodeIfPresent(
+      DeliveryStatus.self,
+      forKey: .deliveryStatus,
+      default: .complete
+    )
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(content, forKey: .content)
+    try container.encode(deliveryStatus, forKey: .deliveryStatus)
   }
 }
 

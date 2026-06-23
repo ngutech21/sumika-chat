@@ -173,7 +173,7 @@ struct ModelContextSnapshotTests {
   }
 
   @Test
-  func chatSessionDecodeRequiresModelContextSnapshot() throws {
+  func chatSessionDecodeDefaultsMissingModelContextSnapshot() throws {
     let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
       modelContextSnapshot: ModelContextSnapshot(
@@ -189,9 +189,8 @@ struct ModelContextSnapshotTests {
     object.removeValue(forKey: "modelContextSnapshot")
     let legacyData = try JSONSerialization.data(withJSONObject: object)
 
-    #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(ChatSession.self, from: legacyData)
-    }
+    let decoded = try JSONDecoder().decode(ChatSession.self, from: legacyData)
+    #expect(decoded.modelContextSnapshot == ModelContextSnapshot())
   }
 
   @Test

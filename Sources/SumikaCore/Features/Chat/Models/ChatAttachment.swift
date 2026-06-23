@@ -20,6 +20,29 @@ public struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     self.createdAt = createdAt
   }
 
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case displayName
+    case payload
+    case createdAt
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decodeIfPresent(AttachmentID.self, forKey: .id, default: AttachmentID())
+    displayName = try container.decodeIfPresent(String.self, forKey: .displayName, default: "")
+    payload = try container.decode(ChatAttachmentPayload.self, forKey: .payload)
+    createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt, default: Date())
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(displayName, forKey: .displayName)
+    try container.encode(payload, forKey: .payload)
+    try container.encode(createdAt, forKey: .createdAt)
+  }
+
   public var displayPath: String {
     displayName
   }
@@ -263,6 +286,24 @@ public struct ActiveAttachmentContext: Codable, Equatable, Sendable {
   }
 
   public static let empty = ActiveAttachmentContext()
+
+  private enum CodingKeys: String, CodingKey {
+    case attachmentIDs
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    attachmentIDs = try container.decodeIfPresent(
+      [AttachmentID].self,
+      forKey: .attachmentIDs,
+      default: []
+    )
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(attachmentIDs, forKey: .attachmentIDs)
+  }
 
   public mutating func activate(_ attachments: [ChatAttachment]) {
     for attachment in attachments where attachment.kind == .image {

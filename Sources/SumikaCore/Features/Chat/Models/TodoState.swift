@@ -8,6 +8,23 @@ public struct TodoState: Codable, Equatable, Sendable {
     self.items = items
     self.updatedAt = updatedAt
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case items
+    case updatedAt
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    items = try container.decodeLossyArray([TodoItem].self, forKey: .items)
+    updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: Date())
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(items, forKey: .items)
+    try container.encode(updatedAt, forKey: .updatedAt)
+  }
 }
 
 public struct TodoItem: Codable, Identifiable, Equatable, Sendable {
@@ -19,6 +36,26 @@ public struct TodoItem: Codable, Identifiable, Equatable, Sendable {
     self.id = id
     self.content = content
     self.status = status
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case content
+    case status
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decodeIfPresent(String.self, forKey: .id, default: UUID().uuidString)
+    content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
+    status = try container.decodeIfPresent(TodoStatus.self, forKey: .status, default: .pending)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(content, forKey: .content)
+    try container.encode(status, forKey: .status)
   }
 }
 

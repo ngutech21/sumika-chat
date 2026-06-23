@@ -24,6 +24,39 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
     self.reasoningEnabled = reasoningEnabled
   }
 
+  private enum CodingKeys: String, CodingKey {
+    case temperature
+    case topP
+    case topK
+    case maxTokens
+    case maxKVSize
+    case reasoningEnabled
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    temperature = try container.decodeIfPresent(Double.self, forKey: .temperature, default: 1)
+    topP = try container.decodeIfPresent(Double.self, forKey: .topP, default: 1)
+    topK = try container.decodeIfPresent(Int.self, forKey: .topK, default: 0)
+    maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens, default: 2048)
+    maxKVSize = try container.decodeIfPresent(Int.self, forKey: .maxKVSize)
+    reasoningEnabled = try container.decodeIfPresent(
+      Bool.self,
+      forKey: .reasoningEnabled,
+      default: true
+    )
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(temperature, forKey: .temperature)
+    try container.encode(topP, forKey: .topP)
+    try container.encode(topK, forKey: .topK)
+    try container.encode(maxTokens, forKey: .maxTokens)
+    try container.encodeIfPresent(maxKVSize, forKey: .maxKVSize)
+    try container.encode(reasoningEnabled, forKey: .reasoningEnabled)
+  }
+
   public static let chatDefault = ChatGenerationSettings(
     temperature: 1,
     topP: 1,

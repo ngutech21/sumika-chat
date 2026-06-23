@@ -31,6 +31,54 @@ public struct StoredModelSettings: Codable, Equatable, Sendable {
     self.contextTokenLimit = contextTokenLimit
   }
 
+  private enum CodingKeys: String, CodingKey {
+    case modeSettings
+    case systemPrompt
+    case generationSettings
+    case contextTokenLimit
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    contextTokenLimit = try container.decodeIfPresent(
+      Int.self,
+      forKey: .contextTokenLimit,
+      default: ManagedModelCatalog.defaultContextTokenLimit
+    )
+    if let modeSettings = try container.decodeIfPresent(
+      ChatModeSettingsSet.self,
+      forKey: .modeSettings
+    ) {
+      self.modeSettings = modeSettings
+      return
+    }
+
+    let systemPrompt = try container.decodeIfPresent(
+      String.self,
+      forKey: .systemPrompt,
+      default: ChatPromptDefaults.agentSystemPrompt
+    )
+    let generationSettings = try container.decodeIfPresent(
+      ChatGenerationSettings.self,
+      forKey: .generationSettings,
+      default: .agentDefault
+    )
+    let settings = ChatModeSettings(
+      systemPrompt: systemPrompt,
+      generationSettings: generationSettings
+    )
+    modeSettings = ChatModeSettingsSet(chat: settings, agent: settings)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(modeSettings, forKey: .modeSettings)
+    try container.encode(contextTokenLimit, forKey: .contextTokenLimit)
+  }
+}
+
+private enum ModelSettingsFileCodingKeys: String, CodingKey {
+  case modelSettings
 }
 
 public protocol ModelSettingsStoring: Sendable {
@@ -47,6 +95,19 @@ nonisolated private struct UserDefaultsBox: @unchecked Sendable {
 public actor ModelSettingsStore: ModelSettingsStoring {
   private struct SettingsFile: Codable {
     var modelSettings: [String: StoredModelSettings]
+
+    init(modelSettings: [String: StoredModelSettings]) {
+      self.modelSettings = modelSettings
+    }
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: ModelSettingsFileCodingKeys.self)
+      modelSettings = try container.decodeIfPresent(
+        [String: StoredModelSettings].self,
+        forKey: .modelSettings,
+        default: [:]
+      )
+    }
   }
 
   private let userDefaultsBox: UserDefaultsBox
