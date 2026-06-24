@@ -74,7 +74,7 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
 }
 
 public enum ManagedModelCatalog {
-  public static let defaultModelID = "gemma4-e4b"
+  public static let defaultModelID = "gemma4-e4b-qat-4bit"
   public static let defaultContextTokenLimit = 16_384
 
   public static let models: [ManagedModel] = [

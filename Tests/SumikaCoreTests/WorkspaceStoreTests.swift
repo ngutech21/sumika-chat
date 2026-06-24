@@ -54,7 +54,7 @@ struct WorkspaceStoreTests {
     let libraryURL = temporaryLibraryURL()
     let store = WorkspaceStore(libraryURL: libraryURL)
     let session = ChatSession(
-      selectedModelID: "gemma4-e4b",
+      selectedModelID: "gemma4-e4b-qat-4bit",
       modelContextSnapshot: ModelContextSnapshot(
         entries: [
           try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello"),
@@ -102,7 +102,7 @@ struct WorkspaceStoreTests {
     )
     let session = ChatSession(
       id: sessionID,
-      selectedModelID: "gemma4-e4b",
+      selectedModelID: "gemma4-e4b-qat-4bit",
       turns: [turn],
       systemPrompt: "Use short answers.",
       generationSettings: .agentDefault
@@ -160,7 +160,7 @@ struct WorkspaceStoreTests {
       ]
     )
     let session = ChatSession(
-      selectedModelID: "gemma4-e4b",
+      selectedModelID: "gemma4-e4b-qat-4bit",
       focusedFileState: focusedFileState,
       systemPrompt: "Use short answers.",
       generationSettings: .agentDefault
@@ -187,7 +187,7 @@ struct WorkspaceStoreTests {
       TodoItem(id: "verify", content: "Run tests", status: .inProgress),
     ])
     let session = ChatSession(
-      selectedModelID: "gemma4-e4b",
+      selectedModelID: "gemma4-e4b-qat-4bit",
       systemPrompt: "Use short answers.",
       generationSettings: .agentDefault,
       todoState: todoState
@@ -206,7 +206,7 @@ struct WorkspaceStoreTests {
 
   @Test
   func chatSessionDecodeDefaultsMissingActiveAttachmentContext() throws {
-    let session = ChatSession(selectedModelID: "gemma4-e4b")
+    let session = ChatSession(selectedModelID: "gemma4-e4b-qat-4bit")
     var object = try #require(
       JSONSerialization.jsonObject(with: JSONEncoder().encode(session)) as? [String: Any]
     )
@@ -219,7 +219,7 @@ struct WorkspaceStoreTests {
 
   @Test
   func chatSessionDecodeDefaultsMissingTodoState() throws {
-    let session = ChatSession(selectedModelID: "gemma4-e4b")
+    let session = ChatSession(selectedModelID: "gemma4-e4b-qat-4bit")
     var object = try #require(
       JSONSerialization.jsonObject(with: JSONEncoder().encode(session)) as? [String: Any]
     )
@@ -235,7 +235,7 @@ struct WorkspaceStoreTests {
     let legacySession = LegacyChatSession(
       id: UUID(),
       title: "Legacy",
-      selectedModelID: "gemma4-e4b",
+      selectedModelID: "gemma4-e4b-qat-4bit",
       messages: [LegacyStoredMessage(content: "hello")],
       systemPrompt: "Legacy prompt",
       generationSettings: .agentDefault,
@@ -255,7 +255,7 @@ struct WorkspaceStoreTests {
     let wrappedSession = TranscriptWrappedChatSession(
       id: UUID(),
       title: "Wrapped",
-      selectedModelID: "gemma4-e4b",
+      selectedModelID: "gemma4-e4b-qat-4bit",
       transcript: LegacyTranscriptWrapper(
         modelContextSnapshot: ModelContextSnapshot(
           entries: [
@@ -282,7 +282,7 @@ struct WorkspaceStoreTests {
   @Test
   func chatSessionEncodingOmitsPendingAttachmentsAndTranscriptWrapper() throws {
     let session = ChatSession(
-      selectedModelID: "gemma4-e4b",
+      selectedModelID: "gemma4-e4b-qat-4bit",
       modelContextSnapshot: ModelContextSnapshot(
         entries: [
           try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")

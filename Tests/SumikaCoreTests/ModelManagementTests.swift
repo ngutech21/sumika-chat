@@ -16,7 +16,7 @@ struct ModelManagementTests {
     let selectedModelID = await store.selectedModelID(
       availableModelIDs: Set(ManagedModelCatalog.models.map(\.id)))
 
-    #expect(selectedModelID == "gemma4-e4b")
+    #expect(selectedModelID == "gemma4-e4b-qat-4bit")
   }
 
   @Test
@@ -27,7 +27,7 @@ struct ModelManagementTests {
       userDefaults: makeUserDefaults(suiteName: userDefaultsSuiteName),
       settingsURL: settingsURL
     )
-    let model = try #require(ManagedModelCatalog.model(id: "gemma4-e2b"))
+    let model = try #require(ManagedModelCatalog.model(id: "gemma4-e2b-qat-4bit"))
     let settings = StoredModelSettings(
       modeSettings: ChatModeSettingsSet(
         chat: ChatModeSettings(
@@ -80,8 +80,8 @@ struct ModelManagementTests {
   func settingsStorePreservesConcurrentSavesForDifferentModels() async throws {
     let settingsURL = temporarySettingsURL()
     let store = ModelSettingsStore(userDefaults: makeUserDefaults(), settingsURL: settingsURL)
-    let firstModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b"))
-    let secondModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-4bit"))
+    let firstModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b-qat-4bit"))
+    let secondModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
     let firstSettings = StoredModelSettings(
       modeSettings: ChatModeSettingsSet(
         chat: ChatModeSettings(

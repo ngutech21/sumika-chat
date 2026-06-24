@@ -9,7 +9,7 @@ struct ModelRuntimeControllerTests {
   @Test
   func initializesSelectedModelFromStore() async throws {
     let store = RuntimeFakeModelSettingsStore()
-    let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b"))
+    let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b-qat-4bit"))
     let settings = StoredModelSettings(
       systemPrompt: "Tiny model prompt",
       generationSettings: ChatGenerationSettings(
@@ -29,7 +29,7 @@ struct ModelRuntimeControllerTests {
   @Test
   func selectingModelPersistsSelectionAndPublishesSettings() async throws {
     let store = RuntimeFakeModelSettingsStore()
-    let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b"))
+    let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b-qat-4bit"))
     let settings = StoredModelSettings(
       systemPrompt: "Tiny model prompt",
       generationSettings: ChatGenerationSettings(
@@ -53,7 +53,7 @@ struct ModelRuntimeControllerTests {
 
   @Test
   func selectingModelRefreshesSelectedModelAvailability() async throws {
-    let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b"))
+    let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b-qat-4bit"))
     let controller = await makeController(modelAvailability: { $0.id == selectedModel.id })
     controller.modelAvailabilitySnapshot[selectedModel.id] = false
 
@@ -204,7 +204,7 @@ struct ModelRuntimeControllerTests {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = RuntimeControllerRecordingRuntime()
     let store = RuntimeFakeModelSettingsStore()
-    store.selectedModelIDValue = "gemma4-e4b"
+    store.selectedModelIDValue = "gemma4-e4b-qat-4bit"
     let controller = await makeController(
       modelSettingsStore: store,
       runtime: runtime,

@@ -163,7 +163,7 @@ struct ChatSessionControllerTests {
       status: .completed,
       items: [.userMessage(UserTurnMessage(content: "old session"))]
     )
-    let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b"))
+    let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-e2b-qat-4bit"))
     controller.modelRuntime.modelState = .ready
     controller.chatSession.turns = [originalTurn]
     controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
@@ -190,7 +190,7 @@ struct ChatSessionControllerTests {
   @Test
   func loadSessionForExperimentalGemma4PreservesToolMode() {
     let session = ChatSession(
-      selectedModelID: "gemma4-e2b",
+      selectedModelID: "gemma4-e2b-qat-4bit",
       interactionMode: .agent
     )
     let controller = ChatSessionController(
@@ -200,14 +200,14 @@ struct ChatSessionControllerTests {
 
     controller.loadSession(session)
 
-    #expect(controller.modelRuntime.selectedModelID == "gemma4-e2b")
+    #expect(controller.modelRuntime.selectedModelID == "gemma4-e2b-qat-4bit")
     #expect(controller.chatSession.interactionMode == .agent)
     #expect(controller.errorMessage == nil)
   }
 
   @Test
   func setInteractionModeAllowsExperimentalGemma4ToolModes() {
-    let session = ChatSession(selectedModelID: "gemma4-e2b")
+    let session = ChatSession(selectedModelID: "gemma4-e2b-qat-4bit")
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
@@ -310,7 +310,7 @@ struct ChatSessionControllerTests {
   @Test
   func modelContextDebugDocumentUsesWorkspaceToolAvailability() throws {
     let session = ChatSession(
-      selectedModelID: "gemma4-e2b",
+      selectedModelID: "gemma4-e2b-qat-4bit",
       systemPrompt: "Base system prompt",
       interactionMode: .agent
     )
@@ -375,7 +375,7 @@ struct ChatSessionControllerTests {
   func sendMessageAllowsExperimentalGemma4PersistedToolMode() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["native mode response"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.loadSession(ChatSession(selectedModelID: "gemma4-e2b"))
+    controller.loadSession(ChatSession(selectedModelID: "gemma4-e2b-qat-4bit"))
     controller.chatSession.interactionMode = .agent
     controller.modelRuntime.modelState = .ready
     controller.sendMessage(prompt: "inspect files")
@@ -446,7 +446,7 @@ struct ChatSessionControllerTests {
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.loadSession(
       ChatSession(
-        selectedModelID: "gemma4-e2b",
+        selectedModelID: "gemma4-e2b-qat-4bit",
         systemPrompt: "Base system prompt"
       ))
     controller.modelRuntime.modelState = .ready
@@ -601,7 +601,7 @@ struct ChatSessionControllerTests {
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["looks like a screenshot"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.loadSession(ChatSession(selectedModelID: "gemma4-e4b"))
+    controller.loadSession(ChatSession(selectedModelID: "gemma4-e4b-qat-4bit"))
     controller.modelRuntime.modelState = .ready
     controller.chatSession.pendingAttachments = [attachment]
 
@@ -984,7 +984,7 @@ struct ChatSessionControllerTests {
     controller.loadSession(
       ChatSession(
         id: sessionID,
-        selectedModelID: "gemma4-e2b",
+        selectedModelID: "gemma4-e2b-qat-4bit",
         interactionMode: .agent
       ))
     controller.modelRuntime.modelState = .ready
@@ -1016,7 +1016,7 @@ struct ChatSessionControllerTests {
       sessions: [
         ChatSession(
           id: sessionID,
-          selectedModelID: "gemma4-e2b",
+          selectedModelID: "gemma4-e2b-qat-4bit",
           interactionMode: .agent
         )
       ]
@@ -1046,7 +1046,7 @@ struct ChatSessionControllerTests {
     controller.loadSession(
       ChatSession(
         id: sessionID,
-        selectedModelID: "gemma4-e2b",
+        selectedModelID: "gemma4-e2b-qat-4bit",
         interactionMode: .agent
       ))
     controller.modelRuntime.modelState = .ready
@@ -1100,7 +1100,7 @@ struct ChatSessionControllerTests {
     controller.loadSession(
       ChatSession(
         id: sessionID,
-        selectedModelID: "gemma4-e2b",
+        selectedModelID: "gemma4-e2b-qat-4bit",
         interactionMode: .chat
       ))
     controller.modelRuntime.modelState = .ready
@@ -1148,7 +1148,7 @@ struct ChatSessionControllerTests {
     controller.loadSession(
       ChatSession(
         id: sessionID,
-        selectedModelID: "gemma4-e2b",
+        selectedModelID: "gemma4-e2b-qat-4bit",
         interactionMode: .chat
       ))
     controller.modelRuntime.modelState = .ready
@@ -1197,7 +1197,7 @@ struct ChatSessionControllerTests {
     controller.loadSession(
       ChatSession(
         id: sessionID,
-        selectedModelID: "gemma4-e2b",
+        selectedModelID: "gemma4-e2b-qat-4bit",
         interactionMode: .chat
       ))
     controller.modelRuntime.modelState = .ready
@@ -1249,7 +1249,7 @@ struct ChatSessionControllerTests {
     controller.loadSession(
       ChatSession(
         id: sessionID,
-        selectedModelID: "gemma4-e2b",
+        selectedModelID: "gemma4-e2b-qat-4bit",
         interactionMode: .chat
       ))
     controller.modelRuntime.modelState = .ready
@@ -1307,7 +1307,7 @@ struct ChatSessionControllerTests {
     controller.loadSession(
       ChatSession(
         id: sessionID,
-        selectedModelID: "gemma4-e2b",
+        selectedModelID: "gemma4-e2b-qat-4bit",
         interactionMode: .chat
       ))
     controller.modelRuntime.modelState = .ready
