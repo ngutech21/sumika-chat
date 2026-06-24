@@ -469,10 +469,6 @@ struct ChatComposer: View {
     return handleAttachmentProviders(providers)
   }
 
-  private func handlePasteboardCommand() -> Bool {
-    handlePasteboardAttachments(.general)
-  }
-
   private func handlePasteboardAttachments(_ pasteboard: NSPasteboard) -> Bool {
     guard canAcceptAttachments else {
       return false
@@ -489,16 +485,6 @@ struct ChatComposer: View {
     }
 
     onDropAttachments([imageURL])
-    return true
-  }
-
-  private func insertSoftBreak() -> Bool {
-    if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
-      editor.insertText("\n", replacementRange: editor.selectedRange())
-      return true
-    }
-
-    setDraftText(draftBridge.text + "\n")
     return true
   }
 

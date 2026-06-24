@@ -16,10 +16,6 @@ struct WorkspaceChatContext: Equatable, Identifiable, Sendable {
     self.bookmarkData = workspace.bookmarkData
   }
 
-  var normalizedRootPath: String {
-    Workspace.normalizedPath(for: rootURL)
-  }
-
   var workspaceWithoutSessions: Workspace {
     Workspace(
       id: id,

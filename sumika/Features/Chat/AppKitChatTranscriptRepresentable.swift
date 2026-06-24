@@ -314,6 +314,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     }
 
     private func showImageAttachment(_ attachment: ChatAttachment, relativeTo sourceView: NSView) {
+      attachmentPreviewPopover?.close()
       let popover = NSPopover()
       popover.behavior = .transient
       popover.animates = true
@@ -350,10 +351,6 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       heightCache.invalidate(rowID: rowID)
       reconfigureRows(ids: [rowID])
       scheduleHeightInvalidation(for: rowIndexes(for: [rowID]), scrollToBottomAfterFlush: false)
-    }
-
-    private func reconfigureRows(ids: Set<String>) {
-      reconfigureRows(ids: Array(ids))
     }
 
     private func reconfigureRows(ids: [String]) {
@@ -646,17 +643,6 @@ struct NativeToolDetailContent: Equatable {
       && flags.isEmpty
   }
 
-  var textLines: [String] {
-    var lines = argumentLines + permissionLines
-    if !affectedPaths.isEmpty {
-      lines.append("Affected: \(affectedPaths.joined(separator: ", "))")
-    }
-    if !flags.isEmpty {
-      lines.append(flags.joined(separator: " · "))
-    }
-    return lines
-  }
-
   private static func permissionLines(for record: ToolCallRecord) -> [String] {
     switch record.status {
     case .awaitingApproval:
@@ -726,11 +712,34 @@ struct NativeTranscriptHeightCache {
     let revision: Int
     let width: Int
     let isToolExpanded: Bool
+
+    static func == (lhs: Key, rhs: Key) -> Bool {
+      lhs.rowID == rhs.rowID
+        && lhs.revision == rhs.revision
+        && lhs.width == rhs.width
+        && lhs.isToolExpanded == rhs.isToolExpanded
+    }
+
+    func hash(into hasher: inout Hasher) {
+      hasher.combine(rowID)
+      hasher.combine(revision)
+      hasher.combine(width)
+      hasher.combine(isToolExpanded)
+    }
   }
 
   private struct ActiveRevision: Hashable {
     let rowID: String
     let revision: Int
+
+    static func == (lhs: ActiveRevision, rhs: ActiveRevision) -> Bool {
+      lhs.rowID == rhs.rowID && lhs.revision == rhs.revision
+    }
+
+    func hash(into hasher: inout Hasher) {
+      hasher.combine(rowID)
+      hasher.combine(revision)
+    }
   }
 }
 
@@ -861,7 +870,6 @@ final class NativeChatMessageCellView: NSTableCellView {
   private let contentHost = NSView()
   private var hostedContentView: NSView?
   private var alignmentConstraints: [NSLayoutConstraint] = []
-  private var currentRowID: String?
   private var actions: NativeTranscriptCellActions?
   private var askUserPopUpButton: NSPopUpButton?
 
@@ -905,7 +913,6 @@ final class NativeChatMessageCellView: NSTableCellView {
 
   override func prepareForReuse() {
     super.prepareForReuse()
-    currentRowID = nil
     actions = nil
     askUserPopUpButton = nil
   }
@@ -915,7 +922,6 @@ final class NativeChatMessageCellView: NSTableCellView {
     state: NativeTranscriptCellState,
     actions: NativeTranscriptCellActions
   ) {
-    currentRowID = row.id
     self.actions = actions
     askUserPopUpButton = nil
 

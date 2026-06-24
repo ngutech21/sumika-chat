@@ -99,7 +99,7 @@ lint:
     done; \
     exit "$status"
 
-final-check: typos format lint test check-warnings
+final-check: typos format lint periphery test check-warnings
 
 format:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }

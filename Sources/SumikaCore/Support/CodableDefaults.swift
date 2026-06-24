@@ -18,7 +18,7 @@ extension KeyedDecodingContainer {
   }
 
   func decodeLossyArray<Element: Decodable>(
-    _ type: [Element].Type,
+    _: [Element].Type,
     forKey key: Key,
     default defaultValue: @autoclosure () -> [Element] = []
   ) throws -> [Element] {

@@ -66,27 +66,6 @@ enum NativeTranscriptMarkdownRenderer {
     renderMarkdown(markdown)
   }
 
-  static func measuredHeight(for markdown: String, width: CGFloat) -> CGFloat {
-    let blocks = blocks(for: markdown)
-    return blocks.enumerated().reduce(CGFloat(0)) { total, entry in
-      let blockSpacing = entry.offset == 0 ? 0 : CGFloat(8)
-      switch entry.element {
-      case .text(let attributedString):
-        return total + blockSpacing + measuredHeight(for: attributedString, width: width)
-      case .table(let table):
-        return total + blockSpacing + NativeMarkdownTableMetrics.height(for: table, width: width)
-      }
-    }
-  }
-
-  static func measuredHeight(for attributedString: NSAttributedString, width: CGFloat) -> CGFloat {
-    let rect = attributedString.boundingRect(
-      with: NSSize(width: width, height: .greatestFiniteMagnitude),
-      options: [.usesLineFragmentOrigin, .usesFontLeading]
-    )
-    return ceil(rect.height)
-  }
-
   static func linkifiedPlainText(_ text: String) -> NSAttributedString {
     let attributedString = NSMutableAttributedString(
       string: text.isEmpty ? " " : text,
@@ -874,17 +853,6 @@ enum NativeTranscriptCodeRenderer {
     language: CodeLanguage?
   ) -> NSAttributedString {
     attributedString(for: .plain(code: code, language: language))
-  }
-
-  static func measuredHeight(for code: String, width: CGFloat) -> CGFloat {
-    let attributedString = plainAttributedString(
-      code: code.isEmpty ? " " : code,
-      language: nil
-    )
-    return NativeTranscriptMarkdownRenderer.measuredHeight(
-      for: attributedString,
-      width: width
-    )
   }
 
   static func color(for style: CodeHighlightStyle) -> NSColor {

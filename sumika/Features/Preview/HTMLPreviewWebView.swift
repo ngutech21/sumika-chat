@@ -25,6 +25,14 @@ private struct BrowserHandlerRegistrationKey: Equatable {
     self.serviceID = ObjectIdentifier(service)
     self.preview = preview
   }
+
+  static func == (lhs: BrowserHandlerRegistrationKey, rhs: BrowserHandlerRegistrationKey)
+    -> Bool
+  {
+    lhs.webViewID == rhs.webViewID
+      && lhs.serviceID == rhs.serviceID
+      && lhs.preview == rhs.preview
+  }
 }
 
 private enum HTMLPreviewConsoleBridgeScript {

@@ -161,6 +161,13 @@ struct ModelContextDebugRequestID: Equatable {
   let workspaceID: Workspace.ID
   let sessionID: ChatSession.ID?
   let documentRevision: Int
+
+  static func == (lhs: ModelContextDebugRequestID, rhs: ModelContextDebugRequestID) -> Bool {
+    lhs.controllerID == rhs.controllerID
+      && lhs.workspaceID == rhs.workspaceID
+      && lhs.sessionID == rhs.sessionID
+      && lhs.documentRevision == rhs.documentRevision
+  }
 }
 
 private struct ModelContextDebugMetric: View {

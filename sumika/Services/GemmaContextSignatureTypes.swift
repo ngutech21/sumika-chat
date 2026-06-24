@@ -72,9 +72,23 @@ nonisolated enum CurrentPromptContextRuntimeBoundary: Equatable, Sendable {
 nonisolated struct CurrentPromptContextRuntimeBoundaryMatch: Equatable, Sendable {
   let boundary: CurrentPromptContextRuntimeBoundary
   let range: Range<String.Index>
+
+  static func == (
+    lhs: CurrentPromptContextRuntimeBoundaryMatch,
+    rhs: CurrentPromptContextRuntimeBoundaryMatch
+  ) -> Bool {
+    lhs.boundary == rhs.boundary && lhs.range == rhs.range
+  }
 }
 
 nonisolated struct CurrentPromptContextRuntimeBlock: Equatable, Sendable {
   let boundary: CurrentPromptContextRuntimeBoundary
   let content: String
+
+  static func == (
+    lhs: CurrentPromptContextRuntimeBlock,
+    rhs: CurrentPromptContextRuntimeBlock
+  ) -> Bool {
+    lhs.boundary == rhs.boundary && lhs.content == rhs.content
+  }
 }

@@ -5,24 +5,7 @@ import SumikaCore
 enum NativeTranscriptAttachmentPreviewMetrics {
   static let imageSize = NSSize(width: 180, height: 120)
   static let maxImagePixelSize = Int(max(imageSize.width, imageSize.height) * 2)
-  static let textHeight: CGFloat = 32
   static let imageHeight: CGFloat = imageSize.height + 18
-  static let itemSpacing: CGFloat = 6
-
-  static func height(for attachments: [ChatAttachment]) -> CGFloat {
-    guard !attachments.isEmpty else {
-      return 0
-    }
-    let contentHeight = attachments.reduce(CGFloat(0)) { total, attachment in
-      switch attachment.kind {
-      case .image:
-        total + imageHeight
-      case .text:
-        total + textHeight
-      }
-    }
-    return contentHeight + CGFloat(max(0, attachments.count - 1)) * itemSpacing
-  }
 }
 
 struct NativeAttachmentThumbDescriptor: Equatable, Hashable, Sendable {
@@ -36,6 +19,22 @@ struct NativeAttachmentThumbDescriptor: Equatable, Hashable, Sendable {
     kind = attachment.kind
     contentSignature = attachment.contentSignature
     self.maxPixelSize = maxPixelSize
+  }
+
+  static func == (lhs: NativeAttachmentThumbDescriptor, rhs: NativeAttachmentThumbDescriptor)
+    -> Bool
+  {
+    lhs.attachmentID == rhs.attachmentID
+      && lhs.kind == rhs.kind
+      && lhs.contentSignature == rhs.contentSignature
+      && lhs.maxPixelSize == rhs.maxPixelSize
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine(attachmentID)
+    hasher.combine(kind)
+    hasher.combine(contentSignature)
+    hasher.combine(maxPixelSize)
   }
 }
 
@@ -52,10 +51,6 @@ final class NativeTranscriptAttachmentThumbnailStore {
 
   init(attachmentStore: ChatAttachmentStore = ChatAttachmentStore()) {
     self.attachmentStore = attachmentStore
-  }
-
-  var cachedEntryCount: Int {
-    thumbnailsByDescriptor.count
   }
 
   func thumbnail(for attachment: ChatAttachment, maxPixelSize: Int) -> NSImage? {

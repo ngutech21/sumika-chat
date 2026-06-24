@@ -3,17 +3,14 @@ import SumikaCore
 
 struct WorkspaceSidebarState: Equatable, Sendable {
   var workspaces: [WorkspaceSidebarWorkspace]
-  var activeSessionID: ChatSession.ID?
 
-  init(workspaces: [WorkspaceSidebarWorkspace] = [], activeSessionID: ChatSession.ID? = nil) {
+  init(workspaces: [WorkspaceSidebarWorkspace] = []) {
     self.workspaces = workspaces
-    self.activeSessionID = activeSessionID
   }
 
   init(library: WorkspaceLibrary) {
     self.init(
-      workspaces: library.workspaces.map(WorkspaceSidebarWorkspace.init),
-      activeSessionID: library.activeSessionID
+      workspaces: library.workspaces.map(WorkspaceSidebarWorkspace.init)
     )
   }
 }
