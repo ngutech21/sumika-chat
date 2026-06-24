@@ -107,6 +107,12 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     lastRuntimeCacheDebugSnapshot
   }
 
+  nonisolated static func mlxRepetitionPenalty(
+    from settings: ChatGenerationSettings
+  ) -> Float? {
+    settings.repetitionPenalty == 1 ? nil : Float(settings.repetitionPenalty)
+  }
+
   func contextUsage(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
@@ -184,7 +190,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       maxKVSize: settings.maxKVSize,
       temperature: Float(settings.temperature),
       topP: Float(settings.topP),
-      topK: settings.topK
+      topK: settings.topK,
+      repetitionPenalty: Self.mlxRepetitionPenalty(from: settings)
     )
     let additionalContext = Self.chatTemplateAdditionalContext(
       reasoningEnabled: settings.reasoningEnabled)

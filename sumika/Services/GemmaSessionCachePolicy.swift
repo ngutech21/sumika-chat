@@ -290,8 +290,9 @@ nonisolated enum GemmaSessionCachePolicy {
     for settings: ChatGenerationSettings
   ) -> String {
     // Only settings that change the KV-cache prefill belong in the cache signature.
-    // Sampling params (temperature/topP/topK) and maxTokens are applied at decode
-    // time and never alter the cached prefix, so they must not invalidate it.
+    // Sampling params (temperature/topP/topK/repetitionPenalty) and maxTokens are
+    // applied at decode time and never alter the cached prefix, so they must not
+    // invalidate it.
     // maxKVSize controls cache rotation; reasoning changes the chat template.
     hashSignature { updateString in
       updateString(settings.maxKVSize.map(String.init) ?? "nil")

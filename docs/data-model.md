@@ -242,6 +242,19 @@ Cases:
 - `invalidIntegerArgument(String)`
 - `invalidMaxLength`
 
+### ChatGenerationConfigPreset
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Models/ChatModelConfiguration.swift`
+- Conforms to: `Equatable`, `Sendable`
+
+Properties:
+
+- `repetitionPenalty: Double?`
+- `temperature: Double?`
+- `topK: Int?`
+- `topP: Double?`
+
 ### ChatGenerationSettings
 
 - Kind: `struct`
@@ -252,6 +265,8 @@ Properties:
 
 - `maxKVSize: Int?`
 - `maxTokens: Int`
+- `reasoningEnabled: Bool`
+- `repetitionPenalty: Double`
 - `temperature: Double`
 - `topK: Int`
 - `topP: Double`

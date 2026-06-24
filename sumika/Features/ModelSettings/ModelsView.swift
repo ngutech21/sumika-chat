@@ -4,7 +4,6 @@ import SwiftUI
 struct ModelsView: View {
   @Bindable var modelRuntime: ModelRuntimeController
   @Binding var modeSettings: ChatModeSettingsSet
-  let contextUsage: ChatContextUsage?
   let errorMessage: String?
   let canChangeModel: Bool
   let onPrepareModelRuntimeAction:
@@ -79,7 +78,6 @@ struct ModelsView: View {
           ModelRuntimeStatus(
             modelState: modelRuntime.modelState,
             downloadState: effectiveDownloadState,
-            contextUsage: contextUsage,
             processUsage: modelRuntime.processUsage
           )
 
@@ -87,7 +85,8 @@ struct ModelsView: View {
             model: modelRuntime.selectedModel,
             modeSettings: $modeSettings,
             contextTokenLimit: $modelRuntime.modelContextTokenLimit,
-            canChangeContextTokenLimit: modelRuntime.modelState == .notLoaded
+            canChangeContextTokenLimit: modelRuntime.modelState == .notLoaded,
+            generationConfigPreset: modelRuntime.modelGenerationConfigPreset
           )
         } label: {
           HStack(spacing: 12) {

@@ -11,6 +11,7 @@ public final class ModelRuntimeController {
   public var modelPath: String
   public var modelState: ModelLoadState = .notLoaded
   public var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
+  public var modelGenerationConfigPreset: ChatGenerationConfigPreset?
   public var processUsage: ProcessResourceUsage?
   public var modelAvailabilitySnapshot: [ManagedModel.ID: Bool] = [:]
 
@@ -57,6 +58,7 @@ public final class ModelRuntimeController {
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
     self.resourceMonitor = resourceMonitor
     self.modelOperationID = initialOperationID
+    refreshModelGenerationConfigPreset()
     refreshModelAvailability()
   }
 
@@ -86,6 +88,7 @@ public final class ModelRuntimeController {
         } else if !modelPath.hasPrefix(baseURL.path(percentEncoded: false)) {
           modelPath = selectedModel.localPath
         }
+        refreshModelGenerationConfigPreset()
         refreshModelAvailability()
       } catch {
         onError?(error.localizedDescription)
@@ -112,6 +115,7 @@ public final class ModelRuntimeController {
   public func setModelDirectory(_ url: URL) {
     modelPath = url.path(percentEncoded: false)
     modelState = .notLoaded
+    refreshModelGenerationConfigPreset()
   }
 
   public func selectModel(_ model: ManagedModel) {
@@ -125,6 +129,7 @@ public final class ModelRuntimeController {
     downloadState = .idle
     downloadProgress = nil
     modelContextTokenLimit = model.defaultContextTokenLimit
+    modelGenerationConfigPreset = nil
     modelAvailabilitySnapshot[model.id] = modelLifecycleCoordinator.isModelDownloaded(model)
 
     Task { [modelSettingsStore] in
@@ -134,6 +139,7 @@ public final class ModelRuntimeController {
         return
       }
       modelContextTokenLimit = settings.contextTokenLimit
+      refreshModelGenerationConfigPreset()
       onModelDidChange?(settings)
     }
   }
@@ -150,6 +156,7 @@ public final class ModelRuntimeController {
       downloadState = .idle
       downloadProgress = nil
       modelContextTokenLimit = model.defaultContextTokenLimit
+      modelGenerationConfigPreset = nil
     } else if modelPath.isEmpty {
       modelPath = model.localPath
     }
@@ -160,6 +167,7 @@ public final class ModelRuntimeController {
         return
       }
       modelContextTokenLimit = settings.contextTokenLimit
+      refreshModelGenerationConfigPreset()
     }
 
     if shouldUnloadRuntime {
@@ -214,6 +222,7 @@ public final class ModelRuntimeController {
         downloadProgress = 1
         modelPath = result.localPath
         modelAvailabilitySnapshot[model.id] = true
+        refreshModelGenerationConfigPreset()
       } catch is CancellationError {
         downloadState = .idle
         downloadProgress = nil
@@ -256,6 +265,19 @@ public final class ModelRuntimeController {
     )
   }
 
+  private func refreshModelGenerationConfigPreset() {
+    let modelDirectory = URL(fileURLWithPath: modelPath, isDirectory: true)
+    Task {
+      let preset = await Task.detached {
+        LocalModelDirectory.readGenerationConfigPreset(from: modelDirectory)
+      }.value
+      guard modelPath == modelDirectory.path(percentEncoded: false) else {
+        return
+      }
+      modelGenerationConfigPreset = preset
+    }
+  }
+
   public func loadPersistedModelSelection(notifyModelDidChange: Bool = false) {
     Task { [modelSettingsStore] in
       let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
@@ -272,6 +294,7 @@ public final class ModelRuntimeController {
       self.selectedModelID = selectedModel.id
       modelPath = selectedModel.localPath
       modelContextTokenLimit = settings.contextTokenLimit
+      refreshModelGenerationConfigPreset()
       if notifyModelDidChange {
         onModelDidChange?(settings)
       }
@@ -280,6 +303,7 @@ public final class ModelRuntimeController {
 
   public func loadSelectedModel() {
     modelPath = selectedModel.localPath
+    refreshModelGenerationConfigPreset()
     loadModel()
   }
 

@@ -6,6 +6,7 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
   public var topK: Int
   public var maxTokens: Int
   public var maxKVSize: Int?
+  public var repetitionPenalty: Double
   public var reasoningEnabled: Bool
 
   public init(
@@ -14,6 +15,7 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
     topK: Int,
     maxTokens: Int,
     maxKVSize: Int? = nil,
+    repetitionPenalty: Double = 1,
     reasoningEnabled: Bool = true
   ) {
     self.temperature = temperature
@@ -21,6 +23,7 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
     self.topK = topK
     self.maxTokens = maxTokens
     self.maxKVSize = maxKVSize
+    self.repetitionPenalty = repetitionPenalty
     self.reasoningEnabled = reasoningEnabled
   }
 
@@ -30,6 +33,7 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
     case topK
     case maxTokens
     case maxKVSize
+    case repetitionPenalty
     case reasoningEnabled
   }
 
@@ -40,6 +44,11 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
     topK = try container.decodeIfPresent(Int.self, forKey: .topK, default: 0)
     maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens, default: 2048)
     maxKVSize = try container.decodeIfPresent(Int.self, forKey: .maxKVSize)
+    repetitionPenalty = try container.decodeIfPresent(
+      Double.self,
+      forKey: .repetitionPenalty,
+      default: 1
+    )
     reasoningEnabled = try container.decodeIfPresent(
       Bool.self,
       forKey: .reasoningEnabled,
@@ -54,6 +63,7 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
     try container.encode(topK, forKey: .topK)
     try container.encode(maxTokens, forKey: .maxTokens)
     try container.encodeIfPresent(maxKVSize, forKey: .maxKVSize)
+    try container.encode(repetitionPenalty, forKey: .repetitionPenalty)
     try container.encode(reasoningEnabled, forKey: .reasoningEnabled)
   }
 

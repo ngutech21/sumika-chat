@@ -34,6 +34,7 @@ actor GemmaDebugTraceStore: TurnTracing {
       "temperature": settings.temperature,
       "topP": settings.topP,
       "topK": settings.topK,
+      "repetitionPenalty": settings.repetitionPenalty,
     ]
     if let maxKVSize = settings.maxKVSize {
       settingsTrace["maxKVSize"] = maxKVSize

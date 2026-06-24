@@ -1,3 +1,4 @@
+import AppKit
 import SumikaCore
 import SwiftUI
 
@@ -232,7 +233,6 @@ struct CurrentModelSummary: View {
 struct ModelRuntimeStatus: View {
   let modelState: ModelLoadState
   let downloadState: ModelDownloadState
-  let contextUsage: ChatContextUsage?
   let processUsage: ProcessResourceUsage?
 
   var body: some View {
@@ -245,27 +245,6 @@ struct ModelRuntimeStatus: View {
       LabeledContent("Download") {
         Label(downloadState.label, systemImage: "arrow.down.circle")
           .foregroundStyle(downloadTint)
-      }
-
-      LabeledContent("Context") {
-        if let usage = contextUsage, let fraction = usage.fraction {
-          HStack(spacing: 10) {
-            Gauge(value: min(max(fraction, 0), 1)) {
-              EmptyView()
-            }
-            .gaugeStyle(.accessoryLinearCapacity)
-            .tint(ContextUsageTint.color(for: fraction))
-            .frame(width: 90)
-
-            Text(usage.summary)
-              .foregroundStyle(.secondary)
-              .monospacedDigit()
-          }
-        } else {
-          Text(contextUsage?.summary ?? "Not loaded")
-            .foregroundStyle(.secondary)
-            .monospacedDigit()
-        }
       }
 
       LabeledContent("Memory") {
@@ -293,6 +272,7 @@ struct ModelAdvancedSettings: View {
   @Binding var modeSettings: ChatModeSettingsSet
   @Binding var contextTokenLimit: Int
   let canChangeContextTokenLimit: Bool
+  let generationConfigPreset: ChatGenerationConfigPreset?
   @State private var selectedMode = WorkspaceInteractionMode.chat
 
   var body: some View {
@@ -379,6 +359,20 @@ struct ModelAdvancedSettings: View {
             value: "\(selectedGenerationSettings.wrappedValue.topK)")
         }
 
+        VStack(alignment: .leading, spacing: 6) {
+          HStack {
+            Label("Repetition Penalty", systemImage: "repeat")
+            Spacer()
+            Text(
+              selectedGenerationSettings.wrappedValue.repetitionPenalty.formatted(
+                .number.precision(.fractionLength(2)))
+            )
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+          }
+          Slider(value: selectedRepetitionPenalty, in: 1...2, step: 0.05)
+        }
+
         LabeledContent("Hugging Face") {
           Text(model.huggingFaceRepoID)
             .textSelection(.enabled)
@@ -386,14 +380,32 @@ struct ModelAdvancedSettings: View {
         }
 
         LabeledContent("Local Folder") {
-          Text(model.localPath)
-            .textSelection(.enabled)
-            .foregroundStyle(.secondary)
+          HStack(spacing: 8) {
+            Text(model.localPath)
+              .textSelection(.enabled)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .truncationMode(.middle)
+
+            Button {
+              openModelFolderInFinder()
+            } label: {
+              Image(systemName: "folder")
+            }
+            .buttonStyle(.borderless)
+            .help("Open local model folder in Finder")
+            .accessibilityLabel("Open local model folder in Finder")
+          }
         }
 
         Button("Reset \(selectedMode.displayName) Defaults") {
           modeSettings[selectedMode] = model.defaultModeSettings[selectedMode]
         }
+
+        Button("Reset From Model Config") {
+          applyGenerationConfigPreset()
+        }
+        .disabled(generationConfigPreset == nil)
 
         Button("Reset Context Length") {
           contextTokenLimit = model.defaultContextTokenLimit
@@ -457,6 +469,13 @@ struct ModelAdvancedSettings: View {
     )
   }
 
+  private var selectedRepetitionPenalty: Binding<Double> {
+    Binding(
+      get: { selectedGenerationSettings.wrappedValue.repetitionPenalty },
+      set: { selectedGenerationSettings.wrappedValue.repetitionPenalty = $0 }
+    )
+  }
+
   private var maxKVSizeEnabled: Binding<Bool> {
     Binding(
       get: { selectedGenerationSettings.wrappedValue.maxKVSize != nil },
@@ -472,6 +491,20 @@ struct ModelAdvancedSettings: View {
       get: { selectedGenerationSettings.wrappedValue.maxKVSize ?? contextTokenLimit },
       set: { selectedGenerationSettings.wrappedValue.maxKVSize = $0 }
     )
+  }
+
+  private func applyGenerationConfigPreset() {
+    guard let generationConfigPreset else {
+      return
+    }
+    selectedGenerationSettings.wrappedValue = generationConfigPreset.applying(
+      to: selectedGenerationSettings.wrappedValue
+    )
+  }
+
+  private func openModelFolderInFinder() {
+    let url = URL(fileURLWithPath: model.localPath, isDirectory: true)
+    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path(percentEncoded: false))
   }
 }
 

@@ -8,6 +8,16 @@ import Testing
 @Suite
 struct GemmaMLXRuntimeTemplateTests {
   @Test
+  func neutralRepetitionPenaltyDoesNotEnableMLXProcessor() {
+    #expect(GemmaMLXRuntime.mlxRepetitionPenalty(from: .agentDefault) == nil)
+
+    var settings = ChatGenerationSettings.agentDefault
+    settings.repetitionPenalty = 1.15
+
+    #expect(GemmaMLXRuntime.mlxRepetitionPenalty(from: settings) == 1.15)
+  }
+
+  @Test
   func imageInputsUseAttachmentFileURLs() throws {
     let directoryURL = FileManager.default.temporaryDirectory
       .appending(
@@ -491,6 +501,7 @@ struct GemmaMLXRuntimeTemplateTests {
     changedSettings.temperature = 0.9
     changedSettings.topP = 0.5
     changedSettings.topK = 40
+    changedSettings.repetitionPenalty = 1.15
 
     let first = GemmaSessionCachePolicy.renderedContextSignature(
       for: history,
@@ -1593,6 +1604,7 @@ struct GemmaMLXRuntimeTemplateTests {
     changedSettings.temperature = 0.9
     changedSettings.topP = 0.5
     changedSettings.topK = 40
+    changedSettings.repetitionPenalty = 1.15
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),

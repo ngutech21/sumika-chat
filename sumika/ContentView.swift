@@ -153,7 +153,6 @@ private struct ModelsRouteHost: View {
         get: { controller.chatSession.modeSettings },
         set: { controller.chatSession.modeSettings = $0 }
       ),
-      contextUsage: controller.contextUsage,
       errorMessage: controller.errorMessage,
       canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
       onPrepareModelRuntimeAction: { cancelGeneration, invalidateContext in

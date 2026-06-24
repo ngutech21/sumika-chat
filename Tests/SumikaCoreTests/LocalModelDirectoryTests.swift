@@ -31,14 +31,84 @@ struct LocalModelDirectoryTests {
     #expect(LocalModelDirectory.readContextTokenLimit(from: modelDirectory) == nil)
   }
 
+  @Test
+  func readGenerationConfigPresetReadsKnownSamplingKeys() throws {
+    let modelDirectory = try makeTemporaryModelDirectory(
+      generationConfigJSON: """
+        {
+          "temperature": 0.7,
+          "top_p": 0.95,
+          "top_k": 64,
+          "repetition_penalty": 1.1
+        }
+        """
+    )
+
+    let preset = try #require(LocalModelDirectory.readGenerationConfigPreset(from: modelDirectory))
+
+    #expect(preset.temperature == 0.7)
+    #expect(preset.topP == 0.95)
+    #expect(preset.topK == 64)
+    #expect(preset.repetitionPenalty == 1.1)
+  }
+
+  @Test
+  func readGenerationConfigPresetReturnsNilWhenNoSamplingKeysExist() throws {
+    let modelDirectory = try makeTemporaryModelDirectory(
+      generationConfigJSON: #"{"do_sample":true}"#)
+
+    #expect(LocalModelDirectory.readGenerationConfigPreset(from: modelDirectory) == nil)
+  }
+
+  @Test
+  func generationConfigPresetAppliesOnlyPresentFields() {
+    let preset = ChatGenerationConfigPreset(topP: 0.9, repetitionPenalty: 1.2)
+    let settings = ChatGenerationSettings(
+      temperature: 0.1,
+      topP: 0.5,
+      topK: 20,
+      maxTokens: 512,
+      maxKVSize: 4096
+    )
+
+    let updated = preset.applying(to: settings)
+
+    #expect(updated.temperature == 0.1)
+    #expect(updated.topP == 0.9)
+    #expect(updated.topK == 20)
+    #expect(updated.maxTokens == 512)
+    #expect(updated.maxKVSize == 4096)
+    #expect(updated.repetitionPenalty == 1.2)
+  }
+
   private func makeTemporaryModelDirectory(configJSON: String) throws -> URL {
+    try makeTemporaryModelDirectory(configJSON: configJSON, generationConfigJSON: nil)
+  }
+
+  private func makeTemporaryModelDirectory(generationConfigJSON: String) throws -> URL {
+    try makeTemporaryModelDirectory(configJSON: nil, generationConfigJSON: generationConfigJSON)
+  }
+
+  private func makeTemporaryModelDirectory(
+    configJSON: String?,
+    generationConfigJSON: String?
+  ) throws -> URL {
     let modelDirectory = FileManager.default.temporaryDirectory.appending(
       path: "sumika-chat-tests-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
-    let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
-    try configJSON.write(to: configURL, atomically: true, encoding: .utf8)
+    if let configJSON {
+      let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
+      try configJSON.write(to: configURL, atomically: true, encoding: .utf8)
+    }
+    if let generationConfigJSON {
+      let configURL = modelDirectory.appending(
+        path: "generation_config.json",
+        directoryHint: .notDirectory
+      )
+      try generationConfigJSON.write(to: configURL, atomically: true, encoding: .utf8)
+    }
     return modelDirectory
   }
 }
