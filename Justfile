@@ -30,7 +30,7 @@ data-model:
 test-app:
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
 
-ui-test:
+test-ui:
     @echo "Gemma trace directory: $HOME/Library/Application Support/sumika-chat/debug/traces"; SUMIKA_DEBUG_TRACE=1 xcodebuild -quiet -project {{project}} -scheme SumikaUITests -destination "{{destination}}" -derivedDataPath {{derived_data}} -parallel-testing-enabled NO test -only-testing:SumikaUITests/SumikaUITests
 
 perf-report scenario="ui-trace":

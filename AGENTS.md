@@ -132,7 +132,7 @@ Prefer the project task runner:
 just build
 just test-core
 just test-app
-just ui-test
+just test-ui
 just test
 just lint
 just format
@@ -149,7 +149,7 @@ Use the narrowest feedback loop while debugging:
 - Core-only: `just test-core`.
 - App-target only: `just test-app`.
 - UI tests, accessibility IDs, launch test mode, model-loading UI, chat/agent UI,
-  or Gemma trace behavior used by UI tests: `just ui-test`.
+  or Gemma trace behavior used by UI tests: `just test-ui`.
 - Cross-boundary or build/test wiring: `just test`.
 
 For final verification after implementation, prefer `just final-check`. It runs
@@ -170,7 +170,7 @@ xcodebuild -project Sumika.xcodeproj -scheme Sumika -destination "platform=macOS
 ```
 
 CI intentionally runs only headless SwiftPM tests with `xcrun swift test`.
-`just ui-test` is local-only, enables `SUMIKA_DEBUG_TRACE=1`, must never
+`just test-ui` is local-only, enables `SUMIKA_DEBUG_TRACE=1`, must never
 download a model, and should skip cleanly if `gemma4-e4b` is missing. Use
 `just data-model` to regenerate `docs/data-model.md`.
 
