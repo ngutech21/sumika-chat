@@ -348,10 +348,6 @@ struct ChatComposer: View {
     availableModels.isEmpty ? "No local models" : selectedModel.displayName
   }
 
-  private var canInsertSoftBreak: Bool {
-    true
-  }
-
   private var slashSuggestions: [SlashCommandDescriptor] {
     guard !slashSuggestionsDismissed else {
       return []
@@ -497,10 +493,6 @@ struct ChatComposer: View {
   }
 
   private func insertSoftBreak() -> Bool {
-    guard canInsertSoftBreak else {
-      return false
-    }
-
     if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
       editor.insertText("\n", replacementRange: editor.selectedRange())
       return true

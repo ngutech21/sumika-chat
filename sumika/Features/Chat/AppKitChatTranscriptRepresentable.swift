@@ -2008,26 +2008,6 @@ private func nativeThinkingStatusIndicator(
   return imageView
 }
 
-private func nativeLinkedAttributedString(for text: String) -> NSAttributedString {
-  let attributedString = NSMutableAttributedString(
-    string: text,
-    attributes: [
-      .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
-      .foregroundColor: NSColor.labelColor,
-    ]
-  )
-  for link in URLTextLinkifier.links(in: text) {
-    attributedString.addAttributes(
-      [
-        .foregroundColor: NSColor.linkColor,
-        .underlineStyle: NSUnderlineStyle.single.rawValue,
-      ],
-      range: NSRange(link.range, in: text)
-    )
-  }
-  return attributedString
-}
-
 extension NativeTranscriptRow {
   var accessibilityIdentifier: String {
     switch body {
@@ -2049,6 +2029,36 @@ extension NativeTranscriptRow {
 }
 
 extension RenderedChatTurnItem {
+  var shouldShowAssistantPlaceholder: Bool {
+    assistantMessage?.shouldShowAssistantPlaceholder ?? false
+  }
+
+  fileprivate var assistantPlaceholderTitle: String {
+    assistantMessage?.assistantPlaceholderTitle ?? "Generating"
+  }
+
+  fileprivate var content: String {
+    switch item {
+    case .userMessage(let message):
+      message.content
+    case .assistantThinking(let message):
+      message.content
+    case .assistantMessage(let message):
+      message.content
+    case .tool:
+      ""
+    }
+  }
+
+  fileprivate var visibleGenerationMetrics: ChatGenerationMetrics? {
+    switch item {
+    case .tool:
+      nil
+    case .assistantThinking, .assistantMessage, .userMessage:
+      generationMetrics
+    }
+  }
+
   fileprivate var nativeAccessibilityIdentifier: String {
     switch item {
     case .assistantThinking:
@@ -2116,6 +2126,13 @@ extension RenderedChatTurnItem {
     case .tool:
       []
     }
+  }
+
+  private var assistantMessage: AssistantTurnMessage? {
+    guard case .assistantMessage(let message) = item else {
+      return nil
+    }
+    return message
   }
 }
 
@@ -2322,7 +2339,19 @@ extension ToolCallStatus {
 }
 
 extension ChatGenerationMetrics {
+  var visibleSummary: String {
+    "\(generatedTokenCount) tokens · \(formattedDuration(durationMs))"
+  }
+
   fileprivate var nativeTokenRateSummary: String {
     "\(tokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tok/s"
+  }
+
+  private func formattedDuration(_ durationMs: Double) -> String {
+    let durationSeconds = durationMs / 1000
+    if durationSeconds < 10 {
+      return "\(durationSeconds.formatted(.number.precision(.fractionLength(1)))) s"
+    }
+    return "\(durationSeconds.formatted(.number.precision(.fractionLength(0)))) s"
   }
 }

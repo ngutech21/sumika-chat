@@ -216,9 +216,6 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
     return hasher.finalize()
   }
 
-  var scrollRevision: Int {
-    renderRevision
-  }
 }
 
 extension Hasher {
@@ -281,29 +278,6 @@ private struct ChatTranscriptRenderItemKey: Hashable {
     case assistantThinking = "thinking"
     case assistantMessage = "assistant"
     case tool = "tool"
-  }
-}
-
-extension ToolCallStatus {
-  fileprivate var scrollRevision: Int {
-    switch self {
-    case .pending:
-      0
-    case .awaitingApproval:
-      1
-    case .awaitingUserAnswer:
-      2
-    case .denied:
-      3
-    case .running:
-      4
-    case .completed:
-      5
-    case .failed:
-      6
-    case .cancelled:
-      7
-    }
   }
 }
 
