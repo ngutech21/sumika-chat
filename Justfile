@@ -31,7 +31,18 @@ test-app:
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
 
 test-ui:
-    @echo "Gemma trace directory: $HOME/Library/Application Support/sumika-chat/debug/traces"; SUMIKA_DEBUG_TRACE=1 xcodebuild -quiet -project {{project}} -scheme SumikaUITests -destination "{{destination}}" -derivedDataPath {{derived_data}} -parallel-testing-enabled NO test -only-testing:SumikaUITests/SumikaUITests
+    @echo "Gemma trace directory: $HOME/Library/Application Support/sumika-chat/debug/traces"; \
+    status=0; \
+    SUMIKA_DEBUG_TRACE=1 xcodebuild -quiet -project {{project}} -scheme SumikaUITests -destination "{{destination}}" -derivedDataPath {{derived_data}} -parallel-testing-enabled NO test -only-testing:SumikaUITests/SumikaUITests || status=$?; \
+    result=$(ls -td {{derived_data}}/Logs/Test/Test-SumikaUITests-*.xcresult 2>/dev/null | head -n 1 || true); \
+    if [ -n "$result" ]; then \
+        skip_messages=$(xcrun xcresulttool get test-results tests --path "$result" 2>/dev/null | sed -n 's/^.*"name" : "Test skipped - \(.*\)",$/\1/p' | sort -u); \
+        if [ -n "$skip_messages" ]; then \
+            echo "UI tests skipped:"; \
+            echo "$skip_messages" | sed 's/^/  - /'; \
+        fi; \
+    fi; \
+    exit "$status"
 
 perf-report scenario="ui-trace":
     @trace_path="$HOME/Library/Application Support/sumika-chat/debug/gemma-trace.jsonl"; trace_dir="$HOME/Library/Application Support/sumika-chat/debug/traces"; latest_trace=""; if [ -d "$trace_dir" ]; then latest_trace="$(ls -t "$trace_dir"/*-ui-test.jsonl 2>/dev/null | head -n 1 || true)"; if [ -n "$latest_trace" ]; then trace_path="$latest_trace"; fi; fi; if [ -z "$latest_trace" ] && [ -f .perf/ui-tests/latest-trace-path.txt ]; then candidate="$(cat .perf/ui-tests/latest-trace-path.txt)"; if [ -f "$candidate" ]; then trace_path="$candidate"; fi; fi; echo "Gemma trace: $trace_path"; xcrun swift script/trace_performance_report.swift "$trace_path" --model-id gemma4-e4b --scenario "{{scenario}}" --limit all

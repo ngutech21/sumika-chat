@@ -1,4 +1,5 @@
 import Darwin
+import SumikaCore
 import XCTest
 
 final class SumikaUITests: XCTestCase {
@@ -364,11 +365,15 @@ final class SumikaUITests: XCTestCase {
     readme: String? = nil,
     files: [String: String] = [:]
   ) throws -> LaunchFixture {
-    let modelDirectory = modelCacheDirectory(modelID: modelID)
+    let model = try XCTUnwrap(
+      ManagedModelCatalog.model(id: modelID),
+      "UI test model \(modelID) must be registered in ManagedModelCatalog."
+    )
+    let modelDirectory = modelCacheDirectory(for: model)
     let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
     guard FileManager.default.fileExists(atPath: configURL.path(percentEncoded: false)) else {
       throw XCTSkip(
-        "Gemma 4 E4B Experimental is not installed at \(modelDirectory.path(percentEncoded: false))"
+        "Gemma 4 E4B Experimental config.json is missing at \(configURL.path(percentEncoded: false))"
       )
     }
 
@@ -676,11 +681,11 @@ final class SumikaUITests: XCTestCase {
     return size.uint64Value
   }
 
-  private func modelCacheDirectory(modelID: String) -> URL {
+  private func modelCacheDirectory(for model: ManagedModel) -> URL {
     appApplicationSupport()
       .appending(path: "sumika-chat", directoryHint: .isDirectory)
       .appending(path: "Models", directoryHint: .isDirectory)
-      .appending(path: modelID, directoryHint: .isDirectory)
+      .appending(path: model.localDirectoryName, directoryHint: .isDirectory)
   }
 
   private func traceFileURL() -> URL {

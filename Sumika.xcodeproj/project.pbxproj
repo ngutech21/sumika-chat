@@ -13,12 +13,13 @@
 		F9081F142FCE1000000A270C /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F132FCE1000000A270C /* MLXLLM */; };
 		F9081F162FCE1000000A270C /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F152FCE1000000A270C /* MLXLMCommon */; };
 		F9081F182FCE1000000A270C /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F172FCE1000000A270C /* MLXVLM */; };
-		F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1B2FCE1000000A270C /* Tokenizers */; };
-		F9081F202FCE1000000A270C /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1F2FCE1000000A270C /* HuggingFace */; };
-		F92000012FD2000000A270C /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = F92000032FD2000000A270C /* MarkdownUI */; };
-		F93000012FD3000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
-		F95000012FE0000000A270C /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F95000032FE0000000A270C /* SwiftTerm */; };
-		F96000012FF0000000A270C /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = F96000032FF0000000A270C /* Markdown */; };
+			F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1B2FCE1000000A270C /* Tokenizers */; };
+			F9081F202FCE1000000A270C /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1F2FCE1000000A270C /* HuggingFace */; };
+			F92000012FD2000000A270C /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = F92000032FD2000000A270C /* MarkdownUI */; };
+			F93000012FD3000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
+			F94000112FD4000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
+			F95000012FE0000000A270C /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F95000032FE0000000A270C /* SwiftTerm */; };
+			F96000012FF0000000A270C /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = F96000032FF0000000A270C /* Markdown */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -71,13 +72,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F94000062FD4000000A270C /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
+			F94000062FD4000000A270C /* Frameworks */ = {
+				isa = PBXFrameworksBuildPhase;
+				buildActionMask = 2147483647;
+				files = (
+					F94000112FD4000000A270C /* SumikaCore in Frameworks */,
+				);
+				runOnlyForDeploymentPostprocessing = 0;
+			};
 		F9D7F5F82FCC80CD00FECA78 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -165,6 +167,7 @@
 			);
 			name = SumikaUITests;
 			packageProductDependencies = (
+				F93000032FD3000000A270C /* SumikaCore */,
 			);
 			productName = SumikaUITests;
 			productReference = F940000A2FD4000000A270C /* SumikaUITests.xctest */;
