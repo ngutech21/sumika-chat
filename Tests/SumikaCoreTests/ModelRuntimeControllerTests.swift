@@ -76,6 +76,54 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func downloadSelectedDrafterUpdatesStateAndEnablesPreference() async throws {
+    let model = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
+    let drafter = try #require(model.drafterModel)
+    let store = RuntimeFakeModelSettingsStore()
+    store.selectedModelIDValue = model.id
+    let downloader = RuntimeControllerFakeModelDownloader()
+    let controller = await makeController(
+      modelSettingsStore: store,
+      modelDownloader: downloader
+    )
+
+    controller.downloadSelectedDrafter()
+
+    try await waitUntil { controller.drafterDownloadState == .downloaded }
+    try await waitUntil { store.savedSettingsByModelID[model.id]?.drafterEnabled == true }
+    #expect(controller.drafterDownloadProgress == 1)
+    #expect(downloader.downloadedDrafterID == drafter.id)
+    #expect(controller.isDrafterDownloaded(drafter))
+    #expect(controller.selectedDrafterEnabled)
+  }
+
+  @Test
+  func downloadSelectedDrafterPublishesFailureAndKeepsPreferenceDisabled() async throws {
+    let model = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
+    let store = RuntimeFakeModelSettingsStore()
+    store.selectedModelIDValue = model.id
+    let downloader = RuntimeControllerFakeModelDownloader(
+      error: RuntimeControllerFakeDownloadError.failed)
+    let controller = await makeController(
+      modelSettingsStore: store,
+      modelDownloader: downloader
+    )
+    var errorMessage: String?
+    controller.onError = { errorMessage = $0 }
+
+    controller.downloadSelectedDrafter()
+
+    try await waitUntil {
+      controller.drafterDownloadState
+        == .failed(RuntimeControllerFakeDownloadError.failed.localizedDescription)
+    }
+    #expect(controller.drafterDownloadProgress == nil)
+    #expect(!controller.selectedDrafterEnabled)
+    #expect(store.savedSettingsByModelID[model.id] == nil)
+    #expect(errorMessage == RuntimeControllerFakeDownloadError.failed.localizedDescription)
+  }
+
+  @Test
   func downloadSelectedModelPublishesIntermediateProgress() async throws {
     let downloader = RuntimeControllerFakeModelDownloader(progressFractions: [0.25, 1])
     let controller = await makeController(modelDownloader: downloader)
@@ -330,6 +378,7 @@ struct ModelRuntimeControllerTests {
       selectedModelID: selectedModel.id,
       modelPath: modelPath ?? selectedModel.localPath,
       modelContextTokenLimit: settings.contextTokenLimit,
+      selectedDrafterEnabled: settings.drafterEnabled,
       modelSettingsStore: modelSettingsStore,
       runtimeOperations: runtimeOperations,
       modelLifecycleCoordinator: lifecycleCoordinator,
@@ -412,6 +461,7 @@ private final class RuntimeFakeModelSettingsStore: ModelSettingsStoring, @unchec
 
 private final class RuntimeControllerFakeModelDownloader: ModelDownloading, @unchecked Sendable {
   var downloadedModelID: String?
+  var downloadedDrafterID: String?
   private let progressFractions: [Double]
   private let error: Error?
 
@@ -435,6 +485,23 @@ private final class RuntimeControllerFakeModelDownloader: ModelDownloading, @unc
       throw error
     }
     return model.localDirectoryURL
+  }
+
+  func download(
+    drafter: ManagedDrafterModel,
+    progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
+  ) async throws -> URL {
+    downloadedDrafterID = drafter.id
+    for fraction in progressFractions {
+      let progress = Progress(totalUnitCount: 100)
+      progress.completedUnitCount = Int64(fraction * 100)
+      await progressHandler(progress)
+      try await Task.sleep(for: .milliseconds(20))
+    }
+    if let error {
+      throw error
+    }
+    return drafter.localDirectoryURL
   }
 }
 

@@ -376,4 +376,12 @@ private struct ContextUsageFakeModelDownloader: ModelDownloading {
     _ = progressHandler
     return model.localDirectoryURL
   }
+
+  func download(
+    drafter: ManagedDrafterModel,
+    progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
+  ) async throws -> URL {
+    _ = progressHandler
+    return drafter.localDirectoryURL
+  }
 }

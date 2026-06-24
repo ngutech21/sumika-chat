@@ -63,6 +63,23 @@ struct ModelsView: View {
           DownloadProgressView(progress: progress)
         }
 
+        if let drafter = modelRuntime.selectedDrafterModel {
+          DrafterModelSummary(
+            drafter: drafter,
+            downloadState: effectiveDrafterDownloadState,
+            isDownloaded: modelRuntime.isDrafterDownloaded(drafter),
+            isEnabled: modelRuntime.selectedDrafterEnabled,
+            isActionDisabled: isDrafterActionDisabled,
+            onDownload: {
+              modelRuntime.downloadSelectedDrafter()
+            }
+          )
+        }
+
+        if case .downloading(let progress) = modelRuntime.drafterDownloadState {
+          DownloadProgressView(title: "Downloading drafter model", progress: progress)
+        }
+
         if let errorMessage {
           Label(errorMessage, systemImage: "exclamationmark.triangle")
             .font(.callout)
@@ -87,6 +104,14 @@ struct ModelsView: View {
             model: modelRuntime.selectedModel,
             modeSettings: $modeSettings,
             contextTokenLimit: $modelRuntime.modelContextTokenLimit,
+            drafterEnabled: Binding(
+              get: { modelRuntime.selectedDrafterEnabled },
+              set: { modelRuntime.setSelectedDrafterEnabled($0) }
+            ),
+            canChangeDrafterEnabled: modelRuntime.canChangeDrafterPreference,
+            isDrafterDownloaded: modelRuntime.selectedDrafterModel.map {
+              modelRuntime.isDrafterDownloaded($0)
+            } ?? false,
             canChangeContextTokenLimit: modelRuntime.modelState == .notLoaded
           )
         } label: {
@@ -115,6 +140,20 @@ struct ModelsView: View {
     return modelRuntime.downloadState
   }
 
+  private var effectiveDrafterDownloadState: ModelDownloadState {
+    guard let drafter = modelRuntime.selectedDrafterModel else {
+      return .idle
+    }
+
+    if modelRuntime.isDrafterDownloaded(drafter),
+      !modelRuntime.drafterDownloadState.isDownloading
+    {
+      return .downloaded
+    }
+
+    return modelRuntime.drafterDownloadState
+  }
+
   private var shouldDownloadSelectedModel: Bool {
     !modelRuntime.isModelDownloaded(modelRuntime.selectedModel)
   }
@@ -141,6 +180,16 @@ struct ModelsView: View {
     }
 
     return modelRuntime.modelState == .loading
+      || modelRuntime.downloadState.isDownloading
+  }
+
+  private var isDrafterActionDisabled: Bool {
+    guard let drafter = modelRuntime.selectedDrafterModel else {
+      return true
+    }
+
+    return modelRuntime.isDrafterDownloaded(drafter)
+      || !modelRuntime.canChangeDrafterPreference
       || modelRuntime.downloadState.isDownloading
   }
 }

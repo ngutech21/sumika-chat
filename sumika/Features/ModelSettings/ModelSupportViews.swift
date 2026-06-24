@@ -2,12 +2,13 @@ import SumikaCore
 import SwiftUI
 
 struct DownloadProgressView: View {
+  var title = "Downloading model"
   let progress: Double?
 
   var body: some View {
     if let progress {
       ProgressView(value: progress) {
-        Text("Downloading model")
+        Text(title)
       } currentValueLabel: {
         Text(progress.formatted(.percent.precision(.fractionLength(0))))
           .monospacedDigit()
@@ -17,6 +18,77 @@ struct DownloadProgressView: View {
         Text("Preparing download")
       }
     }
+  }
+}
+
+struct DrafterModelSummary: View {
+  let drafter: ManagedDrafterModel
+  let downloadState: ModelDownloadState
+  let isDownloaded: Bool
+  let isEnabled: Bool
+  let isActionDisabled: Bool
+  let onDownload: () -> Void
+
+  var body: some View {
+    HStack(spacing: 16) {
+      Label {
+        VStack(alignment: .leading, spacing: 3) {
+          Text(drafter.displayName)
+            .font(.body.weight(.medium))
+
+          Text(statusText)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+      } icon: {
+        Image(systemName: "rectangle.stack.badge.plus")
+          .foregroundStyle(.secondary)
+      }
+
+      Spacer(minLength: 16)
+
+      Button(action: onDownload) {
+        Label(actionTitle, systemImage: actionSystemImage)
+      }
+      .buttonStyle(.bordered)
+      .disabled(isActionDisabled)
+      .accessibilityIdentifier("download-drafter-button")
+    }
+    .padding(.vertical, 6)
+  }
+
+  private var statusText: String {
+    switch downloadState {
+    case .downloaded:
+      return isEnabled
+        ? "Downloaded and prepared for future MTP generation"
+        : "Downloaded; future MTP use is disabled"
+    case .downloading(let progress):
+      if let progress {
+        return "Downloading \(progress.formatted(.percent.precision(.fractionLength(0))))"
+      }
+      return "Downloading"
+    case .failed(let message):
+      return message
+    case .idle:
+      return "Optional drafter prepared for future MTP generation"
+    }
+  }
+
+  private var actionTitle: String {
+    if isDownloaded {
+      return "Downloaded"
+    }
+
+    if case .failed = downloadState {
+      return "Retry Drafter"
+    }
+
+    return "Add Drafter Model"
+  }
+
+  private var actionSystemImage: String {
+    isDownloaded ? "checkmark.circle" : "plus.circle"
   }
 }
 
@@ -292,6 +364,9 @@ struct ModelAdvancedSettings: View {
   let model: ManagedModel
   @Binding var modeSettings: ChatModeSettingsSet
   @Binding var contextTokenLimit: Int
+  @Binding var drafterEnabled: Bool
+  let canChangeDrafterEnabled: Bool
+  let isDrafterDownloaded: Bool
   let canChangeContextTokenLimit: Bool
   @State private var selectedMode = WorkspaceInteractionMode.chat
 
@@ -379,6 +454,19 @@ struct ModelAdvancedSettings: View {
             value: "\(selectedGenerationSettings.wrappedValue.topK)")
         }
 
+        if let drafter = model.drafterModel {
+          Toggle(isOn: $drafterEnabled) {
+            SettingValueLabel(title: "Drafter Preference", value: formattedDrafterPreference)
+          }
+          .disabled(!canChangeDrafterEnabled || !isDrafterDownloaded)
+
+          LabeledContent("Drafter") {
+            Text(drafter.huggingFaceRepoID)
+              .textSelection(.enabled)
+              .foregroundStyle(.secondary)
+          }
+        }
+
         LabeledContent("Hugging Face") {
           Text(model.huggingFaceRepoID)
             .textSelection(.enabled)
@@ -413,6 +501,16 @@ struct ModelAdvancedSettings: View {
     }
 
     return "\(maxKVSize / 1024)K"
+  }
+
+  private var formattedDrafterPreference: String {
+    guard model.drafterModel != nil else {
+      return "Unavailable"
+    }
+    guard isDrafterDownloaded else {
+      return "Not downloaded"
+    }
+    return drafterEnabled ? "Prepared" : "Disabled"
   }
 
   private var selectedSystemPrompt: Binding<String> {

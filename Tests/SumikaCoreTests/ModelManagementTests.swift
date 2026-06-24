@@ -4,6 +4,26 @@ import Testing
 @testable import SumikaCore
 
 struct ModelManagementTests {
+  @Test
+  func catalogExposesExpectedDrafterMappings() throws {
+    let nonQAT26B = try #require(ManagedModelCatalog.model(id: "gemma4-26b-4bit"))
+    #expect(
+      nonQAT26B.drafterModel?.huggingFaceRepoID
+        == "mlx-community/gemma-4-26B-A4B-it-assistant-bf16")
+
+    let qat26B = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
+    #expect(
+      qat26B.drafterModel?.huggingFaceRepoID
+        == "mlx-community/gemma-4-26B-A4B-it-qat-assistant-4bit")
+
+    let qat31B = try #require(ManagedModelCatalog.model(id: "gemma4-31b-qat-4bit"))
+    #expect(
+      qat31B.drafterModel?.huggingFaceRepoID
+        == "mlx-community/gemma-4-31B-it-qat-assistant-4bit")
+
+    #expect(ManagedModelCatalog.model(id: "gemma4-e4b")?.drafterModel == nil)
+    #expect(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit")?.drafterModel == nil)
+  }
 
   @Test
   func settingsStoreDefaultsSelectedModelToE4B() async {
@@ -39,7 +59,8 @@ struct ModelManagementTests {
           generationSettings: ChatGenerationSettings(
             temperature: 0.4, topP: 0.8, topK: 20, maxTokens: 512, maxKVSize: 16_384))
       ),
-      contextTokenLimit: 32_768
+      contextTokenLimit: 32_768,
+      drafterEnabled: true
     )
 
     await store.setSelectedModelID(model.id)
@@ -54,6 +75,18 @@ struct ModelManagementTests {
         availableModelIDs: Set(ManagedModelCatalog.models.map(\.id)))
         == model.id)
     #expect(await reloadedStore.settings(for: model) == settings)
+  }
+
+  @Test
+  func settingsStoreDefaultsDrafterPreferenceToDisabled() async {
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: temporarySettingsURL()
+    )
+
+    let settings = await store.settings(for: ManagedModelCatalog.defaultModel)
+
+    #expect(!settings.drafterEnabled)
   }
 
   @Test
@@ -74,6 +107,7 @@ struct ModelManagementTests {
     #expect(settings.modeSettings.agent.systemPrompt == ChatPromptDefaults.agentSystemPrompt)
     #expect(settings.modeSettings.agent.generationSettings == .agentDefault)
     #expect(settings.contextTokenLimit == ManagedModelCatalog.defaultModel.defaultContextTokenLimit)
+    #expect(!settings.drafterEnabled)
   }
 
   @Test

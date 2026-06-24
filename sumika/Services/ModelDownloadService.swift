@@ -26,8 +26,31 @@ nonisolated struct HuggingFaceModelDownloader: ModelDownloading, @unchecked Send
     model: ManagedModel,
     progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
   ) async throws -> URL {
-    guard let repoID = Repo.ID(rawValue: model.huggingFaceRepoID) else {
-      throw ModelDownloadError.invalidRepositoryID(model.huggingFaceRepoID)
+    try await downloadSnapshot(
+      repoID: model.huggingFaceRepoID,
+      to: model.localDirectoryURL,
+      progressHandler: progressHandler
+    )
+  }
+
+  func download(
+    drafter: ManagedDrafterModel,
+    progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
+  ) async throws -> URL {
+    try await downloadSnapshot(
+      repoID: drafter.huggingFaceRepoID,
+      to: drafter.localDirectoryURL,
+      progressHandler: progressHandler
+    )
+  }
+
+  private func downloadSnapshot(
+    repoID rawRepoID: String,
+    to localDirectoryURL: URL,
+    progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
+  ) async throws -> URL {
+    guard let repoID = Repo.ID(rawValue: rawRepoID) else {
+      throw ModelDownloadError.invalidRepositoryID(rawRepoID)
     }
 
     try fileManager.createDirectory(
@@ -37,7 +60,7 @@ nonisolated struct HuggingFaceModelDownloader: ModelDownloading, @unchecked Send
 
     return try await hubClient.downloadSnapshot(
       of: repoID,
-      to: model.localDirectoryURL,
+      to: localDirectoryURL,
       matching: ["*.safetensors", "*.json", "*.jinja"],
       progressHandler: progressHandler
     )
