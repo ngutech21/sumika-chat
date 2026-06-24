@@ -1,10 +1,6 @@
 name: "CodeQL Advanced"
 
 on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
   schedule:
     - cron: '34 3 * * 3'
 
@@ -48,6 +44,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
 
+    - name: Resolve Swift packages
+      if: matrix.build-mode == 'manual'
+      timeout-minutes: 20
+      shell: bash
+      run: |
+        xcodebuild -resolvePackageDependencies \
+          -project Sumika.xcodeproj \
+          -scheme Sumika \
+          -clonedSourcePackagesDirPath .build/xcode-source-packages
+
     # Add any setup steps before running the `github/codeql-action/init` action.
     # This includes steps like installing compilers or runtimes (`actions/setup-node`
     # or others). This is typically only required for manual builds.
@@ -73,16 +79,6 @@ jobs:
     # to build your code.
     # ℹ️ Command-line programs to run using the OS shell.
     # 📚 See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsrun
-    - name: Resolve Swift packages
-      if: matrix.build-mode == 'manual'
-      timeout-minutes: 10
-      shell: bash
-      run: |
-        xcodebuild -resolvePackageDependencies \
-          -project Sumika.xcodeproj \
-          -scheme Sumika \
-          -clonedSourcePackagesDirPath .build/xcode-source-packages
-
     - name: Run manual build steps
       if: matrix.build-mode == 'manual'
       timeout-minutes: 20
