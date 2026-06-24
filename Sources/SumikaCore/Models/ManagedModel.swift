@@ -79,11 +79,11 @@ public enum ManagedModelCatalog {
 
   public static let models: [ManagedModel] = [
     ManagedModel(
-      id: "gemma4-e2b",
+      id: "gemma4-e2b-qat-4bit",
       displayName: "Gemma 4 e2b",
       detail: "Gemma 4 model with local vision support.",
-      huggingFaceRepoID: "mlx-community/gemma-4-e2b-it-4bit",
-      localDirectoryName: "gemma4-e2b",
+      huggingFaceRepoID: "mlx-community/gemma-4-E2B-it-qat-4bit",
+      localDirectoryName: "gemma-4-E2B-it-qat-4bit",
       estimatedDownloadSize: "2 GB",
       isRecommended: false,
       requiresLargeMemory: false,
@@ -94,11 +94,11 @@ public enum ManagedModelCatalog {
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
-      id: "gemma4-e4b",
+      id: "gemma4-e4b-qat-4bit",
       displayName: "Gemma 4 e4b",
       detail: "Gemma 4 coding model with local vision support.",
-      huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-4bit",
-      localDirectoryName: "gemma4-e4b",
+      huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-qat-4bit",
+      localDirectoryName: "gemma-4-e4b-it-qat-4bit",
       estimatedDownloadSize: "4.5 GB",
       isRecommended: true,
       requiresLargeMemory: false,
@@ -109,23 +109,8 @@ public enum ManagedModelCatalog {
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
-      id: "gemma4-12b-4bit",
-      displayName: "Gemma 4 12b",
-      detail: "Larger Gemma 4 model with local vision support.",
-      huggingFaceRepoID: "mlx-community/gemma-4-12B-it-4bit",
-      localDirectoryName: "gemma-4-12B-it-4bit",
-      estimatedDownloadSize: "12.7 GB",
-      isRecommended: false,
-      requiresLargeMemory: true,
-      stability: .stable,
-      toolCallingPolicy: .nativeGemma4,
-      supportsImageInput: true,
-      defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit
-    ),
-    ManagedModel(
       id: "gemma4-12b-qat-4bit",
-      displayName: "Gemma 4 12b qat",
+      displayName: "Gemma 4 12b",
       detail: "Larger Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-12B-it-qat-4bit",
       localDirectoryName: "gemma-4-12B-it-qat-4bit",
@@ -139,11 +124,11 @@ public enum ManagedModelCatalog {
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
-      id: "gemma4-26b-4bit",
+      id: "gemma4-26b-qat-4bit",
       displayName: "Gemma 4 26b",
       detail: "Larger Gemma 4 model with local vision support.",
-      huggingFaceRepoID: "mlx-community/gemma-4-26b-a4b-it-4bit",
-      localDirectoryName: "gemma-4-26b-a4b-it-4bit",
+      huggingFaceRepoID: "mlx-community/gemma-4-26B-A4B-it-qat-4bit",
+      localDirectoryName: "gemma-4-26B-A4B-it-qat-4bit",
       estimatedDownloadSize: "15.6 GB",
       isRecommended: false,
       requiresLargeMemory: true,
@@ -154,12 +139,12 @@ public enum ManagedModelCatalog {
       defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
-      id: "gemma4-26b-qat-4bit",
-      displayName: "Gemma 4 26b qat",
-      detail: "Larger Gemma 4 qat model with local vision support.",
-      huggingFaceRepoID: "mlx-community/gemma-4-26B-A4B-it-qat-4bit",
-      localDirectoryName: "gemma-4-26B-A4B-it-qat-4bit",
-      estimatedDownloadSize: "15.6 GB",
+      id: "gemma4-31b-qat-4bit",
+      displayName: "Gemma 4 31b",
+      detail: "Large Gemma 4 model with local vision support.",
+      huggingFaceRepoID: "mlx-community/gemma-4-31B-it-qat-4bit",
+      localDirectoryName: "gemma4-31b-qat-4bit",
+      estimatedDownloadSize: "28 GB",
       isRecommended: false,
       requiresLargeMemory: true,
       stability: .stable,
