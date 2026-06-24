@@ -1021,9 +1021,8 @@ final class NativeChatMessageCellView: NSTableCellView {
     let outerStack = verticalStack(spacing: 4)
     outerStack.alignment = .trailing
 
-    let stack = verticalStack(spacing: 7)
     if !message.attachments.isEmpty {
-      stack.addArrangedSubview(
+      outerStack.addArrangedSubview(
         makeAttachmentPreviews(
           message.attachments,
           rowID: rowID,
@@ -1031,14 +1030,16 @@ final class NativeChatMessageCellView: NSTableCellView {
         ))
     }
     if !message.content.isEmpty {
+      let stack = verticalStack(spacing: 0)
+      stack.alignment = .trailing
       stack.addArrangedSubview(makeTextLabel(message.content, color: .labelColor))
+      outerStack.addArrangedSubview(
+        paddedContainer(
+          stack,
+          fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12),
+          cornerRadius: 10
+        ))
     }
-    outerStack.addArrangedSubview(
-      paddedContainer(
-        stack,
-        fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12),
-        cornerRadius: 10
-      ))
     if !message.content.isEmpty {
       outerStack.addArrangedSubview(
         makeCopyIconButton(rowID: rowID, content: message.content, isCopied: isCopied)
@@ -1627,8 +1628,8 @@ extension NativeChatMessageCellView {
     return container
   }
 
-  fileprivate func clickableContainer(_ view: NSView) -> NativeAttachmentPreviewClickView {
-    let container = NativeAttachmentPreviewClickView()
+  fileprivate func clickableContainer(_ view: NSView) -> NativeAttachmentPreviewButton {
+    let container = NativeAttachmentPreviewButton()
     container.addSubview(view)
     view.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
@@ -1836,22 +1837,29 @@ private final class NativeActionButton: NSButton {
   }
 }
 
-private final class NativeAttachmentPreviewClickView: NSView {
+private final class NativeAttachmentPreviewButton: NSButton {
   var actionHandler: ((NSView) -> Void)?
 
-  override var acceptsFirstResponder: Bool {
-    true
+  init() {
+    super.init(frame: .zero)
+    title = ""
+    isBordered = false
+    isTransparent = true
+    bezelStyle = .inline
+    imagePosition = .noImage
+    setButtonType(.momentaryPushIn)
+    focusRingType = .none
+    target = self
+    action = #selector(performAttachmentAction)
+  }
+
+  @available(*, unavailable)
+  required init?(coder _: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
   }
 
   override func hitTest(_ point: NSPoint) -> NSView? {
     bounds.contains(point) ? self : nil
-  }
-
-  override func mouseDown(with event: NSEvent) {
-    guard bounds.contains(convert(event.locationInWindow, from: nil)) else {
-      return
-    }
-    actionHandler?(self)
   }
 
   override func accessibilityPerformPress() -> Bool {
@@ -1859,12 +1867,8 @@ private final class NativeAttachmentPreviewClickView: NSView {
     return true
   }
 
-  override func keyDown(with event: NSEvent) {
-    if event.keyCode == 36 || event.keyCode == 49 {
-      actionHandler?(self)
-    } else {
-      super.keyDown(with: event)
-    }
+  @objc private func performAttachmentAction() {
+    actionHandler?(self)
   }
 
   override func resetCursorRects() {

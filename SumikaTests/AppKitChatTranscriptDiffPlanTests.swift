@@ -321,6 +321,51 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func userImageAttachmentRendersOutsideMessageBubbleAsButton() {
+    let row = nativeUserRow(
+      id: "user-image-attachment-button",
+      revision: 1,
+      content: "Question",
+      attachments: [nativeImageAttachment(displayName: "screen.png")]
+    )
+    let cell = configuredNativeCell(for: row)
+
+    let imageButton = cell.descendants(of: NSButton.self).first { button in
+      button.toolTip == "screen.png"
+    }
+    let messageBubble = cell.descendantViews.first { view in
+      view.layer?.cornerRadius == 10 && view.layer?.backgroundColor != nil
+    }
+
+    #expect(imageButton != nil)
+    #expect(messageBubble != nil)
+    if let imageButton, let messageBubble {
+      #expect(!imageButton.isDescendant(of: messageBubble))
+    }
+  }
+
+  @Test
+  func imageOnlyUserRowsDoNotRenderEmptyMessageBubble() {
+    let row = nativeUserRow(
+      id: "user-image-only",
+      revision: 1,
+      content: "",
+      attachments: [nativeImageAttachment(displayName: "screen.png")]
+    )
+    let cell = configuredNativeCell(for: row)
+
+    let messageBubbles = cell.descendantViews.filter { view in
+      view.layer?.cornerRadius == 10 && view.layer?.backgroundColor != nil
+    }
+
+    #expect(messageBubbles.isEmpty)
+    #expect(
+      cell.descendants(of: NSButton.self).contains { button in
+        button.toolTip == "screen.png"
+      })
+  }
+
+  @Test
   func nativeToolDetailsIncludeApprovalPreviewAndPermissionReason() {
     let record = nativeApprovalToolRecord()
     let details = NativeToolDetailContent(record: record)
@@ -392,6 +437,7 @@ private func revisionMap(_ rows: [NativeTranscriptRow]) -> [String: Int] {
 private func nativeUserRow(
   id: String,
   revision: Int,
+  content: String = "Question",
   attachments: [ChatAttachment] = []
 ) -> NativeTranscriptRow {
   NativeTranscriptRow(
@@ -400,7 +446,7 @@ private func nativeUserRow(
     body: .item(
       RenderedChatTurnItem(
         id: id,
-        item: .userMessage(UserTurnMessage(content: "Question", attachments: attachments)),
+        item: .userMessage(UserTurnMessage(content: content, attachments: attachments)),
         toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: []
@@ -632,4 +678,43 @@ private func nativeImageAttachment(
         contentSHA256: contentSHA256
       ))
   )
+}
+
+@MainActor
+private func configuredNativeCell(for row: NativeTranscriptRow) -> NativeChatMessageCellView {
+  let cell = NativeChatMessageCellView(
+    identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+  )
+  cell.configure(
+    row: row,
+    state: NativeTranscriptCellState(),
+    actions: NativeTranscriptCellActions(
+      markdownBlocks: NativeTranscriptMarkdownRenderer.blocks,
+      highlightedCode: { _, _ in nil },
+      requestCodeHighlight: { _, _ in },
+      attachmentThumbnail: { _, _ in nil },
+      requestAttachmentThumbnail: { _, _, _ in },
+      showImageAttachment: { _, _ in },
+      copy: { _, _ in },
+      approve: { _ in },
+      deny: { _ in },
+      answerAskUser: { _, _, _ in },
+      toggleToolExpansion: { _ in },
+      toggleThinkingExpansion: { _ in },
+      updateAskUserSelection: { _, _ in }
+    )
+  )
+  cell.setFrameSize(NSSize(width: 640, height: 240))
+  cell.layoutSubtreeIfNeeded()
+  return cell
+}
+
+extension NSView {
+  fileprivate var descendantViews: [NSView] {
+    subviews + subviews.flatMap(\.descendantViews)
+  }
+
+  fileprivate func descendants<View: NSView>(of type: View.Type) -> [View] {
+    descendantViews.compactMap { $0 as? View }
+  }
 }
