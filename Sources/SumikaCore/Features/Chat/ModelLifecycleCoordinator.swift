@@ -9,6 +9,10 @@ public struct DownloadModelResult: Sendable {
   public let localPath: String
 }
 
+public struct DownloadDrafterResult: Sendable {
+  public let localPath: String
+}
+
 public enum LocalModelDirectoryError: LocalizedError {
   case notFound(String)
 
@@ -24,15 +28,19 @@ public struct ModelLifecycleCoordinator: Sendable {
   private let modelDownloader: any ModelDownloading
   private let runtimeOperations: RuntimeOperationCoordinator
   private let modelAvailability: @Sendable (ManagedModel) -> Bool
+  private let drafterAvailability: @Sendable (ManagedDrafterModel) -> Bool
 
   public init(
     modelDownloader: any ModelDownloading,
     runtimeOperations: RuntimeOperationCoordinator,
-    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool = Self.defaultModelAvailability
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool = Self.defaultModelAvailability,
+    drafterAvailability: @escaping @Sendable (ManagedDrafterModel) -> Bool =
+      Self.defaultDrafterAvailability
   ) {
     self.modelDownloader = modelDownloader
     self.runtimeOperations = runtimeOperations
     self.modelAvailability = modelAvailability
+    self.drafterAvailability = drafterAvailability
   }
 
   public func ensureDefaultModelDirectoryExists() throws -> URL {
@@ -46,12 +54,31 @@ public struct ModelLifecycleCoordinator: Sendable {
       })
   }
 
+  public func drafterAvailabilitySnapshot(
+    for models: [ManagedModel]
+  ) -> [ManagedDrafterModel.ID: Bool] {
+    Dictionary(
+      uniqueKeysWithValues: models.compactMap { model in
+        model.drafterModel.map { drafter in
+          (drafter.id, isDrafterDownloaded(drafter))
+        }
+      })
+  }
+
   public func download(
     model: ManagedModel,
     progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
   ) async throws -> DownloadModelResult {
     _ = try await modelDownloader.download(model: model, progressHandler: progressHandler)
     return DownloadModelResult(localPath: model.localPath)
+  }
+
+  public func download(
+    drafter: ManagedDrafterModel,
+    progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
+  ) async throws -> DownloadDrafterResult {
+    _ = try await modelDownloader.download(drafter: drafter, progressHandler: progressHandler)
+    return DownloadDrafterResult(localPath: drafter.localPath)
   }
 
   public func loadModel(
@@ -103,8 +130,19 @@ public struct ModelLifecycleCoordinator: Sendable {
     modelAvailability(model)
   }
 
+  func isDrafterDownloaded(_ drafter: ManagedDrafterModel) -> Bool {
+    drafterAvailability(drafter)
+  }
+
   public static func defaultModelAvailability(_ model: ManagedModel) -> Bool {
-    let modelDirectory = model.localDirectoryURL
+    localModelDirectoryIsAvailable(model.localDirectoryURL)
+  }
+
+  public static func defaultDrafterAvailability(_ drafter: ManagedDrafterModel) -> Bool {
+    localModelDirectoryIsAvailable(drafter.localDirectoryURL)
+  }
+
+  private static func localModelDirectoryIsAvailable(_ modelDirectory: URL) -> Bool {
     let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
     var isDirectory: ObjCBool = false
     guard

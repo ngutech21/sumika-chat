@@ -79,6 +79,8 @@ public final class ChatSessionController {
     resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,
+    drafterAvailability: @escaping @Sendable (ManagedDrafterModel) -> Bool =
+      ModelLifecycleCoordinator.defaultDrafterAvailability,
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     turnTracer: any TurnTracing = NoopTurnTracer()
@@ -103,6 +105,7 @@ public final class ChatSessionController {
       runtime: runtime,
       resourceMonitor: resourceMonitor,
       modelAvailability: modelAvailability,
+      drafterAvailability: drafterAvailability,
       toolOrchestrator: toolOrchestrator,
       chatAttachmentLoader: chatAttachmentLoader,
       turnTracer: turnTracer
@@ -118,6 +121,8 @@ public final class ChatSessionController {
     modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,
+    drafterAvailability: @escaping @Sendable (ManagedDrafterModel) -> Bool =
+      ModelLifecycleCoordinator.defaultDrafterAvailability,
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     turnTracer: any TurnTracing = NoopTurnTracer()
@@ -132,6 +137,7 @@ public final class ChatSessionController {
       runtime: runtime,
       resourceMonitor: resourceMonitor,
       modelAvailability: modelAvailability,
+      drafterAvailability: drafterAvailability,
       toolOrchestrator: toolOrchestrator,
       chatAttachmentLoader: chatAttachmentLoader,
       turnTracer: turnTracer
@@ -148,6 +154,8 @@ public final class ChatSessionController {
     runtime: any ChatModelRuntime,
     resourceMonitor: any ProcessResourceMonitoring,
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
+    drafterAvailability: @escaping @Sendable (ManagedDrafterModel) -> Bool =
+      ModelLifecycleCoordinator.defaultDrafterAvailability,
     toolOrchestrator: ToolOrchestrator,
     chatAttachmentLoader: any ChatAttachmentLoading,
     turnTracer: any TurnTracing
@@ -161,7 +169,8 @@ public final class ChatSessionController {
     let modelLifecycleCoordinator = ModelLifecycleCoordinator(
       modelDownloader: modelDownloader,
       runtimeOperations: runtimeOperations,
-      modelAvailability: modelAvailability
+      modelAvailability: modelAvailability,
+      drafterAvailability: drafterAvailability
     )
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
     self.chatTurnCoordinator = ChatTurnCoordinator(turnTracer: turnTracer)
@@ -180,6 +189,7 @@ public final class ChatSessionController {
       selectedModelID: selectedModelID,
       modelPath: modelPath,
       modelContextTokenLimit: modelContextTokenLimit,
+      selectedDrafterEnabled: false,
       modelSettingsStore: modelSettingsStore,
       runtimeOperations: runtimeOperations,
       modelLifecycleCoordinator: modelLifecycleCoordinator,

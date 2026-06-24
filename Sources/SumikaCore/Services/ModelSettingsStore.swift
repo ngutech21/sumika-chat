@@ -3,6 +3,7 @@ import Foundation
 public struct StoredModelSettings: Codable, Equatable, Sendable {
   public var modeSettings: ChatModeSettingsSet
   public var contextTokenLimit: Int
+  public var drafterEnabled: Bool
   public var systemPrompt: String {
     modeSettings.agent.systemPrompt
   }
@@ -12,16 +13,19 @@ public struct StoredModelSettings: Codable, Equatable, Sendable {
 
   public init(
     modeSettings: ChatModeSettingsSet = .defaultSettings,
-    contextTokenLimit: Int = ManagedModelCatalog.defaultContextTokenLimit
+    contextTokenLimit: Int = ManagedModelCatalog.defaultContextTokenLimit,
+    drafterEnabled: Bool = false
   ) {
     self.modeSettings = modeSettings
     self.contextTokenLimit = contextTokenLimit
+    self.drafterEnabled = drafterEnabled
   }
 
   public init(
     systemPrompt: String,
     generationSettings: ChatGenerationSettings,
-    contextTokenLimit: Int = ManagedModelCatalog.defaultContextTokenLimit
+    contextTokenLimit: Int = ManagedModelCatalog.defaultContextTokenLimit,
+    drafterEnabled: Bool = false
   ) {
     let settings = ChatModeSettings(
       systemPrompt: systemPrompt,
@@ -29,6 +33,7 @@ public struct StoredModelSettings: Codable, Equatable, Sendable {
     )
     self.modeSettings = ChatModeSettingsSet(chat: settings, agent: settings)
     self.contextTokenLimit = contextTokenLimit
+    self.drafterEnabled = drafterEnabled
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -36,6 +41,7 @@ public struct StoredModelSettings: Codable, Equatable, Sendable {
     case systemPrompt
     case generationSettings
     case contextTokenLimit
+    case drafterEnabled
   }
 
   public init(from decoder: Decoder) throws {
@@ -44,6 +50,11 @@ public struct StoredModelSettings: Codable, Equatable, Sendable {
       Int.self,
       forKey: .contextTokenLimit,
       default: ManagedModelCatalog.defaultContextTokenLimit
+    )
+    drafterEnabled = try container.decodeIfPresent(
+      Bool.self,
+      forKey: .drafterEnabled,
+      default: false
     )
     if let modeSettings = try container.decodeIfPresent(
       ChatModeSettingsSet.self,
@@ -74,6 +85,7 @@ public struct StoredModelSettings: Codable, Equatable, Sendable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(modeSettings, forKey: .modeSettings)
     try container.encode(contextTokenLimit, forKey: .contextTokenLimit)
+    try container.encode(drafterEnabled, forKey: .drafterEnabled)
   }
 }
 
@@ -143,7 +155,8 @@ public actor ModelSettingsStore: ModelSettingsStoring {
     guard let stored = readSettingsFile().modelSettings[model.id] else {
       return StoredModelSettings(
         modeSettings: model.defaultModeSettings,
-        contextTokenLimit: model.defaultContextTokenLimit
+        contextTokenLimit: model.defaultContextTokenLimit,
+        drafterEnabled: false
       )
     }
 

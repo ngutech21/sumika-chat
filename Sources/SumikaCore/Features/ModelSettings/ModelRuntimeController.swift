@@ -8,11 +8,15 @@ public final class ModelRuntimeController {
   public var selectedModelID: ManagedModel.ID
   public var downloadState: ModelDownloadState = .idle
   public var downloadProgress: Double?
+  public var drafterDownloadState: ModelDownloadState = .idle
+  public var drafterDownloadProgress: Double?
+  public var selectedDrafterEnabled = false
   public var modelPath: String
   public var modelState: ModelLoadState = .notLoaded
   public var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
   public var processUsage: ProcessResourceUsage?
   public var modelAvailabilitySnapshot: [ManagedModel.ID: Bool] = [:]
+  public var drafterAvailabilitySnapshot: [ManagedDrafterModel.ID: Bool] = [:]
 
   @ObservationIgnored private let runtimeOperations: RuntimeOperationCoordinator
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
@@ -20,6 +24,7 @@ public final class ModelRuntimeController {
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private var loadTask: Task<Void, Never>?
   @ObservationIgnored private var downloadTask: Task<Void, Never>?
+  @ObservationIgnored private var drafterDownloadTask: Task<Void, Never>?
   @ObservationIgnored private var modelOperationID: UUID
   @ObservationIgnored private var resourceMonitorTask: Task<Void, Never>?
   private static let resourceMonitorInterval: Duration = .seconds(5)
@@ -35,14 +40,23 @@ public final class ModelRuntimeController {
     availableModels.first { $0.id == selectedModelID } ?? ManagedModelCatalog.defaultModel
   }
 
+  public var selectedDrafterModel: ManagedDrafterModel? {
+    selectedModel.drafterModel
+  }
+
   public var canChangeModel: Bool {
-    modelState != .loading && !downloadState.isDownloading
+    modelState != .loading && !downloadState.isDownloading && !drafterDownloadState.isDownloading
+  }
+
+  public var canChangeDrafterPreference: Bool {
+    modelState != .loading && !downloadState.isDownloading && !drafterDownloadState.isDownloading
   }
 
   public init(
     selectedModelID: ManagedModel.ID,
     modelPath: String,
     modelContextTokenLimit: Int,
+    selectedDrafterEnabled: Bool = false,
     modelSettingsStore: any ModelSettingsStoring,
     runtimeOperations: RuntimeOperationCoordinator,
     modelLifecycleCoordinator: ModelLifecycleCoordinator,
@@ -52,6 +66,7 @@ public final class ModelRuntimeController {
     self.selectedModelID = selectedModelID
     self.modelPath = modelPath
     self.modelContextTokenLimit = modelContextTokenLimit
+    self.selectedDrafterEnabled = selectedDrafterEnabled
     self.modelSettingsStore = modelSettingsStore
     self.runtimeOperations = runtimeOperations
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
@@ -63,6 +78,7 @@ public final class ModelRuntimeController {
   deinit {
     loadTask?.cancel()
     downloadTask?.cancel()
+    drafterDownloadTask?.cancel()
     resourceMonitorTask?.cancel()
   }
 
@@ -124,8 +140,15 @@ public final class ModelRuntimeController {
     modelPath = model.localPath
     downloadState = .idle
     downloadProgress = nil
+    drafterDownloadState = .idle
+    drafterDownloadProgress = nil
+    selectedDrafterEnabled = false
     modelContextTokenLimit = model.defaultContextTokenLimit
     modelAvailabilitySnapshot[model.id] = modelLifecycleCoordinator.isModelDownloaded(model)
+    if let drafter = model.drafterModel {
+      drafterAvailabilitySnapshot[drafter.id] = modelLifecycleCoordinator.isDrafterDownloaded(
+        drafter)
+    }
 
     Task { [modelSettingsStore] in
       await modelSettingsStore.setSelectedModelID(model.id)
@@ -134,6 +157,7 @@ public final class ModelRuntimeController {
         return
       }
       modelContextTokenLimit = settings.contextTokenLimit
+      selectedDrafterEnabled = settings.drafterEnabled
       onModelDidChange?(settings)
     }
   }
@@ -149,6 +173,9 @@ public final class ModelRuntimeController {
       modelPath = model.localPath
       downloadState = .idle
       downloadProgress = nil
+      drafterDownloadState = .idle
+      drafterDownloadProgress = nil
+      selectedDrafterEnabled = false
       modelContextTokenLimit = model.defaultContextTokenLimit
     } else if modelPath.isEmpty {
       modelPath = model.localPath
@@ -160,6 +187,7 @@ public final class ModelRuntimeController {
         return
       }
       modelContextTokenLimit = settings.contextTokenLimit
+      selectedDrafterEnabled = settings.drafterEnabled
     }
 
     if shouldUnloadRuntime {
@@ -173,6 +201,10 @@ public final class ModelRuntimeController {
     modelAvailabilitySnapshot[model.id] ?? false
   }
 
+  public func isDrafterDownloaded(_ drafter: ManagedDrafterModel) -> Bool {
+    drafterAvailabilitySnapshot[drafter.id] ?? false
+  }
+
   public func isSelectedModelDownloaded() -> Bool {
     let model = selectedModel
     let isDownloaded = modelLifecycleCoordinator.isModelDownloaded(model)
@@ -180,19 +212,32 @@ public final class ModelRuntimeController {
     return isDownloaded
   }
 
+  public func isSelectedDrafterDownloaded() -> Bool {
+    guard let drafter = selectedDrafterModel else {
+      return false
+    }
+    let isDownloaded = modelLifecycleCoordinator.isDrafterDownloaded(drafter)
+    drafterAvailabilitySnapshot[drafter.id] = isDownloaded
+    return isDownloaded
+  }
+
   public func refreshModelAvailability() {
     let models = availableModels
     let lifecycleCoordinator = modelLifecycleCoordinator
     Task {
-      let snapshot = await Task.detached {
-        lifecycleCoordinator.modelAvailabilitySnapshot(for: models)
+      let snapshots = await Task.detached {
+        (
+          model: lifecycleCoordinator.modelAvailabilitySnapshot(for: models),
+          drafter: lifecycleCoordinator.drafterAvailabilitySnapshot(for: models)
+        )
       }.value
-      modelAvailabilitySnapshot = snapshot
+      modelAvailabilitySnapshot = snapshots.model
+      drafterAvailabilitySnapshot = snapshots.drafter
     }
   }
 
   public func downloadSelectedModel() {
-    guard !downloadState.isDownloading else {
+    guard !downloadState.isDownloading, !drafterDownloadState.isDownloading else {
       return
     }
 
@@ -227,16 +272,65 @@ public final class ModelRuntimeController {
     }
   }
 
+  public func downloadSelectedDrafter() {
+    guard let drafter = selectedDrafterModel,
+      !downloadState.isDownloading,
+      !drafterDownloadState.isDownloading
+    else {
+      return
+    }
+
+    let model = selectedModel
+    let lifecycleCoordinator = modelLifecycleCoordinator
+    drafterDownloadTask?.cancel()
+    drafterDownloadProgress = nil
+    drafterDownloadState = .downloading(progress: nil)
+
+    drafterDownloadTask = Task {
+      defer {
+        drafterDownloadTask = nil
+      }
+
+      do {
+        _ = try await lifecycleCoordinator.download(drafter: drafter) { progress in
+          let fraction = Self.normalizedDownloadProgress(progress)
+          self.drafterDownloadProgress = fraction
+          self.drafterDownloadState = .downloading(progress: self.drafterDownloadProgress)
+        }
+        try Task.checkCancellation()
+        if selectedModelID == model.id {
+          drafterDownloadState = .downloaded
+          drafterDownloadProgress = 1
+          drafterAvailabilitySnapshot[drafter.id] = true
+          selectedDrafterEnabled = true
+          saveDrafterPreference(isEnabled: true, for: model)
+        }
+      } catch is CancellationError {
+        drafterDownloadState = .idle
+        drafterDownloadProgress = nil
+      } catch {
+        drafterDownloadState = .failed(error.localizedDescription)
+        onError?(error.localizedDescription)
+        drafterDownloadProgress = nil
+      }
+    }
+  }
+
   public func saveSelectedModelSettings(modeSettings: ChatModeSettingsSet) {
+    saveSelectedModelSettings(modeSettings: modeSettings, for: selectedModel)
+  }
+
+  private func saveSelectedModelSettings(modeSettings: ChatModeSettingsSet, for model: ManagedModel)
+  {
     let settings = StoredModelSettings(
       modeSettings: modeSettings,
-      contextTokenLimit: modelContextTokenLimit
+      contextTokenLimit: modelContextTokenLimit,
+      drafterEnabled: selectedDrafterEnabled
     )
 
-    let selectedModel = selectedModel
     Task { [modelSettingsStore] in
       do {
-        try await modelSettingsStore.save(settings: settings, for: selectedModel)
+        try await modelSettingsStore.save(settings: settings, for: model)
       } catch {
         onError?(error.localizedDescription)
       }
@@ -256,6 +350,29 @@ public final class ModelRuntimeController {
     )
   }
 
+  public func setSelectedDrafterEnabled(_ isEnabled: Bool) {
+    let model = selectedModel
+    guard let drafter = model.drafterModel else {
+      selectedDrafterEnabled = false
+      return
+    }
+    let resolvedIsEnabled = isEnabled && isDrafterDownloaded(drafter)
+    selectedDrafterEnabled = resolvedIsEnabled
+    saveDrafterPreference(isEnabled: resolvedIsEnabled, for: model)
+  }
+
+  private func saveDrafterPreference(isEnabled: Bool, for model: ManagedModel) {
+    Task { [modelSettingsStore] in
+      do {
+        var settings = await modelSettingsStore.settings(for: model)
+        settings.drafterEnabled = isEnabled
+        try await modelSettingsStore.save(settings: settings, for: model)
+      } catch {
+        onError?(error.localizedDescription)
+      }
+    }
+  }
+
   public func loadPersistedModelSelection(notifyModelDidChange: Bool = false) {
     Task { [modelSettingsStore] in
       let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
@@ -272,6 +389,7 @@ public final class ModelRuntimeController {
       self.selectedModelID = selectedModel.id
       modelPath = selectedModel.localPath
       modelContextTokenLimit = settings.contextTokenLimit
+      selectedDrafterEnabled = settings.drafterEnabled
       if notifyModelDidChange {
         onModelDidChange?(settings)
       }
@@ -284,7 +402,7 @@ public final class ModelRuntimeController {
   }
 
   public func loadModel() {
-    guard !downloadState.isDownloading else {
+    guard !downloadState.isDownloading, !drafterDownloadState.isDownloading else {
       return
     }
 
