@@ -216,19 +216,26 @@ struct ChatComposer: View {
       onSetReasoningEnabled(!reasoningEnabled)
     } label: {
       HStack(spacing: 5) {
-        Image(systemName: "lightbulb")
+        Image(systemName: reasoningEnabled ? "lightbulb.fill" : "lightbulb")
           .font(.system(size: 10, weight: .semibold))
-        Text("Reasoning")
+        Text(reasoningEnabled ? "Reasoning On" : "Reasoning")
           .font(.caption2.weight(reasoningEnabled ? .semibold : .medium))
           .lineLimit(1)
       }
-      .foregroundStyle(reasoningEnabled ? Color.primary : Color.secondary)
+      .foregroundStyle(reasoningEnabled ? Color.accentColor : Color.secondary)
       .padding(.horizontal, 7)
-      .frame(width: 86, height: 24)
+      .frame(width: 104, height: 24)
       .background(
-        reasoningEnabled ? Color.secondary.opacity(0.16) : Color.secondary.opacity(0.08),
+        reasoningEnabled ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08),
         in: RoundedRectangle(cornerRadius: 5)
       )
+      .overlay {
+        RoundedRectangle(cornerRadius: 5)
+          .strokeBorder(
+            reasoningEnabled ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.16),
+            lineWidth: reasoningEnabled ? 1.2 : 1
+          )
+      }
     }
     .buttonStyle(.plain)
     .disabled(!canChangeInteractionMode)
