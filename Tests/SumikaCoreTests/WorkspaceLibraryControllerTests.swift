@@ -15,7 +15,7 @@ struct WorkspaceLibraryControllerTests {
       sessions: [
         ChatSession(
           id: sessionID,
-          selectedModelID: "gemma4-e4b-qat-4bit",
+          selectedModelID: "gemma4-12b-qat-4bit",
           systemPrompt: "Existing",
           generationSettings: .agentDefault
         )
@@ -204,7 +204,7 @@ struct WorkspaceLibraryControllerTests {
     let activeSession = try #require(controller.activeSession)
     #expect(activeWorkspace.id == validWorkspaceID)
     #expect(activeWorkspace.sessions.count == 1)
-    #expect(activeSession.selectedModelID == "gemma4-e4b-qat-4bit")
+    #expect(activeSession.selectedModelID == "gemma4-12b-qat-4bit")
     #expect(activeSession.systemPrompt == "Default system")
   }
 
@@ -256,7 +256,7 @@ struct WorkspaceLibraryControllerTests {
     WorkspaceLibraryController(
       library: library,
       defaultSessionFactory: DefaultChatSessionFactory(
-        selectedModelID: "gemma4-e4b-qat-4bit",
+        selectedModelID: "gemma4-12b-qat-4bit",
         systemPrompt: "Default system",
         generationSettings: .agentDefault
       ),
@@ -271,7 +271,7 @@ struct WorkspaceLibraryControllerTests {
     ChatSession(
       id: id,
       title: title,
-      selectedModelID: "gemma4-e4b-qat-4bit",
+      selectedModelID: "gemma4-12b-qat-4bit",
       systemPrompt: "System",
       generationSettings: .agentDefault
     )

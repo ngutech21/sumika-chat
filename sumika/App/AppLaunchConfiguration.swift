@@ -37,7 +37,7 @@ enum AppLaunchConfiguration {
         .path(percentEncoded: false),
       directoryHint: .isDirectory
     )
-    let modelID = environment["SUMIKA_UI_TEST_MODEL_ID"] ?? "gemma4-e4b-qat-4bit"
+    let modelID = environment["SUMIKA_UI_TEST_MODEL_ID"] ?? ManagedModelCatalog.defaultModelID
     let selectedModel = ManagedModelCatalog.model(id: modelID) ?? ManagedModelCatalog.defaultModel
     let modelSettingsStore = ModelSettingsStore(
       settingsURL: storageRoot.appending(path: "model-settings.json", directoryHint: .notDirectory)

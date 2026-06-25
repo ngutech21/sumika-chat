@@ -46,6 +46,7 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
   public let supportsImageInput: Bool
   public let defaultModeSettings: ChatModeSettingsSet
   public let defaultContextTokenLimit: Int
+  public let enabled: Bool
 
   public var defaultSystemPrompt: String {
     defaultModeSettings.agent.systemPrompt
@@ -74,7 +75,7 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
 }
 
 public enum ManagedModelCatalog {
-  public static let defaultModelID = "gemma4-e4b-qat-4bit"
+  public static let defaultModelID = "gemma4-12b-qat-4bit"
   public static let defaultContextTokenLimit = 16_384
 
   public static let models: [ManagedModel] = [
@@ -91,7 +92,8 @@ public enum ManagedModelCatalog {
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
       defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit
+      defaultContextTokenLimit: defaultContextTokenLimit,
+      enabled: false
     ),
     ManagedModel(
       id: "gemma4-e4b-qat-4bit",
@@ -106,26 +108,44 @@ public enum ManagedModelCatalog {
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
       defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit
+      defaultContextTokenLimit: defaultContextTokenLimit,
+      enabled: false
+    ),
+    ManagedModel(
+      id: "gemma-4-e4b-it-4bit",
+      displayName: "Gemma 4 e4b",
+      detail: "Gemma 4 model with local vision support.",
+      huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-4bit",
+      localDirectoryName: "gemma-4-e4b-it-4bit",
+      estimatedDownloadSize: "5.2 GB",
+      isRecommended: true,
+      requiresLargeMemory: false,
+      stability: .stable,
+      toolCallingPolicy: .nativeGemma4,
+      supportsImageInput: true,
+      defaultModeSettings: .defaultSettings,
+      defaultContextTokenLimit: defaultContextTokenLimit,
+      enabled: false
     ),
     ManagedModel(
       id: "gemma4-12b-qat-4bit",
-      displayName: "Gemma 4 12b",
+      displayName: "Gemma 4 12b qat",
       detail: "Larger Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-12B-it-qat-4bit",
       localDirectoryName: "gemma-4-12B-it-qat-4bit",
       estimatedDownloadSize: "11.0 GB",
-      isRecommended: false,
+      isRecommended: true,
       requiresLargeMemory: true,
       stability: .stable,
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
       defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit
+      defaultContextTokenLimit: defaultContextTokenLimit,
+      enabled: true
     ),
     ManagedModel(
       id: "gemma4-26b-qat-4bit",
-      displayName: "Gemma 4 26b",
+      displayName: "Gemma 4 26b qat",
       detail: "Larger Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-26B-A4B-it-qat-4bit",
       localDirectoryName: "gemma-4-26B-A4B-it-qat-4bit",
@@ -136,11 +156,12 @@ public enum ManagedModelCatalog {
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
       defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit
+      defaultContextTokenLimit: defaultContextTokenLimit,
+      enabled: true
     ),
     ManagedModel(
       id: "gemma4-31b-qat-4bit",
-      displayName: "Gemma 4 31b",
+      displayName: "Gemma 4 31b qat",
       detail: "Large Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-31B-it-qat-4bit",
       localDirectoryName: "gemma-4-31b-qat-4bit",
@@ -151,9 +172,10 @@ public enum ManagedModelCatalog {
       toolCallingPolicy: .nativeGemma4,
       supportsImageInput: true,
       defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit
+      defaultContextTokenLimit: defaultContextTokenLimit,
+      enabled: true
     ),
-  ]
+  ].filter(\.enabled)
 
   public static var defaultModel: ManagedModel {
     models.first { $0.id == defaultModelID } ?? models[0]

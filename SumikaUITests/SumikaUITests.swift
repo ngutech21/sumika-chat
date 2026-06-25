@@ -3,9 +3,9 @@ import SumikaCore
 import XCTest
 
 final class SumikaUITests: XCTestCase {
-  private let modelID = "gemma4-e4b-qat-4bit"
+  private let modelID = "gemma4-12b-qat-4bit"
   private static let testRunTraceBasename =
-    "\(traceTimestamp())-\(UUID().uuidString)-gemma4-e4b-qat-4bit-ui-test.jsonl"
+    "\(traceTimestamp())-\(UUID().uuidString)-gemma4-12b-qat-4bit-ui-test.jsonl"
 
   @MainActor
   func testPreviewSlashCommandShowsAndHidesHTMLPreviewWithoutChatTurn() throws {

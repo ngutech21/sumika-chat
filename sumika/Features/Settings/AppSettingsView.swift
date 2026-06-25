@@ -134,8 +134,8 @@ struct AppSettingsView: View {
               settingsState.appBehaviorSettings.assistantSpeechRate
             )
           )
-            .monospacedDigit()
-            .frame(width: 48, alignment: .trailing)
+          .monospacedDigit()
+          .frame(width: 48, alignment: .trailing)
         }
         .disabled(!settingsState.appBehaviorSettings.assistantSpeechEnabled)
 
@@ -311,7 +311,8 @@ private enum SystemSpeechSettingsLink {
   }
 
   private static let urls: [URL] = [
-    URL(string: "x-apple.systempreferences:com.apple.Accessibility-Settings.extension?SpokenContent"),
+    URL(
+      string: "x-apple.systempreferences:com.apple.Accessibility-Settings.extension?SpokenContent"),
     URL(string: "x-apple.systempreferences:com.apple.preference.universalaccess?TextToSpeech"),
     URL(string: "x-apple.systempreferences:com.apple.preference.universalaccess"),
     URL(fileURLWithPath: "/System/Applications/System Settings.app"),
