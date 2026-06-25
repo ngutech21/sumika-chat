@@ -120,12 +120,12 @@ struct AssistantSpeechServiceTests {
     let secondUtterance = try #require(synthesizer.spokenUtterances.last)
 
     synthesizer.delegate?.speechSynthesizerDidCancel(
-      AssistantSpeechUtteranceToken(firstUtterance)
+      ObjectIdentifier(firstUtterance)
     )
     #expect(service.activeRowID == "row-b")
 
     synthesizer.delegate?.speechSynthesizerDidFinish(
-      AssistantSpeechUtteranceToken(secondUtterance)
+      ObjectIdentifier(secondUtterance)
     )
     #expect(service.activeRowID == nil)
   }

@@ -152,7 +152,7 @@ final class AssistantSpeechService: AssistantSpeechSynthesizingDelegate {
     let utterance = AVSpeechUtterance(string: trimmedText)
     utterance.voice = resolvedVoice(for: settings)
     utterance.rate = AssistantSpeechRate.clamped(settings.assistantSpeechRate)
-    let token = AssistantSpeechUtteranceToken(utterance)
+    let token = ObjectIdentifier(utterance)
 
     activeUtterance = token
     activeRowID = rowID
@@ -212,13 +212,7 @@ protocol AssistantSpeechSynthesizingDelegate: AnyObject {
   func speechSynthesizerDidCancel(_ utterance: AssistantSpeechUtteranceToken)
 }
 
-struct AssistantSpeechUtteranceToken: Equatable, Sendable {
-  let identifier: ObjectIdentifier
-
-  nonisolated init(_ utterance: AVSpeechUtterance) {
-    self.identifier = ObjectIdentifier(utterance)
-  }
-}
+typealias AssistantSpeechUtteranceToken = ObjectIdentifier
 
 @MainActor
 private final class AssistantSpeechSynthesizerAdapter: NSObject, AssistantSpeechSynthesizing,
@@ -245,7 +239,7 @@ private final class AssistantSpeechSynthesizerAdapter: NSObject, AssistantSpeech
     _: AVSpeechSynthesizer,
     didFinish utterance: AVSpeechUtterance
   ) {
-    let token = AssistantSpeechUtteranceToken(utterance)
+    let token = ObjectIdentifier(utterance)
     Task { @MainActor in
       self.delegate?.speechSynthesizerDidFinish(token)
     }
@@ -255,7 +249,7 @@ private final class AssistantSpeechSynthesizerAdapter: NSObject, AssistantSpeech
     _: AVSpeechSynthesizer,
     didCancel utterance: AVSpeechUtterance
   ) {
-    let token = AssistantSpeechUtteranceToken(utterance)
+    let token = ObjectIdentifier(utterance)
     Task { @MainActor in
       self.delegate?.speechSynthesizerDidCancel(token)
     }
