@@ -6,12 +6,16 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
   let items: [RenderedChatTurnItem]
   let showsGenerationIndicator: Bool
   let accessibilityValue: String
+  let isSpeechEnabled: Bool
+  let activeSpeechRowID: String?
+  let onToggleSpeech: (String, String) -> Void
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
   let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
 
   func makeCoordinator() -> Coordinator {
     Coordinator(
+      onToggleSpeech: onToggleSpeech,
       onApproveToolCall: onApproveToolCall,
       onDenyToolCall: onDenyToolCall,
       onAnswerAskUser: onAnswerAskUser
@@ -24,6 +28,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
 
   func updateNSView(_ scrollView: NSScrollView, context: Context) {
     context.coordinator.updateCallbacks(
+      onToggleSpeech: onToggleSpeech,
       onApproveToolCall: onApproveToolCall,
       onDenyToolCall: onDenyToolCall,
       onAnswerAskUser: onAnswerAskUser
@@ -34,6 +39,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         showsGenerationIndicator: showsGenerationIndicator
       ),
       accessibilityValue: accessibilityValue,
+      isSpeechEnabled: isSpeechEnabled,
+      activeSpeechRowID: activeSpeechRowID,
       in: scrollView
     )
   }
@@ -42,6 +49,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
   final class Coordinator: NSObject, NSTableViewDelegate {
     private let section = NativeTranscriptSection.main
     private let cellIdentifier = NSUserInterfaceItemIdentifier("NativeChatMessageCellView")
+    private var onToggleSpeech: (String, String) -> Void
     private var onApproveToolCall: (ToolCallRecord.ID) -> Void
     private var onDenyToolCall: (ToolCallRecord.ID) -> Void
     private var onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
@@ -50,6 +58,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     private var rowsByID: [String: NativeTranscriptRow] = [:]
     private var rowIDs: [String] = []
     private var revisionsByID: [String: Int] = [:]
+    private var isSpeechEnabled = false
+    private var activeSpeechRowID: String?
     private var cellStateStore = NativeTranscriptCoordinatorState()
     private var heightCache = NativeTranscriptHeightCache()
     private var markdownCache = NativeTranscriptMarkdownCache()
@@ -62,10 +72,12 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     private var shouldScrollAfterHeightInvalidation = false
 
     init(
+      onToggleSpeech: @escaping (String, String) -> Void,
       onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
       onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
       onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void
     ) {
+      self.onToggleSpeech = onToggleSpeech
       self.onApproveToolCall = onApproveToolCall
       self.onDenyToolCall = onDenyToolCall
       self.onAnswerAskUser = onAnswerAskUser
@@ -128,10 +140,12 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     }
 
     func updateCallbacks(
+      onToggleSpeech: @escaping (String, String) -> Void,
       onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
       onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
       onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void
     ) {
+      self.onToggleSpeech = onToggleSpeech
       self.onApproveToolCall = onApproveToolCall
       self.onDenyToolCall = onDenyToolCall
       self.onAnswerAskUser = onAnswerAskUser
@@ -140,6 +154,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     func update(
       rows: [NativeTranscriptRow],
       accessibilityValue: String,
+      isSpeechEnabled: Bool,
+      activeSpeechRowID: String?,
       in scrollView: NSScrollView
     ) {
       guard tableView != nil else {
@@ -156,6 +172,11 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         currentRevisions: newRevisionsByID
       )
       let wasPinnedToBottom = isPinnedToBottom(scrollView)
+      let speechStateChangedIDs = changedSpeechRowIDs(
+        currentRowIDs: newRowIDs,
+        isSpeechEnabled: isSpeechEnabled,
+        activeSpeechRowID: activeSpeechRowID
+      )
       let shouldScrollAfterAppend = NativeTranscriptScrollDecision.shouldScrollToBottomAfterAppend(
         previousIDs: rowIDs,
         currentRows: rows
@@ -164,6 +185,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       rowsByID = newRowsByID
       rowIDs = newRowIDs
       revisionsByID = newRevisionsByID
+      self.isSpeechEnabled = isSpeechEnabled
+      self.activeSpeechRowID = activeSpeechRowID
       pruneCoordinatorState(activeRows: rows)
       scrollView.setAccessibilityValue(accessibilityValue)
       let didChangeColumnWidth = updateColumnWidth(in: scrollView)
@@ -176,8 +199,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
           scrollToBottomAfterFlush: wasPinnedToBottom || shouldScrollAfterAppend
         )
       case .reconfigureRows:
-        reconfigureVisibleRows(changedIDs: plan.changedIDs)
-        var invalidationRows = rowIndexes(for: plan.changedIDs)
+        reconfigureVisibleRows(changedIDs: plan.changedIDs.union(speechStateChangedIDs))
+        var invalidationRows = rowIndexes(for: plan.changedIDs.union(speechStateChangedIDs))
         if didChangeColumnWidth {
           invalidationRows.formUnion(IndexSet(integersIn: 0..<newRowIDs.count))
         }
@@ -193,6 +216,18 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       }
     }
 
+    private func changedSpeechRowIDs(
+      currentRowIDs: [String],
+      isSpeechEnabled: Bool,
+      activeSpeechRowID: String?
+    ) -> Set<String> {
+      guard self.isSpeechEnabled == isSpeechEnabled else {
+        return Set(currentRowIDs).union(rowIDs)
+      }
+
+      return Set([self.activeSpeechRowID, activeSpeechRowID].compactMap(\.self))
+    }
+
     func tableView(_: NSTableView, heightOfRow row: Int) -> CGFloat {
       guard row >= 0, row < rowIDs.count, let rowModel = rowsByID[rowIDs[row]] else {
         return 44
@@ -201,7 +236,11 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       return heightCache.height(
         for: rowModel,
         width: width,
-        state: cellStateStore.state(for: rowModel.id),
+        state: cellStateStore.state(
+          for: rowModel.id,
+          isSpeechEnabled: isSpeechEnabled,
+          activeSpeechRowID: activeSpeechRowID
+        ),
         markdownBlocks: { [weak self] markdown in
           guard let self else {
             return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
@@ -247,7 +286,11 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     private func configure(_ cell: NativeChatMessageCellView, with row: NativeTranscriptRow) {
       cell.configure(
         row: row,
-        state: cellStateStore.state(for: row.id),
+        state: cellStateStore.state(
+          for: row.id,
+          isSpeechEnabled: isSpeechEnabled,
+          activeSpeechRowID: activeSpeechRowID
+        ),
         actions: NativeTranscriptCellActions(
           markdownBlocks: { [weak self] markdown in
             guard let self else {
@@ -289,6 +332,9 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
           },
           copy: { [weak self] rowID, content in
             self?.copy(content: content, from: rowID)
+          },
+          toggleSpeech: { [weak self] rowID, content in
+            self?.onToggleSpeech(rowID, content)
           },
           approve: { [weak self] toolCallID in
             self?.onApproveToolCall(toolCallID)
@@ -677,6 +723,7 @@ struct NativeTranscriptHeightCache {
       rowID: row.id,
       revision: row.revision,
       width: normalizedWidth,
+      isSpeechEnabled: state.isSpeechEnabled,
       isToolExpanded: state.isToolExpanded
     )
     if let height = heightsByKey[key] {
@@ -711,12 +758,14 @@ struct NativeTranscriptHeightCache {
     let rowID: String
     let revision: Int
     let width: Int
+    let isSpeechEnabled: Bool
     let isToolExpanded: Bool
 
     static func == (lhs: Key, rhs: Key) -> Bool {
       lhs.rowID == rhs.rowID
         && lhs.revision == rhs.revision
         && lhs.width == rhs.width
+        && lhs.isSpeechEnabled == rhs.isSpeechEnabled
         && lhs.isToolExpanded == rhs.isToolExpanded
     }
 
@@ -724,6 +773,7 @@ struct NativeTranscriptHeightCache {
       hasher.combine(rowID)
       hasher.combine(revision)
       hasher.combine(width)
+      hasher.combine(isSpeechEnabled)
       hasher.combine(isToolExpanded)
     }
   }
@@ -770,6 +820,7 @@ enum NativeTranscriptRowMeasurer {
       requestAttachmentThumbnail: { _, _, _ in },
       showImageAttachment: { _, _ in },
       copy: { _, _ in },
+      toggleSpeech: { _, _ in },
       approve: { _ in },
       deny: { _ in },
       answerAskUser: { _, _, _ in },
@@ -782,17 +833,23 @@ enum NativeTranscriptRowMeasurer {
 
 struct NativeTranscriptCellState: Equatable {
   var isCopied: Bool
+  var isSpeechEnabled: Bool
+  var isSpeaking: Bool
   var isToolExpanded: Bool
   var isThinkingExpanded: Bool
   var askUserSelection: String?
 
   init(
     isCopied: Bool = false,
+    isSpeechEnabled: Bool = false,
+    isSpeaking: Bool = false,
     isToolExpanded: Bool = false,
     isThinkingExpanded: Bool = false,
     askUserSelection: String? = nil
   ) {
     self.isCopied = isCopied
+    self.isSpeechEnabled = isSpeechEnabled
+    self.isSpeaking = isSpeaking
     self.isToolExpanded = isToolExpanded
     self.isThinkingExpanded = isThinkingExpanded
     self.askUserSelection = askUserSelection
@@ -805,9 +862,15 @@ struct NativeTranscriptCoordinatorState: Equatable {
   private var expandedThinkingRowIDs: Set<String> = []
   private var askUserSelections: [String: String] = [:]
 
-  func state(for rowID: String) -> NativeTranscriptCellState {
+  func state(
+    for rowID: String,
+    isSpeechEnabled: Bool = false,
+    activeSpeechRowID: String? = nil
+  ) -> NativeTranscriptCellState {
     NativeTranscriptCellState(
       isCopied: copiedRowIDs.contains(rowID),
+      isSpeechEnabled: isSpeechEnabled,
+      isSpeaking: activeSpeechRowID == rowID,
       isToolExpanded: expandedToolRowIDs.contains(rowID),
       isThinkingExpanded: expandedThinkingRowIDs.contains(rowID),
       askUserSelection: askUserSelections[rowID]
@@ -858,6 +921,7 @@ struct NativeTranscriptCellActions {
   var requestAttachmentThumbnail: @MainActor (String, ChatAttachment, Int) -> Void
   var showImageAttachment: @MainActor (ChatAttachment, NSView) -> Void
   var copy: @MainActor (String, String) -> Void
+  var toggleSpeech: @MainActor (String, String) -> Void
   var approve: @MainActor (ToolCallRecord.ID) -> Void
   var deny: @MainActor (ToolCallRecord.ID) -> Void
   var answerAskUser: @MainActor (String, ToolCallRecord.ID, String) -> Void
@@ -870,7 +934,7 @@ final class NativeChatMessageCellView: NSTableCellView {
   private let contentHost = NSView()
   private var hostedContentView: NSView?
   private var alignmentConstraints: [NSLayoutConstraint] = []
-  private var actions: NativeTranscriptCellActions?
+  fileprivate var actions: NativeTranscriptCellActions?
   private var askUserPopUpButton: NSPopUpButton?
 
   init(identifier: NSUserInterfaceItemIdentifier) {
@@ -1007,7 +1071,7 @@ final class NativeChatMessageCellView: NSTableCellView {
       return makeAssistantMessageView(
         item: item,
         rowID: rowID,
-        isCopied: state.isCopied
+        state: state
       )
     case .tool(let record):
       return makeToolView(
@@ -1095,7 +1159,7 @@ final class NativeChatMessageCellView: NSTableCellView {
   private func makeAssistantMessageView(
     item: RenderedChatTurnItem,
     rowID: String,
-    isCopied: Bool
+    state: NativeTranscriptCellState
   ) -> NSView {
     let stack = verticalStack(spacing: 8)
     if item.shouldShowAssistantPlaceholder {
@@ -1138,9 +1202,18 @@ final class NativeChatMessageCellView: NSTableCellView {
     }
 
     let footer = horizontalStack(spacing: 8)
+    if state.isSpeechEnabled, let spokenText = item.nativeSpokenText {
+      footer.addArrangedSubview(
+        makeSpeechIconButton(
+          rowID: rowID,
+          content: spokenText,
+          isSpeaking: state.isSpeaking
+        )
+      )
+    }
     if item.canNativeCopyMessageContent {
       footer.addArrangedSubview(
-        makeCopyIconButton(rowID: rowID, content: item.content, isCopied: isCopied)
+        makeCopyIconButton(rowID: rowID, content: item.content, isCopied: state.isCopied)
       )
     }
     if let metrics = item.visibleGenerationMetrics {
@@ -1421,7 +1494,10 @@ final class NativeChatMessageCellView: NSTableCellView {
     return imageView
   }
 
-  private func makeCopyIconButton(rowID: String, content: String, isCopied: Bool) -> NSButton {
+}
+
+extension NativeChatMessageCellView {
+  fileprivate func makeCopyIconButton(rowID: String, content: String, isCopied: Bool) -> NSButton {
     makeIconButton(
       systemSymbolName: isCopied ? "checkmark" : "doc.on.doc",
       accessibilityLabel: isCopied ? "Copied" : "Copy message",
@@ -1431,7 +1507,19 @@ final class NativeChatMessageCellView: NSTableCellView {
     }
   }
 
-  private func makeIconButton(
+  fileprivate func makeSpeechIconButton(rowID: String, content: String, isSpeaking: Bool)
+    -> NSButton
+  {
+    makeIconButton(
+      systemSymbolName: isSpeaking ? "stop.fill" : "play.fill",
+      accessibilityLabel: isSpeaking ? "Stop reading message" : "Read message aloud",
+      tintColor: .secondaryLabelColor
+    ) { [weak self] in
+      self?.actions?.toggleSpeech(rowID, content)
+    }
+  }
+
+  fileprivate func makeIconButton(
     systemSymbolName: String,
     accessibilityLabel: String,
     tintColor: NSColor,
@@ -1457,7 +1545,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     return button
   }
 
-  private func makeSmallButton(title: String, action: @escaping () -> Void) -> NSButton {
+  fileprivate func makeSmallButton(title: String, action: @escaping () -> Void) -> NSButton {
     let button = NativeActionButton(title: title)
     button.controlSize = .small
     button.bezelStyle = .rounded
@@ -1466,7 +1554,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     return button
   }
 
-  private func paddedContainer(
+  fileprivate func paddedContainer(
     _ view: NSView,
     fillColor: NSColor,
     cornerRadius: CGFloat
@@ -1486,7 +1574,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     return container
   }
 
-  private func borderedPaddedContainer(
+  fileprivate func borderedPaddedContainer(
     _ view: NSView,
     fillColor: NSColor,
     strokeColor: NSColor,
@@ -1498,7 +1586,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     return container
   }
 
-  private func verticalStack(spacing: CGFloat) -> NSStackView {
+  fileprivate func verticalStack(spacing: CGFloat) -> NSStackView {
     let stack = NSStackView()
     stack.orientation = .vertical
     stack.alignment = .leading
@@ -1507,7 +1595,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     return stack
   }
 
-  private func horizontalStack(spacing: CGFloat) -> NSStackView {
+  fileprivate func horizontalStack(spacing: CGFloat) -> NSStackView {
     let stack = NSStackView()
     stack.orientation = .horizontal
     stack.alignment = .centerY
@@ -1516,15 +1604,12 @@ final class NativeChatMessageCellView: NSTableCellView {
     return stack
   }
 
-  private func spacer() -> NSView {
+  fileprivate func spacer() -> NSView {
     let view = NSView()
     view.setContentHuggingPriority(.defaultLow, for: .horizontal)
     view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     return view
   }
-}
-
-extension NativeChatMessageCellView {
   fileprivate func makeAttachmentPreviews(
     _ attachments: [ChatAttachment],
     rowID: String,
@@ -2119,6 +2204,13 @@ extension RenderedChatTurnItem {
     case .tool:
       false
     }
+  }
+
+  fileprivate var nativeSpokenText: String? {
+    guard case .assistantMessage = item else {
+      return nil
+    }
+    return assistantSpokenText
   }
 
   fileprivate var nativeAttachments: [ChatAttachment] {

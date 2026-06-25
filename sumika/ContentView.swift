@@ -98,6 +98,8 @@ struct ContentView: View {
           activeSessionID: appState.workspaceState.activeSessionID,
           controller: appState.chatController,
           browserToolService: appState.browserToolService,
+          appBehaviorSettings: appState.settingsState.appBehaviorSettings,
+          assistantSpeechService: appState.assistantSpeechService,
           workspaceChatActions: workspaceChatActions,
           isModelContextDebugVisible: $isModelContextDebugVisible,
           isWorkspaceTerminalVisible: $isTerminalVisible,
@@ -184,6 +186,8 @@ private struct WorkspaceRouteHost: View {
   let activeSessionID: ChatSession.ID?
   let controller: ChatSessionController
   let browserToolService: HTMLPreviewBrowserToolService
+  let appBehaviorSettings: AppBehaviorSettings
+  let assistantSpeechService: AssistantSpeechService
   let workspaceChatActions: WorkspaceChatActions
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
@@ -196,6 +200,8 @@ private struct WorkspaceRouteHost: View {
         context: context,
         sessionID: activeSessionID,
         browserToolService: browserToolService,
+        appBehaviorSettings: appBehaviorSettings,
+        assistantSpeechService: assistantSpeechService,
         workspaceChatActions: workspaceChatActions,
         isModelContextDebugVisible: $isModelContextDebugVisible,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible

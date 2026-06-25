@@ -233,6 +233,25 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func speechEnabledRowsUseSeparateHeightCacheKey() {
+    var cache = NativeTranscriptHeightCache()
+    let row = nativeAssistantMarkdownRow(
+      id: "assistant",
+      revision: 1,
+      markdown: "Readable text."
+    )
+
+    _ = cache.height(for: row, width: 640)
+    _ = cache.height(
+      for: row,
+      width: 640,
+      state: NativeTranscriptCellState(isSpeechEnabled: true)
+    )
+
+    #expect(cache.cachedEntryCount == 2)
+  }
+
+  @Test
   func expandedToolRowsMeasureWrappingDetailLines() {
     let shortRow = nativeToolRow(
       id: "tool-short",
@@ -428,6 +447,51 @@ struct AppKitChatTranscriptDiffPlanTests {
         )
     )
   }
+
+  @Test
+  func speechButtonAppearsOnlyForReadableAssistantTextWhenEnabled() {
+    let textCell = configuredNativeCell(
+      for: nativeAssistantMarkdownRow(
+        id: "assistant-text",
+        revision: 1,
+        markdown: "Readable text.",
+        spokenText: "Readable text."
+      ),
+      state: NativeTranscriptCellState(isSpeechEnabled: true)
+    )
+    let codeCell = configuredNativeCell(
+      for: nativeAssistantCodeRow(id: "assistant-code", revision: 1, code: "let value = 1"),
+      state: NativeTranscriptCellState(isSpeechEnabled: true)
+    )
+    let disabledCell = configuredNativeCell(
+      for: nativeAssistantMarkdownRow(
+        id: "assistant-disabled",
+        revision: 1,
+        markdown: "Readable text.",
+        spokenText: "Readable text."
+      )
+    )
+
+    #expect(textCell.descendantButtons(accessibilityLabel: "Read message aloud").count == 1)
+    #expect(codeCell.descendantButtons(accessibilityLabel: "Read message aloud").isEmpty)
+    #expect(disabledCell.descendantButtons(accessibilityLabel: "Read message aloud").isEmpty)
+  }
+
+  @Test
+  func activeSpeechRowShowsStopButton() {
+    let cell = configuredNativeCell(
+      for: nativeAssistantMarkdownRow(
+        id: "assistant",
+        revision: 1,
+        markdown: "Readable text.",
+        spokenText: "Readable text."
+      ),
+      state: NativeTranscriptCellState(isSpeechEnabled: true, isSpeaking: true)
+    )
+
+    #expect(cell.descendantButtons(accessibilityLabel: "Stop reading message").count == 1)
+    #expect(cell.descendantButtons(accessibilityLabel: "Read message aloud").isEmpty)
+  }
 }
 
 private func revisionMap(_ rows: [NativeTranscriptRow]) -> [String: Int] {
@@ -527,7 +591,8 @@ private func nativeAssistantCodeRow(
 private func nativeAssistantMarkdownRow(
   id: String,
   revision: Int,
-  markdown: String
+  markdown: String,
+  spokenText: String? = nil
 ) -> NativeTranscriptRow {
   NativeTranscriptRow(
     id: id,
@@ -540,7 +605,8 @@ private func nativeAssistantMarkdownRow(
         generationMetrics: nil,
         assistantRenderBlocks: [
           .paragraph(.init(id: .init(rawValue: "markdown"), text: markdown))
-        ]
+        ],
+        assistantSpokenText: spokenText
       ))
   )
 }
@@ -681,13 +747,16 @@ private func nativeImageAttachment(
 }
 
 @MainActor
-private func configuredNativeCell(for row: NativeTranscriptRow) -> NativeChatMessageCellView {
+private func configuredNativeCell(
+  for row: NativeTranscriptRow,
+  state: NativeTranscriptCellState = NativeTranscriptCellState()
+) -> NativeChatMessageCellView {
   let cell = NativeChatMessageCellView(
     identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
   )
   cell.configure(
     row: row,
-    state: NativeTranscriptCellState(),
+    state: state,
     actions: NativeTranscriptCellActions(
       markdownBlocks: NativeTranscriptMarkdownRenderer.blocks,
       highlightedCode: { _, _ in nil },
@@ -696,6 +765,7 @@ private func configuredNativeCell(for row: NativeTranscriptRow) -> NativeChatMes
       requestAttachmentThumbnail: { _, _, _ in },
       showImageAttachment: { _, _ in },
       copy: { _, _ in },
+      toggleSpeech: { _, _ in },
       approve: { _ in },
       deny: { _ in },
       answerAskUser: { _, _, _ in },
@@ -716,5 +786,11 @@ extension NSView {
 
   fileprivate func descendants<View: NSView>(of type: View.Type) -> [View] {
     descendantViews.compactMap { $0 as? View }
+  }
+
+  fileprivate func descendantButtons(accessibilityLabel: String) -> [NSButton] {
+    descendants(of: NSButton.self).filter {
+      $0.accessibilityLabel() == accessibilityLabel
+    }
   }
 }

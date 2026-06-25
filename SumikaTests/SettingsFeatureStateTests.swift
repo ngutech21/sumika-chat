@@ -15,7 +15,11 @@ struct SettingsFeatureStateTests {
     )
     let appBehaviorSettings = AppBehaviorSettings(
       autoloadLastModel: true,
-      todoWriteToolEnabled: true
+      todoWriteToolEnabled: true,
+      assistantSpeechEnabled: true,
+      assistantSpeechLanguageCode: "de-DE",
+      assistantSpeechVoiceIdentifier: "voice.de",
+      assistantSpeechRate: 0.42
     )
     let state = SettingsFeatureState(
       webAccessSettingsStore: InMemorySettingsWebAccessStore(settings: webSettings),
@@ -59,7 +63,11 @@ struct SettingsFeatureStateTests {
     )
     let updated = AppBehaviorSettings(
       autoloadLastModel: true,
-      todoWriteToolEnabled: true
+      todoWriteToolEnabled: true,
+      assistantSpeechEnabled: true,
+      assistantSpeechLanguageCode: "en-US",
+      assistantSpeechVoiceIdentifier: "voice.en",
+      assistantSpeechRate: 0.58
     )
 
     state.updateAppBehaviorSettings(updated)
@@ -103,7 +111,13 @@ struct SettingsFeatureStateTests {
       appBehaviorSettingsStore: store
     )
     let first = AppBehaviorSettings(autoloadLastModel: true)
-    let second = AppBehaviorSettings(todoWriteToolEnabled: true)
+    let second = AppBehaviorSettings(
+      todoWriteToolEnabled: true,
+      assistantSpeechEnabled: true,
+      assistantSpeechLanguageCode: "de-DE",
+      assistantSpeechVoiceIdentifier: "voice.de",
+      assistantSpeechRate: 0.62
+    )
 
     state.updateAppBehaviorSettings(first)
     state.updateAppBehaviorSettings(second)

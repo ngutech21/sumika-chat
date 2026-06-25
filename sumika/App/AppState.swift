@@ -7,6 +7,7 @@ import SumikaCore
 final class AppState {
   let workspaceState: WorkspaceFeatureState
   let settingsState: SettingsFeatureState
+  let assistantSpeechService: AssistantSpeechService
   @ObservationIgnored let chatController: ChatSessionController
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
@@ -25,7 +26,8 @@ final class AppState {
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,
     turnTracer: any TurnTracing = GemmaDebugTraceStore.shared,
-    workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService()
+    workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService(),
+    assistantSpeechService: AssistantSpeechService = AssistantSpeechService()
   ) {
     let browserToolService = HTMLPreviewBrowserToolService()
     self.init(
@@ -34,6 +36,7 @@ final class AppState {
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       workspaceOpener: workspaceOpener,
+      assistantSpeechService: assistantSpeechService,
       browserToolService: browserToolService,
       chatController: Self.makeChatController(
         modelSettingsStore: modelSettingsStore,
@@ -53,12 +56,14 @@ final class AppState {
     webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
     workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService(),
+    assistantSpeechService: AssistantSpeechService = AssistantSpeechService(),
     browserToolService: HTMLPreviewBrowserToolService,
     chatController: ChatSessionController
   ) {
     self.modelSettingsStore = modelSettingsStore
     self.browserToolService = browserToolService
     self.chatController = chatController
+    self.assistantSpeechService = assistantSpeechService
     self.settingsState = SettingsFeatureState(
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore
@@ -180,6 +185,9 @@ final class AppState {
 
   private func applyAppBehaviorSettings(_ settings: AppBehaviorSettings) {
     chatController.configureAgentTools(todoWriteEnabled: settings.todoWriteToolEnabled)
+    if !settings.assistantSpeechEnabled {
+      assistantSpeechService.stop()
+    }
   }
 
   private func refreshDefaultSessionFactory() {

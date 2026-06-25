@@ -183,6 +183,79 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func assistantSpokenTextUsesOnlyCompletedParagraphBlocks() {
+    let turnID = UUID()
+    let assistantID = UUID()
+    let renderer = ChatTranscriptRenderer { _ in
+      [
+        .paragraph(.init(id: .init(rawValue: "intro"), text: "Intro")),
+        .codeBlock(
+          .init(
+            id: .init(rawValue: "code"),
+            language: "swift",
+            text: "let value = 1",
+            isClosed: true
+          )
+        ),
+        .paragraph(.init(id: .init(rawValue: "outro"), text: "Outro")),
+      ]
+    }
+
+    let items = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .completed,
+        items: [
+          .assistantMessage(AssistantTurnMessage(id: assistantID, content: "Mixed"))
+        ]
+      )
+    ])
+
+    #expect(items.first?.assistantSpokenText == "Intro\n\nOutro")
+  }
+
+  @Test
+  func assistantSpokenTextIsNilForCodeOnlyAndStreamingMessages() {
+    let turnID = UUID()
+    let codeAssistantID = UUID()
+    let streamingAssistantID = UUID()
+    let renderer = ChatTranscriptRenderer { content in
+      if content == "code" {
+        return [
+          .codeBlock(
+            .init(
+              id: .init(rawValue: "code"),
+              language: "swift",
+              text: "let value = 1",
+              isClosed: true
+            )
+          )
+        ]
+      }
+      return [.paragraph(.init(id: .init(rawValue: "text"), text: content))]
+    }
+
+    let items = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .running,
+        items: [
+          .assistantMessage(AssistantTurnMessage(id: codeAssistantID, content: "code")),
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: streamingAssistantID,
+              content: "Streaming text",
+              deliveryStatus: .streaming
+            )
+          ),
+        ]
+      )
+    ])
+
+    #expect(items.map(\.assistantSpokenText) == [nil, nil])
+  }
+
+  @Test
   func toolHeaderPreviewAndResultChangesAffectRenderRevision() {
     let toolID = UUID()
     let approvalPreview = ToolResultPreview(text: "Reload preview A")

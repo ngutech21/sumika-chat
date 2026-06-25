@@ -6,6 +6,8 @@ struct WorkspaceChatView: View, Equatable {
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let browserToolService: HTMLPreviewBrowserToolService
+  let appBehaviorSettings: AppBehaviorSettings
+  let assistantSpeechService: AssistantSpeechService
   let workspaceChatActions: WorkspaceChatActions
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
@@ -16,6 +18,9 @@ struct WorkspaceChatView: View, Equatable {
       && lhs.context == rhs.context
       && lhs.sessionID == rhs.sessionID
       && ObjectIdentifier(lhs.browserToolService) == ObjectIdentifier(rhs.browserToolService)
+      && lhs.appBehaviorSettings == rhs.appBehaviorSettings
+      && ObjectIdentifier(lhs.assistantSpeechService)
+        == ObjectIdentifier(rhs.assistantSpeechService)
       && ObjectIdentifier(lhs.workspaceChatActions) == ObjectIdentifier(rhs.workspaceChatActions)
       && lhs.isModelContextDebugVisible == rhs.isModelContextDebugVisible
       && lhs.isWorkspaceTerminalVisible == rhs.isWorkspaceTerminalVisible
@@ -32,6 +37,8 @@ struct WorkspaceChatView: View, Equatable {
         controller: controller,
         context: context,
         sessionID: sessionID,
+        appBehaviorSettings: appBehaviorSettings,
+        assistantSpeechService: assistantSpeechService,
         previewState: previewState,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible
       )
@@ -71,6 +78,8 @@ private struct WorkspaceChatMainColumn: View, Equatable {
   let controller: ChatSessionController
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
+  let appBehaviorSettings: AppBehaviorSettings
+  let assistantSpeechService: AssistantSpeechService
   let previewState: WorkspacePreviewFeatureState
   @Binding var isWorkspaceTerminalVisible: Bool
 
@@ -78,6 +87,9 @@ private struct WorkspaceChatMainColumn: View, Equatable {
     ObjectIdentifier(lhs.controller) == ObjectIdentifier(rhs.controller)
       && lhs.context == rhs.context
       && lhs.sessionID == rhs.sessionID
+      && lhs.appBehaviorSettings == rhs.appBehaviorSettings
+      && ObjectIdentifier(lhs.assistantSpeechService)
+        == ObjectIdentifier(rhs.assistantSpeechService)
       && ObjectIdentifier(lhs.previewState) == ObjectIdentifier(rhs.previewState)
       && lhs.isWorkspaceTerminalVisible == rhs.isWorkspaceTerminalVisible
   }
@@ -94,7 +106,9 @@ private struct WorkspaceChatMainColumn: View, Equatable {
       ChatTranscriptHost(
         controller: controller,
         context: context,
-        sessionID: sessionID
+        sessionID: sessionID,
+        appBehaviorSettings: appBehaviorSettings,
+        assistantSpeechService: assistantSpeechService
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
 

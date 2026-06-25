@@ -5,6 +5,8 @@ struct ChatTranscriptHost: View {
   let controller: ChatSessionController
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
+  let appBehaviorSettings: AppBehaviorSettings
+  let assistantSpeechService: AssistantSpeechService
 
   var body: some View {
     #if DEBUG
@@ -17,6 +19,8 @@ struct ChatTranscriptHost: View {
       selectedModel: controller.modelRuntime.selectedModel,
       modelState: controller.modelRuntime.modelState,
       isGenerating: controller.isGenerating,
+      appBehaviorSettings: appBehaviorSettings,
+      assistantSpeechService: assistantSpeechService,
       onApproveToolCall: { toolCallID in
         controller.approveToolCall(id: toolCallID, in: toolWorkspace)
       },

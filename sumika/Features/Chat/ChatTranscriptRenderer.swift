@@ -104,12 +104,14 @@ final class ChatTranscriptRenderer {
       )
 
     case .assistantMessage(let message):
+      let blocks = blocks(for: message)
       return RenderedChatTurnItem(
         id: id,
         item: input.item,
         toolCallRecord: nil,
         generationMetrics: input.generationMetrics,
-        assistantRenderBlocks: blocks(for: message)
+        assistantRenderBlocks: blocks,
+        assistantSpokenText: Self.spokenText(for: message, blocks: blocks)
       )
 
     case .tool(let record):
@@ -143,6 +145,35 @@ final class ChatTranscriptRenderer {
     itemCache = itemCache.filter { activeItemKeys.contains($0.key) }
     assistantBlockCache = assistantBlockCache.filter { activeAssistantIDs.contains($0.key) }
   }
+
+  private static func spokenText(
+    for message: AssistantTurnMessage,
+    blocks: [AssistantRenderBlock]
+  ) -> String? {
+    guard message.deliveryStatus == .complete else {
+      return nil
+    }
+
+    let paragraphs: [String]
+    if blocks.isEmpty {
+      paragraphs = [message.content]
+    } else {
+      paragraphs = blocks.compactMap { block in
+        guard case .paragraph(let paragraph) = block else {
+          return nil
+        }
+        return paragraph.text
+      }
+    }
+
+    let text =
+      paragraphs
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n\n")
+
+    return text.isEmpty ? nil : text
+  }
 }
 
 struct RenderedChatTurnItem: Identifiable, Equatable {
@@ -151,6 +182,23 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
   let toolCallRecord: ToolCallRecord?
   let generationMetrics: ChatGenerationMetrics?
   let assistantRenderBlocks: [AssistantRenderBlock]
+  let assistantSpokenText: String?
+
+  init(
+    id: String,
+    item: ChatTurnItem,
+    toolCallRecord: ToolCallRecord?,
+    generationMetrics: ChatGenerationMetrics?,
+    assistantRenderBlocks: [AssistantRenderBlock],
+    assistantSpokenText: String? = nil
+  ) {
+    self.id = id
+    self.item = item
+    self.toolCallRecord = toolCallRecord
+    self.generationMetrics = generationMetrics
+    self.assistantRenderBlocks = assistantRenderBlocks
+    self.assistantSpokenText = assistantSpokenText
+  }
 
   var renderRevision: Int {
     var hasher = Hasher()

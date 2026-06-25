@@ -6,6 +6,8 @@ struct ChatTranscript: View {
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
   let isGenerating: Bool
+  let appBehaviorSettings: AppBehaviorSettings
+  let assistantSpeechService: AssistantSpeechService
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
   let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
@@ -32,6 +34,15 @@ struct ChatTranscript: View {
         items: items,
         showsGenerationIndicator: shouldShowTranscriptGenerationIndicator(for: items),
         accessibilityValue: modelState.accessibilityValue,
+        isSpeechEnabled: appBehaviorSettings.assistantSpeechEnabled,
+        activeSpeechRowID: assistantSpeechService.activeRowID,
+        onToggleSpeech: { rowID, text in
+          assistantSpeechService.toggle(
+            rowID: rowID,
+            text: text,
+            settings: appBehaviorSettings
+          )
+        },
         onApproveToolCall: onApproveToolCall,
         onDenyToolCall: onDenyToolCall,
         onAnswerAskUser: onAnswerAskUser
