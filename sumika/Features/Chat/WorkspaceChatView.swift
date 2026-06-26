@@ -8,9 +8,11 @@ struct WorkspaceChatView: View, Equatable {
   let browserToolService: HTMLPreviewBrowserToolService
   let appBehaviorSettings: AppBehaviorSettings
   let assistantSpeechService: AssistantSpeechService
+  let speechInputController: ComposerSpeechInputController
   let workspaceChatActions: WorkspaceChatActions
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
+  let onOpenAudioModels: () -> Void
   @State private var previewState = WorkspacePreviewFeatureState()
 
   static func == (lhs: WorkspaceChatView, rhs: WorkspaceChatView) -> Bool {
@@ -21,6 +23,8 @@ struct WorkspaceChatView: View, Equatable {
       && lhs.appBehaviorSettings == rhs.appBehaviorSettings
       && ObjectIdentifier(lhs.assistantSpeechService)
         == ObjectIdentifier(rhs.assistantSpeechService)
+      && ObjectIdentifier(lhs.speechInputController)
+        == ObjectIdentifier(rhs.speechInputController)
       && ObjectIdentifier(lhs.workspaceChatActions) == ObjectIdentifier(rhs.workspaceChatActions)
       && lhs.isModelContextDebugVisible == rhs.isModelContextDebugVisible
       && lhs.isWorkspaceTerminalVisible == rhs.isWorkspaceTerminalVisible
@@ -39,8 +43,10 @@ struct WorkspaceChatView: View, Equatable {
         sessionID: sessionID,
         appBehaviorSettings: appBehaviorSettings,
         assistantSpeechService: assistantSpeechService,
+        speechInputController: speechInputController,
         previewState: previewState,
-        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible
+        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
+        onOpenAudioModels: onOpenAudioModels
       )
       .equatable()
 
@@ -80,8 +86,10 @@ private struct WorkspaceChatMainColumn: View, Equatable {
   let sessionID: ChatSession.ID?
   let appBehaviorSettings: AppBehaviorSettings
   let assistantSpeechService: AssistantSpeechService
+  let speechInputController: ComposerSpeechInputController
   let previewState: WorkspacePreviewFeatureState
   @Binding var isWorkspaceTerminalVisible: Bool
+  let onOpenAudioModels: () -> Void
 
   static func == (lhs: WorkspaceChatMainColumn, rhs: WorkspaceChatMainColumn) -> Bool {
     ObjectIdentifier(lhs.controller) == ObjectIdentifier(rhs.controller)
@@ -90,6 +98,8 @@ private struct WorkspaceChatMainColumn: View, Equatable {
       && lhs.appBehaviorSettings == rhs.appBehaviorSettings
       && ObjectIdentifier(lhs.assistantSpeechService)
         == ObjectIdentifier(rhs.assistantSpeechService)
+      && ObjectIdentifier(lhs.speechInputController)
+        == ObjectIdentifier(rhs.speechInputController)
       && ObjectIdentifier(lhs.previewState) == ObjectIdentifier(rhs.previewState)
       && lhs.isWorkspaceTerminalVisible == rhs.isWorkspaceTerminalVisible
   }
@@ -116,7 +126,9 @@ private struct WorkspaceChatMainColumn: View, Equatable {
         controller: controller,
         context: context,
         sessionID: sessionID,
-        previewState: previewState
+        previewState: previewState,
+        speechInputController: speechInputController,
+        onOpenAudioModels: onOpenAudioModels
       )
 
       WorkspaceTerminalSlot(

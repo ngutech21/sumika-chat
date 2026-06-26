@@ -8,6 +8,8 @@ final class AppState {
   let workspaceState: WorkspaceFeatureState
   let settingsState: SettingsFeatureState
   let assistantSpeechService: AssistantSpeechService
+  let audioModelController: ComposerAudioModelController
+  let composerSpeechInputController: ComposerSpeechInputController
   @ObservationIgnored let chatController: ChatSessionController
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
@@ -27,7 +29,8 @@ final class AppState {
       ModelLifecycleCoordinator.defaultModelAvailability,
     turnTracer: any TurnTracing = GemmaDebugTraceStore.shared,
     workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService(),
-    assistantSpeechService: AssistantSpeechService = AssistantSpeechService()
+    assistantSpeechService: AssistantSpeechService = AssistantSpeechService(),
+    audioModelController: ComposerAudioModelController = ComposerAudioModelController()
   ) {
     let browserToolService = HTMLPreviewBrowserToolService()
     self.init(
@@ -37,6 +40,10 @@ final class AppState {
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       workspaceOpener: workspaceOpener,
       assistantSpeechService: assistantSpeechService,
+      audioModelController: audioModelController,
+      composerSpeechInputController: ComposerSpeechInputController(
+        audioModelController: audioModelController
+      ),
       browserToolService: browserToolService,
       chatController: Self.makeChatController(
         modelSettingsStore: modelSettingsStore,
@@ -57,6 +64,8 @@ final class AppState {
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
     workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService(),
     assistantSpeechService: AssistantSpeechService = AssistantSpeechService(),
+    audioModelController: ComposerAudioModelController = ComposerAudioModelController(),
+    composerSpeechInputController: ComposerSpeechInputController? = nil,
     browserToolService: HTMLPreviewBrowserToolService,
     chatController: ChatSessionController
   ) {
@@ -64,6 +73,10 @@ final class AppState {
     self.browserToolService = browserToolService
     self.chatController = chatController
     self.assistantSpeechService = assistantSpeechService
+    self.audioModelController = audioModelController
+    self.composerSpeechInputController =
+      composerSpeechInputController
+      ?? ComposerSpeechInputController(audioModelController: audioModelController)
     self.settingsState = SettingsFeatureState(
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore
@@ -79,6 +92,14 @@ final class AppState {
 
     self.chatController.setSessionChangeHandler { [weak self] in
       self?.persistActiveSession()
+    }
+    self.audioModelController.onSelectionChanged = { [weak self] modelID in
+      guard let self else {
+        return
+      }
+      var settings = self.settingsState.appBehaviorSettings
+      settings.speechInputAudioModelID = modelID.rawValue
+      self.updateAppBehaviorSettings(settings)
     }
     loadStoredLibrary()
   }
@@ -151,6 +172,7 @@ final class AppState {
   func startModelRuntimeServices() {
     chatController.modelRuntime.prepareDefaultModelDirectory()
     chatController.modelRuntime.startResourceMonitoring()
+    audioModelController.refreshAvailability()
     attemptAutoloadLastModelIfReady()
   }
 
@@ -185,6 +207,7 @@ final class AppState {
 
   private func applyAppBehaviorSettings(_ settings: AppBehaviorSettings) {
     chatController.configureAgentTools(todoWriteEnabled: settings.todoWriteToolEnabled)
+    audioModelController.applyPersistedSelection(settings.speechInputAudioModelID)
     if !settings.assistantSpeechEnabled {
       assistantSpeechService.stop()
     }

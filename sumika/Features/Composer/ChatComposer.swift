@@ -26,6 +26,8 @@ struct ChatComposer: View {
   let onAddAttachments: () -> Void
   let onDropAttachments: ([URL]) -> Void
   let onRemoveAttachment: (ChatAttachment.ID) -> Void
+  let speechInputController: ComposerSpeechInputController
+  let onOpenAudioModels: () -> Void
   let onSend: (String) -> Bool
   let onCancel: () -> Void
   @State private var draftBridge = ComposerDraftBridge()
@@ -107,6 +109,13 @@ struct ChatComposer: View {
           .foregroundStyle(.secondary)
           .disabled(isGenerating || modelState != .ready)
           .accessibilityLabel("Add context files")
+
+          ComposerSpeechInputControl(
+            controller: speechInputController,
+            isDisabled: isGenerating || modelState != .ready,
+            onTranscript: insertSpeechTranscript(_:),
+            onNeedsAudioModel: onOpenAudioModels
+          )
 
           modelPicker
 
@@ -458,6 +467,11 @@ struct ChatComposer: View {
     updateDraftState(ComposerDraftState(text: text))
   }
 
+  private func insertSpeechTranscript(_ text: String) {
+    draftBridge.insertTextAtCurrentSelection(text)
+    updateDraftState(ComposerDraftState(text: draftBridge.text))
+  }
+
   private func handlePaste(_ providers: [NSItemProvider]) {
     guard canAcceptAttachments else {
       return
@@ -649,7 +663,7 @@ struct ChatComposer: View {
   ]
 }
 
-private struct ComposerDraftState: Equatable {
+struct ComposerDraftState: Equatable {
   var hasText = false
   var slashSuggestionPrefix: String?
   var slashCommandText: String?
@@ -692,6 +706,132 @@ private final class ComposerDraftBridge {
   func replaceText(_ text: String) {
     storedText = text
     textView?.replaceAllText(text)
+  }
+
+  func insertTextAtCurrentSelection(_ text: String) {
+    guard !text.isEmpty else {
+      return
+    }
+
+    if let textView {
+      textView.insertPlainTextAtCurrentSelection(text)
+      storedText = textView.string
+      return
+    }
+
+    let insertion = ComposerDraftTextEditor.inserting(
+      text,
+      into: storedText,
+      selectedRange: NSRange(location: (storedText as NSString).length, length: 0)
+    )
+    storedText = insertion.text
+  }
+}
+
+struct ComposerDraftTextInsertion: Equatable {
+  var text: String
+  var selectedRange: NSRange
+}
+
+enum ComposerDraftTextEditor {
+  static func inserting(
+    _ insertionText: String,
+    into text: String,
+    selectedRange: NSRange
+  ) -> ComposerDraftTextInsertion {
+    let nsText = text as NSString
+    let insertionLength = (insertionText as NSString).length
+    let location = min(max(selectedRange.location, 0), nsText.length)
+    let length = min(max(selectedRange.length, 0), nsText.length - location)
+    let replacementRange = NSRange(location: location, length: length)
+    let updatedText = nsText.replacingCharacters(in: replacementRange, with: insertionText)
+
+    return ComposerDraftTextInsertion(
+      text: updatedText,
+      selectedRange: NSRange(location: location + insertionLength, length: 0)
+    )
+  }
+}
+
+private struct ComposerSpeechInputControl: View {
+  let controller: ComposerSpeechInputController
+  let isDisabled: Bool
+  let onTranscript: (String) -> Void
+  let onNeedsAudioModel: () -> Void
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Button {
+        controller.toggle(
+          onTranscript: onTranscript,
+          onNeedsAudioModel: onNeedsAudioModel
+        )
+      } label: {
+        Image(systemName: controller.isRecording ? "stop.fill" : "mic.fill")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(buttonForeground)
+          .frame(width: 24, height: 24)
+          .background(buttonBackground, in: Circle())
+          .contentShape(Circle())
+      }
+      .buttonStyle(.plain)
+      .disabled(isButtonDisabled)
+      .help(helpText)
+      .accessibilityLabel(controller.isRecording ? "Stop dictation" : "Start dictation")
+      .accessibilityIdentifier("chat.speechInput")
+
+      if let statusText = controller.statusText {
+        Text(statusText)
+          .font(.caption2)
+          .foregroundStyle(statusForeground)
+          .lineLimit(1)
+          .frame(maxWidth: 120, alignment: .leading)
+      }
+    }
+    .onDisappear {
+      controller.cancel()
+    }
+  }
+
+  private var isButtonDisabled: Bool {
+    if controller.isRecording {
+      return false
+    }
+    return isDisabled || controller.phase.isBusy
+  }
+
+  private var buttonForeground: Color {
+    if controller.isRecording {
+      return .white
+    }
+    return isButtonDisabled ? .secondary : .primary
+  }
+
+  private var buttonBackground: Color {
+    if controller.isRecording {
+      return .red
+    }
+    if isButtonDisabled {
+      return Color.secondary.opacity(0.12)
+    }
+    return Color.secondary.opacity(0.08)
+  }
+
+  private var statusForeground: Color {
+    if case .failed = controller.phase {
+      return .red
+    }
+    return .secondary
+  }
+
+  private var helpText: String {
+    if controller.isRecording {
+      return "Stop dictation"
+    }
+    if isDisabled {
+      return "Load a model before dictating"
+    }
+    return "Dictate message"
   }
 }
 
@@ -853,6 +993,27 @@ final class ComposerNSTextView: NSTextView {
     if wasEmpty != newText.isEmpty {
       needsDisplay = true
     }
+  }
+
+  func insertPlainTextAtCurrentSelection(_ text: String) {
+    guard !text.isEmpty else {
+      return
+    }
+
+    let insertion = ComposerDraftTextEditor.inserting(
+      text,
+      into: string,
+      selectedRange: selectedRange()
+    )
+    guard string != insertion.text else {
+      setSelectedRange(insertion.selectedRange)
+      return
+    }
+
+    string = insertion.text
+    setSelectedRange(insertion.selectedRange)
+    didChangeText()
+    needsDisplay = true
   }
 
   override func draw(_ dirtyRect: NSRect) {

@@ -8,6 +8,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
   var assistantSpeechLanguageCode: String?
   var assistantSpeechVoiceIdentifier: String?
   var assistantSpeechRate: Float
+  var speechInputAudioModelID: String?
 
   init(
     autoloadLastModel: Bool = false,
@@ -15,7 +16,8 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
     assistantSpeechEnabled: Bool = false,
     assistantSpeechLanguageCode: String? = nil,
     assistantSpeechVoiceIdentifier: String? = nil,
-    assistantSpeechRate: Float = AssistantSpeechRate.defaultValue
+    assistantSpeechRate: Float = AssistantSpeechRate.defaultValue,
+    speechInputAudioModelID: String? = nil
   ) {
     self.autoloadLastModel = autoloadLastModel
     self.todoWriteToolEnabled = todoWriteToolEnabled
@@ -23,6 +25,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
     self.assistantSpeechLanguageCode = assistantSpeechLanguageCode
     self.assistantSpeechVoiceIdentifier = assistantSpeechVoiceIdentifier
     self.assistantSpeechRate = AssistantSpeechRate.clamped(assistantSpeechRate)
+    self.speechInputAudioModelID = speechInputAudioModelID
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -32,6 +35,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
     case assistantSpeechLanguageCode
     case assistantSpeechVoiceIdentifier
     case assistantSpeechRate
+    case speechInputAudioModelID
   }
 
   init(from decoder: Decoder) throws {
@@ -60,6 +64,8 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
         try container.decodeIfPresent(Float.self, forKey: .assistantSpeechRate)
           ?? AssistantSpeechRate.defaultValue
       )
+    speechInputAudioModelID =
+      try container.decodeIfPresent(String.self, forKey: .speechInputAudioModelID)
   }
 
   func encode(to encoder: Encoder) throws {
@@ -76,6 +82,7 @@ nonisolated struct AppBehaviorSettings: Codable, Equatable, Sendable {
       AssistantSpeechRate.clamped(assistantSpeechRate),
       forKey: .assistantSpeechRate
     )
+    try container.encodeIfPresent(speechInputAudioModelID, forKey: .speechInputAudioModelID)
   }
 }
 

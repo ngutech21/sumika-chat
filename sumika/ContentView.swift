@@ -7,6 +7,7 @@ struct ContentView: View {
     false
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible = false
   @State private var selection: AppNavigationSelection?
+  @State private var modelsTab = ModelsTab.text
   @State private var appState: AppState
   @State private var workspaceChatActions: WorkspaceChatActions
 
@@ -90,6 +91,8 @@ struct ContentView: View {
       case .models:
         ModelsRouteHost(
           controller: controller,
+          audioModelController: appState.audioModelController,
+          selectedTab: $modelsTab,
           onPersistActiveSession: appState.persistActiveSession
         )
       case .session:
@@ -100,10 +103,12 @@ struct ContentView: View {
           browserToolService: appState.browserToolService,
           appBehaviorSettings: appState.settingsState.appBehaviorSettings,
           assistantSpeechService: appState.assistantSpeechService,
+          speechInputController: appState.composerSpeechInputController,
           workspaceChatActions: workspaceChatActions,
           isModelContextDebugVisible: $isModelContextDebugVisible,
           isWorkspaceTerminalVisible: $isTerminalVisible,
-          onAddWorkspace: chooseWorkspace
+          onAddWorkspace: chooseWorkspace,
+          onOpenAudioModels: openAudioModels
         )
       }
     } else {
@@ -138,6 +143,11 @@ struct ContentView: View {
     }
   }
 
+  private func openAudioModels() {
+    modelsTab = .audio
+    selection = .models
+  }
+
 }
 
 #Preview {
@@ -146,15 +156,19 @@ struct ContentView: View {
 
 private struct ModelsRouteHost: View {
   let controller: ChatSessionController
+  let audioModelController: ComposerAudioModelController
+  @Binding var selectedTab: ModelsTab
   let onPersistActiveSession: () -> Void
 
   var body: some View {
     ModelsView(
       modelRuntime: controller.modelRuntime,
+      audioModelController: audioModelController,
       modeSettings: Binding(
         get: { controller.chatSession.modeSettings },
         set: { controller.chatSession.modeSettings = $0 }
       ),
+      selectedTab: $selectedTab,
       errorMessage: controller.errorMessage,
       canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
       onPrepareModelRuntimeAction: { cancelGeneration, invalidateContext in
@@ -188,10 +202,12 @@ private struct WorkspaceRouteHost: View {
   let browserToolService: HTMLPreviewBrowserToolService
   let appBehaviorSettings: AppBehaviorSettings
   let assistantSpeechService: AssistantSpeechService
+  let speechInputController: ComposerSpeechInputController
   let workspaceChatActions: WorkspaceChatActions
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
   let onAddWorkspace: () -> Void
+  let onOpenAudioModels: () -> Void
 
   var body: some View {
     if let context = activeWorkspaceContext {
@@ -202,9 +218,11 @@ private struct WorkspaceRouteHost: View {
         browserToolService: browserToolService,
         appBehaviorSettings: appBehaviorSettings,
         assistantSpeechService: assistantSpeechService,
+        speechInputController: speechInputController,
         workspaceChatActions: workspaceChatActions,
         isModelContextDebugVisible: $isModelContextDebugVisible,
-        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible
+        isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
+        onOpenAudioModels: onOpenAudioModels
       )
       .equatable()
     } else {

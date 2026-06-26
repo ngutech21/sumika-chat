@@ -13,13 +13,14 @@
 		F9081F142FCE1000000A270C /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F132FCE1000000A270C /* MLXLLM */; };
 		F9081F162FCE1000000A270C /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F152FCE1000000A270C /* MLXLMCommon */; };
 		F9081F182FCE1000000A270C /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F172FCE1000000A270C /* MLXVLM */; };
-			F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1B2FCE1000000A270C /* Tokenizers */; };
-			F9081F202FCE1000000A270C /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1F2FCE1000000A270C /* HuggingFace */; };
-			F92000012FD2000000A270C /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = F92000032FD2000000A270C /* MarkdownUI */; };
-			F93000012FD3000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
-			F94000112FD4000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
-			F95000012FE0000000A270C /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F95000032FE0000000A270C /* SwiftTerm */; };
-			F96000012FF0000000A270C /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = F96000032FF0000000A270C /* Markdown */; };
+		F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1B2FCE1000000A270C /* Tokenizers */; };
+		F9081F202FCE1000000A270C /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1F2FCE1000000A270C /* HuggingFace */; };
+		F91500012FD8000000A270C /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = F91500032FD8000000A270C /* FluidAudio */; };
+		F92000012FD2000000A270C /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = F92000032FD2000000A270C /* MarkdownUI */; };
+		F93000012FD3000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
+		F94000112FD4000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
+		F95000012FE0000000A270C /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F95000032FE0000000A270C /* SwiftTerm */; };
+		F96000012FF0000000A270C /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = F96000032FF0000000A270C /* Markdown */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -72,14 +73,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-			F94000062FD4000000A270C /* Frameworks */ = {
-				isa = PBXFrameworksBuildPhase;
-				buildActionMask = 2147483647;
-				files = (
-					F94000112FD4000000A270C /* SumikaCore in Frameworks */,
-				);
-				runOnlyForDeploymentPostprocessing = 0;
-			};
+		F94000062FD4000000A270C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F94000112FD4000000A270C /* SumikaCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F9D7F5F82FCC80CD00FECA78 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -92,6 +93,7 @@
 				F9081F182FCE1000000A270C /* MLXVLM in Frameworks */,
 				F9081F202FCE1000000A270C /* HuggingFace in Frameworks */,
 				F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */,
+				F91500012FD8000000A270C /* FluidAudio in Frameworks */,
 				F92000012FD2000000A270C /* MarkdownUI in Frameworks */,
 				F93000012FD3000000A270C /* SumikaCore in Frameworks */,
 				F95000012FE0000000A270C /* SwiftTerm in Frameworks */,
@@ -198,6 +200,7 @@
 				F9081F172FCE1000000A270C /* MLXVLM */,
 				F9081F1F2FCE1000000A270C /* HuggingFace */,
 				F9081F1B2FCE1000000A270C /* Tokenizers */,
+				F91500032FD8000000A270C /* FluidAudio */,
 				F92000032FD2000000A270C /* MarkdownUI */,
 				F93000032FD3000000A270C /* SumikaCore */,
 				F95000032FE0000000A270C /* SwiftTerm */,
@@ -244,6 +247,7 @@
 				F9081F122FCE1000000A270C /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */,
 				F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */,
+				F91500022FD8000000A270C /* XCRemoteSwiftPackageReference "FluidAudio" */,
 				F92000022FD2000000A270C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				F96000022FF0000000A270C /* XCRemoteSwiftPackageReference "swift-markdown" */,
@@ -557,9 +561,11 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Sumika Chat";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Sumika Chat uses the microphone to transcribe your speech into chat messages on this Mac.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -608,7 +614,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
 				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
@@ -617,6 +623,7 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Sumika Chat";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Sumika Chat uses the microphone to transcribe your speech into chat messages on this Mac.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -737,6 +744,14 @@
 				minimumVersion = 0.9.0;
 			};
 		};
+		F91500022FD8000000A270C /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.15.4;
+			};
+		};
 		F92000022FD2000000A270C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
@@ -803,6 +818,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */;
 			productName = HuggingFace;
+		};
+		F91500032FD8000000A270C /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F91500022FD8000000A270C /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
 		};
 		F92000032FD2000000A270C /* MarkdownUI */ = {
 			isa = XCSwiftPackageProductDependency;

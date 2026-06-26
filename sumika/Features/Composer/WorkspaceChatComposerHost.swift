@@ -7,6 +7,8 @@ struct WorkspaceChatComposerHost: View {
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let previewState: WorkspacePreviewFeatureState
+  let speechInputController: ComposerSpeechInputController
+  let onOpenAudioModels: () -> Void
 
   private static let slashCommandParser = SlashCommandParser()
 
@@ -64,6 +66,8 @@ struct WorkspaceChatComposerHost: View {
       onAddAttachments: chooseAttachments,
       onDropAttachments: controller.addAttachments,
       onRemoveAttachment: controller.removeAttachment,
+      speechInputController: speechInputController,
+      onOpenAudioModels: onOpenAudioModels,
       onSend: onSend,
       onCancel: controller.cancelGeneration
     )
