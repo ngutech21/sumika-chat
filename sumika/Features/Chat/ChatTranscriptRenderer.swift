@@ -25,6 +25,7 @@ final class ChatTranscriptRenderer {
 
       for turn in turns {
         let turnGenerationMetrics = turn.items.compactMap(\.generationMetrics).last
+        let hidesAssistantPlaceholder = turn.hasStreamingAssistantThinking
 
         for item in displayItems(for: turn) {
           if case .assistantMessage(let message) = item {
@@ -43,7 +44,11 @@ final class ChatTranscriptRenderer {
             renderedItems.append(renderedItem(for: key, input: input))
 
           case .assistantMessage(let message):
-            guard message.shouldRenderInTranscript else {
+            guard
+              message.shouldRenderInTranscript(
+                hidesPlaceholderForStreamingReasoning: hidesAssistantPlaceholder
+              )
+            else {
               continue
             }
             activeItemKeys.insert(key)
@@ -370,6 +375,30 @@ extension ChatTurnItem {
   }
 }
 
+extension ChatTurn {
+  fileprivate var hasStreamingAssistantThinking: Bool {
+    items.contains { item in
+      guard case .assistantThinking(let message) = item else {
+        return false
+      }
+      return message.deliveryStatus == .streaming
+    }
+  }
+}
+
+extension RenderedChatTurnItem {
+  var isActiveTranscriptGenerationItem: Bool {
+    switch item {
+    case .assistantThinking(let message):
+      message.deliveryStatus == .streaming
+    case .assistantMessage(let message):
+      message.deliveryStatus == .streaming
+    case .userMessage, .tool:
+      false
+    }
+  }
+}
+
 extension AssistantThinkingMessage {
   fileprivate var shouldRenderInTranscript: Bool {
     deliveryStatus == .streaming || !content.isEmpty
@@ -377,7 +406,12 @@ extension AssistantThinkingMessage {
 }
 
 extension AssistantTurnMessage {
-  fileprivate var shouldRenderInTranscript: Bool {
-    shouldShowAssistantPlaceholder || !content.isEmpty
+  fileprivate func shouldRenderInTranscript(
+    hidesPlaceholderForStreamingReasoning: Bool = false
+  ) -> Bool {
+    if hidesPlaceholderForStreamingReasoning, shouldShowAssistantPlaceholder {
+      return false
+    }
+    return shouldShowAssistantPlaceholder || !content.isEmpty
   }
 }

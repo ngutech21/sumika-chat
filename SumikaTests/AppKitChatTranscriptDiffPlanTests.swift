@@ -55,6 +55,39 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func snapshotHeightInvalidationOnlyTouchesInsertedAndChangedRows() {
+    let rows = NativeTranscriptSnapshotHeightInvalidation.rowIndexes(
+      previousIDs: ["user", "assistant"],
+      currentIDs: ["user", "tool", "assistant"],
+      changedIDs: ["assistant"]
+    )
+
+    #expect(rows == IndexSet([1, 2]))
+  }
+
+  @Test
+  func snapshotHeightInvalidationSkipsPureRemoval() {
+    let rows = NativeTranscriptSnapshotHeightInvalidation.rowIndexes(
+      previousIDs: ["user", "generation"],
+      currentIDs: ["user"],
+      changedIDs: []
+    )
+
+    #expect(rows.isEmpty)
+  }
+
+  @Test
+  func snapshotHeightInvalidationSkipsPureReorder() {
+    let rows = NativeTranscriptSnapshotHeightInvalidation.rowIndexes(
+      previousIDs: ["user", "assistant"],
+      currentIDs: ["assistant", "user"],
+      changedIDs: []
+    )
+
+    #expect(rows.isEmpty)
+  }
+
+  @Test
   func thinkingRowUsesDedicatedAccessibilityIdentifier() {
     let row = nativeThinkingRow(id: "thinking", revision: 1)
 

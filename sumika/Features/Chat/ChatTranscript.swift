@@ -32,7 +32,10 @@ struct ChatTranscript: View {
     } else {
       AppKitChatTranscriptRepresentable(
         items: items,
-        showsGenerationIndicator: shouldShowTranscriptGenerationIndicator(for: items),
+        showsGenerationIndicator: ChatTranscriptGenerationIndicatorPolicy.shouldShow(
+          isGenerating: isGenerating,
+          items: items
+        ),
         accessibilityValue: modelState.accessibilityValue,
         isSpeechEnabled: appBehaviorSettings.assistantSpeechEnabled,
         activeSpeechRowID: assistantSpeechService.activeRowID,
@@ -76,8 +79,11 @@ struct ChatTranscript: View {
     }
   }
 
-  private func shouldShowTranscriptGenerationIndicator(for items: [RenderedChatTurnItem]) -> Bool {
-    isGenerating && !items.contains(where: \.shouldShowAssistantPlaceholder)
+}
+
+enum ChatTranscriptGenerationIndicatorPolicy {
+  static func shouldShow(isGenerating: Bool, items: [RenderedChatTurnItem]) -> Bool {
+    isGenerating && !items.contains(where: \.isActiveTranscriptGenerationItem)
   }
 }
 

@@ -219,6 +219,79 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func streamingReasoningHidesEmptyAssistantPlaceholderInSameTurn() {
+    let turnID = UUID()
+    let thinkingID = UUID()
+    let assistantID = UUID()
+    let renderer = ChatTranscriptRenderer()
+
+    let items = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .running,
+        items: [
+          .assistantThinking(
+            AssistantThinkingMessage(
+              id: thinkingID,
+              content: "Inspecting files",
+              deliveryStatus: .streaming
+            )
+          ),
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantID,
+              content: "",
+              deliveryStatus: .streaming
+            )
+          ),
+        ]
+      )
+    ])
+
+    #expect(
+      items.map(\.id) == [
+        "\(turnID.uuidString):thinking:\(thinkingID.uuidString)"
+      ])
+  }
+
+  @Test
+  func streamingReasoningKeepsAssistantRowWithVisibleContent() {
+    let turnID = UUID()
+    let thinkingID = UUID()
+    let assistantID = UUID()
+    let renderer = ChatTranscriptRenderer()
+
+    let items = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .running,
+        items: [
+          .assistantThinking(
+            AssistantThinkingMessage(
+              id: thinkingID,
+              content: "Inspecting files",
+              deliveryStatus: .streaming
+            )
+          ),
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantID,
+              content: "Partial answer",
+              deliveryStatus: .streaming
+            )
+          ),
+        ]
+      )
+    ])
+
+    #expect(
+      items.map(\.id) == [
+        "\(turnID.uuidString):thinking:\(thinkingID.uuidString)",
+        "\(turnID.uuidString):assistant:\(assistantID.uuidString)",
+      ])
+  }
+
+  @Test
   func metricsAndToolStatusUpdatesDoNotReparseUnchangedAssistantContent() {
     let turnID = UUID()
     let assistantID = UUID()
@@ -495,6 +568,47 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func generationIndicatorIsHiddenWhenReasoningIsStreaming() {
+    let reasoningItem = renderedThinkingItem(
+      AssistantThinkingMessage(content: "Inspecting files", deliveryStatus: .streaming)
+    )
+
+    #expect(
+      ChatTranscriptGenerationIndicatorPolicy.shouldShow(
+        isGenerating: true,
+        items: [reasoningItem]
+      ) == false)
+  }
+
+  @Test
+  func generationIndicatorIsHiddenWhenAssistantMessageIsStreaming() {
+    let assistantItem = renderedAssistantItem(
+      AssistantTurnMessage(content: "Streaming", deliveryStatus: .streaming),
+      blocks: []
+    )
+
+    #expect(
+      ChatTranscriptGenerationIndicatorPolicy.shouldShow(
+        isGenerating: true,
+        items: [assistantItem]
+      ) == false)
+  }
+
+  @Test
+  func generationIndicatorShowsWhenGenerationHasNoActiveTranscriptRow() {
+    let stableItem = renderedAssistantItem(
+      AssistantTurnMessage(content: "Done", deliveryStatus: .complete),
+      blocks: [parsedBlock(for: "Done")]
+    )
+
+    #expect(
+      ChatTranscriptGenerationIndicatorPolicy.shouldShow(
+        isGenerating: true,
+        items: [stableItem]
+      ))
+  }
+
+  @Test
   func removedAssistantMessagesArePrunedFromBlockCache() {
     let turnID = UUID()
     let assistantID = UUID()
@@ -556,6 +670,16 @@ private func renderedAssistantItem(
     toolCallRecord: nil,
     generationMetrics: message.generationMetrics,
     assistantRenderBlocks: blocks
+  )
+}
+
+private func renderedThinkingItem(_ message: AssistantThinkingMessage) -> RenderedChatTurnItem {
+  RenderedChatTurnItem(
+    id: "turn:thinking:\(message.id.uuidString)",
+    item: .assistantThinking(message),
+    toolCallRecord: nil,
+    generationMetrics: nil,
+    assistantRenderBlocks: []
   )
 }
 

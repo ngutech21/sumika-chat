@@ -143,7 +143,14 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         return cell
       }
 
-      applySnapshot(previousIDs: [], rowIDs: [], changedIDs: [], animatingDifferences: false)
+      applySnapshot(
+        previousIDs: [],
+        previousRowsByID: [:],
+        rowIDs: [],
+        currentRowsByID: [:],
+        changedIDs: [],
+        animatingDifferences: false
+      )
       return scrollView
     }
 
@@ -180,6 +187,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         }
 
         let previousRowIDs = rowIDs
+        let previousRowsByID = rowsByID
         let previousRevisionsByID = revisionsByID
         let newRowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
         let newRowIDs = rows.map(\.id)
@@ -217,12 +225,18 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         case .snapshot:
           applySnapshot(
             previousIDs: previousRowIDs,
+            previousRowsByID: previousRowsByID,
             rowIDs: newRowIDs,
+            currentRowsByID: newRowsByID,
             changedIDs: plan.changedIDs,
             animatingDifferences: false
           )
           scheduleHeightInvalidation(
-            for: IndexSet(integersIn: 0..<newRowIDs.count),
+            for: NativeTranscriptSnapshotHeightInvalidation.rowIndexes(
+              previousIDs: previousRowIDs,
+              currentIDs: newRowIDs,
+              changedIDs: plan.changedIDs
+            ),
             reason: "snapshot",
             scrollToBottomAfterFlush: wasPinnedToBottom || shouldScrollAfterAppend
           )
@@ -370,7 +384,9 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
 
     private func applySnapshot(
       previousIDs: [String],
+      previousRowsByID: [String: NativeTranscriptRow],
       rowIDs: [String],
+      currentRowsByID: [String: NativeTranscriptRow],
       changedIDs: Set<String>,
       animatingDifferences: Bool
     ) {
@@ -379,7 +395,9 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         category: .transcript,
         metadata: snapshotMetadata(
           previousIDs: previousIDs,
+          previousRowsByID: previousRowsByID,
           currentIDs: rowIDs,
+          currentRowsByID: currentRowsByID,
           changedIDs: changedIDs,
           animatingDifferences: animatingDifferences
         )
@@ -393,18 +411,97 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
 
     private func snapshotMetadata(
       previousIDs: [String],
+      previousRowsByID: [String: NativeTranscriptRow],
       currentIDs: [String],
+      currentRowsByID: [String: NativeTranscriptRow],
       changedIDs: Set<String>,
       animatingDifferences: Bool
     ) -> ChatDiagnostics.Metadata {
       let previousIDSet = Set(previousIDs)
       let currentIDSet = Set(currentIDs)
-      let insertedCount = currentIDSet.subtracting(previousIDSet).count
-      let deletedCount = previousIDSet.subtracting(currentIDSet).count
+      let insertedIDs = currentIDs.filter { !previousIDSet.contains($0) }
+      let removedIDs = previousIDs.filter { !currentIDSet.contains($0) }
       let reloadedCount = changedIDs.intersection(currentIDSet).count
-      return ChatDiagnostics.Metadata(
-        "previousRows=\(previousIDs.count) currentRows=\(currentIDs.count) inserted=\(insertedCount) deleted=\(deletedCount) reloaded=\(reloadedCount) animated=\(animatingDifferences)"
+      let reason = snapshotReason(
+        previousIDs: previousIDs,
+        currentIDs: currentIDs,
+        insertedIDs: insertedIDs,
+        removedIDs: removedIDs,
+        previousRowsByID: previousRowsByID,
+        currentRowsByID: currentRowsByID
       )
+      let insertedKinds = rowKindSummary(ids: insertedIDs, rowsByID: currentRowsByID)
+      let removedKinds = rowKindSummary(ids: removedIDs, rowsByID: previousRowsByID)
+      let parts = [
+        "reason=\(reason)",
+        "previousRows=\(previousIDs.count)",
+        "currentRows=\(currentIDs.count)",
+        "inserted=\(insertedIDs.count)",
+        "deleted=\(removedIDs.count)",
+        "reloaded=\(reloadedCount)",
+        "insertedIDs=\(insertedIDs.telemetryIDListSummary)",
+        "removedIDs=\(removedIDs.telemetryIDListSummary)",
+        "insertedKinds=\(insertedKinds)",
+        "removedKinds=\(removedKinds)",
+        "animated=\(animatingDifferences)",
+      ]
+      return ChatDiagnostics.Metadata(
+        parts.joined(separator: " ")
+      )
+    }
+
+    private func snapshotReason(
+      previousIDs: [String],
+      currentIDs: [String],
+      insertedIDs: [String],
+      removedIDs: [String],
+      previousRowsByID: [String: NativeTranscriptRow],
+      currentRowsByID: [String: NativeTranscriptRow]
+    ) -> String {
+      guard !previousIDs.isEmpty || !currentIDs.isEmpty else {
+        return "initialEmpty"
+      }
+      if previousIDs.isEmpty {
+        return "initialRows"
+      }
+
+      var reasons: [String] = []
+      if currentIDs.count != previousIDs.count {
+        reasons.append(currentIDs.count > previousIDs.count ? "rowAdded" : "rowRemoved")
+      } else {
+        reasons.append("rowOrderOrReplacement")
+      }
+      if insertedIDs.contains(where: { currentRowsByID[$0]?.isGenerationIndicator == true }) {
+        reasons.append("generationIndicatorAdded")
+      }
+      if removedIDs.contains(where: { previousRowsByID[$0]?.isGenerationIndicator == true }) {
+        reasons.append("generationIndicatorRemoved")
+      }
+      if insertedIDs.contains(where: {
+        currentRowsByID[$0]?.isTransientAssistantPlaceholder == true
+      }) {
+        reasons.append("transientPlaceholderAdded")
+      }
+      if removedIDs.contains(where: {
+        previousRowsByID[$0]?.isTransientAssistantPlaceholder == true
+      }) {
+        reasons.append("transientPlaceholderRemoved")
+      }
+      return reasons.isEmpty ? "rowIDsChanged" : reasons.joined(separator: "+")
+    }
+
+    private func rowKindSummary(
+      ids: [String],
+      rowsByID: [String: NativeTranscriptRow]
+    ) -> String {
+      let counts = ids.reduce(into: [String: Int]()) { partialResult, id in
+        let kind = rowsByID[id]?.cellKind.telemetryName ?? "unknown"
+        partialResult[kind, default: 0] += 1
+      }
+      guard !counts.isEmpty else {
+        return "none"
+      }
+      return counts.keys.sorted().map { "\($0):\(counts[$0] ?? 0)" }.joined(separator: ",")
     }
 
     private func configure(_ cell: NativeChatMessageCellView, with row: NativeTranscriptRow) {
@@ -896,6 +993,20 @@ struct NativeTranscriptRow: Equatable, Identifiable {
       item.content.count.telemetryLengthBucket
     }
   }
+
+  var isGenerationIndicator: Bool {
+    if case .generationIndicator = body {
+      return true
+    }
+    return false
+  }
+
+  var isTransientAssistantPlaceholder: Bool {
+    guard case .item(let item) = body else {
+      return false
+    }
+    return item.shouldShowAssistantPlaceholder
+  }
 }
 
 extension Int {
@@ -925,6 +1036,18 @@ extension IndexSet {
       return "none"
     }
     return count == 1 ? "\(first)" : "\(first)..<\(last + 1)"
+  }
+}
+
+extension Array where Element == String {
+  fileprivate var telemetryIDListSummary: String {
+    guard !isEmpty else {
+      return "none"
+    }
+    let limit = 6
+    let visibleIDs = prefix(limit).joined(separator: ",")
+    let suffix = count > limit ? ",+\(count - limit)" : ""
+    return "[\(visibleIDs)\(suffix)]"
   }
 }
 
@@ -964,6 +1087,23 @@ enum NativeTranscriptScrollDecision {
       return false
     }
     return lastRow.isUserMessage
+  }
+}
+
+enum NativeTranscriptSnapshotHeightInvalidation {
+  static func rowIndexes(
+    previousIDs: [String],
+    currentIDs: [String],
+    changedIDs: Set<String>
+  ) -> IndexSet {
+    let previousIDSet = Set(previousIDs)
+    let insertedIDs = currentIDs.filter { !previousIDSet.contains($0) }
+    let invalidatedIDs = changedIDs.union(insertedIDs)
+    var indexes = IndexSet()
+    for (index, id) in currentIDs.enumerated() where invalidatedIDs.contains(id) {
+      indexes.insert(index)
+    }
+    return indexes
   }
 }
 
@@ -1026,6 +1166,7 @@ struct NativeToolDetailContent: Equatable {
 
 struct NativeTranscriptHeightCache {
   private var heightsByKey: [Key: CGFloat] = [:]
+  private var lastKnownKeyByRowID: [String: Key] = [:]
 
   var cachedEntryCount: Int {
     heightsByKey.count
@@ -1047,6 +1188,7 @@ struct NativeTranscriptHeightCache {
       isToolExpanded: state.isToolExpanded
     )
     if let height = heightsByKey[key] {
+      lastKnownKeyByRowID[row.id] = key
       return height
     }
     let missReason = cacheMissReason(for: key)
@@ -1065,13 +1207,17 @@ struct NativeTranscriptHeightCache {
       )
     }
     heightsByKey[key] = height
+    lastKnownKeyByRowID[row.id] = key
     return height
   }
 
   private func cacheMissReason(for key: Key) -> String {
     let rowKeys = heightsByKey.keys.filter { $0.rowID == key.rowID }
     guard !rowKeys.isEmpty else {
-      return "noRowEntry"
+      guard let lastKnownKey = lastKnownKeyByRowID[key.rowID] else {
+        return "noRowEntry"
+      }
+      return missReason(comparedWith: lastKnownKey, current: key)
     }
     guard rowKeys.contains(where: { $0.revision == key.revision }) else {
       return "revisionChanged"
@@ -1101,9 +1247,11 @@ struct NativeTranscriptHeightCache {
 
   mutating func invalidate(rowID: String) {
     heightsByKey = heightsByKey.filter { $0.key.rowID != rowID }
+    lastKnownKeyByRowID[rowID] = nil
   }
 
   mutating func prune(activeRows: [NativeTranscriptRow]) {
+    let activeRowIDs = Set(activeRows.map(\.id))
     let activeRevisions = Set(
       activeRows.map { ActiveRevision(rowID: $0.id, revision: $0.revision) }
     )
@@ -1112,6 +1260,23 @@ struct NativeTranscriptHeightCache {
         ActiveRevision(rowID: $0.key.rowID, revision: $0.key.revision)
       )
     }
+    lastKnownKeyByRowID = lastKnownKeyByRowID.filter { activeRowIDs.contains($0.key) }
+  }
+
+  private func missReason(comparedWith lastKnownKey: Key, current key: Key) -> String {
+    if lastKnownKey.revision != key.revision {
+      return "revisionChanged"
+    }
+    if lastKnownKey.width != key.width {
+      return "widthChanged"
+    }
+    if lastKnownKey.isSpeechEnabled != key.isSpeechEnabled {
+      return "speechStateChanged"
+    }
+    if lastKnownKey.isToolExpanded != key.isToolExpanded {
+      return "toolExpansionChanged"
+    }
+    return "unknown"
   }
 
   struct Key: Hashable {
