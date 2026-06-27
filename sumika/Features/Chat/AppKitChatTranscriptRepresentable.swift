@@ -1392,6 +1392,7 @@ final class NativeChatMessageCellView: NSTableCellView {
     let toolCall = record.transcriptToolCall
 
     let header = horizontalStack(spacing: 7)
+    header.distribution = .fill
     header.addArrangedSubview(makeToolStatusIndicator(status: record.status))
     let nameLabel = makeTextLabel(toolCall.toolName.rawValue, color: .labelColor)
     nameLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
@@ -1402,7 +1403,6 @@ final class NativeChatMessageCellView: NSTableCellView {
       summaryLabel.maximumNumberOfLines = 1
       header.addArrangedSubview(summaryLabel)
     }
-    header.addArrangedSubview(spacer())
     if record.hasNativeToolDetails {
       header.addArrangedSubview(
         makeIconButton(
@@ -1414,7 +1414,9 @@ final class NativeChatMessageCellView: NSTableCellView {
         }
       )
     }
+    header.addArrangedSubview(spacer())
     stack.addArrangedSubview(header)
+    header.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor).isActive = true
 
     if state.isToolExpanded {
       stack.addArrangedSubview(makeToolDetails(record: record))
@@ -1703,7 +1705,7 @@ final class NativeAssistantThinkingView: NSView {
 
     header.orientation = .horizontal
     header.alignment = .centerY
-    header.distribution = .gravityAreas
+    header.distribution = .fill
     header.spacing = 7
     stack.addArrangedSubview(header)
 
@@ -1720,7 +1722,6 @@ final class NativeAssistantThinkingView: NSView {
     titleLabel.lineBreakMode = .byTruncatingTail
     titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     header.addArrangedSubview(titleLabel)
-    header.addArrangedSubview(Self.spacer())
 
     disclosureButton.translatesAutoresizingMaskIntoConstraints = false
     disclosureButton.bezelStyle = .inline
@@ -1839,12 +1840,6 @@ final class NativeAssistantThinkingView: NSView {
     return attributedString
   }
 
-  private static func spacer() -> NSView {
-    let view = NSView()
-    view.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    return view
-  }
 }
 
 final class NativeAssistantMessageView: NSView {

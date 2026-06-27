@@ -700,6 +700,74 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func toolDisclosureButtonStaysAfterToolHeaderTextWhenExpanded() throws {
+    let record = nativeCompletedCommandToolRecord()
+    let row = nativeToolRow(id: "tool", revision: 1, record: record)
+    let cell = configuredNativeCell(for: row)
+    _ = try #require(
+      cell.descendantTextFields.first {
+        $0.stringValue == ToolName.runCommand.rawValue
+      }
+    )
+    let summaryLabel = try #require(
+      cell.descendantTextFields.first { $0.stringValue == "swift test" }
+    )
+    let collapsedButton = try #require(
+      cell.descendantButtons(accessibilityLabel: "Show details").first
+    )
+    let collapsedFrame = collapsedButton.frame(in: cell)
+    let summaryFrame = summaryLabel.frame(in: cell)
+
+    #expect(collapsedFrame.minX >= summaryFrame.maxX)
+    #expect(collapsedFrame.minX - summaryFrame.maxX < 12)
+    #expect(collapsedFrame.maxX < cell.bounds.width)
+
+    cell.configure(
+      row: row,
+      state: NativeTranscriptCellState(isToolExpanded: true),
+      actions: testNativeActions()
+    )
+    cell.layoutSubtreeIfNeeded()
+    let expandedButton = try #require(
+      cell.descendantButtons(accessibilityLabel: "Hide details").first
+    )
+    let expandedFrame = expandedButton.frame(in: cell)
+
+    #expect(abs(expandedFrame.minX - collapsedFrame.minX) < 1)
+  }
+
+  @Test
+  func reasoningDisclosureButtonStaysAfterTitleWhenExpanded() throws {
+    let row = nativeThinkingRow(id: "thinking", revision: 1)
+    let cell = configuredNativeCell(for: row)
+    let titleLabel = try #require(
+      cell.descendantTextFields.first { $0.stringValue == "Reasoning" }
+    )
+    let collapsedButton = try #require(
+      cell.descendantButtons(accessibilityLabel: "Show reasoning").first
+    )
+    let collapsedFrame = collapsedButton.frame(in: cell)
+    let titleFrame = titleLabel.frame(in: cell)
+
+    #expect(collapsedFrame.minX >= titleFrame.maxX)
+    #expect(collapsedFrame.minX - titleFrame.maxX < 12)
+    #expect(collapsedFrame.maxX < cell.bounds.width * 0.35)
+
+    cell.configure(
+      row: row,
+      state: NativeTranscriptCellState(isThinkingExpanded: true),
+      actions: testNativeActions()
+    )
+    cell.layoutSubtreeIfNeeded()
+    let expandedButton = try #require(
+      cell.descendantButtons(accessibilityLabel: "Hide reasoning").first
+    )
+    let expandedFrame = expandedButton.frame(in: cell)
+
+    #expect(abs(expandedFrame.minX - collapsedFrame.minX) < 1)
+  }
+
+  @Test
   func differentRowOrKindReplacesHostedView() throws {
     let cell = NativeChatMessageCellView(
       identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
@@ -1093,12 +1161,15 @@ private func configuredNativeCell(
   let cell = NativeChatMessageCellView(
     identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
   )
+  cell.translatesAutoresizingMaskIntoConstraints = false
   cell.configure(
     row: row,
     state: state,
     actions: testNativeActions()
   )
   cell.setFrameSize(NSSize(width: 640, height: 240))
+  let widthConstraint = cell.widthAnchor.constraint(equalToConstant: 640)
+  widthConstraint.isActive = true
   cell.layoutSubtreeIfNeeded()
   return cell
 }
@@ -1136,6 +1207,10 @@ extension NSView {
     descendants(of: NSButton.self).filter {
       $0.accessibilityLabel() == accessibilityLabel
     }
+  }
+
+  fileprivate func frame(in ancestor: NSView) -> NSRect {
+    convert(bounds, to: ancestor)
   }
 
   fileprivate var descendantTextValues: [String] {
