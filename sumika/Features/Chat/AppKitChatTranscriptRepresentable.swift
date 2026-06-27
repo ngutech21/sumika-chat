@@ -1123,13 +1123,14 @@ final class NativeChatMessageCellView: NSTableCellView {
     rowID: String,
     state: NativeTranscriptCellState
   ) -> NSView {
-    let stack = verticalStack(spacing: 6)
+    let stack = verticalStack(spacing: 5)
     let isExpanded = state.isThinkingExpanded || message.deliveryStatus == .streaming
 
     let header = horizontalStack(spacing: 7)
     header.addArrangedSubview(nativeThinkingStatusIndicator(status: message.deliveryStatus))
     let title = makeSecondaryLabel("Reasoning")
-    title.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+    title.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+    title.textColor = .tertiaryLabelColor
     header.addArrangedSubview(title)
     header.addArrangedSubview(spacer())
     header.addArrangedSubview(
@@ -1148,12 +1149,7 @@ final class NativeChatMessageCellView: NSTableCellView {
       stack.addArrangedSubview(content)
     }
 
-    return borderedPaddedContainer(
-      stack,
-      fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.06),
-      strokeColor: NSColor.secondaryLabelColor.withAlphaComponent(0.10),
-      cornerRadius: 8
-    )
+    return stack
   }
 
   private func makeAssistantMessageView(
