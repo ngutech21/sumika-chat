@@ -158,22 +158,56 @@ public struct ChatGenerationCoordinator {
     updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void,
     updateContextUsage: () async -> Void
   ) async throws -> ChatGenerationResult {
-    let generationStartedAt = Date()
-    let stream = try await runtimeOperations.streamReply(
-      for: transcript,
-      attachments: attachments,
-      systemPrompt: systemPrompt,
-      settings: settings,
-      toolContext: toolContext,
-      operationID: operationID
+    let streamReplyInterval = ChatDiagnostics.beginInterval(
+      "Generation stream reply",
+      category: .generation,
+      metadata: ChatDiagnostics.Metadata(
+        "messageCount=\(transcript.entries.count) attachmentCount=\(attachments.count) mode=\(interactionMode?.rawValue ?? "unknown")"
+      )
     )
-    let runtimeCacheDebugSnapshot = try await runtimeOperations.runtimeCacheDebugSnapshot(
-      operationID: operationID)
+    defer {
+      ChatDiagnostics.endInterval(streamReplyInterval)
+    }
+
+    let generationStartedAt = Date()
+    let stream: AsyncThrowingStream<ChatModelStreamEvent, Error>
+    do {
+      let interval = ChatDiagnostics.beginInterval(
+        "Generation runtime stream request",
+        category: .generation
+      )
+      defer {
+        ChatDiagnostics.endInterval(interval)
+      }
+      stream = try await runtimeOperations.streamReply(
+        for: transcript,
+        attachments: attachments,
+        systemPrompt: systemPrompt,
+        settings: settings,
+        toolContext: toolContext,
+        operationID: operationID
+      )
+    }
+    let runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
+    do {
+      let interval = ChatDiagnostics.beginInterval(
+        "Generation runtime cache snapshot",
+        category: .generation
+      )
+      defer {
+        ChatDiagnostics.endInterval(interval)
+      }
+      runtimeCacheDebugSnapshot = try await runtimeOperations.runtimeCacheDebugSnapshot(
+        operationID: operationID)
+    }
     await updateRuntimeCacheDebugSnapshot(runtimeCacheDebugSnapshot)
 
     var bufferedChunk = ""
     var bufferedThinkingChunk = ""
+    var bufferedChunkEventCount = 0
+    var bufferedThinkingChunkEventCount = 0
     var generatedContent = ""
+    var generatedThinkingContentLength = 0
     var nativeToolCalls: [ChatRuntimeToolCall] = []
     var lastFlushDate = Date()
     var lastThinkingFlushDate = Date()
@@ -186,11 +220,26 @@ public struct ChatGenerationCoordinator {
       }
       guard !Task.isCancelled else {
         bufferedChunk = ""
+        bufferedChunkEventCount = 0
         return
       }
 
       let startedAt = Date()
-      appendChunk(bufferedChunk)
+      let batchCharacterCount = bufferedChunk.count
+      let batchEventCount = bufferedChunkEventCount
+      #if DEBUG
+        ChatDiagnostics.measure(
+          "Generation visible UI flush",
+          category: .generation,
+          metadata: ChatDiagnostics.Metadata(
+            "batchTokenEvents=\(batchEventCount) batchChars=\(batchCharacterCount) visibleChars=\(generatedContent.count) thinkingChars=\(generatedThinkingContentLength)"
+          )
+        ) {
+          appendChunk(bufferedChunk)
+        }
+      #else
+        appendChunk(bufferedChunk)
+      #endif
       let durationMs = Date().timeIntervalSince(startedAt) * 1000
       Task {
         await turnTracer.recordTurnTraceEvent(
@@ -206,6 +255,7 @@ public struct ChatGenerationCoordinator {
         )
       }
       bufferedChunk = ""
+      bufferedChunkEventCount = 0
       lastFlushDate = Date()
     }
 
@@ -215,11 +265,27 @@ public struct ChatGenerationCoordinator {
       }
       guard !Task.isCancelled else {
         bufferedThinkingChunk = ""
+        bufferedThinkingChunkEventCount = 0
         return
       }
 
-      appendThinkingChunk(bufferedThinkingChunk)
+      let batchCharacterCount = bufferedThinkingChunk.count
+      let batchEventCount = bufferedThinkingChunkEventCount
+      #if DEBUG
+        ChatDiagnostics.measure(
+          "Generation thinking UI flush",
+          category: .generation,
+          metadata: ChatDiagnostics.Metadata(
+            "batchTokenEvents=\(batchEventCount) batchChars=\(batchCharacterCount) visibleChars=\(generatedContent.count) thinkingChars=\(generatedThinkingContentLength)"
+          )
+        ) {
+          appendThinkingChunk(bufferedThinkingChunk)
+        }
+      #else
+        appendThinkingChunk(bufferedThinkingChunk)
+      #endif
       bufferedThinkingChunk = ""
+      bufferedThinkingChunkEventCount = 0
       lastThinkingFlushDate = Date()
     }
 
@@ -248,11 +314,14 @@ public struct ChatGenerationCoordinator {
         case .chunk(let chunk):
           generatedContent += chunk
           bufferedChunk += chunk
+          bufferedChunkEventCount += 1
           if shouldFlushBufferedChunks() {
             flushBufferedChunks()
           }
         case .thinkingChunk(let chunk):
           bufferedThinkingChunk += chunk
+          bufferedThinkingChunkEventCount += 1
+          generatedThinkingContentLength += chunk.count
           if shouldFlushBufferedThinkingChunks() {
             flushBufferedThinkingChunks()
           }
@@ -270,7 +339,16 @@ public struct ChatGenerationCoordinator {
             operationID: operationID
           )
           try await runtimeOperations.checkCurrentOperation(operationID)
-          updateGenerationMetrics(completedMetrics)
+          ChatDiagnostics.measure("Generation metrics update", category: .generation) {
+            updateGenerationMetrics(completedMetrics)
+          }
+          let contextUsageInterval = ChatDiagnostics.beginInterval(
+            "Generation context usage refresh",
+            category: .generation
+          )
+          defer {
+            ChatDiagnostics.endInterval(contextUsageInterval)
+          }
           await updateContextUsage()
           didComplete = true
         }
@@ -279,6 +357,8 @@ public struct ChatGenerationCoordinator {
       shouldFlushBufferedChunksOnExit = false
       bufferedChunk = ""
       bufferedThinkingChunk = ""
+      bufferedChunkEventCount = 0
+      bufferedThinkingChunkEventCount = 0
       throw CancellationError()
     }
 
@@ -323,6 +403,13 @@ public struct ChatGenerationCoordinator {
       return nil
     }
 
+    let tokenCountInterval = ChatDiagnostics.beginInterval(
+      "Generation partial token count",
+      category: .generation
+    )
+    defer {
+      ChatDiagnostics.endInterval(tokenCountInterval)
+    }
     let generatedTokenCount = try await runtimeOperations.generatedTokenCount(
       for: generatedContent,
       operationID: operationID

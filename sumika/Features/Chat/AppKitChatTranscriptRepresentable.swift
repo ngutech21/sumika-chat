@@ -27,22 +27,29 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
   }
 
   func updateNSView(_ scrollView: NSScrollView, context: Context) {
-    context.coordinator.updateCallbacks(
-      onToggleSpeech: onToggleSpeech,
-      onApproveToolCall: onApproveToolCall,
-      onDenyToolCall: onDenyToolCall,
-      onAnswerAskUser: onAnswerAskUser
+    let rows = NativeTranscriptRow.rows(
+      for: items,
+      showsGenerationIndicator: showsGenerationIndicator
     )
-    context.coordinator.update(
-      rows: NativeTranscriptRow.rows(
-        for: items,
-        showsGenerationIndicator: showsGenerationIndicator
-      ),
-      accessibilityValue: accessibilityValue,
-      isSpeechEnabled: isSpeechEnabled,
-      activeSpeechRowID: activeSpeechRowID,
-      in: scrollView
-    )
+    ChatDiagnostics.measure(
+      "Transcript updateNSView",
+      category: .transcript,
+      metadata: context.coordinator.updateNSViewMetadata(itemCount: items.count, rows: rows)
+    ) {
+      context.coordinator.updateCallbacks(
+        onToggleSpeech: onToggleSpeech,
+        onApproveToolCall: onApproveToolCall,
+        onDenyToolCall: onDenyToolCall,
+        onAnswerAskUser: onAnswerAskUser
+      )
+      context.coordinator.update(
+        rows: rows,
+        accessibilityValue: accessibilityValue,
+        isSpeechEnabled: isSpeechEnabled,
+        activeSpeechRowID: activeSpeechRowID,
+        in: scrollView
+      )
+    }
   }
 
   @MainActor
@@ -68,6 +75,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     private var attachmentPreviewPopover: NSPopover?
     private var pinnedToBottom = true
     private var pendingHeightInvalidationRows = IndexSet()
+    private var pendingHeightInvalidationReasons = Set<String>()
     private var pendingHeightInvalidationWorkItem: DispatchWorkItem?
     private var shouldScrollAfterHeightInvalidation = false
 
@@ -84,7 +92,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     }
 
     func makeScrollView() -> NSScrollView {
-      let tableView = NSTableView()
+      let tableView = NativeTranscriptNSTableView()
       tableView.headerView = nil
       tableView.usesAlternatingRowBackgroundColors = false
       tableView.selectionHighlightStyle = .none
@@ -135,7 +143,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         return cell
       }
 
-      applySnapshot(rowIDs: [], animatingDifferences: false)
+      applySnapshot(previousIDs: [], rowIDs: [], changedIDs: [], animatingDifferences: false)
       return scrollView
     }
 
@@ -151,6 +159,14 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       self.onAnswerAskUser = onAnswerAskUser
     }
 
+    func updateNSViewMetadata(itemCount: Int, rows: [NativeTranscriptRow])
+      -> ChatDiagnostics.Metadata
+    {
+      ChatDiagnostics.Metadata(
+        "itemCount=\(itemCount) rowCount=\(rows.count) visibleRows=\(visibleRowRangeSummary) reason=\(updateReason(for: rows))"
+      )
+    }
+
     func update(
       rows: [NativeTranscriptRow],
       accessibilityValue: String,
@@ -158,81 +174,128 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       activeSpeechRowID: String?,
       in scrollView: NSScrollView
     ) {
-      guard tableView != nil else {
-        return
-      }
-
-      let newRowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
-      let newRowIDs = rows.map(\.id)
-      let newRevisionsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.revision) })
-      let plan = NativeTranscriptDiffPlan.make(
-        previousIDs: rowIDs,
-        previousRevisions: revisionsByID,
-        currentIDs: newRowIDs,
-        currentRevisions: newRevisionsByID
-      )
-      let wasPinnedToBottom = isPinnedToBottom(scrollView)
-      let speechStateChangedIDs = changedSpeechRowIDs(
-        currentRowIDs: newRowIDs,
-        isSpeechEnabled: isSpeechEnabled,
-        activeSpeechRowID: activeSpeechRowID
-      )
-      let shouldScrollAfterAppend = NativeTranscriptScrollDecision.shouldScrollToBottomAfterAppend(
-        previousIDs: rowIDs,
-        currentRows: rows
-      )
-
-      rowsByID = newRowsByID
-      rowIDs = newRowIDs
-      revisionsByID = newRevisionsByID
-      self.isSpeechEnabled = isSpeechEnabled
-      self.activeSpeechRowID = activeSpeechRowID
-      pruneCoordinatorState(activeRows: rows)
-      scrollView.setAccessibilityValue(accessibilityValue)
-      let didChangeColumnWidth = updateColumnWidth(in: scrollView)
-
-      switch plan.action {
-      case .snapshot:
-        applySnapshot(rowIDs: newRowIDs, animatingDifferences: false)
-        scheduleHeightInvalidation(
-          for: IndexSet(integersIn: 0..<newRowIDs.count),
-          scrollToBottomAfterFlush: wasPinnedToBottom || shouldScrollAfterAppend
-        )
-      case .reconfigureRows:
-        let reconfiguredIDs = plan.changedIDs.union(speechStateChangedIDs)
-        let streamingMessageChangedIDs = streamingAssistantMessageRowIDs(in: plan.changedIDs)
-        let streamingThinkingChangedIDs = streamingAssistantThinkingRowIDs(in: plan.changedIDs)
-        let streamingChangedIDs = streamingMessageChangedIDs.union(streamingThinkingChangedIDs)
-        let shouldDeferPinnedScroll =
-          wasPinnedToBottom
-          && !streamingChangedIDs.isEmpty
-          && streamingChangedIDs == plan.changedIDs
-          && speechStateChangedIDs.isEmpty
-          && !didChangeColumnWidth
-
-        reconfigureVisibleRows(changedIDs: reconfiguredIDs)
-        var invalidationRows = rowIndexes(for: reconfiguredIDs)
-        if didChangeColumnWidth {
-          invalidationRows.formUnion(IndexSet(integersIn: 0..<newRowIDs.count))
+      ChatDiagnostics.measure("Transcript coordinator update", category: .transcript) {
+        guard tableView != nil else {
+          return
         }
-        scheduleHeightInvalidation(
-          for: invalidationRows,
-          scrollToBottomAfterFlush: shouldDeferPinnedScroll && streamingThinkingChangedIDs.isEmpty
-            || (wasPinnedToBottom && didChangeColumnWidth)
+
+        let previousRowIDs = rowIDs
+        let previousRevisionsByID = revisionsByID
+        let newRowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+        let newRowIDs = rows.map(\.id)
+        let newRevisionsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.revision) })
+        let plan = NativeTranscriptDiffPlan.make(
+          previousIDs: previousRowIDs,
+          previousRevisions: previousRevisionsByID,
+          currentIDs: newRowIDs,
+          currentRevisions: newRevisionsByID
         )
-        let hasRowChanges = !plan.changedIDs.isEmpty
-        if shouldScrollAfterAppend
-          || (wasPinnedToBottom && hasRowChanges && !shouldDeferPinnedScroll)
-        {
+        let wasPinnedToBottom = isPinnedToBottom(scrollView)
+        let speechStateChangedIDs = changedSpeechRowIDs(
+          currentRowIDs: newRowIDs,
+          isSpeechEnabled: isSpeechEnabled,
+          activeSpeechRowID: activeSpeechRowID
+        )
+        let shouldScrollAfterAppend =
+          NativeTranscriptScrollDecision.shouldScrollToBottomAfterAppend(
+            previousIDs: rowIDs,
+            currentRows: rows
+          )
+
+        rowsByID = newRowsByID
+        rowIDs = newRowIDs
+        revisionsByID = newRevisionsByID
+        self.isSpeechEnabled = isSpeechEnabled
+        self.activeSpeechRowID = activeSpeechRowID
+        pruneCoordinatorState(activeRows: rows)
+        ChatDiagnostics.measure("Transcript accessibility update", category: .transcript) {
+          scrollView.setAccessibilityValue(accessibilityValue)
+        }
+        let didChangeColumnWidth = updateColumnWidth(in: scrollView)
+
+        switch plan.action {
+        case .snapshot:
+          applySnapshot(
+            previousIDs: previousRowIDs,
+            rowIDs: newRowIDs,
+            changedIDs: plan.changedIDs,
+            animatingDifferences: false
+          )
+          scheduleHeightInvalidation(
+            for: IndexSet(integersIn: 0..<newRowIDs.count),
+            reason: "snapshot",
+            scrollToBottomAfterFlush: wasPinnedToBottom || shouldScrollAfterAppend
+          )
+        case .reconfigureRows:
+          let reconfiguredIDs = plan.changedIDs.union(speechStateChangedIDs)
+          let streamingMessageChangedIDs = streamingAssistantMessageRowIDs(in: plan.changedIDs)
+          let streamingThinkingChangedIDs = streamingAssistantThinkingRowIDs(in: plan.changedIDs)
+          let streamingChangedIDs = streamingMessageChangedIDs.union(streamingThinkingChangedIDs)
+          let shouldDeferPinnedScroll =
+            wasPinnedToBottom
+            && !streamingChangedIDs.isEmpty
+            && streamingChangedIDs == plan.changedIDs
+            && speechStateChangedIDs.isEmpty
+            && !didChangeColumnWidth
+
+          reconfigureVisibleRows(changedIDs: reconfiguredIDs)
+          var invalidationRows = rowIndexes(for: reconfiguredIDs)
+          if didChangeColumnWidth {
+            invalidationRows.formUnion(IndexSet(integersIn: 0..<newRowIDs.count))
+          }
+          scheduleHeightInvalidation(
+            for: invalidationRows,
+            reason: heightInvalidationReason(
+              didChangeColumnWidth: didChangeColumnWidth,
+              streamingMessageChangedIDs: streamingMessageChangedIDs,
+              streamingThinkingChangedIDs: streamingThinkingChangedIDs,
+              speechStateChangedIDs: speechStateChangedIDs,
+              changedIDs: plan.changedIDs
+            ),
+            scrollToBottomAfterFlush: shouldDeferPinnedScroll && streamingThinkingChangedIDs.isEmpty
+              || (wasPinnedToBottom && didChangeColumnWidth)
+          )
+          let hasRowChanges = !plan.changedIDs.isEmpty
+          if shouldScrollAfterAppend
+            || (wasPinnedToBottom && hasRowChanges && !shouldDeferPinnedScroll)
+          {
+            scrollToBottom(scrollView)
+          }
+          return
+        }
+
+        let hasRowChanges = plan.action == .snapshot || !plan.changedIDs.isEmpty
+        if shouldScrollAfterAppend || (wasPinnedToBottom && hasRowChanges) {
           scrollToBottom(scrollView)
         }
-        return
       }
+    }
 
-      let hasRowChanges = plan.action == .snapshot || !plan.changedIDs.isEmpty
-      if shouldScrollAfterAppend || (wasPinnedToBottom && hasRowChanges) {
-        scrollToBottom(scrollView)
+    private var visibleRowRangeSummary: String {
+      guard let tableView else {
+        return "none"
       }
+      let visibleRows = tableView.rows(in: tableView.visibleRect)
+      guard visibleRows.location != NSNotFound else {
+        return "none"
+      }
+      let upperBound = visibleRows.location + visibleRows.length
+      return "\(visibleRows.location)..<\(upperBound)"
+    }
+
+    private func updateReason(for rows: [NativeTranscriptRow]) -> String {
+      let currentIDs = rows.map(\.id)
+      guard !rowIDs.isEmpty else {
+        return "initial"
+      }
+      guard currentIDs == rowIDs else {
+        return currentIDs.count == rowIDs.count ? "rowOrderChanged" : "rowCountChanged"
+      }
+      let currentRevisionsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.revision) })
+      if currentRevisionsByID != revisionsByID {
+        return "rowRevisionChanged"
+      }
+      return "unchanged"
     }
 
     private func streamingAssistantMessageRowIDs(in changedIDs: Set<String>) -> Set<String> {
@@ -256,25 +319,27 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     }
 
     func tableView(_: NSTableView, heightOfRow row: Int) -> CGFloat {
-      guard row >= 0, row < rowIDs.count, let rowModel = rowsByID[rowIDs[row]] else {
-        return 44
-      }
-      let width = max(tableView?.bounds.width ?? 680, 320)
-      return heightCache.height(
-        for: rowModel,
-        width: width,
-        state: cellStateStore.state(
-          for: rowModel.id,
-          isSpeechEnabled: isSpeechEnabled,
-          activeSpeechRowID: activeSpeechRowID
-        ),
-        markdownBlocks: { [weak self] markdown in
-          guard let self else {
-            return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
-          }
-          return self.markdownCache.blocks(for: markdown)
+      ChatDiagnostics.measure("Transcript row height", category: .transcript) {
+        guard row >= 0, row < rowIDs.count, let rowModel = rowsByID[rowIDs[row]] else {
+          return 44
         }
-      )
+        let width = max(tableView?.bounds.width ?? 680, 320)
+        return heightCache.height(
+          for: rowModel,
+          width: width,
+          state: cellStateStore.state(
+            for: rowModel.id,
+            isSpeechEnabled: isSpeechEnabled,
+            activeSpeechRowID: activeSpeechRowID
+          ),
+          markdownBlocks: { [weak self] markdown in
+            guard let self else {
+              return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+            }
+            return self.markdownCache.blocks(for: markdown)
+          }
+        )
+      }
     }
 
     func tableView(_: NSTableView, shouldSelectRow _: Int) -> Bool {
@@ -303,87 +368,121 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       return true
     }
 
-    private func applySnapshot(rowIDs: [String], animatingDifferences: Bool) {
-      var snapshot = NSDiffableDataSourceSnapshot<NativeTranscriptSection, String>()
-      snapshot.appendSections([section])
-      snapshot.appendItems(rowIDs, toSection: section)
-      dataSource?.apply(snapshot, animatingDifferences: animatingDifferences)
+    private func applySnapshot(
+      previousIDs: [String],
+      rowIDs: [String],
+      changedIDs: Set<String>,
+      animatingDifferences: Bool
+    ) {
+      ChatDiagnostics.measure(
+        "Transcript apply snapshot",
+        category: .transcript,
+        metadata: snapshotMetadata(
+          previousIDs: previousIDs,
+          currentIDs: rowIDs,
+          changedIDs: changedIDs,
+          animatingDifferences: animatingDifferences
+        )
+      ) {
+        var snapshot = NSDiffableDataSourceSnapshot<NativeTranscriptSection, String>()
+        snapshot.appendSections([section])
+        snapshot.appendItems(rowIDs, toSection: section)
+        dataSource?.apply(snapshot, animatingDifferences: animatingDifferences)
+      }
+    }
+
+    private func snapshotMetadata(
+      previousIDs: [String],
+      currentIDs: [String],
+      changedIDs: Set<String>,
+      animatingDifferences: Bool
+    ) -> ChatDiagnostics.Metadata {
+      let previousIDSet = Set(previousIDs)
+      let currentIDSet = Set(currentIDs)
+      let insertedCount = currentIDSet.subtracting(previousIDSet).count
+      let deletedCount = previousIDSet.subtracting(currentIDSet).count
+      let reloadedCount = changedIDs.intersection(currentIDSet).count
+      return ChatDiagnostics.Metadata(
+        "previousRows=\(previousIDs.count) currentRows=\(currentIDs.count) inserted=\(insertedCount) deleted=\(deletedCount) reloaded=\(reloadedCount) animated=\(animatingDifferences)"
+      )
     }
 
     private func configure(_ cell: NativeChatMessageCellView, with row: NativeTranscriptRow) {
-      cell.configure(
-        row: row,
-        state: cellStateStore.state(
-          for: row.id,
-          isSpeechEnabled: isSpeechEnabled,
-          activeSpeechRowID: activeSpeechRowID
-        ),
-        actions: NativeTranscriptCellActions(
-          markdownBlocks: { [weak self] markdown in
-            guard let self else {
-              return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+      ChatDiagnostics.measure("Transcript row configure", category: .transcript) {
+        cell.configure(
+          row: row,
+          state: cellStateStore.state(
+            for: row.id,
+            isSpeechEnabled: isSpeechEnabled,
+            activeSpeechRowID: activeSpeechRowID
+          ),
+          actions: NativeTranscriptCellActions(
+            markdownBlocks: { [weak self] markdown in
+              guard let self else {
+                return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+              }
+              return self.markdownCache.blocks(for: markdown)
+            },
+            highlightedCode: { [weak self] rowID, codeBlock in
+              self?.codeHighlightStore.highlightedCode(rowID: rowID, codeBlock: codeBlock)
+            },
+            requestCodeHighlight: { [weak self] rowID, codeBlock in
+              guard let self else {
+                return
+              }
+              self.codeHighlightStore.requestHighlight(
+                rowID: rowID,
+                codeBlock: codeBlock
+              ) { [weak self] updatedRowID in
+                self?.reconfigureRows(ids: [updatedRowID])
+              }
+            },
+            attachmentThumbnail: { [weak self] attachment, maxPixelSize in
+              self?.attachmentThumbnailStore.thumbnail(
+                for: attachment,
+                maxPixelSize: maxPixelSize
+              )
+            },
+            requestAttachmentThumbnail: { [weak self] rowID, attachment, maxPixelSize in
+              self?.attachmentThumbnailStore.requestThumbnail(
+                rowID: rowID,
+                attachment: attachment,
+                maxPixelSize: maxPixelSize
+              ) { [weak self] updatedRowID in
+                self?.reconfigureRows(ids: [updatedRowID])
+              }
+            },
+            showImageAttachment: { [weak self] attachment, sourceView in
+              self?.showImageAttachment(attachment, relativeTo: sourceView)
+            },
+            copy: { [weak self] rowID, content in
+              self?.copy(content: content, from: rowID)
+            },
+            toggleSpeech: { [weak self] rowID, content in
+              self?.onToggleSpeech(rowID, content)
+            },
+            approve: { [weak self] toolCallID in
+              self?.onApproveToolCall(toolCallID)
+            },
+            deny: { [weak self] toolCallID in
+              self?.onDenyToolCall(toolCallID)
+            },
+            answerAskUser: { [weak self] rowID, toolCallID, answer in
+              self?.cellStateStore.updateAskUserSelection(answer, rowID: rowID)
+              self?.onAnswerAskUser(toolCallID, answer)
+            },
+            toggleToolExpansion: { [weak self] rowID in
+              self?.toggleToolExpansion(rowID: rowID)
+            },
+            toggleThinkingExpansion: { [weak self] rowID in
+              self?.toggleThinkingExpansion(rowID: rowID)
+            },
+            updateAskUserSelection: { [weak self] rowID, answer in
+              self?.cellStateStore.updateAskUserSelection(answer, rowID: rowID)
             }
-            return self.markdownCache.blocks(for: markdown)
-          },
-          highlightedCode: { [weak self] rowID, codeBlock in
-            self?.codeHighlightStore.highlightedCode(rowID: rowID, codeBlock: codeBlock)
-          },
-          requestCodeHighlight: { [weak self] rowID, codeBlock in
-            guard let self else {
-              return
-            }
-            self.codeHighlightStore.requestHighlight(
-              rowID: rowID,
-              codeBlock: codeBlock
-            ) { [weak self] updatedRowID in
-              self?.reconfigureRows(ids: [updatedRowID])
-            }
-          },
-          attachmentThumbnail: { [weak self] attachment, maxPixelSize in
-            self?.attachmentThumbnailStore.thumbnail(
-              for: attachment,
-              maxPixelSize: maxPixelSize
-            )
-          },
-          requestAttachmentThumbnail: { [weak self] rowID, attachment, maxPixelSize in
-            self?.attachmentThumbnailStore.requestThumbnail(
-              rowID: rowID,
-              attachment: attachment,
-              maxPixelSize: maxPixelSize
-            ) { [weak self] updatedRowID in
-              self?.reconfigureRows(ids: [updatedRowID])
-            }
-          },
-          showImageAttachment: { [weak self] attachment, sourceView in
-            self?.showImageAttachment(attachment, relativeTo: sourceView)
-          },
-          copy: { [weak self] rowID, content in
-            self?.copy(content: content, from: rowID)
-          },
-          toggleSpeech: { [weak self] rowID, content in
-            self?.onToggleSpeech(rowID, content)
-          },
-          approve: { [weak self] toolCallID in
-            self?.onApproveToolCall(toolCallID)
-          },
-          deny: { [weak self] toolCallID in
-            self?.onDenyToolCall(toolCallID)
-          },
-          answerAskUser: { [weak self] rowID, toolCallID, answer in
-            self?.cellStateStore.updateAskUserSelection(answer, rowID: rowID)
-            self?.onAnswerAskUser(toolCallID, answer)
-          },
-          toggleToolExpansion: { [weak self] rowID in
-            self?.toggleToolExpansion(rowID: rowID)
-          },
-          toggleThinkingExpansion: { [weak self] rowID in
-            self?.toggleThinkingExpansion(rowID: rowID)
-          },
-          updateAskUserSelection: { [weak self] rowID, answer in
-            self?.cellStateStore.updateAskUserSelection(answer, rowID: rowID)
-          }
+          )
         )
-      )
+      }
     }
 
     private func showImageAttachment(_ attachment: ChatAttachment, relativeTo sourceView: NSView) {
@@ -432,21 +531,27 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       heightCache.invalidate(rowID: rowID)
       let rowIndexes = rowIndexes(for: [rowID])
       if isExpanded {
-        noteHeightChangeImmediately(for: rowIndexes)
+        noteHeightChangeImmediately(for: rowIndexes, reason: "interactiveExpand")
         reconfigureRows(ids: [rowID])
       } else {
         reconfigureRows(ids: [rowID])
-        noteHeightChangeImmediately(for: rowIndexes)
+        noteHeightChangeImmediately(for: rowIndexes, reason: "interactiveCollapse")
       }
     }
 
-    private func noteHeightChangeImmediately(for rowIndexes: IndexSet) {
+    private func noteHeightChangeImmediately(for rowIndexes: IndexSet, reason: String) {
       guard let tableView, !rowIndexes.isEmpty else {
         return
       }
       pendingHeightInvalidationRows.subtract(rowIndexes)
-      tableView.noteHeightOfRows(withIndexesChanged: rowIndexes)
-      tableView.layoutSubtreeIfNeeded()
+      ChatDiagnostics.measure(
+        "Transcript height invalidation",
+        category: .transcript,
+        metadata: heightInvalidationMetadata(rowIndexes: rowIndexes, reason: reason)
+      ) {
+        tableView.noteHeightOfRows(withIndexesChanged: rowIndexes)
+        tableView.layoutSubtreeIfNeeded()
+      }
     }
 
     private func reconfigureRows(ids: [String]) {
@@ -454,33 +559,37 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     }
 
     private func reconfigureVisibleRows(changedIDs: Set<String>) {
-      guard let tableView, !changedIDs.isEmpty else {
-        return
-      }
-      let visibleRows = tableView.rows(in: tableView.visibleRect)
-      guard visibleRows.location != NSNotFound else {
-        return
-      }
-      for row in visibleRows.location..<(visibleRows.location + visibleRows.length) {
-        guard row >= 0, row < rowIDs.count, changedIDs.contains(rowIDs[row]),
-          let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
-            as? NativeChatMessageCellView,
-          let rowModel = rowsByID[rowIDs[row]]
-        else {
-          continue
+      ChatDiagnostics.measure("Transcript visible row reconfigure", category: .transcript) {
+        guard let tableView, !changedIDs.isEmpty else {
+          return
         }
-        configure(cell, with: rowModel)
+        let visibleRows = tableView.rows(in: tableView.visibleRect)
+        guard visibleRows.location != NSNotFound else {
+          return
+        }
+        for row in visibleRows.location..<(visibleRows.location + visibleRows.length) {
+          guard row >= 0, row < rowIDs.count, changedIDs.contains(rowIDs[row]),
+            let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+              as? NativeChatMessageCellView,
+            let rowModel = rowsByID[rowIDs[row]]
+          else {
+            continue
+          }
+          configure(cell, with: rowModel)
+        }
       }
     }
 
     private func scheduleHeightInvalidation(
       for rowIndexes: IndexSet,
+      reason: String,
       scrollToBottomAfterFlush: Bool
     ) {
       guard !rowIndexes.isEmpty else {
         return
       }
       pendingHeightInvalidationRows.formUnion(rowIndexes)
+      pendingHeightInvalidationReasons.insert(reason)
       shouldScrollAfterHeightInvalidation =
         shouldScrollAfterHeightInvalidation || scrollToBottomAfterFlush
       guard pendingHeightInvalidationWorkItem == nil else {
@@ -498,15 +607,27 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     private func flushHeightInvalidation() {
       guard let tableView else {
         pendingHeightInvalidationRows.removeAll()
+        pendingHeightInvalidationReasons.removeAll()
         pendingHeightInvalidationWorkItem = nil
         return
       }
       let rows = pendingHeightInvalidationRows
+      let reasons = pendingHeightInvalidationReasons.sorted()
       let shouldScrollToBottom = shouldScrollAfterHeightInvalidation
       pendingHeightInvalidationRows.removeAll()
+      pendingHeightInvalidationReasons.removeAll()
       shouldScrollAfterHeightInvalidation = false
       pendingHeightInvalidationWorkItem = nil
-      tableView.noteHeightOfRows(withIndexesChanged: rows)
+      ChatDiagnostics.measure(
+        "Transcript height invalidation",
+        category: .transcript,
+        metadata: heightInvalidationMetadata(
+          rowIndexes: rows,
+          reason: reasons.isEmpty ? "unknown" : reasons.joined(separator: "+")
+        )
+      ) {
+        tableView.noteHeightOfRows(withIndexesChanged: rows)
+      }
       if shouldScrollToBottom, let scrollView = tableView.enclosingScrollView {
         scrollToBottom(scrollView)
       }
@@ -524,6 +645,43 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         }
       }
       return indexes
+    }
+
+    private func heightInvalidationReason(
+      didChangeColumnWidth: Bool,
+      streamingMessageChangedIDs: Set<String>,
+      streamingThinkingChangedIDs: Set<String>,
+      speechStateChangedIDs: Set<String>,
+      changedIDs: Set<String>
+    ) -> String {
+      var reasons: [String] = []
+      if didChangeColumnWidth {
+        reasons.append("widthChanged")
+      }
+      if !streamingMessageChangedIDs.isEmpty {
+        reasons.append("streamingMessage")
+      }
+      if !streamingThinkingChangedIDs.isEmpty {
+        reasons.append("streamingThinking")
+      }
+      if !speechStateChangedIDs.isEmpty {
+        reasons.append("speechState")
+      }
+      if !changedIDs.isEmpty
+        && streamingMessageChangedIDs.isEmpty
+        && streamingThinkingChangedIDs.isEmpty
+      {
+        reasons.append("rowRevisionChanged")
+      }
+      return reasons.isEmpty ? "unknown" : reasons.joined(separator: "+")
+    }
+
+    private func heightInvalidationMetadata(rowIndexes: IndexSet, reason: String)
+      -> ChatDiagnostics.Metadata
+    {
+      ChatDiagnostics.Metadata(
+        "reason=\(reason) rowCount=\(rowIndexes.count) rows=\(rowIndexes.telemetryRangeSummary)"
+      )
     }
 
     private func isPinnedToBottom(_ scrollView: NSScrollView) -> Bool {
@@ -623,12 +781,41 @@ enum NativeTranscriptSection: Hashable {
   case main
 }
 
+final class NativeTranscriptNSTableView: NSTableView {
+  override func layout() {
+    ChatDiagnostics.measure("Transcript table layout", category: .transcript) {
+      super.layout()
+    }
+  }
+
+  override func draw(_ dirtyRect: NSRect) {
+    ChatDiagnostics.measure("Transcript table draw", category: .transcript) {
+      super.draw(dirtyRect)
+    }
+  }
+}
+
 enum NativeTranscriptCellKind: Equatable {
   case userMessage
   case assistantThinking
   case assistantMessage
   case tool
   case generationIndicator
+
+  var telemetryName: String {
+    switch self {
+    case .userMessage:
+      "user"
+    case .assistantThinking:
+      "assistantThinking"
+    case .assistantMessage:
+      "assistant"
+    case .tool:
+      "tool"
+    case .generationIndicator:
+      "generationIndicator"
+    }
+  }
 }
 
 struct NativeTranscriptRow: Equatable, Identifiable {
@@ -699,6 +886,45 @@ struct NativeTranscriptRow: Equatable, Identifiable {
         .tool
       }
     }
+  }
+
+  var telemetryContentLengthBucket: String {
+    switch body {
+    case .generationIndicator:
+      "0"
+    case .item(let item):
+      item.content.count.telemetryLengthBucket
+    }
+  }
+}
+
+extension Int {
+  fileprivate var telemetryLengthBucket: String {
+    switch self {
+    case 0:
+      "0"
+    case 1...80:
+      "1-80"
+    case 81...240:
+      "81-240"
+    case 241...800:
+      "241-800"
+    case 801...2_000:
+      "801-2000"
+    case 2_001...8_000:
+      "2001-8000"
+    default:
+      "8001+"
+    }
+  }
+}
+
+extension IndexSet {
+  fileprivate var telemetryRangeSummary: String {
+    guard let first, let last else {
+      return "none"
+    }
+    return count == 1 ? "\(first)" : "\(first)..<\(last + 1)"
   }
 }
 
@@ -823,14 +1049,54 @@ struct NativeTranscriptHeightCache {
     if let height = heightsByKey[key] {
       return height
     }
-    let height = NativeTranscriptRowMeasurer.height(
-      for: row,
-      width: width,
-      state: state,
-      markdownBlocks: markdownBlocks
-    )
+    let missReason = cacheMissReason(for: key)
+    let height = ChatDiagnostics.measure(
+      "Transcript row height cache miss",
+      category: .transcript,
+      metadata: ChatDiagnostics.Metadata(
+        "rowKind=\(row.cellKind.telemetryName) contentLengthBucket=\(row.telemetryContentLengthBucket) reason=\(missReason) width=\(normalizedWidth) cacheEntries=\(heightsByKey.count)"
+      )
+    ) {
+      NativeTranscriptRowMeasurer.height(
+        for: row,
+        width: width,
+        state: state,
+        markdownBlocks: markdownBlocks
+      )
+    }
     heightsByKey[key] = height
     return height
+  }
+
+  private func cacheMissReason(for key: Key) -> String {
+    let rowKeys = heightsByKey.keys.filter { $0.rowID == key.rowID }
+    guard !rowKeys.isEmpty else {
+      return "noRowEntry"
+    }
+    guard rowKeys.contains(where: { $0.revision == key.revision }) else {
+      return "revisionChanged"
+    }
+    guard rowKeys.contains(where: { $0.revision == key.revision && $0.width == key.width }) else {
+      return "widthChanged"
+    }
+    guard
+      rowKeys.contains(where: {
+        $0.revision == key.revision && $0.width == key.width
+          && $0.isSpeechEnabled == key.isSpeechEnabled
+      })
+    else {
+      return "speechStateChanged"
+    }
+    guard
+      rowKeys.contains(where: {
+        $0.revision == key.revision && $0.width == key.width
+          && $0.isSpeechEnabled == key.isSpeechEnabled
+          && $0.isToolExpanded == key.isToolExpanded
+      })
+    else {
+      return "toolExpansionChanged"
+    }
+    return "unknown"
   }
 
   mutating func invalidate(rowID: String) {
@@ -895,12 +1161,14 @@ enum NativeTranscriptRowMeasurer {
     markdownBlocks: @escaping @MainActor (String) -> [NativeMarkdownBlock] =
       NativeTranscriptMarkdownRenderer.blocks
   ) -> CGFloat {
-    NativeChatMessageCellView.measuredHeight(
-      for: row,
-      width: width,
-      state: state,
-      actions: measuringActions(markdownBlocks: markdownBlocks)
-    )
+    ChatDiagnostics.measure("Transcript row measure", category: .transcript) {
+      NativeChatMessageCellView.measuredHeight(
+        for: row,
+        width: width,
+        state: state,
+        actions: measuringActions(markdownBlocks: markdownBlocks)
+      )
+    }
   }
 
   private static func measuringActions(
@@ -1051,23 +1319,25 @@ final class NativeChatMessageCellView: NSTableCellView {
     state: NativeTranscriptCellState,
     actions: NativeTranscriptCellActions
   ) -> CGFloat {
-    let constrainedWidth = max(width, 1)
-    let cell = NativeChatMessageCellView(
-      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Measuring")
-    )
-    cell.translatesAutoresizingMaskIntoConstraints = false
-    cell.configure(row: row, state: state, actions: actions)
-    cell.setFrameSize(NSSize(width: constrainedWidth, height: 1))
+    ChatDiagnostics.measure("Transcript cell measured height", category: .transcript) {
+      let constrainedWidth = max(width, 1)
+      let cell = NativeChatMessageCellView(
+        identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Measuring")
+      )
+      cell.translatesAutoresizingMaskIntoConstraints = false
+      cell.configure(row: row, state: state, actions: actions)
+      cell.setFrameSize(NSSize(width: constrainedWidth, height: 1))
 
-    let widthConstraint = cell.widthAnchor.constraint(equalToConstant: constrainedWidth)
-    widthConstraint.isActive = true
-    defer {
-      widthConstraint.isActive = false
+      let widthConstraint = cell.widthAnchor.constraint(equalToConstant: constrainedWidth)
+      widthConstraint.isActive = true
+      defer {
+        widthConstraint.isActive = false
+      }
+
+      cell.needsLayout = true
+      cell.layoutSubtreeIfNeeded()
+      return ceil(max(44, cell.fittingSize.height))
     }
-
-    cell.needsLayout = true
-    cell.layoutSubtreeIfNeeded()
-    return ceil(max(44, cell.fittingSize.height))
   }
 
   @available(*, unavailable)
@@ -1132,9 +1402,11 @@ final class NativeChatMessageCellView: NSTableCellView {
   }
 
   private func updateAccessibility(for row: NativeTranscriptRow) {
-    setAccessibilityElement(true)
-    setAccessibilityIdentifier(row.accessibilityIdentifier)
-    setAccessibilityLabel(row.accessibilityLabel)
+    ChatDiagnostics.measure("Transcript cell accessibility", category: .transcript) {
+      setAccessibilityElement(true)
+      setAccessibilityIdentifier(row.accessibilityIdentifier)
+      setAccessibilityLabel(row.accessibilityLabel)
+    }
   }
 
   private func setupContentHost() {
@@ -2363,87 +2635,92 @@ private final class NativeTranscriptTableView: NSView {
   }
 
   override func layout() {
-    super.layout()
-    guard !rows.isEmpty else {
-      return
-    }
-    let columnWidth = NativeMarkdownTableMetrics.columnWidth(for: table, width: measuredWidth)
-    var rowOriginY = NativeMarkdownTableMetrics.borderWidth
-    for (rowIndex, row) in rows.enumerated() {
-      let rowHeight = NativeMarkdownTableMetrics.rowHeight(for: row, columnWidth: columnWidth)
-      var columnOriginX = NativeMarkdownTableMetrics.borderWidth
-      for columnIndex in row.indices {
-        let label = labels[rowIndex][columnIndex]
-        label.frame = NSRect(
-          x: columnOriginX + NativeMarkdownTableMetrics.horizontalPadding,
-          y: rowOriginY + NativeMarkdownTableMetrics.verticalPadding,
-          width: max(columnWidth - NativeMarkdownTableMetrics.horizontalPadding * 2, 12),
-          height: max(rowHeight - NativeMarkdownTableMetrics.verticalPadding * 2, 12)
-        )
-        columnOriginX += columnWidth + NativeMarkdownTableMetrics.separatorWidth
+    ChatDiagnostics.measure("Transcript markdown table layout", category: .transcript) {
+      super.layout()
+      guard !rows.isEmpty else {
+        return
       }
-      rowOriginY += rowHeight + NativeMarkdownTableMetrics.separatorWidth
+      let columnWidth = NativeMarkdownTableMetrics.columnWidth(for: table, width: measuredWidth)
+      var rowOriginY = NativeMarkdownTableMetrics.borderWidth
+      for (rowIndex, row) in rows.enumerated() {
+        let rowHeight = NativeMarkdownTableMetrics.rowHeight(for: row, columnWidth: columnWidth)
+        var columnOriginX = NativeMarkdownTableMetrics.borderWidth
+        for columnIndex in row.indices {
+          let label = labels[rowIndex][columnIndex]
+          label.frame = NSRect(
+            x: columnOriginX + NativeMarkdownTableMetrics.horizontalPadding,
+            y: rowOriginY + NativeMarkdownTableMetrics.verticalPadding,
+            width: max(columnWidth - NativeMarkdownTableMetrics.horizontalPadding * 2, 12),
+            height: max(rowHeight - NativeMarkdownTableMetrics.verticalPadding * 2, 12)
+          )
+          columnOriginX += columnWidth + NativeMarkdownTableMetrics.separatorWidth
+        }
+        rowOriginY += rowHeight + NativeMarkdownTableMetrics.separatorWidth
+      }
     }
   }
 
   override func draw(_ dirtyRect: NSRect) {
-    super.draw(dirtyRect)
-    guard !rows.isEmpty else {
-      return
-    }
+    ChatDiagnostics.measure("Transcript markdown table draw", category: .transcript) {
+      super.draw(dirtyRect)
+      guard !rows.isEmpty else {
+        return
+      }
 
-    let boundsPath = NSBezierPath(
-      roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5),
-      xRadius: NativeMarkdownTableMetrics.cornerRadius,
-      yRadius: NativeMarkdownTableMetrics.cornerRadius
-    )
-    NSColor.secondaryLabelColor.withAlphaComponent(0.045).setFill()
-    boundsPath.fill()
-    NSColor.secondaryLabelColor.withAlphaComponent(0.14).setStroke()
-    boundsPath.lineWidth = NativeMarkdownTableMetrics.borderWidth
-    boundsPath.stroke()
-
-    let columnWidth = NativeMarkdownTableMetrics.columnWidth(for: table, width: measuredWidth)
-    let rowHeights = rows.map { row in
-      NativeMarkdownTableMetrics.rowHeight(for: row, columnWidth: columnWidth)
-    }
-
-    if !table.header.isEmpty, let headerHeight = rowHeights.first {
-      let headerRect = NSRect(
-        x: NativeMarkdownTableMetrics.borderWidth,
-        y: NativeMarkdownTableMetrics.borderWidth,
-        width: bounds.width - NativeMarkdownTableMetrics.borderWidth * 2,
-        height: headerHeight
+      let boundsPath = NSBezierPath(
+        roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5),
+        xRadius: NativeMarkdownTableMetrics.cornerRadius,
+        yRadius: NativeMarkdownTableMetrics.cornerRadius
       )
-      NSColor.secondaryLabelColor.withAlphaComponent(0.075).setFill()
-      headerRect.fill()
-    }
+      NSColor.secondaryLabelColor.withAlphaComponent(0.045).setFill()
+      boundsPath.fill()
+      NSColor.secondaryLabelColor.withAlphaComponent(0.14).setStroke()
+      boundsPath.lineWidth = NativeMarkdownTableMetrics.borderWidth
+      boundsPath.stroke()
 
-    NSColor.secondaryLabelColor.withAlphaComponent(0.10).setStroke()
-    let separatorPath = NSBezierPath()
-    var rowSeparatorY = NativeMarkdownTableMetrics.borderWidth
-    for rowHeight in rowHeights.dropLast() {
-      rowSeparatorY += rowHeight + NativeMarkdownTableMetrics.separatorWidth / 2
-      separatorPath.move(to: NSPoint(x: NativeMarkdownTableMetrics.borderWidth, y: rowSeparatorY))
-      separatorPath.line(
-        to: NSPoint(x: bounds.width - NativeMarkdownTableMetrics.borderWidth, y: rowSeparatorY)
-      )
-      rowSeparatorY += NativeMarkdownTableMetrics.separatorWidth / 2
-    }
+      let columnWidth = NativeMarkdownTableMetrics.columnWidth(for: table, width: measuredWidth)
+      let rowHeights = rows.map { row in
+        NativeMarkdownTableMetrics.rowHeight(for: row, columnWidth: columnWidth)
+      }
 
-    var columnSeparatorX = NativeMarkdownTableMetrics.borderWidth + columnWidth
-    for _ in 1..<max(table.columnCount, 1) {
-      separatorPath.move(
-        to: NSPoint(x: columnSeparatorX, y: NativeMarkdownTableMetrics.borderWidth))
-      separatorPath.line(
-        to: NSPoint(
-          x: columnSeparatorX,
-          y: bounds.height - NativeMarkdownTableMetrics.borderWidth)
-      )
-      columnSeparatorX += columnWidth + NativeMarkdownTableMetrics.separatorWidth
+      if !table.header.isEmpty, let headerHeight = rowHeights.first {
+        let headerRect = NSRect(
+          x: NativeMarkdownTableMetrics.borderWidth,
+          y: NativeMarkdownTableMetrics.borderWidth,
+          width: bounds.width - NativeMarkdownTableMetrics.borderWidth * 2,
+          height: headerHeight
+        )
+        NSColor.secondaryLabelColor.withAlphaComponent(0.075).setFill()
+        headerRect.fill()
+      }
+
+      NSColor.secondaryLabelColor.withAlphaComponent(0.10).setStroke()
+      let separatorPath = NSBezierPath()
+      var rowSeparatorY = NativeMarkdownTableMetrics.borderWidth
+      for rowHeight in rowHeights.dropLast() {
+        rowSeparatorY += rowHeight + NativeMarkdownTableMetrics.separatorWidth / 2
+        separatorPath.move(
+          to: NSPoint(x: NativeMarkdownTableMetrics.borderWidth, y: rowSeparatorY))
+        separatorPath.line(
+          to: NSPoint(x: bounds.width - NativeMarkdownTableMetrics.borderWidth, y: rowSeparatorY)
+        )
+        rowSeparatorY += NativeMarkdownTableMetrics.separatorWidth / 2
+      }
+
+      var columnSeparatorX = NativeMarkdownTableMetrics.borderWidth + columnWidth
+      for _ in 1..<max(table.columnCount, 1) {
+        separatorPath.move(
+          to: NSPoint(x: columnSeparatorX, y: NativeMarkdownTableMetrics.borderWidth))
+        separatorPath.line(
+          to: NSPoint(
+            x: columnSeparatorX,
+            y: bounds.height - NativeMarkdownTableMetrics.borderWidth)
+        )
+        columnSeparatorX += columnWidth + NativeMarkdownTableMetrics.separatorWidth
+      }
+      separatorPath.lineWidth = NativeMarkdownTableMetrics.separatorWidth
+      separatorPath.stroke()
     }
-    separatorPath.lineWidth = NativeMarkdownTableMetrics.separatorWidth
-    separatorPath.stroke()
   }
 
   private var measuredWidth: CGFloat {
@@ -2724,8 +3001,8 @@ extension RenderedChatTurnItem {
 
   fileprivate var nativeAccessibilityLabel: String {
     switch item {
-    case .userMessage(let message):
-      "User message \(message.content)"
+    case .userMessage:
+      "User message"
     case .assistantThinking:
       "Assistant reasoning"
     case .assistantMessage:

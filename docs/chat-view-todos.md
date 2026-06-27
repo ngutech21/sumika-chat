@@ -30,9 +30,6 @@
 
 ## Performance And Diagnostics
 
-- Add lightweight signposts or debug counters for transcript `updateNSView`,
-  row configure, row height calculation, table layout, table draw, and visible
-  row reconfigure.
 - Verify passive scrolling does not trigger transcript snapshots, assistant
   Markdown reparsing, syntax highlight work, or unrelated SwiftUI body updates.
 - Re-sample Release builds after each larger transcript change and compare

@@ -49,6 +49,13 @@ nonisolated enum GemmaModelStreamProcessor {
     let (outputStream, continuation) = AsyncThrowingStream<ChatModelStreamEvent, Error>
       .makeStream(bufferingPolicy: .unbounded)
     let task = Task {
+      let streamInterval = ChatDiagnostics.beginInterval(
+        "Gemma process model stream",
+        category: .generation
+      )
+      defer {
+        ChatDiagnostics.endInterval(streamInterval)
+      }
       var output = ""
       var visibleOutput = ""
       var thoughtParser = GemmaThoughtChannelParser()
@@ -164,6 +171,13 @@ nonisolated enum GemmaModelStreamProcessor {
           }
         }
 
+        let finalizeInterval = ChatDiagnostics.beginInterval(
+          "Gemma finalize model stream",
+          category: .generation
+        )
+        defer {
+          ChatDiagnostics.endInterval(finalizeInterval)
+        }
         await finalizeStream(
           continuation: continuation,
           output: output,

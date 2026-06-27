@@ -162,6 +162,13 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     settings: ChatGenerationSettings,
     toolContext: ChatRuntimeToolContext?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    let setupInterval = ChatDiagnostics.beginInterval(
+      "Gemma stream reply setup",
+      category: .generation
+    )
+    defer {
+      ChatDiagnostics.endInterval(setupInterval)
+    }
     let streamStartStartedAt = Date()
     guard !lifecycleTransitionInProgress else {
       throw CancellationError()
@@ -208,6 +215,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let traceMetadata = TurnTraceContext.current
     let traceID = traceMetadata?.generationID ?? UUID()
     let generationID = generationOwnership.beginGeneration()
+    let prepareSessionInterval = ChatDiagnostics.beginInterval(
+      "Gemma prepare session",
+      category: .generation
+    )
     let cachePlan = prepareSession(
       modelContainer: modelContainer,
       history: history,
@@ -222,6 +233,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       nativeToolSchemaHash: nativeToolSchemaHash,
       generationID: generationID
     )
+    ChatDiagnostics.endInterval(prepareSessionInterval)
     lastRuntimeCacheDebugSnapshot = GemmaSessionCachePolicy.runtimeCacheDebugSnapshot(
       from: cachePlan.trace,
       reuseStrategy: cachePlan.reuseStrategy,
@@ -236,22 +248,36 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let traceHistory = traceMessages.map { message in
       (role: message.role.rawValue, content: message.content)
     }
-    await GemmaDebugTraceStore.shared.traceRequest(
-      id: traceID,
-      history: traceHistory,
-      prompt: finalPrompt,
-      settings: settings,
-      contextTokenLimit: contextTokenLimit,
-      imageAttachments: imageAttachments
-    )
-
-    let stream =
-      switch cachePlan.streamInput {
-      case .prompt(let prompt, let images):
-        cachePlan.session.streamDetails(to: prompt, images: images, videos: [])
-      case .messages(let messages):
-        cachePlan.session.streamDetails(to: messages)
+    do {
+      let interval = ChatDiagnostics.beginInterval(
+        "Gemma debug trace request",
+        category: .generation
+      )
+      defer {
+        ChatDiagnostics.endInterval(interval)
       }
+      await GemmaDebugTraceStore.shared.traceRequest(
+        id: traceID,
+        history: traceHistory,
+        prompt: finalPrompt,
+        settings: settings,
+        contextTokenLimit: contextTokenLimit,
+        imageAttachments: imageAttachments
+      )
+    }
+
+    let createStreamInterval = ChatDiagnostics.beginInterval(
+      "Gemma create MLX stream",
+      category: .generation
+    )
+    let stream: AsyncThrowingStream<Generation, Error>
+    switch cachePlan.streamInput {
+    case .prompt(let prompt, let images):
+      stream = cachePlan.session.streamDetails(to: prompt, images: images, videos: [])
+    case .messages(let messages):
+      stream = cachePlan.session.streamDetails(to: messages)
+    }
+    ChatDiagnostics.endInterval(createStreamInterval)
     if let traceMetadata {
       await traceMetadata.tracer.recordTurnTraceEvent(
         TurnTraceEvent(

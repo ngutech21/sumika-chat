@@ -41,7 +41,7 @@ public final class ChatSessionController {
 
   #if canImport(OSLog)
     nonisolated private static let logger = Logger(
-      subsystem: "sumika-chat",
+      subsystem: SumikaTelemetry.subsystem,
       category: "ChatSessionController"
     )
   #endif

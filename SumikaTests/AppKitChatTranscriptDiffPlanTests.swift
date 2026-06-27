@@ -78,6 +78,22 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func userAccessibilityLabelDoesNotIncludeMessageContent() {
+    let longContent =
+      "This user prompt contains pasted logs, source code, and enough text to be expensive."
+    let row = nativeUserRow(
+      id: "user-accessibility",
+      revision: 1,
+      content: longContent
+    )
+    let cell = configuredNativeCell(for: row)
+
+    #expect(cell.accessibilityLabel() == "User message")
+    #expect(cell.accessibilityLabel()?.contains(longContent) == false)
+    #expect(cell.descendantTextValues.contains(longContent))
+  }
+
+  @Test
   func assistantReasoningAccessibilityLabelDoesNotIncludeMessageContent() {
     let longContent =
       "Inspecting the current workspace and comparing all candidate files before answering."

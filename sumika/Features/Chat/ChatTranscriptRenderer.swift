@@ -18,53 +18,55 @@ final class ChatTranscriptRenderer {
   func items(
     for turns: [ChatTurn]
   ) -> [RenderedChatTurnItem] {
-    var renderedItems: [RenderedChatTurnItem] = []
-    var activeItemKeys = Set<ChatTranscriptRenderItemKey>()
-    var activeAssistantIDs = Set<AssistantTurnMessage.ID>()
+    ChatDiagnostics.measure("Transcript render items", category: .transcript) {
+      var renderedItems: [RenderedChatTurnItem] = []
+      var activeItemKeys = Set<ChatTranscriptRenderItemKey>()
+      var activeAssistantIDs = Set<AssistantTurnMessage.ID>()
 
-    for turn in turns {
-      let turnGenerationMetrics = turn.items.compactMap(\.generationMetrics).last
+      for turn in turns {
+        let turnGenerationMetrics = turn.items.compactMap(\.generationMetrics).last
 
-      for item in displayItems(for: turn) {
-        if case .assistantMessage(let message) = item {
-          activeAssistantIDs.insert(message.id)
-        }
-
-        let key = ChatTranscriptRenderItemKey(turnID: turn.id, item: item)
-
-        switch item {
-        case .assistantThinking(let message):
-          guard message.shouldRenderInTranscript else {
-            continue
+        for item in displayItems(for: turn) {
+          if case .assistantMessage(let message) = item {
+            activeAssistantIDs.insert(message.id)
           }
-          activeItemKeys.insert(key)
-          let input = RenderedItemCacheInput(item: item, generationMetrics: nil)
-          renderedItems.append(renderedItem(for: key, input: input))
 
-        case .assistantMessage(let message):
-          guard message.shouldRenderInTranscript else {
-            continue
+          let key = ChatTranscriptRenderItemKey(turnID: turn.id, item: item)
+
+          switch item {
+          case .assistantThinking(let message):
+            guard message.shouldRenderInTranscript else {
+              continue
+            }
+            activeItemKeys.insert(key)
+            let input = RenderedItemCacheInput(item: item, generationMetrics: nil)
+            renderedItems.append(renderedItem(for: key, input: input))
+
+          case .assistantMessage(let message):
+            guard message.shouldRenderInTranscript else {
+              continue
+            }
+            activeItemKeys.insert(key)
+            let input = RenderedItemCacheInput(
+              item: item, generationMetrics: message.generationMetrics)
+            renderedItems.append(renderedItem(for: key, input: input))
+
+          case .userMessage:
+            activeItemKeys.insert(key)
+            let input = RenderedItemCacheInput(item: item, generationMetrics: nil)
+            renderedItems.append(renderedItem(for: key, input: input))
+
+          case .tool:
+            activeItemKeys.insert(key)
+            let input = RenderedItemCacheInput(item: item, generationMetrics: turnGenerationMetrics)
+            renderedItems.append(renderedItem(for: key, input: input))
           }
-          activeItemKeys.insert(key)
-          let input = RenderedItemCacheInput(
-            item: item, generationMetrics: message.generationMetrics)
-          renderedItems.append(renderedItem(for: key, input: input))
-
-        case .userMessage:
-          activeItemKeys.insert(key)
-          let input = RenderedItemCacheInput(item: item, generationMetrics: nil)
-          renderedItems.append(renderedItem(for: key, input: input))
-
-        case .tool:
-          activeItemKeys.insert(key)
-          let input = RenderedItemCacheInput(item: item, generationMetrics: turnGenerationMetrics)
-          renderedItems.append(renderedItem(for: key, input: input))
         }
       }
-    }
 
-    pruneCaches(activeItemKeys: activeItemKeys, activeAssistantIDs: activeAssistantIDs)
-    return renderedItems
+      pruneCaches(activeItemKeys: activeItemKeys, activeAssistantIDs: activeAssistantIDs)
+      return renderedItems
+    }
   }
 
   private func renderedItem(
@@ -160,7 +162,9 @@ final class ChatTranscriptRenderer {
       return cached.blocks
     }
 
-    let blocks = assistantBlocks(message.content)
+    let blocks = ChatDiagnostics.measure("Transcript assistant blocks", category: .transcript) {
+      assistantBlocks(message.content)
+    }
     assistantBlockCache[message.id] = AssistantBlockCacheEntry(
       content: message.content, blocks: blocks)
     return blocks
