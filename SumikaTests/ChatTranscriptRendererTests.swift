@@ -48,6 +48,74 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func lazyThinkingRendersBeforePrecreatedAssistantMessage() {
+    let turnID = UUID()
+    let userID = UUID()
+    let assistantID = UUID()
+    let thinkingID = UUID()
+    let renderer = ChatTranscriptRenderer()
+
+    let items = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .completed,
+        items: [
+          .userMessage(UserTurnMessage(id: userID, content: "Question")),
+          .assistantMessage(AssistantTurnMessage(id: assistantID, content: "Answer")),
+          .assistantThinking(
+            AssistantThinkingMessage(id: thinkingID, content: "Reasoning")
+          ),
+        ]
+      )
+    ])
+
+    #expect(
+      items.map(\.id) == [
+        "\(turnID.uuidString):user:\(userID.uuidString)",
+        "\(turnID.uuidString):thinking:\(thinkingID.uuidString)",
+        "\(turnID.uuidString):assistant:\(assistantID.uuidString)",
+      ])
+  }
+
+  @Test
+  func toolFollowUpThinkingRendersBeforeFollowUpAssistantMessage() {
+    let turnID = UUID()
+    let userID = UUID()
+    let firstThinkingID = UUID()
+    let toolID = UUID()
+    let assistantID = UUID()
+    let followUpThinkingID = UUID()
+    let renderer = ChatTranscriptRenderer()
+
+    let items = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .completed,
+        items: [
+          .userMessage(UserTurnMessage(id: userID, content: "Question")),
+          .assistantThinking(
+            AssistantThinkingMessage(id: firstThinkingID, content: "I should search.")
+          ),
+          .tool(makeToolCallRecord(id: toolID, status: .completed)),
+          .assistantMessage(AssistantTurnMessage(id: assistantID, content: "Answer")),
+          .assistantThinking(
+            AssistantThinkingMessage(id: followUpThinkingID, content: "Now answer.")
+          ),
+        ]
+      )
+    ])
+
+    #expect(
+      items.map(\.id) == [
+        "\(turnID.uuidString):user:\(userID.uuidString)",
+        "\(turnID.uuidString):thinking:\(firstThinkingID.uuidString)",
+        "\(turnID.uuidString):tool:\(toolID.uuidString)",
+        "\(turnID.uuidString):thinking:\(followUpThinkingID.uuidString)",
+        "\(turnID.uuidString):assistant:\(assistantID.uuidString)",
+      ])
+  }
+
+  @Test
   func appendingTurnParsesOnlyNewAssistantMessage() {
     let firstTurnID = UUID()
     let secondTurnID = UUID()

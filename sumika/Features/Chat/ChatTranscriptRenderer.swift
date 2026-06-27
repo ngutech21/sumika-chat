@@ -25,7 +25,7 @@ final class ChatTranscriptRenderer {
     for turn in turns {
       let turnGenerationMetrics = turn.items.compactMap(\.generationMetrics).last
 
-      for item in turn.items {
+      for item in displayItems(for: turn) {
         if case .assistantMessage(let message) = item {
           activeAssistantIDs.insert(message.id)
         }
@@ -78,6 +78,34 @@ final class ChatTranscriptRenderer {
     let item = makeRenderedItem(id: key.rawValue, input: input)
     itemCache[key] = RenderedItemCacheEntry(input: input, item: item)
     return item
+  }
+
+  private func displayItems(for turn: ChatTurn) -> [ChatTurnItem] {
+    var orderedItems: [ChatTurnItem] = []
+    var currentBoundaryStartIndex = 0
+
+    for item in turn.items {
+      switch item {
+      case .assistantThinking:
+        if let assistantIndex = orderedItems[currentBoundaryStartIndex...].lastIndex(where: {
+          if case .assistantMessage = $0 {
+            return true
+          }
+          return false
+        }) {
+          orderedItems.insert(item, at: assistantIndex)
+        } else {
+          orderedItems.append(item)
+        }
+      case .assistantMessage:
+        orderedItems.append(item)
+      case .userMessage, .tool:
+        orderedItems.append(item)
+        currentBoundaryStartIndex = orderedItems.count
+      }
+    }
+
+    return orderedItems
   }
 
   private func makeRenderedItem(
