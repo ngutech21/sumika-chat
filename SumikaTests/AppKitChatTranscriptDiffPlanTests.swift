@@ -1090,7 +1090,7 @@ private func nativeSearchLikeToolOutput() -> String {
   https://www.highonfilms.com/best-french-movies-of-the-decade-2010s/
   Best French Movies of the Last Decade (2010s): French cinema keeps producing interpersonal drama, politics, naturalism, and unpredictable human complexity.
 
-  3. Top films francais des annees 2010 - AlloCine
+  3. Top films francais des annees 2010 - Cine
   https://www.allocine.fr/film/meilleurs/pays-5001/decennie-2010/
   Quels sont les meilleurs films francais des annees 2010 ? Decouvrez notre classement des meilleurs films francais des annees 2010.
 

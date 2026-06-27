@@ -557,7 +557,8 @@ nonisolated private final class ComposerSpeechRecordingSession {
       throw captureError
     }
 
-    guard let buffer = ComposerSpeechAudioTap.combinedBuffer(from: accumulator.takeRecording()) else {
+    guard let buffer = ComposerSpeechAudioTap.combinedBuffer(from: accumulator.takeRecording())
+    else {
       return ""
     }
 
