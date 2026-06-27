@@ -387,16 +387,39 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
 
     private func toggleToolExpansion(rowID: String) {
       cellStateStore.toggleToolExpansion(rowID: rowID)
-      heightCache.invalidate(rowID: rowID)
-      reconfigureRows(ids: [rowID])
-      scheduleHeightInvalidation(for: rowIndexes(for: [rowID]), scrollToBottomAfterFlush: false)
+      applyInteractiveHeightChange(
+        rowID: rowID,
+        isExpanded: cellStateStore.state(for: rowID).isToolExpanded
+      )
     }
 
     private func toggleThinkingExpansion(rowID: String) {
       cellStateStore.toggleThinkingExpansion(rowID: rowID)
+      applyInteractiveHeightChange(
+        rowID: rowID,
+        isExpanded: cellStateStore.state(for: rowID).isThinkingExpanded
+      )
+    }
+
+    private func applyInteractiveHeightChange(rowID: String, isExpanded: Bool) {
       heightCache.invalidate(rowID: rowID)
-      reconfigureRows(ids: [rowID])
-      scheduleHeightInvalidation(for: rowIndexes(for: [rowID]), scrollToBottomAfterFlush: false)
+      let rowIndexes = rowIndexes(for: [rowID])
+      if isExpanded {
+        noteHeightChangeImmediately(for: rowIndexes)
+        reconfigureRows(ids: [rowID])
+      } else {
+        reconfigureRows(ids: [rowID])
+        noteHeightChangeImmediately(for: rowIndexes)
+      }
+    }
+
+    private func noteHeightChangeImmediately(for rowIndexes: IndexSet) {
+      guard let tableView, !rowIndexes.isEmpty else {
+        return
+      }
+      pendingHeightInvalidationRows.subtract(rowIndexes)
+      tableView.noteHeightOfRows(withIndexesChanged: rowIndexes)
+      tableView.layoutSubtreeIfNeeded()
     }
 
     private func reconfigureRows(ids: [String]) {
@@ -487,18 +510,22 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
 
     private func scrollToBottom(_ scrollView: NSScrollView) {
       DispatchQueue.main.async {
-        guard let documentView = scrollView.documentView else {
-          return
-        }
-        let targetY = max(documentView.bounds.height - scrollView.contentView.bounds.height, 0)
-        guard abs(scrollView.contentView.bounds.origin.y - targetY) >= 0.5 else {
-          self.pinnedToBottom = true
-          return
-        }
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
-        self.pinnedToBottom = true
+        self.scrollToBottomImmediately(scrollView)
       }
+    }
+
+    private func scrollToBottomImmediately(_ scrollView: NSScrollView) {
+      guard let documentView = scrollView.documentView else {
+        return
+      }
+      let targetY = max(documentView.bounds.height - scrollView.contentView.bounds.height, 0)
+      guard abs(scrollView.contentView.bounds.origin.y - targetY) >= 0.5 else {
+        pinnedToBottom = true
+        return
+      }
+      scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
+      scrollView.reflectScrolledClipView(scrollView.contentView)
+      pinnedToBottom = true
     }
 
     private func pruneCoordinatorState(activeRows: [NativeTranscriptRow]) {
@@ -1040,10 +1067,19 @@ final class NativeChatMessageCellView: NSTableCellView {
           lessThanOrEqualToConstant: item.nativeMaximumBubbleWidth),
       ]
     default:
+      let preferredTrailing = contentHost.trailingAnchor.constraint(
+        equalTo: trailingAnchor,
+        constant: -80
+      )
+      preferredTrailing.priority = .defaultHigh
+      let preferredWidth = contentHost.widthAnchor.constraint(equalToConstant: 680)
+      preferredWidth.priority = .defaultHigh
       alignmentConstraints = [
         contentHost.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
         contentHost.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -80),
         contentHost.widthAnchor.constraint(lessThanOrEqualToConstant: 680),
+        preferredTrailing,
+        preferredWidth,
       ]
     }
     NSLayoutConstraint.activate(alignmentConstraints)

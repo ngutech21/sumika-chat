@@ -282,6 +282,162 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func interactiveToolExpansionUpdatesTableRowHeightImmediately() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 760, height: 520))
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    let rows = [
+      nativeToolRow(
+        id: "tool",
+        revision: 1,
+        record: nativeCompletedCommandToolRecord()
+      ),
+      nativeAssistantMarkdownRow(
+        id: "assistant",
+        revision: 1,
+        markdown: "Assistant response below the tool call."
+      ),
+    ]
+
+    coordinator.update(
+      rows: rows,
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    tableView.layoutSubtreeIfNeeded()
+    let collapsedHeight = tableView.rect(ofRow: 0).height
+    let toolCell = try #require(
+      tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        as? NativeChatMessageCellView
+    )
+    let disclosureButton = try #require(
+      toolCell.descendantButtons(accessibilityLabel: "Show details").first
+    )
+
+    disclosureButton.performClick(nil)
+    tableView.layoutSubtreeIfNeeded()
+
+    let expandedHeight = tableView.rect(ofRow: 0).height
+    #expect(expandedHeight > collapsedHeight)
+    #expect(tableView.rect(ofRow: 1).minY >= tableView.rect(ofRow: 0).maxY)
+  }
+
+  @Test
+  func interactiveToolExpansionDoesNotForceScrollToBottom() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 760, height: 180))
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    let rows = [
+      nativeToolRow(
+        id: "tool",
+        revision: 1,
+        record: nativeCompletedCommandToolRecord(
+          stdout: nativeSearchLikeToolOutput()
+        )
+      ),
+      nativeAssistantMarkdownRow(
+        id: "assistant",
+        revision: 1,
+        markdown: "Assistant response below the tool call."
+      ),
+    ]
+
+    coordinator.update(
+      rows: rows,
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    tableView.layoutSubtreeIfNeeded()
+    let initialBottomY = max(tableView.bounds.height - scrollView.contentView.bounds.height, 0)
+    scrollView.contentView.scroll(to: NSPoint(x: 0, y: initialBottomY))
+    scrollView.reflectScrolledClipView(scrollView.contentView)
+    let toolCell = try #require(
+      tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        as? NativeChatMessageCellView
+    )
+    let disclosureButton = try #require(
+      toolCell.descendantButtons(accessibilityLabel: "Show details").first
+    )
+    let originBeforeExpansion = scrollView.contentView.bounds.origin.y
+
+    disclosureButton.performClick(nil)
+    tableView.layoutSubtreeIfNeeded()
+
+    let originAfterExpansion = scrollView.contentView.bounds.origin.y
+    let expandedBottomY = max(tableView.bounds.height - scrollView.contentView.bounds.height, 0)
+    #expect(abs(originAfterExpansion - originBeforeExpansion) < 1.5)
+    #expect(expandedBottomY > originBeforeExpansion + 80)
+  }
+
+  @Test
+  func expandedToolRowDoesNotLeavePageSizedSlackBelowContent() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 760, height: 520))
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    let rows = [
+      nativeToolRow(
+        id: "tool",
+        revision: 1,
+        record: nativeCompletedCommandToolRecord(
+          stdout: nativeSearchLikeToolOutput()
+        )
+      ),
+      nativeAssistantMarkdownRow(
+        id: "assistant",
+        revision: 1,
+        markdown: "Assistant response below the tool call."
+      ),
+    ]
+
+    coordinator.update(
+      rows: rows,
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    tableView.layoutSubtreeIfNeeded()
+    let toolCell = try #require(
+      tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        as? NativeChatMessageCellView
+    )
+    let disclosureButton = try #require(
+      toolCell.descendantButtons(accessibilityLabel: "Show details").first
+    )
+
+    disclosureButton.performClick(nil)
+    tableView.layoutSubtreeIfNeeded()
+
+    let contentHost = try #require(toolCell.subviews.first)
+    let bottomSlack = contentHost.frame.minY
+    let topSlack = toolCell.bounds.height - contentHost.frame.maxY
+    #expect(bottomSlack < 32)
+    #expect(topSlack < 32)
+  }
+
+  @Test
   func imageAttachmentsUsePreviewHeightInUserRows() {
     let textRow = nativeUserRow(
       id: "user-text-attachment",
@@ -675,7 +831,7 @@ private func nativeApprovalToolRecord(reason: String = "Needs permission.") -> T
   )
 }
 
-private func nativeCompletedCommandToolRecord() -> ToolCallRecord {
+private func nativeCompletedCommandToolRecord(stdout: String = "Tests passed.") -> ToolCallRecord {
   let request = nativeRunCommandRequest(command: "swift test")
   return ToolCallRecord(
     request: request,
@@ -691,10 +847,37 @@ private func nativeCompletedCommandToolRecord() -> ToolCallRecord {
           timeoutSeconds: 120,
           exitCode: 0,
           durationMs: 1_000,
-          stdout: ToolTextOutput(text: "Tests passed."),
+          stdout: ToolTextOutput(text: stdout),
           stderr: ToolTextOutput(text: "")
         )))
   )
+}
+
+private func nativeSearchLikeToolOutput() -> String {
+  """
+  Search provider: DuckDuckGo
+  Query: best movies 2010 France
+
+  1. List of French films of 2010 - Wikipedia
+  https://en.wikipedia.org/wiki/List_of_French_films_of_2010
+  A list of French-produced or co-produced films released in France in 2010. 263 French films were released in 2010.
+
+  2. The 20 Best French Movies of the Decade (2010s) - High On Films
+  https://www.highonfilms.com/best-french-movies-of-the-decade-2010s/
+  Best French Movies of the Last Decade (2010s): French cinema keeps producing interpersonal drama, politics, naturalism, and unpredictable human complexity.
+
+  3. Top films francais des annees 2010 - AlloCine
+  https://www.allocine.fr/film/meilleurs/pays-5001/decennie-2010/
+  Quels sont les meilleurs films francais des annees 2010 ? Decouvrez notre classement des meilleurs films francais des annees 2010.
+
+  4. Top 100 des meilleurs films de 2010 - SensCritique
+  https://www.senscritique.com/top/resultats/les_meilleurs_films_de_2010/748463
+  Inception (2010), sortie en France le 20 juillet 2010, action, thriller, science-fiction.
+
+  5. Cinema francais des annees 2010 - Wikipedia
+  https://fr.wikipedia.org/wiki/Cinema_francais_des_annees_2010
+  Cette liste comporte les films ayant depasse le million d'entrees au box-office.
+  """
 }
 
 private func nativeRunCommandRequest(command: String) -> ToolCallRequest {
