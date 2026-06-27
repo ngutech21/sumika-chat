@@ -132,7 +132,7 @@ final class ChatTranscriptRenderer {
       )
 
     case .assistantMessage(let message):
-      let blocks = blocks(for: message)
+      let blocks = message.deliveryStatus == .streaming ? [] : blocks(for: message)
       return RenderedChatTurnItem(
         id: id,
         item: input.item,

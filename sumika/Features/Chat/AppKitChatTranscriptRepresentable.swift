@@ -199,21 +199,48 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
           scrollToBottomAfterFlush: wasPinnedToBottom || shouldScrollAfterAppend
         )
       case .reconfigureRows:
-        reconfigureVisibleRows(changedIDs: plan.changedIDs.union(speechStateChangedIDs))
-        var invalidationRows = rowIndexes(for: plan.changedIDs.union(speechStateChangedIDs))
+        let reconfiguredIDs = plan.changedIDs.union(speechStateChangedIDs)
+        let streamingMessageChangedIDs = streamingAssistantMessageRowIDs(in: plan.changedIDs)
+        let streamingThinkingChangedIDs = streamingAssistantThinkingRowIDs(in: plan.changedIDs)
+        let streamingChangedIDs = streamingMessageChangedIDs.union(streamingThinkingChangedIDs)
+        let shouldDeferPinnedScroll =
+          wasPinnedToBottom
+          && !streamingChangedIDs.isEmpty
+          && streamingChangedIDs == plan.changedIDs
+          && speechStateChangedIDs.isEmpty
+          && !didChangeColumnWidth
+
+        reconfigureVisibleRows(changedIDs: reconfiguredIDs)
+        var invalidationRows = rowIndexes(for: reconfiguredIDs)
         if didChangeColumnWidth {
           invalidationRows.formUnion(IndexSet(integersIn: 0..<newRowIDs.count))
         }
         scheduleHeightInvalidation(
           for: invalidationRows,
-          scrollToBottomAfterFlush: wasPinnedToBottom && didChangeColumnWidth
+          scrollToBottomAfterFlush: shouldDeferPinnedScroll && streamingThinkingChangedIDs.isEmpty
+            || (wasPinnedToBottom && didChangeColumnWidth)
         )
+        let hasRowChanges = !plan.changedIDs.isEmpty
+        if shouldScrollAfterAppend
+          || (wasPinnedToBottom && hasRowChanges && !shouldDeferPinnedScroll)
+        {
+          scrollToBottom(scrollView)
+        }
+        return
       }
 
       let hasRowChanges = plan.action == .snapshot || !plan.changedIDs.isEmpty
       if shouldScrollAfterAppend || (wasPinnedToBottom && hasRowChanges) {
         scrollToBottom(scrollView)
       }
+    }
+
+    private func streamingAssistantMessageRowIDs(in changedIDs: Set<String>) -> Set<String> {
+      Set(changedIDs.filter { rowsByID[$0]?.isStreamingAssistantMessage == true })
+    }
+
+    private func streamingAssistantThinkingRowIDs(in changedIDs: Set<String>) -> Set<String> {
+      Set(changedIDs.filter { rowsByID[$0]?.isStreamingAssistantThinkingMessage == true })
     }
 
     private func changedSpeechRowIDs(
@@ -596,6 +623,14 @@ enum NativeTranscriptSection: Hashable {
   case main
 }
 
+enum NativeTranscriptCellKind: Equatable {
+  case userMessage
+  case assistantThinking
+  case assistantMessage
+  case tool
+  case generationIndicator
+}
+
 struct NativeTranscriptRow: Equatable, Identifiable {
   let id: String
   let revision: Int
@@ -632,6 +667,38 @@ struct NativeTranscriptRow: Equatable, Identifiable {
       return false
     }
     return true
+  }
+
+  var isStreamingAssistantMessage: Bool {
+    guard case .item(let item) = body else {
+      return false
+    }
+    return item.isStreamingAssistantMessage
+  }
+
+  var isStreamingAssistantThinkingMessage: Bool {
+    guard case .item(let item) = body else {
+      return false
+    }
+    return item.isStreamingAssistantThinkingMessage
+  }
+
+  var cellKind: NativeTranscriptCellKind {
+    switch body {
+    case .generationIndicator:
+      .generationIndicator
+    case .item(let item):
+      switch item.item {
+      case .userMessage:
+        .userMessage
+      case .assistantThinking:
+        .assistantThinking
+      case .assistantMessage:
+        .assistantMessage
+      case .tool:
+        .tool
+      }
+    }
   }
 }
 
@@ -960,9 +1027,15 @@ struct NativeTranscriptCellActions {
 final class NativeChatMessageCellView: NSTableCellView {
   private let contentHost = NSView()
   private var hostedContentView: NSView?
+  private var configuredRowID: String?
+  private var configuredKind: NativeTranscriptCellKind?
   private var alignmentConstraints: [NSLayoutConstraint] = []
   fileprivate var actions: NativeTranscriptCellActions?
   private var askUserPopUpButton: NSPopUpButton?
+
+  var hostedContentViewForTesting: NSView? {
+    hostedContentView
+  }
 
   init(identifier: NSUserInterfaceItemIdentifier) {
     super.init(frame: .zero)
@@ -1006,6 +1079,9 @@ final class NativeChatMessageCellView: NSTableCellView {
     super.prepareForReuse()
     actions = nil
     askUserPopUpButton = nil
+    configuredRowID = nil
+    configuredKind = nil
+    clearHostedContent()
   }
 
   func configure(
@@ -1015,6 +1091,30 @@ final class NativeChatMessageCellView: NSTableCellView {
   ) {
     self.actions = actions
     askUserPopUpButton = nil
+    let kind = row.cellKind
+
+    if configuredRowID == row.id,
+      configuredKind == kind,
+      kind == .assistantMessage,
+      case .item(let item) = row.body,
+      let assistantView = hostedContentView as? NativeAssistantMessageView
+    {
+      assistantView.update(item: item, rowID: row.id, state: state)
+      updateAccessibility(for: row)
+      return
+    }
+
+    if configuredRowID == row.id,
+      configuredKind == kind,
+      kind == .assistantThinking,
+      case .item(let item) = row.body,
+      case .assistantThinking(let message) = item.item,
+      let thinkingView = hostedContentView as? NativeAssistantThinkingView
+    {
+      thinkingView.update(message: message, rowID: row.id, state: state)
+      updateAccessibility(for: row)
+      return
+    }
 
     let contentView: NSView
     switch row.body {
@@ -1025,8 +1125,13 @@ final class NativeChatMessageCellView: NSTableCellView {
     }
 
     replaceHostedContent(with: contentView)
+    configuredRowID = row.id
+    configuredKind = kind
     updateAlignment(for: row.body)
+    updateAccessibility(for: row)
+  }
 
+  private func updateAccessibility(for row: NativeTranscriptRow) {
     setAccessibilityElement(true)
     setAccessibilityIdentifier(row.accessibilityIdentifier)
     setAccessibilityLabel(row.accessibilityLabel)
@@ -1042,7 +1147,7 @@ final class NativeChatMessageCellView: NSTableCellView {
   }
 
   private func replaceHostedContent(with contentView: NSView) {
-    hostedContentView?.removeFromSuperview()
+    clearHostedContent()
     hostedContentView = contentView
 
     contentHost.addSubview(contentView)
@@ -1053,6 +1158,11 @@ final class NativeChatMessageCellView: NSTableCellView {
       contentView.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor),
       contentView.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor),
     ])
+  }
+
+  private func clearHostedContent() {
+    hostedContentView?.removeFromSuperview()
+    hostedContentView = nil
   }
 
   private func updateAlignment(for body: NativeTranscriptRow.Body) {
@@ -1159,33 +1269,14 @@ final class NativeChatMessageCellView: NSTableCellView {
     rowID: String,
     state: NativeTranscriptCellState
   ) -> NSView {
-    let stack = verticalStack(spacing: 5)
-    let isExpanded = state.isThinkingExpanded || message.deliveryStatus == .streaming
-
-    let header = horizontalStack(spacing: 7)
-    header.addArrangedSubview(nativeThinkingStatusIndicator(status: message.deliveryStatus))
-    let title = makeSecondaryLabel("Reasoning")
-    title.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
-    title.textColor = .tertiaryLabelColor
-    header.addArrangedSubview(title)
-    header.addArrangedSubview(spacer())
-    header.addArrangedSubview(
-      makeIconButton(
-        systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
-        accessibilityLabel: isExpanded ? "Hide reasoning" : "Show reasoning",
-        tintColor: .tertiaryLabelColor
-      ) { [weak self] in
+    NativeAssistantThinkingView(
+      message: message,
+      rowID: rowID,
+      state: state,
+      toggleThinkingExpansion: { [weak self] rowID in
         self?.actions?.toggleThinkingExpansion(rowID)
       }
     )
-    stack.addArrangedSubview(header)
-
-    if isExpanded, !message.content.isEmpty {
-      let content = makeTextLabel(message.content, color: .secondaryLabelColor)
-      stack.addArrangedSubview(content)
-    }
-
-    return stack
   }
 
   private func makeAssistantMessageView(
@@ -1193,11 +1284,28 @@ final class NativeChatMessageCellView: NSTableCellView {
     rowID: String,
     state: NativeTranscriptCellState
   ) -> NSView {
+    NativeAssistantMessageView(
+      item: item,
+      rowID: rowID,
+      state: state,
+      makePlaceholderView: { [weak self] title in
+        self?.makeGenerationIndicator(title: title) ?? NSView()
+      },
+      makeFinalContentView: { [weak self] item, rowID, state in
+        self?.makeAssistantFinalContentView(item: item, rowID: rowID, state: state)
+      },
+      makeFooterView: { [weak self] item, rowID, state in
+        self?.makeAssistantFooterView(item: item, rowID: rowID, state: state)
+      }
+    )
+  }
+
+  private func makeAssistantFinalContentView(
+    item: RenderedChatTurnItem,
+    rowID: String,
+    state _: NativeTranscriptCellState
+  ) -> NSView? {
     let stack = verticalStack(spacing: 8)
-    if item.shouldShowAssistantPlaceholder {
-      stack.addArrangedSubview(makeGenerationIndicator(title: item.assistantPlaceholderTitle))
-      return stack
-    }
 
     if !item.nativeAttachments.isEmpty {
       stack.addArrangedSubview(
@@ -1233,6 +1341,14 @@ final class NativeChatMessageCellView: NSTableCellView {
       }
     }
 
+    return stack.arrangedSubviews.isEmpty ? nil : stack
+  }
+
+  private func makeAssistantFooterView(
+    item: RenderedChatTurnItem,
+    rowID: String,
+    state: NativeTranscriptCellState
+  ) -> NSView? {
     let footer = horizontalStack(spacing: 8)
     if state.isSpeechEnabled, let spokenText = item.nativeSpokenText {
       footer.addArrangedSubview(
@@ -1251,10 +1367,10 @@ final class NativeChatMessageCellView: NSTableCellView {
     if let metrics = item.visibleGenerationMetrics {
       footer.addArrangedSubview(makeSecondaryLabel(metrics.visibleSummary))
     }
-    if footer.arrangedSubviews.isEmpty == false {
-      stack.addArrangedSubview(footer)
+    if footer.arrangedSubviews.isEmpty {
+      return nil
     }
-    return stack
+    return footer
   }
 
   private func makeMarkdownBlockView(_ block: NativeMarkdownBlock) -> NSView {
@@ -1526,6 +1642,411 @@ final class NativeChatMessageCellView: NSTableCellView {
     return imageView
   }
 
+}
+
+final class NativeAssistantThinkingView: NSView {
+  private let stack = NSStackView()
+  private let header = NSStackView()
+  private let statusHost = NSView()
+  private let titleLabel = NSTextField(wrappingLabelWithString: "Reasoning")
+  private let disclosureButton = NativeActionButton(title: "")
+  private let toggleThinkingExpansion: (String) -> Void
+  private var statusView: NSView?
+  private var contentLabel: NSTextField?
+  private var currentRowID: String
+  private var currentContent = ""
+  private var currentStatus: AssistantThinkingMessage.DeliveryStatus?
+
+  init(
+    message: AssistantThinkingMessage,
+    rowID: String,
+    state: NativeTranscriptCellState,
+    toggleThinkingExpansion: @escaping (String) -> Void
+  ) {
+    self.currentRowID = rowID
+    self.toggleThinkingExpansion = toggleThinkingExpansion
+    super.init(frame: .zero)
+    setupLayout()
+    update(message: message, rowID: rowID, state: state)
+  }
+
+  @available(*, unavailable)
+  required init?(coder _: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  func update(
+    message: AssistantThinkingMessage,
+    rowID: String,
+    state: NativeTranscriptCellState
+  ) {
+    currentRowID = rowID
+    let isExpanded = state.isThinkingExpanded || message.deliveryStatus == .streaming
+    updateStatus(message.deliveryStatus)
+    updateDisclosureButton(isExpanded: isExpanded)
+    updateContent(message.content, isExpanded: isExpanded)
+  }
+
+  private func setupLayout() {
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    stack.orientation = .vertical
+    stack.alignment = .leading
+    stack.distribution = .gravityAreas
+    stack.spacing = 5
+    addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.topAnchor.constraint(equalTo: topAnchor),
+      stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+      stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+
+    header.orientation = .horizontal
+    header.alignment = .centerY
+    header.distribution = .gravityAreas
+    header.spacing = 7
+    stack.addArrangedSubview(header)
+
+    statusHost.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      statusHost.widthAnchor.constraint(equalToConstant: 13),
+      statusHost.heightAnchor.constraint(equalToConstant: 13),
+    ])
+    header.addArrangedSubview(statusHost)
+
+    titleLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+    titleLabel.textColor = .tertiaryLabelColor
+    titleLabel.maximumNumberOfLines = 1
+    titleLabel.lineBreakMode = .byTruncatingTail
+    titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    header.addArrangedSubview(titleLabel)
+    header.addArrangedSubview(Self.spacer())
+
+    disclosureButton.translatesAutoresizingMaskIntoConstraints = false
+    disclosureButton.bezelStyle = .inline
+    disclosureButton.isBordered = false
+    disclosureButton.controlSize = .small
+    disclosureButton.setButtonType(.momentaryPushIn)
+    disclosureButton.imagePosition = .imageOnly
+    disclosureButton.contentTintColor = .tertiaryLabelColor
+    disclosureButton.actionHandler = { [weak self] in
+      guard let self else {
+        return
+      }
+      toggleThinkingExpansion(currentRowID)
+    }
+    NSLayoutConstraint.activate([
+      disclosureButton.widthAnchor.constraint(equalToConstant: 18),
+      disclosureButton.heightAnchor.constraint(equalToConstant: 18),
+    ])
+    header.addArrangedSubview(disclosureButton)
+  }
+
+  private func updateStatus(_ status: AssistantThinkingMessage.DeliveryStatus) {
+    guard currentStatus != status else {
+      return
+    }
+    currentStatus = status
+    statusView?.removeFromSuperview()
+
+    let view = nativeThinkingStatusIndicator(status: status)
+    statusView = view
+    statusHost.addSubview(view)
+    view.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      view.centerXAnchor.constraint(equalTo: statusHost.centerXAnchor),
+      view.centerYAnchor.constraint(equalTo: statusHost.centerYAnchor),
+    ])
+  }
+
+  private func updateDisclosureButton(isExpanded: Bool) {
+    let accessibilityLabel = isExpanded ? "Hide reasoning" : "Show reasoning"
+    disclosureButton.image = NSImage(
+      systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
+      accessibilityDescription: nil
+    )
+    disclosureButton.image?.isTemplate = true
+    disclosureButton.contentTintColor = .tertiaryLabelColor
+    disclosureButton.toolTip = accessibilityLabel
+    disclosureButton.setAccessibilityLabel(accessibilityLabel)
+  }
+
+  private func updateContent(_ content: String, isExpanded: Bool) {
+    guard isExpanded, !content.isEmpty else {
+      removeContentLabel()
+      return
+    }
+
+    let label = ensureContentLabel()
+    if content.hasPrefix(currentContent) {
+      let suffix = String(content.dropFirst(currentContent.count))
+      if !suffix.isEmpty {
+        let updated = NSMutableAttributedString(attributedString: label.attributedStringValue)
+        updated.append(Self.thinkingAttributedString(for: suffix, usesPlaceholderForEmpty: false))
+        label.attributedStringValue = updated
+      }
+    } else {
+      label.attributedStringValue = Self.thinkingAttributedString(for: content)
+    }
+
+    currentContent = content
+    label.invalidateIntrinsicContentSize()
+    invalidateIntrinsicContentSize()
+    needsLayout = true
+  }
+
+  private func ensureContentLabel() -> NSTextField {
+    if let contentLabel {
+      return contentLabel
+    }
+
+    let label = NSTextField(labelWithAttributedString: NSAttributedString())
+    label.maximumNumberOfLines = 0
+    label.lineBreakMode = .byWordWrapping
+    label.isSelectable = true
+    label.allowsEditingTextAttributes = true
+    label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    contentLabel = label
+    stack.addArrangedSubview(label)
+    return label
+  }
+
+  private func removeContentLabel() {
+    guard let contentLabel else {
+      currentContent = ""
+      return
+    }
+    stack.removeArrangedSubview(contentLabel)
+    contentLabel.removeFromSuperview()
+    self.contentLabel = nil
+    currentContent = ""
+    invalidateIntrinsicContentSize()
+  }
+
+  private static func thinkingAttributedString(
+    for text: String,
+    usesPlaceholderForEmpty: Bool = true
+  ) -> NSAttributedString {
+    let source = text.isEmpty && usesPlaceholderForEmpty ? " " : text
+    let attributedString = NSMutableAttributedString(
+      string: source,
+      attributes: [
+        .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+        .foregroundColor: NSColor.secondaryLabelColor,
+      ]
+    )
+    NativeTranscriptMarkdownRenderer.applyLinks(to: attributedString, sourceText: source)
+    return attributedString
+  }
+
+  private static func spacer() -> NSView {
+    let view = NSView()
+    view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    return view
+  }
+}
+
+final class NativeAssistantMessageView: NSView {
+  typealias PlaceholderBuilder = (String) -> NSView
+  typealias ContentBuilder = (RenderedChatTurnItem, String, NativeTranscriptCellState) -> NSView?
+
+  private let stack = NSStackView()
+  private let makePlaceholderView: PlaceholderBuilder
+  private let makeFinalContentView: ContentBuilder
+  private let makeFooterView: ContentBuilder
+  private var contentView: NSView?
+  private var footerView: NSView?
+  private var streamingTextLabel: NSTextField?
+  private var currentStreamingContent = ""
+  private var contentMode: ContentMode?
+
+  init(
+    item: RenderedChatTurnItem,
+    rowID: String,
+    state: NativeTranscriptCellState,
+    makePlaceholderView: @escaping PlaceholderBuilder,
+    makeFinalContentView: @escaping ContentBuilder,
+    makeFooterView: @escaping ContentBuilder
+  ) {
+    self.makePlaceholderView = makePlaceholderView
+    self.makeFinalContentView = makeFinalContentView
+    self.makeFooterView = makeFooterView
+    super.init(frame: .zero)
+    setupStack()
+    update(item: item, rowID: rowID, state: state)
+  }
+
+  @available(*, unavailable)
+  required init?(coder _: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  func update(
+    item: RenderedChatTurnItem,
+    rowID: String,
+    state: NativeTranscriptCellState
+  ) {
+    updateContent(item: item, rowID: rowID, state: state)
+    if item.isStreamingAssistantMessage {
+      replaceFooterView(nil)
+    } else {
+      replaceFooterView(makeFooterView(item, rowID, state))
+    }
+  }
+
+  private func setupStack() {
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    stack.orientation = .vertical
+    stack.alignment = .leading
+    stack.distribution = .gravityAreas
+    stack.spacing = 8
+    addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.topAnchor.constraint(equalTo: topAnchor),
+      stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+      stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  private func updateContent(
+    item: RenderedChatTurnItem,
+    rowID: String,
+    state: NativeTranscriptCellState
+  ) {
+    if item.shouldShowAssistantPlaceholder {
+      let mode = ContentMode.placeholder(item.assistantPlaceholderTitle)
+      if contentMode != mode {
+        replaceContentView(makePlaceholderView(item.assistantPlaceholderTitle))
+        resetStreamingText()
+        contentMode = mode
+      }
+      return
+    }
+
+    if item.isStreamingAssistantMessage {
+      guard item.nativeAttachments.isEmpty else {
+        let mode = ContentMode.streamingStructured(item.renderRevision)
+        if contentMode != mode {
+          replaceContentView(makeFinalContentView(item, rowID, state))
+          resetStreamingText()
+          contentMode = mode
+        }
+        return
+      }
+
+      updatePlainStreamingText(item.content)
+      return
+    }
+
+    replaceContentView(makeFinalContentView(item, rowID, state))
+    resetStreamingText()
+    contentMode = .final
+  }
+
+  private func updatePlainStreamingText(_ content: String) {
+    if contentMode != .streamingPlain || streamingTextLabel == nil {
+      let label = makeStreamingTextLabel()
+      streamingTextLabel = label
+      currentStreamingContent = ""
+      replaceContentView(label)
+      contentMode = .streamingPlain
+    }
+
+    guard let streamingTextLabel else {
+      return
+    }
+
+    if content.hasPrefix(currentStreamingContent) {
+      let suffix = String(content.dropFirst(currentStreamingContent.count))
+      if !suffix.isEmpty {
+        let updated = NSMutableAttributedString(
+          attributedString: streamingTextLabel.attributedStringValue
+        )
+        updated.append(Self.streamingAttributedString(for: suffix, usesPlaceholderForEmpty: false))
+        streamingTextLabel.attributedStringValue = updated
+      }
+    } else {
+      streamingTextLabel.attributedStringValue = Self.streamingAttributedString(for: content)
+    }
+
+    currentStreamingContent = content
+    streamingTextLabel.invalidateIntrinsicContentSize()
+    invalidateIntrinsicContentSize()
+    needsLayout = true
+  }
+
+  private func replaceContentView(_ view: NSView?) {
+    if let contentView {
+      stack.removeArrangedSubview(contentView)
+      contentView.removeFromSuperview()
+    }
+    contentView = view
+    guard let view else {
+      invalidateIntrinsicContentSize()
+      return
+    }
+
+    let index =
+      footerView.flatMap { footer in stack.arrangedSubviews.firstIndex { $0 === footer } }
+      ?? stack.arrangedSubviews.count
+    stack.insertArrangedSubview(view, at: index)
+    invalidateIntrinsicContentSize()
+  }
+
+  private func replaceFooterView(_ view: NSView?) {
+    if let footerView {
+      stack.removeArrangedSubview(footerView)
+      footerView.removeFromSuperview()
+    }
+    footerView = view
+    guard let view else {
+      invalidateIntrinsicContentSize()
+      return
+    }
+
+    stack.addArrangedSubview(view)
+    invalidateIntrinsicContentSize()
+  }
+
+  private func makeStreamingTextLabel() -> NSTextField {
+    let label = NSTextField(labelWithAttributedString: NSAttributedString())
+    label.maximumNumberOfLines = 0
+    label.lineBreakMode = .byWordWrapping
+    label.isSelectable = true
+    label.allowsEditingTextAttributes = true
+    label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    return label
+  }
+
+  private func resetStreamingText() {
+    streamingTextLabel = nil
+    currentStreamingContent = ""
+  }
+
+  private static func streamingAttributedString(
+    for text: String,
+    usesPlaceholderForEmpty: Bool = true
+  ) -> NSAttributedString {
+    let source = text.isEmpty && usesPlaceholderForEmpty ? " " : text
+    let attributedString = NSMutableAttributedString(
+      string: source,
+      attributes: [
+        .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+        .foregroundColor: NSColor.labelColor,
+      ]
+    )
+    NativeTranscriptMarkdownRenderer.applyLinks(to: attributedString, sourceText: source)
+    return attributedString
+  }
+
+  private enum ContentMode: Equatable {
+    case placeholder(String)
+    case streamingPlain
+    case streamingStructured(Int)
+    case final
+  }
 }
 
 extension NativeChatMessageCellView {
@@ -2154,6 +2675,17 @@ extension NativeTranscriptRow {
 extension RenderedChatTurnItem {
   var shouldShowAssistantPlaceholder: Bool {
     assistantMessage?.shouldShowAssistantPlaceholder ?? false
+  }
+
+  fileprivate var isStreamingAssistantMessage: Bool {
+    assistantMessage?.deliveryStatus == .streaming
+  }
+
+  fileprivate var isStreamingAssistantThinkingMessage: Bool {
+    guard case .assistantThinking(let message) = item else {
+      return false
+    }
+    return message.deliveryStatus == .streaming
   }
 
   fileprivate var assistantPlaceholderTitle: String {

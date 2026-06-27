@@ -648,6 +648,120 @@ struct AppKitChatTranscriptDiffPlanTests {
     #expect(cell.descendantButtons(accessibilityLabel: "Stop reading message").count == 1)
     #expect(cell.descendantButtons(accessibilityLabel: "Read message aloud").isEmpty)
   }
+
+  @Test
+  func sameAssistantRowReconfigureKeepsHostedView() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let firstRow = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Hel")
+    let revisedRow = nativeStreamingAssistantRow(id: "assistant", revision: 2, content: "Hello")
+
+    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let firstHostedView = try #require(cell.hostedContentViewForTesting)
+    cell.configure(
+      row: revisedRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let revisedHostedView = try #require(cell.hostedContentViewForTesting)
+
+    #expect(firstHostedView === revisedHostedView)
+  }
+
+  @Test
+  func sameThinkingRowReconfigureKeepsHostedViewAndHeader() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let firstRow = nativeStreamingThinkingRow(
+      id: "thinking",
+      revision: 1,
+      content: "Inspecting"
+    )
+    let revisedRow = nativeStreamingThinkingRow(
+      id: "thinking",
+      revision: 2,
+      content: "Inspecting the search results"
+    )
+
+    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let firstHostedView = try #require(cell.hostedContentViewForTesting)
+    let firstHeaderLabel = try #require(
+      cell.descendantTextFields.first { $0.stringValue == "Reasoning" })
+
+    cell.configure(
+      row: revisedRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let revisedHostedView = try #require(cell.hostedContentViewForTesting)
+    let revisedHeaderLabel = try #require(
+      cell.descendantTextFields.first { $0.stringValue == "Reasoning" }
+    )
+
+    #expect(firstHostedView === revisedHostedView)
+    #expect(firstHeaderLabel === revisedHeaderLabel)
+    #expect(cell.descendantTextValues.contains("Inspecting the search results"))
+  }
+
+  @Test
+  func differentRowOrKindReplacesHostedView() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let firstRow = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Hello")
+    let differentAssistantRow = nativeStreamingAssistantRow(
+      id: "other-assistant",
+      revision: 1,
+      content: "Hello"
+    )
+    let differentKindRow = nativeUserRow(id: "other-assistant", revision: 2, content: "Question")
+
+    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let firstHostedView = try #require(cell.hostedContentViewForTesting)
+    cell.configure(
+      row: differentAssistantRow,
+      state: NativeTranscriptCellState(),
+      actions: testNativeActions()
+    )
+    let differentRowHostedView = try #require(cell.hostedContentViewForTesting)
+    cell.configure(
+      row: differentKindRow,
+      state: NativeTranscriptCellState(),
+      actions: testNativeActions()
+    )
+    let differentKindHostedView = try #require(cell.hostedContentViewForTesting)
+
+    #expect(firstHostedView !== differentRowHostedView)
+    #expect(differentRowHostedView !== differentKindHostedView)
+  }
+
+  @Test
+  func streamingAssistantViewUpdatesPlaceholderTextAndFinalMarkdown() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let placeholderRow = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "")
+    let streamingRow = nativeStreamingAssistantRow(id: "assistant", revision: 2, content: "**bo")
+    let finalRow = nativeAssistantMarkdownRow(
+      id: "assistant",
+      revision: 3,
+      markdown: "**bold**"
+    )
+
+    cell.configure(
+      row: placeholderRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let hostedView = try #require(cell.hostedContentViewForTesting)
+    #expect(cell.descendantTextValues.contains("Generating"))
+
+    cell.configure(
+      row: streamingRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let streamingHostedView = try #require(cell.hostedContentViewForTesting)
+    #expect(hostedView === streamingHostedView)
+    #expect(cell.descendantTextValues.contains("**bo"))
+    #expect(!cell.descendantTextValues.contains("Generating"))
+
+    cell.configure(row: finalRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let finalHostedView = try #require(cell.hostedContentViewForTesting)
+    #expect(hostedView === finalHostedView)
+    #expect(cell.descendantTextValues.contains { $0.contains("bold") })
+    #expect(!cell.descendantTextValues.contains("**bold**"))
+  }
 }
 
 private func revisionMap(_ rows: [NativeTranscriptRow]) -> [String: Int] {
@@ -717,6 +831,27 @@ private func nativeThinkingRow(
   )
 }
 
+private func nativeStreamingThinkingRow(
+  id: String,
+  revision: Int,
+  content: String
+) -> NativeTranscriptRow {
+  NativeTranscriptRow(
+    id: id,
+    revision: revision,
+    body: .item(
+      RenderedChatTurnItem(
+        id: id,
+        item: .assistantThinking(
+          AssistantThinkingMessage(content: content, deliveryStatus: .streaming)
+        ),
+        toolCallRecord: nil,
+        generationMetrics: nil,
+        assistantRenderBlocks: []
+      ))
+  )
+}
+
 private func nativeAssistantCodeRow(
   id: String,
   revision: Int,
@@ -763,6 +898,27 @@ private func nativeAssistantMarkdownRow(
           .paragraph(.init(id: .init(rawValue: "markdown"), text: markdown))
         ],
         assistantSpokenText: spokenText
+      ))
+  )
+}
+
+private func nativeStreamingAssistantRow(
+  id: String,
+  revision: Int,
+  content: String
+) -> NativeTranscriptRow {
+  NativeTranscriptRow(
+    id: id,
+    revision: revision,
+    body: .item(
+      RenderedChatTurnItem(
+        id: id,
+        item: .assistantMessage(
+          AssistantTurnMessage(content: content, deliveryStatus: .streaming)
+        ),
+        toolCallRecord: nil,
+        generationMetrics: nil,
+        assistantRenderBlocks: []
       ))
   )
 }
@@ -940,26 +1096,31 @@ private func configuredNativeCell(
   cell.configure(
     row: row,
     state: state,
-    actions: NativeTranscriptCellActions(
-      markdownBlocks: NativeTranscriptMarkdownRenderer.blocks,
-      highlightedCode: { _, _ in nil },
-      requestCodeHighlight: { _, _ in },
-      attachmentThumbnail: { _, _ in nil },
-      requestAttachmentThumbnail: { _, _, _ in },
-      showImageAttachment: { _, _ in },
-      copy: { _, _ in },
-      toggleSpeech: { _, _ in },
-      approve: { _ in },
-      deny: { _ in },
-      answerAskUser: { _, _, _ in },
-      toggleToolExpansion: { _ in },
-      toggleThinkingExpansion: { _ in },
-      updateAskUserSelection: { _, _ in }
-    )
+    actions: testNativeActions()
   )
   cell.setFrameSize(NSSize(width: 640, height: 240))
   cell.layoutSubtreeIfNeeded()
   return cell
+}
+
+@MainActor
+private func testNativeActions() -> NativeTranscriptCellActions {
+  NativeTranscriptCellActions(
+    markdownBlocks: NativeTranscriptMarkdownRenderer.blocks,
+    highlightedCode: { _, _ in nil },
+    requestCodeHighlight: { _, _ in },
+    attachmentThumbnail: { _, _ in nil },
+    requestAttachmentThumbnail: { _, _, _ in },
+    showImageAttachment: { _, _ in },
+    copy: { _, _ in },
+    toggleSpeech: { _, _ in },
+    approve: { _ in },
+    deny: { _ in },
+    answerAskUser: { _, _, _ in },
+    toggleToolExpansion: { _ in },
+    toggleThinkingExpansion: { _ in },
+    updateAskUserSelection: { _, _ in }
+  )
 }
 
 extension NSView {
@@ -975,5 +1136,13 @@ extension NSView {
     descendants(of: NSButton.self).filter {
       $0.accessibilityLabel() == accessibilityLabel
     }
+  }
+
+  fileprivate var descendantTextValues: [String] {
+    descendantTextFields.map(\.stringValue)
+  }
+
+  fileprivate var descendantTextFields: [NSTextField] {
+    descendants(of: NSTextField.self)
   }
 }

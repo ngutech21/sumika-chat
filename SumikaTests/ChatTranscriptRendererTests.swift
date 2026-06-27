@@ -44,7 +44,7 @@ struct ChatTranscriptRendererTests {
         "\(turnID.uuidString):tool:\(toolID.uuidString)",
         "\(turnID.uuidString):assistant:\(placeholderID.uuidString)",
       ])
-    #expect(parser.parsedContents == ["Answer", ""])
+    #expect(parser.parsedContents == ["Answer"])
   }
 
   @Test
@@ -152,7 +152,7 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
-  func streamingAssistantUpdateReparsesOnlyThatAssistantMessage() {
+  func streamingAssistantUpdateSkipsBlockParsingUntilComplete() {
     let turnID = UUID()
     let stableAssistantID = UUID()
     let streamingAssistantID = UUID()
@@ -176,7 +176,7 @@ struct ChatTranscriptRendererTests {
       )
     ])
 
-    let items = renderer.items(for: [
+    let streamingItems = renderer.items(for: [
       ChatTurn(
         id: turnID,
         status: .running,
@@ -193,9 +193,29 @@ struct ChatTranscriptRendererTests {
       )
     ])
 
-    #expect(parser.parsedContents == ["Stable", "Stream", "Streaming"])
-    #expect(items[0].assistantRenderBlocks == [parsedBlock(for: "Stable")])
-    #expect(items[1].assistantRenderBlocks == [parsedBlock(for: "Streaming")])
+    #expect(parser.parsedContents == ["Stable"])
+    #expect(streamingItems[0].assistantRenderBlocks == [parsedBlock(for: "Stable")])
+    #expect(streamingItems[1].assistantRenderBlocks.isEmpty)
+
+    let completedItems = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .completed,
+        items: [
+          .assistantMessage(AssistantTurnMessage(id: stableAssistantID, content: "Stable")),
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: streamingAssistantID,
+              content: "Streaming",
+              deliveryStatus: .complete
+            )
+          ),
+        ]
+      )
+    ])
+
+    #expect(parser.parsedContents == ["Stable", "Streaming"])
+    #expect(completedItems[1].assistantRenderBlocks == [parsedBlock(for: "Streaming")])
   }
 
   @Test
@@ -471,7 +491,7 @@ struct ChatTranscriptRendererTests {
         "\(turnID.uuidString):assistant:\(visiblePlaceholderID.uuidString)"
       ])
     #expect(items.first?.shouldShowAssistantPlaceholder == true)
-    #expect(parser.parsedContents == [""])
+    #expect(parser.parsedContents.isEmpty)
   }
 
   @Test
