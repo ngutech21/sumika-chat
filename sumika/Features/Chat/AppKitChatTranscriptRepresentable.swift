@@ -2726,11 +2726,10 @@ extension RenderedChatTurnItem {
     switch item {
     case .userMessage(let message):
       "User message \(message.content)"
-    case .assistantThinking(let message):
-      "Assistant reasoning \(message.content)"
-    case .assistantMessage(let message):
-      shouldShowAssistantPlaceholder
-        ? assistantPlaceholderTitle : "Assistant message \(message.content)"
+    case .assistantThinking:
+      "Assistant reasoning"
+    case .assistantMessage:
+      shouldShowAssistantPlaceholder ? assistantPlaceholderTitle : "Assistant message"
     case .tool(let record):
       "Tool \(record.request.toolName.rawValue), \(record.status.nativeDisplayName)"
     }

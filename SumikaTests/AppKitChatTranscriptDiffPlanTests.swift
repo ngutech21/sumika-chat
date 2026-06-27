@@ -62,6 +62,41 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func assistantAccessibilityLabelDoesNotIncludeMessageContent() {
+    let longContent =
+      "This assistant response contains implementation details, code, logs, and other long text."
+    let row = nativeAssistantMarkdownRow(
+      id: "assistant-accessibility",
+      revision: 1,
+      markdown: longContent
+    )
+    let cell = configuredNativeCell(for: row)
+
+    #expect(cell.accessibilityLabel() == "Assistant message")
+    #expect(cell.accessibilityLabel()?.contains(longContent) == false)
+    #expect(cell.descendantTextValues.contains(longContent))
+  }
+
+  @Test
+  func assistantReasoningAccessibilityLabelDoesNotIncludeMessageContent() {
+    let longContent =
+      "Inspecting the current workspace and comparing all candidate files before answering."
+    let row = nativeStreamingThinkingRow(
+      id: "thinking-accessibility",
+      revision: 1,
+      content: longContent
+    )
+    let cell = configuredNativeCell(
+      for: row,
+      state: NativeTranscriptCellState(isThinkingExpanded: true)
+    )
+
+    #expect(cell.accessibilityLabel() == "Assistant reasoning")
+    #expect(cell.accessibilityLabel()?.contains(longContent) == false)
+    #expect(cell.descendantTextValues.contains(longContent))
+  }
+
+  @Test
   func heightCacheKeysByRowRevisionAndWidth() {
     var cache = NativeTranscriptHeightCache()
     let row = NativeTranscriptRow(
