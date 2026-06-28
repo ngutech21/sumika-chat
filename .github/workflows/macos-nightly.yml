@@ -64,19 +64,6 @@ jobs:
             -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath .build/xcode-source-packages
 
-      - name: Build unsigned Release app
-        timeout-minutes: 20
-        run: |
-          xcodebuild build \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -destination "$DESTINATION" \
-            -derivedDataPath "$DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath .build/xcode-source-packages \
-            SUMIKA_GIT_COMMIT="$SUMIKA_GIT_COMMIT" \
-            CODE_SIGNING_ALLOWED=NO
-
       - name: Run SwiftPM core tests on macOS
         timeout-minutes: 20
         run: just test
@@ -115,7 +102,6 @@ jobs:
           security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       - name: Build notarized Release package
         timeout-minutes: 45

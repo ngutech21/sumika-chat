@@ -25,7 +25,7 @@ release-unsigned:
 
 release-signed:
     @if [ -z "$DEVELOPER_ID_APPLICATION" ]; then echo "DEVELOPER_ID_APPLICATION is required, for example: Developer ID Application"; exit 1; fi
-    @if ! security find-identity -v -p codesigning | grep -F "$DEVELOPER_ID_APPLICATION" >/dev/null; then echo "No codesigning identity found matching DEVELOPER_ID_APPLICATION=$DEVELOPER_ID_APPLICATION"; security find-identity -v -p codesigning; exit 1; fi
+    @if ! security find-identity -v -p codesigning | grep -F "$DEVELOPER_ID_APPLICATION" >/dev/null; then echo "Required Developer ID Application codesigning identity was not found."; exit 1; fi
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGNING_ALLOWED=NO build
     @app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
     test -d "$app_bundle"; \
