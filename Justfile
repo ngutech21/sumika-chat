@@ -3,7 +3,10 @@ set quiet := true
 project := "Sumika.xcodeproj"
 scheme := "Sumika"
 destination := "platform=macOS,arch=arm64"
-derived_data := "build/DerivedData"
+derived_data := env("DERIVED_DATA_PATH", "build/DerivedData")
+configuration := "Release"
+app_name := "Sumika Chat"
+artifact_dir := "build/artifacts"
 
 swift := env("SWIFT", "swift")
 
@@ -15,7 +18,31 @@ build:
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" build
 
 release:
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration Release SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" build
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" build
+
+release-unsigned:
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGNING_ALLOWED=NO build
+
+release-signed:
+    @if [ -z "$DEVELOPER_ID_APPLICATION" ]; then echo "DEVELOPER_ID_APPLICATION is required, for example: Developer ID Application"; exit 1; fi
+    @if ! security find-identity -v -p codesigning | grep -F "$DEVELOPER_ID_APPLICATION" >/dev/null; then echo "No codesigning identity found matching DEVELOPER_ID_APPLICATION=$DEVELOPER_ID_APPLICATION"; security find-identity -v -p codesigning; exit 1; fi
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGNING_ALLOWED=NO build
+    @app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
+    test -d "$app_bundle"; \
+    codesign --force --deep --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$app_bundle"; \
+    codesign --verify --deep --strict --verbose=2 "$app_bundle"
+
+release-package artifact_name="Sumika-Chat-macos-release.dmg": release-signed
+    @app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
+    artifact_dir="{{artifact_dir}}"; \
+    artifact="$artifact_dir/{{artifact_name}}"; \
+    test -d "$app_bundle"; \
+    mkdir -p "$artifact_dir"; \
+    codesign --verify --deep --strict --verbose=2 "$app_bundle"; \
+    hdiutil create -volname "{{app_name}}" -srcfolder "$app_bundle" -ov -format UDZO "$artifact"; \
+    codesign --force --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$artifact"; \
+    codesign --verify --strict --verbose=2 "$artifact"; \
+    echo "$artifact"
 
 test: test-core test-app
 

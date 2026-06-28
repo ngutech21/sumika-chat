@@ -24,9 +24,8 @@ jobs:
       DESTINATION: platform=macOS,arch=arm64
       CONFIGURATION: Release
       DERIVED_DATA_PATH: build/DerivedData/macos-nightly
-      APP_NAME: Sumika Chat
-      ARTIFACT_DIR: build/artifacts
       SUMIKA_GIT_COMMIT: ${{ github.sha }}
+      DEVELOPER_ID_APPLICATION: Developer ID Application
 
     steps:
       - name: Checkout
@@ -65,7 +64,7 @@ jobs:
             -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath .build/xcode-source-packages
 
-      - name: Build Release app
+      - name: Build unsigned Release app
         timeout-minutes: 20
         run: |
           xcodebuild build \
@@ -95,16 +94,36 @@ jobs:
             SUMIKA_GIT_COMMIT="$SUMIKA_GIT_COMMIT" \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Package app artifact
+      - name: Import Developer ID certificate
         timeout-minutes: 5
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          APP_BUNDLE="$DERIVED_DATA_PATH/Build/Products/$CONFIGURATION/$APP_NAME.app"
-          test -d "$APP_BUNDLE"
-          mkdir -p "$ARTIFACT_DIR"
-          ditto -c -k --keepParent "$APP_BUNDLE" "$ARTIFACT_DIR/Sumika-Chat-macos-nightly.zip"
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id-application.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/sumika-chat-signing.keychain-db"
+
+          test -n "$MACOS_CERTIFICATE_P12_BASE64"
+          test -n "$MACOS_CERTIFICATE_PASSWORD"
+          test -n "$KEYCHAIN_PASSWORD"
+
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Build signed Release package
+        timeout-minutes: 20
+        run: |
+          just release-package Sumika-Chat-macos-nightly.dmg
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4
         with:
           name: Sumika-Chat-macos-nightly
-          path: build/artifacts/Sumika-Chat-macos-nightly.zip
+          path: build/artifacts/Sumika-Chat-macos-nightly.dmg
