@@ -3,6 +3,8 @@ import SumikaCore
 import SwiftUI
 
 struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
+  typealias Coordinator = NativeChatTranscriptCoordinator
+
   let items: [RenderedChatTurnItem]
   let showsGenerationIndicator: Bool
   let accessibilityValue: String
@@ -52,825 +54,841 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
     }
   }
 
-  @MainActor
-  final class Coordinator: NSObject, NSTableViewDelegate {
-    private let section = NativeTranscriptSection.main
-    private let cellIdentifier = NSUserInterfaceItemIdentifier("NativeChatMessageCellView")
-    private var onToggleSpeech: (String, String) -> Void
-    private var onApproveToolCall: (ToolCallRecord.ID) -> Void
-    private var onDenyToolCall: (ToolCallRecord.ID) -> Void
-    private var onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
-    private weak var tableView: NSTableView?
-    private var dataSource: NSTableViewDiffableDataSource<NativeTranscriptSection, String>?
-    private var rowsByID: [String: NativeTranscriptRow] = [:]
-    private var rowIDs: [String] = []
-    private var revisionsByID: [String: Int] = [:]
-    private var isSpeechEnabled = false
-    private var activeSpeechRowID: String?
-    private var cellStateStore = NativeTranscriptCoordinatorState()
-    private var heightCache = NativeTranscriptHeightCache()
-    private var markdownCache = NativeTranscriptMarkdownCache()
-    private let codeHighlightStore = NativeTranscriptCodeHighlightStore()
-    private let attachmentThumbnailStore = NativeTranscriptAttachmentThumbnailStore()
-    private var attachmentPreviewPopover: NSPopover?
-    private var pinnedToBottom = true
-    private var pendingHeightInvalidationRows = IndexSet()
-    private var pendingHeightInvalidationReasons = Set<String>()
-    private var pendingHeightInvalidationWorkItem: DispatchWorkItem?
-    private var shouldScrollAfterHeightInvalidation = false
+}
 
-    init(
-      onToggleSpeech: @escaping (String, String) -> Void,
-      onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
-      onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
-      onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void
-    ) {
-      self.onToggleSpeech = onToggleSpeech
-      self.onApproveToolCall = onApproveToolCall
-      self.onDenyToolCall = onDenyToolCall
-      self.onAnswerAskUser = onAnswerAskUser
+@MainActor
+final class NativeChatTranscriptCoordinator: NSObject {
+  private let section = NativeTranscriptSection.main
+  private let cellIdentifier = NSUserInterfaceItemIdentifier("NativeChatMessageCellView")
+  private var onToggleSpeech: (String, String) -> Void
+  private var onApproveToolCall: (ToolCallRecord.ID) -> Void
+  private var onDenyToolCall: (ToolCallRecord.ID) -> Void
+  private var onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
+  private weak var tableView: NSTableView?
+  private var dataSource: NSTableViewDiffableDataSource<NativeTranscriptSection, String>?
+  private var rowsByID: [String: NativeTranscriptRow] = [:]
+  private var rowIDs: [String] = []
+  private var revisionsByID: [String: Int] = [:]
+  private var isSpeechEnabled = false
+  private var activeSpeechRowID: String?
+  private var cellStateStore = NativeTranscriptCoordinatorState()
+  private var heightCache = NativeTranscriptHeightCache()
+  private var markdownCache = NativeTranscriptMarkdownCache()
+  private let codeHighlightStore = NativeTranscriptCodeHighlightStore()
+  private let attachmentThumbnailStore = NativeTranscriptAttachmentThumbnailStore()
+  private var attachmentPreviewPopover: NSPopover?
+  private var pinnedToBottom = true
+  private var pendingHeightInvalidationRows = IndexSet()
+  private var pendingHeightInvalidationReasons = Set<String>()
+  private var pendingHeightInvalidationWorkItem: DispatchWorkItem?
+  private var shouldScrollAfterHeightInvalidation = false
+
+  init(
+    onToggleSpeech: @escaping (String, String) -> Void,
+    onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
+    onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
+    onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void
+  ) {
+    self.onToggleSpeech = onToggleSpeech
+    self.onApproveToolCall = onApproveToolCall
+    self.onDenyToolCall = onDenyToolCall
+    self.onAnswerAskUser = onAnswerAskUser
+  }
+}
+
+extension NativeChatTranscriptCoordinator {
+
+  func makeScrollView() -> NSScrollView {
+    let tableView = NativeTranscriptNSTableView()
+    tableView.headerView = nil
+    tableView.usesAlternatingRowBackgroundColors = false
+    tableView.selectionHighlightStyle = .none
+    tableView.allowsColumnSelection = false
+    tableView.allowsEmptySelection = true
+    tableView.allowsMultipleSelection = false
+    tableView.backgroundColor = .clear
+    tableView.gridStyleMask = []
+    tableView.intercellSpacing = NSSize(width: 0, height: 0)
+    tableView.rowSizeStyle = .custom
+    tableView.delegate = self
+    tableView.setAccessibilityIdentifier("chat.transcript.table")
+
+    let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("message"))
+    column.resizingMask = .autoresizingMask
+    tableView.addTableColumn(column)
+
+    let scrollView = NSScrollView()
+    scrollView.drawsBackground = false
+    scrollView.borderType = .noBorder
+    scrollView.hasVerticalScroller = true
+    scrollView.hasHorizontalScroller = false
+    scrollView.autohidesScrollers = true
+    scrollView.documentView = tableView
+    scrollView.postsBoundsChangedNotifications = true
+    scrollView.setAccessibilityIdentifier("chat.transcript")
+
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(clipViewBoundsDidChange(_:)),
+      name: NSView.boundsDidChangeNotification,
+      object: scrollView.contentView
+    )
+
+    self.tableView = tableView
+    dataSource = NSTableViewDiffableDataSource(tableView: tableView) {
+      [weak self] tableView, _, _, itemID in
+      guard let self else {
+        return NSView()
+      }
+      let cell =
+        tableView.makeView(withIdentifier: cellIdentifier, owner: self)
+        as? NativeChatMessageCellView
+        ?? NativeChatMessageCellView(identifier: cellIdentifier)
+      if let row = rowsByID[itemID] {
+        configure(cell, with: row)
+      }
+      return cell
     }
 
-    func makeScrollView() -> NSScrollView {
-      let tableView = NativeTranscriptNSTableView()
-      tableView.headerView = nil
-      tableView.usesAlternatingRowBackgroundColors = false
-      tableView.selectionHighlightStyle = .none
-      tableView.allowsColumnSelection = false
-      tableView.allowsEmptySelection = true
-      tableView.allowsMultipleSelection = false
-      tableView.backgroundColor = .clear
-      tableView.gridStyleMask = []
-      tableView.intercellSpacing = NSSize(width: 0, height: 0)
-      tableView.rowSizeStyle = .custom
-      tableView.delegate = self
-      tableView.setAccessibilityIdentifier("chat.transcript.table")
+    applySnapshot(
+      previousIDs: [],
+      previousRowsByID: [:],
+      rowIDs: [],
+      currentRowsByID: [:],
+      changedIDs: [],
+      animatingDifferences: false
+    )
+    return scrollView
+  }
 
-      let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("message"))
-      column.resizingMask = .autoresizingMask
-      tableView.addTableColumn(column)
+  func updateCallbacks(
+    onToggleSpeech: @escaping (String, String) -> Void,
+    onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
+    onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
+    onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void
+  ) {
+    self.onToggleSpeech = onToggleSpeech
+    self.onApproveToolCall = onApproveToolCall
+    self.onDenyToolCall = onDenyToolCall
+    self.onAnswerAskUser = onAnswerAskUser
+  }
 
-      let scrollView = NSScrollView()
-      scrollView.drawsBackground = false
-      scrollView.borderType = .noBorder
-      scrollView.hasVerticalScroller = true
-      scrollView.hasHorizontalScroller = false
-      scrollView.autohidesScrollers = true
-      scrollView.documentView = tableView
-      scrollView.postsBoundsChangedNotifications = true
-      scrollView.setAccessibilityIdentifier("chat.transcript")
+  func updateNSViewMetadata(itemCount: Int, rows: [NativeTranscriptRow])
+    -> ChatDiagnostics.Metadata
+  {
+    ChatDiagnostics.Metadata(
+      "itemCount=\(itemCount) rowCount=\(rows.count) visibleRows=\(visibleRowRangeSummary) reason=\(updateReason(for: rows))"
+    )
+  }
 
-      NotificationCenter.default.addObserver(
-        self,
-        selector: #selector(clipViewBoundsDidChange(_:)),
-        name: NSView.boundsDidChangeNotification,
-        object: scrollView.contentView
-      )
-
-      self.tableView = tableView
-      dataSource = NSTableViewDiffableDataSource(tableView: tableView) {
-        [weak self] tableView, _, _, itemID in
-        guard let self else {
-          return NSView()
-        }
-        let cell =
-          tableView.makeView(withIdentifier: cellIdentifier, owner: self)
-          as? NativeChatMessageCellView
-          ?? NativeChatMessageCellView(identifier: cellIdentifier)
-        if let row = rowsByID[itemID] {
-          configure(cell, with: row)
-        }
-        return cell
+  func update(
+    rows: [NativeTranscriptRow],
+    accessibilityValue: String,
+    isSpeechEnabled: Bool,
+    activeSpeechRowID: String?,
+    in scrollView: NSScrollView
+  ) {
+    ChatDiagnostics.measure("Transcript coordinator update", category: .transcript) {
+      guard tableView != nil else {
+        return
       }
 
-      applySnapshot(
-        previousIDs: [],
-        previousRowsByID: [:],
-        rowIDs: [],
-        currentRowsByID: [:],
-        changedIDs: [],
-        animatingDifferences: false
+      let previousRowIDs = rowIDs
+      let previousRowsByID = rowsByID
+      let previousRevisionsByID = revisionsByID
+      let newRowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+      let newRowIDs = rows.map(\.id)
+      let newRevisionsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.revision) })
+      let plan = NativeTranscriptDiffPlan.make(
+        previousIDs: previousRowIDs,
+        previousRevisions: previousRevisionsByID,
+        currentIDs: newRowIDs,
+        currentRevisions: newRevisionsByID
       )
-      return scrollView
-    }
-
-    func updateCallbacks(
-      onToggleSpeech: @escaping (String, String) -> Void,
-      onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
-      onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
-      onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void
-    ) {
-      self.onToggleSpeech = onToggleSpeech
-      self.onApproveToolCall = onApproveToolCall
-      self.onDenyToolCall = onDenyToolCall
-      self.onAnswerAskUser = onAnswerAskUser
-    }
-
-    func updateNSViewMetadata(itemCount: Int, rows: [NativeTranscriptRow])
-      -> ChatDiagnostics.Metadata
-    {
-      ChatDiagnostics.Metadata(
-        "itemCount=\(itemCount) rowCount=\(rows.count) visibleRows=\(visibleRowRangeSummary) reason=\(updateReason(for: rows))"
+      let wasPinnedToBottom = isPinnedToBottom(scrollView)
+      let speechStateChangedIDs = changedSpeechRowIDs(
+        currentRowIDs: newRowIDs,
+        isSpeechEnabled: isSpeechEnabled,
+        activeSpeechRowID: activeSpeechRowID
       )
-    }
+      let shouldScrollAfterAppend =
+        NativeTranscriptScrollDecision.shouldScrollToBottomAfterAppend(
+          previousIDs: rowIDs,
+          currentRows: rows
+        )
 
-    func update(
-      rows: [NativeTranscriptRow],
-      accessibilityValue: String,
-      isSpeechEnabled: Bool,
-      activeSpeechRowID: String?,
-      in scrollView: NSScrollView
-    ) {
-      ChatDiagnostics.measure("Transcript coordinator update", category: .transcript) {
-        guard tableView != nil else {
-          return
-        }
+      rowsByID = newRowsByID
+      rowIDs = newRowIDs
+      revisionsByID = newRevisionsByID
+      self.isSpeechEnabled = isSpeechEnabled
+      self.activeSpeechRowID = activeSpeechRowID
+      pruneCoordinatorState(activeRows: rows)
+      ChatDiagnostics.measure("Transcript accessibility update", category: .transcript) {
+        scrollView.setAccessibilityValue(accessibilityValue)
+      }
+      let didChangeColumnWidth = updateColumnWidth(in: scrollView)
 
-        let previousRowIDs = rowIDs
-        let previousRowsByID = rowsByID
-        let previousRevisionsByID = revisionsByID
-        let newRowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
-        let newRowIDs = rows.map(\.id)
-        let newRevisionsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.revision) })
-        let plan = NativeTranscriptDiffPlan.make(
+      switch plan.action {
+      case .snapshot:
+        applySnapshot(
           previousIDs: previousRowIDs,
-          previousRevisions: previousRevisionsByID,
-          currentIDs: newRowIDs,
-          currentRevisions: newRevisionsByID
+          previousRowsByID: previousRowsByID,
+          rowIDs: newRowIDs,
+          currentRowsByID: newRowsByID,
+          changedIDs: plan.changedIDs,
+          animatingDifferences: false
         )
-        let wasPinnedToBottom = isPinnedToBottom(scrollView)
-        let speechStateChangedIDs = changedSpeechRowIDs(
-          currentRowIDs: newRowIDs,
-          isSpeechEnabled: isSpeechEnabled,
-          activeSpeechRowID: activeSpeechRowID
-        )
-        let shouldScrollAfterAppend =
-          NativeTranscriptScrollDecision.shouldScrollToBottomAfterAppend(
-            previousIDs: rowIDs,
-            currentRows: rows
-          )
-
-        rowsByID = newRowsByID
-        rowIDs = newRowIDs
-        revisionsByID = newRevisionsByID
-        self.isSpeechEnabled = isSpeechEnabled
-        self.activeSpeechRowID = activeSpeechRowID
-        pruneCoordinatorState(activeRows: rows)
-        ChatDiagnostics.measure("Transcript accessibility update", category: .transcript) {
-          scrollView.setAccessibilityValue(accessibilityValue)
-        }
-        let didChangeColumnWidth = updateColumnWidth(in: scrollView)
-
-        switch plan.action {
-        case .snapshot:
-          applySnapshot(
+        scheduleHeightInvalidation(
+          for: NativeTranscriptSnapshotInvalidation.rowIndexes(
             previousIDs: previousRowIDs,
-            previousRowsByID: previousRowsByID,
-            rowIDs: newRowIDs,
-            currentRowsByID: newRowsByID,
-            changedIDs: plan.changedIDs,
-            animatingDifferences: false
-          )
-          scheduleHeightInvalidation(
-            for: NativeTranscriptSnapshotHeightInvalidation.rowIndexes(
-              previousIDs: previousRowIDs,
-              currentIDs: newRowIDs,
-              changedIDs: plan.changedIDs
-            ),
-            reason: "snapshot",
-            scrollToBottomAfterFlush: wasPinnedToBottom || shouldScrollAfterAppend
-          )
-        case .reconfigureRows:
-          let reconfiguredIDs = plan.changedIDs.union(speechStateChangedIDs)
-          let streamingMessageChangedIDs = streamingAssistantMessageRowIDs(in: plan.changedIDs)
-          let streamingThinkingChangedIDs = streamingAssistantThinkingRowIDs(in: plan.changedIDs)
-          let streamingChangedIDs = streamingMessageChangedIDs.union(streamingThinkingChangedIDs)
-          let shouldDeferPinnedScroll =
-            wasPinnedToBottom
-            && !streamingChangedIDs.isEmpty
-            && streamingChangedIDs == plan.changedIDs
-            && speechStateChangedIDs.isEmpty
-            && !didChangeColumnWidth
+            currentIDs: newRowIDs,
+            changedIDs: plan.changedIDs
+          ),
+          reason: "snapshot",
+          scrollToBottomAfterFlush: wasPinnedToBottom || shouldScrollAfterAppend
+        )
+      case .reconfigureRows:
+        let reconfiguredIDs = plan.changedIDs.union(speechStateChangedIDs)
+        let streamingMessageChangedIDs = streamingAssistantMessageRowIDs(in: plan.changedIDs)
+        let streamingThinkingChangedIDs = streamingAssistantThinkingRowIDs(in: plan.changedIDs)
+        let streamingChangedIDs = streamingMessageChangedIDs.union(streamingThinkingChangedIDs)
+        let shouldDeferPinnedScroll =
+          wasPinnedToBottom
+          && !streamingChangedIDs.isEmpty
+          && streamingChangedIDs == plan.changedIDs
+          && speechStateChangedIDs.isEmpty
+          && !didChangeColumnWidth
 
-          reconfigureVisibleRows(changedIDs: reconfiguredIDs)
-          var invalidationRows = rowIndexes(for: reconfiguredIDs)
-          if didChangeColumnWidth {
-            invalidationRows.formUnion(IndexSet(integersIn: 0..<newRowIDs.count))
-          }
-          scheduleHeightInvalidation(
-            for: invalidationRows,
-            reason: heightInvalidationReason(
-              didChangeColumnWidth: didChangeColumnWidth,
-              streamingMessageChangedIDs: streamingMessageChangedIDs,
-              streamingThinkingChangedIDs: streamingThinkingChangedIDs,
-              speechStateChangedIDs: speechStateChangedIDs,
-              changedIDs: plan.changedIDs
-            ),
-            scrollToBottomAfterFlush: shouldDeferPinnedScroll && streamingThinkingChangedIDs.isEmpty
-              || (wasPinnedToBottom && didChangeColumnWidth)
-          )
-          let hasRowChanges = !plan.changedIDs.isEmpty
-          if shouldScrollAfterAppend
-            || (wasPinnedToBottom && hasRowChanges && !shouldDeferPinnedScroll)
-          {
-            scrollToBottom(scrollView)
-          }
-          return
+        reconfigureVisibleRows(changedIDs: reconfiguredIDs)
+        var invalidationRows = rowIndexes(for: reconfiguredIDs)
+        if didChangeColumnWidth {
+          invalidationRows.formUnion(IndexSet(integersIn: 0..<newRowIDs.count))
         }
-
-        let hasRowChanges = plan.action == .snapshot || !plan.changedIDs.isEmpty
-        if shouldScrollAfterAppend || (wasPinnedToBottom && hasRowChanges) {
+        scheduleHeightInvalidation(
+          for: invalidationRows,
+          reason: heightInvalidationReason(
+            didChangeColumnWidth: didChangeColumnWidth,
+            streamingMessageChangedIDs: streamingMessageChangedIDs,
+            streamingThinkingChangedIDs: streamingThinkingChangedIDs,
+            speechStateChangedIDs: speechStateChangedIDs,
+            changedIDs: plan.changedIDs
+          ),
+          scrollToBottomAfterFlush: shouldDeferPinnedScroll && streamingThinkingChangedIDs.isEmpty
+            || (wasPinnedToBottom && didChangeColumnWidth)
+        )
+        let hasRowChanges = !plan.changedIDs.isEmpty
+        if shouldScrollAfterAppend
+          || (wasPinnedToBottom && hasRowChanges && !shouldDeferPinnedScroll)
+        {
           scrollToBottom(scrollView)
         }
+        return
+      }
+
+      let hasRowChanges = plan.action == .snapshot || !plan.changedIDs.isEmpty
+      if shouldScrollAfterAppend || (wasPinnedToBottom && hasRowChanges) {
+        scrollToBottom(scrollView)
       }
     }
+  }
 
-    private var visibleRowRangeSummary: String {
-      guard let tableView else {
-        return "none"
-      }
-      let visibleRows = tableView.rows(in: tableView.visibleRect)
-      guard visibleRows.location != NSNotFound else {
-        return "none"
-      }
-      let upperBound = visibleRows.location + visibleRows.length
-      return "\(visibleRows.location)..<\(upperBound)"
+  private var visibleRowRangeSummary: String {
+    guard let tableView else {
+      return "none"
+    }
+    let visibleRows = tableView.rows(in: tableView.visibleRect)
+    guard visibleRows.location != NSNotFound else {
+      return "none"
+    }
+    let upperBound = visibleRows.location + visibleRows.length
+    return "\(visibleRows.location)..<\(upperBound)"
+  }
+
+  private func updateReason(for rows: [NativeTranscriptRow]) -> String {
+    let currentIDs = rows.map(\.id)
+    guard !rowIDs.isEmpty else {
+      return "initial"
+    }
+    guard currentIDs == rowIDs else {
+      return currentIDs.count == rowIDs.count ? "rowOrderChanged" : "rowCountChanged"
+    }
+    let currentRevisionsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.revision) })
+    if currentRevisionsByID != revisionsByID {
+      return "rowRevisionChanged"
+    }
+    return "unchanged"
+  }
+
+  private func streamingAssistantMessageRowIDs(in changedIDs: Set<String>) -> Set<String> {
+    Set(changedIDs.filter { rowsByID[$0]?.isStreamingAssistantMessage == true })
+  }
+
+  private func streamingAssistantThinkingRowIDs(in changedIDs: Set<String>) -> Set<String> {
+    Set(changedIDs.filter { rowsByID[$0]?.isStreamingAssistantThinkingMessage == true })
+  }
+
+  private func changedSpeechRowIDs(
+    currentRowIDs: [String],
+    isSpeechEnabled: Bool,
+    activeSpeechRowID: String?
+  ) -> Set<String> {
+    guard self.isSpeechEnabled == isSpeechEnabled else {
+      return Set(currentRowIDs).union(rowIDs)
     }
 
-    private func updateReason(for rows: [NativeTranscriptRow]) -> String {
-      let currentIDs = rows.map(\.id)
-      guard !rowIDs.isEmpty else {
-        return "initial"
+    return Set([self.activeSpeechRowID, activeSpeechRowID].compactMap(\.self))
+  }
+}
+
+extension NativeChatTranscriptCoordinator: NSTableViewDelegate {
+
+  func tableView(_: NSTableView, heightOfRow row: Int) -> CGFloat {
+    ChatDiagnostics.measure("Transcript row height", category: .transcript) {
+      guard row >= 0, row < rowIDs.count, let rowModel = rowsByID[rowIDs[row]] else {
+        return 44
       }
-      guard currentIDs == rowIDs else {
-        return currentIDs.count == rowIDs.count ? "rowOrderChanged" : "rowCountChanged"
-      }
-      let currentRevisionsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.revision) })
-      if currentRevisionsByID != revisionsByID {
-        return "rowRevisionChanged"
-      }
-      return "unchanged"
-    }
-
-    private func streamingAssistantMessageRowIDs(in changedIDs: Set<String>) -> Set<String> {
-      Set(changedIDs.filter { rowsByID[$0]?.isStreamingAssistantMessage == true })
-    }
-
-    private func streamingAssistantThinkingRowIDs(in changedIDs: Set<String>) -> Set<String> {
-      Set(changedIDs.filter { rowsByID[$0]?.isStreamingAssistantThinkingMessage == true })
-    }
-
-    private func changedSpeechRowIDs(
-      currentRowIDs: [String],
-      isSpeechEnabled: Bool,
-      activeSpeechRowID: String?
-    ) -> Set<String> {
-      guard self.isSpeechEnabled == isSpeechEnabled else {
-        return Set(currentRowIDs).union(rowIDs)
-      }
-
-      return Set([self.activeSpeechRowID, activeSpeechRowID].compactMap(\.self))
-    }
-
-    func tableView(_: NSTableView, heightOfRow row: Int) -> CGFloat {
-      ChatDiagnostics.measure("Transcript row height", category: .transcript) {
-        guard row >= 0, row < rowIDs.count, let rowModel = rowsByID[rowIDs[row]] else {
-          return 44
+      let width = max(tableView?.bounds.width ?? 680, 320)
+      return heightCache.height(
+        for: rowModel,
+        width: width,
+        state: cellStateStore.state(
+          for: rowModel.id,
+          isSpeechEnabled: isSpeechEnabled,
+          activeSpeechRowID: activeSpeechRowID
+        ),
+        markdownBlocks: { [weak self] markdown in
+          guard let self else {
+            return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
+          }
+          return self.markdownCache.blocks(for: markdown)
         }
-        let width = max(tableView?.bounds.width ?? 680, 320)
-        return heightCache.height(
-          for: rowModel,
-          width: width,
-          state: cellStateStore.state(
-            for: rowModel.id,
-            isSpeechEnabled: isSpeechEnabled,
-            activeSpeechRowID: activeSpeechRowID
-          ),
+      )
+    }
+  }
+
+  func tableView(_: NSTableView, shouldSelectRow _: Int) -> Bool {
+    false
+  }
+
+  @objc private func clipViewBoundsDidChange(_ notification: Notification) {
+    guard
+      let clipView = notification.object as? NSClipView,
+      let scrollView = clipView.enclosingScrollView
+    else {
+      return
+    }
+    pinnedToBottom = isPinnedToBottom(scrollView)
+  }
+}
+
+extension NativeChatTranscriptCoordinator {
+
+  private func updateColumnWidth(in scrollView: NSScrollView) -> Bool {
+    guard let tableColumn = tableView?.tableColumns.first else {
+      return false
+    }
+    let targetWidth = max(scrollView.contentSize.width, 1)
+    guard abs(tableColumn.width - targetWidth) >= 0.5 else {
+      return false
+    }
+    tableColumn.width = targetWidth
+    return true
+  }
+
+  private func applySnapshot(
+    previousIDs: [String],
+    previousRowsByID: [String: NativeTranscriptRow],
+    rowIDs: [String],
+    currentRowsByID: [String: NativeTranscriptRow],
+    changedIDs: Set<String>,
+    animatingDifferences: Bool
+  ) {
+    ChatDiagnostics.measure(
+      "Transcript apply snapshot",
+      category: .transcript,
+      metadata: snapshotMetadata(
+        previousIDs: previousIDs,
+        previousRowsByID: previousRowsByID,
+        currentIDs: rowIDs,
+        currentRowsByID: currentRowsByID,
+        changedIDs: changedIDs,
+        animatingDifferences: animatingDifferences
+      )
+    ) {
+      var snapshot = NSDiffableDataSourceSnapshot<NativeTranscriptSection, String>()
+      snapshot.appendSections([section])
+      snapshot.appendItems(rowIDs, toSection: section)
+      dataSource?.apply(snapshot, animatingDifferences: animatingDifferences)
+    }
+  }
+
+  private func snapshotMetadata(
+    previousIDs: [String],
+    previousRowsByID: [String: NativeTranscriptRow],
+    currentIDs: [String],
+    currentRowsByID: [String: NativeTranscriptRow],
+    changedIDs: Set<String>,
+    animatingDifferences: Bool
+  ) -> ChatDiagnostics.Metadata {
+    let previousIDSet = Set(previousIDs)
+    let currentIDSet = Set(currentIDs)
+    let insertedIDs = currentIDs.filter { !previousIDSet.contains($0) }
+    let removedIDs = previousIDs.filter { !currentIDSet.contains($0) }
+    let reloadedCount = changedIDs.intersection(currentIDSet).count
+    let reason = snapshotReason(
+      previousIDs: previousIDs,
+      currentIDs: currentIDs,
+      insertedIDs: insertedIDs,
+      removedIDs: removedIDs,
+      previousRowsByID: previousRowsByID,
+      currentRowsByID: currentRowsByID
+    )
+    let insertedKinds = rowKindSummary(ids: insertedIDs, rowsByID: currentRowsByID)
+    let removedKinds = rowKindSummary(ids: removedIDs, rowsByID: previousRowsByID)
+    let parts = [
+      "reason=\(reason)",
+      "previousRows=\(previousIDs.count)",
+      "currentRows=\(currentIDs.count)",
+      "inserted=\(insertedIDs.count)",
+      "deleted=\(removedIDs.count)",
+      "reloaded=\(reloadedCount)",
+      "insertedIDs=\(insertedIDs.telemetryIDListSummary)",
+      "removedIDs=\(removedIDs.telemetryIDListSummary)",
+      "insertedKinds=\(insertedKinds)",
+      "removedKinds=\(removedKinds)",
+      "animated=\(animatingDifferences)",
+    ]
+    return ChatDiagnostics.Metadata(
+      parts.joined(separator: " ")
+    )
+  }
+
+  private func snapshotReason(
+    previousIDs: [String],
+    currentIDs: [String],
+    insertedIDs: [String],
+    removedIDs: [String],
+    previousRowsByID: [String: NativeTranscriptRow],
+    currentRowsByID: [String: NativeTranscriptRow]
+  ) -> String {
+    guard !previousIDs.isEmpty || !currentIDs.isEmpty else {
+      return "initialEmpty"
+    }
+    if previousIDs.isEmpty {
+      return "initialRows"
+    }
+
+    var reasons: [String] = []
+    if currentIDs.count != previousIDs.count {
+      reasons.append(currentIDs.count > previousIDs.count ? "rowAdded" : "rowRemoved")
+    } else {
+      reasons.append("rowOrderOrReplacement")
+    }
+    if insertedIDs.contains(where: { currentRowsByID[$0]?.isGenerationIndicator == true }) {
+      reasons.append("generationIndicatorAdded")
+    }
+    if removedIDs.contains(where: { previousRowsByID[$0]?.isGenerationIndicator == true }) {
+      reasons.append("generationIndicatorRemoved")
+    }
+    if insertedIDs.contains(where: {
+      currentRowsByID[$0]?.isTransientAssistantPlaceholder == true
+    }) {
+      reasons.append("transientPlaceholderAdded")
+    }
+    if removedIDs.contains(where: {
+      previousRowsByID[$0]?.isTransientAssistantPlaceholder == true
+    }) {
+      reasons.append("transientPlaceholderRemoved")
+    }
+    return reasons.isEmpty ? "rowIDsChanged" : reasons.joined(separator: "+")
+  }
+
+  private func rowKindSummary(
+    ids: [String],
+    rowsByID: [String: NativeTranscriptRow]
+  ) -> String {
+    let counts = ids.reduce(into: [String: Int]()) { partialResult, id in
+      let kind = rowsByID[id]?.cellKind.telemetryName ?? "unknown"
+      partialResult[kind, default: 0] += 1
+    }
+    guard !counts.isEmpty else {
+      return "none"
+    }
+    return counts.keys.sorted().map { "\($0):\(counts[$0] ?? 0)" }.joined(separator: ",")
+  }
+}
+
+extension NativeChatTranscriptCoordinator {
+
+  private func configure(_ cell: NativeChatMessageCellView, with row: NativeTranscriptRow) {
+    ChatDiagnostics.measure("Transcript row configure", category: .transcript) {
+      cell.configure(
+        row: row,
+        state: cellStateStore.state(
+          for: row.id,
+          isSpeechEnabled: isSpeechEnabled,
+          activeSpeechRowID: activeSpeechRowID
+        ),
+        actions: NativeTranscriptCellActions(
           markdownBlocks: { [weak self] markdown in
             guard let self else {
               return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
             }
             return self.markdownCache.blocks(for: markdown)
-          }
-        )
-      }
-    }
-
-    func tableView(_: NSTableView, shouldSelectRow _: Int) -> Bool {
-      false
-    }
-
-    @objc private func clipViewBoundsDidChange(_ notification: Notification) {
-      guard
-        let clipView = notification.object as? NSClipView,
-        let scrollView = clipView.enclosingScrollView
-      else {
-        return
-      }
-      pinnedToBottom = isPinnedToBottom(scrollView)
-    }
-
-    private func updateColumnWidth(in scrollView: NSScrollView) -> Bool {
-      guard let tableColumn = tableView?.tableColumns.first else {
-        return false
-      }
-      let targetWidth = max(scrollView.contentSize.width, 1)
-      guard abs(tableColumn.width - targetWidth) >= 0.5 else {
-        return false
-      }
-      tableColumn.width = targetWidth
-      return true
-    }
-
-    private func applySnapshot(
-      previousIDs: [String],
-      previousRowsByID: [String: NativeTranscriptRow],
-      rowIDs: [String],
-      currentRowsByID: [String: NativeTranscriptRow],
-      changedIDs: Set<String>,
-      animatingDifferences: Bool
-    ) {
-      ChatDiagnostics.measure(
-        "Transcript apply snapshot",
-        category: .transcript,
-        metadata: snapshotMetadata(
-          previousIDs: previousIDs,
-          previousRowsByID: previousRowsByID,
-          currentIDs: rowIDs,
-          currentRowsByID: currentRowsByID,
-          changedIDs: changedIDs,
-          animatingDifferences: animatingDifferences
-        )
-      ) {
-        var snapshot = NSDiffableDataSourceSnapshot<NativeTranscriptSection, String>()
-        snapshot.appendSections([section])
-        snapshot.appendItems(rowIDs, toSection: section)
-        dataSource?.apply(snapshot, animatingDifferences: animatingDifferences)
-      }
-    }
-
-    private func snapshotMetadata(
-      previousIDs: [String],
-      previousRowsByID: [String: NativeTranscriptRow],
-      currentIDs: [String],
-      currentRowsByID: [String: NativeTranscriptRow],
-      changedIDs: Set<String>,
-      animatingDifferences: Bool
-    ) -> ChatDiagnostics.Metadata {
-      let previousIDSet = Set(previousIDs)
-      let currentIDSet = Set(currentIDs)
-      let insertedIDs = currentIDs.filter { !previousIDSet.contains($0) }
-      let removedIDs = previousIDs.filter { !currentIDSet.contains($0) }
-      let reloadedCount = changedIDs.intersection(currentIDSet).count
-      let reason = snapshotReason(
-        previousIDs: previousIDs,
-        currentIDs: currentIDs,
-        insertedIDs: insertedIDs,
-        removedIDs: removedIDs,
-        previousRowsByID: previousRowsByID,
-        currentRowsByID: currentRowsByID
-      )
-      let insertedKinds = rowKindSummary(ids: insertedIDs, rowsByID: currentRowsByID)
-      let removedKinds = rowKindSummary(ids: removedIDs, rowsByID: previousRowsByID)
-      let parts = [
-        "reason=\(reason)",
-        "previousRows=\(previousIDs.count)",
-        "currentRows=\(currentIDs.count)",
-        "inserted=\(insertedIDs.count)",
-        "deleted=\(removedIDs.count)",
-        "reloaded=\(reloadedCount)",
-        "insertedIDs=\(insertedIDs.telemetryIDListSummary)",
-        "removedIDs=\(removedIDs.telemetryIDListSummary)",
-        "insertedKinds=\(insertedKinds)",
-        "removedKinds=\(removedKinds)",
-        "animated=\(animatingDifferences)",
-      ]
-      return ChatDiagnostics.Metadata(
-        parts.joined(separator: " ")
-      )
-    }
-
-    private func snapshotReason(
-      previousIDs: [String],
-      currentIDs: [String],
-      insertedIDs: [String],
-      removedIDs: [String],
-      previousRowsByID: [String: NativeTranscriptRow],
-      currentRowsByID: [String: NativeTranscriptRow]
-    ) -> String {
-      guard !previousIDs.isEmpty || !currentIDs.isEmpty else {
-        return "initialEmpty"
-      }
-      if previousIDs.isEmpty {
-        return "initialRows"
-      }
-
-      var reasons: [String] = []
-      if currentIDs.count != previousIDs.count {
-        reasons.append(currentIDs.count > previousIDs.count ? "rowAdded" : "rowRemoved")
-      } else {
-        reasons.append("rowOrderOrReplacement")
-      }
-      if insertedIDs.contains(where: { currentRowsByID[$0]?.isGenerationIndicator == true }) {
-        reasons.append("generationIndicatorAdded")
-      }
-      if removedIDs.contains(where: { previousRowsByID[$0]?.isGenerationIndicator == true }) {
-        reasons.append("generationIndicatorRemoved")
-      }
-      if insertedIDs.contains(where: {
-        currentRowsByID[$0]?.isTransientAssistantPlaceholder == true
-      }) {
-        reasons.append("transientPlaceholderAdded")
-      }
-      if removedIDs.contains(where: {
-        previousRowsByID[$0]?.isTransientAssistantPlaceholder == true
-      }) {
-        reasons.append("transientPlaceholderRemoved")
-      }
-      return reasons.isEmpty ? "rowIDsChanged" : reasons.joined(separator: "+")
-    }
-
-    private func rowKindSummary(
-      ids: [String],
-      rowsByID: [String: NativeTranscriptRow]
-    ) -> String {
-      let counts = ids.reduce(into: [String: Int]()) { partialResult, id in
-        let kind = rowsByID[id]?.cellKind.telemetryName ?? "unknown"
-        partialResult[kind, default: 0] += 1
-      }
-      guard !counts.isEmpty else {
-        return "none"
-      }
-      return counts.keys.sorted().map { "\($0):\(counts[$0] ?? 0)" }.joined(separator: ",")
-    }
-
-    private func configure(_ cell: NativeChatMessageCellView, with row: NativeTranscriptRow) {
-      ChatDiagnostics.measure("Transcript row configure", category: .transcript) {
-        cell.configure(
-          row: row,
-          state: cellStateStore.state(
-            for: row.id,
-            isSpeechEnabled: isSpeechEnabled,
-            activeSpeechRowID: activeSpeechRowID
-          ),
-          actions: NativeTranscriptCellActions(
-            markdownBlocks: { [weak self] markdown in
-              guard let self else {
-                return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
-              }
-              return self.markdownCache.blocks(for: markdown)
-            },
-            highlightedCode: { [weak self] rowID, codeBlock in
-              self?.codeHighlightStore.highlightedCode(rowID: rowID, codeBlock: codeBlock)
-            },
-            requestCodeHighlight: { [weak self] rowID, codeBlock in
-              guard let self else {
-                return
-              }
-              self.codeHighlightStore.requestHighlight(
-                rowID: rowID,
-                codeBlock: codeBlock
-              ) { [weak self] updatedRowID in
-                self?.reconfigureRows(ids: [updatedRowID])
-              }
-            },
-            attachmentThumbnail: { [weak self] attachment, maxPixelSize in
-              self?.attachmentThumbnailStore.thumbnail(
-                for: attachment,
-                maxPixelSize: maxPixelSize
-              )
-            },
-            requestAttachmentThumbnail: { [weak self] rowID, attachment, maxPixelSize in
-              self?.attachmentThumbnailStore.requestThumbnail(
-                rowID: rowID,
-                attachment: attachment,
-                maxPixelSize: maxPixelSize
-              ) { [weak self] updatedRowID in
-                self?.reconfigureRows(ids: [updatedRowID])
-              }
-            },
-            showImageAttachment: { [weak self] attachment, sourceView in
-              self?.showImageAttachment(attachment, relativeTo: sourceView)
-            },
-            copy: { [weak self] rowID, content in
-              self?.copy(content: content, from: rowID)
-            },
-            toggleSpeech: { [weak self] rowID, content in
-              self?.onToggleSpeech(rowID, content)
-            },
-            approve: { [weak self] toolCallID in
-              self?.onApproveToolCall(toolCallID)
-            },
-            deny: { [weak self] toolCallID in
-              self?.onDenyToolCall(toolCallID)
-            },
-            answerAskUser: { [weak self] rowID, toolCallID, answer in
-              self?.cellStateStore.updateAskUserSelection(answer, rowID: rowID)
-              self?.onAnswerAskUser(toolCallID, answer)
-            },
-            toggleToolExpansion: { [weak self] rowID in
-              self?.toggleToolExpansion(rowID: rowID)
-            },
-            toggleThinkingExpansion: { [weak self] rowID in
-              self?.toggleThinkingExpansion(rowID: rowID)
-            },
-            updateAskUserSelection: { [weak self] rowID, answer in
-              self?.cellStateStore.updateAskUserSelection(answer, rowID: rowID)
+          },
+          highlightedCode: { [weak self] rowID, codeBlock in
+            self?.codeHighlightStore.highlightedCode(rowID: rowID, codeBlock: codeBlock)
+          },
+          requestCodeHighlight: { [weak self] rowID, codeBlock in
+            guard let self else {
+              return
             }
-          )
-        )
-      }
-    }
-
-    private func showImageAttachment(_ attachment: ChatAttachment, relativeTo sourceView: NSView) {
-      attachmentPreviewPopover?.close()
-      let popover = NSPopover()
-      popover.behavior = .transient
-      popover.animates = true
-      popover.contentViewController = NativeAttachmentImagePreviewController(
-        imageURL: attachmentThumbnailStore.imageURL(for: attachment),
-        displayName: attachment.displayName
-      )
-      attachmentPreviewPopover = popover
-      popover.show(relativeTo: sourceView.bounds, of: sourceView, preferredEdge: .minY)
-    }
-
-    private func copy(content: String, from rowID: String) {
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(content, forType: .string)
-      cellStateStore.setCopied(true, rowID: rowID)
-      reconfigureRows(ids: [rowID])
-
-      Task { @MainActor in
-        try? await Task.sleep(for: .seconds(1.2))
-        cellStateStore.setCopied(false, rowID: rowID)
-        reconfigureRows(ids: [rowID])
-      }
-    }
-
-    private func toggleToolExpansion(rowID: String) {
-      cellStateStore.toggleToolExpansion(rowID: rowID)
-      applyInteractiveHeightChange(
-        rowID: rowID,
-        isExpanded: cellStateStore.state(for: rowID).isToolExpanded
-      )
-    }
-
-    private func toggleThinkingExpansion(rowID: String) {
-      cellStateStore.toggleThinkingExpansion(rowID: rowID)
-      applyInteractiveHeightChange(
-        rowID: rowID,
-        isExpanded: cellStateStore.state(for: rowID).isThinkingExpanded
-      )
-    }
-
-    private func applyInteractiveHeightChange(rowID: String, isExpanded: Bool) {
-      heightCache.invalidate(rowID: rowID)
-      let rowIndexes = rowIndexes(for: [rowID])
-      if isExpanded {
-        noteHeightChangeImmediately(for: rowIndexes, reason: "interactiveExpand")
-        reconfigureRows(ids: [rowID])
-      } else {
-        reconfigureRows(ids: [rowID])
-        noteHeightChangeImmediately(for: rowIndexes, reason: "interactiveCollapse")
-      }
-    }
-
-    private func noteHeightChangeImmediately(for rowIndexes: IndexSet, reason: String) {
-      guard let tableView, !rowIndexes.isEmpty else {
-        return
-      }
-      pendingHeightInvalidationRows.subtract(rowIndexes)
-      ChatDiagnostics.measure(
-        "Transcript height invalidation",
-        category: .transcript,
-        metadata: heightInvalidationMetadata(rowIndexes: rowIndexes, reason: reason)
-      ) {
-        tableView.noteHeightOfRows(withIndexesChanged: rowIndexes)
-        tableView.layoutSubtreeIfNeeded()
-      }
-    }
-
-    private func reconfigureRows(ids: [String]) {
-      reconfigureVisibleRows(changedIDs: Set(ids))
-    }
-
-    private func reconfigureVisibleRows(changedIDs: Set<String>) {
-      ChatDiagnostics.measure("Transcript visible row reconfigure", category: .transcript) {
-        guard let tableView, !changedIDs.isEmpty else {
-          return
-        }
-        let visibleRows = tableView.rows(in: tableView.visibleRect)
-        guard visibleRows.location != NSNotFound else {
-          return
-        }
-        for row in visibleRows.location..<(visibleRows.location + visibleRows.length) {
-          guard row >= 0, row < rowIDs.count, changedIDs.contains(rowIDs[row]),
-            let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
-              as? NativeChatMessageCellView,
-            let rowModel = rowsByID[rowIDs[row]]
-          else {
-            continue
+            self.codeHighlightStore.requestHighlight(
+              rowID: rowID,
+              codeBlock: codeBlock
+            ) { [weak self] updatedRowID in
+              self?.reconfigureRows(ids: [updatedRowID])
+            }
+          },
+          attachmentThumbnail: { [weak self] attachment, maxPixelSize in
+            self?.attachmentThumbnailStore.thumbnail(
+              for: attachment,
+              maxPixelSize: maxPixelSize
+            )
+          },
+          requestAttachmentThumbnail: { [weak self] rowID, attachment, maxPixelSize in
+            self?.attachmentThumbnailStore.requestThumbnail(
+              rowID: rowID,
+              attachment: attachment,
+              maxPixelSize: maxPixelSize
+            ) { [weak self] updatedRowID in
+              self?.reconfigureRows(ids: [updatedRowID])
+            }
+          },
+          showImageAttachment: { [weak self] attachment, sourceView in
+            self?.showImageAttachment(attachment, relativeTo: sourceView)
+          },
+          copy: { [weak self] rowID, content in
+            self?.copy(content: content, from: rowID)
+          },
+          toggleSpeech: { [weak self] rowID, content in
+            self?.onToggleSpeech(rowID, content)
+          },
+          approve: { [weak self] toolCallID in
+            self?.onApproveToolCall(toolCallID)
+          },
+          deny: { [weak self] toolCallID in
+            self?.onDenyToolCall(toolCallID)
+          },
+          answerAskUser: { [weak self] rowID, toolCallID, answer in
+            self?.cellStateStore.updateAskUserSelection(answer, rowID: rowID)
+            self?.onAnswerAskUser(toolCallID, answer)
+          },
+          toggleToolExpansion: { [weak self] rowID in
+            self?.toggleToolExpansion(rowID: rowID)
+          },
+          toggleThinkingExpansion: { [weak self] rowID in
+            self?.toggleThinkingExpansion(rowID: rowID)
+          },
+          updateAskUserSelection: { [weak self] rowID, answer in
+            self?.cellStateStore.updateAskUserSelection(answer, rowID: rowID)
           }
-          configure(cell, with: rowModel)
-        }
-      }
+        )
+      )
     }
+  }
 
-    private func scheduleHeightInvalidation(
-      for rowIndexes: IndexSet,
-      reason: String,
-      scrollToBottomAfterFlush: Bool
+  private func showImageAttachment(_ attachment: ChatAttachment, relativeTo sourceView: NSView) {
+    attachmentPreviewPopover?.close()
+    let popover = NSPopover()
+    popover.behavior = .transient
+    popover.animates = true
+    popover.contentViewController = NativeAttachmentImagePreviewController(
+      imageURL: attachmentThumbnailStore.imageURL(for: attachment),
+      displayName: attachment.displayName
+    )
+    attachmentPreviewPopover = popover
+    popover.show(relativeTo: sourceView.bounds, of: sourceView, preferredEdge: .minY)
+  }
+
+  private func copy(content: String, from rowID: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(content, forType: .string)
+    cellStateStore.setCopied(true, rowID: rowID)
+    reconfigureRows(ids: [rowID])
+
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(1.2))
+      cellStateStore.setCopied(false, rowID: rowID)
+      reconfigureRows(ids: [rowID])
+    }
+  }
+
+  private func toggleToolExpansion(rowID: String) {
+    cellStateStore.toggleToolExpansion(rowID: rowID)
+    applyInteractiveHeightChange(
+      rowID: rowID,
+      isExpanded: cellStateStore.state(for: rowID).isToolExpanded
+    )
+  }
+
+  private func toggleThinkingExpansion(rowID: String) {
+    cellStateStore.toggleThinkingExpansion(rowID: rowID)
+    applyInteractiveHeightChange(
+      rowID: rowID,
+      isExpanded: cellStateStore.state(for: rowID).isThinkingExpanded
+    )
+  }
+
+  private func applyInteractiveHeightChange(rowID: String, isExpanded: Bool) {
+    heightCache.invalidate(rowID: rowID)
+    let rowIndexes = rowIndexes(for: [rowID])
+    if isExpanded {
+      noteHeightChangeImmediately(for: rowIndexes, reason: "interactiveExpand")
+      reconfigureRows(ids: [rowID])
+    } else {
+      reconfigureRows(ids: [rowID])
+      noteHeightChangeImmediately(for: rowIndexes, reason: "interactiveCollapse")
+    }
+  }
+}
+
+extension NativeChatTranscriptCoordinator {
+
+  private func noteHeightChangeImmediately(for rowIndexes: IndexSet, reason: String) {
+    guard let tableView, !rowIndexes.isEmpty else {
+      return
+    }
+    pendingHeightInvalidationRows.subtract(rowIndexes)
+    ChatDiagnostics.measure(
+      "Transcript height invalidation",
+      category: .transcript,
+      metadata: heightInvalidationMetadata(rowIndexes: rowIndexes, reason: reason)
     ) {
-      guard !rowIndexes.isEmpty else {
-        return
-      }
-      pendingHeightInvalidationRows.formUnion(rowIndexes)
-      pendingHeightInvalidationReasons.insert(reason)
-      shouldScrollAfterHeightInvalidation =
-        shouldScrollAfterHeightInvalidation || scrollToBottomAfterFlush
-      guard pendingHeightInvalidationWorkItem == nil else {
-        return
-      }
-      let workItem = DispatchWorkItem { [weak self] in
-        Task { @MainActor in
-          self?.flushHeightInvalidation()
-        }
-      }
-      pendingHeightInvalidationWorkItem = workItem
-      DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(60), execute: workItem)
+      tableView.noteHeightOfRows(withIndexesChanged: rowIndexes)
+      tableView.layoutSubtreeIfNeeded()
     }
+  }
 
-    private func flushHeightInvalidation() {
-      guard let tableView else {
-        pendingHeightInvalidationRows.removeAll()
-        pendingHeightInvalidationReasons.removeAll()
-        pendingHeightInvalidationWorkItem = nil
+  private func reconfigureRows(ids: [String]) {
+    reconfigureVisibleRows(changedIDs: Set(ids))
+  }
+
+  private func reconfigureVisibleRows(changedIDs: Set<String>) {
+    ChatDiagnostics.measure("Transcript visible row reconfigure", category: .transcript) {
+      guard let tableView, !changedIDs.isEmpty else {
         return
       }
-      let rows = pendingHeightInvalidationRows
-      let reasons = pendingHeightInvalidationReasons.sorted()
-      let shouldScrollToBottom = shouldScrollAfterHeightInvalidation
+      let visibleRows = tableView.rows(in: tableView.visibleRect)
+      guard visibleRows.location != NSNotFound else {
+        return
+      }
+      for row in visibleRows.location..<(visibleRows.location + visibleRows.length) {
+        guard row >= 0, row < rowIDs.count, changedIDs.contains(rowIDs[row]),
+          let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+            as? NativeChatMessageCellView,
+          let rowModel = rowsByID[rowIDs[row]]
+        else {
+          continue
+        }
+        configure(cell, with: rowModel)
+      }
+    }
+  }
+
+  private func scheduleHeightInvalidation(
+    for rowIndexes: IndexSet,
+    reason: String,
+    scrollToBottomAfterFlush: Bool
+  ) {
+    guard !rowIndexes.isEmpty else {
+      return
+    }
+    pendingHeightInvalidationRows.formUnion(rowIndexes)
+    pendingHeightInvalidationReasons.insert(reason)
+    shouldScrollAfterHeightInvalidation =
+      shouldScrollAfterHeightInvalidation || scrollToBottomAfterFlush
+    guard pendingHeightInvalidationWorkItem == nil else {
+      return
+    }
+    let workItem = DispatchWorkItem { [weak self] in
+      Task { @MainActor in
+        self?.flushHeightInvalidation()
+      }
+    }
+    pendingHeightInvalidationWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(60), execute: workItem)
+  }
+
+  private func flushHeightInvalidation() {
+    guard let tableView else {
       pendingHeightInvalidationRows.removeAll()
       pendingHeightInvalidationReasons.removeAll()
-      shouldScrollAfterHeightInvalidation = false
       pendingHeightInvalidationWorkItem = nil
-      ChatDiagnostics.measure(
-        "Transcript height invalidation",
-        category: .transcript,
-        metadata: heightInvalidationMetadata(
-          rowIndexes: rows,
-          reason: reasons.isEmpty ? "unknown" : reasons.joined(separator: "+")
-        )
-      ) {
-        tableView.noteHeightOfRows(withIndexesChanged: rows)
-      }
-      if shouldScrollToBottom, let scrollView = tableView.enclosingScrollView {
-        scrollToBottom(scrollView)
+      return
+    }
+    let rows = pendingHeightInvalidationRows
+    let reasons = pendingHeightInvalidationReasons.sorted()
+    let shouldScrollToBottom = shouldScrollAfterHeightInvalidation
+    pendingHeightInvalidationRows.removeAll()
+    pendingHeightInvalidationReasons.removeAll()
+    shouldScrollAfterHeightInvalidation = false
+    pendingHeightInvalidationWorkItem = nil
+    ChatDiagnostics.measure(
+      "Transcript height invalidation",
+      category: .transcript,
+      metadata: heightInvalidationMetadata(
+        rowIndexes: rows,
+        reason: reasons.isEmpty ? "unknown" : reasons.joined(separator: "+")
+      )
+    ) {
+      tableView.noteHeightOfRows(withIndexesChanged: rows)
+    }
+    if shouldScrollToBottom, let scrollView = tableView.enclosingScrollView {
+      scrollToBottom(scrollView)
+    }
+  }
+
+  private func rowIndexes(for rowIDs: Set<String>) -> IndexSet {
+    rowIndexes(for: Array(rowIDs))
+  }
+
+  private func rowIndexes(for ids: [String]) -> IndexSet {
+    var indexes = IndexSet()
+    for id in ids {
+      if let index = rowIDs.firstIndex(of: id) {
+        indexes.insert(index)
       }
     }
+    return indexes
+  }
 
-    private func rowIndexes(for rowIDs: Set<String>) -> IndexSet {
-      rowIndexes(for: Array(rowIDs))
+  private func heightInvalidationReason(
+    didChangeColumnWidth: Bool,
+    streamingMessageChangedIDs: Set<String>,
+    streamingThinkingChangedIDs: Set<String>,
+    speechStateChangedIDs: Set<String>,
+    changedIDs: Set<String>
+  ) -> String {
+    var reasons: [String] = []
+    if didChangeColumnWidth {
+      reasons.append("widthChanged")
     }
-
-    private func rowIndexes(for ids: [String]) -> IndexSet {
-      var indexes = IndexSet()
-      for id in ids {
-        if let index = rowIDs.firstIndex(of: id) {
-          indexes.insert(index)
-        }
-      }
-      return indexes
+    if !streamingMessageChangedIDs.isEmpty {
+      reasons.append("streamingMessage")
     }
-
-    private func heightInvalidationReason(
-      didChangeColumnWidth: Bool,
-      streamingMessageChangedIDs: Set<String>,
-      streamingThinkingChangedIDs: Set<String>,
-      speechStateChangedIDs: Set<String>,
-      changedIDs: Set<String>
-    ) -> String {
-      var reasons: [String] = []
-      if didChangeColumnWidth {
-        reasons.append("widthChanged")
-      }
-      if !streamingMessageChangedIDs.isEmpty {
-        reasons.append("streamingMessage")
-      }
-      if !streamingThinkingChangedIDs.isEmpty {
-        reasons.append("streamingThinking")
-      }
-      if !speechStateChangedIDs.isEmpty {
-        reasons.append("speechState")
-      }
-      if !changedIDs.isEmpty
-        && streamingMessageChangedIDs.isEmpty
-        && streamingThinkingChangedIDs.isEmpty
-      {
-        reasons.append("rowRevisionChanged")
-      }
-      return reasons.isEmpty ? "unknown" : reasons.joined(separator: "+")
+    if !streamingThinkingChangedIDs.isEmpty {
+      reasons.append("streamingThinking")
     }
-
-    private func heightInvalidationMetadata(rowIndexes: IndexSet, reason: String)
-      -> ChatDiagnostics.Metadata
+    if !speechStateChangedIDs.isEmpty {
+      reasons.append("speechState")
+    }
+    if !changedIDs.isEmpty
+      && streamingMessageChangedIDs.isEmpty
+      && streamingThinkingChangedIDs.isEmpty
     {
-      ChatDiagnostics.Metadata(
-        "reason=\(reason) rowCount=\(rowIndexes.count) rows=\(rowIndexes.telemetryRangeSummary)"
-      )
+      reasons.append("rowRevisionChanged")
     }
+    return reasons.isEmpty ? "unknown" : reasons.joined(separator: "+")
+  }
 
-    private func isPinnedToBottom(_ scrollView: NSScrollView) -> Bool {
-      guard let documentView = scrollView.documentView else {
-        return true
-      }
-      let visibleMaxY = scrollView.contentView.bounds.maxY
-      let documentHeight = documentView.bounds.height
-      return documentHeight - visibleMaxY < 48
+  private func heightInvalidationMetadata(rowIndexes: IndexSet, reason: String)
+    -> ChatDiagnostics.Metadata
+  {
+    ChatDiagnostics.Metadata(
+      "reason=\(reason) rowCount=\(rowIndexes.count) rows=\(rowIndexes.telemetryRangeSummary)"
+    )
+  }
+
+  private func isPinnedToBottom(_ scrollView: NSScrollView) -> Bool {
+    guard let documentView = scrollView.documentView else {
+      return true
     }
+    let visibleMaxY = scrollView.contentView.bounds.maxY
+    let documentHeight = documentView.bounds.height
+    return documentHeight - visibleMaxY < 48
+  }
 
-    private func scrollToBottom(_ scrollView: NSScrollView) {
-      DispatchQueue.main.async {
-        self.scrollToBottomImmediately(scrollView)
-      }
+  private func scrollToBottom(_ scrollView: NSScrollView) {
+    DispatchQueue.main.async {
+      self.scrollToBottomImmediately(scrollView)
     }
+  }
 
-    private func scrollToBottomImmediately(_ scrollView: NSScrollView) {
-      guard let documentView = scrollView.documentView else {
-        return
-      }
-      let targetY = max(documentView.bounds.height - scrollView.contentView.bounds.height, 0)
-      guard abs(scrollView.contentView.bounds.origin.y - targetY) >= 0.5 else {
-        pinnedToBottom = true
-        return
-      }
-      scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
-      scrollView.reflectScrolledClipView(scrollView.contentView)
+  private func scrollToBottomImmediately(_ scrollView: NSScrollView) {
+    guard let documentView = scrollView.documentView else {
+      return
+    }
+    let targetY = max(documentView.bounds.height - scrollView.contentView.bounds.height, 0)
+    guard abs(scrollView.contentView.bounds.origin.y - targetY) >= 0.5 else {
       pinnedToBottom = true
+      return
     }
+    scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
+    scrollView.reflectScrolledClipView(scrollView.contentView)
+    pinnedToBottom = true
+  }
 
-    private func pruneCoordinatorState(activeRows: [NativeTranscriptRow]) {
-      let activeRowIDs = Set(activeRows.map(\.id))
-      cellStateStore.prune(activeRowIDs: activeRowIDs)
-      heightCache.prune(activeRows: activeRows)
-      markdownCache.prune(activeTexts: activeMarkdownTexts(in: activeRows))
-      codeHighlightStore.prune(activeDescriptors: activeCodeHighlightDescriptors(in: activeRows))
-      attachmentThumbnailStore.prune(
-        activeDescriptors: activeAttachmentThumbnailDescriptors(in: activeRows)
-      )
-    }
+  private func pruneCoordinatorState(activeRows: [NativeTranscriptRow]) {
+    let activeRowIDs = Set(activeRows.map(\.id))
+    cellStateStore.prune(activeRowIDs: activeRowIDs)
+    heightCache.prune(activeRows: activeRows)
+    markdownCache.prune(activeTexts: activeMarkdownTexts(in: activeRows))
+    codeHighlightStore.prune(activeDescriptors: activeCodeHighlightDescriptors(in: activeRows))
+    attachmentThumbnailStore.prune(
+      activeDescriptors: activeAttachmentThumbnailDescriptors(in: activeRows)
+    )
+  }
 
-    private func activeMarkdownTexts(in rows: [NativeTranscriptRow]) -> Set<String> {
-      Set(
-        rows.flatMap { row -> [String] in
-          guard case .item(let item) = row.body else {
-            return []
+  private func activeMarkdownTexts(in rows: [NativeTranscriptRow]) -> Set<String> {
+    Set(
+      rows.flatMap { row -> [String] in
+        guard case .item(let item) = row.body else {
+          return []
+        }
+        return item.assistantRenderBlocks.compactMap { block in
+          guard case .paragraph(let paragraph) = block else {
+            return nil
           }
-          return item.assistantRenderBlocks.compactMap { block in
-            guard case .paragraph(let paragraph) = block else {
-              return nil
-            }
-            return paragraph.text
-          }
-        })
-    }
+          return paragraph.text
+        }
+      })
+  }
 
-    private func activeCodeHighlightDescriptors(
-      in rows: [NativeTranscriptRow]
-    ) -> Set<NativeTranscriptCodeHighlightDescriptor> {
-      Set(
-        rows.flatMap { row -> [NativeTranscriptCodeHighlightDescriptor] in
-          guard case .item(let item) = row.body else {
-            return []
+  private func activeCodeHighlightDescriptors(
+    in rows: [NativeTranscriptRow]
+  ) -> Set<NativeTranscriptCodeHighlightDescriptor> {
+    Set(
+      rows.flatMap { row -> [NativeTranscriptCodeHighlightDescriptor] in
+        guard case .item(let item) = row.body else {
+          return []
+        }
+        return item.assistantRenderBlocks.compactMap { block in
+          guard case .codeBlock(let codeBlock) = block else {
+            return nil
           }
-          return item.assistantRenderBlocks.compactMap { block in
-            guard case .codeBlock(let codeBlock) = block else {
-              return nil
-            }
-            return NativeTranscriptCodeHighlightDescriptor(rowID: row.id, codeBlock: codeBlock)
-          }
-        })
-    }
+          return NativeTranscriptCodeHighlightDescriptor(rowID: row.id, codeBlock: codeBlock)
+        }
+      })
+  }
 
-    private func activeAttachmentThumbnailDescriptors(
-      in rows: [NativeTranscriptRow]
-    ) -> Set<NativeAttachmentThumbDescriptor> {
-      Set(
-        rows.flatMap { row -> [NativeAttachmentThumbDescriptor] in
-          guard case .item(let item) = row.body else {
-            return []
+  private func activeAttachmentThumbnailDescriptors(
+    in rows: [NativeTranscriptRow]
+  ) -> Set<NativeAttachmentThumbDescriptor> {
+    Set(
+      rows.flatMap { row -> [NativeAttachmentThumbDescriptor] in
+        guard case .item(let item) = row.body else {
+          return []
+        }
+        return item.nativeAttachments
+          .filter { $0.kind == .image }
+          .map {
+            NativeAttachmentThumbDescriptor(
+              attachment: $0,
+              maxPixelSize: NativeTranscriptAttachmentPreviewMetrics.maxImagePixelSize
+            )
           }
-          return item.nativeAttachments
-            .filter { $0.kind == .image }
-            .map {
-              NativeAttachmentThumbDescriptor(
-                attachment: $0,
-                maxPixelSize: NativeTranscriptAttachmentPreviewMetrics.maxImagePixelSize
-              )
-            }
-        })
-    }
+      })
   }
 }
 
@@ -1090,7 +1108,7 @@ enum NativeTranscriptScrollDecision {
   }
 }
 
-enum NativeTranscriptSnapshotHeightInvalidation {
+enum NativeTranscriptSnapshotInvalidation {
   static func rowIndexes(
     previousIDs: [String],
     currentIDs: [String],

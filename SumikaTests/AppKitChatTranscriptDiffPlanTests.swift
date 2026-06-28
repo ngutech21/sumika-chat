@@ -56,7 +56,7 @@ struct AppKitChatTranscriptDiffPlanTests {
 
   @Test
   func snapshotHeightInvalidationOnlyTouchesInsertedAndChangedRows() {
-    let rows = NativeTranscriptSnapshotHeightInvalidation.rowIndexes(
+    let rows = NativeTranscriptSnapshotInvalidation.rowIndexes(
       previousIDs: ["user", "assistant"],
       currentIDs: ["user", "tool", "assistant"],
       changedIDs: ["assistant"]
@@ -67,7 +67,7 @@ struct AppKitChatTranscriptDiffPlanTests {
 
   @Test
   func snapshotHeightInvalidationSkipsPureRemoval() {
-    let rows = NativeTranscriptSnapshotHeightInvalidation.rowIndexes(
+    let rows = NativeTranscriptSnapshotInvalidation.rowIndexes(
       previousIDs: ["user", "generation"],
       currentIDs: ["user"],
       changedIDs: []
@@ -78,7 +78,7 @@ struct AppKitChatTranscriptDiffPlanTests {
 
   @Test
   func snapshotHeightInvalidationSkipsPureReorder() {
-    let rows = NativeTranscriptSnapshotHeightInvalidation.rowIndexes(
+    let rows = NativeTranscriptSnapshotInvalidation.rowIndexes(
       previousIDs: ["user", "assistant"],
       currentIDs: ["assistant", "user"],
       changedIDs: []

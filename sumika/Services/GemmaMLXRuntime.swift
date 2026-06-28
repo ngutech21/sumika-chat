@@ -241,30 +241,14 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
     cachePlan.session.tools = toolSpecs
 
-    let traceMessages = try GemmaHistoryRenderer.runtimeHistoryMessages(
+    try await traceDebugRequest(
+      id: traceID,
       systemPrompt: systemPrompt,
-      history: history
+      history: history,
+      prompt: finalPrompt,
+      settings: settings,
+      imageAttachments: imageAttachments
     )
-    let traceHistory = traceMessages.map { message in
-      (role: message.role.rawValue, content: message.content)
-    }
-    do {
-      let interval = ChatDiagnostics.beginInterval(
-        "Gemma debug trace request",
-        category: .generation
-      )
-      defer {
-        ChatDiagnostics.endInterval(interval)
-      }
-      await GemmaDebugTraceStore.shared.traceRequest(
-        id: traceID,
-        history: traceHistory,
-        prompt: finalPrompt,
-        settings: settings,
-        contextTokenLimit: contextTokenLimit,
-        imageAttachments: imageAttachments
-      )
-    }
 
     let createStreamInterval = ChatDiagnostics.beginInterval(
       "Gemma create MLX stream",
@@ -278,34 +262,14 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       stream = cachePlan.session.streamDetails(to: messages)
     }
     ChatDiagnostics.endInterval(createStreamInterval)
-    if let traceMetadata {
-      await traceMetadata.tracer.recordTurnTraceEvent(
-        TurnTraceEvent(
-          turnID: traceMetadata.turnID,
-          generationID: traceID,
-          phase: .runtimeStreamStart,
-          durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
-          promptBytes: cachePlan.streamInput.contentByteCount,
-          messageCount: projectedEntries.count,
-          toolLoopIteration: traceMetadata.toolLoopIteration,
-          cacheMode: cachePlan.trace.cacheMode.rawValue,
-          cacheReason: cachePlan.trace.cacheReason.rawValue,
-          interactionMode: traceMetadata.interactionMode,
-          contextSignature: cachePlan.trace.contextSignature,
-          previousContextSignature: cachePlan.trace.previousContextSignature,
-          appendOnly: cachePlan.trace.appendOnly,
-          reusedMessageCount: cachePlan.trace.reusedMessageCount,
-          appendedMessageCount: cachePlan.trace.appendedMessageCount,
-          mismatchReason: cachePlan.trace.mismatchReason,
-          firstMismatchIndex: cachePlan.trace.firstMismatchIndex,
-          systemPromptChanged: cachePlan.trace.systemPromptChanged,
-          currentPromptContextChanged: cachePlan.trace.currentPromptContextChanged,
-          imageCount: imageAttachments.isEmpty ? nil : imageAttachments.count,
-          imageTypes: GemmaHistoryRenderer.imageTypes(from: imageAttachments),
-          imageByteCount: GemmaHistoryRenderer.imageByteCount(from: imageAttachments)
-        )
-      )
-    }
+    await recordRuntimeStreamStart(
+      traceID: traceID,
+      traceMetadata: traceMetadata,
+      cachePlan: cachePlan,
+      streamStartStartedAt: streamStartStartedAt,
+      messageCount: projectedEntries.count,
+      imageAttachments: imageAttachments
+    )
     let streamPlan = GemmaModelStreamProcessor.modelStreamPlan(
       from: stream,
       traceID: traceID,
@@ -346,6 +310,77 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       activeGenerationRegistry.clearIfCurrent(generationID)
     }
     return streamPlan.stream
+  }
+
+  private func traceDebugRequest(
+    id: UUID,
+    systemPrompt: String,
+    history: [Chat.Message],
+    prompt: String,
+    settings: ChatGenerationSettings,
+    imageAttachments: [ChatAttachment]
+  ) async throws {
+    let traceMessages = try GemmaHistoryRenderer.runtimeHistoryMessages(
+      systemPrompt: systemPrompt,
+      history: history
+    )
+    let traceHistory = traceMessages.map { message in
+      (role: message.role.rawValue, content: message.content)
+    }
+    let interval = ChatDiagnostics.beginInterval(
+      "Gemma debug trace request",
+      category: .generation
+    )
+    defer {
+      ChatDiagnostics.endInterval(interval)
+    }
+    await GemmaDebugTraceStore.shared.traceRequest(
+      id: id,
+      history: traceHistory,
+      prompt: prompt,
+      settings: settings,
+      contextTokenLimit: contextTokenLimit,
+      imageAttachments: imageAttachments
+    )
+  }
+
+  private func recordRuntimeStreamStart(
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    cachePlan: GemmaSessionCachePlan,
+    streamStartStartedAt: Date,
+    messageCount: Int,
+    imageAttachments: [ChatAttachment]
+  ) async {
+    guard let traceMetadata else {
+      return
+    }
+    await traceMetadata.tracer.recordTurnTraceEvent(
+      TurnTraceEvent(
+        turnID: traceMetadata.turnID,
+        generationID: traceID,
+        phase: .runtimeStreamStart,
+        durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
+        promptBytes: cachePlan.streamInput.contentByteCount,
+        messageCount: messageCount,
+        toolLoopIteration: traceMetadata.toolLoopIteration,
+        cacheMode: cachePlan.trace.cacheMode.rawValue,
+        cacheReason: cachePlan.trace.cacheReason.rawValue,
+        interactionMode: traceMetadata.interactionMode,
+        contextSignature: cachePlan.trace.contextSignature,
+        previousContextSignature: cachePlan.trace.previousContextSignature,
+        appendOnly: cachePlan.trace.appendOnly,
+        reusedMessageCount: cachePlan.trace.reusedMessageCount,
+        appendedMessageCount: cachePlan.trace.appendedMessageCount,
+        mismatchReason: cachePlan.trace.mismatchReason,
+        firstMismatchIndex: cachePlan.trace.firstMismatchIndex,
+        systemPromptChanged: cachePlan.trace.systemPromptChanged,
+        currentPromptContextChanged: cachePlan.trace.currentPromptContextChanged,
+        imageCount: imageAttachments.isEmpty ? nil : imageAttachments.count,
+        imageTypes: GemmaHistoryRenderer.imageTypes(from: imageAttachments),
+        imageByteCount: GemmaHistoryRenderer.imageByteCount(from: imageAttachments)
+      )
+    )
   }
 
   private func supersedeActiveGenerationBeforeStartingNew() async {

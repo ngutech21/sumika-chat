@@ -170,37 +170,18 @@ public struct ChatGenerationCoordinator {
     }
 
     let generationStartedAt = Date()
-    let stream: AsyncThrowingStream<ChatModelStreamEvent, Error>
-    do {
-      let interval = ChatDiagnostics.beginInterval(
-        "Generation runtime stream request",
-        category: .generation
-      )
-      defer {
-        ChatDiagnostics.endInterval(interval)
-      }
-      stream = try await runtimeOperations.streamReply(
-        for: transcript,
-        attachments: attachments,
-        systemPrompt: systemPrompt,
-        settings: settings,
-        toolContext: toolContext,
-        operationID: operationID
-      )
-    }
-    let runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
-    do {
-      let interval = ChatDiagnostics.beginInterval(
-        "Generation runtime cache snapshot",
-        category: .generation
-      )
-      defer {
-        ChatDiagnostics.endInterval(interval)
-      }
-      runtimeCacheDebugSnapshot = try await runtimeOperations.runtimeCacheDebugSnapshot(
-        operationID: operationID)
-    }
-    await updateRuntimeCacheDebugSnapshot(runtimeCacheDebugSnapshot)
+    let stream = try await requestRuntimeStream(
+      transcript: transcript,
+      attachments: attachments,
+      systemPrompt: systemPrompt,
+      settings: settings,
+      toolContext: toolContext,
+      operationID: operationID
+    )
+    try await refreshRuntimeCacheDebugSnapshot(
+      operationID: operationID,
+      updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot
+    )
 
     var bufferedChunk = ""
     var bufferedThinkingChunk = ""
@@ -342,14 +323,7 @@ public struct ChatGenerationCoordinator {
           ChatDiagnostics.measure("Generation metrics update", category: .generation) {
             updateGenerationMetrics(completedMetrics)
           }
-          let contextUsageInterval = ChatDiagnostics.beginInterval(
-            "Generation context usage refresh",
-            category: .generation
-          )
-          defer {
-            ChatDiagnostics.endInterval(contextUsageInterval)
-          }
-          await updateContextUsage()
+          await refreshContextUsage(updateContextUsage)
           didComplete = true
         }
       }
@@ -370,6 +344,57 @@ public struct ChatGenerationCoordinator {
       assistantContent: generatedContent,
       nativeToolCalls: nativeToolCalls
     )
+  }
+
+  private func requestRuntimeStream(
+    transcript: ModelContextSnapshot,
+    attachments: [ChatAttachment],
+    systemPrompt: String,
+    settings: ChatGenerationSettings,
+    toolContext: ChatRuntimeToolContext?,
+    operationID: UUID
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    let interval = ChatDiagnostics.beginInterval(
+      "Generation runtime stream request",
+      category: .generation
+    )
+    defer {
+      ChatDiagnostics.endInterval(interval)
+    }
+    return try await runtimeOperations.streamReply(
+      for: transcript,
+      attachments: attachments,
+      systemPrompt: systemPrompt,
+      settings: settings,
+      toolContext: toolContext,
+      operationID: operationID
+    )
+  }
+
+  private func refreshRuntimeCacheDebugSnapshot(
+    operationID: UUID,
+    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void
+  ) async throws {
+    let interval = ChatDiagnostics.beginInterval(
+      "Generation runtime cache snapshot",
+      category: .generation
+    )
+    defer {
+      ChatDiagnostics.endInterval(interval)
+    }
+    let snapshot = try await runtimeOperations.runtimeCacheDebugSnapshot(operationID: operationID)
+    await updateRuntimeCacheDebugSnapshot(snapshot)
+  }
+
+  private func refreshContextUsage(_ updateContextUsage: () async -> Void) async {
+    let interval = ChatDiagnostics.beginInterval(
+      "Generation context usage refresh",
+      category: .generation
+    )
+    defer {
+      ChatDiagnostics.endInterval(interval)
+    }
+    await updateContextUsage()
   }
 
   private func generationMetrics(

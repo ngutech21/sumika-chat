@@ -74,31 +74,13 @@ nonisolated enum GemmaModelStreamProcessor {
             if firstChunkAt == nil {
               let now = Date()
               firstChunkAt = now
-              if let traceMetadata {
-                let ttftMs = now.timeIntervalSince(iterationStartedAt) * 1000
-                await traceMetadata.tracer.recordTurnTraceEvent(
-                  TurnTraceEvent(
-                    turnID: traceMetadata.turnID,
-                    generationID: traceID,
-                    phase: .runtimeTTFT,
-                    durationMs: ttftMs,
-                    toolLoopIteration: traceMetadata.toolLoopIteration,
-                    ttftMs: ttftMs,
-                    cacheMode: cacheTrace.cacheMode.rawValue,
-                    cacheReason: cacheTrace.cacheReason.rawValue,
-                    interactionMode: traceMetadata.interactionMode,
-                    contextSignature: cacheTrace.contextSignature,
-                    previousContextSignature: cacheTrace.previousContextSignature,
-                    appendOnly: cacheTrace.appendOnly,
-                    reusedMessageCount: cacheTrace.reusedMessageCount,
-                    appendedMessageCount: cacheTrace.appendedMessageCount,
-                    mismatchReason: cacheTrace.mismatchReason,
-                    firstMismatchIndex: cacheTrace.firstMismatchIndex,
-                    systemPromptChanged: cacheTrace.systemPromptChanged,
-                    currentPromptContextChanged: cacheTrace.currentPromptContextChanged
-                  )
-                )
-              }
+              await recordRuntimeTTFT(
+                traceID: traceID,
+                traceMetadata: traceMetadata,
+                cacheTrace: cacheTrace,
+                iterationStartedAt: iterationStartedAt,
+                firstChunkAt: now
+              )
             }
             output += chunk
             if yieldSegments(
@@ -139,30 +121,13 @@ nonisolated enum GemmaModelStreamProcessor {
               durationMs: durationMs
             )
             completedMetrics = metrics
-            if let traceMetadata {
-              await traceMetadata.tracer.recordTurnTraceEvent(
-                TurnTraceEvent(
-                  turnID: traceMetadata.turnID,
-                  generationID: traceID,
-                  phase: .runtimeDecode,
-                  durationMs: Date().timeIntervalSince(decodeStartedAt) * 1000,
-                  toolLoopIteration: traceMetadata.toolLoopIteration,
-                  tokensPerSecond: info.tokensPerSecond,
-                  cacheMode: cacheTrace.cacheMode.rawValue,
-                  cacheReason: cacheTrace.cacheReason.rawValue,
-                  interactionMode: traceMetadata.interactionMode,
-                  contextSignature: cacheTrace.contextSignature,
-                  previousContextSignature: cacheTrace.previousContextSignature,
-                  appendOnly: cacheTrace.appendOnly,
-                  reusedMessageCount: cacheTrace.reusedMessageCount,
-                  appendedMessageCount: cacheTrace.appendedMessageCount,
-                  mismatchReason: cacheTrace.mismatchReason,
-                  firstMismatchIndex: cacheTrace.firstMismatchIndex,
-                  systemPromptChanged: cacheTrace.systemPromptChanged,
-                  currentPromptContextChanged: cacheTrace.currentPromptContextChanged
-                )
-              )
-            }
+            await recordRuntimeDecode(
+              traceID: traceID,
+              traceMetadata: traceMetadata,
+              cacheTrace: cacheTrace,
+              decodeStartedAt: decodeStartedAt,
+              tokensPerSecond: info.tokensPerSecond
+            )
             didCompleteNaturally = true
             if case .terminated = continuation.yield(.completed(metrics)) {
               didTerminateDownstream = true
@@ -236,6 +201,75 @@ nonisolated enum GemmaModelStreamProcessor {
     }
 
     return GemmaModelStreamPlan(stream: outputStream, task: task)
+  }
+
+  nonisolated private static func recordRuntimeTTFT(
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: GemmaSessionCacheTrace,
+    iterationStartedAt: Date,
+    firstChunkAt: Date
+  ) async {
+    guard let traceMetadata else {
+      return
+    }
+    let ttftMs = firstChunkAt.timeIntervalSince(iterationStartedAt) * 1000
+    await traceMetadata.tracer.recordTurnTraceEvent(
+      TurnTraceEvent(
+        turnID: traceMetadata.turnID,
+        generationID: traceID,
+        phase: .runtimeTTFT,
+        durationMs: ttftMs,
+        toolLoopIteration: traceMetadata.toolLoopIteration,
+        ttftMs: ttftMs,
+        cacheMode: cacheTrace.cacheMode.rawValue,
+        cacheReason: cacheTrace.cacheReason.rawValue,
+        interactionMode: traceMetadata.interactionMode,
+        contextSignature: cacheTrace.contextSignature,
+        previousContextSignature: cacheTrace.previousContextSignature,
+        appendOnly: cacheTrace.appendOnly,
+        reusedMessageCount: cacheTrace.reusedMessageCount,
+        appendedMessageCount: cacheTrace.appendedMessageCount,
+        mismatchReason: cacheTrace.mismatchReason,
+        firstMismatchIndex: cacheTrace.firstMismatchIndex,
+        systemPromptChanged: cacheTrace.systemPromptChanged,
+        currentPromptContextChanged: cacheTrace.currentPromptContextChanged
+      )
+    )
+  }
+
+  nonisolated private static func recordRuntimeDecode(
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: GemmaSessionCacheTrace,
+    decodeStartedAt: Date,
+    tokensPerSecond: Double
+  ) async {
+    guard let traceMetadata else {
+      return
+    }
+    await traceMetadata.tracer.recordTurnTraceEvent(
+      TurnTraceEvent(
+        turnID: traceMetadata.turnID,
+        generationID: traceID,
+        phase: .runtimeDecode,
+        durationMs: Date().timeIntervalSince(decodeStartedAt) * 1000,
+        toolLoopIteration: traceMetadata.toolLoopIteration,
+        tokensPerSecond: tokensPerSecond,
+        cacheMode: cacheTrace.cacheMode.rawValue,
+        cacheReason: cacheTrace.cacheReason.rawValue,
+        interactionMode: traceMetadata.interactionMode,
+        contextSignature: cacheTrace.contextSignature,
+        previousContextSignature: cacheTrace.previousContextSignature,
+        appendOnly: cacheTrace.appendOnly,
+        reusedMessageCount: cacheTrace.reusedMessageCount,
+        appendedMessageCount: cacheTrace.appendedMessageCount,
+        mismatchReason: cacheTrace.mismatchReason,
+        firstMismatchIndex: cacheTrace.firstMismatchIndex,
+        systemPromptChanged: cacheTrace.systemPromptChanged,
+        currentPromptContextChanged: cacheTrace.currentPromptContextChanged
+      )
+    )
   }
 
   nonisolated private static func yieldSegments(
