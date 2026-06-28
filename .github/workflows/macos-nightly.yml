@@ -40,7 +40,9 @@ jobs:
 
       - name: Install lint tools
         timeout-minutes: 10
-        run: brew install just swiftlint
+        run: | 
+            brew untap aws/tap || true
+            brew install just swiftlint
 
       - name: Run SwiftLint
         timeout-minutes: 10
@@ -112,7 +114,7 @@ jobs:
           just release-notarized Sumika-Chat-macos-nightly.dmg
 
       - name: Upload app artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Sumika-Chat-macos-nightly
           path: build/artifacts/Sumika-Chat-macos-nightly.dmg
