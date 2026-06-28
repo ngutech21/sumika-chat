@@ -16,7 +16,7 @@ jobs:
   lint-build-test-analyze:
     name: macOS App Lint, Build, Test, Analyze
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     env:
       PROJECT: Sumika.xcodeproj
@@ -117,10 +117,13 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
-      - name: Build signed Release package
-        timeout-minutes: 20
+      - name: Build notarized Release package
+        timeout-minutes: 45
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
         run: |
-          just release-package Sumika-Chat-macos-nightly.dmg
+          just release-notarized Sumika-Chat-macos-nightly.dmg
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4

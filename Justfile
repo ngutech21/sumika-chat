@@ -44,6 +44,29 @@ release-package artifact_name="Sumika-Chat-macos-release.dmg": release-signed
     codesign --verify --strict --verbose=2 "$artifact"; \
     echo "$artifact"
 
+release-notarize artifact_name="Sumika-Chat-macos-release.dmg":
+    @artifact="{{artifact_dir}}/{{artifact_name}}"; \
+    test -f "$artifact"; \
+    test -n "$APP_STORE_CONNECT_API_KEY_ID" || { echo "APP_STORE_CONNECT_API_KEY_ID is required."; exit 1; }; \
+    key_path="$APP_STORE_CONNECT_API_KEY_PATH"; \
+    key_temp=""; \
+    if [ -z "$key_path" ]; then \
+        test -n "$APP_STORE_CONNECT_API_KEY_P8_BASE64" || { echo "APP_STORE_CONNECT_API_KEY_PATH or APP_STORE_CONNECT_API_KEY_P8_BASE64 is required."; exit 1; }; \
+        key_path="$(mktemp "${TMPDIR:-/tmp}/sumika-notary-key.XXXXXX")"; \
+        key_temp="$key_path"; \
+        printf '%s' "$APP_STORE_CONNECT_API_KEY_P8_BASE64" | base64 --decode > "$key_path"; \
+    fi; \
+    trap 'if [ -n "$key_temp" ]; then rm -f "$key_temp"; fi' EXIT; \
+    xcrun notarytool submit "$artifact" --key "$key_path" --key-id "$APP_STORE_CONNECT_API_KEY_ID" --wait; \
+    xcrun stapler staple "$artifact"; \
+    xcrun stapler validate "$artifact"; \
+    codesign --verify --strict --verbose=2 "$artifact"; \
+    echo "$artifact"
+
+release-notarized artifact_name="Sumika-Chat-macos-release.dmg":
+    just release-package "{{artifact_name}}"
+    just release-notarize "{{artifact_name}}"
+
 test: test-core test-app
 
 test-core:
