@@ -22,27 +22,18 @@ struct WorkspaceSidebar: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      ScrollView {
-        VStack(alignment: .leading, spacing: 10) {
+      List(selection: $selection) {
+        Section {
           modelRow
+        }
 
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Workspaces")
-              .font(.caption)
-              .fontWeight(.semibold)
-              .foregroundStyle(.secondary)
-              .padding(.horizontal, 14)
-              .padding(.top, 2)
-
-            ForEach(sidebarState.workspaces) { workspace in
-              workspaceSection(workspace)
-            }
+        Section("Workspaces") {
+          ForEach(sidebarState.workspaces) { workspace in
+            workspaceSection(workspace)
           }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
       }
+      .listStyle(.sidebar)
       .accessibilityIdentifier("sidebar.workspaceList")
 
       SidebarRuntimeFooter(
@@ -51,8 +42,8 @@ struct WorkspaceSidebar: View {
       )
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .alert("Rename Session", isPresented: renameAlertBinding) {
-      TextField("Session name", text: $renameTitle)
+    .alert("Rename Chat", isPresented: renameAlertBinding) {
+      TextField("Chat name", text: $renameTitle)
 
       Button("Cancel", role: .cancel) {
         sessionBeingRenamed = nil
@@ -67,13 +58,13 @@ struct WorkspaceSidebar: View {
         renameTitle = ""
       }
     }
-    .alert("Delete Session?", isPresented: deleteAlertBinding, presenting: sessionPendingDeletion) {
+    .alert("Remove Chat?", isPresented: deleteAlertBinding, presenting: sessionPendingDeletion) {
       session in
       Button("Cancel", role: .cancel) {
         sessionPendingDeletion = nil
       }
 
-      Button("Delete", role: .destructive) {
+      Button("Remove", role: .destructive) {
         onDeleteSession(session.id)
         sessionPendingDeletion = nil
       }
@@ -101,148 +92,97 @@ struct WorkspaceSidebar: View {
   }
 
   private var modelRow: some View {
-    Button {
-      selection = .models
-    } label: {
-      HStack(spacing: 8) {
-        Image(systemName: "cpu")
-          .foregroundStyle(.secondary)
-          .frame(width: 16)
-
-        Text("Models")
-          .lineLimit(1)
-
-        Spacer(minLength: 0)
-      }
-      .padding(.horizontal, 8)
-      .frame(height: 28)
-      .background(rowBackground(isSelected: selection == .models))
-      .contentShape(Rectangle())
+    Label {
+      Text("Models")
+        .lineLimit(1)
+    } icon: {
+      Image(systemName: "cpu")
+        .foregroundStyle(.secondary)
     }
-    .buttonStyle(.plain)
+    .tag(AppNavigationSelection.models)
     .accessibilityIdentifier("sidebar.modelsLink")
     .accessibilityValue(selection == .models ? "Selected" : "")
   }
 
   @ViewBuilder
   private func workspaceSection(_ workspace: WorkspaceSidebarWorkspace) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Button {
-        toggleExpansion(for: workspace.id)
-      } label: {
-        HStack(spacing: 6) {
-          Image(systemName: isExpanded(workspace.id) ? "chevron.down" : "chevron.right")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .frame(width: 10)
-
-          Image(systemName: isExpanded(workspace.id) ? "folder" : "folder.fill")
-            .foregroundStyle(.tint)
-            .frame(width: 16)
-
-          Text(workspace.name)
-            .fontWeight(.semibold)
-            .lineLimit(1)
-            .truncationMode(.tail)
-
-          Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 28)
-        .contentShape(Rectangle())
+    DisclosureGroup(isExpanded: expansionBinding(for: workspace.id)) {
+      ForEach(workspace.sessions) { session in
+        sessionRow(session)
       }
-      .buttonStyle(.plain)
-      .accessibilityIdentifier("sidebar.workspaceDisclosure")
-      .accessibilityValue(isExpanded(workspace.id) ? "Expanded" : "Collapsed")
+    } label: {
+      Label {
+        Text(workspace.name)
+          .fontWeight(.semibold)
+          .lineLimit(1)
+          .truncationMode(.tail)
+      } icon: {
+        Image(systemName: isExpanded(workspace.id) ? "folder" : "folder.fill")
+          .foregroundStyle(.tint)
+      }
       .contextMenu {
+        Button("New Chat") {
+          createSession(in: workspace.id)
+        }
+
+        Divider()
+
         Button("Remove Workspace", role: .destructive) {
           workspacePendingRemoval = workspace
         }
       }
-
-      if isExpanded(workspace.id) {
-        VStack(alignment: .leading, spacing: 2) {
-          ForEach(workspace.sessions) { session in
-            sessionRow(session)
-          }
-
-          newSessionButton(for: workspace.id)
-        }
-        .padding(.leading, 18)
-      }
     }
+    .accessibilityIdentifier("sidebar.workspaceDisclosure")
+    .accessibilityValue(isExpanded(workspace.id) ? "Expanded" : "Collapsed")
   }
 
   private func sessionRow(_ session: WorkspaceSidebarSession) -> some View {
     let item = AppNavigationSelection.session(session.id)
-    let isSelected = selection == item
 
-    return Button {
-      selection = item
-    } label: {
-      HStack(spacing: 8) {
-        Text(session.displayTitle)
-          .lineLimit(1)
-          .truncationMode(.tail)
+    return Text(session.displayTitle)
+      .lineLimit(1)
+      .truncationMode(.tail)
+      .tag(item)
+      .accessibilityIdentifier("sidebar.sessionLink")
+      .accessibilityValue(selection == item ? "Selected" : "")
+      .contextMenu {
+        Button("Rename Chat") {
+          sessionBeingRenamed = session
+          renameTitle = session.title
+        }
 
-        Spacer(minLength: 0)
+        Divider()
+
+        Button("Remove Chat", role: .destructive) {
+          sessionPendingDeletion = session
+        }
       }
-      .padding(.horizontal, 8)
-      .frame(height: 28)
-      .background(rowBackground(isSelected: isSelected))
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .accessibilityIdentifier("sidebar.sessionLink")
-    .accessibilityValue(isSelected ? "Selected" : "")
-    .contextMenu {
-      Button("Rename") {
-        sessionBeingRenamed = session
-        renameTitle = session.title
-      }
-
-      Button("Delete", role: .destructive) {
-        sessionPendingDeletion = session
-      }
-    }
-  }
-
-  private func newSessionButton(for workspaceID: Workspace.ID) -> some View {
-    Button {
-      if let sessionID = onCreateSession(workspaceID) {
-        selection = .session(sessionID)
-      }
-    } label: {
-      HStack(spacing: 8) {
-        Image(systemName: "plus")
-          .foregroundStyle(.secondary)
-          .frame(width: 16)
-
-        Text("New Chat")
-
-        Spacer(minLength: 0)
-      }
-      .padding(.horizontal, 8)
-      .frame(height: 28)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .accessibilityIdentifier("sidebar.newSessionButton")
-  }
-
-  private func rowBackground(isSelected: Bool) -> some View {
-    RoundedRectangle(cornerRadius: 6, style: .continuous)
-      .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.clear)
   }
 
   private func isExpanded(_ workspaceID: Workspace.ID) -> Bool {
     !collapsedWorkspaces.contains(workspaceID)
   }
 
-  private func toggleExpansion(for workspaceID: Workspace.ID) {
+  private func createSession(in workspaceID: Workspace.ID) {
+    setWorkspace(workspaceID, isExpanded: true)
+    if let sessionID = onCreateSession(workspaceID) {
+      selection = .session(sessionID)
+    }
+  }
+
+  private func expansionBinding(for workspaceID: Workspace.ID) -> Binding<Bool> {
+    Binding(
+      get: { isExpanded(workspaceID) },
+      set: { isExpanded in
+        setWorkspace(workspaceID, isExpanded: isExpanded)
+      }
+    )
+  }
+
+  private func setWorkspace(_ workspaceID: Workspace.ID, isExpanded: Bool) {
     withAnimation(.snappy(duration: 0.18)) {
       var ids = collapsedWorkspaces
-      if ids.contains(workspaceID) {
+      if isExpanded {
         ids.remove(workspaceID)
       } else {
         ids.insert(workspaceID)

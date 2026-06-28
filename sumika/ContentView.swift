@@ -37,7 +37,7 @@ struct ContentView: View {
         modelRuntime: appState.chatController.modelRuntime,
         selection: $selection,
         onAddWorkspace: chooseWorkspace,
-        onCreateSession: { workspaceID in appState.createSession(in: workspaceID) },
+        onCreateSession: createSession,
         onRenameSession: { sessionID, title in
           appState.workspaceState.renameSession(sessionID, title: title)
         },
@@ -45,7 +45,6 @@ struct ContentView: View {
         onRemoveWorkspace: appState.removeWorkspace
       )
       .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 460)
-      .background(.bar)
     } detail: {
       detailContent(controller: controller)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -108,6 +107,7 @@ struct ContentView: View {
           isModelContextDebugVisible: $isModelContextDebugVisible,
           isWorkspaceTerminalVisible: $isTerminalVisible,
           onAddWorkspace: chooseWorkspace,
+          onCreateSession: createSession,
           onOpenAudioModels: openAudioModels
         )
       }
@@ -141,6 +141,14 @@ struct ContentView: View {
     {
       selection = .session(sessionID)
     }
+  }
+
+  private func createSession(in workspaceID: Workspace.ID) -> ChatSession.ID? {
+    guard let sessionID = appState.createSession(in: workspaceID) else {
+      return nil
+    }
+    selection = .session(sessionID)
+    return sessionID
   }
 
   private func openAudioModels() {
@@ -207,6 +215,7 @@ private struct WorkspaceRouteHost: View {
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
   let onAddWorkspace: () -> Void
+  let onCreateSession: (Workspace.ID) -> ChatSession.ID?
   let onOpenAudioModels: () -> Void
 
   var body: some View {
@@ -222,6 +231,7 @@ private struct WorkspaceRouteHost: View {
         workspaceChatActions: workspaceChatActions,
         isModelContextDebugVisible: $isModelContextDebugVisible,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
+        onCreateSession: onCreateSession,
         onOpenAudioModels: onOpenAudioModels
       )
       .equatable()

@@ -12,6 +12,7 @@ struct WorkspaceChatView: View, Equatable {
   let workspaceChatActions: WorkspaceChatActions
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
+  let onCreateSession: (Workspace.ID) -> ChatSession.ID?
   let onOpenAudioModels: () -> Void
   @State private var previewState = WorkspacePreviewFeatureState()
 
@@ -67,8 +68,10 @@ struct WorkspaceChatView: View, Equatable {
     .navigationTitle(context.name)
     .toolbar {
       WorkspaceChatToolbar(
+        workspaceID: context.id,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
-        workspaceChatActions: workspaceChatActions
+        workspaceChatActions: workspaceChatActions,
+        onCreateSession: onCreateSession
       )
     }
     .onDisappear {
@@ -230,11 +233,20 @@ private struct WorkspaceDebugSlot: View, Equatable {
 }
 
 private struct WorkspaceChatToolbar: ToolbarContent {
+  let workspaceID: Workspace.ID
   @Binding var isWorkspaceTerminalVisible: Bool
   let workspaceChatActions: WorkspaceChatActions
+  let onCreateSession: (Workspace.ID) -> ChatSession.ID?
 
   var body: some ToolbarContent {
     ToolbarItemGroup(placement: .primaryAction) {
+      Button(action: onNewChat) {
+        Label("New Chat", systemImage: "square.and.pencil")
+      }
+      .help("New chat")
+      .accessibilityLabel("New Chat")
+      .accessibilityIdentifier("workspace.newChatButton")
+
       Button(action: onToggleTerminal) {
         Image(systemName: isWorkspaceTerminalVisible ? "terminal.fill" : "terminal")
       }
@@ -262,5 +274,9 @@ private struct WorkspaceChatToolbar: ToolbarContent {
 
   private func onToggleTerminal() {
     isWorkspaceTerminalVisible.toggle()
+  }
+
+  private func onNewChat() {
+    _ = onCreateSession(workspaceID)
   }
 }

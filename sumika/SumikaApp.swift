@@ -28,6 +28,12 @@ struct SumikaApp: App {
       }
 
       CommandGroup(replacing: .newItem) {
+        Button("New Chat") {
+          createSessionInActiveWorkspace()
+        }
+        .keyboardShortcut("n")
+        .disabled(appState.workspaceState.activeWorkspaceContext == nil)
+
         Button("Add Workspace…") {
           chooseWorkspace()
         }
@@ -53,6 +59,13 @@ struct SumikaApp: App {
         onUpdateAppBehaviorSettings: appState.updateAppBehaviorSettings
       )
     }
+  }
+
+  private func createSessionInActiveWorkspace() {
+    guard let workspaceID = appState.workspaceState.activeWorkspaceContext?.id else {
+      return
+    }
+    _ = appState.createSession(in: workspaceID)
   }
 
   private func showAboutPanel() {
