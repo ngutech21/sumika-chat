@@ -22,6 +22,10 @@ jobs:
       PROJECT: Sumika.xcodeproj
       SCHEME: Sumika
       DESTINATION: platform=macOS,arch=arm64
+      CONFIGURATION: Release
+      DERIVED_DATA_PATH: build/DerivedData/macos-nightly
+      APP_NAME: Sumika Chat
+      ARTIFACT_DIR: build/artifacts
 
     steps:
       - name: Checkout
@@ -60,13 +64,15 @@ jobs:
             -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath .build/xcode-source-packages
 
-      - name: Build
+      - name: Build Release app
         timeout-minutes: 20
         run: |
           xcodebuild build \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
             -destination "$DESTINATION" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath .build/xcode-source-packages \
             CODE_SIGNING_ALLOWED=NO
 
@@ -80,6 +86,22 @@ jobs:
           xcodebuild analyze \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
             -destination "$DESTINATION" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath .build/xcode-source-packages \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: Package app artifact
+        timeout-minutes: 5
+        run: |
+          APP_BUNDLE="$DERIVED_DATA_PATH/Build/Products/$CONFIGURATION/$APP_NAME.app"
+          test -d "$APP_BUNDLE"
+          mkdir -p "$ARTIFACT_DIR"
+          ditto -c -k --keepParent "$APP_BUNDLE" "$ARTIFACT_DIR/Sumika-Chat-macos-nightly.zip"
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sumika-Chat-macos-nightly
+          path: build/artifacts/Sumika-Chat-macos-nightly.zip
