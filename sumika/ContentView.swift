@@ -104,7 +104,7 @@ struct ContentView: View {
           assistantSpeechService: appState.assistantSpeechService,
           speechInputController: appState.composerSpeechInputController,
           workspaceChatActions: workspaceChatActions,
-          isModelContextDebugVisible: $isModelContextDebugVisible,
+          isModelContextDebugVisible: modelContextDebugVisibilityBinding,
           isWorkspaceTerminalVisible: $isTerminalVisible,
           onAddWorkspace: chooseWorkspace,
           onCreateSession: createSession,
@@ -125,6 +125,14 @@ struct ContentView: View {
         }
       }
     )
+  }
+
+  private var modelContextDebugVisibilityBinding: Binding<Bool> {
+    #if DEBUG
+    return $isModelContextDebugVisible
+    #else
+    return .constant(false)
+    #endif
   }
 
   private func chooseWorkspace() {

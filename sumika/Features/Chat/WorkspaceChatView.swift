@@ -57,6 +57,7 @@ struct WorkspaceChatView: View, Equatable {
       )
       .equatable()
 
+      #if DEBUG
       WorkspaceDebugSlot(
         controller: controller,
         context: context,
@@ -64,6 +65,7 @@ struct WorkspaceChatView: View, Equatable {
         isModelContextDebugVisible: $isModelContextDebugVisible
       )
       .equatable()
+      #endif
     }
     .navigationTitle(context.name)
     .toolbar {

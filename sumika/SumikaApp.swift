@@ -4,8 +4,10 @@ import SwiftUI
 
 @main
 struct SumikaApp: App {
+  #if DEBUG
   @AppStorage("workspaceChat.isModelContextDebugVisible") private var isModelContextDebugVisible =
     false
+  #endif
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible =
     false
   @State private var appState: AppState
@@ -46,8 +48,10 @@ struct SumikaApp: App {
         .disabled(appState.workspaceState.activeWorkspaceContext == nil)
       }
       CommandGroup(after: .sidebar) {
+        #if DEBUG
         Toggle("Model Context Debug", isOn: $isModelContextDebugVisible)
           .keyboardShortcut("0", modifiers: [.command, .option])
+        #endif
         Toggle("Console", isOn: $isTerminalVisible)
           .keyboardShortcut("T", modifiers: [.command, .option])
       }
