@@ -24,7 +24,7 @@ release-unsigned:
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGNING_ALLOWED=NO build
 
 release-signed:
-    @if [ -z "$DEVELOPER_ID_APPLICATION" ]; then echo "DEVELOPER_ID_APPLICATION is required, for example: Developer ID Application"; exit 1; fi
+    @if [ -z "${DEVELOPER_ID_APPLICATION:-}" ]; then echo "DEVELOPER_ID_APPLICATION is required, for example: Developer ID Application"; exit 1; fi
     @if ! security find-identity -v -p codesigning | grep -F "$DEVELOPER_ID_APPLICATION" >/dev/null; then echo "Required Developer ID Application codesigning identity was not found."; exit 1; fi
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGNING_ALLOWED=NO build
     @app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
@@ -47,16 +47,11 @@ release-package artifact_name="Sumika-Chat-macos-release.dmg": release-signed
 release-notarize artifact_name="Sumika-Chat-macos-release.dmg":
     @artifact="{{artifact_dir}}/{{artifact_name}}"; \
     test -f "$artifact"; \
-    test -n "$APP_STORE_CONNECT_API_KEY_ID" || { echo "APP_STORE_CONNECT_API_KEY_ID is required."; exit 1; }; \
-    key_path="$APP_STORE_CONNECT_API_KEY_PATH"; \
-    key_temp=""; \
-    if [ -z "$key_path" ]; then \
-        test -n "$APP_STORE_CONNECT_API_KEY_P8_BASE64" || { echo "APP_STORE_CONNECT_API_KEY_PATH or APP_STORE_CONNECT_API_KEY_P8_BASE64 is required."; exit 1; }; \
-        key_path="$(mktemp "${TMPDIR:-/tmp}/sumika-notary-key.XXXXXX")"; \
-        key_temp="$key_path"; \
-        printf '%s' "$APP_STORE_CONNECT_API_KEY_P8_BASE64" | base64 --decode > "$key_path"; \
-    fi; \
-    trap 'if [ -n "$key_temp" ]; then rm -f "$key_temp"; fi' EXIT; \
+    test -n "${APP_STORE_CONNECT_API_KEY_ID:-}" || { echo "APP_STORE_CONNECT_API_KEY_ID is required."; exit 1; }; \
+    test -n "${APP_STORE_CONNECT_API_KEY_P8_BASE64:-}" || { echo "APP_STORE_CONNECT_API_KEY_P8_BASE64 is required."; exit 1; }; \
+    key_path="$(mktemp "${TMPDIR:-/tmp}/sumika-notary-key.XXXXXX")"; \
+    printf '%s' "$APP_STORE_CONNECT_API_KEY_P8_BASE64" | base64 --decode > "$key_path"; \
+    trap 'rm -f "$key_path"' EXIT; \
     xcrun notarytool submit "$artifact" --key "$key_path" --key-id "$APP_STORE_CONNECT_API_KEY_ID" --wait; \
     xcrun stapler staple "$artifact"; \
     xcrun stapler validate "$artifact"; \
