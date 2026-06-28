@@ -1,3 +1,4 @@
+import AppKit
 import SumikaCore
 import SwiftUI
 
@@ -58,13 +59,13 @@ struct WorkspaceChatView: View, Equatable {
       .equatable()
 
       #if DEBUG
-      WorkspaceDebugSlot(
-        controller: controller,
-        context: context,
-        sessionID: sessionID,
-        isModelContextDebugVisible: $isModelContextDebugVisible
-      )
-      .equatable()
+        WorkspaceDebugSlot(
+          controller: controller,
+          context: context,
+          sessionID: sessionID,
+          isModelContextDebugVisible: $isModelContextDebugVisible
+        )
+        .equatable()
       #endif
     }
     .navigationTitle(context.name)
@@ -248,37 +249,136 @@ private struct WorkspaceChatToolbar: ToolbarContent {
       .help("New chat")
       .accessibilityLabel("New Chat")
       .accessibilityIdentifier("workspace.newChatButton")
+    }
 
-      Button(action: onToggleTerminal) {
+    toolbarGroupSpacer
+
+    ToolbarItemGroup(placement: .primaryAction) {
+      Menu {
+        Button(action: workspaceChatActions.openWorkspaceInVisualStudioCode) {
+          Label {
+            Text("Open in VS Code")
+          } icon: {
+            WorkspaceOpenAppIcon(.visualStudioCode)
+          }
+        }
+
+        Button(action: workspaceChatActions.openWorkspaceInFinder) {
+          Label {
+            Text("Reveal in Finder")
+          } icon: {
+            WorkspaceOpenAppIcon(.finder)
+          }
+        }
+      } label: {
+        Label {
+          Text("Open Workspace")
+        } icon: {
+          WorkspaceOpenAppIcon(.visualStudioCode)
+        }
+      }
+      .help("Open workspace in another app")
+      .accessibilityLabel("Open Workspace")
+      .accessibilityIdentifier("workspace.openWorkspaceMenu")
+    }
+
+    toolbarGroupSpacer
+
+    ToolbarItemGroup(placement: .primaryAction) {
+      Toggle(isOn: $isWorkspaceTerminalVisible) {
         Image(systemName: isWorkspaceTerminalVisible ? "terminal.fill" : "terminal")
       }
+      .toggleStyle(.button)
       .help(isWorkspaceTerminalVisible ? "Hide workspace terminal" : "Show workspace terminal")
       .accessibilityLabel(
         isWorkspaceTerminalVisible ? "Hide workspace terminal" : "Show workspace terminal"
       )
       .accessibilityIdentifier("workspace.terminalToggleButton")
-
-      Button(action: workspaceChatActions.openWorkspaceInFinder) {
-        Image(systemName: "folder")
-      }
-      .help("Open workspace in Finder")
-      .accessibilityLabel("Open workspace in Finder")
-      .accessibilityIdentifier("workspace.openInFinderButton")
-
-      Button(action: workspaceChatActions.openWorkspaceInVisualStudioCode) {
-        Image(systemName: "curlybraces")
-      }
-      .help("Open workspace in Visual Studio Code")
-      .accessibilityLabel("Open workspace in Visual Studio Code")
-      .accessibilityIdentifier("workspace.openInVSCodeButton")
     }
-  }
-
-  private func onToggleTerminal() {
-    isWorkspaceTerminalVisible.toggle()
   }
 
   private func onNewChat() {
     _ = onCreateSession(workspaceID)
+  }
+
+  @ToolbarContentBuilder
+  private var toolbarGroupSpacer: some ToolbarContent {
+    if #available(macOS 26.0, *) {
+      ToolbarSpacer(.fixed, placement: .primaryAction)
+    } else {
+      ToolbarItem(placement: .primaryAction) {
+        Spacer()
+          .frame(width: 8)
+      }
+    }
+  }
+}
+
+private struct WorkspaceOpenAppIcon: View {
+  enum App {
+    case finder
+    case visualStudioCode
+  }
+
+  let app: App
+
+  init(_ app: App) {
+    self.app = app
+  }
+
+  var body: some View {
+    if let image = app.icon {
+      Image(nsImage: image)
+        .resizable()
+        .scaledToFit()
+        .frame(width: 16, height: 16)
+    } else {
+      Image(systemName: app.fallbackSystemImage)
+        .frame(width: 16, height: 16)
+    }
+  }
+}
+
+extension WorkspaceOpenAppIcon.App {
+  fileprivate var icon: NSImage? {
+    switch self {
+    case .finder:
+      NSWorkspace.shared.icon(
+        forFile: "/System/Library/CoreServices/Finder.app"
+      )
+    case .visualStudioCode:
+      visualStudioCodeIcon
+    }
+  }
+
+  fileprivate var fallbackSystemImage: String {
+    switch self {
+    case .finder:
+      "folder"
+    case .visualStudioCode:
+      "curlybraces"
+    }
+  }
+
+  private var visualStudioCodeIcon: NSImage? {
+    if let appURL = NSWorkspace.shared.urlForApplication(
+      withBundleIdentifier: "com.microsoft.VSCode"
+    ) {
+      return NSWorkspace.shared.icon(forFile: appURL.path(percentEncoded: false))
+    }
+
+    let candidatePaths = [
+      "/Applications/Visual Studio Code.app",
+      "~/Applications/Visual Studio Code.app",
+    ]
+
+    for path in candidatePaths {
+      let expandedPath = (path as NSString).expandingTildeInPath
+      if FileManager.default.fileExists(atPath: expandedPath) {
+        return NSWorkspace.shared.icon(forFile: expandedPath)
+      }
+    }
+
+    return nil
   }
 }

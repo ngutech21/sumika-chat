@@ -129,9 +129,9 @@ struct ContentView: View {
 
   private var modelContextDebugVisibilityBinding: Binding<Bool> {
     #if DEBUG
-    return $isModelContextDebugVisible
+      return $isModelContextDebugVisible
     #else
-    return .constant(false)
+      return .constant(false)
     #endif
   }
 
