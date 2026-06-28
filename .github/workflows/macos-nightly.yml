@@ -26,6 +26,7 @@ jobs:
       DERIVED_DATA_PATH: build/DerivedData/macos-nightly
       APP_NAME: Sumika Chat
       ARTIFACT_DIR: build/artifacts
+      SUMIKA_GIT_COMMIT: ${{ github.sha }}
 
     steps:
       - name: Checkout
@@ -74,6 +75,7 @@ jobs:
             -destination "$DESTINATION" \
             -derivedDataPath "$DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath .build/xcode-source-packages \
+            SUMIKA_GIT_COMMIT="$SUMIKA_GIT_COMMIT" \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Run SwiftPM core tests on macOS
@@ -90,6 +92,7 @@ jobs:
             -destination "$DESTINATION" \
             -derivedDataPath "$DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath .build/xcode-source-packages \
+            SUMIKA_GIT_COMMIT="$SUMIKA_GIT_COMMIT" \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Package app artifact

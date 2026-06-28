@@ -21,6 +21,12 @@ struct SumikaApp: App {
       ContentView(appState: appState)
     }
     .commands {
+      CommandGroup(replacing: .appInfo) {
+        Button("About Sumika Chat") {
+          showAboutPanel()
+        }
+      }
+
       CommandGroup(replacing: .newItem) {
         Button("Add Workspace…") {
           chooseWorkspace()
@@ -47,6 +53,19 @@ struct SumikaApp: App {
         onUpdateAppBehaviorSettings: appState.updateAppBehaviorSettings
       )
     }
+  }
+
+  private func showAboutPanel() {
+    let buildInfo = AppBuildInfo.current
+    var options: [NSApplication.AboutPanelOptionKey: Any] = [
+      .applicationVersion: buildInfo.aboutApplicationVersion
+    ]
+
+    if let buildVersion = buildInfo.aboutBuildVersion {
+      options[.version] = buildVersion
+    }
+
+    NSApplication.shared.orderFrontStandardAboutPanel(options: options)
   }
 
   private func chooseWorkspace() {

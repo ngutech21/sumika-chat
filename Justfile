@@ -12,10 +12,10 @@ default:
   @just --list
 
 build:
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} build
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" build
 
 release:
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration Release build
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration Release SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" build
 
 test: test-core test-app
 
