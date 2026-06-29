@@ -164,15 +164,7 @@ struct ChatAttachmentCoordinatorTests {
 }
 
 private final class AttachmentFakeLoader: ChatAttachmentLoading, @unchecked Sendable {
-  private let lock = NSLock()
   private let result: Result<[ChatAttachment], Error>
-  private var _loadCallCount = 0
-
-  var loadCallCount: Int {
-    lock.lock()
-    defer { lock.unlock() }
-    return _loadCallCount
-  }
 
   init(result: Result<[ChatAttachment], Error>) {
     self.result = result
@@ -184,9 +176,6 @@ private final class AttachmentFakeLoader: ChatAttachmentLoading, @unchecked Send
   ) throws -> [ChatAttachment] {
     _ = urls
     _ = existingAttachments
-    lock.lock()
-    _loadCallCount += 1
-    lock.unlock()
     return try result.get()
   }
 }

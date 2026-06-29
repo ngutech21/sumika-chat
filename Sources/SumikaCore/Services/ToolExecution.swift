@@ -271,7 +271,7 @@ public struct AnyToolExecutor: Sendable {
       }
 
       return await runEvaluatedTool(
-        tool, input: input, request: request, record: record, context: context)
+        tool, input: input, record: record, context: context)
     } catch {
       return failedRecord(request: request, definition: T.definition, error: error)
     }
@@ -358,7 +358,6 @@ public struct AnyToolExecutor: Sendable {
   private static func runEvaluatedTool<T: TypedToolExecutor>(
     _ tool: T,
     input: T.Input,
-    request: ToolCallRequest,
     record: ToolCallRecord,
     context: ToolContext
   ) async -> ToolCallRecord {

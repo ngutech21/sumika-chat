@@ -576,14 +576,11 @@ public actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
 }
 
 private struct CodeHighlightSource {
-  let originalCode: String
   let parseCode: String
   let parseUTF16Length: Int
   private let originalUTF16OffsetsByParseOffset: [Int]?
 
   init(code: String) {
-    originalCode = code
-
     guard let numberedCode = NumberedCodeLineMapper(code: code).strippedCode() else {
       parseCode = code
       parseUTF16Length = code.utf16.count

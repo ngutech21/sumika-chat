@@ -270,7 +270,6 @@ public struct EditFileToolExecutor: TypedToolExecutor {
       return lineWindowMatches(
         oldText: oldText,
         newText: newText,
-        content: content,
         strategy: .trimTrailingWhitespace,
         maxCount: maxCount,
         tokens: tokens
@@ -281,7 +280,6 @@ public struct EditFileToolExecutor: TypedToolExecutor {
       return indentationFlexibleMatches(
         oldText: oldText,
         newText: newText,
-        content: content,
         maxCount: maxCount,
         tokens: tokens
       )
@@ -289,7 +287,6 @@ public struct EditFileToolExecutor: TypedToolExecutor {
       return lineWindowMatches(
         oldText: oldText,
         newText: newText,
-        content: content,
         strategy: .lineTrimmedBlock,
         maxCount: maxCount,
         tokens: tokens,
@@ -330,7 +327,6 @@ public struct EditFileToolExecutor: TypedToolExecutor {
   private static func indentationFlexibleMatches(
     oldText: String,
     newText: String,
-    content: String,
     maxCount: Int,
     tokens: TokenizedEdit
   ) -> [EditMatch] {
@@ -341,7 +337,6 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     return lineWindowMatches(
       oldText: oldText,
       newText: newText,
-      content: content,
       strategy: .indentationFlexible,
       maxCount: maxCount,
       tokens: tokens,
@@ -365,7 +360,6 @@ public struct EditFileToolExecutor: TypedToolExecutor {
   private static func lineWindowMatches(
     oldText: String,
     newText: String,
-    content: String,
     strategy: EditMatchStrategy,
     maxCount: Int,
     tokens: TokenizedEdit,
@@ -374,7 +368,6 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     lineWindowMatches(
       oldText: oldText,
       newText: newText,
-      content: content,
       strategy: strategy,
       maxCount: maxCount,
       tokens: tokens,
@@ -389,7 +382,6 @@ public struct EditFileToolExecutor: TypedToolExecutor {
   private static func lineWindowMatches(
     oldText: String,
     newText: String,
-    content: String,
     strategy: EditMatchStrategy,
     maxCount: Int,
     tokens: TokenizedEdit,

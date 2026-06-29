@@ -3,7 +3,6 @@ import SwiftUI
 
 struct ChatTranscript: View {
   let turns: [ChatTurn]
-  let selectedModel: ManagedModel
   let modelState: ModelLoadState
   let isGenerating: Bool
   let appBehaviorSettings: AppBehaviorSettings

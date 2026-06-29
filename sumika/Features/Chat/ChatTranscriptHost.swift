@@ -16,7 +16,6 @@ struct ChatTranscriptHost: View {
 
     ChatTranscript(
       turns: controller.chatSession.turns,
-      selectedModel: controller.modelRuntime.selectedModel,
       modelState: controller.modelRuntime.modelState,
       isGenerating: controller.isGenerating,
       appBehaviorSettings: appBehaviorSettings,

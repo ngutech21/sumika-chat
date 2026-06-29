@@ -389,10 +389,7 @@ extension ChatSessionController {
     }
   }
 
-  private func finishGeneratingTurn(
-    _ turnID: ChatTurn.ID,
-    contextRefreshMode: ToolPromptMode = .disabled
-  ) {
+  private func finishGeneratingTurn(contextRefreshMode: ToolPromptMode = .disabled) {
     isGenerating = false
     flushPendingContextUsageRefresh(defaultMode: contextRefreshMode)
   }
@@ -544,8 +541,8 @@ extension ChatSessionController {
   private func cancelGeneration(notify: Bool) {
     let didCancel = chatTurnCoordinator.cancelActiveTurn(
       emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
-      turnDidFinish: { [weak self] turnID, mode in
-        self?.finishGeneratingTurn(turnID, contextRefreshMode: mode)
+      turnDidFinish: { [weak self] _, mode in
+        self?.finishGeneratingTurn(contextRefreshMode: mode)
       },
       notifySessionDidChange: {}
     )
@@ -923,8 +920,8 @@ extension ChatSessionController {
       setErrorMessage: { [weak self] message in
         self?.errorMessage = message
       },
-      turnDidFinish: { [weak self] turnID, mode in
-        self?.finishGeneratingTurn(turnID, contextRefreshMode: mode)
+      turnDidFinish: { [weak self] _, mode in
+        self?.finishGeneratingTurn(contextRefreshMode: mode)
       },
       notifySessionDidChange: { [weak self] in
         self?.notifySessionDidChange()
