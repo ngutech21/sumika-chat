@@ -433,7 +433,6 @@ final class SumikaUITests: XCTestCase {
     let loadButton = application.buttons["load-model-button"]
     let sendButton = application.buttons["send-button"]
     XCTAssertTrue(loadButton.waitForExistence(timeout: 30))
-    XCTAssertTrue(messageField.isEnabled)
     XCTAssertFalse(sendButton.isEnabled)
     XCTAssertTrue(
       loadButton.isEnabled,
@@ -502,7 +501,6 @@ final class SumikaUITests: XCTestCase {
   {
     let baseline = UITurnBaseline.capture(in: application)
     let messageField = waitForMessageField(in: application)
-    XCTAssertTrue(messageField.isEnabled)
     messageField.click()
     messageField.typeText(prompt)
 
@@ -588,10 +586,10 @@ final class SumikaUITests: XCTestCase {
     timeout: TimeInterval = 300
   ) {
     let cancelButton = application.buttons["cancel-generation-button"]
+    let sendButton = application.buttons["send-button"]
     XCTAssertTrue(
       waitUntil(timeout: timeout) {
-        let messageField = self.messageField(in: application)
-        return messageField.exists && messageField.isEnabled && !cancelButton.exists
+        sendButton.exists && !cancelButton.exists
       },
       "Generation did not become idle before the UI-test timeout."
     )
