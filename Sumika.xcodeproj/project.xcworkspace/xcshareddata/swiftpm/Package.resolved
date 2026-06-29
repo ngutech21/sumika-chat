@@ -1,5 +1,5 @@
 {
-  "originHash" : "94d66b3c9057bf5325e9e2aef5b309091db56d5fc0149fdaf61670c7e90ec56d",
+  "originHash" : "58cb45db8de52101c8e7f634e101ec31eaa31898aaad142e1d81aa9d8b4cc730",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -34,15 +34,6 @@
       "location" : "https://github.com/ml-explore/mlx-swift-lm",
       "state" : {
         "revision" : "124880582175726b709015a632c5ba9f3069a319"
-      }
-    },
-    {
-      "identity" : "networkimage",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/NetworkImage",
-      "state" : {
-        "revision" : "2849f5323265386e200484b0d0f896e73c3411b9",
-        "version" : "6.0.1"
       }
     },
     {
@@ -124,15 +115,6 @@
       "state" : {
         "revision" : "3c6f9523da3a1ec2fd829673e472d95b8097a3b8",
         "version" : "0.8.0"
-      }
-    },
-    {
-      "identity" : "swift-markdown-ui",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/swift-markdown-ui",
-      "state" : {
-        "revision" : "5f613358148239d0292c0cef674a3c2314737f9e",
-        "version" : "2.4.1"
       }
     },
     {

@@ -16,7 +16,6 @@
 		F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1B2FCE1000000A270C /* Tokenizers */; };
 		F9081F202FCE1000000A270C /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1F2FCE1000000A270C /* HuggingFace */; };
 		F91500012FD8000000A270C /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = F91500032FD8000000A270C /* FluidAudio */; };
-		F92000012FD2000000A270C /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = F92000032FD2000000A270C /* MarkdownUI */; };
 		F93000012FD3000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
 		F94000112FD4000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
 		F95000012FE0000000A270C /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F95000032FE0000000A270C /* SwiftTerm */; };
@@ -107,7 +106,6 @@
 				F9081F202FCE1000000A270C /* HuggingFace in Frameworks */,
 				F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */,
 				F91500012FD8000000A270C /* FluidAudio in Frameworks */,
-				F92000012FD2000000A270C /* MarkdownUI in Frameworks */,
 				F93000012FD3000000A270C /* SumikaCore in Frameworks */,
 				F95000012FE0000000A270C /* SwiftTerm in Frameworks */,
 				F96000012FF0000000A270C /* Markdown in Frameworks */,
@@ -215,7 +213,6 @@
 				F9081F1F2FCE1000000A270C /* HuggingFace */,
 				F9081F1B2FCE1000000A270C /* Tokenizers */,
 				F91500032FD8000000A270C /* FluidAudio */,
-				F92000032FD2000000A270C /* MarkdownUI */,
 				F93000032FD3000000A270C /* SumikaCore */,
 				F95000032FE0000000A270C /* SwiftTerm */,
 				F96000032FF0000000A270C /* Markdown */,
@@ -262,7 +259,6 @@
 				F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */,
 				F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */,
 				F91500022FD8000000A270C /* XCRemoteSwiftPackageReference "FluidAudio" */,
-				F92000022FD2000000A270C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				F96000022FF0000000A270C /* XCRemoteSwiftPackageReference "swift-markdown" */,
 				F93000022FD3000000A270C /* XCLocalSwiftPackageReference "." */,
@@ -775,14 +771,6 @@
 				minimumVersion = 0.15.4;
 			};
 		};
-		F92000022FD2000000A270C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.4.1;
-			};
-		};
 		F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
@@ -846,11 +834,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F91500022FD8000000A270C /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
-		};
-		F92000032FD2000000A270C /* MarkdownUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F92000022FD2000000A270C /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
-			productName = MarkdownUI;
 		};
 		F93000032FD3000000A270C /* SumikaCore */ = {
 			isa = XCSwiftPackageProductDependency;
