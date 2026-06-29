@@ -1,0 +1,12 @@
+{
+  "release-type": "simple",
+  "include-v-in-tag": true,
+  "include-component-in-tag": false,
+  "prerelease": true,
+  "prerelease-type": "beta",
+  "packages": {
+    ".": {
+      "package-name": "sumika"
+    }
+  }
+}

@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build-release-asset:
+    name: Build notarized macOS release asset
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    env:
+      DERIVED_DATA_PATH: build/DerivedData/macos-release
+      DEVELOPER_ID_APPLICATION: Developer ID Application
+      SUMIKA_GIT_COMMIT: ${{ needs.release-please.outputs.sha }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          fetch-depth: 0
+
+      - name: Print toolchain versions
+        run: |
+          uname -m
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          xcrun swift --version
+
+      - name: Install build tools
+        timeout-minutes: 10
+        run: brew install just
+
+      - name: Prepare release version settings
+        id: versions
+        run: |
+          set -euo pipefail
+
+          tag_name="${{ needs.release-please.outputs.tag_name }}"
+          release_version="${{ needs.release-please.outputs.version }}"
+          if [ -z "$release_version" ]; then
+            release_version="${tag_name#v}"
+          fi
+
+          marketing_version="${release_version%%-*}"
+          build_number="$(git rev-list --count HEAD)"
+          asset_name="Sumika-${tag_name}-macos.dmg"
+
+          {
+            printf 'release_version=%s\n' "$release_version"
+            printf 'marketing_version=%s\n' "$marketing_version"
+            printf 'build_number=%s\n' "$build_number"
+            printf 'asset_name=%s\n' "$asset_name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Import Developer ID certificate
+        timeout-minutes: 5
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id-application.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/sumika-signing.keychain-db"
+
+          test -n "$MACOS_CERTIFICATE_P12_BASE64"
+          test -n "$MACOS_CERTIFICATE_PASSWORD"
+          test -n "$KEYCHAIN_PASSWORD"
+
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Build notarized release package
+        timeout-minutes: 45
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+          CURRENT_PROJECT_VERSION: ${{ steps.versions.outputs.build_number }}
+          MARKETING_VERSION: ${{ steps.versions.outputs.marketing_version }}
+          SUMIKA_RELEASE_VERSION: ${{ steps.versions.outputs.release_version }}
+        run: just release-notarized "${{ steps.versions.outputs.asset_name }}"
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+          ASSET_PATH: build/artifacts/${{ steps.versions.outputs.asset_name }}
+        run: gh release upload "$TAG_NAME" "$ASSET_PATH" --clobber

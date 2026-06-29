@@ -2,12 +2,16 @@ import Foundation
 
 struct AppBuildInfo: Equatable {
   let version: String?
+  let releaseVersion: String?
   let build: String?
   let gitCommit: String?
 
   init(infoDictionary: [String: Any], gitCommitResource: String? = nil) {
     self.version = Self.normalizedString(
       infoDictionary["CFBundleShortVersionString"] as? String
+    )
+    self.releaseVersion = Self.normalizedString(
+      infoDictionary["SumikaReleaseVersion"] as? String
     )
     self.build = Self.normalizedString(infoDictionary["CFBundleVersion"] as? String)
     self.gitCommit =
@@ -24,7 +28,7 @@ struct AppBuildInfo: Equatable {
   }
 
   var aboutApplicationVersion: String {
-    version ?? "Unknown"
+    releaseVersion ?? version ?? "Unknown"
   }
 
   var aboutBuildVersion: String? {

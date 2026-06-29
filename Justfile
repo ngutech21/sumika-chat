@@ -15,18 +15,34 @@ default:
   @just --list
 
 build:
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" build
+    @set --; \
+    if [ -n "${MARKETING_VERSION:-}" ]; then set -- "$@" "MARKETING_VERSION=$MARKETING_VERSION"; fi; \
+    if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then set -- "$@" "CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION"; fi; \
+    if [ -n "${SUMIKA_RELEASE_VERSION:-}" ]; then set -- "$@" "SUMIKA_RELEASE_VERSION=$SUMIKA_RELEASE_VERSION"; fi; \
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" "$@" build
 
 release:
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" build
+    @set --; \
+    if [ -n "${MARKETING_VERSION:-}" ]; then set -- "$@" "MARKETING_VERSION=$MARKETING_VERSION"; fi; \
+    if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then set -- "$@" "CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION"; fi; \
+    if [ -n "${SUMIKA_RELEASE_VERSION:-}" ]; then set -- "$@" "SUMIKA_RELEASE_VERSION=$SUMIKA_RELEASE_VERSION"; fi; \
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" "$@" build
 
 release-unsigned:
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGNING_ALLOWED=NO build
+    @set --; \
+    if [ -n "${MARKETING_VERSION:-}" ]; then set -- "$@" "MARKETING_VERSION=$MARKETING_VERSION"; fi; \
+    if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then set -- "$@" "CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION"; fi; \
+    if [ -n "${SUMIKA_RELEASE_VERSION:-}" ]; then set -- "$@" "SUMIKA_RELEASE_VERSION=$SUMIKA_RELEASE_VERSION"; fi; \
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" "$@" CODE_SIGNING_ALLOWED=NO build
 
 release-signed:
     @if [ -z "${DEVELOPER_ID_APPLICATION:-}" ]; then echo "DEVELOPER_ID_APPLICATION is required, for example: Developer ID Application"; exit 1; fi
     @if ! security find-identity -v -p codesigning | grep -F "$DEVELOPER_ID_APPLICATION" >/dev/null; then echo "Required Developer ID Application codesigning identity was not found."; exit 1; fi
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGNING_ALLOWED=NO build
+    @set --; \
+    if [ -n "${MARKETING_VERSION:-}" ]; then set -- "$@" "MARKETING_VERSION=$MARKETING_VERSION"; fi; \
+    if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then set -- "$@" "CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION"; fi; \
+    if [ -n "${SUMIKA_RELEASE_VERSION:-}" ]; then set -- "$@" "SUMIKA_RELEASE_VERSION=$SUMIKA_RELEASE_VERSION"; fi; \
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" "$@" CODE_SIGNING_ALLOWED=NO build
     @app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
     test -d "$app_bundle"; \
     codesign --force --deep --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$app_bundle"; \

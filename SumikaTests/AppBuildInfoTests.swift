@@ -20,6 +20,36 @@ struct AppBuildInfoTests {
   }
 
   @Test
+  func prefersReleaseVersionForAboutApplicationVersion() {
+    let buildInfo = AppBuildInfo(
+      infoDictionary: [
+        "CFBundleShortVersionString": "1.0.0",
+        "CFBundleVersion": "45",
+        "SumikaReleaseVersion": "1.0.0-beta.1",
+      ]
+    )
+
+    #expect(buildInfo.version == "1.0.0")
+    #expect(buildInfo.releaseVersion == "1.0.0-beta.1")
+    #expect(buildInfo.aboutApplicationVersion == "1.0.0-beta.1")
+    #expect(buildInfo.aboutBuildVersion == "45")
+  }
+
+  @Test
+  func ignoresBlankReleaseVersion() {
+    let buildInfo = AppBuildInfo(
+      infoDictionary: [
+        "CFBundleShortVersionString": "1.0.0",
+        "CFBundleVersion": "45",
+        "SumikaReleaseVersion": "  ",
+      ]
+    )
+
+    #expect(buildInfo.releaseVersion == nil)
+    #expect(buildInfo.aboutApplicationVersion == "1.0.0")
+  }
+
+  @Test
   func ignoresBlankCommitValue() {
     let buildInfo = AppBuildInfo(
       infoDictionary: [
