@@ -232,51 +232,30 @@ struct WorkspaceStoreTests {
 
   @Test
   func chatSessionDecodeDefaultsMissingModelContextSnapshot() throws {
-    let legacySession = LegacyChatSession(
-      id: UUID(),
-      title: "Legacy",
+    let session = ChatSession(
+      title: "Current",
       selectedModelID: "gemma4-12b-qat-4bit",
-      messages: [LegacyStoredMessage(content: "hello")],
-      systemPrompt: "Legacy prompt",
-      generationSettings: .agentDefault,
-      createdAt: Date(),
-      updatedAt: Date()
-    )
-    let data = try JSONEncoder().encode(legacySession)
-
-    let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
-    #expect(decoded.modelContextSnapshot == ModelContextSnapshot())
-    #expect(decoded.title == "Legacy")
-    #expect(decoded.systemPrompt == "Legacy prompt")
-  }
-
-  @Test
-  func chatSessionDecodeToleratesTranscriptWrapper() throws {
-    let wrappedSession = TranscriptWrappedChatSession(
-      id: UUID(),
-      title: "Wrapped",
-      selectedModelID: "gemma4-12b-qat-4bit",
-      transcript: LegacyTranscriptWrapper(
-        modelContextSnapshot: ModelContextSnapshot(
-          entries: [
-            try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
-          ]
+      modeSettings: ChatModeSettingsSet(
+        chat: ChatModeSettings(
+          systemPrompt: "Chat prompt",
+          generationSettings: .chatDefault
         ),
-        toolCalls: [],
-        turns: [],
-        focusedFileState: .empty,
-        systemPrompt: "Legacy prompt",
-        generationSettings: .agentDefault,
-        interactionMode: .agent
-      ),
-      createdAt: Date(),
-      updatedAt: Date()
+        agent: ChatModeSettings(
+          systemPrompt: "Agent prompt",
+          generationSettings: .agentDefault
+        )
+      )
     )
-    let data = try JSONEncoder().encode(wrappedSession)
+    var object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(session)) as? [String: Any]
+    )
+    object.removeValue(forKey: "modelContextSnapshot")
+    let data = try JSONSerialization.data(withJSONObject: object)
 
     let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
-    #expect(decoded.title == "Wrapped")
     #expect(decoded.modelContextSnapshot == ModelContextSnapshot())
+    #expect(decoded.title == "Current")
+    #expect(decoded.modeSettings == session.modeSettings)
   }
 
   @Test
@@ -371,39 +350,4 @@ private final class LoadFailureRecorder: @unchecked Sendable {
   var capturedError: Error? {
     lock.withLock { storedError }
   }
-}
-
-private struct LegacyChatSession: Codable {
-  let id: UUID
-  let title: String
-  let selectedModelID: ManagedModel.ID
-  let messages: [LegacyStoredMessage]
-  let systemPrompt: String
-  let generationSettings: ChatGenerationSettings
-  let createdAt: Date
-  let updatedAt: Date
-}
-
-private struct TranscriptWrappedChatSession: Codable {
-  let id: UUID
-  let title: String
-  let selectedModelID: ManagedModel.ID
-  let transcript: LegacyTranscriptWrapper
-  let createdAt: Date
-  let updatedAt: Date
-}
-
-private struct LegacyTranscriptWrapper: Codable {
-  let modelContextSnapshot: ModelContextSnapshot
-  let toolCalls: [ToolCallRecord]
-  let turns: [ChatTurn]
-  let focusedFileState: FocusedFileState
-  let systemPrompt: String
-  let generationSettings: ChatGenerationSettings
-  let interactionMode: WorkspaceInteractionMode
-}
-
-private struct LegacyStoredMessage: Codable {
-  var id: UUID = UUID()
-  var content: String
 }

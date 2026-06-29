@@ -105,8 +105,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     case turns
     case focusedFileState
     case modeSettings
-    case systemPrompt
-    case generationSettings
     case interactionMode
     case todoState
     case activeAttachmentContext
@@ -141,9 +139,10 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       forKey: .interactionMode,
       default: .chat
     )
-    modeSettings = try Self.decodeModeSettings(
-      from: container,
-      interactionMode: interactionMode
+    modeSettings = try container.decodeIfPresent(
+      ChatModeSettingsSet.self,
+      forKey: .modeSettings,
+      default: .defaultSettings
     )
     todoState = try container.decodeIfPresent(TodoState.self, forKey: .todoState)
     pendingAttachments = []
@@ -182,36 +181,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       turn.markStreamingAssistantMessagesCancelled(at: turn.updatedAt)
       return turn
     }
-  }
-
-  private static func decodeModeSettings(
-    from container: KeyedDecodingContainer<CodingKeys>,
-    interactionMode: WorkspaceInteractionMode
-  ) throws -> ChatModeSettingsSet {
-    if let modeSettings = try container.decodeIfPresent(
-      ChatModeSettingsSet.self,
-      forKey: .modeSettings
-    ) {
-      return modeSettings
-    }
-
-    var modeSettings = ChatModeSettingsSet.defaultSettings
-    let legacySystemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt)
-    let legacyGenerationSettings = try container.decodeIfPresent(
-      ChatGenerationSettings.self,
-      forKey: .generationSettings
-    )
-    if legacySystemPrompt != nil || legacyGenerationSettings != nil {
-      var activeSettings = modeSettings[interactionMode]
-      if let legacySystemPrompt {
-        activeSettings.systemPrompt = legacySystemPrompt
-      }
-      if let legacyGenerationSettings {
-        activeSettings.generationSettings = legacyGenerationSettings
-      }
-      modeSettings[interactionMode] = activeSettings
-    }
-    return modeSettings
   }
 
   public func turnID(containingToolCall toolCallID: ToolCallRecord.ID) -> ChatTurn.ID? {

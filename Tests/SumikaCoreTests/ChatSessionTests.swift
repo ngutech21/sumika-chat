@@ -54,6 +54,30 @@ struct ChatSessionTests {
   }
 
   @Test
+  func decodingMissingModeSettingsUsesDefaults() throws {
+    let legacyGenerationSettings = ChatGenerationSettings(
+      temperature: 1.7,
+      topP: 0.5,
+      topK: 4,
+      maxTokens: 64
+    )
+    var object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(ChatSession())) as? [String: Any]
+    )
+    object.removeValue(forKey: "modeSettings")
+    object["systemPrompt"] = "Ignored legacy prompt"
+    object["generationSettings"] = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(legacyGenerationSettings))
+        as? [String: Any]
+    )
+    let data = try JSONSerialization.data(withJSONObject: object)
+
+    let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
+
+    #expect(decoded.modeSettings == .defaultSettings)
+  }
+
+  @Test
   func decodingPartialModeSettingsUsesModeSpecificDefaults() throws {
     var object = try #require(
       JSONSerialization.jsonObject(
