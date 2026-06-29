@@ -25,7 +25,7 @@ struct ComposerAudioModelDescriptor: Identifiable, Equatable, Sendable {
       title: "Small English",
       subtitle: "Parakeet TDT-CTC 110M",
       detail: "Fast local dictation for English. Recommended default.",
-      storageEstimate: "About 230 MB",
+      storageEstimate: "230 MB",
       isRecommended: true
     ),
     ComposerAudioModelDescriptor(
@@ -33,7 +33,7 @@ struct ComposerAudioModelDescriptor: Identifiable, Equatable, Sendable {
       title: "Parakeet v3 Multilingual",
       subtitle: "Parakeet TDT 0.6B v3",
       detail: "Larger multilingual model for German and other European languages.",
-      storageEstimate: "About 500 MB",
+      storageEstimate: "500 MB",
       isRecommended: false
     ),
   ]

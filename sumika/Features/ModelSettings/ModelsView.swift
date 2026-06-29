@@ -216,83 +216,140 @@ private struct AudioModelRow: View {
   let onDownload: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(alignment: .top, spacing: 12) {
-        VStack(alignment: .leading, spacing: 4) {
-          HStack(spacing: 6) {
-            Text(model.title)
-              .font(.body.weight(.semibold))
-            if model.isRecommended {
-              Text("Recommended")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.secondary.opacity(0.10), in: Capsule())
+    Button(action: rowAction) {
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(spacing: 12) {
+          RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(tileTint.opacity(0.16))
+            .frame(width: 30, height: 30)
+            .overlay {
+              Image(systemName: "waveform")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(tileTint)
+            }
+
+          VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+              Text(model.title)
+                .font(.body.weight(.medium))
+
+              if model.isRecommended {
+                Text("Recommended")
+                  .font(.caption.weight(.medium))
+                  .foregroundStyle(Color.accentColor)
+                  .padding(.horizontal, 7)
+                  .padding(.vertical, 2)
+                  .background(Color.accentColor.opacity(0.14), in: Capsule())
+              }
+            }
+
+            Text(model.subtitle)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+
+            Text(model.detail)
+              .font(.callout)
+              .foregroundStyle(.secondary)
+              .lineLimit(2)
+          }
+
+          Spacer(minLength: 12)
+
+          VStack(alignment: .trailing, spacing: 3) {
+            Text(model.storageEstimate)
+              .font(.callout)
+              .foregroundStyle(.secondary)
+              .monospacedDigit()
+
+            HStack(spacing: 4) {
+              if showsStatusDot {
+                Circle()
+                  .fill(statusTint)
+                  .frame(width: 6, height: 6)
+              }
+
+              Text(statusText)
+                .font(.caption)
+                .foregroundStyle(statusTint)
             }
           }
 
-          Text(model.subtitle)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          Text(model.detail)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-          Text(model.storageEstimate)
-            .font(.caption)
-            .foregroundStyle(.tertiary)
+          Image(systemName: "checkmark")
+            .font(.body.weight(.semibold))
+            .foregroundStyle(Color.accentColor)
+            .opacity(isSelected ? 1 : 0)
+            .frame(width: 16)
         }
 
-        Spacer()
+        if case .downloading(let progress) = installState {
+          DownloadProgressView(progress: progress)
+        }
 
-        actionView
+        if case .failed(let message) = installState {
+          Label(message, systemImage: "exclamationmark.triangle")
+            .font(.callout)
+            .foregroundStyle(.red)
+            .textSelection(.enabled)
+        }
       }
-
-      if case .downloading(let progress) = installState {
-        DownloadProgressView(progress: progress)
-      }
-
-      if case .failed(let message) = installState {
-        Label(message, systemImage: "exclamationmark.triangle")
-          .font(.callout)
-          .foregroundStyle(.red)
-          .textSelection(.enabled)
-      }
+      .contentShape(Rectangle())
     }
-    .padding(.vertical, 4)
+    .buttonStyle(.plain)
+    .disabled(installState.isDownloading)
+    .listRowBackground(isSelected ? Color.accentColor.opacity(0.10) : nil)
+    .accessibilityIdentifier("audio-model-row-\(model.id.rawValue)")
   }
 
-  @ViewBuilder
-  private var actionView: some View {
+  private var tileTint: Color {
+    isSelected ? .accentColor : .secondary
+  }
+
+  private var showsStatusDot: Bool {
+    switch installState {
+    case .installed, .downloading, .failed:
+      true
+    case .notInstalled:
+      false
+    }
+  }
+
+  private var statusText: String {
     switch installState {
     case .installed:
-      Button {
-        onSelect()
-      } label: {
-        Label(
-          isSelected ? "Selected" : "Use",
-          systemImage: isSelected ? "checkmark" : "checkmark.circle")
+      return isSelected ? "Selected" : "Ready"
+    case .downloading(let progress):
+      guard let progress else {
+        return "Installing"
       }
-      .controlSize(.small)
-      .disabled(isSelected)
+      return progress.formatted(.percent.precision(.fractionLength(0)))
+    case .failed:
+      return "Failed"
+    case .notInstalled:
+      return "Install"
+    }
+  }
+
+  private var statusTint: Color {
+    switch installState {
+    case .installed:
+      return isSelected ? .accentColor : .green
     case .downloading:
-      Button {
-      } label: {
-        HStack(spacing: 6) {
-          ProgressView()
-            .controlSize(.small)
-          Text("Installing")
-        }
-      }
-      .controlSize(.small)
-      .disabled(true)
+      return .secondary
+    case .failed:
+      return .red
+    case .notInstalled:
+      return .secondary
+    }
+  }
+
+  private var rowAction: () -> Void {
+    switch installState {
+    case .installed:
+      return onSelect
     case .notInstalled, .failed:
-      Button {
-        onDownload()
-      } label: {
-        Label("Install", systemImage: "square.and.arrow.down")
-      }
-      .controlSize(.small)
+      return onDownload
+    case .downloading:
+      return {}
     }
   }
 }
