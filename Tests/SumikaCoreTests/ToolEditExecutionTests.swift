@@ -608,7 +608,7 @@ struct ToolEditExecutionTests {
 
   private func makeWorkspace() throws -> Workspace {
     let rootURL = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-chat-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
     return Workspace(
       name: "Project",

@@ -141,7 +141,7 @@ struct GemmaDebugTraceStoreTests {
     )
 
     let traceURL = URL.applicationSupportDirectory
-      .appending(path: "sumika-chat", directoryHint: .isDirectory)
+      .appending(path: "Sumika", directoryHint: .isDirectory)
       .appending(path: "debug", directoryHint: .isDirectory)
       .appending(path: "traces", directoryHint: .isDirectory)
       .appending(path: basename, directoryHint: .notDirectory)

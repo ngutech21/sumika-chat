@@ -76,7 +76,7 @@ enum AppLaunchConfiguration {
     let storageRoot = URL(
       filePath: environment["SUMIKA_UNIT_TEST_STORAGE_ROOT"]
         ?? FileManager.default.temporaryDirectory
-        .appending(path: "sumika-chat-unit-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        .appending(path: "sumika-unit-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
         .path(percentEncoded: false),
       directoryHint: .isDirectory
     )
@@ -111,7 +111,7 @@ enum AppLaunchConfiguration {
     let userDefaults =
       UserDefaults(
         suiteName: environment["SUMIKA_UNIT_TEST_DEFAULTS_SUITE"]
-          ?? "sumika-chat-unit-tests-\(UUID().uuidString)"
+          ?? "sumika-unit-tests-\(UUID().uuidString)"
       ) ?? .standard
 
     return ModelSettingsStore(

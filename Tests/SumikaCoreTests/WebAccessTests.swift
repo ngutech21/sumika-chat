@@ -779,7 +779,7 @@ private func fixtureText(_ name: String) throws -> String {
 
 private func makeWorkspace() throws -> Workspace {
   let root = FileManager.default.temporaryDirectory
-    .appending(path: "sumika-chat-web-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    .appending(path: "sumika-web-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
   try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
   return Workspace(name: "Web Tests", rootURL: root)
 }

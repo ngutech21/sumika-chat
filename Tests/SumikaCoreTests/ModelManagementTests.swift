@@ -120,7 +120,7 @@ struct ModelManagementTests {
   }
 
   private func makeUserDefaultsSuiteName() -> String {
-    "sumika-chat-tests-\(UUID().uuidString)"
+    "sumika-tests-\(UUID().uuidString)"
   }
 
   private func makeUserDefaults(suiteName: String? = nil) -> UserDefaults {
@@ -134,7 +134,7 @@ struct ModelManagementTests {
 
   private func temporarySettingsURL() -> URL {
     FileManager.default.temporaryDirectory
-      .appending(path: "sumika-chat-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
       .appending(path: "model-settings.json", directoryHint: .notDirectory)
   }
 }

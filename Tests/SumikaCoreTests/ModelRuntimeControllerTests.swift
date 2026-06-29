@@ -374,7 +374,7 @@ struct ModelRuntimeControllerTests {
 
   private func makeModelDirectory(config: String) throws -> URL {
     let modelDirectory = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-chat-tests-\(UUID().uuidString)",
+      path: "sumika-tests-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)

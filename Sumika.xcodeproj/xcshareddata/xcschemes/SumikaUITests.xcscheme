@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "F9D7F5FA2FCC80CD00FECA78"
-               BuildableName = "Sumika Chat.app"
+               BuildableName = "Sumika.app"
                BlueprintName = "Sumika"
                ReferencedContainer = "container:Sumika.xcodeproj">
             </BuildableReference>
@@ -72,7 +72,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "F9D7F5FA2FCC80CD00FECA78"
-            BuildableName = "Sumika Chat.app"
+            BuildableName = "Sumika.app"
             BlueprintName = "Sumika"
             ReferencedContainer = "container:Sumika.xcodeproj">
          </BuildableReference>
@@ -96,7 +96,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "F9D7F5FA2FCC80CD00FECA78"
-            BuildableName = "Sumika Chat.app"
+            BuildableName = "Sumika.app"
             BlueprintName = "Sumika"
             ReferencedContainer = "container:Sumika.xcodeproj">
          </BuildableReference>

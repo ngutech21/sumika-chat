@@ -2,7 +2,7 @@
 
 import Foundation
 
-let defaultSubsystem = "ngutech21.sumika-chat"
+let defaultSubsystem = "chat.sumika"
 let defaultPredicate = "subsystem == \"\(defaultSubsystem)\""
 let knownMetadataKeys: Set<String> = [
   "animated",

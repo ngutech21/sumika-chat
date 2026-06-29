@@ -621,7 +621,7 @@ struct ChatComposer: View {
 
     do {
       let directory = FileManager.default.temporaryDirectory
-        .appending(path: "sumika-chat-pasteboard", directoryHint: .isDirectory)
+        .appending(path: "sumika-pasteboard", directoryHint: .isDirectory)
       try FileManager.default.createDirectory(
         at: directory,
         withIntermediateDirectories: true

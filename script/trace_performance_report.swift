@@ -72,11 +72,11 @@ func defaultTraceURL() -> URL {
   URL(filePath: NSHomeDirectory(), directoryHint: .isDirectory)
     .appending(path: "Library", directoryHint: .isDirectory)
     .appending(path: "Containers", directoryHint: .isDirectory)
-    .appending(path: "ngutech21.sumika-chat", directoryHint: .isDirectory)
+    .appending(path: "chat.sumika", directoryHint: .isDirectory)
     .appending(path: "Data", directoryHint: .isDirectory)
     .appending(path: "Library", directoryHint: .isDirectory)
     .appending(path: "Application Support", directoryHint: .isDirectory)
-    .appending(path: "sumika-chat", directoryHint: .isDirectory)
+    .appending(path: "Sumika", directoryHint: .isDirectory)
     .appending(path: "debug", directoryHint: .isDirectory)
     .appending(path: "gemma-trace.jsonl", directoryHint: .notDirectory)
 }
@@ -201,7 +201,7 @@ func mergeTraceFields(_ object: [String: Any], into report: inout GenerationRepo
 
 func markdown(_ report: PerformanceReport) -> String {
   var lines: [String] = [
-    "# Sumika Chat Performance Report",
+    "# Sumika Performance Report",
     "",
     "- Timestamp: \(report.timestamp)",
     "- Scenario: \(report.scenario)",

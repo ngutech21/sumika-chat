@@ -71,7 +71,7 @@ public enum LocalModelDirectory {
 
     return
       applicationSupportURL
-      .appending(path: "sumika-chat", directoryHint: .isDirectory)
+      .appending(path: "Sumika", directoryHint: .isDirectory)
       .appending(path: "Models", directoryHint: .isDirectory)
   }
 

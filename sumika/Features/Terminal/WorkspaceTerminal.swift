@@ -202,7 +202,7 @@ struct WorkspaceTerminalView: NSViewRepresentable {
   }
 
   private static let clipboardMenuIdentifier = NSUserInterfaceItemIdentifier(
-    "sumika-chat.workspace-terminal.clipboard-menu"
+    "chat.sumika.workspace-terminal.clipboard-menu"
   )
 
   final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {

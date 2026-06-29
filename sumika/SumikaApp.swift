@@ -19,12 +19,12 @@ struct SumikaApp: App {
   }
 
   var body: some Scene {
-    Window("Sumika Chat", id: "main") {
+    Window("Sumika", id: "main") {
       ContentView(appState: appState)
     }
     .commands {
       CommandGroup(replacing: .appInfo) {
-        Button("About Sumika Chat") {
+        Button("About Sumika") {
           showAboutPanel()
         }
       }
@@ -91,7 +91,7 @@ struct SumikaApp: App {
     panel.canChooseDirectories = true
     panel.allowsMultipleSelection = false
     panel.canCreateDirectories = false
-    panel.message = "Choose a folder to use as a Sumika Chat workspace."
+    panel.message = "Choose a folder to use as a Sumika workspace."
     panel.prompt = "Add Workspace"
 
     if panel.runModal() == .OK, let url = panel.url {

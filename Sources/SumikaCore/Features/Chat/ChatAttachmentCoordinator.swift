@@ -10,7 +10,7 @@ public enum ChatAttachmentEvent: Equatable, Sendable {
 public final class ChatAttachmentCoordinator {
   private let loader: any ChatAttachmentLoading
   private let loadQueue = DispatchQueue(
-    label: "sumika-chat.chat-attachments.load",
+    label: "chat.sumika.chat-attachments.load",
     qos: .userInitiated,
     attributes: .concurrent
   )
@@ -100,7 +100,7 @@ public final class ChatAttachmentCoordinator {
   private nonisolated static func isAppOwnedPasteboardTempFile(_ url: URL) -> Bool {
     let standardizedURL = url.standardizedFileURL
     let directory = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-chat-pasteboard", directoryHint: .isDirectory)
+      .appending(path: "sumika-pasteboard", directoryHint: .isDirectory)
       .standardizedFileURL
     let parent = standardizedURL.deletingLastPathComponent().standardizedFileURL
     let fileName = standardizedURL.lastPathComponent

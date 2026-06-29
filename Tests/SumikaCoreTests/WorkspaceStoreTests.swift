@@ -304,7 +304,7 @@ struct WorkspaceStoreTests {
 
   private func temporaryLibraryURL() -> URL {
     FileManager.default.temporaryDirectory
-      .appending(path: "sumika-chat-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
       .appending(path: "workspaces.json", directoryHint: .notDirectory)
   }
 

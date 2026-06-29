@@ -608,9 +608,9 @@ struct AppStateTests {
     )
     let appState = AppLaunchConfiguration.makeAppState(
       environment: [
-        "XCTestConfigurationFilePath": "/tmp/sumika-chat-unit-tests.xctestconfiguration",
+        "XCTestConfigurationFilePath": "/tmp/sumika-unit-tests.xctestconfiguration",
         "SUMIKA_UNIT_TEST_STORAGE_ROOT": fixture.storageRoot.path(percentEncoded: false),
-        "SUMIKA_UNIT_TEST_DEFAULTS_SUITE": "sumika-chat-unit-tests-\(UUID().uuidString)",
+        "SUMIKA_UNIT_TEST_DEFAULTS_SUITE": "sumika-unit-tests-\(UUID().uuidString)",
       ],
       runtime: runtime
     )
@@ -1045,7 +1045,7 @@ private actor BrowserToolProbe {
 
 private func makeLaunchFixture() throws -> (storageRoot: URL, workspaceURL: URL) {
   let storageRoot = FileManager.default.temporaryDirectory.appending(
-    path: "sumika-chat-app-state-tests-\(UUID().uuidString)",
+    path: "sumika-app-state-tests-\(UUID().uuidString)",
     directoryHint: .isDirectory
   )
   let workspaceURL = storageRoot.appending(path: "workspace", directoryHint: .isDirectory)

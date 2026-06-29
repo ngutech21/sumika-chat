@@ -198,7 +198,7 @@ struct FocusedFileStateReducerTests {
   func imageAttachmentDoesNotCreateFocusedFileState() {
     let reducer = FocusedFileStateReducer()
     let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/sumika-chat-pasteboard/clipboard-image.png"),
+      url: URL(filePath: "/tmp/sumika-pasteboard/clipboard-image.png"),
       displayName: "clipboard-image.png",
       kind: .image,
       content: "[Image attachment: clipboard-image.png, image/png, 128 bytes]",
@@ -237,7 +237,7 @@ struct FocusedFileStateReducerTests {
       ]
     )
     let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/sumika-chat-pasteboard/clipboard-image.png"),
+      url: URL(filePath: "/tmp/sumika-pasteboard/clipboard-image.png"),
       displayName: "clipboard-image.png",
       kind: .image,
       content: "[Image attachment: clipboard-image.png, image/png, 128 bytes]",

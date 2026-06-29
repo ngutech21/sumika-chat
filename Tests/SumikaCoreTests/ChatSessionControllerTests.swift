@@ -870,7 +870,7 @@ struct ChatSessionControllerTests {
   @Test
   func sendMessageRunsAgentReadOnlyToolCallAndContinuesWithToolResultContext() async throws {
     let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-chat-tests-\(UUID().uuidString)",
+      path: "sumika-tests-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -1342,7 +1342,7 @@ struct ChatSessionControllerTests {
   @Test
   func sendMessageDisplaysShowFileResultDirectlyWithoutModelFollowUp() async throws {
     let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-chat-tests-\(UUID().uuidString)",
+      path: "sumika-tests-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -1412,7 +1412,7 @@ struct ChatSessionControllerTests {
   @Test
   func sendMessageKeepsToolCallHistoryWhenFollowUpResponseFails() async throws {
     let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-chat-tests-\(UUID().uuidString)",
+      path: "sumika-tests-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -1592,7 +1592,7 @@ struct ChatSessionControllerTests {
 
   private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
     let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-chat-tests-\(UUID().uuidString)",
+      path: "sumika-tests-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -1674,7 +1674,7 @@ struct ChatSessionControllerTests {
 
   private func makeModelDirectory(config: String) throws -> URL {
     let modelDirectory = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-chat-tests-\(UUID().uuidString)",
+      path: "sumika-tests-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)

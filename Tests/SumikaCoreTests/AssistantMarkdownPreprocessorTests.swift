@@ -46,7 +46,7 @@ struct AssistantMarkdownPreprocessorTests {
   func wrapsValidJSONAsCodeBlock() {
     let content = """
       {
-        "name": "sumika-chat"
+        "name": "sumika"
       }
       """
 
@@ -54,7 +54,7 @@ struct AssistantMarkdownPreprocessorTests {
       AssistantMarkdownPreprocessor.renderableContent(for: content) == """
         ```json
         {
-          "name": "sumika-chat"
+          "name": "sumika"
         }
         ```
         """

@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Sumika Chat</string>
+	<string>Sumika</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconFile</key>
@@ -27,7 +27,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Sumika Chat uses the microphone to transcribe your speech into chat messages on this Mac.</string>
+	<string>Sumika uses the microphone to transcribe your speech into chat messages on this Mac.</string>
 	<key>SumikaGitCommit</key>
 	<string>$(SUMIKA_GIT_COMMIT)</string>
 </dict>

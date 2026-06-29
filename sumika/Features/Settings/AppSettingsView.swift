@@ -54,7 +54,7 @@ struct AppSettingsView: View {
       } header: {
         Text("Startup")
       } footer: {
-        Text("When enabled, Sumika Chat loads the active session model after launch.")
+        Text("When enabled, Sumika loads the active session model after launch.")
       }
 
       Section {

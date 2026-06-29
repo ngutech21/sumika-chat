@@ -183,9 +183,9 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     let outputID = UUID().uuidString
     let temporaryDirectory = FileManager.default.temporaryDirectory
     let stdoutURL = temporaryDirectory.appending(
-      path: "sumika-chat-workspace-diff-\(outputID).stdout")
+      path: "sumika-workspace-diff-\(outputID).stdout")
     let stderrURL = temporaryDirectory.appending(
-      path: "sumika-chat-workspace-diff-\(outputID).stderr")
+      path: "sumika-workspace-diff-\(outputID).stderr")
     try Data().write(to: stdoutURL)
     try Data().write(to: stderrURL)
 

@@ -5,7 +5,7 @@ scheme := "Sumika"
 destination := "platform=macOS,arch=arm64"
 derived_data := env("DERIVED_DATA_PATH", "build/DerivedData")
 configuration := "Release"
-app_name := "Sumika Chat"
+app_name := "Sumika"
 artifact_dir := "build/artifacts"
 
 swift := env("SWIFT", "swift")
@@ -32,7 +32,7 @@ release-signed:
     codesign --force --deep --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$app_bundle"; \
     codesign --verify --deep --strict --verbose=2 "$app_bundle"
 
-release-package artifact_name="Sumika-Chat-macos-release.dmg": release-signed
+release-package artifact_name="Sumika-macos-release.dmg": release-signed
     @app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
     artifact_dir="{{artifact_dir}}"; \
     artifact="$artifact_dir/{{artifact_name}}"; \
@@ -44,7 +44,7 @@ release-package artifact_name="Sumika-Chat-macos-release.dmg": release-signed
     codesign --verify --strict --verbose=2 "$artifact"; \
     echo "$artifact"
 
-release-notarize artifact_name="Sumika-Chat-macos-release.dmg":
+release-notarize artifact_name="Sumika-macos-release.dmg":
     @artifact="{{artifact_dir}}/{{artifact_name}}"; \
     test -f "$artifact"; \
     test -n "${APP_STORE_CONNECT_API_KEY_ID:-}" || { echo "APP_STORE_CONNECT_API_KEY_ID is required."; exit 1; }; \
@@ -58,7 +58,7 @@ release-notarize artifact_name="Sumika-Chat-macos-release.dmg":
     codesign --verify --strict --verbose=2 "$artifact"; \
     echo "$artifact"
 
-release-notarized artifact_name="Sumika-Chat-macos-release.dmg":
+release-notarized artifact_name="Sumika-macos-release.dmg":
     just release-package "{{artifact_name}}"
     just release-notarize "{{artifact_name}}"
 
@@ -76,7 +76,7 @@ test-app:
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
 
 test-ui:
-    @echo "Gemma trace directory: $HOME/Library/Application Support/sumika-chat/debug/traces"; \
+    @echo "Gemma trace directory: $HOME/Library/Application Support/Sumika/debug/traces"; \
     status=0; \
     SUMIKA_DEBUG_TRACE=1 xcodebuild -quiet -project {{project}} -scheme SumikaUITests -destination "{{destination}}" -derivedDataPath {{derived_data}} -parallel-testing-enabled NO test -only-testing:SumikaUITests/SumikaUITests || status=$?; \
     result=$(ls -td {{derived_data}}/Logs/Test/Test-SumikaUITests-*.xcresult 2>/dev/null | head -n 1 || true); \
@@ -90,7 +90,7 @@ test-ui:
     exit "$status"
 
 perf-report scenario="ui-trace":
-    @trace_path="$HOME/Library/Application Support/sumika-chat/debug/gemma-trace.jsonl"; trace_dir="$HOME/Library/Application Support/sumika-chat/debug/traces"; latest_trace=""; if [ -d "$trace_dir" ]; then latest_trace="$(ls -t "$trace_dir"/*-ui-test.jsonl 2>/dev/null | head -n 1 || true)"; if [ -n "$latest_trace" ]; then trace_path="$latest_trace"; fi; fi; if [ -z "$latest_trace" ] && [ -f .perf/ui-tests/latest-trace-path.txt ]; then candidate="$(cat .perf/ui-tests/latest-trace-path.txt)"; if [ -f "$candidate" ]; then trace_path="$candidate"; fi; fi; echo "Gemma trace: $trace_path"; xcrun swift script/trace_performance_report.swift "$trace_path" --model-id gemma4-e4b --scenario "{{scenario}}" --limit all
+    @trace_path="$HOME/Library/Application Support/Sumika/debug/gemma-trace.jsonl"; trace_dir="$HOME/Library/Application Support/Sumika/debug/traces"; latest_trace=""; if [ -d "$trace_dir" ]; then latest_trace="$(ls -t "$trace_dir"/*-ui-test.jsonl 2>/dev/null | head -n 1 || true)"; if [ -n "$latest_trace" ]; then trace_path="$latest_trace"; fi; fi; if [ -z "$latest_trace" ] && [ -f .perf/ui-tests/latest-trace-path.txt ]; then candidate="$(cat .perf/ui-tests/latest-trace-path.txt)"; if [ -f "$candidate" ]; then trace_path="$candidate"; fi; fi; echo "Gemma trace: $trace_path"; xcrun swift script/trace_performance_report.swift "$trace_path" --model-id gemma4-e4b --scenario "{{scenario}}" --limit all
 
 signpost-report scenario="manual-chat" last="20m":
     mkdir -p .build/swift-script-module-cache

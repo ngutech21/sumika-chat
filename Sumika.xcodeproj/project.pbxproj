@@ -43,7 +43,7 @@
 		F9071FA72FCDAD93000A270C /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		F910000A2FD0720000A270C /* SumikaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SumikaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F940000A2FD4000000A270C /* SumikaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SumikaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		F9D7F5FB2FCC80CD00FECA78 /* Sumika Chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Sumika Chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		F9D7F5FB2FCC80CD00FECA78 /* Sumika.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sumika.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -129,7 +129,7 @@
 		F9D7F5FC2FCC80CD00FECA78 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				F9D7F5FB2FCC80CD00FECA78 /* Sumika Chat.app */,
+				F9D7F5FB2FCC80CD00FECA78 /* Sumika.app */,
 				F910000A2FD0720000A270C /* SumikaTests.xctest */,
 				F940000A2FD4000000A270C /* SumikaUITests.xctest */,
 			);
@@ -217,8 +217,8 @@
 				F95000032FE0000000A270C /* SwiftTerm */,
 				F96000032FF0000000A270C /* Markdown */,
 			);
-			productName = "Sumika Chat";
-			productReference = F9D7F5FB2FCC80CD00FECA78 /* Sumika Chat.app */;
+			productName = Sumika;
+			productReference = F9D7F5FB2FCC80CD00FECA78 /* Sumika.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -379,7 +379,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=targeted";
-				PRODUCT_BUNDLE_IDENTIFIER = "ngutech21.sumika-chat.tests";
+				PRODUCT_BUNDLE_IDENTIFIER = chat.sumika.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = macosx;
@@ -388,7 +388,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sumika Chat.app/Contents/MacOS/Sumika Chat";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sumika.app/Contents/MacOS/Sumika";
 			};
 			name = Debug;
 		};
@@ -407,7 +407,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=targeted";
-				PRODUCT_BUNDLE_IDENTIFIER = "ngutech21.sumika-chat.tests";
+				PRODUCT_BUNDLE_IDENTIFIER = chat.sumika.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = macosx;
@@ -416,7 +416,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sumika Chat.app/Contents/MacOS/Sumika Chat";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sumika.app/Contents/MacOS/Sumika";
 			};
 			name = Release;
 		};
@@ -434,7 +434,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=targeted";
-				PRODUCT_BUNDLE_IDENTIFIER = "ngutech21.sumika-chat.ui-tests";
+				PRODUCT_BUNDLE_IDENTIFIER = "chat.sumika.ui-tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = macosx;
@@ -460,7 +460,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=targeted";
-				PRODUCT_BUNDLE_IDENTIFIER = "ngutech21.sumika-chat.ui-tests";
+				PRODUCT_BUNDLE_IDENTIFIER = "chat.sumika.ui-tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = macosx;
@@ -609,9 +609,9 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=targeted";
-				PRODUCT_BUNDLE_IDENTIFIER = "ngutech21.sumika-chat";
+				PRODUCT_BUNDLE_IDENTIFIER = chat.sumika;
 				PRODUCT_MODULE_NAME = Sumika;
-				PRODUCT_NAME = "Sumika Chat";
+				PRODUCT_NAME = Sumika;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -658,9 +658,9 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=targeted";
-				PRODUCT_BUNDLE_IDENTIFIER = sumika.chat;
+				PRODUCT_BUNDLE_IDENTIFIER = chat.sumika;
 				PRODUCT_MODULE_NAME = Sumika;
-				PRODUCT_NAME = "Sumika Chat";
+				PRODUCT_NAME = Sumika;
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;

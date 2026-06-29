@@ -256,7 +256,7 @@ private final class ControlledAttachmentLoad: @unchecked Sendable {
 
 private func makePasteboardTempFile(name: String) throws -> URL {
   let directory = FileManager.default.temporaryDirectory
-    .appending(path: "sumika-chat-pasteboard", directoryHint: .isDirectory)
+    .appending(path: "sumika-pasteboard", directoryHint: .isDirectory)
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   let url = directory.appending(path: name, directoryHint: .notDirectory)
   try Data("temporary image".utf8).write(to: url)
@@ -265,7 +265,7 @@ private func makePasteboardTempFile(name: String) throws -> URL {
 
 private func makeNormalTempFile(name: String) throws -> URL {
   let directory = FileManager.default.temporaryDirectory
-    .appending(path: "sumika-chat-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   let url = directory.appending(path: name, directoryHint: .notDirectory)
   try Data("normal file".utf8).write(to: url)

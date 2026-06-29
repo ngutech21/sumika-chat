@@ -1882,7 +1882,7 @@ struct ToolExecutionTests {
 
   private func makeWorkspace() throws -> Workspace {
     let rootURL = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-chat-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
     return Workspace(
       name: "Project", rootURL: URL(filePath: Workspace.normalizedPath(for: rootURL)))
@@ -1890,7 +1890,7 @@ struct ToolExecutionTests {
 
   private func makeTemporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-chat-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
   }
@@ -1914,8 +1914,8 @@ struct ToolExecutionTests {
       try runGit(["add"] + trackedPaths, in: workspace)
       try runGit(
         [
-          "-c", "user.name=Sumika Chat Test",
-          "-c", "user.email=sumika-chat@example.invalid",
+          "-c", "user.name=Sumika Test",
+          "-c", "user.email=sumika@example.invalid",
           "commit", "-m", "initial",
         ],
         in: workspace

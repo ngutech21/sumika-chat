@@ -144,7 +144,7 @@ final class SumikaUITests: XCTestCase {
       <body>
         <table>
           <tr><td>Name</td><td>Status</td></tr>
-          <tr><td>Sumika Chat</td><td>Testing</td></tr>
+          <tr><td>Sumika</td><td>Testing</td></tr>
         </table>
       </body>
       </html>
@@ -378,7 +378,7 @@ final class SumikaUITests: XCTestCase {
     }
 
     let storageRoot = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-chat-ui-test-\(UUID().uuidString)",
+      path: "sumika-ui-test-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
     let workspaceURL = storageRoot.appending(path: "workspace", directoryHint: .isDirectory)
@@ -683,7 +683,7 @@ final class SumikaUITests: XCTestCase {
 
   private func modelCacheDirectory(for model: ManagedModel) -> URL {
     appApplicationSupport()
-      .appending(path: "sumika-chat", directoryHint: .isDirectory)
+      .appending(path: "Sumika", directoryHint: .isDirectory)
       .appending(path: "Models", directoryHint: .isDirectory)
       .appending(path: model.localDirectoryName, directoryHint: .isDirectory)
   }
@@ -696,7 +696,7 @@ final class SumikaUITests: XCTestCase {
     }
 
     return appApplicationSupport()
-      .appending(path: "sumika-chat", directoryHint: .isDirectory)
+      .appending(path: "Sumika", directoryHint: .isDirectory)
       .appending(path: "debug", directoryHint: .isDirectory)
       .appending(path: "traces", directoryHint: .isDirectory)
       .appending(path: Self.testRunTraceBasename, directoryHint: .notDirectory)

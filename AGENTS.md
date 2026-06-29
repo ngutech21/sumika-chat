@@ -2,10 +2,11 @@
 
 ## Project Goal
 
-`sumika-chat` is a macOS Swift app for local-first coding with small Gemma models
-running through MLX. Keep workflows focused, inspectable, reviewable, and
-explicit: local context, short steps, auditable shell execution, and macOS-native
-SwiftUI/AppKit UI. Do not assume network access is available or desirable.
+`sumika-chat` is the repository for Sumika, a macOS Swift app for local-first
+coding with small Gemma models running through MLX. Keep workflows focused,
+inspectable, reviewable, and explicit: local context, short steps, auditable
+shell execution, and macOS-native SwiftUI/AppKit UI. Do not assume network
+access is available or desirable.
 
 ## Architecture Rules
 
@@ -40,7 +41,7 @@ code to put in them.
 
 ## Data Model Policy
 
-Sumika Chat is an unreleased prototype. Do not add backwards compatibility,
+Sumika is an unreleased prototype. Do not add backwards compatibility,
 migrations, legacy decode paths, or fallback fields for old persisted sessions
 unless explicitly requested.
 
@@ -184,20 +185,20 @@ Use the project script before inventing new launch flows:
 ./script/build_and_run.sh --trace
 ```
 
-- `--logs`: stream process logs for `sumika-chat`.
-- `--telemetry`: stream subsystem logs for `ngutech21.sumika-chat`.
+- `--logs`: stream process logs for `Sumika`.
+- `--telemetry`: stream subsystem logs for `chat.sumika`.
 - `--trace`: run with `SUMIKA_DEBUG_TRACE=1`.
 
 Normal trace:
 
 ```text
-~/Library/Application Support/sumika-chat/debug/gemma-trace.jsonl
+~/Library/Application Support/Sumika/debug/gemma-trace.jsonl
 ```
 
 UI-test per-run traces:
 
 ```text
-~/Library/Application Support/sumika-chat/debug/traces/
+~/Library/Application Support/Sumika/debug/traces/
 ```
 
 Do not create additional chat/model performance trace formats. Extend

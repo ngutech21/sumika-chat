@@ -1,3 +1,3 @@
 public enum SumikaTelemetry {
-  public static let subsystem = "ngutech21.sumika-chat"
+  public static let subsystem = "chat.sumika"
 }

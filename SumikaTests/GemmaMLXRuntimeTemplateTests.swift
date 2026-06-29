@@ -21,7 +21,7 @@ struct GemmaMLXRuntimeTemplateTests {
   func imageInputsUseAttachmentFileURLs() throws {
     let directoryURL = FileManager.default.temporaryDirectory
       .appending(
-        path: "sumika-chat-runtime-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        path: "sumika-runtime-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
     let url = directoryURL.appending(path: "screenshot.png", directoryHint: .notDirectory)
     let data = Data([0x89, 0x50, 0x4e, 0x47])

@@ -238,7 +238,7 @@ actor GemmaDebugTraceStore: TurnTracing {
 
   nonisolated private static func debugDirectory() -> URL {
     URL.applicationSupportDirectory
-      .appending(path: "sumika-chat", directoryHint: .isDirectory)
+      .appending(path: "Sumika", directoryHint: .isDirectory)
       .appending(path: "debug", directoryHint: .isDirectory)
   }
 }

@@ -1,4 +1,4 @@
-# sumika-chat
+# Sumika
 
 A local-first macOS app for private, inspectable AI coding workflows on your own
 machine.
@@ -8,7 +8,7 @@ machine.
 [![Actions Lint](https://github.com/ngutech21/sumika-chat/actions/workflows/actions-lint.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/actions-lint.yml)
 [![Spelling](https://github.com/ngutech21/sumika-chat/actions/workflows/spelling.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/spelling.yml)
 
-sumika-chat helps you explore, change, and run local projects without handing
+Sumika helps you explore, change, and run local projects without handing
 your workspace to a cloud agent. You choose the context, review each action, and
 keep the conversation on your Mac.
 
@@ -51,7 +51,7 @@ native preview pane.
 
 ### Local models
 
-![Local model management in Sumika Chat](screenshots/models.webp)
+![Local model management in Sumika](screenshots/models.webp)
 
 Download, load, and inspect local models from the macOS app without turning the
 chat into a cloud workflow.
@@ -76,7 +76,7 @@ chat into a cloud workflow.
 
 ## Interaction Modes
 
-sumika-chat keeps tool access explicit. The composer has a manual mode per chat
+Sumika keeps tool access explicit. The composer has a manual mode per chat
 session:
 
 - **Chat**: normal conversation with public web tools only. No workspace tools,
@@ -114,7 +114,7 @@ Sumika includes two local voice surfaces:
 ## Why Local First
 
 Many agent products assume cloud models, opaque context selection, and broad
-implicit access to your data or tools. sumika-chat explores a different
+implicit access to your data or tools. Sumika explores a different
 direction:
 
 - Local-first model execution on macOS
@@ -132,7 +132,7 @@ they see, and reviewable before they act.
 
 ## Project Status
 
-sumika-chat is an unreleased prototype. It is useful for experimentation and
+Sumika is an unreleased prototype. It is useful for experimentation and
 local coding workflows, but APIs, persisted data, and workflows are still
 changing.
 
@@ -160,14 +160,14 @@ Build the app locally:
 
 ```sh
 just build
-open "build/DerivedData/Build/Products/Debug/Sumika Chat.app"
+open "build/DerivedData/Build/Products/Debug/Sumika.app"
 ```
 
 Build an unsigned release app:
 
 ```sh
 just release-unsigned
-open "build/DerivedData/Build/Products/Release/Sumika Chat.app"
+open "build/DerivedData/Build/Products/Release/Sumika.app"
 ```
 
 You can also build from Xcode by opening `Sumika.xcodeproj` and running the

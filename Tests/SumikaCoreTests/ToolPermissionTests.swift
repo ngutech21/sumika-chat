@@ -78,7 +78,7 @@ struct ToolPermissionTests {
 
   private func makeTemporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory
-      .appending(path: "sumika-chat-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+      .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return URL(filePath: Workspace.normalizedPath(for: url))
   }

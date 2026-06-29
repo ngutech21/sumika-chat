@@ -53,7 +53,7 @@ struct FilePreviewResolverTests {
 
   private func makeWorkspace() throws -> Workspace {
     let rootURL = FileManager.default.temporaryDirectory.appending(
-      path: "sumika-chat-file-preview-test-\(UUID().uuidString)",
+      path: "sumika-file-preview-test-\(UUID().uuidString)",
       directoryHint: .isDirectory
     )
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
