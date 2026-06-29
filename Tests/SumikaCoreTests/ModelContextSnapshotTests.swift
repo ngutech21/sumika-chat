@@ -181,8 +181,10 @@ struct ModelContextSnapshotTests {
           try ModelFacingPromptRenderer.userPromptEntry(prompt: "summarize the file")
         ]
       ),
-      systemPrompt: "Fallback prompt should not rewrite frozen history.",
-      generationSettings: .agentDefault
+      modeSettings: testModeSettings(
+        systemPrompt: "Fallback prompt should not rewrite frozen history.",
+        generationSettings: .agentDefault
+      )
     )
     let data = try JSONEncoder().encode(session)
     var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])

@@ -4,6 +4,19 @@ import SumikaCore
 
 @testable import Sumika
 
+func testModeSettings(
+  mode: WorkspaceInteractionMode = .chat,
+  systemPrompt: String,
+  generationSettings: ChatGenerationSettings
+) -> ChatModeSettingsSet {
+  var modeSettings = ChatModeSettingsSet.defaultSettings
+  modeSettings[mode] = ChatModeSettings(
+    systemPrompt: systemPrompt,
+    generationSettings: generationSettings
+  )
+  return modeSettings
+}
+
 extension GemmaHistoryRenderer {
   /// Test-only convenience that builds cache snapshots straight from chat
   /// messages without normalization. Production code derives snapshots via

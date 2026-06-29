@@ -583,8 +583,10 @@ private func makeState(
   return ChatSession(
     turns: resolvedTurns,
     pendingAttachments: attachments,
-    systemPrompt: systemPrompt,
-    generationSettings: generationSettings
+    modeSettings: testModeSettings(
+      systemPrompt: systemPrompt,
+      generationSettings: generationSettings
+    )
   )
 }
 

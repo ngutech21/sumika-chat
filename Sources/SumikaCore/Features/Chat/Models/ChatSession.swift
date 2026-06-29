@@ -46,8 +46,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     pendingAttachments: [ChatAttachment] = [],
     focusedFileState: FocusedFileState = .empty,
     modeSettings: ChatModeSettingsSet = .defaultSettings,
-    systemPrompt: String? = nil,
-    generationSettings: ChatGenerationSettings? = nil,
     interactionMode: WorkspaceInteractionMode = .chat,
     todoState: TodoState? = nil,
     activeAttachmentContext: ActiveAttachmentContext = .empty,
@@ -61,18 +59,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.turns = turns
     self.focusedFileState = focusedFileState
     self.interactionMode = interactionMode
-    var resolvedModeSettings = modeSettings
-    if systemPrompt != nil || generationSettings != nil {
-      var activeSettings = resolvedModeSettings[interactionMode]
-      if let systemPrompt {
-        activeSettings.systemPrompt = systemPrompt
-      }
-      if let generationSettings {
-        activeSettings.generationSettings = generationSettings
-      }
-      resolvedModeSettings[interactionMode] = activeSettings
-    }
-    self.modeSettings = resolvedModeSettings
+    self.modeSettings = modeSettings
     self.todoState = todoState
     self.pendingAttachments = pendingAttachments
     self.activeAttachmentContext = activeAttachmentContext

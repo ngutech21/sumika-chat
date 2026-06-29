@@ -61,12 +61,14 @@ struct WorkspaceStoreTests {
           try ModelFacingPromptRenderer.assistantOutputEntry(content: "hi"),
         ]
       ),
-      systemPrompt: "Use short answers.",
-      generationSettings: ChatGenerationSettings(
-        temperature: 0.2,
-        topP: 0.8,
-        topK: 20,
-        maxTokens: 512
+      modeSettings: testModeSettings(
+        systemPrompt: "Use short answers.",
+        generationSettings: ChatGenerationSettings(
+          temperature: 0.2,
+          topP: 0.8,
+          topK: 20,
+          maxTokens: 512
+        )
       )
     )
     let workspace = Workspace(
@@ -104,8 +106,10 @@ struct WorkspaceStoreTests {
       id: sessionID,
       selectedModelID: "gemma4-12b-qat-4bit",
       turns: [turn],
-      systemPrompt: "Use short answers.",
-      generationSettings: .agentDefault
+      modeSettings: testModeSettings(
+        systemPrompt: "Use short answers.",
+        generationSettings: .agentDefault
+      )
     )
     let workspace = Workspace(
       id: workspaceID,
@@ -162,8 +166,10 @@ struct WorkspaceStoreTests {
     let session = ChatSession(
       selectedModelID: "gemma4-12b-qat-4bit",
       focusedFileState: focusedFileState,
-      systemPrompt: "Use short answers.",
-      generationSettings: .agentDefault
+      modeSettings: testModeSettings(
+        systemPrompt: "Use short answers.",
+        generationSettings: .agentDefault
+      )
     )
     let workspace = Workspace(
       name: "Project",
@@ -188,8 +194,10 @@ struct WorkspaceStoreTests {
     ])
     let session = ChatSession(
       selectedModelID: "gemma4-12b-qat-4bit",
-      systemPrompt: "Use short answers.",
-      generationSettings: .agentDefault,
+      modeSettings: testModeSettings(
+        systemPrompt: "Use short answers.",
+        generationSettings: .agentDefault
+      ),
       todoState: todoState
     )
     let workspace = Workspace(
@@ -275,8 +283,10 @@ struct WorkspaceStoreTests {
           content: "draft"
         )
       ],
-      systemPrompt: "Use short answers.",
-      generationSettings: .agentDefault
+      modeSettings: testModeSettings(
+        systemPrompt: "Use short answers.",
+        generationSettings: .agentDefault
+      )
     )
     let data = try JSONEncoder().encode(session)
     let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])

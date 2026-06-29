@@ -14,8 +14,10 @@ struct AppStateTests {
     let session = ChatSession(
       id: sessionID,
       selectedModelID: ManagedModelCatalog.defaultModelID,
-      systemPrompt: "System",
-      generationSettings: .agentDefault,
+      modeSettings: testModeSettings(
+        systemPrompt: "System",
+        generationSettings: .agentDefault
+      ),
       interactionMode: .chat
     )
     let workspace = Workspace(
@@ -331,8 +333,10 @@ struct AppStateTests {
       sessions: [
         ChatSession(
           id: sessionID,
-          systemPrompt: "Workspace private system prompt",
-          generationSettings: workspaceGenerationSettings
+          modeSettings: testModeSettings(
+            systemPrompt: "Workspace private system prompt",
+            generationSettings: workspaceGenerationSettings
+          )
         )
       ]
     )

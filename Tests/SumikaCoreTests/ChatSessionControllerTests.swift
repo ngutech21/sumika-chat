@@ -102,8 +102,11 @@ struct ChatSessionControllerTests {
     let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
       focusedFileState: focusedFileState,
-      systemPrompt: "System",
-      generationSettings: .agentDefault,
+      modeSettings: testModeSettings(
+        mode: .agent,
+        systemPrompt: "System",
+        generationSettings: .agentDefault
+      ),
       interactionMode: .agent
     )
     let controller = ChatSessionController(
@@ -125,8 +128,11 @@ struct ChatSessionControllerTests {
     let runtime = CountingClearContextRuntime()
     let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
-      systemPrompt: "System",
-      generationSettings: .agentDefault,
+      modeSettings: testModeSettings(
+        mode: .agent,
+        systemPrompt: "System",
+        generationSettings: .agentDefault
+      ),
       interactionMode: .agent
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -142,8 +148,11 @@ struct ChatSessionControllerTests {
     let runtime = CountingClearContextRuntime()
     let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
-      systemPrompt: "System",
-      generationSettings: .agentDefault,
+      modeSettings: testModeSettings(
+        mode: .agent,
+        systemPrompt: "System",
+        generationSettings: .agentDefault
+      ),
       interactionMode: .agent
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -312,7 +321,11 @@ struct ChatSessionControllerTests {
   func modelContextDebugDocumentUsesWorkspaceToolAvailability() throws {
     let session = ChatSession(
       selectedModelID: "gemma4-12b-qat-4bit",
-      systemPrompt: "Base system prompt",
+      modeSettings: testModeSettings(
+        mode: .agent,
+        systemPrompt: "Base system prompt",
+        generationSettings: .agentDefault
+      ),
       interactionMode: .agent
     )
     let controller = ChatSessionController(
@@ -448,7 +461,10 @@ struct ChatSessionControllerTests {
     controller.loadSession(
       ChatSession(
         selectedModelID: "gemma4-12b-qat-4bit",
-        systemPrompt: "Base system prompt"
+        modeSettings: testModeSettings(
+          systemPrompt: "Base system prompt",
+          generationSettings: .chatDefault
+        )
       ))
     controller.modelRuntime.modelState = .ready
 
@@ -871,8 +887,10 @@ struct ChatSessionControllerTests {
         ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
-          systemPrompt: ChatPromptDefaults.agentSystemPrompt,
-          generationSettings: .agentDefault
+          modeSettings: testModeSettings(
+            systemPrompt: ChatPromptDefaults.agentSystemPrompt,
+            generationSettings: .agentDefault
+          )
         )
       ]
     )
@@ -1341,8 +1359,10 @@ struct ChatSessionControllerTests {
         ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
-          systemPrompt: ChatPromptDefaults.agentSystemPrompt,
-          generationSettings: .agentDefault
+          modeSettings: testModeSettings(
+            systemPrompt: ChatPromptDefaults.agentSystemPrompt,
+            generationSettings: .agentDefault
+          )
         )
       ]
     )
@@ -1409,8 +1429,10 @@ struct ChatSessionControllerTests {
         ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
-          systemPrompt: ChatPromptDefaults.agentSystemPrompt,
-          generationSettings: .agentDefault
+          modeSettings: testModeSettings(
+            systemPrompt: ChatPromptDefaults.agentSystemPrompt,
+            generationSettings: .agentDefault
+          )
         )
       ]
     )
@@ -1586,8 +1608,10 @@ struct ChatSessionControllerTests {
         ChatSession(
           id: sessionID,
           selectedModelID: ManagedModelCatalog.defaultModelID,
-          systemPrompt: ChatPromptDefaults.agentSystemPrompt,
-          generationSettings: .agentDefault
+          modeSettings: testModeSettings(
+            systemPrompt: ChatPromptDefaults.agentSystemPrompt,
+            generationSettings: .agentDefault
+          )
         )
       ]
     )

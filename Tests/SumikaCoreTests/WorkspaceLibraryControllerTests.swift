@@ -16,8 +16,10 @@ struct WorkspaceLibraryControllerTests {
         ChatSession(
           id: sessionID,
           selectedModelID: "gemma4-12b-qat-4bit",
-          systemPrompt: "Existing",
-          generationSettings: .agentDefault
+          modeSettings: testModeSettings(
+            systemPrompt: "Existing",
+            generationSettings: .agentDefault
+          )
         )
       ]
     )
@@ -307,8 +309,10 @@ struct WorkspaceLibraryControllerTests {
       id: id,
       title: title,
       selectedModelID: "gemma4-12b-qat-4bit",
-      systemPrompt: "System",
-      generationSettings: .agentDefault
+      modeSettings: testModeSettings(
+        systemPrompt: "System",
+        generationSettings: .agentDefault
+      )
     )
   }
 
