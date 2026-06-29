@@ -111,6 +111,16 @@ final class WorkspaceFeatureState {
     return .changed(activeSessionID)
   }
 
+  @discardableResult
+  func selectWorkspace(_ workspaceID: Workspace.ID) -> WorkspaceSelectionChange {
+    guard let sessionID = workspaceLibraryController.selectWorkspace(workspaceID) else {
+      return .unchanged
+    }
+    syncWorkspaceProjections()
+    saveLibrary()
+    return .changed(sessionID)
+  }
+
   func renameSession(_ sessionID: ChatSession.ID, title: String) {
     guard workspaceLibraryController.renameSession(sessionID, title: title) else {
       return

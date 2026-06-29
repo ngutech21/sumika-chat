@@ -41,7 +41,7 @@ struct ContentView: View {
         onRenameSession: { sessionID, title in
           appState.workspaceState.renameSession(sessionID, title: title)
         },
-        onDeleteSession: appState.deleteSession,
+        onDeleteSession: deleteSession,
         onRemoveWorkspace: appState.removeWorkspace
       )
       .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 460)
@@ -51,11 +51,22 @@ struct ContentView: View {
     }
     .frame(minWidth: 880, minHeight: 560)
     .onChange(of: selection) {
-      if case .session(let sessionID) = selection {
+      switch selection {
+      case .models, nil:
+        break
+      case .workspace(let workspaceID):
+        appState.selectWorkspace(workspaceID)
+      case .session(let sessionID):
         appState.selectSession(sessionID)
       }
     }
     .onChange(of: appState.workspaceState.activeSessionID) {
+      if case .workspace(let workspaceID) = selection,
+        appState.workspaceState.activeWorkspace?.id == workspaceID
+      {
+        return
+      }
+
       if let sessionID = appState.workspaceState.activeSessionID {
         selection = .session(sessionID)
       } else if selection != .models {
@@ -94,7 +105,7 @@ struct ContentView: View {
           selectedTab: $modelsTab,
           onPersistActiveSession: appState.persistActiveSession
         )
-      case .session:
+      case .workspace, .session:
         WorkspaceRouteHost(
           activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
           activeSessionID: appState.workspaceState.activeSessionID,
@@ -157,6 +168,21 @@ struct ContentView: View {
     }
     selection = .session(sessionID)
     return sessionID
+  }
+
+  private func deleteSession(_ sessionID: ChatSession.ID) {
+    let wasSelected = selection == .session(sessionID)
+    appState.deleteSession(sessionID)
+
+    guard wasSelected else {
+      return
+    }
+
+    if let activeSessionID = appState.workspaceState.activeSessionID {
+      selection = .session(activeSessionID)
+    } else if selection != .models {
+      selection = nil
+    }
   }
 
   private func openAudioModels() {

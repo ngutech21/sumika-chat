@@ -152,7 +152,16 @@ final class AppState {
     loadActiveSession(ifNeededFor: change)
   }
 
+  @discardableResult
+  func selectWorkspace(_ workspaceID: Workspace.ID) -> ChatSession.ID? {
+    persistActiveSession()
+    let change = workspaceState.selectWorkspace(workspaceID)
+    loadActiveSession(ifNeededFor: change)
+    return change.activeSessionID
+  }
+
   func deleteSession(_ sessionID: ChatSession.ID) {
+    persistActiveSession()
     refreshDefaultSessionFactory()
     let change = workspaceState.deleteSession(sessionID)
     loadActiveSession(ifNeededFor: change)

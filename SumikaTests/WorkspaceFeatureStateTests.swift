@@ -108,6 +108,47 @@ struct WorkspaceFeatureStateTests {
   }
 
   @Test
+  func selectWorkspaceActivatesItsFirstSession() async throws {
+    let firstWorkspaceID = UUID()
+    let firstSessionID = UUID()
+    let secondWorkspaceID = UUID()
+    let secondSessionID = UUID()
+    let firstWorkspace = Workspace(
+      id: firstWorkspaceID,
+      name: "First",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: firstSessionID, title: "First Session")]
+    )
+    let secondWorkspace = Workspace(
+      id: secondWorkspaceID,
+      name: "Second",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: secondSessionID, title: "Second Session")]
+    )
+    let state = WorkspaceFeatureState(
+      workspaceStore: WorkspaceFeatureInMemoryStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [firstWorkspace, secondWorkspace],
+          activeWorkspaceID: firstWorkspaceID,
+          activeSessionID: firstSessionID
+        )
+      ),
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+    )
+
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+
+    let change = state.selectWorkspace(secondWorkspaceID)
+
+    #expect(change.activeSessionChanged)
+    #expect(change.activeSessionID == secondSessionID)
+    #expect(state.activeWorkspace?.id == secondWorkspaceID)
+    #expect(state.activeSessionID == secondSessionID)
+    #expect(state.activeWorkspaceContext == WorkspaceChatContext(workspace: secondWorkspace))
+  }
+
+  @Test
   func persistActiveSessionSnapshotUpdatesOnlyActiveSession() async throws {
     let activeSessionID = UUID()
     let otherSessionID = UUID()

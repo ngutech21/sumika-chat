@@ -107,6 +107,41 @@ struct WorkspaceLibraryControllerTests {
   }
 
   @Test
+  func selectWorkspaceActivatesFirstSessionAndRepairsEmptyWorkspace() throws {
+    let firstWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000701")
+    let firstSessionID = fixedUUID("00000000-0000-0000-0000-000000000702")
+    let secondWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000703")
+    let firstWorkspace = Workspace(
+      id: firstWorkspaceID,
+      name: "First",
+      rootURL: URL(filePath: "/tmp/first", directoryHint: .isDirectory),
+      sessions: [makeSession(id: firstSessionID)]
+    )
+    let secondWorkspace = Workspace(
+      id: secondWorkspaceID,
+      name: "Second",
+      rootURL: URL(filePath: "/tmp/second", directoryHint: .isDirectory),
+      sessions: []
+    )
+    var controller = makeController(
+      library: WorkspaceLibrary(
+        workspaces: [firstWorkspace, secondWorkspace],
+        activeWorkspaceID: firstWorkspaceID,
+        activeSessionID: firstSessionID
+      )
+    )
+
+    let selectedSessionID = controller.selectWorkspace(secondWorkspaceID)
+
+    let activeWorkspace = try #require(controller.activeWorkspace)
+    let activeSession = try #require(controller.activeSession)
+    #expect(selectedSessionID == activeSession.id)
+    #expect(activeWorkspace.id == secondWorkspaceID)
+    #expect(activeWorkspace.sessions.count == 1)
+    #expect(activeSession.title == "New Session")
+  }
+
+  @Test
   func removeInactiveWorkspaceLeavesActiveSelectionUnchanged() {
     let activeWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000501")
     let activeSessionID = fixedUUID("00000000-0000-0000-0000-000000000502")

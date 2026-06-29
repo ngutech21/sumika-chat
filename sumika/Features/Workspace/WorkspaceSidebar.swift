@@ -120,6 +120,12 @@ struct WorkspaceSidebar: View {
         Image(systemName: isExpanded(workspace.id) ? "folder" : "folder.fill")
           .foregroundStyle(.tint)
       }
+      .contentShape(Rectangle())
+      .simultaneousGesture(
+        TapGesture().onEnded {
+          selectWorkspace(workspace.id)
+        }
+      )
       .contextMenu {
         Button("New Chat") {
           createSession(in: workspace.id)
@@ -132,6 +138,7 @@ struct WorkspaceSidebar: View {
         }
       }
     }
+    .tag(AppNavigationSelection.workspace(workspace.id))
     .accessibilityIdentifier("sidebar.workspaceDisclosure")
     .accessibilityValue(isExpanded(workspace.id) ? "Expanded" : "Collapsed")
   }
@@ -168,6 +175,10 @@ struct WorkspaceSidebar: View {
     if let sessionID = onCreateSession(workspaceID) {
       selection = .session(sessionID)
     }
+  }
+
+  private func selectWorkspace(_ workspaceID: Workspace.ID) {
+    selection = .workspace(workspaceID)
   }
 
   private func expansionBinding(for workspaceID: Workspace.ID) -> Binding<Bool> {

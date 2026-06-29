@@ -371,6 +371,99 @@ struct AppStateTests {
   }
 
   @Test
+  func deleteActiveSessionLoadsReplacementSession() async throws {
+    let activeSessionID = UUID()
+    let replacementSessionID = UUID()
+    let workspaceID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        ChatSession(id: activeSessionID, title: "Active"),
+        ChatSession(id: replacementSessionID, title: "Replacement"),
+      ]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: activeSessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    appState.deleteSession(activeSessionID)
+
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      library.activeSessionID == replacementSessionID
+        && library.workspaces.first?.sessions.contains { $0.id == activeSessionID } == false
+    }
+    #expect(savedLibrary.activeSessionID == replacementSessionID)
+    #expect(appState.workspaceState.activeSessionID == replacementSessionID)
+    #expect(appState.chatController.chatSession.id == replacementSessionID)
+    #expect(
+      appState.workspaceState.sidebarState.workspaces.first?.sessions.map(\.id)
+        == [replacementSessionID])
+  }
+
+  @Test
+  func deleteInactiveSessionPersistsCurrentActiveSnapshot() async throws {
+    let activeSessionID = UUID()
+    let deletedSessionID = UUID()
+    let workspaceID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        ChatSession(id: activeSessionID, title: "Active"),
+        ChatSession(id: deletedSessionID, title: "Delete Me"),
+      ]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: activeSessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    appState.chatController.chatSession.title = "Unsaved Active"
+    appState.deleteSession(deletedSessionID)
+
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      let sessions = library.workspaces.first?.sessions ?? []
+      return sessions.contains { $0.id == deletedSessionID } == false
+        && sessions.first { $0.id == activeSessionID }?.title == "Unsaved Active"
+    }
+    let savedSessions = try #require(savedLibrary.workspaces.first?.sessions)
+    #expect(savedSessions.contains { $0.id == deletedSessionID } == false)
+    #expect(savedSessions.first { $0.id == activeSessionID }?.title == "Unsaved Active")
+    #expect(appState.workspaceState.activeSessionID == activeSessionID)
+    #expect(appState.chatController.chatSession.id == activeSessionID)
+  }
+
+  @Test
   func autoloadLastModelDefaultsOffAndDoesNotLoadOnStartup() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()

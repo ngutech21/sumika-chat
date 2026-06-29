@@ -153,6 +153,16 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
+  public mutating func selectWorkspace(_ workspaceID: Workspace.ID) -> ChatSession.ID? {
+    guard workspaceIndex(for: workspaceID) != nil else {
+      return nil
+    }
+
+    activateWorkspace(workspaceID)
+    return library.activeSessionID
+  }
+
+  @discardableResult
   public mutating func renameSession(_ sessionID: ChatSession.ID, title: String) -> Bool {
     let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard
