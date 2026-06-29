@@ -365,7 +365,6 @@ struct ChatComposer: View {
     availableModels.isEmpty ? "No local models" : selectedModel.displayName
   }
 
-
   private var modelPickerHelp: String {
     availableModels.isEmpty ? "Download a model from Models first" : selectedModel.displayName
   }
