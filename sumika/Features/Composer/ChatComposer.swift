@@ -89,7 +89,7 @@ struct ChatComposer: View {
       VStack(spacing: 8) {
         ComposerTextView(
           draftBridge: draftBridge,
-          placeholder: "Message",
+          placeholder: "Ask, dictate, or type / for commands",
           isDisabled: false,
           canAcceptAttachments: canAcceptAttachments,
           onTextStateChanged: updateDraftState(_:),
@@ -280,6 +280,7 @@ struct ChatComposer: View {
     }
     .buttonStyle(.plain)
     .disabled(!canChangeModel)
+    .help(modelPickerHelp)
     .accessibilityLabel("Selected model")
     .accessibilityValue(modelPickerTitle)
     .accessibilityIdentifier("chat.modelPicker")
@@ -362,6 +363,11 @@ struct ChatComposer: View {
 
   private var modelPickerTitle: String {
     availableModels.isEmpty ? "No local models" : selectedModel.displayName
+  }
+
+
+  private var modelPickerHelp: String {
+    availableModels.isEmpty ? "Download a model from Models first" : selectedModel.displayName
   }
 
   private var slashSuggestions: [SlashCommandDescriptor] {

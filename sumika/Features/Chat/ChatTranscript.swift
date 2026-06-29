@@ -56,26 +56,26 @@ struct ChatTranscript: View {
   private var emptyStateTitle: String {
     switch modelState {
     case .ready:
-      "\(selectedModel.displayName) Ready"
+      "What should we work on?"
     case .loading:
-      "Loading Model"
+      "Getting ready"
     case .failed:
-      "Model Not Ready"
+      "Model unavailable"
     case .notLoaded:
-      "No Model Loaded"
+      "Start a local chat"
     }
   }
 
   private var emptyStateDescription: String {
     switch modelState {
     case .ready:
-      "Send a prompt with \(selectedModel.displayName) to start chatting."
+      "Ask about this workspace, attach files for context, or dictate a prompt to get started."
     case .loading:
-      "Loading \(selectedModel.displayName). You can write a prompt while it loads."
+      "You can draft your message while the local model loads."
     case .failed:
-      "Loading failed. You can revise your prompt, then load a model below."
+      "Check Models, then try loading again."
     case .notLoaded:
-      "Write a prompt anytime, then load a Gemma model below before sending."
+      "Write a prompt now, then load a local model before sending."
     }
   }
 
