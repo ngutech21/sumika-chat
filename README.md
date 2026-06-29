@@ -1,6 +1,6 @@
 # sumika-chat
 
-A local-first macOS app for running private, inspectable AI agents on your own
+A local-first macOS app for private, inspectable AI coding workflows on your own
 machine.
 
 [![CI](https://github.com/ngutech21/sumika-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/ci.yml)
@@ -8,34 +8,121 @@ machine.
 [![Actions Lint](https://github.com/ngutech21/sumika-chat/actions/workflows/actions-lint.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/actions-lint.yml)
 [![Spelling](https://github.com/ngutech21/sumika-chat/actions/workflows/spelling.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/spelling.yml)
 
-![sumika-chat conversation view](screenshots/chat.webp)
+sumika-chat helps you explore, change, and run local projects without handing
+your workspace to a cloud agent. You choose the context, review each action, and
+keep the conversation on your Mac.
 
-## What It Is
+## Highlights
 
-sumika-chat is a native macOS app for working with local AI agents. It runs small
-Gemma models through MLX and focuses on private, inspectable workflows:
-explicit context, short agent steps, approval-gated actions, and traceable
-execution.
+- 🏠 **Local by default**: run LLMs through MLX and keep model execution,
+  workspace context, and speech workflows on your Mac.
+- 🧭 **Explicit context**: attach files, focus workspace context, and inspect
+  what the model sees before the workflow grows opaque.
+- 🛠 **Agent with brakes**: let Sumika read files, write code, run commands, and
+  inspect diffs through typed tools with review states.
+- ✅ **Review before action**: writes, edits, shell commands, and web access pass
+  through approval instead of running as hidden automation.
+- 🌐 **Bring your own search**: connect a self-hosted SearXNG instance or use the
+  built-in DuckDuckGo search provider.
+- 🧰 **Terminal and browser built in**: run approved workspace commands and
+  inspect local previews without leaving the app.
+- 🖥 **Build and preview locally**: create small apps, prototypes, and HTML
+  experiments, then inspect them beside the chat.
+- 🗣 **Speak and dictate**: listen to assistant responses with Apple system voices
+  and dictate prompts with local English or multilingual speech models.
+- 🧾 **Inspectable transcript**: keep prompts, assistant responses, tool calls,
+  approvals, and command output visible in the chat.
 
-Coding is the first deep workflow, but the app is designed as a general local
-agent environment rather than a coding-only assistant.
+## Screenshots
 
-## Use Cases
+### Agent workflow
 
-sumika-chat is meant for work where you want agent help without giving up local
-control or inspectability:
+![Agent workflow creating a local Python snake game](screenshots/snake.webp)
 
-- Research a topic with web search and web fetch, while keeping web access
-  explicit and policy-gated.
-- Build small local apps, prototypes, scripts, and UI experiments in short,
-  reviewable steps.
-- Ask questions about a workspace by letting the agent read, list, search, and
-  summarize local files.
-- Run commands, inspect diagnostics, and review diffs with approval before
-  side-effecting actions.
-- Iterate on local HTML previews with browser refresh and inspection tools.
-- Keep a trace of model requests, responses, tool calls, approvals, and command
-  results for debugging and review.
+Sumika can work in agent mode, write files through approval-aware tools, and
+keep the transcript inspectable while it works.
+
+### Local preview
+
+![Local HTML pomodoro timer preview](screenshots/pomodoro.webp)
+
+Build small local HTML, CSS, and JavaScript prototypes, then inspect them in the
+native preview pane.
+
+### Local models
+
+![Local model management in Sumika Chat](screenshots/models.webp)
+
+Download, load, and inspect local models from the macOS app without turning the
+chat into a cloud workflow.
+
+## What You Can Do
+
+- Ask questions about a workspace and keep the model-facing context explicit.
+- Build small apps, scripts, games, and UI prototypes in short, reviewable
+  steps.
+- Let the agent read, list, search, and summarize local workspace files.
+- Review generated file writes, file edits, shell commands, and workspace diffs
+  before they run.
+- Search and fetch the public web through policy-gated tools, using either a
+  self-hosted SearXNG instance or the built-in DuckDuckGo provider.
+- Use the integrated terminal and browser preview while working through an agent
+  task.
+- Open local HTML previews and inspect browser state while iterating.
+- Dictate prompts instead of typing them.
+- Listen to assistant responses with installed Apple voices.
+- Follow prompts, assistant responses, tool calls, approvals, and command output
+  in one visible transcript.
+
+## Interaction Modes
+
+sumika-chat keeps tool access explicit. The composer has a manual mode per chat
+session:
+
+- **Chat**: normal conversation with public web tools only. No workspace tools,
+  shell commands, local file access, or writes.
+- **Agent**: coding workflow with workspace tools, write/edit tools, shell
+  execution, browser preview tools, and approval flow.
+
+Mode is product state, not prompt magic. Sumika does not infer local tool access
+from wording alone.
+
+## No Cloud Account Required
+
+Sumika is built for local-first work, not a hosted assistant subscription.
+
+- No subscription or hosted workspace account is required to use the app.
+- No telemetry, prompts, transcripts, commands, or workspace contents are
+  exported by the app.
+- Model execution, chat history, speech output, and dictation stay on your Mac.
+- Network access is explicit: web search and fetch tools only run when available
+  in the selected mode and approved by policy.
+- You can use the built-in DuckDuckGo search provider or point Sumika at your
+  own SearXNG instance.
+
+## Voice And Dictation
+
+Sumika includes two local voice surfaces:
+
+- **Assistant speech** adds play controls to completed text responses. It uses
+  Apple system voices installed on the Mac, supports language and voice
+  selection, and lets you tune speech rate.
+- **Composer dictation** records prompts locally. The default model is a small,
+  fast English model; a larger multilingual Parakeet model is available for
+  German and other European languages.
+
+## Why Local First
+
+Many agent products assume cloud models, opaque context selection, and broad
+implicit access to your data or tools. sumika-chat explores a different
+direction:
+
+- Local-first model execution on macOS
+- User-controlled workspace context
+- Reviewable agent steps instead of hidden automation
+- Approval-gated tool and shell execution
+- Visible transcripts and tool states for review
+- Native macOS workflows instead of a browser-first interface
 
 ## The Name
 
@@ -43,38 +130,11 @@ control or inspectability:
 as a local home for AI agents: close to your files, explicit about what context
 they see, and reviewable before they act.
 
-## Why
-
-Many agent products assume cloud models, opaque context selection, and broad
-implicit access to your data or tools. sumika-chat explores a different
-direction:
-
-- Local-first model execution on macOS
-- User-controlled context and workspace access
-- Reviewable agent steps instead of hidden automation
-- Approval-gated tool and shell execution
-- Inspectable traces for debugging and trust
-- Native macOS workflows instead of a browser-first interface
-
-## Current Capabilities
-
-- Chat with a local Gemma model
-- Use explicit workspace interaction modes
-- Provide local context to the model
-- Search and fetch the public web through policy-gated agent tools
-- Read, list, search, and summarize local workspace files
-- Run shell commands only through approval-aware execution
-- Review workspace diffs and command diagnostics
-- Inspect local HTML previews through browser tools
-- Run typed tools through an approval-aware runtime
-- Inspect model requests, responses, tool calls, and turn traces
-- Use coding-agent workflows for local repositories
-- Keep core agent logic testable in a headless SwiftPM package
-
 ## Project Status
 
-sumika-chat is an unreleased prototype. The app is useful for experimentation,
-but APIs, persisted data, and workflows are still changing.
+sumika-chat is an unreleased prototype. It is useful for experimentation and
+local coding workflows, but APIs, persisted data, and workflows are still
+changing.
 
 ## Architecture
 
@@ -96,20 +156,37 @@ Install the local task runner, linter, and formatter:
 brew install just swiftlint swift-format
 ```
 
-Common tasks:
+Build the app locally:
 
 ```sh
 just build
+open "build/DerivedData/Build/Products/Debug/Sumika Chat.app"
+```
+
+Build an unsigned release app:
+
+```sh
+just release-unsigned
+open "build/DerivedData/Build/Products/Release/Sumika Chat.app"
+```
+
+You can also build from Xcode by opening `Sumika.xcodeproj` and running the
+`Sumika` scheme for macOS.
+
+Common development tasks:
+
+```sh
 just test
 just lint
 just format
 just final-check
 ```
 
-`just build` and `just test` run the `Sumika` Xcode scheme with a stable
-DerivedData path under `build/DerivedData`. `just lint` runs SwiftLint using
-`.swiftlint.yml`. `just format` formats Swift sources with `swift-format`.
-`just final-check` runs the broader local verification suite before review.
+`just build`, `just release-unsigned`, and `just test` run the `Sumika` Xcode
+scheme with a stable DerivedData path under `build/DerivedData`. `just lint`
+runs SwiftLint using `.swiftlint.yml`. `just format` formats Swift sources with
+`swift-format`. `just final-check` runs the broader local verification suite
+before review.
 
 ## License
 
