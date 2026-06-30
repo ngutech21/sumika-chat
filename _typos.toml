@@ -5,3 +5,9 @@ suche = "suche"
 finde = "finde"
 ordner = "ordner"
 Hel = "Hel"
+
+
+[files]
+extend-exclude = [
+  "CHANGELOG.md",
+]
