@@ -81,7 +81,7 @@ public enum ManagedModelCatalog {
   public static let models: [ManagedModel] = [
     ManagedModel(
       id: "gemma4-e2b-qat-4bit",
-      displayName: "Gemma 4 e2b",
+      displayName: "Gemma 4 e2b qat",
       detail: "Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-E2B-it-qat-4bit",
       localDirectoryName: "gemma-4-E2B-it-qat-4bit",
@@ -90,7 +90,7 @@ public enum ManagedModelCatalog {
       requiresLargeMemory: false,
       stability: .stable,
       toolCallingPolicy: .nativeGemma4,
-      supportsImageInput: true,
+      supportsImageInput: false,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       enabled: false
@@ -98,18 +98,18 @@ public enum ManagedModelCatalog {
     ManagedModel(
       id: "gemma4-e4b-qat-4bit",
       displayName: "Gemma 4 e4b qat",
-      detail: "Gemma 4 coding model with local vision support.",
+      detail: "Gemma 4 small model",
       huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-qat-4bit",
       localDirectoryName: "gemma-4-e4b-it-qat-4bit",
       estimatedDownloadSize: "6.8 GB",
-      isRecommended: true,
+      isRecommended: false,
       requiresLargeMemory: false,
       stability: .stable,
       toolCallingPolicy: .nativeGemma4,
-      supportsImageInput: true,
+      supportsImageInput: false,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: false
+      enabled: true
     ),
     ManagedModel(
       id: "gemma-4-e4b-it-4bit",
@@ -118,11 +118,11 @@ public enum ManagedModelCatalog {
       huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-4bit",
       localDirectoryName: "gemma-4-e4b-it-4bit",
       estimatedDownloadSize: "5.2 GB",
-      isRecommended: true,
+      isRecommended: false,
       requiresLargeMemory: false,
       stability: .stable,
       toolCallingPolicy: .nativeGemma4,
-      supportsImageInput: true,
+      supportsImageInput: false,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       enabled: false
