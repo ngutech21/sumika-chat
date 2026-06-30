@@ -25,18 +25,6 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
     }
   }
 
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-  }
-
   func streamReply(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
@@ -85,58 +73,12 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
 }
 
 actor ControlledContextUsageRuntime: ChatModelRuntime {
-  private struct PendingContextUsage {
-    let id: UUID
-    let continuation: CheckedContinuation<ChatContextUsage, Never>
-  }
-
-  private var contextUsageContinuations: [PendingContextUsage] = []
-  private(set) var completedContextUsageCount = 0
-
-  var contextUsageRequestCount: Int {
-    contextUsageContinuations.count
-  }
-
   func load(configuration: ChatModelConfiguration) async throws {
     _ = configuration
   }
 
   func unload() async {}
   func clearContext() async {}
-
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    let id = UUID()
-    let usage = await withCheckedContinuation { continuation in
-      contextUsageContinuations.append(PendingContextUsage(id: id, continuation: continuation))
-      Task {
-        try? await Task.sleep(for: .seconds(2))
-        self.resolveContextUsage(
-          id: id,
-          with: ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-        )
-      }
-    }
-    completedContextUsageCount += 1
-    return usage
-  }
-
-  private func resolveContextUsage(id: UUID, with usage: ChatContextUsage) {
-    guard
-      let index = contextUsageContinuations.firstIndex(where: { $0.id == id })
-    else {
-      return
-    }
-    let pendingUsage = contextUsageContinuations.remove(at: index)
-    pendingUsage.continuation.resume(returning: usage)
-  }
 
   func streamReply(
     for transcript: ModelContextSnapshot,
@@ -165,18 +107,6 @@ actor CountingClearContextRuntime: ChatModelRuntime {
 
   func clearContext() async {
     clearContextCount += 1
-  }
-
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
   }
 
   func streamReply(
@@ -211,18 +141,6 @@ actor InterruptedStreamingRuntime: ChatModelRuntime {
 
   func clearContext() async {}
 
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-  }
-
   func streamReply(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
@@ -248,7 +166,6 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   private var streamContinuations: [Int: CheckedContinuation<Void, Never>] = [:]
   private var releasedCallIndexes: Set<Int> = []
   private var streamReplyCount = 0
-  private var contextUsageCount = 0
   private(set) var completedCallIndexes: Set<Int> = []
   private(set) var capturedMessages: [[ProjectedModelContextEntry]] = []
   private(set) var capturedSystemPrompts: [String] = []
@@ -268,34 +185,12 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
     streamReplyCount
   }
 
-  var contextUsageRequestCount: Int {
-    contextUsageCount
-  }
-
   func load(configuration: ChatModelConfiguration) async throws {
     _ = configuration
   }
 
   func unload() async {}
   func clearContext() async {}
-
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    contextUsageCount += 1
-    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-  }
-
-  func releaseStream(callIndex: Int) {
-    releasedCallIndexes.insert(callIndex)
-    streamContinuations.removeValue(forKey: callIndex)?.resume()
-  }
 
   func streamReply(
     for transcript: ModelContextSnapshot,
@@ -368,6 +263,11 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
     )
   }
 
+  func releaseStream(callIndex: Int) {
+    releasedCallIndexes.insert(callIndex)
+    streamContinuations.removeValue(forKey: callIndex)?.resume()
+  }
+
   private func storeStreamContinuation(
     _ continuation: CheckedContinuation<Void, Never>,
     callIndex: Int
@@ -401,18 +301,6 @@ actor PartialFailingStreamingRuntime: ChatModelRuntime {
 
   func unload() async {}
   func clearContext() async {}
-
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-  }
 
   func streamReply(
     for transcript: ModelContextSnapshot,
@@ -461,18 +349,6 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
   func releaseClearContext() {
     clearContextContinuation?.resume()
     clearContextContinuation = nil
-  }
-
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 42, tokenLimit: nil)
   }
 
   func streamReply(
@@ -559,7 +435,6 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private(set) var capturedSystemPrompts: [String] = []
   private(set) var capturedGenerationSettings: [ChatGenerationSettings] = []
   private(set) var capturedToolContexts: [ChatRuntimeToolContext?] = []
-  private(set) var capturedContextUsageSystemPrompts: [String] = []
 
   init(chunks: [String] = [], debugSnapshot: RuntimeCacheDebugSnapshot? = nil) {
     self.turns = [chunks.map(ChatModelStreamEvent.chunk)]
@@ -587,21 +462,6 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
 
   func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
     debugSnapshot
-  }
-
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    capturedContextUsageSystemPrompts.append(systemPrompt)
-    let usedTokens =
-      ([systemPrompt] + transcript.entries.map(\.frozenContent.content) + attachments.map(\.content))
-      .joined(separator: " ")
-      .split(whereSeparator: \.isWhitespace)
-      .count
-    return ChatContextUsage(usedTokens: usedTokens, tokenLimit: nil)
   }
 
   func streamReply(

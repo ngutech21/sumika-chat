@@ -83,17 +83,6 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     }
   }
 
-  mutating func replaceAssistantContent(
-    _ content: String,
-    for messageID: UUID,
-    at timestamp: Date = Date()
-  ) {
-    updateAssistantMessage(messageID, at: timestamp) { message in
-      message.content = content
-      message.deliveryStatus = .complete
-    }
-  }
-
   mutating func updateAssistantDeliveryStatus(
     _ status: AssistantTurnMessage.DeliveryStatus,
     for messageID: UUID,

@@ -332,7 +332,7 @@ public final class ModelRuntimeController {
       modelState = .loading
 
       do {
-        _ = try await lifecycleCoordinator.loadModel(
+        try await lifecycleCoordinator.loadModel(
           from: directoryURL,
           requestedContextTokenLimit: requestedContextTokenLimit,
           supportsImageInput: supportsImageInput,

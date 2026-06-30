@@ -214,16 +214,6 @@ public enum ModelFacingPromptRenderer {
 
   public static func sameTurnToolFollowUpContent(
     originalUserRequest: String,
-    toolObservation: ToolObservationContext
-  ) -> String {
-    sameTurnToolFollowUpContent(
-      originalUserRequest: originalUserRequest,
-      toolObservations: [toolObservation]
-    )
-  }
-
-  public static func sameTurnToolFollowUpContent(
-    originalUserRequest: String,
     toolObservations: [ToolObservationContext]
   ) -> String {
     let toolSections = toolObservations.map { observation in
@@ -274,13 +264,6 @@ public enum ModelFacingPromptRenderer {
       \(toolCall.modelContextContent)
       </tool_call>
       """
-  }
-
-  public static func normalizedSystemPrompt(_ systemPrompt: String?) -> String? {
-    guard let systemPrompt else {
-      return nil
-    }
-    return normalizedSystemPrompt(systemPrompt)
   }
 
   public static func normalizedSystemPrompt(_ systemPrompt: String) -> String? {

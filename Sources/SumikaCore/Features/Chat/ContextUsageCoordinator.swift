@@ -2,38 +2,23 @@ import Foundation
 
 public struct ContextUsageSnapshot: Sendable {
   public let modelState: ModelLoadState
-  public let operationID: UUID
-  public let turnID: ChatTurn.ID?
   public let transcript: ModelContextSnapshot
   public let attachments: [ChatAttachment]
   public let systemPrompt: String
-  public let reasoningEnabled: Bool
   public let contextTokenLimit: Int?
-  public let runtimeIsBusy: Bool
-  public let interactionMode: WorkspaceInteractionMode?
 
   public init(
     modelState: ModelLoadState,
-    operationID: UUID,
-    turnID: ChatTurn.ID? = nil,
     transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
     systemPrompt: String,
-    reasoningEnabled: Bool = true,
-    contextTokenLimit: Int? = nil,
-    runtimeIsBusy: Bool = false,
-    interactionMode: WorkspaceInteractionMode? = nil
+    contextTokenLimit: Int? = nil
   ) {
     self.modelState = modelState
-    self.operationID = operationID
-    self.turnID = turnID
     self.transcript = transcript
     self.attachments = attachments
     self.systemPrompt = systemPrompt
-    self.reasoningEnabled = reasoningEnabled
     self.contextTokenLimit = contextTokenLimit
-    self.runtimeIsBusy = runtimeIsBusy
-    self.interactionMode = interactionMode
   }
 
   public func estimatedUsage(isStale: Bool = true) -> ChatContextUsage {

@@ -113,33 +113,6 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     settings.repetitionPenalty == 1 ? nil : Float(settings.repetitionPenalty)
   }
 
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    guard let modelContainer else {
-      throw GemmaMLXRuntimeError.modelNotLoaded
-    }
-
-    let rawMessages = try GemmaHistoryRenderer.templateMessages(
-      from: transcript,
-      attachments: attachments,
-      systemPrompt: systemPrompt
-    )
-    .map { ["role": $0.role.rawValue, "content": $0.content] as [String: any Sendable] }
-    let usedTokens = try await modelContainer.perform { context in
-      try context.tokenizer.applyChatTemplate(
-        messages: rawMessages,
-        tools: nil,
-        additionalContext: Self.chatTemplateAdditionalContext(reasoningEnabled: reasoningEnabled)
-      ).count
-    }
-
-    return ChatContextUsage(usedTokens: usedTokens, tokenLimit: contextTokenLimit)
-  }
-
   func streamReply(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],

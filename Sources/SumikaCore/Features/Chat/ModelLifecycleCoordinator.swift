@@ -1,10 +1,5 @@
 import Foundation
 
-public struct LoadModelResult: Sendable {
-  public let configuration: ChatModelConfiguration
-  public let contextUsage: ChatContextUsage?
-}
-
 public struct DownloadModelResult: Sendable {
   public let localPath: String
 }
@@ -59,7 +54,7 @@ public struct ModelLifecycleCoordinator: Sendable {
     requestedContextTokenLimit: Int,
     supportsImageInput: Bool,
     operationID: UUID
-  ) async throws -> LoadModelResult {
+  ) async throws {
     try validateModelDirectory(directoryURL)
     try Task.checkCancellation()
 
@@ -72,7 +67,6 @@ public struct ModelLifecycleCoordinator: Sendable {
       supportsImageInput: supportsImageInput
     )
     try await runtimeOperations.load(configuration: configuration, operationID: operationID)
-    return LoadModelResult(configuration: configuration, contextUsage: nil)
   }
 
   public func unloadModel(operationID: UUID) async throws {
@@ -81,22 +75,6 @@ public struct ModelLifecycleCoordinator: Sendable {
 
   public func clearContext(operationID: UUID) async throws {
     try await runtimeOperations.clearContext(operationID: operationID)
-  }
-
-  public func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool,
-    operationID: UUID
-  ) async throws -> ChatContextUsage {
-    try await runtimeOperations.contextUsage(
-      for: transcript,
-      attachments: attachments,
-      systemPrompt: systemPrompt,
-      reasoningEnabled: reasoningEnabled,
-      operationID: operationID
-    )
   }
 
   func isModelDownloaded(_ model: ManagedModel) -> Bool {

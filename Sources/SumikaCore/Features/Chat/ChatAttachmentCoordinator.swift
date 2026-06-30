@@ -25,11 +25,6 @@ public final class ChatAttachmentCoordinator {
     loadTask?.cancel()
   }
 
-  public func cancel() {
-    loadTask?.cancel()
-    loadTask = nil
-  }
-
   public func addAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment],

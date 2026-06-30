@@ -366,24 +366,6 @@ public protocol CurrentPromptContextSelecting: Sendable {
   ) -> CurrentPromptContext
 }
 
-extension CurrentPromptContextSelecting {
-  public func selectContext(
-    userInput: String,
-    mode: WorkspaceInteractionMode,
-    focusedFileState: FocusedFileState,
-    budget: ContextBudget
-  ) -> CurrentPromptContext {
-    selectContext(
-      userInput: userInput,
-      mode: mode,
-      focusedFileState: focusedFileState,
-      attachments: [],
-      workspace: nil,
-      budget: budget
-    )
-  }
-}
-
 public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
   public init() {}
 

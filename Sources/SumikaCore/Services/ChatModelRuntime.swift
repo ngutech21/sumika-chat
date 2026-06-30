@@ -6,12 +6,6 @@ public protocol ChatModelRuntime: Sendable {
   func clearContext() async
   func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot?
   func generatedTokenCount(for text: String) async throws -> Int
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage
   func streamReply(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],
@@ -106,20 +100,6 @@ public struct MockChatRuntime: ChatModelRuntime {
 
   public func generatedTokenCount(for text: String) async throws -> Int {
     text.split(whereSeparator: \.isWhitespace).count
-  }
-
-  public func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    _ = systemPrompt
-    _ = reasoningEnabled
-    let projectedContent = transcript.projectedEntries(mode: .fullHistory).map(\.content)
-    let content = (attachments.map(\.content) + projectedContent).joined(separator: "\n")
-    let tokenEstimate = content.split(whereSeparator: \.isWhitespace).count
-    return ChatContextUsage(usedTokens: tokenEstimate, tokenLimit: nil)
   }
 
   public func streamReply(

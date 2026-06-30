@@ -9,10 +9,6 @@ public final class RuntimeContextClearCoordinator {
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
   }
 
-  public var hasPendingClear: Bool {
-    pendingClear != nil
-  }
-
   public func clear(
     operationID: UUID,
     onCompletion: @escaping @MainActor (Error?) -> Void

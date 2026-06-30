@@ -810,9 +810,6 @@ struct ChatSessionControllerTests {
     #expect(capturedSystemPrompts[0].contains("web_fetch"))
     #expect(!capturedSystemPrompts[0].contains("read_file"))
     #expect(!capturedSystemPrompts[0].contains("list_files"))
-
-    let capturedContextUsageSystemPrompts = await runtime.capturedContextUsageSystemPrompts
-    #expect(!capturedContextUsageSystemPrompts.contains { $0.contains("read_file") })
   }
 
   @Test
@@ -1483,8 +1480,6 @@ struct ChatSessionControllerTests {
 
     #expect(controller.contextUsage?.accuracy == .estimate)
     #expect(controller.contextUsage?.isStale == false)
-    #expect(await runtime.contextUsageRequestCount == 0)
-    #expect(await runtime.completedContextUsageCount == 0)
   }
 
   @Test
@@ -1499,14 +1494,12 @@ struct ChatSessionControllerTests {
     controller.refreshContextUsage()
     await Task.yield()
 
-    #expect(await runtime.contextUsageRequestCount == 0)
     #expect(controller.contextUsage?.accuracy == .estimate)
     #expect(controller.contextUsage?.isStale == false)
 
     await runtime.releaseStream(callIndex: 0)
     try await waitUntil { !controller.isGenerating }
     try await Task.sleep(for: .milliseconds(50))
-    #expect(await runtime.contextUsageRequestCount == 0)
   }
 
   @Test

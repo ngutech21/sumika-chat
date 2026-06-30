@@ -24,21 +24,6 @@ public struct ChatTranscriptMutator: Sendable {
     state.modelContextSnapshot.entries.append(entry)
   }
 
-  public func appendModelContextUserBoundary(
-    _ content: String,
-    turnID: ChatTurn.ID,
-    systemPromptSnapshot: String,
-    to state: inout ChatSession
-  ) {
-    if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
-      turnID: turnID,
-      prompt: content,
-      systemContext: [systemPromptSnapshot]
-    ) {
-      appendModelContextEntry(entry, to: &state)
-    }
-  }
-
   public func appendFinalToolResultFollowUpBoundary(
     _ content: String,
     turnID: ChatTurn.ID,
@@ -169,16 +154,6 @@ public struct ChatTranscriptMutator: Sendable {
   ) {
     updateTurn(containingMessageID: messageID, in: &state) { turn in
       turn.updateAssistantThinkingDeliveryStatus(status, for: messageID)
-    }
-  }
-
-  public func replaceAssistantContent(
-    _ content: String,
-    for messageID: UUID,
-    in state: inout ChatSession
-  ) {
-    updateTurn(containingMessageID: messageID, in: &state) { turn in
-      turn.replaceAssistantContent(content, for: messageID)
     }
   }
 

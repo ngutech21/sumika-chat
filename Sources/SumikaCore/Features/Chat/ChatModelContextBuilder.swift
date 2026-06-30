@@ -54,23 +54,4 @@ public struct ChatModelContextBuilder: Sendable {
     )
     return CurrentPromptContextRenderer.renderedContext(context)
   }
-
-  public func currentPromptSystemContext(
-    userInput: String,
-    mode: WorkspaceInteractionMode,
-    focusedFileState: FocusedFileState,
-    attachments: [ChatAttachment] = [],
-    workspace: Workspace? = nil,
-    budget: ContextBudget = .focusedFileDefault
-  ) -> [String] {
-    currentPromptContext(
-      userInput: userInput,
-      mode: mode,
-      focusedFileState: focusedFileState,
-      attachments: attachments,
-      workspace: workspace,
-      budget: budget
-    )
-    .renderedBlocks
-  }
 }

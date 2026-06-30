@@ -961,18 +961,6 @@ private actor AppStateTestRuntime: ChatModelRuntime {
   func unload() async {}
   func clearContext() async {}
 
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 0, tokenLimit: nil)
-  }
-
   func streamReply(
     for transcript: ModelContextSnapshot,
     attachments: [ChatAttachment],

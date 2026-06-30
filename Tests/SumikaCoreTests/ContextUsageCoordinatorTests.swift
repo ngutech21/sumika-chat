@@ -18,7 +18,6 @@ struct ContextUsageCoordinatorTests {
       events.append($0)
     }
 
-    #expect(await runtime.contextUsageRequestCount == 0)
     #expect(
       events == [
         .updated(
@@ -39,7 +38,6 @@ struct ContextUsageCoordinatorTests {
       events.append($0)
     }
 
-    #expect(await runtime.contextUsageRequestCount == 0)
     #expect(
       events == [
         .updated(
@@ -78,7 +76,6 @@ struct ContextUsageCoordinatorTests {
       events.append($0)
     }
 
-    #expect(await runtime.contextUsageRequestCount == 0)
     #expect(
       events == [
         .updated(
@@ -103,7 +100,6 @@ struct ContextUsageCoordinatorTests {
       events.append($0)
     }
 
-    #expect(await runtime.contextUsageRequestCount == 0)
     #expect(events.last == .reset)
   }
 
@@ -123,7 +119,6 @@ struct ContextUsageCoordinatorTests {
     }
 
     try await waitUntilAsync { await runtime.clearContextCount == 1 }
-    #expect(await runtime.contextUsageRequestCount == 0)
     #expect(
       events == [
         .updated(
@@ -192,7 +187,6 @@ struct ContextUsageCoordinatorTests {
       events.append($0)
     }
 
-    #expect(await runtime.contextUsageRequestCount == 0)
     #expect(await tracer.events.isEmpty)
   }
 
@@ -221,6 +215,8 @@ struct ContextUsageCoordinatorTests {
     systemPrompt: String = "system",
     runtimeIsBusy: Bool = false
   ) -> ContextUsageSnapshot {
+    _ = operationID
+    _ = runtimeIsBusy
     let entry: ModelContextEntry
     do {
       entry = try ModelFacingPromptRenderer.userPromptEntry(
@@ -232,12 +228,10 @@ struct ContextUsageCoordinatorTests {
 
     return ContextUsageSnapshot(
       modelState: modelState,
-      operationID: operationID,
       transcript: ModelContextSnapshot(entries: [entry]),
       attachments: [],
       systemPrompt: systemPrompt,
-      contextTokenLimit: 100,
-      runtimeIsBusy: runtimeIsBusy
+      contextTokenLimit: 100
     )
   }
 
@@ -257,12 +251,10 @@ struct ContextUsageCoordinatorTests {
 }
 
 private actor ContextUsageFakeRuntime: ChatModelRuntime {
-  private let usage: ChatContextUsage
   private(set) var clearContextCount = 0
-  private(set) var contextUsageRequestCount = 0
 
   init(usage: ChatContextUsage = ChatContextUsage(usedTokens: 0, tokenLimit: nil)) {
-    self.usage = usage
+    _ = usage
   }
 
   func load(configuration: ChatModelConfiguration) async throws {
@@ -273,19 +265,6 @@ private actor ContextUsageFakeRuntime: ChatModelRuntime {
 
   func clearContext() async {
     clearContextCount += 1
-  }
-
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    contextUsageRequestCount += 1
-    return usage
   }
 
   func streamReply(
@@ -330,18 +309,6 @@ private actor ContextUsageDelayedClearRuntime: ChatModelRuntime {
   func releaseClearContext() {
     clearContextContinuation?.resume()
     clearContextContinuation = nil
-  }
-
-  func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool
-  ) async throws -> ChatContextUsage {
-    _ = transcript
-    _ = attachments
-    _ = systemPrompt
-    return ChatContextUsage(usedTokens: 42, tokenLimit: nil)
   }
 
   func streamReply(

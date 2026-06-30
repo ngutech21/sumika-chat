@@ -11,11 +11,6 @@ public actor RuntimeOperationCoordinator {
     self.currentOperationID = initialOperationID
   }
 
-  public func beginOperation() -> UUID {
-    currentOperationID = UUID()
-    return currentOperationID
-  }
-
   public func setCurrentOperation(_ operationID: UUID) {
     currentOperationID = operationID
   }
@@ -70,24 +65,6 @@ public actor RuntimeOperationCoordinator {
     let snapshot = await runtime.runtimeCacheDebugSnapshot()
     try checkCurrent(operationID)
     return snapshot
-  }
-
-  public func contextUsage(
-    for transcript: ModelContextSnapshot,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    reasoningEnabled: Bool,
-    operationID: UUID
-  ) async throws -> ChatContextUsage {
-    try checkCurrent(operationID)
-    let usage = try await runtime.contextUsage(
-      for: transcript,
-      attachments: attachments,
-      systemPrompt: systemPrompt,
-      reasoningEnabled: reasoningEnabled
-    )
-    try checkCurrent(operationID)
-    return usage
   }
 
   public func generatedTokenCount(for text: String, operationID: UUID) async throws -> Int {

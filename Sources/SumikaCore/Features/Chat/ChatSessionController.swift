@@ -684,15 +684,10 @@ extension ChatSessionController {
 
     return ContextUsageSnapshot(
       modelState: modelRuntime.modelState,
-      operationID: modelRuntime.currentOperationID(),
-      turnID: turnID,
       transcript: transcript,
       attachments: attachmentsForCurrentTurn(),
       systemPrompt: renderedSystemPrompt,
-      reasoningEnabled: chatSession.generationSettings.reasoningEnabled,
-      contextTokenLimit: modelRuntime.modelContextTokenLimit,
-      runtimeIsBusy: isGenerating || runtimeContextClearCoordinator.hasPendingClear,
-      interactionMode: chatSession.interactionMode
+      contextTokenLimit: modelRuntime.modelContextTokenLimit
     )
   }
 
@@ -733,10 +728,6 @@ extension ChatSessionController {
     case .error(let message):
       errorMessage = message
     }
-  }
-
-  public var activeAttachmentContextAttachments: [ChatAttachment] {
-    composerSessionState.activeAttachments
   }
 
   private func notifySessionDidChange() {
