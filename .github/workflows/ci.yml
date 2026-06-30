@@ -25,7 +25,7 @@ jobs:
 
       - name: Install lint tools
         timeout-minutes: 10
-        run: brew install just swiftlint swift-format
+        run: brew install just swiftlint swift-format periphery
 
       - name: Run format
         timeout-minutes: 10
