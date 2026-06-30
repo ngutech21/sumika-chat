@@ -187,8 +187,12 @@ struct ChatComposer: View {
       }
     }
     .padding(2)
-    .frame(width: 104, height: 24)
-    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+    .frame(width: 112, height: 28)
+    .background(Color.secondary.opacity(0.09), in: RoundedRectangle(cornerRadius: 6))
+    .overlay {
+      RoundedRectangle(cornerRadius: 6)
+        .strokeBorder(Color.secondary.opacity(0.14), lineWidth: 1)
+    }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Mode")
     .accessibilityValue(interactionMode.displayName)
@@ -206,18 +210,40 @@ struct ChatComposer: View {
     } label: {
       Text(mode.displayName)
         .font(.caption2.weight(isSelected ? .semibold : .medium))
-        .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-        .frame(width: 48, height: 20)
+        .foregroundStyle(modeButtonForeground(isSelected: isSelected))
+        .frame(width: 52, height: 24)
         .background(
-          isSelected ? Color.secondary.opacity(0.16) : Color.clear,
-          in: RoundedRectangle(cornerRadius: 4)
+          modeButtonBackground(isSelected: isSelected),
+          in: RoundedRectangle(cornerRadius: 5)
         )
+        .overlay {
+          RoundedRectangle(cornerRadius: 5)
+            .strokeBorder(modeButtonBorder(isSelected: isSelected), lineWidth: 1)
+        }
     }
     .buttonStyle(.plain)
     .disabled(!canChangeInteractionMode)
     .accessibilityLabel(mode.displayName)
     .accessibilityValue(isSelected ? "Selected" : "Not selected")
     .accessibilityIdentifier("chat.mode.\(mode.rawValue)")
+  }
+
+  private func modeButtonForeground(isSelected: Bool) -> Color {
+    guard isSelected else {
+      return .secondary
+    }
+    return .white
+  }
+
+  private func modeButtonBackground(isSelected: Bool) -> Color {
+    guard isSelected else {
+      return .clear
+    }
+    return .accentColor
+  }
+
+  private func modeButtonBorder(isSelected: Bool) -> Color {
+    isSelected ? Color.accentColor.opacity(0.65) : Color.clear
   }
 
   private var reasoningToggle: some View {
