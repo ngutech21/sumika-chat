@@ -40,7 +40,7 @@ jobs:
         run: just periphery
 
   core-tests:
-    name: Linux SumikaChatCore
+    name: Linux SumikaCore
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

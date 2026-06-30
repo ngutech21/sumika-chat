@@ -1,2 +1,7 @@
 [default.extend-words]
 Hel = "Hel"
+
+[files]
+extend-exclude = [
+  "CHANGELOG.md",
+]
