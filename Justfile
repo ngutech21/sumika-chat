@@ -179,6 +179,10 @@ final-check: typos format lint periphery test check-warnings
 
 format:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
+    swift-format lint --strict --recursive --parallel sumika SumikaTests SumikaUITests Sources Tests Package.swift
+
+format-fix:
+    @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
     swift-format format --in-place --recursive --parallel sumika SumikaTests SumikaUITests Sources Tests Package.swift
 
 typos:

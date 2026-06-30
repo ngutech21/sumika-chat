@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: SwiftLint
+  check:
+    name: Static analysis
     runs-on: macos-26
     timeout-minutes: 15
 
@@ -25,11 +25,19 @@ jobs:
 
       - name: Install lint tools
         timeout-minutes: 10
-        run: brew install just swiftlint
+        run: brew install just swiftlint swift-format
+
+      - name: Run format
+        timeout-minutes: 10
+        run: just format
 
       - name: Run SwiftLint
         timeout-minutes: 10
         run: just lint
+    
+      - name: Run periphery
+        timeout-minutes: 10
+        run: just periphery
 
   core-tests:
     name: Linux SumikaChatCore

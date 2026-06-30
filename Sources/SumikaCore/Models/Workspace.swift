@@ -135,7 +135,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     #endif
   }
 
-  public func withSecurityScopedAccess<Result>(
+  public func withAsyncSecurityScopedAccess<Result>(
     _ body: () async throws -> Result
   ) async rethrows -> Result {
     #if canImport(Darwin)

@@ -73,7 +73,7 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     var scopedPath: WorkspaceRelativePath?
 
     do {
-      return try await context.workspace.withSecurityScopedAccess {
+      return try await context.workspace.withAsyncSecurityScopedAccess {
         let rootURL = try context.workspace.resolveAllowedPath(".")
         let gitCommand = makeGitCommand()
         if let path = input.path {

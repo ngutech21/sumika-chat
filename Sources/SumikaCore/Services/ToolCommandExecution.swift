@@ -671,7 +671,7 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
 
   public func run(_ input: RunCommandInput, context: ToolContext) async -> ToolResultPayload {
     do {
-      return try await context.workspace.withSecurityScopedAccess {
+      return try await context.workspace.withAsyncSecurityScopedAccess {
         let workspaceRoot = try context.workspace.resolveAllowedPath(".")
         let timeoutSeconds = clampedTimeout(input.timeoutSeconds)
         let request = CommandProcessRequest(
