@@ -42,11 +42,16 @@ jobs:
         timeout-minutes: 10
         run: | 
             brew untap aws/tap || true
-            brew install just swiftlint
+            brew install just swiftlint periphery
 
       - name: Run SwiftLint
         timeout-minutes: 10
         run: just lint
+
+      - name: Run periphery
+        timeout-minutes: 20
+        run: just periphery
+
 
       - name: Cache Swift package checkouts
         uses: actions/cache@v6
