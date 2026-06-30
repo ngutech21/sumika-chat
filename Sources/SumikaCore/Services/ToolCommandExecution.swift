@@ -151,6 +151,16 @@ public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
 
   public init() {}
 
+  public static func input(from payload: ToolCallPayload) throws -> WorkspaceDiagnosticsInput {
+    guard case .workspaceDiagnostics(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
+
   public func evaluatePermission(
     _ input: WorkspaceDiagnosticsInput,
     context: ToolContext
@@ -629,6 +639,16 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
     self.maxOutputBytes = maxOutputBytes
     self.outputRefGenerator = outputRefGenerator
     self.processRunner = processRunner
+  }
+
+  public static func input(from payload: ToolCallPayload) throws -> RunCommandInput {
+    guard case .runCommand(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
   }
 
   public func evaluatePermission(

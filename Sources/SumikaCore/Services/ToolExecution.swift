@@ -178,6 +178,7 @@ public protocol TypedToolExecutor: Sendable {
   associatedtype Input: Decodable & Sendable
 
   static var definition: ToolDefinition { get }
+  static func input(from payload: ToolCallPayload) throws -> Input
 
   func evaluatePermission(_ input: Input, context: ToolContext) -> ToolPermissionEvaluation
   func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview?
@@ -240,7 +241,13 @@ public struct AnyToolExecutor: Sendable {
     var record = makePendingRecord(request: request)
 
     do {
-      let input = try typedInput(T.Input.self, from: request.payload, definition: T.definition)
+      guard request.payload.toolName == T.definition.name else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: T.definition.name.rawValue,
+          actual: request.payload.toolName.rawValue
+        )
+      }
+      let input = try T.input(from: request.payload)
       let evaluation = tool.evaluatePermission(input, context: context)
       record.evaluation = evaluation
 
@@ -417,70 +424,6 @@ public struct AnyToolExecutor: Sendable {
       ),
       state: .pending
     )
-  }
-
-  private static func typedInput<Input>(
-    _ inputType: Input.Type,
-    from payload: ToolCallPayload,
-    definition: ToolDefinition
-  ) throws -> Input {
-    switch payload {
-    case .readFile(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .readFile)
-    case .showFile(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .showFile)
-    case .listFiles(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .listFiles)
-    case .globFiles(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .globFiles)
-    case .searchFiles(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .searchFiles)
-    case .workspaceDiff(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .workspaceDiff)
-    case .workspaceDiagnostics(let input):
-      return try cast(
-        input, as: inputType, definition: definition, actualToolName: .workspaceDiagnostics)
-    case .writeFile(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .writeFile)
-    case .editFile(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .editFile)
-    case .runCommand(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .runCommand)
-    case .todoWrite(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .todoWrite)
-    case .askUser(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .askUser)
-    case .browserRefresh(let input):
-      return try cast(
-        input, as: inputType, definition: definition, actualToolName: .browserRefresh)
-    case .browserInspect(let input):
-      return try cast(
-        input, as: inputType, definition: definition, actualToolName: .browserInspect)
-    case .webSearch(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .webSearch)
-    case .webFetch(let input):
-      return try cast(input, as: inputType, definition: definition, actualToolName: .webFetch)
-    case .invalid:
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: ToolName.invalid.rawValue
-      )
-    }
-  }
-
-  private static func cast<Input, PayloadInput>(
-    _ input: PayloadInput,
-    as inputType: Input.Type,
-    definition: ToolDefinition,
-    actualToolName: ToolName
-  ) throws -> Input {
-    guard let typedInput = input as? Input, definition.name == actualToolName else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: actualToolName.rawValue
-      )
-    }
-    return typedInput
   }
 }
 
@@ -717,6 +660,16 @@ public struct TodoWriteToolExecutor: TypedToolExecutor {
 
   public init() {}
 
+  public static func input(from payload: ToolCallPayload) throws -> TodoWriteInput {
+    guard case .todoWrite(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
+
   public func evaluatePermission(
     _ input: TodoWriteInput,
     context: ToolContext
@@ -753,6 +706,16 @@ public struct AskUserToolExecutor: TypedToolExecutor {
 
   public init() {}
 
+  public static func input(from payload: ToolCallPayload) throws -> AskUserInput {
+    guard case .askUser(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
+
   public func evaluatePermission(
     _ input: AskUserInput,
     context: ToolContext
@@ -783,6 +746,16 @@ public struct WebSearchToolExecutor: TypedToolExecutor {
   public static let definition = ToolDefinition.webSearch
 
   public init() {}
+
+  public static func input(from payload: ToolCallPayload) throws -> WebSearchInput {
+    guard case .webSearch(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
 
   public func evaluatePermission(
     _ input: WebSearchInput,
@@ -832,6 +805,16 @@ public struct WebFetchToolExecutor: TypedToolExecutor {
   private let urlValidator = WebURLValidator()
 
   public init() {}
+
+  public static func input(from payload: ToolCallPayload) throws -> WebFetchInput {
+    guard case .webFetch(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
 
   public func evaluatePermission(
     _ input: WebFetchInput,
@@ -984,6 +967,16 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
 
   public init(maxBytes: Int = 40 * 1024) {
     self.maxBytes = maxBytes
+  }
+
+  public static func input(from payload: ToolCallPayload) throws -> ReadFileInput {
+    guard case .readFile(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
   }
 
   public func evaluatePermission(
@@ -1149,6 +1142,16 @@ public struct ShowFileToolExecutor: TypedToolExecutor {
 
   public init(maxBytes: Int = 40 * 1024) {
     readFileExecutor = ReadFileToolExecutor(maxBytes: maxBytes)
+  }
+
+  public static func input(from payload: ToolCallPayload) throws -> ReadFileInput {
+    guard case .showFile(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
   }
 
   public func evaluatePermission(
@@ -1353,6 +1356,16 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
     self.skippedNames = skippedNames
   }
 
+  public static func input(from payload: ToolCallPayload) throws -> ListFilesInput {
+    guard case .listFiles(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
+
   public func evaluatePermission(
     _ input: ListFilesInput,
     context: ToolContext
@@ -1494,6 +1507,18 @@ public struct WriteFileInput: Codable, Equatable, Sendable {
 public struct WriteFileToolExecutor: TypedToolExecutor {
   public static let definition = ToolDefinition.writeFile
 
+  public init() {}
+
+  public static func input(from payload: ToolCallPayload) throws -> WriteFileInput {
+    guard case .writeFile(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
+
   public func evaluatePermission(
     _ input: WriteFileInput,
     context: ToolContext
@@ -1547,6 +1572,7 @@ public struct WriteFileToolExecutor: TypedToolExecutor {
 public enum ToolInputDecodingError: LocalizedError, Equatable {
   case unknownArguments([String])
   case payloadMismatch(expected: String, actual: String)
+  case inputExtractionFailed(toolName: String)
 
   public var errorDescription: String? {
     switch self {
@@ -1554,6 +1580,8 @@ public enum ToolInputDecodingError: LocalizedError, Equatable {
       "Unknown argument(s): \(arguments.joined(separator: ", "))."
     case .payloadMismatch(let expected, let actual):
       "Tool payload mismatch. Expected \(expected), got \(actual)."
+    case .inputExtractionFailed(let toolName):
+      "Tool input extraction failed for \(toolName)."
     }
   }
 }

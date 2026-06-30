@@ -19,6 +19,16 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
     self.skippedNames = skippedNames
   }
 
+  public static func input(from payload: ToolCallPayload) throws -> GlobFilesInput {
+    guard case .globFiles(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
+
   public func evaluatePermission(
     _ input: GlobFilesInput,
     context: ToolContext
@@ -116,6 +126,16 @@ public struct SearchFilesToolExecutor: TypedToolExecutor {
     self.maxSnippetLength = maxSnippetLength
     self.maxFileBytes = maxFileBytes
     self.skippedNames = skippedNames
+  }
+
+  public static func input(from payload: ToolCallPayload) throws -> SearchFilesInput {
+    guard case .searchFiles(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
   }
 
   public func evaluatePermission(

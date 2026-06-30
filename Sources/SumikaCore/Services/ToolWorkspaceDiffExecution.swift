@@ -47,6 +47,16 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     self.timeoutSeconds = timeoutSeconds
   }
 
+  public static func input(from payload: ToolCallPayload) throws -> WorkspaceDiffInput {
+    guard case .workspaceDiff(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
+
   public func evaluatePermission(
     _ input: WorkspaceDiffInput,
     context: ToolContext

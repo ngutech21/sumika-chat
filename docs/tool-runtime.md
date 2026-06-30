@@ -14,7 +14,7 @@ flowchart TD
   C --> D["ToolCallRequestValidator"]
   D --> E["ToolCallRequest(payload: ToolCallPayload)"]
   E --> F["ToolExecutorRegistry lookup"]
-  F --> G["AnyToolExecutor extracts typed input"]
+  F --> G["AnyToolExecutor asks TypedToolExecutor for typed input"]
   G --> H{"Permission decision"}
   H -- "allowed" --> I["TypedToolExecutor.run(input, context)"]
   H -- "requires approval" --> J["Optional approval preview + ToolCallRecord awaitingApproval"]
@@ -61,8 +61,9 @@ flowchart TD
   first-class invalid payloads before execution.
 - `ToolExecutorRegistry` contains the executable tools for the active tool set
   and exposes their definitions for prompt rendering.
-- `AnyToolExecutor` is the type-erased runtime boundary. It extracts the
-  already-validated typed input from `ToolCallPayload`, evaluates permission,
+- `AnyToolExecutor` is the type-erased runtime boundary. It verifies that the
+  validated `ToolCallPayload` matches the executor definition, delegates typed
+  input extraction to the concrete `TypedToolExecutor`, evaluates permission,
   and runs the tool only when allowed. A `requiresApproval` decision can prepare
   a preview and becomes an awaiting-approval record without executing the tool.
   An approved execution path validates the raw request and evaluates permission
@@ -129,6 +130,16 @@ flowchart TD
    ```swift
    struct ReadFileToolExecutor: TypedToolExecutor {
      static let definition = ToolDefinition.readFile
+
+     static func input(from payload: ToolCallPayload) throws -> ReadFileInput {
+       guard case .readFile(let input) = payload else {
+         throw ToolInputDecodingError.payloadMismatch(
+           expected: definition.name.rawValue,
+           actual: payload.toolName.rawValue
+         )
+       }
+       return input
+     }
 
      func evaluatePermission(
        _ input: ReadFileInput,

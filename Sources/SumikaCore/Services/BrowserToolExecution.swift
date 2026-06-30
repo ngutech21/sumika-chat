@@ -27,6 +27,16 @@ public struct BrowserRefreshToolExecutor: TypedToolExecutor {
 
   public init() {}
 
+  public static func input(from payload: ToolCallPayload) throws -> BrowserRefreshInput {
+    guard case .browserRefresh(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
+
   public func evaluatePermission(
     _ input: BrowserRefreshInput,
     context: ToolContext
@@ -49,6 +59,16 @@ public struct BrowserInspectToolExecutor: TypedToolExecutor {
   public static let definition = ToolDefinition.browserInspect
 
   public init() {}
+
+  public static func input(from payload: ToolCallPayload) throws -> BrowserInspectInput {
+    guard case .browserInspect(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
 
   public func evaluatePermission(
     _ input: BrowserInspectInput,

@@ -1107,6 +1107,38 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func executorInputExtractionFailureFailsBeforePermissionAndRun() async throws {
+    let workspace = try makeWorkspace()
+    let registry = ToolExecutorRegistry([
+      AnyToolExecutor(MismatchedWriteFileToolExecutor())
+    ])
+
+    let result = await ToolOrchestrator(executorRegistry: registry).execute(
+      request: request(
+        .writeFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("README.md"),
+          "content": .string("new"),
+        ]
+      ),
+      workspace: workspace
+    )
+
+    #expect(result.status == .failed)
+    #expect(result.evaluation.decision == .denied)
+    guard case .failure(let failure) = result.resultPayload else {
+      Issue.record("Expected failed payload mismatch result.")
+      return
+    }
+    guard case .invalidArguments(.parserError(let message)) = failure.reason else {
+      Issue.record("Expected parserError invalid-arguments reason.")
+      return
+    }
+    #expect(message.contains("Tool input extraction failed for write_file."))
+  }
+
+  @Test
   func runCommandRequiresApprovalWithoutSpawningProcess() async throws {
     let workspace = try makeWorkspace()
     let runner = SpyCommandProcessRunner()
@@ -1962,6 +1994,42 @@ private struct TestGitError: Error, CustomStringConvertible {
 
   var description: String {
     "git \(arguments.joined(separator: " ")) failed: \(errorText)"
+  }
+}
+
+private struct MismatchedWriteFileToolExecutor: TypedToolExecutor {
+  static let definition = ToolDefinition.writeFile
+
+  static func input(from payload: ToolCallPayload) throws -> ReadFileInput {
+    _ = payload
+    throw ToolInputDecodingError.inputExtractionFailed(toolName: definition.name.rawValue)
+  }
+
+  func evaluatePermission(
+    _ input: ReadFileInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    _ = input
+    _ = context
+      Issue.record("Input extraction failure should fail before permission evaluation.")
+    return ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Unexpected permission evaluation.",
+      riskLevel: .low
+    )
+  }
+
+  func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
+    _ = input
+    _ = context
+    Issue.record("Input extraction failure should fail before execution.")
+    return .failure(
+      ToolFailure(
+        toolName: .writeFile,
+        path: nil,
+        reason: .executionError("Unexpected execution.")
+      )
+    )
   }
 }
 
