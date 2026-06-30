@@ -97,7 +97,7 @@ public enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "gemma4-e4b-qat-4bit",
-      displayName: "Gemma 4 e4b",
+      displayName: "Gemma 4 e4b qat",
       detail: "Gemma 4 coding model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-qat-4bit",
       localDirectoryName: "gemma-4-e4b-it-qat-4bit",
