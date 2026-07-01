@@ -14,6 +14,7 @@ struct WorkspaceChatView: View, Equatable {
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
+  let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
   let onOpenAudioModels: () -> Void
   @State private var previewState = WorkspacePreviewFeatureState()
 
@@ -48,6 +49,7 @@ struct WorkspaceChatView: View, Equatable {
         speechInputController: speechInputController,
         previewState: previewState,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
+        onSendMessage: onSendMessage,
         onOpenAudioModels: onOpenAudioModels
       )
       .equatable()
@@ -95,6 +97,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
   let speechInputController: ComposerSpeechInputController
   let previewState: WorkspacePreviewFeatureState
   @Binding var isWorkspaceTerminalVisible: Bool
+  let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
   let onOpenAudioModels: () -> Void
 
   static func == (lhs: WorkspaceChatMainColumn, rhs: WorkspaceChatMainColumn) -> Bool {
@@ -134,6 +137,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
         sessionID: sessionID,
         previewState: previewState,
         speechInputController: speechInputController,
+        onSendMessage: onSendMessage,
         onOpenAudioModels: onOpenAudioModels
       )
 

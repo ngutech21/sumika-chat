@@ -624,7 +624,7 @@ struct AppStateTests {
   }
 
   @Test
-  func addWorkspaceRoutesToWorkspaceWithoutSelectingCreatedChat() async throws {
+  func addWorkspaceRoutesToCreatedChat() async throws {
     let workspaceURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
     defer {
@@ -646,13 +646,63 @@ struct AppStateTests {
 
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
       library.activeWorkspaceID == workspaceID
-        && library.activeSessionID == nil
+        && library.activeSessionID != nil
         && library.workspaces.first?.sessions.count == 1
     }
+    let sessionID = try #require(savedLibrary.activeSessionID)
     #expect(savedLibrary.activeWorkspaceID == workspaceID)
-    #expect(savedLibrary.activeSessionID == nil)
-    #expect(appState.route == .workspace(workspaceID))
-    #expect(appState.workspaceState.activeSessionID == nil)
+    #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
+    #expect(appState.workspaceState.activeSessionID == sessionID)
+    #expect(appState.chatController.chatSession.id == sessionID)
+  }
+
+  @Test
+  func sendingFromWorkspaceRouteCreatesSessionBeforePersistingTurn() async throws {
+    let workspaceID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: []
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: nil
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime(eventTurns: [[.chunk("Persisted reply.")]])
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+    let context = try #require(appState.workspaceState.activeWorkspaceContext)
+    appState.chatController.modelRuntime.modelState = .ready
+
+    let didSend = appState.sendMessage(prompt: "Create a chat", in: context, sessionID: nil)
+
+    #expect(didSend)
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      guard
+        let sessionID = library.activeSessionID,
+        let savedSession = library.workspaces.first?.sessions.first(where: { $0.id == sessionID })
+      else {
+        return false
+      }
+      return savedSession.transcriptTextForAppStateTesting == [
+        "Create a chat",
+        "Persisted reply.",
+      ]
+    }
+    let sessionID = try #require(savedLibrary.activeSessionID)
+    #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
+    #expect(appState.chatController.chatSession.id == sessionID)
   }
 
   @Test

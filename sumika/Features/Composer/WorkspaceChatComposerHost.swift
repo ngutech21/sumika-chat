@@ -8,6 +8,7 @@ struct WorkspaceChatComposerHost: View {
   let sessionID: ChatSession.ID?
   let previewState: WorkspacePreviewFeatureState
   let speechInputController: ComposerSpeechInputController
+  let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
   let onOpenAudioModels: () -> Void
 
   private static let slashCommandParser = SlashCommandParser()
@@ -21,14 +22,7 @@ struct WorkspaceChatComposerHost: View {
         break
       }
 
-      if let sessionID {
-        return controller.sendMessage(
-          prompt: submittedDraft,
-          in: context.workspace(containing: sessionID),
-          sessionID: sessionID
-        )
-      }
-      return controller.sendMessage(prompt: submittedDraft, in: context.workspaceWithoutSessions)
+      return onSendMessage(submittedDraft, context, sessionID)
     }
   }
 

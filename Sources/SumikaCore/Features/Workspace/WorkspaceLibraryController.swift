@@ -120,7 +120,7 @@ public struct WorkspaceLibraryController {
 
     library.workspaces.append(workspace)
     library.activeWorkspaceID = workspace.id
-    library.activeSessionID = nil
+    library.activeSessionID = session.id
     return workspace.id
   }
 

@@ -41,6 +41,24 @@ struct WorkspaceLibraryControllerTests {
   }
 
   @Test
+  func addNewWorkspaceSelectsCreatedDefaultSession() throws {
+    var controller = makeController(library: WorkspaceLibrary())
+
+    let addedWorkspaceID = controller.addWorkspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory)
+    )
+    let workspaceID = try #require(addedWorkspaceID)
+    let workspace = try #require(controller.library.workspaces.first)
+    let session = try #require(workspace.sessions.first)
+
+    #expect(workspace.id == workspaceID)
+    #expect(controller.library.activeWorkspaceID == workspaceID)
+    #expect(controller.library.activeSessionID == session.id)
+    #expect(controller.activeSession?.id == session.id)
+  }
+
+  @Test
   func normalizeLoadedLibraryDeduplicatesWorkspacesByNormalizedRootPath() {
     let firstWorkspace = Workspace(
       name: "Project",

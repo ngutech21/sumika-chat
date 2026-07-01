@@ -138,7 +138,7 @@ final class AppState {
     guard change.selectionChanged, let workspaceID = workspaceState.activeWorkspace?.id else {
       return nil
     }
-    route = .workspace(workspaceID)
+    route = routeFromWorkspaceSelection()
     loadRouteSession()
     return workspaceID
   }
@@ -157,6 +157,29 @@ final class AppState {
     route = .chat(workspaceID: activeWorkspaceID, sessionID: sessionID)
     loadRouteSession()
     return sessionID
+  }
+
+  func sendMessage(
+    prompt: String,
+    in context: WorkspaceChatContext,
+    sessionID: ChatSession.ID?
+  ) -> Bool {
+    if let sessionID {
+      return chatController.sendMessage(
+        prompt: prompt,
+        in: context.workspace(containing: sessionID),
+        sessionID: sessionID
+      )
+    }
+
+    guard let createdSessionID = createSession(in: context.id) else {
+      return false
+    }
+    return chatController.sendMessage(
+      prompt: prompt,
+      in: context.workspace(containing: createdSessionID),
+      sessionID: createdSessionID
+    )
   }
 
   func navigate(to requestedRoute: AppRoute?) {

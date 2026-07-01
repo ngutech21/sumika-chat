@@ -84,6 +84,7 @@ struct ContentView: View {
           isWorkspaceTerminalVisible: $isTerminalVisible,
           onAddWorkspace: chooseWorkspace,
           onCreateSession: createSession,
+          onSendMessage: appState.sendMessage,
           onOpenAudioModels: openAudioModels
         )
       case .chat(_, let sessionID):
@@ -100,6 +101,7 @@ struct ContentView: View {
           isWorkspaceTerminalVisible: $isTerminalVisible,
           onAddWorkspace: chooseWorkspace,
           onCreateSession: createSession,
+          onSendMessage: appState.sendMessage,
           onOpenAudioModels: openAudioModels
         )
       }
@@ -223,6 +225,7 @@ private struct WorkspaceRouteHost: View {
   @Binding var isWorkspaceTerminalVisible: Bool
   let onAddWorkspace: () -> Void
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
+  let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
   let onOpenAudioModels: () -> Void
 
   var body: some View {
@@ -239,6 +242,7 @@ private struct WorkspaceRouteHost: View {
         isModelContextDebugVisible: $isModelContextDebugVisible,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
         onCreateSession: onCreateSession,
+        onSendMessage: onSendMessage,
         onOpenAudioModels: onOpenAudioModels
       )
       .equatable()
