@@ -27,16 +27,16 @@ struct WorkspaceLibraryControllerTests {
       library: WorkspaceLibrary(workspaces: [workspace])
     )
 
-    let activatedSessionID = controller.addWorkspace(
+    let activatedWorkspaceID = controller.addWorkspace(
       name: "Project Copy",
       rootURL: URL(filePath: "/tmp/project/", directoryHint: .isDirectory),
       bookmarkData: Data([1, 2, 3])
     )
 
-    #expect(activatedSessionID == sessionID)
+    #expect(activatedWorkspaceID == workspaceID)
     #expect(controller.library.workspaces.count == 1)
     #expect(controller.library.activeWorkspaceID == workspaceID)
-    #expect(controller.library.activeSessionID == sessionID)
+    #expect(controller.library.activeSessionID == nil)
     #expect(controller.library.workspaces.first?.bookmarkData == nil)
   }
 
@@ -60,7 +60,7 @@ struct WorkspaceLibraryControllerTests {
 
     #expect(controller.library.workspaces.map(\.id) == [firstWorkspace.id])
     #expect(controller.library.activeWorkspaceID == firstWorkspace.id)
-    #expect(controller.library.activeSessionID == firstWorkspace.sessions.first?.id)
+    #expect(controller.library.activeSessionID == nil)
   }
 
   @Test
@@ -88,7 +88,7 @@ struct WorkspaceLibraryControllerTests {
     #expect(controller.library.activeSessionID == secondSessionID)
     #expect(controller.activeSession?.title == "New Session")
 
-    controller.selectSession(firstSessionID)
+    controller.selectChat(workspaceID: workspaceID, sessionID: firstSessionID)
     #expect(controller.library.activeSessionID == firstSessionID)
 
     controller.renameSession(firstSessionID, title: "  Renamed  ")
@@ -98,18 +98,18 @@ struct WorkspaceLibraryControllerTests {
     #expect(controller.activeSession?.title == "Renamed")
 
     controller.deleteSession(firstSessionID)
-    #expect(controller.library.activeSessionID == secondSessionID)
-    #expect(controller.activeSession?.id == secondSessionID)
+    #expect(controller.library.activeWorkspaceID == workspaceID)
+    #expect(controller.library.activeSessionID == nil)
+    #expect(controller.activeSession == nil)
 
     controller.deleteSession(secondSessionID)
     let remainingSessions = try #require(controller.activeWorkspace?.sessions)
-    #expect(remainingSessions.count == 1)
-    #expect(controller.library.activeSessionID == remainingSessions.first?.id)
-    #expect(remainingSessions.first?.title == "New Session")
+    #expect(remainingSessions.isEmpty)
+    #expect(controller.library.activeSessionID == nil)
   }
 
   @Test
-  func selectWorkspaceActivatesFirstSessionAndRepairsEmptyWorkspace() throws {
+  func selectWorkspaceClearsActiveSessionAndAllowsEmptyWorkspace() throws {
     let firstWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000701")
     let firstSessionID = fixedUUID("00000000-0000-0000-0000-000000000702")
     let secondWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000703")
@@ -133,14 +133,53 @@ struct WorkspaceLibraryControllerTests {
       )
     )
 
-    let selectedSessionID = controller.selectWorkspace(secondWorkspaceID)
+    let didSelectWorkspace = controller.selectWorkspace(secondWorkspaceID)
 
     let activeWorkspace = try #require(controller.activeWorkspace)
-    let activeSession = try #require(controller.activeSession)
-    #expect(selectedSessionID == activeSession.id)
+    #expect(didSelectWorkspace)
     #expect(activeWorkspace.id == secondWorkspaceID)
-    #expect(activeWorkspace.sessions.count == 1)
-    #expect(activeSession.title == "New Session")
+    #expect(activeWorkspace.sessions.isEmpty)
+    #expect(controller.library.activeSessionID == nil)
+    #expect(controller.activeSession == nil)
+  }
+
+  @Test
+  func selectChatValidatesWorkspaceAndSessionPair() {
+    let firstWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000801")
+    let firstSessionID = fixedUUID("00000000-0000-0000-0000-000000000802")
+    let secondWorkspaceID = fixedUUID("00000000-0000-0000-0000-000000000803")
+    let secondSessionID = fixedUUID("00000000-0000-0000-0000-000000000804")
+    let firstWorkspace = Workspace(
+      id: firstWorkspaceID,
+      name: "First",
+      rootURL: URL(filePath: "/tmp/first", directoryHint: .isDirectory),
+      sessions: [makeSession(id: firstSessionID)]
+    )
+    let secondWorkspace = Workspace(
+      id: secondWorkspaceID,
+      name: "Second",
+      rootURL: URL(filePath: "/tmp/second", directoryHint: .isDirectory),
+      sessions: [makeSession(id: secondSessionID)]
+    )
+    var controller = makeController(
+      library: WorkspaceLibrary(workspaces: [firstWorkspace, secondWorkspace])
+    )
+
+    let didRejectMismatchedPair = controller.selectChat(
+      workspaceID: secondWorkspaceID,
+      sessionID: firstSessionID
+    )
+    #expect(!didRejectMismatchedPair)
+    #expect(controller.library.activeWorkspaceID == nil)
+    #expect(controller.library.activeSessionID == nil)
+
+    let didSelectChat = controller.selectChat(
+      workspaceID: secondWorkspaceID,
+      sessionID: secondSessionID
+    )
+    #expect(didSelectChat)
+    #expect(controller.library.activeWorkspaceID == secondWorkspaceID)
+    #expect(controller.library.activeSessionID == secondSessionID)
   }
 
   @Test
@@ -207,7 +246,7 @@ struct WorkspaceLibraryControllerTests {
     #expect(didRemoveFirstWorkspace)
     #expect(controller.library.workspaces.map(\.id) == [secondWorkspaceID])
     #expect(controller.library.activeWorkspaceID == secondWorkspaceID)
-    #expect(controller.library.activeSessionID == secondSessionID)
+    #expect(controller.library.activeSessionID == nil)
 
     let didRemoveSecondWorkspace = controller.removeWorkspace(secondWorkspaceID)
     #expect(didRemoveSecondWorkspace)
@@ -238,11 +277,10 @@ struct WorkspaceLibraryControllerTests {
     controller.normalizeLoadedLibrary()
 
     let activeWorkspace = try #require(controller.activeWorkspace)
-    let activeSession = try #require(controller.activeSession)
     #expect(activeWorkspace.id == validWorkspaceID)
-    #expect(activeWorkspace.sessions.count == 1)
-    #expect(activeSession.selectedModelID == "gemma4-12b-qat-4bit")
-    #expect(activeSession.systemPrompt == "Default system")
+    #expect(activeWorkspace.sessions.isEmpty)
+    #expect(controller.library.activeSessionID == nil)
+    #expect(controller.activeSession == nil)
   }
 
   @Test

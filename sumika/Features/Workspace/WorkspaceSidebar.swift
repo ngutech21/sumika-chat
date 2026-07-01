@@ -4,7 +4,7 @@ import SwiftUI
 struct WorkspaceSidebar: View {
   let sidebarState: WorkspaceSidebarState
   let modelRuntime: ModelRuntimeController
-  @Binding var selection: AppNavigationSelection?
+  @Binding var selection: AppRoute?
   let onAddWorkspace: () -> Void
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
   let onRenameSession: (ChatSession.ID, String) -> Void
@@ -99,7 +99,7 @@ struct WorkspaceSidebar: View {
       Image(systemName: "cpu")
         .foregroundStyle(.secondary)
     }
-    .tag(AppNavigationSelection.models)
+    .tag(AppRoute.models)
     .accessibilityIdentifier("sidebar.modelsLink")
     .accessibilityValue(selection == .models ? "Selected" : "")
   }
@@ -108,7 +108,7 @@ struct WorkspaceSidebar: View {
   private func workspaceSection(_ workspace: WorkspaceSidebarWorkspace) -> some View {
     DisclosureGroup(isExpanded: expansionBinding(for: workspace.id)) {
       ForEach(workspace.sessions) { session in
-        sessionRow(session)
+        sessionRow(session, in: workspace.id)
       }
     } label: {
       Label {
@@ -118,14 +118,8 @@ struct WorkspaceSidebar: View {
           .truncationMode(.tail)
       } icon: {
         Image(systemName: isExpanded(workspace.id) ? "folder" : "folder.fill")
-          .foregroundStyle(.tint)
+          .foregroundStyle(Color.accentColor)
       }
-      .contentShape(Rectangle())
-      .simultaneousGesture(
-        TapGesture().onEnded {
-          selectWorkspace(workspace.id)
-        }
-      )
       .contextMenu {
         Button("New Chat") {
           createSession(in: workspace.id)
@@ -138,20 +132,25 @@ struct WorkspaceSidebar: View {
         }
       }
     }
-    .tag(AppNavigationSelection.workspace(workspace.id))
+    .tag(AppRoute.workspace(workspace.id))
     .accessibilityIdentifier("sidebar.workspaceDisclosure")
-    .accessibilityValue(isExpanded(workspace.id) ? "Expanded" : "Collapsed")
+    .accessibilityValue(
+      workspaceAccessibilityValue(workspace.id, isSelected: selection == .workspace(workspace.id))
+    )
   }
 
-  private func sessionRow(_ session: WorkspaceSidebarSession) -> some View {
-    let item = AppNavigationSelection.session(session.id)
+  private func sessionRow(
+    _ session: WorkspaceSidebarSession,
+    in workspaceID: Workspace.ID
+  ) -> some View {
+    let route = AppRoute.chat(workspaceID: workspaceID, sessionID: session.id)
 
     return Text(session.displayTitle)
       .lineLimit(1)
       .truncationMode(.tail)
-      .tag(item)
+      .tag(route)
       .accessibilityIdentifier("sidebar.sessionLink")
-      .accessibilityValue(selection == item ? "Selected" : "")
+      .accessibilityValue(selection == route ? "Selected" : "")
       .contextMenu {
         Button("Rename Chat") {
           sessionBeingRenamed = session
@@ -172,13 +171,15 @@ struct WorkspaceSidebar: View {
 
   private func createSession(in workspaceID: Workspace.ID) {
     setWorkspace(workspaceID, isExpanded: true)
-    if let sessionID = onCreateSession(workspaceID) {
-      selection = .session(sessionID)
-    }
+    _ = onCreateSession(workspaceID)
   }
 
-  private func selectWorkspace(_ workspaceID: Workspace.ID) {
-    selection = .workspace(workspaceID)
+  private func workspaceAccessibilityValue(
+    _ workspaceID: Workspace.ID,
+    isSelected: Bool
+  ) -> String {
+    let expansionValue = isExpanded(workspaceID) ? "Expanded" : "Collapsed"
+    return isSelected ? "\(expansionValue), Selected" : expansionValue
   }
 
   private func expansionBinding(for workspaceID: Workspace.ID) -> Binding<Bool> {

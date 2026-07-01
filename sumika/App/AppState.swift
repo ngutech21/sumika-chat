@@ -10,6 +10,7 @@ final class AppState {
   let assistantSpeechService: AssistantSpeechService
   let audioModelController: ComposerAudioModelController
   let composerSpeechInputController: ComposerSpeechInputController
+  private(set) var route: AppRoute?
   @ObservationIgnored let chatController: ChatSessionController
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
@@ -130,47 +131,116 @@ final class AppState {
   }
 
   @discardableResult
-  func addWorkspace(from url: URL) -> ChatSession.ID? {
+  func addWorkspace(from url: URL) -> Workspace.ID? {
     persistActiveSession()
     refreshDefaultSessionFactory()
     let change = workspaceState.addWorkspace(from: url)
-    loadActiveSession(ifNeededFor: change)
-    return change.activeSessionID
+    guard change.selectionChanged, let workspaceID = workspaceState.activeWorkspace?.id else {
+      return nil
+    }
+    route = .workspace(workspaceID)
+    loadRouteSession()
+    return workspaceID
   }
 
   @discardableResult
   func createSession(in workspaceID: Workspace.ID? = nil) -> ChatSession.ID? {
+    persistActiveSession()
     refreshDefaultSessionFactory()
     let change = workspaceState.createSession(in: workspaceID)
-    loadActiveSession(ifNeededFor: change)
-    return change.activeSessionID
+    guard
+      let sessionID = change.activeSessionID,
+      let activeWorkspaceID = workspaceState.activeWorkspace?.id
+    else {
+      return nil
+    }
+    route = .chat(workspaceID: activeWorkspaceID, sessionID: sessionID)
+    loadRouteSession()
+    return sessionID
   }
 
-  func selectSession(_ sessionID: ChatSession.ID) {
+  func navigate(to requestedRoute: AppRoute?) {
+    guard let requestedRoute else {
+      return
+    }
+
+    switch requestedRoute {
+    case .models:
+      selectModels()
+    case .workspace(let workspaceID):
+      selectWorkspace(workspaceID)
+    case .chat(let workspaceID, let sessionID):
+      selectChat(workspaceID: workspaceID, sessionID: sessionID)
+    }
+  }
+
+  func selectModels() {
     persistActiveSession()
-    let change = workspaceState.selectSession(sessionID)
-    loadActiveSession(ifNeededFor: change)
+    route = .models
+  }
+
+  func renameSession(_ sessionID: ChatSession.ID, title: String) {
+    workspaceState.renameSession(sessionID, title: title)
+
+    guard
+      chatController.chatSession.id == sessionID,
+      let renamedSession = workspaceState.library.workspaces
+        .flatMap(\.sessions)
+        .first(where: { $0.id == sessionID })
+    else {
+      return
+    }
+
+    chatController.chatSession.title = renamedSession.title
   }
 
   @discardableResult
-  func selectWorkspace(_ workspaceID: Workspace.ID) -> ChatSession.ID? {
+  func selectWorkspace(_ workspaceID: Workspace.ID) -> Bool {
     persistActiveSession()
     let change = workspaceState.selectWorkspace(workspaceID)
-    loadActiveSession(ifNeededFor: change)
-    return change.activeSessionID
+    guard change.selectionChanged else {
+      return false
+    }
+    route = .workspace(workspaceID)
+    loadRouteSession()
+    return true
+  }
+
+  @discardableResult
+  func selectChat(workspaceID: Workspace.ID, sessionID: ChatSession.ID) -> Bool {
+    persistActiveSession()
+    let change = workspaceState.selectChat(workspaceID: workspaceID, sessionID: sessionID)
+    guard change.selectionChanged else {
+      return false
+    }
+    route = .chat(workspaceID: workspaceID, sessionID: sessionID)
+    loadRouteSession()
+    return true
   }
 
   func deleteSession(_ sessionID: ChatSession.ID) {
+    let currentRoute = route
     persistActiveSession()
     refreshDefaultSessionFactory()
-    let change = workspaceState.deleteSession(sessionID)
-    loadActiveSession(ifNeededFor: change)
+    _ = workspaceState.deleteSession(sessionID)
+
+    if case .chat(let workspaceID, let routedSessionID) = currentRoute,
+      routedSessionID == sessionID
+    {
+      route = routeAfterRemovingActiveChat(in: workspaceID)
+      loadRouteSession()
+    }
   }
 
   func removeWorkspace(_ workspaceID: Workspace.ID) {
+    let currentRoute = route
     persistActiveSession()
-    let change = workspaceState.removeWorkspace(workspaceID)
-    loadActiveSession(ifNeededFor: change)
+    _ = workspaceState.removeWorkspace(workspaceID)
+
+    if currentRoute?.workspaceID == workspaceID {
+      route = routeFromWorkspaceSelection()
+      loadRouteSession()
+    }
   }
 
   func updateAppBehaviorSettings(_ settings: AppBehaviorSettings) {
@@ -182,36 +252,35 @@ final class AppState {
     chatController.modelRuntime.prepareDefaultModelDirectory()
     chatController.modelRuntime.startResourceMonitoring()
     audioModelController.refreshAvailability()
+    routeToModelsIfNoTextModelIsDownloaded()
     attemptAutoloadLastModelIfReady()
   }
 
-  func persistActiveSession() {
+  @discardableResult
+  func persistActiveSession() -> Bool {
     guard
-      let currentSession = workspaceState.activeSession
+      let currentSession = workspaceState.activeSession,
+      chatController.chatSession.id == currentSession.id
     else {
-      return
+      return false
     }
 
     workspaceState.persistActiveSessionSnapshot(
       chatController.sessionSnapshot(updating: currentSession)
     )
+    return true
   }
 
-  private func loadActiveSession() {
-    guard let activeSession = workspaceState.activeSession else {
+  private func loadRouteSession() {
+    guard
+      case .chat = route,
+      let activeSession = workspaceState.activeSession
+    else {
       chatController.loadSession(emptySessionForNoActiveWorkspace())
       return
     }
 
     chatController.loadSession(activeSession)
-  }
-
-  private func loadActiveSession(ifNeededFor change: WorkspaceSelectionChange) {
-    guard change.activeSessionChanged else {
-      return
-    }
-
-    loadActiveSession()
   }
 
   private func applyAppBehaviorSettings(_ settings: AppBehaviorSettings) {
@@ -276,8 +345,41 @@ final class AppState {
       defaultSessionModeSettings = settings.modeSettings
       let defaultSessionFactory = self.makeDefaultSessionFactory()
       await self.workspaceState.loadLibrary(defaultSessionFactory: defaultSessionFactory)
-      self.loadActiveSession()
+      if self.route != .models {
+        self.route = self.routeFromWorkspaceSelection()
+      }
+      self.loadRouteSession()
       self.attemptAutoloadLastModelIfReady()
+    }
+  }
+
+  private func routeFromWorkspaceSelection() -> AppRoute? {
+    guard let workspaceID = workspaceState.activeWorkspace?.id else {
+      return nil
+    }
+
+    if let sessionID = workspaceState.activeSessionID {
+      return .chat(workspaceID: workspaceID, sessionID: sessionID)
+    }
+
+    return .workspace(workspaceID)
+  }
+
+  private func routeAfterRemovingActiveChat(in workspaceID: Workspace.ID) -> AppRoute? {
+    if workspaceState.library.workspaces.contains(where: { $0.id == workspaceID }) {
+      return .workspace(workspaceID)
+    }
+
+    return routeFromWorkspaceSelection()
+  }
+
+  private func routeToModelsIfNoTextModelIsDownloaded() {
+    let modelRuntime = chatController.modelRuntime
+    let hasDownloadedModel = modelRuntime.availableModels.contains {
+      modelRuntime.isModelDownloaded($0)
+    }
+    if !hasDownloadedModel {
+      selectModels()
     }
   }
 
@@ -294,4 +396,17 @@ final class AppState {
     chatController.modelRuntime.loadSelectedModel()
   }
 
+}
+
+extension AppRoute {
+  fileprivate var workspaceID: Workspace.ID? {
+    switch self {
+    case .models:
+      nil
+    case .workspace(let workspaceID):
+      workspaceID
+    case .chat(let workspaceID, _):
+      workspaceID
+    }
+  }
 }

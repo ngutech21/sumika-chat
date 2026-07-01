@@ -6,7 +6,6 @@ struct ContentView: View {
   @AppStorage("workspaceChat.isModelContextDebugVisible") private var isModelContextDebugVisible =
     false
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible = false
-  @State private var selection: AppNavigationSelection?
   @State private var modelsTab = ModelsTab.text
   @State private var appState: AppState
   @State private var workspaceChatActions: WorkspaceChatActions
@@ -35,12 +34,10 @@ struct ContentView: View {
       WorkspaceSidebar(
         sidebarState: appState.workspaceState.sidebarState,
         modelRuntime: appState.chatController.modelRuntime,
-        selection: $selection,
+        selection: routeSelection,
         onAddWorkspace: chooseWorkspace,
         onCreateSession: createSession,
-        onRenameSession: { sessionID, title in
-          appState.workspaceState.renameSession(sessionID, title: title)
-        },
+        onRenameSession: appState.renameSession,
         onDeleteSession: deleteSession,
         onRemoveWorkspace: appState.removeWorkspace
       )
@@ -50,40 +47,8 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .frame(minWidth: 880, minHeight: 560)
-    .onChange(of: selection) {
-      switch selection {
-      case .models, nil:
-        break
-      case .workspace(let workspaceID):
-        appState.selectWorkspace(workspaceID)
-      case .session(let sessionID):
-        appState.selectSession(sessionID)
-      }
-    }
-    .onChange(of: appState.workspaceState.activeSessionID) {
-      if case .workspace(let workspaceID) = selection,
-        appState.workspaceState.activeWorkspace?.id == workspaceID
-      {
-        return
-      }
-
-      if let sessionID = appState.workspaceState.activeSessionID {
-        selection = .session(sessionID)
-      } else if selection != .models {
-        selection = nil
-      }
-    }
     .onAppear {
       appState.startModelRuntimeServices()
-      let modelRuntime = controller.modelRuntime
-      let hasDownloadedModel = modelRuntime.availableModels.contains {
-        modelRuntime.isModelDownloaded($0)
-      }
-      if !hasDownloadedModel {
-        selection = .models
-      } else if let sessionID = appState.workspaceState.activeSessionID {
-        selection = .session(sessionID)
-      }
     }
     .modifier(
       WorkspaceErrorAlert(
@@ -96,19 +61,35 @@ struct ContentView: View {
 
   @ViewBuilder
   private func detailContent(controller: ChatSessionController) -> some View {
-    if let selection {
-      switch selection {
+    if let route = appState.route {
+      switch route {
       case .models:
         ModelsRouteHost(
           controller: controller,
           audioModelController: appState.audioModelController,
           selectedTab: $modelsTab,
-          onPersistActiveSession: appState.persistActiveSession
+          onPersistActiveSession: { _ = appState.persistActiveSession() }
         )
-      case .workspace, .session:
+      case .workspace:
         WorkspaceRouteHost(
           activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
-          activeSessionID: appState.workspaceState.activeSessionID,
+          activeSessionID: nil,
+          controller: appState.chatController,
+          browserToolService: appState.browserToolService,
+          appBehaviorSettings: appState.settingsState.appBehaviorSettings,
+          assistantSpeechService: appState.assistantSpeechService,
+          speechInputController: appState.composerSpeechInputController,
+          workspaceChatActions: workspaceChatActions,
+          isModelContextDebugVisible: modelContextDebugVisibilityBinding,
+          isWorkspaceTerminalVisible: $isTerminalVisible,
+          onAddWorkspace: chooseWorkspace,
+          onCreateSession: createSession,
+          onOpenAudioModels: openAudioModels
+        )
+      case .chat(_, let sessionID):
+        WorkspaceRouteHost(
+          activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
+          activeSessionID: sessionID,
           controller: appState.chatController,
           browserToolService: appState.browserToolService,
           appBehaviorSettings: appState.settingsState.appBehaviorSettings,
@@ -125,6 +106,15 @@ struct ContentView: View {
     } else {
       EmptyWorkspaceView(onAddWorkspace: chooseWorkspace)
     }
+  }
+
+  private var routeSelection: Binding<AppRoute?> {
+    Binding(
+      get: { appState.route },
+      set: { newRoute in
+        appState.navigate(to: newRoute)
+      }
+    )
   }
 
   private var workspaceErrorAlertBinding: Binding<Bool> {
@@ -155,39 +145,22 @@ struct ContentView: View {
     panel.message = "Choose a folder to use as a Sumika workspace."
     panel.prompt = "Add Workspace"
 
-    if panel.runModal() == .OK, let url = panel.url,
-      let sessionID = appState.addWorkspace(from: url)
-    {
-      selection = .session(sessionID)
+    if panel.runModal() == .OK, let url = panel.url {
+      _ = appState.addWorkspace(from: url)
     }
   }
 
   private func createSession(in workspaceID: Workspace.ID) -> ChatSession.ID? {
-    guard let sessionID = appState.createSession(in: workspaceID) else {
-      return nil
-    }
-    selection = .session(sessionID)
-    return sessionID
+    appState.createSession(in: workspaceID)
   }
 
   private func deleteSession(_ sessionID: ChatSession.ID) {
-    let wasSelected = selection == .session(sessionID)
     appState.deleteSession(sessionID)
-
-    guard wasSelected else {
-      return
-    }
-
-    if let activeSessionID = appState.workspaceState.activeSessionID {
-      selection = .session(activeSessionID)
-    } else if selection != .models {
-      selection = nil
-    }
   }
 
   private func openAudioModels() {
     modelsTab = .audio
-    selection = .models
+    appState.selectModels()
   }
 
 }

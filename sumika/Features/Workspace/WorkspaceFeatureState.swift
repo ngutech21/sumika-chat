@@ -3,17 +3,17 @@ import Observation
 import SumikaCore
 
 struct WorkspaceSelectionChange: Equatable {
-  let activeSessionChanged: Bool
+  let selectionChanged: Bool
   let activeSessionID: ChatSession.ID?
 
   static let unchanged = WorkspaceSelectionChange(
-    activeSessionChanged: false,
+    selectionChanged: false,
     activeSessionID: nil
   )
 
   static func changed(_ activeSessionID: ChatSession.ID?) -> WorkspaceSelectionChange {
     WorkspaceSelectionChange(
-      activeSessionChanged: true,
+      selectionChanged: true,
       activeSessionID: activeSessionID
     )
   }
@@ -81,14 +81,14 @@ final class WorkspaceFeatureState {
   @discardableResult
   func addWorkspace(from url: URL) -> WorkspaceSelectionChange {
     let rootURL = url.standardizedFileURL.resolvingSymlinksInPath()
-    let sessionID = workspaceLibraryController.addWorkspace(
+    let workspaceID = workspaceLibraryController.addWorkspace(
       name: rootURL.lastPathComponent,
       rootURL: rootURL,
       bookmarkData: makeSecurityScopedBookmarkData(for: rootURL)
     )
     syncWorkspaceProjections()
     saveLibrary()
-    return .changed(sessionID)
+    return workspaceID == nil ? .unchanged : .changed(activeSessionID)
   }
 
   @discardableResult
@@ -102,8 +102,12 @@ final class WorkspaceFeatureState {
   }
 
   @discardableResult
-  func selectSession(_ sessionID: ChatSession.ID) -> WorkspaceSelectionChange {
-    guard workspaceLibraryController.selectSession(sessionID) else {
+  func selectChat(
+    workspaceID: Workspace.ID,
+    sessionID: ChatSession.ID
+  ) -> WorkspaceSelectionChange {
+    guard workspaceLibraryController.selectChat(workspaceID: workspaceID, sessionID: sessionID)
+    else {
       return .unchanged
     }
     syncWorkspaceProjections()
@@ -113,12 +117,12 @@ final class WorkspaceFeatureState {
 
   @discardableResult
   func selectWorkspace(_ workspaceID: Workspace.ID) -> WorkspaceSelectionChange {
-    guard let sessionID = workspaceLibraryController.selectWorkspace(workspaceID) else {
+    guard workspaceLibraryController.selectWorkspace(workspaceID) else {
       return .unchanged
     }
     syncWorkspaceProjections()
     saveLibrary()
-    return .changed(sessionID)
+    return .changed(activeSessionID)
   }
 
   func renameSession(_ sessionID: ChatSession.ID, title: String) {

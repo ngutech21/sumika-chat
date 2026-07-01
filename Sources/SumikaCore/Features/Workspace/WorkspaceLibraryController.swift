@@ -72,6 +72,10 @@ public struct WorkspaceLibraryController {
     return library.workspaces.first { $0.id == activeWorkspaceID }
   }
 
+  public var activeWorkspaceID: Workspace.ID? {
+    library.activeWorkspaceID
+  }
+
   public var activeSession: ChatSession? {
     guard
       let activeWorkspace,
@@ -92,15 +96,15 @@ public struct WorkspaceLibraryController {
     name: String,
     rootURL: URL,
     bookmarkData: Data? = nil
-  ) -> ChatSession.ID? {
+  ) -> Workspace.ID? {
     let normalizedRootURL = rootURL.standardizedFileURL.resolvingSymlinksInPath()
     let normalizedPath = Workspace.normalizedPath(for: normalizedRootURL)
 
     if let existingWorkspace = library.workspaces.first(where: {
       $0.normalizedRootPath == normalizedPath
     }) {
-      activateWorkspace(existingWorkspace.id)
-      return library.activeSessionID
+      selectWorkspace(existingWorkspace.id)
+      return existingWorkspace.id
     }
 
     let currentDate = now()
@@ -116,8 +120,8 @@ public struct WorkspaceLibraryController {
 
     library.workspaces.append(workspace)
     library.activeWorkspaceID = workspace.id
-    library.activeSessionID = session.id
-    return session.id
+    library.activeSessionID = nil
+    return workspace.id
   }
 
   @discardableResult
@@ -138,11 +142,13 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func selectSession(_ sessionID: ChatSession.ID) -> Bool {
+  public mutating func selectChat(
+    workspaceID: Workspace.ID,
+    sessionID: ChatSession.ID
+  ) -> Bool {
     guard
-      let workspaceIndex = library.workspaces.firstIndex(where: { workspace in
-        workspace.sessions.contains { $0.id == sessionID }
-      })
+      let workspaceIndex = workspaceIndex(for: workspaceID),
+      library.workspaces[workspaceIndex].sessions.contains(where: { $0.id == sessionID })
     else {
       return false
     }
@@ -153,13 +159,14 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func selectWorkspace(_ workspaceID: Workspace.ID) -> ChatSession.ID? {
+  public mutating func selectWorkspace(_ workspaceID: Workspace.ID) -> Bool {
     guard workspaceIndex(for: workspaceID) != nil else {
-      return nil
+      return false
     }
 
-    activateWorkspace(workspaceID)
-    return library.activeSessionID
+    library.activeWorkspaceID = workspaceID
+    library.activeSessionID = nil
+    return true
   }
 
   @discardableResult
@@ -197,15 +204,9 @@ public struct WorkspaceLibraryController {
     let wasActiveSession = library.activeSessionID == sessionID
     library.workspaces[workspaceIndex].sessions.removeAll { $0.id == sessionID }
 
-    if library.workspaces[workspaceIndex].sessions.isEmpty {
-      let currentDate = now()
-      let replacementSession = makeDefaultSession(createdAt: currentDate, updatedAt: currentDate)
-      library.workspaces[workspaceIndex].sessions = [replacementSession]
+    if wasActiveSession {
       library.activeWorkspaceID = library.workspaces[workspaceIndex].id
-      library.activeSessionID = replacementSession.id
-    } else if wasActiveSession {
-      library.activeWorkspaceID = library.workspaces[workspaceIndex].id
-      library.activeSessionID = library.workspaces[workspaceIndex].sessions.first?.id
+      library.activeSessionID = nil
     }
 
     library.workspaces[workspaceIndex].updatedAt = now()
@@ -231,7 +232,7 @@ public struct WorkspaceLibraryController {
       let replacementWorkspaceIndex = min(removedWorkspaceIndex, library.workspaces.count - 1)
       let replacementWorkspace = library.workspaces[replacementWorkspaceIndex]
       library.activeWorkspaceID = replacementWorkspace.id
-      library.activeSessionID = replacementWorkspace.sessions.first?.id
+      library.activeSessionID = nil
     }
 
     return true
@@ -253,9 +254,8 @@ public struct WorkspaceLibraryController {
 
     if library.activeWorkspaceID == nil {
       library.activeWorkspaceID = library.workspaces.first?.id
+      library.activeSessionID = nil
     }
-
-    ensureActiveWorkspaceHasSession()
 
     if let activeWorkspaceIndex,
       let activeSessionID = library.activeSessionID,
@@ -263,7 +263,7 @@ public struct WorkspaceLibraryController {
         $0.id == activeSessionID
       })
     {
-      library.activeSessionID = library.workspaces[activeWorkspaceIndex].sessions.first?.id
+      library.activeSessionID = nil
     }
   }
 
@@ -277,36 +277,6 @@ public struct WorkspaceLibraryController {
 
     library.workspaces[workspaceIndex].sessions[sessionIndex] = snapshot
     library.workspaces[workspaceIndex].updatedAt = now()
-  }
-
-  private mutating func activateWorkspace(_ workspaceID: Workspace.ID) {
-    library.activeWorkspaceID = workspaceID
-
-    if let workspaceIndex = workspaceIndex(for: workspaceID) {
-      if library.workspaces[workspaceIndex].sessions.isEmpty {
-        let currentDate = now()
-        let session = makeDefaultSession(createdAt: currentDate, updatedAt: currentDate)
-        library.workspaces[workspaceIndex].sessions = [session]
-        library.activeSessionID = session.id
-      } else {
-        library.activeSessionID = library.workspaces[workspaceIndex].sessions.first?.id
-      }
-    }
-  }
-
-  private mutating func ensureActiveWorkspaceHasSession() {
-    guard let activeWorkspaceIndex else {
-      return
-    }
-
-    if library.workspaces[activeWorkspaceIndex].sessions.isEmpty {
-      let currentDate = now()
-      let session = makeDefaultSession(createdAt: currentDate, updatedAt: currentDate)
-      library.workspaces[activeWorkspaceIndex].sessions = [session]
-      library.activeSessionID = session.id
-    } else if library.activeSessionID == nil {
-      library.activeSessionID = library.workspaces[activeWorkspaceIndex].sessions.first?.id
-    }
   }
 
   private func makeDefaultSession(createdAt: Date, updatedAt: Date) -> ChatSession {

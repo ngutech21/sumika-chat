@@ -375,7 +375,288 @@ struct AppStateTests {
   }
 
   @Test
-  func deleteActiveSessionLoadsReplacementSession() async throws {
+  func loadStoredLibrarySetsInitialRouteFromPersistedChat() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
+    #expect(appState.chatController.chatSession.id == sessionID)
+  }
+
+  @Test
+  func loadStoredLibrarySetsWorkspaceRouteWhenNoSessionIsActive() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: nil
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    #expect(appState.route == .workspace(workspaceID))
+    #expect(appState.workspaceState.activeSessionID == nil)
+    #expect(appState.chatController.chatSession.id != sessionID)
+  }
+
+  @Test
+  func modelsRoutePlaceholderDoesNotPersistOverActiveChat() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let session = ChatSession(id: sessionID, title: "Persisted Chat")
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [session]
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    appState.selectModels()
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    #expect(appState.route == .models)
+    #expect(appState.workspaceState.activeSessionID == sessionID)
+    #expect(appState.chatController.chatSession.id != sessionID)
+
+    appState.chatController.chatSession.title = "Placeholder Chat"
+    let didPersist = appState.persistActiveSession()
+
+    #expect(!didPersist)
+    #expect(appState.workspaceState.activeSession?.title == "Persisted Chat")
+  }
+
+  @Test
+  func workspaceAndChatNavigationPersistThroughRouteSSOT() async throws {
+    let firstWorkspaceID = UUID()
+    let firstSessionID = UUID()
+    let secondWorkspaceID = UUID()
+    let secondSessionID = UUID()
+    let firstWorkspace = Workspace(
+      id: firstWorkspaceID,
+      name: "First",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: firstSessionID, title: "First")]
+    )
+    let secondWorkspace = Workspace(
+      id: secondWorkspaceID,
+      name: "Second",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: secondSessionID, title: "Second")]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [firstWorkspace, secondWorkspace],
+        activeWorkspaceID: firstWorkspaceID,
+        activeSessionID: firstSessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    appState.selectWorkspace(secondWorkspaceID)
+    let workspaceRouteLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      library.activeWorkspaceID == secondWorkspaceID && library.activeSessionID == nil
+    }
+    #expect(workspaceRouteLibrary.activeWorkspaceID == secondWorkspaceID)
+    #expect(appState.route == .workspace(secondWorkspaceID))
+    #expect(appState.workspaceState.activeSessionID == nil)
+    #expect(appState.chatController.chatSession.id != secondSessionID)
+
+    appState.selectChat(workspaceID: secondWorkspaceID, sessionID: secondSessionID)
+    let chatRouteLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      library.activeWorkspaceID == secondWorkspaceID
+        && library.activeSessionID == secondSessionID
+    }
+    #expect(chatRouteLibrary.activeSessionID == secondSessionID)
+    #expect(appState.route == .chat(workspaceID: secondWorkspaceID, sessionID: secondSessionID))
+    #expect(appState.chatController.chatSession.id == secondSessionID)
+
+    let didSelectInvalidChat = appState.selectChat(
+      workspaceID: firstWorkspaceID,
+      sessionID: secondSessionID
+    )
+    #expect(!didSelectInvalidChat)
+    #expect(appState.route == .chat(workspaceID: secondWorkspaceID, sessionID: secondSessionID))
+  }
+
+  @Test
+  func renamedActiveSessionIsNotRevertedWhenSelectingWorkspace() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID, title: "New Session")]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: sessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    appState.renameSession(sessionID, title: "huhu")
+    #expect(appState.workspaceState.activeSession?.title == "huhu")
+    #expect(appState.chatController.chatSession.title == "huhu")
+
+    appState.selectWorkspace(workspaceID)
+
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      library.activeSessionID == nil
+        && library.workspaces.first?.sessions.first(where: { $0.id == sessionID })?.title
+          == "huhu"
+    }
+    #expect(savedLibrary.activeSessionID == nil)
+    #expect(
+      savedLibrary.workspaces.first?.sessions.first(where: { $0.id == sessionID })?.title
+        == "huhu")
+    #expect(appState.workspaceState.sidebarState.workspaces.first?.sessions.first?.title == "huhu")
+  }
+
+  @Test
+  func createSessionRoutesToNewChat() async throws {
+    let workspaceID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: []
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: nil
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    let sessionID = try #require(appState.createSession(in: workspaceID))
+
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      library.activeWorkspaceID == workspaceID && library.activeSessionID == sessionID
+    }
+    #expect(savedLibrary.activeSessionID == sessionID)
+    #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
+    #expect(appState.chatController.chatSession.id == sessionID)
+  }
+
+  @Test
+  func addWorkspaceRoutesToWorkspaceWithoutSelectingCreatedChat() async throws {
+    let workspaceURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+    defer {
+      try? FileManager.default.removeItem(at: workspaceURL)
+    }
+    let workspaceStore = InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary())
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    let workspaceID = try #require(appState.addWorkspace(from: workspaceURL))
+
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      library.activeWorkspaceID == workspaceID
+        && library.activeSessionID == nil
+        && library.workspaces.first?.sessions.count == 1
+    }
+    #expect(savedLibrary.activeWorkspaceID == workspaceID)
+    #expect(savedLibrary.activeSessionID == nil)
+    #expect(appState.route == .workspace(workspaceID))
+    #expect(appState.workspaceState.activeSessionID == nil)
+  }
+
+  @Test
+  func deleteActiveSessionRoutesToWorkspace() async throws {
     let activeSessionID = UUID()
     let replacementSessionID = UUID()
     let workspaceID = UUID()
@@ -409,12 +690,15 @@ struct AppStateTests {
     appState.deleteSession(activeSessionID)
 
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
-      library.activeSessionID == replacementSessionID
+      library.activeWorkspaceID == workspaceID
+        && library.activeSessionID == nil
         && library.workspaces.first?.sessions.contains { $0.id == activeSessionID } == false
     }
-    #expect(savedLibrary.activeSessionID == replacementSessionID)
-    #expect(appState.workspaceState.activeSessionID == replacementSessionID)
-    #expect(appState.chatController.chatSession.id == replacementSessionID)
+    #expect(savedLibrary.activeSessionID == nil)
+    #expect(appState.route == .workspace(workspaceID))
+    #expect(appState.workspaceState.activeSessionID == nil)
+    #expect(appState.workspaceState.activeSession == nil)
+    #expect(appState.chatController.chatSession.title != "Replacement")
     #expect(
       appState.workspaceState.sidebarState.workspaces.first?.sessions.map(\.id)
         == [replacementSessionID])

@@ -8,7 +8,7 @@ import Testing
 @MainActor
 struct WorkspaceFeatureStateTests {
   @Test
-  func loadLibraryNormalizesAndPersistsActiveSession() async throws {
+  func loadLibraryNormalizesAndPersistsActiveWorkspaceWithoutSession() async throws {
     let workspaceID = UUID()
     let workspace = Workspace(
       id: workspaceID,
@@ -34,19 +34,21 @@ struct WorkspaceFeatureStateTests {
     )
 
     #expect(!state.isLoading)
-    #expect(change.activeSessionChanged)
+    #expect(change.selectionChanged)
     #expect(change.activeSessionID == state.activeSessionID)
     #expect(state.activeWorkspace?.id == workspaceID)
     #expect(state.activeWorkspaceContext?.id == workspaceID)
     #expect(state.activeWorkspaceContext?.name == "Project")
     #expect(state.activeWorkspaceContext?.rootURL == workspace.rootURL)
-    #expect(state.activeSession?.systemPrompt == "Loaded default")
+    #expect(state.activeSessionID == nil)
+    #expect(state.activeSession == nil)
 
     let savedLibrary = try await waitForWorkspaceFeatureSavedLibrary(in: store) { library in
-      library.workspaces.first?.sessions.count == 1
+      library.activeWorkspaceID == workspaceID && library.activeSessionID == nil
     }
     #expect(savedLibrary.activeWorkspaceID == workspaceID)
-    #expect(savedLibrary.activeSessionID == state.activeSessionID)
+    #expect(savedLibrary.activeSessionID == nil)
+    #expect(savedLibrary.workspaces.first?.sessions.isEmpty == true)
   }
 
   @Test
@@ -80,13 +82,13 @@ struct WorkspaceFeatureStateTests {
     #expect(state.activeSessionID == firstSessionID)
 
     let createdChange = state.createSession(in: workspaceID)
-    #expect(createdChange.activeSessionChanged)
+    #expect(createdChange.selectionChanged)
     #expect(createdChange.activeSessionID == state.activeSessionID)
     #expect(createdChange.activeSessionID != firstSessionID)
     #expect(state.activeWorkspaceContext == WorkspaceChatContext(workspace: workspace))
 
-    let selectedChange = state.selectSession(secondSessionID)
-    #expect(selectedChange.activeSessionChanged)
+    let selectedChange = state.selectChat(workspaceID: workspaceID, sessionID: secondSessionID)
+    #expect(selectedChange.selectionChanged)
     #expect(selectedChange.activeSessionID == secondSessionID)
     #expect(state.activeSessionID == secondSessionID)
     #expect(state.activeWorkspaceContext == WorkspaceChatContext(workspace: workspace))
@@ -96,19 +98,21 @@ struct WorkspaceFeatureStateTests {
     #expect(state.activeWorkspaceContext == WorkspaceChatContext(workspace: workspace))
 
     let deletedChange = state.deleteSession(secondSessionID)
-    #expect(deletedChange.activeSessionChanged)
-    #expect(deletedChange.activeSessionID != secondSessionID)
+    #expect(deletedChange.selectionChanged)
+    #expect(deletedChange.activeSessionID == nil)
+    #expect(state.activeSessionID == nil)
+    #expect(state.activeSession == nil)
     #expect(state.activeWorkspaceContext == WorkspaceChatContext(workspace: workspace))
 
     let removedChange = state.removeWorkspace(workspaceID)
-    #expect(removedChange.activeSessionChanged)
+    #expect(removedChange.selectionChanged)
     #expect(removedChange.activeSessionID == nil)
     #expect(state.activeWorkspaceContext == nil)
     #expect(state.activeSessionID == nil)
   }
 
   @Test
-  func selectWorkspaceActivatesItsFirstSession() async throws {
+  func selectWorkspaceClearsActiveSession() async throws {
     let firstWorkspaceID = UUID()
     let firstSessionID = UUID()
     let secondWorkspaceID = UUID()
@@ -141,10 +145,11 @@ struct WorkspaceFeatureStateTests {
 
     let change = state.selectWorkspace(secondWorkspaceID)
 
-    #expect(change.activeSessionChanged)
-    #expect(change.activeSessionID == secondSessionID)
+    #expect(change.selectionChanged)
+    #expect(change.activeSessionID == nil)
     #expect(state.activeWorkspace?.id == secondWorkspaceID)
-    #expect(state.activeSessionID == secondSessionID)
+    #expect(state.activeSessionID == nil)
+    #expect(state.activeSession == nil)
     #expect(state.activeWorkspaceContext == WorkspaceChatContext(workspace: secondWorkspace))
   }
 

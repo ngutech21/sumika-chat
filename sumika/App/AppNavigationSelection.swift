@@ -1,8 +1,8 @@
 import Foundation
 import SumikaCore
 
-enum AppNavigationSelection: Hashable {
+enum AppRoute: Hashable {
   case models
   case workspace(Workspace.ID)
-  case session(ChatSession.ID)
+  case chat(workspaceID: Workspace.ID, sessionID: ChatSession.ID)
 }
