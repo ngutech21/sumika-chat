@@ -44,9 +44,20 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
 
+    - name: Cache Swift package checkouts
+      if: matrix.build-mode == 'manual'
+      uses: actions/cache@v6
+      with:
+        path: |
+          .build/xcode-source-packages
+          .build/repositories
+          .build/checkouts
+          .build/artifacts
+        key: ${{ runner.os }}-codeql-swiftpm-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
     - name: Resolve Swift packages
       if: matrix.build-mode == 'manual'
-      timeout-minutes: 20
+      timeout-minutes: 30
       shell: bash
       run: |
         xcodebuild -resolvePackageDependencies \
@@ -81,7 +92,7 @@ jobs:
     # 📚 See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsrun
     - name: Run manual build steps
       if: matrix.build-mode == 'manual'
-      timeout-minutes: 20
+      timeout-minutes: 30
       shell: bash
       run: |
         xcodebuild build \
