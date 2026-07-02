@@ -1,20 +1,30 @@
 import Foundation
 
 public struct WebFetchToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.webFetch
+  public static let codec = ToolCodec<WebFetchInput>(
+    definition: ToolDefinition.webFetch,
+    makePayload: ToolCallPayload.webFetch,
+    extractInput: { payload in
+      guard case .webFetch(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.webFetch.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    },
+    validateInput: { input in
+      try ToolArgumentValidation.requireNonEmptyString(
+        input.url,
+        name: "url",
+        expected: "a non-empty public http or https URL"
+      )
+    }
+  )
+
   private let urlValidator = WebURLValidator()
 
   public init() {}
-
-  public static func input(from payload: ToolCallPayload) throws -> WebFetchInput {
-    guard case .webFetch(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
-      )
-    }
-    return input
-  }
 
   public func evaluatePermission(
     _ input: WebFetchInput,

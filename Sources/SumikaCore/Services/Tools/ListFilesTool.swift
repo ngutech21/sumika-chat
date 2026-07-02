@@ -5,7 +5,22 @@ public struct ListFilesInput: Codable, Equatable, Sendable {
 }
 
 public struct ListFilesToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.listFiles
+  public static let codec = ToolCodec<ListFilesInput>(
+    definition: ToolDefinition.listFiles,
+    makePayload: ToolCallPayload.listFiles,
+    extractInput: { payload in
+      guard case .listFiles(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.listFiles.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    },
+    validateInput: { input in
+      try ToolArgumentValidation.validateOptionalPath(input.path)
+    }
+  )
 
   private let maxDepth: Int
   private let maxEntries: Int
@@ -29,16 +44,6 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
     self.maxDepth = maxDepth
     self.maxEntries = maxEntries
     self.skippedNames = skippedNames
-  }
-
-  public static func input(from payload: ToolCallPayload) throws -> ListFilesInput {
-    guard case .listFiles(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
-      )
-    }
-    return input
   }
 
   public func evaluatePermission(

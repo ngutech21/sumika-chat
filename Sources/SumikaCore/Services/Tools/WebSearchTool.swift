@@ -1,19 +1,28 @@
 import Foundation
 
 public struct WebSearchToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.webSearch
-
-  public init() {}
-
-  public static func input(from payload: ToolCallPayload) throws -> WebSearchInput {
-    guard case .webSearch(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
+  public static let codec = ToolCodec<WebSearchInput>(
+    definition: ToolDefinition.webSearch,
+    makePayload: ToolCallPayload.webSearch,
+    extractInput: { payload in
+      guard case .webSearch(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.webSearch.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    },
+    validateInput: { input in
+      try ToolArgumentValidation.requireNonEmptyString(
+        input.query,
+        name: "query",
+        expected: "a non-empty public web search query"
       )
     }
-    return input
-  }
+  )
+
+  public init() {}
 
   public func evaluatePermission(
     _ input: WebSearchInput,

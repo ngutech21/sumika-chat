@@ -7,7 +7,22 @@ public struct SearchFilesInput: Codable, Equatable, Sendable {
 }
 
 public struct SearchFilesToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.searchFiles
+  public static let codec = ToolCodec<SearchFilesInput>(
+    definition: ToolDefinition.searchFiles,
+    makePayload: ToolCallPayload.searchFiles,
+    extractInput: { payload in
+      guard case .searchFiles(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.searchFiles.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    },
+    validateInput: { input in
+      try ToolArgumentValidation.validateOptionalPath(input.path)
+    }
+  )
 
   private let maxMatches: Int
   private let maxSnippetLength: Int
@@ -24,16 +39,6 @@ public struct SearchFilesToolExecutor: TypedToolExecutor {
     self.maxSnippetLength = maxSnippetLength
     self.maxFileBytes = maxFileBytes
     self.skippedNames = skippedNames
-  }
-
-  public static func input(from payload: ToolCallPayload) throws -> SearchFilesInput {
-    guard case .searchFiles(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
-      )
-    }
-    return input
   }
 
   public func evaluatePermission(

@@ -162,6 +162,36 @@ struct ToolCallRequestValidatorTests {
   }
 
   @Test
+  func builtInCodecCatalogCoversCodingAgentDefinitions() {
+    let definitionsByName = Dictionary(
+      uniqueKeysWithValues: ToolCodecCatalog.builtIn.map { codec in
+        (codec.definition.name, codec.definition)
+      })
+
+    for definition in ToolExecutorRegistry.codingAgent.definitions {
+      #expect(definitionsByName[definition.name] == definition)
+    }
+  }
+
+  @Test
+  func validatorBuildsEditFilePayloadThroughBuiltInCodec() {
+    let request = validator.validate(
+      raw(
+        .editFile,
+        arguments: [
+          "path": .string("Sources/App.swift"),
+          "old_text": .string("old"),
+          "new_text": .string("new"),
+        ]),
+      registry: ToolExecutorRegistry.codingAgent.toolRegistry
+    )
+
+    #expect(
+      request.payload
+        == .editFile(EditFileInput(path: "Sources/App.swift", oldText: "old", newText: "new")))
+  }
+
+  @Test
   func invalidPayloadsKeepRawArgumentsAndPreciseReasons() {
     let registry = ToolExecutorRegistry.readOnly.toolRegistry
     let rawArguments: ToolCallArguments = ["path": .string("README.md")]

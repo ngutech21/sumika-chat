@@ -9,7 +9,22 @@ public struct WorkspaceDiffInput: Codable, Equatable, Sendable {
 }
 
 public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.workspaceDiff
+  public static let codec = ToolCodec<WorkspaceDiffInput>(
+    definition: ToolDefinition.workspaceDiff,
+    makePayload: ToolCallPayload.workspaceDiff,
+    extractInput: { payload in
+      guard case .workspaceDiff(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.workspaceDiff.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    },
+    validateInput: { input in
+      try ToolArgumentValidation.validateOptionalPath(input.path)
+    }
+  )
 
   private static let defaultDirectGitExecutableURLs = [
     URL(filePath: "/Applications/Xcode.app/Contents/Developer/usr/bin/git")
@@ -45,16 +60,6 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     self.envExecutableURL = envExecutableURL
     self.maxBytes = maxBytes
     self.timeoutSeconds = timeoutSeconds
-  }
-
-  public static func input(from payload: ToolCallPayload) throws -> WorkspaceDiffInput {
-    guard case .workspaceDiff(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
-      )
-    }
-    return input
   }
 
   public func evaluatePermission(

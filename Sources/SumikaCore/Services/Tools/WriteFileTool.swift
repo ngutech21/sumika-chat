@@ -6,19 +6,24 @@ public struct WriteFileInput: Codable, Equatable, Sendable {
 }
 
 public struct WriteFileToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.writeFile
+  public static let codec = ToolCodec<WriteFileInput>(
+    definition: ToolDefinition.writeFile,
+    makePayload: ToolCallPayload.writeFile,
+    extractInput: { payload in
+      guard case .writeFile(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.writeFile.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    },
+    validateInput: { input in
+      try ToolArgumentValidation.requireNonEmptyPath(input.path)
+    }
+  )
 
   public init() {}
-
-  public static func input(from payload: ToolCallPayload) throws -> WriteFileInput {
-    guard case .writeFile(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
-      )
-    }
-    return input
-  }
 
   public func evaluatePermission(
     _ input: WriteFileInput,

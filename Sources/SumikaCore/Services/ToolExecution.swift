@@ -122,8 +122,7 @@ enum ToolResultFailureMapper {
 public protocol TypedToolExecutor: Sendable {
   associatedtype Input: Decodable & Sendable
 
-  static var definition: ToolDefinition { get }
-  static func input(from payload: ToolCallPayload) throws -> Input
+  static var codec: ToolCodec<Input> { get }
 
   func evaluatePermission(_ input: Input, context: ToolContext) -> ToolPermissionEvaluation
   func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview?
@@ -131,6 +130,14 @@ public protocol TypedToolExecutor: Sendable {
 }
 
 extension TypedToolExecutor {
+  public static var definition: ToolDefinition {
+    codec.definition
+  }
+
+  public static func input(from payload: ToolCallPayload) throws -> Input {
+    try codec.input(from: payload)
+  }
+
   public func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview? {
     nil
   }

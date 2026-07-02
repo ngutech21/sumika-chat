@@ -6,7 +6,22 @@ public struct GlobFilesInput: Codable, Equatable, Sendable {
 }
 
 public struct GlobFilesToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.globFiles
+  public static let codec = ToolCodec<GlobFilesInput>(
+    definition: ToolDefinition.globFiles,
+    makePayload: ToolCallPayload.globFiles,
+    extractInput: { payload in
+      guard case .globFiles(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.globFiles.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    },
+    validateInput: { input in
+      try ToolArgumentValidation.validateOptionalPath(input.path)
+    }
+  )
 
   private let maxResults: Int
   private let skippedNames: Set<String>
@@ -17,16 +32,6 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
   ) {
     self.maxResults = maxResults
     self.skippedNames = skippedNames
-  }
-
-  public static func input(from payload: ToolCallPayload) throws -> GlobFilesInput {
-    guard case .globFiles(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
-      )
-    }
-    return input
   }
 
   public func evaluatePermission(

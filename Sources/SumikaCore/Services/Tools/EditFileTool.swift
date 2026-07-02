@@ -13,19 +13,27 @@ public struct EditFileInput: Codable, Equatable, Sendable {
 }
 
 public struct EditFileToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.editFile
+  public static let codec = ToolCodec<EditFileInput>(
+    definition: ToolDefinition.editFile,
+    makePayload: ToolCallPayload.editFile,
+    extractInput: { payload in
+      guard case .editFile(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.editFile.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    },
+    validateInput: { input in
+      try ToolArgumentValidation.requireNonEmptyPath(input.path)
+      guard !input.oldText.isEmpty else {
+        throw InvalidToolCallReason.emptyOldText
+      }
+    }
+  )
 
   public init() {}
-
-  public static func input(from payload: ToolCallPayload) throws -> EditFileInput {
-    guard case .editFile(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
-      )
-    }
-    return input
-  }
 
   public func evaluatePermission(
     _ input: EditFileInput,

@@ -104,23 +104,43 @@ public struct ReadFileInput: Codable, Equatable, Sendable {
   }
 }
 
+extension ReadFileInput {
+  static func decodeToolArguments(_ arguments: ToolCallArguments) throws -> ReadFileInput {
+    do {
+      let input = try ToolInputDecoder.decode(ReadFileInput.self, from: arguments)
+      try ToolArgumentValidation.requireNonEmptyPath(input.path)
+      return input
+    } catch let error as ReadFileInputValidationError {
+      switch error {
+      case .invalidOffset:
+        throw InvalidToolCallReason.invalidPagination("offset")
+      case .invalidLimit:
+        throw InvalidToolCallReason.invalidPagination("limit")
+      }
+    }
+  }
+}
+
 public struct ReadFileToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.readFile
+  public static let codec = ToolCodec<ReadFileInput>(
+    definition: ToolDefinition.readFile,
+    decodeArguments: ReadFileInput.decodeToolArguments,
+    makePayload: ToolCallPayload.readFile,
+    extractInput: { payload in
+      guard case .readFile(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.readFile.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    }
+  )
 
   private let maxBytes: Int
 
   public init(maxBytes: Int = 40 * 1024) {
     self.maxBytes = maxBytes
-  }
-
-  public static func input(from payload: ToolCallPayload) throws -> ReadFileInput {
-    guard case .readFile(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
-      )
-    }
-    return input
   }
 
   public func evaluatePermission(

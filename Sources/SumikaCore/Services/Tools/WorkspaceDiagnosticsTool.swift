@@ -1,19 +1,28 @@
 import Foundation
 
 public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.workspaceDiagnostics
-
-  public init() {}
-
-  public static func input(from payload: ToolCallPayload) throws -> WorkspaceDiagnosticsInput {
-    guard case .workspaceDiagnostics(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
+  public static let codec = ToolCodec<WorkspaceDiagnosticsInput>(
+    definition: ToolDefinition.workspaceDiagnostics,
+    makePayload: ToolCallPayload.workspaceDiagnostics,
+    extractInput: { payload in
+      guard case .workspaceDiagnostics(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.workspaceDiagnostics.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    },
+    validateInput: { input in
+      try ToolArgumentValidation.requireNonEmptyString(
+        input.outputRef,
+        name: "outputRef",
+        expected: "a non-empty command output ref"
       )
     }
-    return input
-  }
+  )
+
+  public init() {}
 
   public func evaluatePermission(
     _ input: WorkspaceDiagnosticsInput,

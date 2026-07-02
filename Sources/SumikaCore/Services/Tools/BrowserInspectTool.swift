@@ -1,19 +1,44 @@
 import Foundation
 
+extension BrowserInspectInput {
+  static func decodeToolArguments(_ arguments: ToolCallArguments) throws -> BrowserInspectInput {
+    do {
+      return try ToolInputDecoder.decode(BrowserInspectInput.self, from: arguments)
+    } catch let error as BrowserToolInputValidationError {
+      switch error {
+      case .invalidBooleanArgument(let name):
+        throw InvalidToolCallReason.invalidArgumentType(name: name, expected: "true or false")
+      case .invalidIntegerArgument(let name):
+        throw InvalidToolCallReason.invalidArgumentType(name: name, expected: "an integer")
+      case .invalidMaxLength:
+        throw InvalidToolCallReason.invalidPagination("maxLength")
+      case .emptySelector:
+        throw InvalidToolCallReason.invalidArgumentType(
+          name: "selector",
+          expected: "omit it or provide a non-empty CSS selector"
+        )
+      }
+    }
+  }
+}
+
 public struct BrowserInspectToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.browserInspect
+  public static let codec = ToolCodec<BrowserInspectInput>(
+    definition: ToolDefinition.browserInspect,
+    decodeArguments: BrowserInspectInput.decodeToolArguments,
+    makePayload: ToolCallPayload.browserInspect,
+    extractInput: { payload in
+      guard case .browserInspect(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.browserInspect.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    }
+  )
 
   public init() {}
-
-  public static func input(from payload: ToolCallPayload) throws -> BrowserInspectInput {
-    guard case .browserInspect(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
-      )
-    }
-    return input
-  }
 
   public func evaluatePermission(
     _ input: BrowserInspectInput,

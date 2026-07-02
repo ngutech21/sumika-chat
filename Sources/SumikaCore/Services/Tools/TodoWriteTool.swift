@@ -145,20 +145,35 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
   }
 }
 
+extension TodoWriteInput {
+  static func decodeToolArguments(_ arguments: ToolCallArguments) throws -> TodoWriteInput {
+    let input = try ToolInputDecoder.decode(TodoWriteInput.self, from: arguments)
+    do {
+      try validateItems(input.items)
+      return input
+    } catch let validationError as TodoStateValidationError {
+      throw InvalidToolCallReason.invalidTodoItems(validationError.localizedDescription)
+    }
+  }
+}
+
 public struct TodoWriteToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.todoWrite
+  public static let codec = ToolCodec<TodoWriteInput>(
+    definition: ToolDefinition.todoWrite,
+    decodeArguments: TodoWriteInput.decodeToolArguments,
+    makePayload: ToolCallPayload.todoWrite,
+    extractInput: { payload in
+      guard case .todoWrite(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.todoWrite.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    }
+  )
 
   public init() {}
-
-  public static func input(from payload: ToolCallPayload) throws -> TodoWriteInput {
-    guard case .todoWrite(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
-      )
-    }
-    return input
-  }
 
   public func evaluatePermission(
     _ input: TodoWriteInput,

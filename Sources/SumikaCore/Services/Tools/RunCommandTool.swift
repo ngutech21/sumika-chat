@@ -48,8 +48,40 @@ public enum RunCommandInputValidationError: LocalizedError, Equatable {
   }
 }
 
+extension RunCommandInput {
+  static func decodeToolArguments(_ arguments: ToolCallArguments) throws -> RunCommandInput {
+    do {
+      let input = try ToolInputDecoder.decode(RunCommandInput.self, from: arguments)
+      try ToolArgumentValidation.requireNonEmptyString(
+        input.command,
+        name: "command",
+        expected: "a non-empty shell command"
+      )
+      return input
+    } catch let error as RunCommandInputValidationError {
+      switch error {
+      case .invalidTimeout:
+        throw InvalidToolCallReason.invalidTimeout("timeoutSeconds")
+      }
+    }
+  }
+}
+
 public struct RunCommandToolExecutor: TypedToolExecutor {
-  public static let definition = ToolDefinition.runCommand
+  public static let codec = ToolCodec<RunCommandInput>(
+    definition: ToolDefinition.runCommand,
+    decodeArguments: RunCommandInput.decodeToolArguments,
+    makePayload: ToolCallPayload.runCommand,
+    extractInput: { payload in
+      guard case .runCommand(let input) = payload else {
+        throw ToolInputDecodingError.payloadMismatch(
+          expected: ToolDefinition.runCommand.name.rawValue,
+          actual: payload.toolName.rawValue
+        )
+      }
+      return input
+    }
+  )
 
   public static let minimumTimeoutSeconds = 1
   public static let maximumTimeoutSeconds = 120
@@ -82,16 +114,6 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
     self.maxOutputBytes = maxOutputBytes
     self.outputRefGenerator = outputRefGenerator
     self.processRunner = processRunner
-  }
-
-  public static func input(from payload: ToolCallPayload) throws -> RunCommandInput {
-    guard case .runCommand(let input) = payload else {
-      throw ToolInputDecodingError.payloadMismatch(
-        expected: definition.name.rawValue,
-        actual: payload.toolName.rawValue
-      )
-    }
-    return input
   }
 
   public func evaluatePermission(

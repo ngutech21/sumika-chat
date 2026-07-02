@@ -1998,12 +1998,18 @@ private struct TestGitError: Error, CustomStringConvertible {
 }
 
 private struct MismatchedWriteFileToolExecutor: TypedToolExecutor {
-  static let definition = ToolDefinition.writeFile
-
-  static func input(from payload: ToolCallPayload) throws -> ReadFileInput {
-    _ = payload
-    throw ToolInputDecodingError.inputExtractionFailed(toolName: definition.name.rawValue)
-  }
+  static let codec = ToolCodec<ReadFileInput>(
+    definition: ToolDefinition.writeFile,
+    decodeArguments: { _ in
+      throw ToolInputDecodingError.inputExtractionFailed(
+        toolName: ToolDefinition.writeFile.name.rawValue)
+    },
+    makePayload: ToolCallPayload.readFile,
+    extractInput: { _ in
+      throw ToolInputDecodingError.inputExtractionFailed(
+        toolName: ToolDefinition.writeFile.name.rawValue)
+    }
+  )
 
   func evaluatePermission(
     _ input: ReadFileInput,
