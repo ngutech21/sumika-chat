@@ -115,6 +115,62 @@ public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
+public enum RuntimeToolCallID {
+  public static let prefix = "call_"
+
+  public static func string(for uuid: UUID) -> String {
+    prefix + uuid.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+  }
+
+  public static func uuid(from id: String?) -> UUID? {
+    guard let id, id.hasPrefix(prefix) else {
+      return nil
+    }
+
+    let hex = String(id.dropFirst(prefix.count))
+    guard hex.count == 32, hex.unicodeScalars.allSatisfy(isHexDigit(_:)) else {
+      return nil
+    }
+
+    let lowercased = hex.lowercased()
+    let parts = [
+      lowercased.prefix(8),
+      lowercased.dropFirst(8).prefix(4),
+      lowercased.dropFirst(12).prefix(4),
+      lowercased.dropFirst(16).prefix(4),
+      lowercased.dropFirst(20).prefix(12),
+    ]
+    return UUID(uuidString: parts.map(String.init).joined(separator: "-"))
+  }
+
+  public static func uniqueUUID(from id: String?, usedIDs: inout Set<UUID>) -> UUID {
+    if let parsedID = uuid(from: id), !usedIDs.contains(parsedID) {
+      usedIDs.insert(parsedID)
+      return parsedID
+    }
+
+    var generatedID = UUID()
+    while usedIDs.contains(generatedID) {
+      generatedID = UUID()
+    }
+    usedIDs.insert(generatedID)
+    return generatedID
+  }
+
+  public static func normalizedString(from id: String?, usedIDs: inout Set<UUID>) -> String {
+    string(for: uniqueUUID(from: id, usedIDs: &usedIDs))
+  }
+
+  private static func isHexDigit(_ scalar: UnicodeScalar) -> Bool {
+    switch scalar.value {
+    case 48...57, 65...70, 97...102:
+      return true
+    default:
+      return false
+    }
+  }
+}
+
 public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   public var raw: RawToolCallRequest
   public var payload: ToolCallPayload
@@ -283,17 +339,24 @@ public struct ToolCallModelMessage: Codable, Equatable, Sendable {
   public var callID: UUID
   public var toolName: ToolName
   public var arguments: [ToolCallModelArgument]
+  public var rawArguments: ToolCallArguments
   public var rawText: String?
 
   public init(
     callID: UUID,
     toolName: ToolName,
     arguments: [ToolCallModelArgument],
+    rawArguments: ToolCallArguments? = nil,
     rawText: String? = nil
   ) {
     self.callID = callID
     self.toolName = toolName
     self.arguments = arguments
+    self.rawArguments =
+      rawArguments
+      ?? Dictionary(
+        uniqueKeysWithValues: arguments.map { ($0.name, ToolArgumentValue.string($0.value)) }
+      )
     self.rawText = rawText
   }
 
@@ -304,6 +367,7 @@ public struct ToolCallModelMessage: Codable, Equatable, Sendable {
       arguments: rawRequest.arguments.keys.sorted().map { key in
         ToolCallModelArgument(name: key, value: rawRequest.arguments[key]?.displayValue ?? "")
       },
+      rawArguments: rawRequest.arguments,
       rawText: rawRequest.rawText
     )
   }

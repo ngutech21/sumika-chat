@@ -181,19 +181,28 @@ struct GemmaMLXRuntimeTemplateTests {
       attachments: [],
       systemPrompt: "This runtime argument must not rewrite frozen content."
     )
+    let rawMessages = DefaultMessageGenerator().generate(messages: rendered)
+    let rawAssistantToolCalls = try #require(
+      rawMessages[2]["tool_calls"] as? [[String: any Sendable]]
+    )
+    let rawAssistantToolCall = try #require(rawAssistantToolCalls.first)
+    let rawAssistantFunction = try #require(
+      rawAssistantToolCall["function"] as? [String: any Sendable]
+    )
 
     #expect(rendered[0].role == .system)
-    #expect(rendered.map(\.role) == [.system, .user, .assistant, .user])
+    #expect(rendered.map(\.role) == [.system, .user, .assistant, .tool, .user])
     #expect(!rendered[1].content.contains("System instructions:"))
     #expect(rendered[0].content.contains("This runtime argument must not rewrite"))
-    #expect(rendered[3].content.contains("System instructions:"))
-    #expect(rendered[3].content.contains("Use concise coding steps."))
-    #expect(!rendered[3].content.contains("This runtime argument must not rewrite"))
-    #expect(rendered[2].content.contains("Tool call write_file requested."))
-    #expect(rendered[2].content.contains("<observation"))
-    #expect(rendered[2].content.contains("Summary:"))
-    #expect(rendered[2].content.contains("Wrote 13 bytes to index.htm."))
-    #expect(rendered[2].content.contains("Tool receipt:") == false)
+    #expect(rendered[4].content.contains("System instructions:"))
+    #expect(rendered[4].content.contains("Use concise coding steps."))
+    #expect(!rendered[4].content.contains("This runtime argument must not rewrite"))
+    #expect(rendered[2].content.isEmpty)
+    #expect(rawAssistantFunction["name"] as? String == ToolName.writeFile.rawValue)
+    #expect(rendered[3].content.contains("<observation"))
+    #expect(rendered[3].content.contains("Summary:"))
+    #expect(rendered[3].content.contains("Wrote 13 bytes to index.htm."))
+    #expect(rendered[3].content.contains("Tool receipt:") == false)
   }
 
   @Test
@@ -265,7 +274,7 @@ struct GemmaMLXRuntimeTemplateTests {
     ]
 
     let history = try GemmaHistoryRenderer.generationHistoryMessages(
-      from: try projectedEntries(from: entries)[...]
+      from: projectedEntries(from: entries)[...]
     )
 
     #expect(history.map(\.role) == [.user, .assistant, .user, .assistant])
@@ -1091,7 +1100,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func toolObservationFollowUpUsesCachedPrefixAsHistoryAndObservationAsPrompt() throws {
+  func toolObservationFollowUpUsesStructuredToolResultPromptBatch() throws {
     let callID = UUID()
     let turnID = UUID()
     let entries = [
@@ -1125,8 +1134,8 @@ struct GemmaMLXRuntimeTemplateTests {
         originalUserRequest: "read README.md"
       ),
     ]
-    let (history, prompt) = try generationHistoryAndPrompt(from: entries)
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: history)
+    let input = try generationInput(from: entries)
+    let prefix = input.historySnapshot
     let decision = GemmaSessionCachePolicy.cacheDecision(
       cachedPrefix: prefix,
       cachedSettings: .agentDefault,
@@ -1135,11 +1144,27 @@ struct GemmaMLXRuntimeTemplateTests {
       currentSettings: .agentDefault
     )
 
-    #expect(history.map(\.role) == [.user, .assistant])
-    #expect(prompt.role == .user)
-    #expect(prompt.content.contains("Original user request:"))
-    #expect(prompt.content.contains("<observation"))
-    #expect(prompt.content.contains("Project overview"))
+    #expect(input.history.map(\.role) == [.user, .assistant])
+    #expect(input.promptMessages.map(\.role) == [.tool, .user])
+    let rawMessages = DefaultMessageGenerator().generate(
+      messages: input.history + input.promptMessages
+    )
+    let rawAssistantToolCalls = try #require(
+      rawMessages[1]["tool_calls"] as? [[String: any Sendable]]
+    )
+    let rawAssistantToolCall = try #require(rawAssistantToolCalls.first)
+    let rawAssistantFunction = try #require(
+      rawAssistantToolCall["function"] as? [String: any Sendable]
+    )
+    #expect(rawAssistantToolCall["id"] as? String == RuntimeToolCallID.string(for: callID))
+    #expect(rawAssistantFunction["name"] as? String == ToolName.readFile.rawValue)
+    #expect(rawMessages[2]["tool_call_id"] as? String == RuntimeToolCallID.string(for: callID))
+    #expect(input.promptMessages[0].content.contains("<observation"))
+    #expect(input.promptMessages[0].content.contains("Project overview"))
+    #expect(input.promptMessages[1].content.contains("Original user request:"))
+    #expect(!input.promptMessages[1].content.contains("Project overview"))
+    #expect(input.promptSnapshot.map(\.role) == ["tool", "user"])
+    #expect(input.promptSnapshot[0].toolCallID == RuntimeToolCallID.string(for: callID))
     #expect(decision.shouldReuse)
     #expect(decision.trace.cacheMode == .sessionReused)
     #expect(decision.trace.cacheReason == .sessionReused)
@@ -1148,17 +1173,275 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func laterUserTurnHistoryKeepsToolObservationInFrozenFollowUpForm() throws {
-    let callID = UUID()
-    let transcript = ModelContextSnapshot(entries: [
-      try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
+  func multipleToolObservationFollowUpUsesStructuredToolResultPromptBatch() throws {
+    let readCallID = UUID()
+    let listCallID = UUID()
+    let turnID = UUID()
+    let readArguments: ToolCallArguments = ["path": .string("README.md")]
+    let listArguments: ToolCallArguments = ["path": .string(".")]
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
+        prompt: "read README.md and list files"
+      ),
       try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: NativeToolCallBoundaryRenderer.renderGemma4([
+          ChatRuntimeToolCall(name: ToolName.readFile.rawValue, arguments: readArguments),
+          ChatRuntimeToolCall(name: ToolName.listFiles.rawValue, arguments: listArguments),
+        ])
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: readCallID,
+          toolName: .readFile,
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            ))
+        ),
+        request: toolRequest(
+          callID: readCallID,
+          toolName: .readFile,
+          arguments: readArguments
+        ),
+        originalUserRequest: "read README.md and list files"
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: listCallID,
+          toolName: .listFiles,
+          payload: .listFiles(
+            ListFilesResult(
+              root: WorkspaceRelativePath(rawValue: "."),
+              entries: [
+                WorkspaceFileEntry(
+                  path: WorkspaceRelativePath(rawValue: "README.md"),
+                  kind: .file,
+                )
+              ]
+            ))
+        ),
+        request: toolRequest(
+          callID: listCallID,
+          toolName: .listFiles,
+          arguments: listArguments
+        ),
+        originalUserRequest: "read README.md and list files"
+      ),
+    ]
+
+    let input = try generationInput(from: entries)
+
+    #expect(input.history.map(\.role) == [.user, .assistant])
+    let rawMessages = DefaultMessageGenerator().generate(
+      messages: input.history + input.promptMessages
+    )
+    let rawAssistantToolCalls = try #require(
+      rawMessages[1]["tool_calls"] as? [[String: any Sendable]]
+    )
+    #expect(rawAssistantToolCalls.count == 2)
+    let firstToolCall = try #require(rawAssistantToolCalls.first)
+    let secondToolCall = try #require(rawAssistantToolCalls.dropFirst().first)
+    let firstFunction = try #require(firstToolCall["function"] as? [String: any Sendable])
+    let secondFunction = try #require(secondToolCall["function"] as? [String: any Sendable])
+    #expect(firstToolCall["id"] as? String == RuntimeToolCallID.string(for: readCallID))
+    #expect(firstFunction["name"] as? String == ToolName.readFile.rawValue)
+    #expect(secondToolCall["id"] as? String == RuntimeToolCallID.string(for: listCallID))
+    #expect(secondFunction["name"] as? String == ToolName.listFiles.rawValue)
+    #expect(input.promptMessages.map(\.role) == [.tool, .tool, .user])
+    #expect(rawMessages[2]["tool_call_id"] as? String == RuntimeToolCallID.string(for: readCallID))
+    #expect(rawMessages[3]["tool_call_id"] as? String == RuntimeToolCallID.string(for: listCallID))
+    #expect(input.promptMessages[2].content.contains("Original user request:"))
+    #expect(!input.promptMessages[2].content.contains("Project overview"))
+  }
+
+  @Test
+  func toolCallAfterAssistantPreambleReplaysAsSingleStructuredAssistantMessage() throws {
+    let callID = UUID()
+    let turnID = UUID()
+    let arguments: ToolCallArguments = ["path": .string("README.md")]
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: "read README.md"),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: "I'll inspect that."
+      ),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: NativeToolCallBoundaryRenderer.renderGemma4(
+          toolName: ToolName.readFile.rawValue,
+          arguments: arguments
+        )
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .readFile,
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            ))
+        ),
+        request: toolRequest(callID: callID, toolName: .readFile, arguments: arguments),
+        originalUserRequest: "read README.md"
+      ),
+    ]
+
+    let input = try generationInput(from: entries)
+
+    #expect(input.history.map(\.role) == [.user, .assistant])
+    #expect(input.historySnapshot[1].content == "I'll inspect that.")
+    #expect(input.historySnapshot[1].toolCalls.count == 1)
+    #expect(input.promptMessages.map(\.role) == [.tool, .user])
+  }
+
+  @Test
+  func redactedWriteFileBoundaryReplaysAsStructuredToolCall() throws {
+    let callID = UUID()
+    let turnID = UUID()
+    let arguments: ToolCallArguments = [
+      "path": .string("movies.html"),
+      "content": .string("<html></html>"),
+    ]
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: "create movies.html"),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: writeFileToolCall(callID: callID, arguments: arguments).modelContextContent
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .writeFile,
+          payload: .writeFile(
+            .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 13))
+        ),
+        request: toolRequest(callID: callID, toolName: .writeFile, arguments: arguments),
+        originalUserRequest: "create movies.html"
+      ),
+      try ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
+        prompt: "Use the preceding tool result to answer the user's request."
+      ),
+    ]
+
+    let input = try generationInput(from: entries)
+    let rawMessages = DefaultMessageGenerator().generate(
+      messages: input.history + input.promptMessages
+    )
+    let rawAssistantToolCalls = try #require(
+      rawMessages[1]["tool_calls"] as? [[String: any Sendable]]
+    )
+    let rawAssistantToolCall = try #require(rawAssistantToolCalls.first)
+    let rawAssistantFunction = try #require(
+      rawAssistantToolCall["function"] as? [String: any Sendable]
+    )
+    let rawArguments = try #require(rawAssistantFunction["arguments"] as? [String: any Sendable])
+
+    #expect(input.history.map(\.role) == [.user, .assistant])
+    #expect(input.historySnapshot[1].content.isEmpty)
+    #expect(rawAssistantToolCall["id"] as? String == RuntimeToolCallID.string(for: callID))
+    #expect(rawAssistantFunction["name"] as? String == ToolName.writeFile.rawValue)
+    #expect(rawArguments["content"] as? String == "<html></html>")
+    #expect(input.promptMessages.map(\.role) == [.tool, .user])
+    #expect(rawMessages[2]["tool_call_id"] as? String == RuntimeToolCallID.string(for: callID))
+  }
+
+  @Test
+  func terminalFollowUpPromptIncludesEntireStructuredResultGroup() throws {
+    let readCallID = UUID()
+    let writeCallID = UUID()
+    let turnID = UUID()
+    let readArguments: ToolCallArguments = ["path": .string("README.md")]
+    let writeArguments: ToolCallArguments = [
+      "path": .string("movies.html"),
+      "content": .string("<html></html>"),
+    ]
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
+        prompt: "read README.md and create movies.html"
+      ),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: NativeToolCallBoundaryRenderer.renderModelContextGemma4([
+          ToolCallModelMessage(
+            rawRequest: RawToolCallRequest(
+              id: readCallID,
+              workspaceID: UUID(),
+              sessionID: UUID(),
+              toolName: .readFile,
+              arguments: readArguments
+            )),
+          writeFileToolCall(callID: writeCallID, arguments: writeArguments),
+        ])
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: readCallID,
+          toolName: .readFile,
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            ))
+        ),
+        request: toolRequest(callID: readCallID, toolName: .readFile, arguments: readArguments),
+        originalUserRequest: "read README.md and create movies.html"
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: writeCallID,
+          toolName: .writeFile,
+          payload: .writeFile(
+            .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 13))
+        ),
+        request: toolRequest(callID: writeCallID, toolName: .writeFile, arguments: writeArguments),
+        originalUserRequest: "read README.md and create movies.html"
+      ),
+      try ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
+        prompt: "Use the preceding tool result to answer the user's request."
+      ),
+    ]
+
+    let input = try generationInput(from: entries)
+
+    #expect(input.history.map(\.role) == [.user, .assistant])
+    #expect(
+      input.historySnapshot[1].toolCalls.map(\.id) == [
+        RuntimeToolCallID.string(for: readCallID),
+        RuntimeToolCallID.string(for: writeCallID),
+      ])
+    #expect(input.promptMessages.map(\.role) == [.tool, .tool, .user])
+    #expect(input.promptMessages[2].content.contains("Use the preceding tool result"))
+    #expect(!input.promptMessages[2].content.contains("Original user request:"))
+  }
+
+  @Test
+  func laterUserTurnHistoryKeepsStructuredToolResultAndContinuation() throws {
+    let callID = UUID()
+    let turnID = UUID()
+    let transcript = ModelContextSnapshot(entries: [
+      try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: "read README.md"),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
         content: NativeToolCallBoundaryRenderer.renderGemma4(
           toolName: ToolName.readFile.rawValue,
           arguments: ["path": .string("README.md")]
         )
       ),
       try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
         toolResult: ToolResultModelMessage(
           callID: callID,
           toolName: .readFile,
@@ -1175,19 +1458,21 @@ struct GemmaMLXRuntimeTemplateTests {
         ),
         originalUserRequest: "read README.md"
       ),
-      try ModelFacingPromptRenderer.assistantOutputEntry(content: "README.md is a project file."),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: "README.md is a project file."
+      ),
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "what did you read?"),
     ])
 
     let history = try GemmaHistoryRenderer.generationHistoryMessages(from: transcript)
 
-    // The observation stays in the exact form that was prefilled, so the
-    // cached KV prefix remains a prefix of this history.
-    #expect(history.map(\.role) == [.user, .assistant, .user, .assistant])
-    #expect(history[2].content.contains("Original user request:"))
+    #expect(history.map(\.role) == [.user, .assistant, .tool, .user, .assistant])
     #expect(history[2].content.contains("<observation"))
     #expect(history[2].content.contains("Project overview"))
     #expect(history[2].content.contains("Tool receipt:") == false)
+    #expect(history[3].content.contains("Original user request:"))
+    #expect(!history[3].content.contains("Project overview"))
   }
 
   // The tool follow-up prompt is frozen into the observation entry, and the
@@ -1228,15 +1513,16 @@ struct GemmaMLXRuntimeTemplateTests {
     ]
 
     // What the runtime caches after the tool follow-up completes:
-    // history before the prompt + [user(prompt verbatim), assistant(output)].
-    let (followUpHistory, followUpPrompt) = try generationHistoryAndPrompt(from: toolTurnEntries)
+    // history before the prompt + structured prompt batch + assistant(output).
+    let followUpInput = try generationInput(from: toolTurnEntries)
     let cachedPrefix =
-      GemmaHistoryRenderer.messageSnapshot(from: followUpHistory)
+      followUpInput.historySnapshot
+      + followUpInput.promptSnapshot
       + [
         GemmaMessageSnapshot(
-          role: Chat.Message.Role.user.rawValue, content: followUpPrompt.content),
-        GemmaMessageSnapshot(
-          role: Chat.Message.Role.assistant.rawValue, content: "README.md is a project file."),
+          role: Chat.Message.Role.assistant.rawValue,
+          content: "README.md is a project file."
+        )
       ]
 
     // The next user turn: the observation now lives in history, frozen in the
@@ -1247,8 +1533,7 @@ struct GemmaMLXRuntimeTemplateTests {
           turnID: turnID, content: "README.md is a project file."),
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "what did you read?"),
       ])
-    let currentHistory = GemmaHistoryRenderer.messageSnapshot(
-      from: try GemmaHistoryRenderer.generationHistoryMessages(from: nextTurn))
+    let currentHistory = try GemmaHistoryRenderer.generationInput(from: nextTurn).historySnapshot
 
     let decision = GemmaSessionCachePolicy.cacheDecision(
       cachedPrefix: cachedPrefix,
@@ -1258,11 +1543,15 @@ struct GemmaMLXRuntimeTemplateTests {
       currentSettings: .agentDefault
     )
 
-    // Same position, same bytes: the prefilled prompt and the history
-    // rendering of the observation are identical.
+    // Same position, same wire form: the prefilled structured tool result and
+    // continuation are identical to their later history rendering.
+    #expect(cachedPrefix.map(\.role) == ["user", "assistant", "tool", "user", "assistant"])
+    #expect(cachedPrefix[1].toolCalls.count == 1)
+    #expect(cachedPrefix[2].toolCallID == RuntimeToolCallID.string(for: callID))
     #expect(cachedPrefix[2].content.contains("<observation"))
     #expect(currentHistory[2].content.contains("<observation"))
-    #expect(cachedPrefix[2].content == currentHistory[2].content)
+    #expect(cachedPrefix[2] == currentHistory[2])
+    #expect(cachedPrefix[3] == currentHistory[3])
     #expect(cachedPrefix == currentHistory)
 
     #expect(decision.shouldReuse)
@@ -2250,6 +2539,66 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func modelStreamNormalizesDuplicateNativeToolCallIDs() async throws {
+    let boundaryRecorder = GemmaNativeBoundaryRecorder()
+    let duplicateID = "call_0123456789ABCDEF0123456789ABCDEF"
+    let firstToolCall = MLXLMCommon.ToolCall(
+      function: .init(name: "read_file", arguments: ["path": "README.md"]),
+      id: duplicateID
+    )
+    let secondToolCall = MLXLMCommon.ToolCall(
+      function: .init(name: "list_files", arguments: ["path": "."]),
+      id: duplicateID
+    )
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.toolCall(firstToolCall))
+      continuation.yield(.toolCall(secondToolCall))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 1,
+            promptTime: 0.1,
+            generationTime: 0.1
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = GemmaModelStreamProcessor.modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { _ in },
+      markNativeToolCallBoundary: { output, nativeToolCalls in
+        await boundaryRecorder.record(output: output, nativeToolCalls: nativeToolCalls)
+      },
+      markCancelled: { _ in }
+    )
+
+    var iterator = stream.makeAsyncIterator()
+    let firstEvent = try await iterator.next()
+    let secondEvent = try await iterator.next()
+    guard case .toolCall(let firstRuntimeToolCall) = firstEvent,
+      case .toolCall(let secondRuntimeToolCall) = secondEvent
+    else {
+      Issue.record("Expected two native tool call events.")
+      return
+    }
+    _ = try await iterator.next()
+    try await waitUntilAsync {
+      await boundaryRecorder.firstBoundary?.nativeToolCalls.count == 2
+    }
+
+    #expect(firstRuntimeToolCall.id == "call_0123456789abcdef0123456789abcdef")
+    #expect(secondRuntimeToolCall.id != firstRuntimeToolCall.id)
+    #expect(RuntimeToolCallID.uuid(from: secondRuntimeToolCall.id) != nil)
+    #expect(
+      await boundaryRecorder.firstBoundary?.nativeToolCalls.map(\.id)
+        == [firstRuntimeToolCall.id, secondRuntimeToolCall.id])
+  }
+
+  @Test
   func nativeGemma4ToolContextMapsRegistryToMLXToolSpecs() throws {
     let toolContext = ChatRuntimeToolContext(
       strategy: .nativeGemma4,
@@ -2450,6 +2799,12 @@ struct GemmaMLXRuntimeTemplateTests {
   ) -> [ProjectedModelContextEntry] {
     ModelContextSnapshot(entries: entries)
       .projectedEntries(mode: GemmaHistoryRenderer.runtimeProjectionMode)
+  }
+
+  private func generationInput(
+    from entries: [ModelContextEntry]
+  ) throws -> GemmaGenerationInput {
+    try GemmaHistoryRenderer.generationInput(from: ModelContextSnapshot(entries: entries))
   }
 
   private func generationHistoryAndPrompt(

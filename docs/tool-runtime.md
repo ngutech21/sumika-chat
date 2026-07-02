@@ -10,7 +10,7 @@ or provider-specific payloads.
 ```mermaid
 flowchart TD
   A["ChatTurnCoordinator receives native ChatRuntimeToolCall event"] --> B["ToolLoopCoordinator"]
-  B --> C["RawToolCallRequest(name, arguments, rawText)"]
+  B --> C["RawToolCallRequest(id, name, arguments, rawText)"]
   C --> D["ToolCallRequestValidator"]
   D --> E["ToolCallRequest(payload: ToolCallPayload)"]
   E --> F["ToolExecutorRegistry lookup"]
@@ -38,9 +38,16 @@ flowchart TD
 - Native Gemma 4 tool-call events are the only supported model-facing tool
   protocol. `ToolLoopCoordinator` converts those native events into the same
   neutral `RawToolCallRequest` execution boundary used by the rest of Core.
-- Native tool-call boundaries are committed to model history as canonical
-  Gemma 4 boundary text generated from the tool name and sorted arguments. The
-  boundary must stay stable so MLX append-only cache reuse can compare prefixes.
+- Native tool-call IDs are normalized as `call_<uuid-without-dashes-lowercase>`
+  at the MLX boundary. Parseable native IDs seed `RawToolCallRequest.id`; missing,
+  malformed, or duplicate IDs fall back to fresh UUIDs so execution records stay
+  unique.
+- Native tool-call boundaries are committed to the Core model ledger as canonical
+  Gemma 4 boundary text generated from the tool name and sorted arguments, with
+  the typed raw arguments preserved next to that text. MLX replay renders those
+  ledger entries as structured assistant `tool_calls` plus matching `tool`
+  result messages, so provider history keeps the native call/result relationship
+  without making SwiftUI or tools parse provider syntax.
 - `ChatTurnCoordinator` owns the UI-free tool-loop lifecycle for a turn. It
   invokes `ToolLoopCoordinator`, applies `ChatWorkflowStep` continuations via
   emitted workflow events, pauses on approval or `ask_user`, and resumes through
@@ -51,7 +58,7 @@ flowchart TD
 - Terminal follow-up prompts, such as approved write/edit follow-ups and denied
   tool follow-ups, do not expose tools to the runtime. If more work is needed,
   the model must ask the user for another turn rather than emitting more tools.
-- `RawToolCallRequest` is the runtime handoff model: tool name,
+- `RawToolCallRequest` is the runtime handoff model: stable call ID, tool name,
   workspace/session, raw argument values, and optional raw text for debugging.
 - `ToolCallRequest` is the validated execution-boundary model. It preserves the
   raw request and carries a typed `ToolCallPayload` for the built-in tool or an

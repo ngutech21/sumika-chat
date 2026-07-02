@@ -156,13 +156,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let imageInputs = try GemmaHistoryRenderer.imageInputs(
       from: imageAttachments, attachmentStore: attachmentStore)
     let projectionMode = GemmaHistoryRenderer.runtimeProjectionMode
-    let projectedEntries = transcript.projectedEntries(mode: projectionMode)
-    guard let currentPromptIndex = projectedEntries.lastIndex(where: { $0.role == .user }) else {
-      throw GemmaMLXRuntimeError.missingUserMessage
-    }
-
-    let promptMessage = GemmaHistoryRenderer.chatMessage(
-      from: projectedEntries[currentPromptIndex],
+    let generationInput = try GemmaHistoryRenderer.generationInput(
+      from: transcript,
       images: imageInputs
     )
     let generateParameters = GenerateParameters(
@@ -178,12 +173,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let toolSpecs = GemmaNativeToolSchema.toolSpecs(from: toolContext)
     let nativeToolSchemaHash = GemmaSessionCachePolicy.nativeToolSchemaSignature(from: toolContext)
     let cacheSystemPrompt = toolContext?.cacheSystemPrompt ?? systemPrompt
-    let historySnapshot = GemmaHistoryRenderer.generationHistorySnapshot(
-      from: projectedEntries[..<currentPromptIndex]
-    )
-    let history = try GemmaHistoryRenderer.validatedChatMessages(from: historySnapshot)
-    let promptImageSignatures = projectedEntries[currentPromptIndex].imageSignatures
-    let finalPrompt = promptMessage.content
+    let historySnapshot = generationInput.historySnapshot
+    let history = generationInput.history
+    let promptSnapshot = generationInput.promptSnapshot
+    let finalPrompt = generationInput.promptContent
     await supersedeActiveGenerationBeforeStartingNew()
     let traceMetadata = TurnTraceContext.current
     let traceID = traceMetadata?.generationID ?? UUID()
@@ -196,7 +189,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       modelContainer: modelContainer,
       history: history,
       historySnapshot: historySnapshot,
-      promptMessage: promptMessage,
+      promptMessages: generationInput.promptMessages,
       systemPrompt: systemPrompt,
       cacheSystemPrompt: cacheSystemPrompt,
       settings: settings,
@@ -240,7 +233,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       traceMetadata: traceMetadata,
       cachePlan: cachePlan,
       streamStartStartedAt: streamStartStartedAt,
-      messageCount: projectedEntries.count,
+      messageCount: transcript.entries.count,
       imageAttachments: imageAttachments
     )
     let streamPlan = GemmaModelStreamProcessor.modelStreamPlan(
@@ -252,8 +245,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         await self?.markSessionCompleted(
           generationID: generationID,
           historyPrefix: historySnapshot,
-          prompt: finalPrompt,
-          promptImageSignatures: promptImageSignatures,
+          promptSnapshot: promptSnapshot,
           output: output,
           settings: settings,
           projectionMode: projectionMode,
@@ -264,8 +256,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         await self?.markSessionNativeToolCallBoundary(
           generationID: generationID,
           historyPrefix: historySnapshot,
-          prompt: finalPrompt,
-          promptImageSignatures: promptImageSignatures,
+          promptSnapshot: promptSnapshot,
           output: output,
           nativeToolCalls: nativeToolCalls,
           toolRegistry: toolContext?.registry,
@@ -373,7 +364,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     modelContainer: ModelContainer,
     history: [Chat.Message],
     historySnapshot: [GemmaMessageSnapshot],
-    promptMessage: Chat.Message,
+    promptMessages: [Chat.Message],
     systemPrompt: String,
     cacheSystemPrompt: String,
     settings: ChatGenerationSettings,
@@ -424,7 +415,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         streamInput: GemmaSessionCachePolicy.streamInput(
           for: decision.reuseStrategy,
           history: history,
-          promptMessage: promptMessage
+          promptMessages: promptMessages
         )
       )
     }
@@ -447,15 +438,18 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       session: session,
       trace: decision.trace,
       reuseStrategy: decision.reuseStrategy,
-      streamInput: .prompt(promptMessage.content, images: promptMessage.images)
+      streamInput: GemmaSessionCachePolicy.streamInput(
+        for: .none,
+        history: history,
+        promptMessages: promptMessages
+      )
     )
   }
 
   private func markSessionCompleted(
     generationID: GemmaGenerationID,
     historyPrefix: [GemmaMessageSnapshot],
-    prompt: String,
-    promptImageSignatures: [String],
+    promptSnapshot: [GemmaMessageSnapshot],
     output: String,
     settings: ChatGenerationSettings,
     projectionMode: ModelContextProjectionMode,
@@ -474,14 +468,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
     let completedPrefix =
       historyPrefix
-      + [
-        GemmaMessageSnapshot(
-          role: Chat.Message.Role.user.rawValue,
-          content: prompt,
-          imageSignatures: promptImageSignatures
-        ),
-        GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: output),
-      ]
+      + promptSnapshot
+      + [GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: output)]
     cachedSession = CachedGemmaSession(
       session: cached.session,
       prefix: completedPrefix,
@@ -501,8 +489,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   private func markSessionNativeToolCallBoundary(
     generationID: GemmaGenerationID,
     historyPrefix: [GemmaMessageSnapshot],
-    prompt: String,
-    promptImageSignatures: [String],
+    promptSnapshot: [GemmaMessageSnapshot],
     output: String,
     nativeToolCalls: [ChatRuntimeToolCall],
     toolRegistry: ToolRegistry?,
@@ -521,27 +508,18 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       return
     }
 
-    let nativeBoundary = NativeToolCallBoundaryRenderer.renderModelContextGemma4(
-      nativeToolCalls,
-      registry: toolRegistry
-    )
+    _ = toolRegistry
     let assistantOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-    let assistantSnapshots =
-      assistantOutput.isEmpty
-      ? [GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: nativeBoundary)]
-      : [
-        GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: assistantOutput),
-        GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: nativeBoundary),
-      ]
+    let assistantSnapshots = [
+      GemmaMessageSnapshot(
+        role: Chat.Message.Role.assistant.rawValue,
+        content: assistantOutput,
+        toolCalls: nativeToolCalls.map(Self.toolCallSnapshot(from:))
+      )
+    ]
     let completedPrefix =
       historyPrefix
-      + [
-        GemmaMessageSnapshot(
-          role: Chat.Message.Role.user.rawValue,
-          content: prompt,
-          imageSignatures: promptImageSignatures
-        )
-      ]
+      + promptSnapshot
       + assistantSnapshots
     cachedSession = CachedGemmaSession(
       session: cached.session,
@@ -608,5 +586,16 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     reasoningEnabled: Bool
   ) -> [String: any Sendable] {
     ["enable_thinking": reasoningEnabled]
+  }
+
+  nonisolated private static func toolCallSnapshot(
+    from toolCall: ChatRuntimeToolCall
+  ) -> GemmaToolCallSnapshot {
+    GemmaToolCallSnapshot(
+      id: RuntimeToolCallID.uuid(from: toolCall.id).map(RuntimeToolCallID.string(for:))
+        ?? toolCall.id,
+      name: toolCall.name,
+      arguments: toolCall.arguments
+    )
   }
 }

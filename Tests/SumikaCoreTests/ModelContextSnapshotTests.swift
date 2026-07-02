@@ -196,7 +196,7 @@ struct ModelContextSnapshotTests {
   }
 
   @Test
-  func finalToolResultFollowUpReplacesTerminalAssistantLedgerEntryWithCurrentPrompt() throws {
+  func finalToolResultFollowUpAppendsPromptAfterTerminalAssistantLedgerEntry() throws {
     let turnID = UUID()
     let callID = UUID()
     let mutator = ChatTranscriptMutator()
@@ -248,23 +248,28 @@ struct ModelContextSnapshotTests {
 
     #expect(
       state.modelContextSnapshot.entries.map(\.frozenContent.role) == [
-        .user, .assistant, .user,
+        .user, .assistant, .assistant, .user,
       ])
-    #expect(
-      !state.modelContextSnapshot.entries.contains { entry in
+    let terminalEntry = try #require(
+      state.modelContextSnapshot.entries.first { entry in
         if case .terminalToolResult = entry.body {
           return true
         }
         return false
       })
-    let finalEntry = try #require(state.modelContextSnapshot.entries.last)
-    guard case .toolObservation(let context) = finalEntry.body else {
-      Issue.record("Expected the terminal result to become the current tool observation prompt.")
+    guard case .terminalToolResult(let terminalContext) = terminalEntry.body else {
+      Issue.record("Expected the terminal result to remain in model context history.")
       return
     }
-    #expect(context.toolName == .writeFile)
-    #expect(
-      finalEntry.frozenContent.content.contains("Summary: Wrote 18 bytes to movies.html."))
+    #expect(terminalContext.toolName == .writeFile)
+    #expect(terminalContext.content.contains("Summary: Wrote 18 bytes to movies.html."))
+
+    let finalEntry = try #require(state.modelContextSnapshot.entries.last)
+    guard case .userPrompt(let context) = finalEntry.body else {
+      Issue.record("Expected the follow-up to become the current user prompt.")
+      return
+    }
+    #expect(context.prompt == "Use the preceding tool result to answer the user's request.")
     #expect(
       finalEntry.frozenContent.content.contains(
         "Use the preceding tool result to answer the user's request."))

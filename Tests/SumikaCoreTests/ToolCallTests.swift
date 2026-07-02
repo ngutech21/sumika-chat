@@ -151,6 +151,35 @@ struct ToolCallTests {
   }
 
   @Test
+  func runtimeToolCallIDRoundTripsUUID() throws {
+    let uuid = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+    let runtimeID = RuntimeToolCallID.string(for: uuid)
+
+    #expect(runtimeID == "call_0123456789abcdef0123456789abcdef")
+    #expect(RuntimeToolCallID.uuid(from: runtimeID) == uuid)
+    #expect(RuntimeToolCallID.uuid(from: "call_not-a-uuid") == nil)
+    #expect(RuntimeToolCallID.uuid(from: nil) == nil)
+  }
+
+  @Test
+  func toolCallModelMessagePreservesRawArgumentsForModelReplay() {
+    let request = RawToolCallRequest(
+      workspaceID: UUID(),
+      sessionID: UUID(),
+      toolName: .readFile,
+      arguments: [
+        "line": .number(12),
+        "path": .string("README.md"),
+      ]
+    )
+
+    let message = ToolCallModelMessage(rawRequest: request)
+
+    #expect(message.rawArguments == request.arguments)
+    #expect(message.arguments.map(\.name) == ["line", "path"])
+  }
+
+  @Test
   func writeFileTranscriptArgumentsHideContentPayload() {
     let request = RawToolCallRequest(
       workspaceID: UUID(),

@@ -47,11 +47,12 @@ public enum NativeToolCallBoundaryRenderer {
     let toolName = modelContextToolName(for: toolCall.name, registry: registry)
     let rawText = renderGemma4(toolName: toolName.rawValue, arguments: toolCall.arguments)
     return ToolCallModelMessage(
-      callID: UUID(),
+      callID: RuntimeToolCallID.uuid(from: toolCall.id) ?? UUID(),
       toolName: toolName,
       arguments: toolCall.arguments.keys.sorted().map { key in
         ToolCallModelArgument(name: key, value: toolCall.arguments[key]?.displayValue ?? "")
       },
+      rawArguments: toolCall.arguments,
       rawText: rawText
     )
   }

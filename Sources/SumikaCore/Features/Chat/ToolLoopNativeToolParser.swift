@@ -16,6 +16,7 @@ enum ToolLoopNativeToolParser {
     let acceptedToolCalls =
       policy.allowsMultipleToolCalls ? toolCalls : Array(toolCalls.prefix(1))
     let resolver = ToolNameResolver()
+    var usedRequestIDs = Set<UUID>()
 
     let outputs = acceptedToolCalls.map { toolCall in
       let resolution = resolver.resolve(toolCall.name, registry: registry)
@@ -26,6 +27,7 @@ enum ToolLoopNativeToolParser {
         arguments: toolCall.arguments
       )
       let request = RawToolCallRequest(
+        id: RuntimeToolCallID.uniqueUUID(from: toolCall.id, usedIDs: &usedRequestIDs),
         workspaceID: workspaceID,
         sessionID: sessionID,
         toolName: canonicalToolName,

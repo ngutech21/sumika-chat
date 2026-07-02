@@ -3,20 +3,32 @@ import MLXLMCommon
 import SumikaCore
 
 nonisolated enum GemmaSessionCachePolicy {
-  nonisolated static let gemmaRendererVersion = 1
+  nonisolated static let gemmaRendererVersion = 2
 
   nonisolated static func streamInput(
     for reuseStrategy: GemmaSessionReuseStrategy,
     history: [Chat.Message],
-    promptMessage: Chat.Message
+    promptMessages: [Chat.Message]
   ) -> GemmaSessionStreamInput {
     switch reuseStrategy {
     case .none, .exactPrompt:
-      return .prompt(promptMessage.content, images: promptMessage.images)
+      return promptStreamInput(from: promptMessages)
     case .appendHistoryDelta(let startIndex):
       let boundedStartIndex = min(max(0, startIndex), history.count)
-      return .messages(Array(history[boundedStartIndex...]) + [promptMessage])
+      return .messages(Array(history[boundedStartIndex...]) + promptMessages)
     }
+  }
+
+  nonisolated private static func promptStreamInput(
+    from promptMessages: [Chat.Message]
+  ) -> GemmaSessionStreamInput {
+    guard promptMessages.count == 1, let promptMessage = promptMessages.first,
+      promptMessage.role == .user,
+      !promptMessage.hasToolMetadata
+    else {
+      return .messages(promptMessages)
+    }
+    return .prompt(promptMessage.content, images: promptMessage.images)
   }
 
   nonisolated static func cacheDecision(
@@ -460,6 +472,29 @@ nonisolated enum GemmaSessionCachePolicy {
       for byte in message.content.utf8 {
         update(byte)
       }
+      if !message.toolCalls.isEmpty {
+        update(0xFD)
+        for toolCall in message.toolCalls {
+          for byte in (toolCall.id ?? "nil").utf8 {
+            update(byte)
+          }
+          update(0)
+          for byte in toolCall.name.utf8 {
+            update(byte)
+          }
+          update(0)
+          for byte in toolArgumentSignature(from: .object(toolCall.arguments)).utf8 {
+            update(byte)
+          }
+          update(0)
+        }
+      }
+      if let toolCallID = message.toolCallID {
+        update(0xFC)
+        for byte in toolCallID.utf8 {
+          update(byte)
+        }
+      }
       for signature in message.imageSignatures {
         update(0xFE)
         for byte in signature.utf8 {
@@ -500,4 +535,10 @@ nonisolated enum GemmaSessionCachePolicy {
     return zip(prefix, messages).allSatisfy(==)
   }
 
+}
+
+nonisolated extension Chat.Message {
+  var hasToolMetadata: Bool {
+    tool != nil
+  }
 }

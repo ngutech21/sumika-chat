@@ -65,6 +65,7 @@ nonisolated enum GemmaModelStreamProcessor {
       var didCompleteNaturally = false
       var didTerminateDownstream = false
       var nativeToolCalls: [ChatRuntimeToolCall] = []
+      var usedNativeToolCallIDs = Set<UUID>()
 
       do {
         generationLoop: for try await generation in stream {
@@ -94,7 +95,10 @@ nonisolated enum GemmaModelStreamProcessor {
           }
 
           if let toolCall = generation.toolCall {
-            let runtimeToolCall = GemmaNativeToolSchema.chatRuntimeToolCall(from: toolCall)
+            let runtimeToolCall = GemmaNativeToolSchema.chatRuntimeToolCall(
+              from: toolCall,
+              usedIDs: &usedNativeToolCallIDs
+            )
             nativeToolCalls.append(runtimeToolCall)
             if case .terminated = continuation.yield(
               .toolCall(runtimeToolCall)

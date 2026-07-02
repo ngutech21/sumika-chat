@@ -30,6 +30,62 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func nativeRuntimeToolCallIDSeedsRawRequestID() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let callID = UUID()
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            id: RuntimeToolCallID.string(for: callID),
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          )
+        ]
+      )
+    )
+
+    #expect(toolCallRecord(from: result)?.id == callID)
+    #expect(completedToolResult(from: result)?.callID == callID)
+    #expect(annotatedNativeToolCalls(from: result).first?.callID == callID)
+  }
+
+  @Test
+  func duplicateNativeRuntimeToolCallIDsDoNotCreateDuplicateRequests() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let callID = UUID()
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            id: RuntimeToolCallID.string(for: callID),
+            name: "read_file",
+            arguments: ["path": .string("README.md")]
+          ),
+          ChatRuntimeToolCall(
+            id: RuntimeToolCallID.string(for: callID),
+            name: "list_files",
+            arguments: ["path": .string(".")]
+          ),
+        ]
+      )
+    )
+
+    let ids = toolCallRecords(from: result).map(\.id)
+    #expect(ids.count == 2)
+    #expect(Set(ids).count == 2)
+    #expect(ids.first == callID)
+  }
+
+  @Test
   func nativeToolNameRepairKeepsOriginalName() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

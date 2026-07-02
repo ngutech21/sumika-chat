@@ -211,12 +211,21 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   `GemmaMLXRuntime` reuses the existing `ChatSession`, sends only the appended
   history delta plus the current prompt through `streamDetails(to messages:)`,
   and traces `append_only_delta_reused`.
-- Native Gemma 4 tool calls are not assistant prose. The runtime records them
-  as a canonical non-visible assistant boundary generated
-  from the native tool name and sorted arguments, with no call IDs or timestamps.
-  The cached session may remain clean only when the Core model context projects
-  the exact same boundary before the tool observation; the following
-  continuation can then trace `append_only_delta_reused`.
+- Simple text-only user prompts still use the MLX prompt fast path. Prompt
+  batches that contain tool metadata use structured `Chat.Message` input instead,
+  because a prompt can be a `tool` result followed by a compact user continuation.
+- Native Gemma 4 tool calls are not assistant prose in the MLX session. Core
+  still stores a canonical non-visible assistant boundary plus the typed raw
+  arguments in `ModelContextSnapshot`, but the Gemma renderer replays that ledger
+  as structured assistant `tool_calls` with stable `call_<uuid>` IDs and matching
+  `tool` result messages. Consecutive tool results after one assistant boundary
+  become consecutive `tool` messages followed by one continuation user message.
+  The continuation restates the original user request and tool-result trust
+  boundary without duplicating the tool output.
+- The Gemma renderer version is part of the rendered context signature. It must
+  be bumped whenever the MLX wire form changes, including changes to role/tool
+  metadata, so old text-boundary cache prefixes cannot be compared to new
+  structured history.
 - Image prompts stay cacheable. The content signatures of the images consumed
   with a user prompt are frozen into the entry (`UserPromptContext.imageSignatures`)
   and carried through the projection into the prefix snapshots, so identical
@@ -230,6 +239,10 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   `reusedMessageCount`, `appendedMessageCount`, `mismatchReason`,
   `firstMismatchIndex`, and `toolLoopIteration` are the source of truth for
   diagnosing cache behavior. UI generation time alone cannot prove a cache hit.
+- The cache history signature includes structured message metadata that MLX sees:
+  assistant tool-call IDs, tool names, canonical raw arguments, and `tool`
+  result call IDs. A plain UUID alone is not enough because the cache must prove
+  that the entire provider-facing message shape still matches the session state.
 - The active native tool schema is recorded in the rendered context signature
   for diagnostics (`nativeToolSchemaHash`) but does NOT gate prefix reuse. The
   Gemma chat template never renders tool specs into the prompt, so `session.tools`
@@ -239,8 +252,8 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   the cached prefix instead of re-prefilling the whole context. "No more tools"
   is enforced by the prompt instruction plus passing empty tools at decode time.
 
-The native Gemma 4 fast path preserves the assistant tool-call boundary as
-Gemma 4 native tool-call text.
+The native Gemma 4 fast path preserves the assistant tool-call boundary in Core
+while replaying it to MLX as native structured tool-call metadata.
 
 ## Persistence Rules
 
