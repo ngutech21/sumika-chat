@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1-beta.0](https://github.com/ngutech21/sumika-chat/compare/v1.1.0-beta.0...v1.1.1-beta.0) (2026-07-02)
+
+
+### Bug Fixes
+
+* format ([5871697](https://github.com/ngutech21/sumika-chat/commit/58716970092afc93cbf35fc05085610e7e988adf))
+
 ## [1.1.0-beta.0](https://github.com/ngutech21/sumika-chat/compare/v1.0.0-beta.0...v1.1.0-beta.0) (2026-06-30)
 
 
