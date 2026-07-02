@@ -195,25 +195,20 @@ flowchart TD
 
 ## Gemma/MLX Cache Rules
 
-`GemmaMLXRuntime` keeps an in-memory `ChatSession` cache for the rendered
-model-facing prefix that MLX has actually consumed. The cache is valid only when
-the Swift-side prefix and the MLX session state describe the same bytes.
+`GemmaMLXRuntime` treats `MLXLMCommon.ChatSession` as the KV-cache owner. Sumika
+keeps only a minimal shadow ledger: the last accepted `GemmaMessageSnapshot`
+prefix, a small prefill identity, and a conservative clean/in-flight/dirty state.
 
-- Exact history reuse is safe when the cached prefix, rendered context
-  signature (excluding decode-time-only fields), generation settings, and clean
-  session state all match the current model-facing history.
-- Tool-loop follow-ups should keep the previously consumed frozen entries as
-  exact history and render the new observation or final tool result as the
-  current prompt. That path should trace `session_reused` instead of
-  `invalidated_history_appended` when the cached prefix is clean.
-- Append-only history is reusable only through the MLX structured-message append
-  path. If current history is the cached prefix plus new model-facing messages,
-  `GemmaMLXRuntime` reuses the existing `ChatSession`, sends only the appended
-  history delta plus the current prompt through `streamDetails(to messages:)`,
-  and traces `append_only_delta_reused`.
-- Simple text-only user prompts still use the MLX prompt fast path. Prompt
-  batches that contain tool metadata use structured `Chat.Message` input instead,
-  because a prompt can be a `tool` result followed by a compact user continuation.
+- Reuse is safe when the cached session is clean, the prefill identity matches,
+  and the cached prefix is a prefix of the current model-facing history.
+- The prefill identity contains only values that affect bytes already consumed by
+  MLX: normalized cache system prompt, projection mode, `maxKVSize`, and
+  reasoning/template context. Sampling settings, `maxTokens`, and the active
+  native tool schema are decode-time inputs and do not rebuild the session.
+- All generation requests use the MLX structured-message path. First requests
+  send only the current prompt to a new `ChatSession(history:)`; reused requests
+  send either the current prompt or the appended history delta plus the current
+  prompt through `streamDetails(to messages:)`.
 - Native Gemma 4 tool calls are not assistant prose in the MLX session. Core
   still stores a canonical non-visible assistant boundary plus the typed raw
   arguments in `ModelContextSnapshot`, but the Gemma renderer replays that ledger
@@ -222,10 +217,6 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   become consecutive `tool` messages followed by one continuation user message.
   The continuation restates the original user request and tool-result trust
   boundary without duplicating the tool output.
-- The Gemma renderer version is part of the rendered context signature. It must
-  be bumped whenever the MLX wire form changes, including changes to role/tool
-  metadata, so old text-boundary cache prefixes cannot be compared to new
-  structured history.
 - Image prompts stay cacheable. The content signatures of the images consumed
   with a user prompt are frozen into the entry (`UserPromptContext.imageSignatures`)
   and carried through the projection into the prefix snapshots, so identical
@@ -234,23 +225,17 @@ the Swift-side prefix and the MLX session state describe the same bytes.
   The image tokens stay in the reused KV cache; after a full re-prefill from
   text-only history the image is no longer part of the model context.
 - Dirty states stay conservative. Cancelled turns, interrupted streams, runtime
-  errors, and non-tool downstream termination invalidate reuse.
-- Trace fields such as `cacheMode`, `cacheReason`, `appendOnly`,
-  `reusedMessageCount`, `appendedMessageCount`, `mismatchReason`,
-  `firstMismatchIndex`, and `toolLoopIteration` are the source of truth for
-  diagnosing cache behavior. UI generation time alone cannot prove a cache hit.
+  errors, downstream termination, model changes, manual context clearing, and
+  non-append-only history rebuild the MLX session.
+- Cache debug now reports coarse states: `new_session`, `reused_session`,
+  `append_delta`, and `dirty_rebuild`, with compact reason/count fields.
 - The cache history signature includes structured message metadata that MLX sees:
   assistant tool-call IDs, tool names, canonical raw arguments, and `tool`
   result call IDs. A plain UUID alone is not enough because the cache must prove
   that the entire provider-facing message shape still matches the session state.
-- The active native tool schema is recorded in the rendered context signature
-  for diagnostics (`nativeToolSchemaHash`) but does NOT gate prefix reuse. The
-  Gemma chat template never renders tool specs into the prompt, so `session.tools`
-  is a decode-time-only parameter (tool-call parsing) that does not change the
-  prefilled bytes. Tool-loop iterations that change the active registry — most
-  importantly the final answer dropping to an empty registry — therefore reuse
-  the cached prefix instead of re-prefilling the whole context. "No more tools"
-  is enforced by the prompt instruction plus passing empty tools at decode time.
+- The active native tool schema is applied through `session.tools` immediately
+  before decode. It is not part of prefix comparison because the Gemma template
+  does not render tool specs into the prefilled prompt.
 
 The native Gemma 4 fast path preserves the assistant tool-call boundary in Core
 while replaying it to MLX as native structured tool-call metadata.

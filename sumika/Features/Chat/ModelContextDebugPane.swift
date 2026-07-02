@@ -233,31 +233,29 @@ private struct RuntimeCacheDebugSection: View {
   }
 
   private func statusTitle(for snapshot: RuntimeCacheDebugSnapshot) -> String {
-    if snapshot.cacheReason == "append_only_delta_reused"
-      || snapshot.reuseStrategy == "append_history_delta"
-    {
+    if snapshot.cacheMode == "append_delta" || snapshot.reuseStrategy == "append_delta" {
       return "Append-only delta"
     }
-    if snapshot.cacheMode == "session_reused" {
+    if snapshot.cacheMode == "reused_session" {
       return "Reused"
     }
-    if snapshot.cacheMode == "new_session_history" {
+    if snapshot.cacheMode == "new_session" {
       return "New session"
     }
-    if snapshot.cacheMode.hasPrefix("invalidated_") {
-      return "Invalidated"
+    if snapshot.cacheMode == "dirty_rebuild" {
+      return "Rebuilt"
     }
     return snapshot.cacheMode
   }
 
   private func statusImage(for snapshot: RuntimeCacheDebugSnapshot) -> String {
-    if snapshot.cacheMode == "session_reused" {
+    if snapshot.cacheMode == "reused_session" || snapshot.cacheMode == "append_delta" {
       return "bolt.horizontal.circle"
     }
-    if snapshot.cacheMode == "new_session_history" {
+    if snapshot.cacheMode == "new_session" {
       return "plus.circle"
     }
-    if snapshot.cacheMode.hasPrefix("invalidated_") {
+    if snapshot.cacheMode == "dirty_rebuild" {
       return "exclamationmark.triangle"
     }
     return "memorychip"

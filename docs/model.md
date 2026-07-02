@@ -76,6 +76,18 @@ classDiagram
     topK: Int
     maxTokens: Int
     maxKVSize: Int?
+    repetitionPenalty: Double
+    reasoningEnabled: Bool
+  }
+
+  class ChatModeSettingsSet {
+    chat: ChatModeSettings
+    agent: ChatModeSettings
+  }
+
+  class ChatModeSettings {
+    systemPrompt: String
+    generationSettings: ChatGenerationSettings
   }
 
   class WorkspaceInteractionMode {
@@ -345,6 +357,13 @@ classDiagram
 
   class ModelContextSnapshot {
     entries: [ModelContextEntry]
+    projectedEntries(mode): [ProjectedModelContextEntry] derived
+  }
+
+  class ProjectedModelContextEntry {
+    role: ModelContextRole
+    content: String
+    imageSignatures: [String]
   }
 
   class ModelContextEntry {
@@ -363,6 +382,98 @@ classDiagram
     terminalToolResult(TerminalToolResultContext)
   }
 
+  class UserPromptContext {
+    prompt: String
+    attachmentNames: [String]
+    imageSignatures: [String]
+    systemContext: [String]
+    currentPromptContext: CurrentPromptContext?
+  }
+
+  class CurrentPromptContext {
+    <<enum>>
+    empty(ContextBudget)
+    selected(CurrentPromptContextSelection)
+  }
+
+  class CurrentPromptContextSelection {
+    blocks: NonEmptyPromptContextBlocks
+    budget: ContextBudget
+    truncation: PromptContextTruncation
+  }
+
+  class NonEmptyPromptContextBlocks {
+    values: [PromptContextBlock]
+  }
+
+  class PromptContextBlock {
+    <<enum>>
+    attachedFile(AttachedFilePromptContext)
+    focusedFile(FocusedFilePromptContext)
+    ambiguousRecentFiles(AmbiguousRecentFilesPromptContext)
+  }
+
+  class ContextBudget {
+    maxCharacters: Int
+  }
+
+  class PromptContextTruncation {
+    <<enum>>
+    none
+    byCharacterBudget
+  }
+
+  class AssistantOutputContext {
+    content: String
+  }
+
+  class ToolObservationContext {
+    callID: UUID
+    toolName: ToolName
+    status: ToolResultStatus
+    content: String
+    toolReceipt: ToolReceipt?
+    toolCall: ToolCallModelMessage?
+    systemContext: [String]
+  }
+
+  class TerminalToolResultContext {
+    callID: UUID
+    toolName: ToolName
+    status: ToolResultStatus
+    content: String
+    toolReceipt: ToolReceipt?
+    toolCall: ToolCallModelMessage?
+  }
+
+  class ToolReceipt {
+    callID: UUID
+    toolName: ToolName
+    status: ToolResultStatus
+    affectedPaths: [WorkspaceRelativePath]
+    summary: ToolReceiptSummary
+    outputTruncated: Bool
+    outputRedacted: Bool
+  }
+
+  class ToolReceiptSummary {
+    text: String
+    truncated: Bool
+  }
+
+  class ToolCallModelMessage {
+    callID: UUID
+    toolName: ToolName
+    arguments: [ToolCallModelArgument]
+    rawArguments: ToolCallArguments
+    rawText: String?
+  }
+
+  class ToolCallModelArgument {
+    name: String
+    value: String
+  }
+
   class FrozenModelContent {
     role: ModelContextRole
     content: String
@@ -373,6 +484,28 @@ classDiagram
     <<enum>>
     user
     assistant
+  }
+
+  class ModelContextDebugState {
+    runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
+  }
+
+  class RuntimeCacheDebugSnapshot {
+    generationID: UUID
+    recordedAt: Date
+    cacheMode: String
+    cacheReason: String
+    reuseStrategy: String
+    appendDeltaStartIndex: Int?
+    contextSignature: String
+    previousContextSignature: String?
+    appendOnly: Bool
+    reusedMessageCount: Int
+    appendedMessageCount: Int
+    mismatchReason: String?
+    firstMismatchIndex: Int?
+    systemPromptChanged: Bool?
+    currentPromptContextChanged: Bool?
   }
 
   class FocusedFileState {
@@ -430,8 +563,10 @@ classDiagram
 
   ManagedModel --> ManagedModelStability
   ManagedModel --> ToolCallingPolicy
-  ManagedModel --> ChatGenerationSettings
+  ManagedModel --> ChatModeSettingsSet
   ToolCallingPolicy --> ToolCallingStrategy
+  ChatModeSettingsSet --> ChatModeSettings
+  ChatModeSettings --> ChatGenerationSettings
 
   ChatTurn "1" --> "*" ChatTurnItem : append-only membership
   ChatTurn --> ChatTurnStatus
@@ -471,9 +606,38 @@ classDiagram
   ToolResultPreview --> ToolResultStatus
 
   ModelContextSnapshot "1" --> "*" ModelContextEntry
+  ModelContextSnapshot --> ProjectedModelContextEntry : derived projection
   ModelContextEntry --> ModelContextEntryBody
   ModelContextEntry --> FrozenModelContent
+  ModelContextEntryBody --> UserPromptContext
+  ModelContextEntryBody --> AssistantOutputContext
+  ModelContextEntryBody --> ToolObservationContext
+  ModelContextEntryBody --> TerminalToolResultContext
+  UserPromptContext --> CurrentPromptContext
+  UserPromptContext --> ModelContextRole : model role derived
+  CurrentPromptContext --> CurrentPromptContextSelection
+  CurrentPromptContextSelection --> NonEmptyPromptContextBlocks
+  CurrentPromptContextSelection --> ContextBudget
+  CurrentPromptContextSelection --> PromptContextTruncation
+  NonEmptyPromptContextBlocks --> PromptContextBlock
+  ToolObservationContext --> ToolName
+  ToolObservationContext --> ToolResultStatus
+  ToolObservationContext --> ToolReceipt
+  ToolObservationContext --> ToolCallModelMessage
+  TerminalToolResultContext --> ToolName
+  TerminalToolResultContext --> ToolResultStatus
+  TerminalToolResultContext --> ToolReceipt
+  TerminalToolResultContext --> ToolCallModelMessage
+  ToolReceipt --> ToolName
+  ToolReceipt --> ToolResultStatus
+  ToolReceipt --> WorkspaceRelativePath
+  ToolReceipt --> ToolReceiptSummary
+  ToolCallModelMessage --> ToolName
+  ToolCallModelMessage --> ToolCallModelArgument
+  ToolCallModelMessage --> ToolArgumentValue
   FrozenModelContent --> ModelContextRole
+  ProjectedModelContextEntry --> ModelContextRole
+  ModelContextDebugState --> RuntimeCacheDebugSnapshot
 
   FocusedFileState --> WorkspaceRelativePath
   FocusedFileState --> FocusedPath

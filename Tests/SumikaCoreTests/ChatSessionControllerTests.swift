@@ -355,9 +355,9 @@ struct ChatSessionControllerTests {
     let snapshot = RuntimeCacheDebugSnapshot(
       generationID: generationID,
       recordedAt: Date(timeIntervalSince1970: 1_234),
-      cacheMode: "session_reused",
-      cacheReason: "append_only_delta_reused",
-      reuseStrategy: "append_history_delta",
+      cacheMode: "append_delta",
+      cacheReason: "append_only_delta",
+      reuseStrategy: "append_delta",
       appendDeltaStartIndex: 1,
       contextSignature: "current",
       previousContextSignature: "previous",

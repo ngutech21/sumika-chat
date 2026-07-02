@@ -115,17 +115,16 @@ final class SumikaUITests: XCTestCase {
       in: application
     )
     waitForCompletedTurn(in: application, after: followUpBaseline)
-    let followUpRows = try traceRows(
+    let followUpRows = try waitForTraceRows(
       in: fixture.traceURL,
       afterOffset: followUpTraceOffset
-    )
+    ) { rows in
+      rows.containsRuntimeCacheReuse()
+    }
 
     recordTraceSummary(followUpRows, expectedMode: "chat", label: "Chat cache reuse trace")
     XCTAssertTrue(
-      followUpRows.containsRuntimeCacheMode(
-        cacheMode: "session_reused",
-        cacheReason: "session_reused"
-      ),
+      followUpRows.containsRuntimeCacheReuse(),
       "A plain chat follow-up should reuse the loaded Gemma ChatSession cache."
     )
   }
@@ -293,7 +292,9 @@ final class SumikaUITests: XCTestCase {
       in: application
     )
     waitForCompletedTurn(in: application, after: baseline, timeout: 420)
-    let rows = try traceRows(in: fixture.traceURL, afterOffset: traceOffset)
+    let rows = try waitForTraceRows(in: fixture.traceURL, afterOffset: traceOffset) { rows in
+      rows.containsToolLoopRuntimeCacheReuse()
+    }
     recordTraceSummary(rows, expectedMode: "agent", label: "Read file cache trace")
     XCTAssertFalse(
       rows.containsToolLoopRuntimeCacheReason("invalidated_history_prefix_mismatch"),
@@ -304,8 +305,8 @@ final class SumikaUITests: XCTestCase {
       "Gemma 4 native tool calls should no longer dirty the cache at the native boundary."
     )
     XCTAssertTrue(
-      rows.containsToolLoopRuntimeCacheReason("append_only_delta_reused"),
-      "Gemma 4 native tool follow-ups should reuse the appended native tool-call boundary."
+      rows.containsToolLoopRuntimeCacheReuse(),
+      "Gemma 4 native tool follow-ups should keep the MLX ChatSession cache reusable."
     )
   }
 
@@ -669,6 +670,24 @@ final class SumikaUITests: XCTestCase {
     }
   }
 
+  private func waitForTraceRows(
+    in traceURL: URL,
+    afterOffset offset: UInt64,
+    timeout: TimeInterval = 15,
+    matching predicate: ([TraceRow]) -> Bool
+  ) throws -> [TraceRow] {
+    let deadline = Date().addingTimeInterval(timeout)
+    var latestRows = try traceRows(in: traceURL, afterOffset: offset)
+    while Date() < deadline {
+      if predicate(latestRows) {
+        return latestRows
+      }
+      RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.25))
+      latestRows = try traceRows(in: traceURL, afterOffset: offset)
+    }
+    return latestRows
+  }
+
   private func fileSize(at url: URL) -> UInt64 {
     guard
       let attributes = try? FileManager.default.attributesOfItem(
@@ -777,6 +796,14 @@ private struct TraceRow {
   let toolLoopIteration: Int?
   let cacheMode: String?
   let cacheReason: String?
+
+  var isRuntimeCacheReuse: Bool {
+    guard kind == "turn_trace", phase?.hasPrefix("runtime_") == true else {
+      return false
+    }
+    return (cacheMode == "reused_session" && cacheReason == "reused_session")
+      || (cacheMode == "append_delta" && cacheReason == "append_only_delta")
+  }
 }
 
 private enum SumikaUITestError: Error {
@@ -838,6 +865,18 @@ extension Array where Element == TraceRow {
         && row.phase?.hasPrefix("runtime_") == true
         && row.cacheMode == cacheMode
         && row.cacheReason == cacheReason
+    }
+  }
+
+  fileprivate func containsRuntimeCacheReuse() -> Bool {
+    contains { row in
+      row.isRuntimeCacheReuse
+    }
+  }
+
+  fileprivate func containsToolLoopRuntimeCacheReuse() -> Bool {
+    contains { row in
+      row.toolLoopIteration != nil && row.isRuntimeCacheReuse
     }
   }
 

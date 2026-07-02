@@ -3,15 +3,10 @@ import MLXLMCommon
 import SumikaCore
 
 nonisolated enum GemmaSessionCacheMode: String, Equatable, Sendable {
-  case newSessionHistory = "new_session_history"
-  case sessionReused = "session_reused"
-  case invalidatedSignatureMismatch = "invalidated_signature_mismatch"
-  case invalidatedCancelled = "invalidated_cancelled"
-  case invalidatedInterrupted = "invalidated_interrupted"
-  case invalidatedDownstreamTerminated = "invalidated_downstream_terminated"
-  case invalidatedRuntimeError = "invalidated_runtime_error"
-  case invalidatedModelChanged = "invalidated_model_changed"
-  case invalidatedNativeToolCallBoundary = "invalidated_native_tool_call_boundary"
+  case newSession = "new_session"
+  case reusedSession = "reused_session"
+  case appendDelta = "append_delta"
+  case dirtyRebuild = "dirty_rebuild"
 }
 
 nonisolated enum GemmaSessionInvalidationReason: Equatable, Sendable {
@@ -22,46 +17,23 @@ nonisolated enum GemmaSessionInvalidationReason: Equatable, Sendable {
   case runtimeError
   case modelChanged
   case nativeToolCallBoundary
-
-  var cacheMode: GemmaSessionCacheMode {
-    switch self {
-    case .signatureMismatch:
-      .invalidatedSignatureMismatch
-    case .cancelled:
-      .invalidatedCancelled
-    case .interrupted:
-      .invalidatedInterrupted
-    case .downstreamTerminated:
-      .invalidatedDownstreamTerminated
-    case .runtimeError:
-      .invalidatedRuntimeError
-    case .modelChanged:
-      .invalidatedModelChanged
-    case .nativeToolCallBoundary:
-      .invalidatedNativeToolCallBoundary
-    }
-  }
 }
 
 nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
-  case sessionReused = "session_reused"
-  case newSessionNoCache = "new_session_no_cache"
+  case newSessionNoCache = "no_cached_session"
+  case reusedSession = "reused_session"
+  case appendOnlyDelta = "append_only_delta"
+  case identityChanged = "identity_changed"
+  case historyChanged = "history_changed"
+  case maxKVSizeChanged = "max_kv_size_changed"
+  case reasoningChanged = "reasoning_changed"
   case invalidatedGenCancelled = "invalidated_generation_cancelled"
   case invalidatedGenInterrupted = "invalidated_generation_interrupted"
   case invalidatedGenDownstreamTerminated = "invalidated_generation_downstream_terminated"
   case invalidatedGenRuntimeError = "invalidated_generation_runtime_error"
-  case invalidatedSettingsChanged = "invalidated_settings_changed"
-  case invalidatedRendererVersionChanged = "invalidated_renderer_version_changed"
-  case invalidatedRenderedContextChanged = "invalidated_rendered_context_signature_changed"
-  case invalidatedSystemPromptChanged = "invalidated_system_prompt_changed"
-  case invalidatedHistoryAppended = "invalidated_history_appended"
-  case invalidatedHistoryPrefixMismatch = "invalidated_history_prefix_mismatch"
-  case invalidatedCurrentPromptContextBoundary = "invalidated_current_prompt_context_boundary"
-  case invalidatedToolPromptChanged = "invalidated_tool_prompt_changed"
   case invalidatedModelChanged = "invalidated_model_changed"
   case invalidatedRuntimeContextCleared = "invalidated_runtime_context_cleared"
   case invalidatedNativeToolCallBoundary = "invalidated_native_tool_call_boundary"
-  case appendOnlyDeltaReused = "append_only_delta_reused"
 
   static func generationInvalidationReason(
     from reason: GemmaSessionInvalidationReason
@@ -85,15 +57,21 @@ nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
   }
 }
 
+nonisolated struct GemmaSessionCacheIdentity: Equatable, Sendable {
+  let systemPrompt: String?
+  let projectionMode: ModelContextProjectionMode
+  let maxKVSize: Int?
+  let reasoningEnabled: Bool
+}
+
 nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
   case clean
-  case cleanNativeToolCallBoundary
   case inFlight(generationID: GemmaGenerationID)
   case dirty(reason: GemmaSessionInvalidationReason)
 
   var isReusable: Bool {
     switch self {
-    case .clean, .cleanNativeToolCallBoundary:
+    case .clean:
       true
     case .inFlight, .dirty:
       false
@@ -102,7 +80,7 @@ nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
 
   var invalidationReason: GemmaSessionInvalidationReason? {
     switch self {
-    case .clean, .cleanNativeToolCallBoundary:
+    case .clean:
       nil
     case .inFlight:
       .interrupted
@@ -116,14 +94,6 @@ nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
       return nil
     }
     return .clean
-  }
-
-  func completingNativeToolCallBoundary(generationID: GemmaGenerationID) -> GemmaCachedSessionState?
-  {
-    guard self == .inFlight(generationID: generationID) else {
-      return nil
-    }
-    return .cleanNativeToolCallBoundary
   }
 
   func invalidating(
@@ -151,48 +121,16 @@ nonisolated struct GemmaSessionCacheTrace: Equatable, Sendable {
   let currentPromptContextChanged: Bool?
 }
 
-nonisolated struct GemmaSessionCacheDecision: Equatable, Sendable {
-  let reuseStrategy: GemmaSessionReuseStrategy
-  let trace: GemmaSessionCacheTrace
-
-  var shouldReuse: Bool {
-    reuseStrategy != .none
-  }
-}
-
-nonisolated enum GemmaSessionReuseStrategy: Equatable, Sendable {
-  case none
-  case exactPrompt
-  case appendHistoryDelta(startIndex: Int)
-}
-
 nonisolated struct CachedGemmaSession {
   let session: MLXLMCommon.ChatSession
   let prefix: [GemmaMessageSnapshot]
-  let settings: ChatGenerationSettings
-  let contextSignature: GemmaRenderedContextSignature
+  let identity: GemmaSessionCacheIdentity
   let state: GemmaCachedSessionState
 }
 
 nonisolated struct GemmaSessionCachePlan {
   let session: MLXLMCommon.ChatSession
   let trace: GemmaSessionCacheTrace
-  let reuseStrategy: GemmaSessionReuseStrategy
-  let streamInput: GemmaSessionStreamInput
-}
-
-nonisolated enum GemmaSessionStreamInput {
-  case prompt(String, images: [UserInput.Image])
-  case messages([Chat.Message])
-
-  var contentByteCount: Int {
-    switch self {
-    case .prompt(let prompt, let images):
-      return prompt.utf8.count + images.count
-    case .messages(let messages):
-      return messages.reduce(0) { byteCount, message in
-        byteCount + message.content.utf8.count + message.images.count
-      }
-    }
-  }
+  let appendDeltaStartIndex: Int?
+  let streamMessages: [Chat.Message]
 }

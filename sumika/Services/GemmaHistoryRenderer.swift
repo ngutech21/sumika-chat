@@ -447,7 +447,7 @@ nonisolated enum GemmaHistoryRenderer {
     in entries: [ModelContextEntry]
   ) -> [ToolCallModelMessage]? {
     guard boundaryIndex < entries.count,
-      case .assistantOutput(let context) = entries[boundaryIndex].body
+      case .assistantOutput = entries[boundaryIndex].body
     else {
       return nil
     }
@@ -462,15 +462,7 @@ nonisolated enum GemmaHistoryRenderer {
       index += 1
     }
 
-    let renderedBoundary = NativeToolCallBoundaryRenderer.renderModelContextGemma4(toolCalls)
-    guard !toolCalls.isEmpty,
-      context.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        == renderedBoundary.trimmingCharacters(in: .whitespacesAndNewlines)
-    else {
-      return nil
-    }
-
-    return toolCalls
+    return toolCalls.isEmpty ? nil : toolCalls
   }
 
   nonisolated private static func hasStructuredAssistantBoundary(

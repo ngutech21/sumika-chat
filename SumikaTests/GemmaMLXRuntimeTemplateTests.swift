@@ -80,32 +80,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func cacheDecisionReusesPrefixWithMatchingImageSignature() {
-    let prefix = [
-      GemmaMessageSnapshot(
-        role: "user",
-        content: "what is in the picture",
-        imageSignatures: ["sha256:abc"]
-      ),
-      GemmaMessageSnapshot(role: "assistant", content: "A blue Mini Cooper."),
-    ]
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: .agentDefault,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: .agentDefault
-    )
-
-    #expect(decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .sessionReused)
-    #expect(decision.trace.mismatchReason == nil)
-  }
-
-  @Test
-  func cacheDecisionInvalidatesWhenImageSignatureDiffers() {
+  func cachePrefixComparisonIncludesImageSignatures() {
     let cachedPrefix = [
       GemmaMessageSnapshot(
         role: "user",
@@ -123,18 +98,16 @@ struct GemmaMLXRuntimeTemplateTests {
       GemmaMessageSnapshot(role: "assistant", content: "A blue Mini Cooper."),
     ]
 
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: cachedPrefix,
-      cachedSettings: .agentDefault,
-      cachedState: .clean,
-      currentHistory: currentHistory,
-      currentSettings: .agentDefault
-    )
-
-    // Identical rendered text, different prefilled image: never reuse.
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.firstMismatchIndex == 0)
+    #expect(GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: cachedPrefix))
+    #expect(!GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
+    #expect(
+      GemmaSessionCachePolicy.firstMismatchIndex(
+        cachedPrefix: cachedPrefix,
+        currentHistory: currentHistory
+      ) == 0)
+    #expect(
+      GemmaSessionCachePolicy.contextSignature(for: cachedPrefix)
+        != GemmaSessionCachePolicy.contextSignature(for: currentHistory))
   }
 
   @Test
@@ -432,79 +405,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func renderedContextSignatureIsDeterministicForSameHistoryAndSettings() {
-    let settings = ChatGenerationSettings.agentDefault
-    let history = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-
-    let first = GemmaSessionCachePolicy.renderedContextSignature(for: history, settings: settings)
-    let second = GemmaSessionCachePolicy.renderedContextSignature(for: history, settings: settings)
-
-    #expect(first == second)
-    #expect(first.rendererVersion == GemmaSessionCachePolicy.gemmaRendererVersion)
-    #expect(first.traceValue == second.traceValue)
-  }
-
-  @Test
-  func renderedContextSignatureChangesWhenRenderedHistoryChanges() {
-    let settings = ChatGenerationSettings.agentDefault
-    let history = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    let changedHistory = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("different"),
-    ])
-
-    let first = GemmaSessionCachePolicy.renderedContextSignature(for: history, settings: settings)
-    let second = GemmaSessionCachePolicy.renderedContextSignature(
-      for: changedHistory,
-      settings: settings
-    )
-
-    #expect(first != second)
-    #expect(first.renderedHistoryHash != second.renderedHistoryHash)
-    #expect(first.generationSettingsHash == second.generationSettingsHash)
-    #expect(first.nativeToolSchemaHash == second.nativeToolSchemaHash)
-  }
-
-  @Test
-  func renderedContextSignatureChangesWhenSystemPromptChanges() {
-    let settings = ChatGenerationSettings.agentDefault
-    let history = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-
-    let first = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
-      settings: settings,
-      systemPrompt: "Use concise coding steps."
-    )
-    let second = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
-      settings: settings,
-      systemPrompt: "Use detailed coding steps."
-    )
-
-    #expect(first != second)
-    #expect(first.systemPromptHash != second.systemPromptHash)
-    #expect(first.renderedHistoryHash == second.renderedHistoryHash)
-    #expect(first.generationSettingsHash == second.generationSettingsHash)
-    #expect(first.nativeToolSchemaHash == second.nativeToolSchemaHash)
-  }
-
-  @Test
-  func renderedContextSignatureIgnoresSamplingSettings() {
-    // Sampling params and maxTokens are decode-time only and never change the
-    // KV-cache prefix, so they must not appear in the rendered-context signature.
-    let history = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
+  func cacheIdentityIgnoresDecodeOnlySettings() {
     var changedSettings = ChatGenerationSettings.agentDefault
     changedSettings.maxTokens = 128
     changedSettings.temperature = 0.9
@@ -512,180 +413,92 @@ struct GemmaMLXRuntimeTemplateTests {
     changedSettings.topK = 40
     changedSettings.repetitionPenalty = 1.15
 
-    let first = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
-      settings: .agentDefault
+    let first = GemmaSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Use concise coding steps.",
+      settings: .agentDefault,
+      projectionMode: .fullHistory
     )
-    let second = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
-      settings: changedSettings
+    let second = GemmaSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Use concise coding steps.",
+      settings: changedSettings,
+      projectionMode: .fullHistory
     )
 
     #expect(first == second)
-    #expect(first.generationSettingsHash == second.generationSettingsHash)
   }
 
   @Test
-  func renderedContextSignatureChangesWhenMaxKVSizeChanges() {
-    let history = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    var changedSettings = ChatGenerationSettings.agentDefault
-    changedSettings.maxKVSize = 16_384
-
-    let first = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
-      settings: .agentDefault
-    )
-    let second = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
-      settings: changedSettings
-    )
-
-    #expect(first != second)
-    #expect(first.renderedHistoryHash == second.renderedHistoryHash)
-    #expect(first.generationSettingsHash != second.generationSettingsHash)
-    #expect(first.nativeToolSchemaHash == second.nativeToolSchemaHash)
-  }
-
-  @Test
-  func renderedContextSignatureChangesWhenReasoningSettingChanges() {
-    let history = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    var changedSettings = ChatGenerationSettings.agentDefault
-    changedSettings.reasoningEnabled = false
-
-    let first = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
-      settings: .agentDefault
-    )
-    let second = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
-      settings: changedSettings
-    )
-
-    #expect(first != second)
-    #expect(first.renderedHistoryHash == second.renderedHistoryHash)
-    #expect(first.generationSettingsHash != second.generationSettingsHash)
-    #expect(first.nativeToolSchemaHash == second.nativeToolSchemaHash)
-  }
-
-  @Test
-  func renderedContextSignatureChangesWhenNativeToolSchemaChanges() {
-    let history = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    let readOnlyToolSchemaHash = GemmaSessionCachePolicy.nativeToolSchemaSignature(
-      for: ToolExecutorRegistry.readOnly.toolRegistry.tools
-    )
-    let codingToolSchemaHash = GemmaSessionCachePolicy.nativeToolSchemaSignature(
-      for: ToolExecutorRegistry.codingAgent.toolRegistry.tools
-    )
-
-    let first = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
+  func cacheIdentityChangesForPrefillSettings() {
+    var changedMaxKV = ChatGenerationSettings.agentDefault
+    changedMaxKV.maxKVSize = 16_384
+    var changedReasoning = ChatGenerationSettings.agentDefault
+    changedReasoning.reasoningEnabled = false
+    let base = GemmaSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Use concise coding steps.",
       settings: .agentDefault,
-      nativeToolSchemaHash: readOnlyToolSchemaHash
-    )
-    let second = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
-      settings: .agentDefault,
-      nativeToolSchemaHash: codingToolSchemaHash
-    )
-
-    #expect(first != second)
-    #expect(first.renderedHistoryHash == second.renderedHistoryHash)
-    #expect(first.generationSettingsHash == second.generationSettingsHash)
-    #expect(first.nativeToolSchemaHash != second.nativeToolSchemaHash)
-  }
-
-  @Test
-  func renderedContextSignatureChangesWhenProjectionModeChanges() {
-    let settings = ChatGenerationSettings.agentDefault
-    let history = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-
-    let full = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
-      settings: settings,
       projectionMode: .fullHistory
     )
-    let compacted = GemmaSessionCachePolicy.renderedContextSignature(
-      for: history,
-      settings: settings,
-      projectionMode: .compactedHistoryForLaterTurns
-    )
 
-    #expect(full != compacted)
-    #expect(full.projectionMode == .fullHistory)
-    #expect(compacted.projectionMode == .compactedHistoryForLaterTurns)
-    #expect(full.renderedHistoryHash == compacted.renderedHistoryHash)
-    #expect(full.generationSettingsHash == compacted.generationSettingsHash)
+    #expect(
+      GemmaSessionCachePolicy.identityMismatchReason(
+        cached: base,
+        current: GemmaSessionCachePolicy.cacheIdentity(
+          systemPrompt: "Use concise coding steps.",
+          settings: changedMaxKV,
+          projectionMode: .fullHistory
+        )
+      ) == .maxKVSizeChanged)
+    #expect(
+      GemmaSessionCachePolicy.identityMismatchReason(
+        cached: base,
+        current: GemmaSessionCachePolicy.cacheIdentity(
+          systemPrompt: "Use concise coding steps.",
+          settings: changedReasoning,
+          projectionMode: .fullHistory
+        )
+      ) == .reasoningChanged)
+    #expect(
+      GemmaSessionCachePolicy.identityMismatchReason(
+        cached: base,
+        current: GemmaSessionCachePolicy.cacheIdentity(
+          systemPrompt: "Use detailed coding steps.",
+          settings: .agentDefault,
+          projectionMode: .fullHistory
+        )
+      ) == .identityChanged)
   }
 
   @Test
-  func cacheDecisionInvalidatesWhenRendererVersionChanges() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
+  func streamMessagesUsesOnlyAppendDeltaAndPrompt() {
+    let history: [Chat.Message] = [
       .user("hello"),
       .assistant("hi"),
-    ])
-    let cachedSignature = GemmaSessionCachePolicy.renderedContextSignature(
-      for: prefix,
-      settings: settings,
-      rendererVersion: GemmaSessionCachePolicy.gemmaRendererVersion - 1
+      .tool("result", id: "call_1"),
+    ]
+    let promptMessages: [Chat.Message] = [.user("continue")]
+
+    let firstPrompt = GemmaSessionCachePolicy.streamMessages(
+      history: history,
+      promptMessages: promptMessages,
+      appendDeltaStartIndex: nil
+    )
+    let appendDelta = GemmaSessionCachePolicy.streamMessages(
+      history: history,
+      promptMessages: promptMessages,
+      appendDeltaStartIndex: 2
     )
 
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedContextSignature: cachedSignature,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: settings
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedRendererVersionChanged)
-    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
-    #expect(decision.trace.contextSignature != decision.trace.previousContextSignature)
+    #expect(firstPrompt.map(\.role) == [.user])
+    #expect(appendDelta.map(\.role) == [.tool, .user])
   }
 
   @Test
-  func cacheDecisionReportsNewSessionWhenNoCacheExists() {
-    let settings = ChatGenerationSettings.agentDefault
-    let history = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello")
-    ])
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: nil,
-      cachedSettings: nil,
-      cachedState: nil,
-      currentHistory: history,
-      currentSettings: settings
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .newSessionHistory)
-    #expect(decision.trace.cacheReason == .newSessionNoCache)
-    #expect(decision.trace.mismatchReason == nil)
-  }
-
-  @Test
-  func runtimeCacheDebugSnapshotMapsTraceAndReuseStrategy() {
+  func runtimeCacheDebugSnapshotMapsCoarseTrace() {
     let generationID = UUID()
     let recordedAt = Date(timeIntervalSince1970: 42)
     let trace = GemmaSessionCacheTrace(
-      cacheMode: .sessionReused,
-      cacheReason: .appendOnlyDeltaReused,
+      cacheMode: .appendDelta,
+      cacheReason: .appendOnlyDelta,
       contextSignature: "ctx-new",
       previousContextSignature: "ctx-old",
       appendOnly: true,
@@ -699,149 +512,22 @@ struct GemmaMLXRuntimeTemplateTests {
 
     let snapshot = GemmaSessionCachePolicy.runtimeCacheDebugSnapshot(
       from: trace,
-      reuseStrategy: .appendHistoryDelta(startIndex: 3),
+      appendDeltaStartIndex: 3,
       generationID: generationID,
       recordedAt: recordedAt
     )
 
     #expect(snapshot.generationID == generationID)
     #expect(snapshot.recordedAt == recordedAt)
-    #expect(snapshot.cacheMode == "session_reused")
-    #expect(snapshot.cacheReason == "append_only_delta_reused")
-    #expect(snapshot.reuseStrategy == "append_history_delta")
+    #expect(snapshot.cacheMode == "append_delta")
+    #expect(snapshot.cacheReason == "append_only_delta")
+    #expect(snapshot.reuseStrategy == "append_delta")
     #expect(snapshot.appendDeltaStartIndex == 3)
     #expect(snapshot.contextSignature == "ctx-new")
     #expect(snapshot.previousContextSignature == "ctx-old")
     #expect(snapshot.appendOnly)
     #expect(snapshot.reusedMessageCount == 3)
     #expect(snapshot.appendedMessageCount == 1)
-  }
-
-  @Test
-  func cacheDecisionReportsRenderedContextSignatureChangeSeparatelyFromRendererVersion() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    let cachedSignature = GemmaRenderedContextSignature(
-      rendererVersion: GemmaSessionCachePolicy.gemmaRendererVersion,
-      projectionMode: .fullHistory,
-      systemPromptHash: GemmaSessionCachePolicy.renderedContextSignature(
-        for: prefix,
-        settings: settings
-      ).systemPromptHash,
-      renderedHistoryHash: "different-history",
-      generationSettingsHash: GemmaSessionCachePolicy.renderedContextSignature(
-        for: prefix,
-        settings: settings
-      ).generationSettingsHash,
-      nativeToolSchemaHash: GemmaSessionCachePolicy.nativeToolSchemaSignature(from: nil)
-    )
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedContextSignature: cachedSignature,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: settings
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedRenderedContextChanged)
-    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
-  }
-
-  @Test
-  func cacheDecisionInvalidatesWhenSystemPromptChangesWithoutHistoryChange() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    let cachedSignature = GemmaSessionCachePolicy.renderedContextSignature(
-      for: prefix,
-      settings: settings,
-      systemPrompt: "Use concise coding steps."
-    )
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedContextSignature: cachedSignature,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: settings,
-      currentSystemPrompt: "Use detailed coding steps."
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedSystemPromptChanged)
-    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
-    #expect(decision.trace.systemPromptChanged == true)
-    #expect(decision.trace.currentPromptContextChanged == false)
-  }
-
-  @Test
-  func cacheDecisionReusesWhenCacheSystemPromptIsUnchanged() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    let cachedSignature = GemmaSessionCachePolicy.renderedContextSignature(
-      for: prefix,
-      settings: settings,
-      systemPrompt: "Use concise coding steps."
-    )
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedContextSignature: cachedSignature,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: settings,
-      currentSystemPrompt: "Use concise coding steps."
-    )
-
-    #expect(decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .sessionReused)
-    #expect(decision.trace.systemPromptChanged == nil)
-  }
-
-  @Test
-  func cacheDecisionInvalidatesWhenProjectionModeChanges() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    let cachedSignature = GemmaSessionCachePolicy.renderedContextSignature(
-      for: prefix,
-      settings: settings,
-      projectionMode: .fullHistory
-    )
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedContextSignature: cachedSignature,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: settings,
-      projectionMode: .compactedHistoryForLaterTurns
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedRenderedContextChanged)
-    #expect(decision.trace.mismatchReason == "rendered_context_signature_changed")
-    #expect(decision.trace.contextSignature != decision.trace.previousContextSignature)
   }
 
   @Test
@@ -950,11 +636,9 @@ struct GemmaMLXRuntimeTemplateTests {
     let generationID = GemmaGenerationID(rawValue: 1)
 
     #expect(GemmaCachedSessionState.clean.isReusable)
-    #expect(GemmaCachedSessionState.cleanNativeToolCallBoundary.isReusable)
     #expect(!GemmaCachedSessionState.inFlight(generationID: generationID).isReusable)
     #expect(!GemmaCachedSessionState.dirty(reason: .cancelled).isReusable)
     #expect(GemmaCachedSessionState.clean.invalidationReason == nil)
-    #expect(GemmaCachedSessionState.cleanNativeToolCallBoundary.invalidationReason == nil)
     #expect(
       GemmaCachedSessionState.inFlight(generationID: generationID).invalidationReason
         == .interrupted)
@@ -969,134 +653,11 @@ struct GemmaMLXRuntimeTemplateTests {
     let inFlight = GemmaCachedSessionState.inFlight(generationID: second)
 
     #expect(inFlight.completing(generationID: first) == nil)
-    #expect(inFlight.completingNativeToolCallBoundary(generationID: first) == nil)
     #expect(inFlight.invalidating(generationID: first, reason: .cancelled) == nil)
     #expect(inFlight.completing(generationID: second) == .clean)
     #expect(
-      inFlight.completingNativeToolCallBoundary(generationID: second)
-        == .cleanNativeToolCallBoundary)
-    #expect(
       inFlight.invalidating(generationID: second, reason: .downstreamTerminated)
         == .dirty(reason: .downstreamTerminated))
-  }
-
-  @Test
-  func cacheDecisionReusesOnlyExactRenderedPrefix() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: settings
-    )
-
-    #expect(decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .sessionReused)
-    #expect(decision.trace.appendOnly)
-    #expect(decision.trace.reusedMessageCount == 2)
-    #expect(decision.trace.appendedMessageCount == 0)
-  }
-
-  @Test
-  func cacheDecisionReusesExactNativeToolSchemaPrefix() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    let toolSchemaHash = GemmaSessionCachePolicy.nativeToolSchemaSignature(
-      for: ToolExecutorRegistry.readOnly.toolRegistry.tools
-    )
-    let cachedSignature = GemmaSessionCachePolicy.renderedContextSignature(
-      for: prefix,
-      settings: settings,
-      nativeToolSchemaHash: toolSchemaHash
-    )
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedContextSignature: cachedSignature,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: settings,
-      currentNativeToolSchemaHash: toolSchemaHash
-    )
-
-    #expect(decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .sessionReused)
-  }
-
-  // The Gemma chat template never renders tool specs into the prompt, so the
-  // native tool schema is a decode-time-only parameter and must not gate KV
-  // prefix reuse. A tool-schema-only change (e.g. the final tool-loop answer
-  // dropping to an empty registry) must reuse the cached prefix.
-  @Test
-  func cacheDecisionReusesWhenOnlyNativeToolSchemaChanges() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    let readOnlyToolSchemaHash = GemmaSessionCachePolicy.nativeToolSchemaSignature(
-      for: ToolExecutorRegistry.readOnly.toolRegistry.tools
-    )
-    let cachedSignature = GemmaSessionCachePolicy.renderedContextSignature(
-      for: prefix,
-      settings: settings,
-      nativeToolSchemaHash: readOnlyToolSchemaHash
-    )
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedContextSignature: cachedSignature,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: settings,
-      currentNativeToolSchemaHash: GemmaSessionCachePolicy.nativeToolSchemaSignature(from: nil)
-    )
-
-    #expect(decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .sessionReused)
-    #expect(decision.trace.mismatchReason == nil)
-  }
-
-  @Test
-  func cacheDecisionReusesExactNoToolSchemaPrefix() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    let cachedSignature = GemmaSessionCachePolicy.renderedContextSignature(
-      for: prefix,
-      settings: settings,
-      nativeToolSchemaHash: GemmaSessionCachePolicy.nativeToolSchemaSignature(from: nil)
-    )
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedContextSignature: cachedSignature,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: settings,
-      currentNativeToolSchemaHash: GemmaSessionCachePolicy.nativeToolSchemaSignature(from: nil)
-    )
-
-    #expect(decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .sessionReused)
   }
 
   @Test
@@ -1135,14 +696,6 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
     ]
     let input = try generationInput(from: entries)
-    let prefix = input.historySnapshot
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: .agentDefault,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: .agentDefault
-    )
 
     #expect(input.history.map(\.role) == [.user, .assistant])
     #expect(input.promptMessages.map(\.role) == [.tool, .user])
@@ -1165,11 +718,6 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(!input.promptMessages[1].content.contains("Project overview"))
     #expect(input.promptSnapshot.map(\.role) == ["tool", "user"])
     #expect(input.promptSnapshot[0].toolCallID == RuntimeToolCallID.string(for: callID))
-    #expect(decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .sessionReused)
-    #expect(decision.trace.appendedMessageCount == 0)
-    #expect(decision.trace.mismatchReason == nil)
   }
 
   @Test
@@ -1535,14 +1083,6 @@ struct GemmaMLXRuntimeTemplateTests {
       ])
     let currentHistory = try GemmaHistoryRenderer.generationInput(from: nextTurn).historySnapshot
 
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: cachedPrefix,
-      cachedSettings: .agentDefault,
-      cachedState: .clean,
-      currentHistory: currentHistory,
-      currentSettings: .agentDefault
-    )
-
     // Same position, same wire form: the prefilled structured tool result and
     // continuation are identical to their later history rendering.
     #expect(cachedPrefix.map(\.role) == ["user", "assistant", "tool", "user", "assistant"])
@@ -1553,12 +1093,12 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(cachedPrefix[2] == currentHistory[2])
     #expect(cachedPrefix[3] == currentHistory[3])
     #expect(cachedPrefix == currentHistory)
-
-    #expect(decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .sessionReused)
-    #expect(decision.trace.mismatchReason == nil)
-    #expect(decision.trace.firstMismatchIndex == nil)
+    #expect(GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
+    #expect(
+      GemmaSessionCachePolicy.firstMismatchIndex(
+        cachedPrefix: cachedPrefix,
+        currentHistory: currentHistory
+      ) == nil)
   }
 
   @Test
@@ -1614,14 +1154,6 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
     ]
     let (history, prompt) = try generationHistoryAndPrompt(from: entries)
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: history)
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: .agentDefault,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: .agentDefault
-    )
 
     #expect(history.map(\.role) == [.user, .assistant])
     #expect(prompt.role == .user)
@@ -1629,16 +1161,10 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(prompt.content.contains("Summary: Wrote 13 bytes to movies.html."))
     #expect(prompt.content.contains("Use the preceding tool result to answer"))
     #expect(!prompt.content.contains("No more tools may run in this response."))
-    #expect(decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .sessionReused)
-    #expect(decision.trace.appendedMessageCount == 0)
-    #expect(decision.trace.mismatchReason == nil)
   }
 
   @Test
-  func cacheDecisionReusesCleanAppendOnlyHistoryAsDelta() {
-    let settings = ChatGenerationSettings.agentDefault
+  func cacheTraceReportsAppendOnlyDelta() {
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -1646,219 +1172,36 @@ struct GemmaMLXRuntimeTemplateTests {
     let appendedHistory = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
-      .user("tool observation"),
+      .tool("result", id: "call_1"),
     ])
+    let identity = GemmaSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Use concise coding steps.",
+      settings: .agentDefault,
+      projectionMode: .fullHistory
+    )
 
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .clean,
+    let trace = GemmaSessionCachePolicy.trace(
+      mode: .appendDelta,
+      reason: .appendOnlyDelta,
       currentHistory: appendedHistory,
-      currentSettings: settings
-    )
-
-    #expect(decision.shouldReuse)
-    #expect(decision.reuseStrategy == .appendHistoryDelta(startIndex: 2))
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .appendOnlyDeltaReused)
-    #expect(decision.trace.appendOnly)
-    #expect(decision.trace.reusedMessageCount == 2)
-    #expect(decision.trace.appendedMessageCount == 1)
-    #expect(decision.trace.mismatchReason == nil)
-    #expect(decision.trace.firstMismatchIndex == nil)
-  }
-
-  @Test
-  func cacheDecisionReusesNativeToolCallBoundaryFollowUpDelta() {
-    let settings = ChatGenerationSettings.agentDefault
-    let nativeToolCall = ChatRuntimeToolCall(
-      name: "read_file",
-      arguments: ["path": .string("README.md")]
-    )
-    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(nativeToolCall)
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("read the file"),
-      .assistant(nativeBoundary),
-    ])
-    let appendedHistory = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("read the file"),
-      .assistant(nativeBoundary),
-      .user("Tool observation:\n1: project notes"),
-    ])
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
+      currentIdentity: identity,
       cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .clean,
-      currentHistory: appendedHistory,
-      currentSettings: settings
+      cachedIdentity: identity,
+      appendOnly: GemmaSessionCachePolicy.isPrefix(prefix, of: appendedHistory),
+      mismatchReason: nil,
+      firstMismatchIndex: nil
     )
 
-    #expect(decision.shouldReuse)
-    #expect(decision.reuseStrategy == .appendHistoryDelta(startIndex: 2))
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .appendOnlyDeltaReused)
+    #expect(trace.cacheMode == .appendDelta)
+    #expect(trace.cacheReason == .appendOnlyDelta)
+    #expect(trace.appendOnly)
+    #expect(trace.reusedMessageCount == 2)
+    #expect(trace.appendedMessageCount == 1)
+    #expect(trace.mismatchReason == nil)
   }
 
   @Test
-  func cacheDecisionTracesSameTurnNativeToolCallBoundaryReuseAsAppendOnly() {
-    let settings = ChatGenerationSettings.agentDefault
-    let nativeToolCall = ChatRuntimeToolCall(
-      name: "read_file",
-      arguments: ["path": .string("README.md")]
-    )
-    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(nativeToolCall)
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("read the file"),
-      .assistant(nativeBoundary),
-    ])
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .cleanNativeToolCallBoundary,
-      currentHistory: prefix,
-      currentSettings: settings
-    )
-
-    #expect(decision.shouldReuse)
-    #expect(decision.reuseStrategy == .appendHistoryDelta(startIndex: 2))
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .appendOnlyDeltaReused)
-    #expect(decision.trace.appendOnly)
-    #expect(decision.trace.reusedMessageCount == 2)
-    #expect(decision.trace.appendedMessageCount == 0)
-  }
-
-  @Test
-  func cacheDecisionReusesNativeToolCallBoundaryAfterAssistantPreamble() {
-    let settings = ChatGenerationSettings.agentDefault
-    let nativeToolCall = ChatRuntimeToolCall(
-      name: "read_file",
-      arguments: ["path": .string("README.md")]
-    )
-    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(nativeToolCall)
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("read the file"),
-      .assistant("I'll inspect that."),
-      .assistant(nativeBoundary),
-    ])
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .cleanNativeToolCallBoundary,
-      currentHistory: prefix,
-      currentSettings: settings
-    )
-
-    #expect(decision.shouldReuse)
-    #expect(decision.reuseStrategy == .appendHistoryDelta(startIndex: 3))
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .appendOnlyDeltaReused)
-    #expect(decision.trace.appendOnly)
-    #expect(decision.trace.reusedMessageCount == 3)
-    #expect(decision.trace.appendedMessageCount == 0)
-  }
-
-  // Append-only history that also drops the tool schema (decode-time only for
-  // Gemma) still reuses the cached prefix as a delta.
-  @Test
-  func cacheDecisionReusesAppendOnlyHistoryWhenNativeToolSchemaChanges() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    let appendedHistory = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-      .user("tool observation"),
-    ])
-    let readOnlyToolSchemaHash = GemmaSessionCachePolicy.nativeToolSchemaSignature(
-      for: ToolExecutorRegistry.readOnly.toolRegistry.tools
-    )
-    let cachedSignature = GemmaSessionCachePolicy.renderedContextSignature(
-      for: prefix,
-      settings: settings,
-      nativeToolSchemaHash: readOnlyToolSchemaHash
-    )
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedContextSignature: cachedSignature,
-      cachedState: .clean,
-      currentHistory: appendedHistory,
-      currentSettings: settings,
-      currentNativeToolSchemaHash: GemmaSessionCachePolicy.nativeToolSchemaSignature(from: nil)
-    )
-
-    #expect(decision.shouldReuse)
-    #expect(decision.reuseStrategy == .appendHistoryDelta(startIndex: 2))
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .appendOnlyDeltaReused)
-    #expect(decision.trace.appendOnly)
-    #expect(decision.trace.reusedMessageCount == 2)
-    #expect(decision.trace.appendedMessageCount == 1)
-    #expect(decision.trace.mismatchReason == nil)
-  }
-
-  @Test
-  func cacheDecisionKeepsDirtyAppendOnlyHistoryInvalidated() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-    let appendedHistory = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-      .user("tool observation"),
-    ])
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .dirty(reason: .downstreamTerminated),
-      currentHistory: appendedHistory,
-      currentSettings: settings
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedDownstreamTerminated)
-    #expect(decision.trace.cacheReason == .invalidatedGenDownstreamTerminated)
-    #expect(decision.trace.appendOnly)
-    #expect(decision.trace.reusedMessageCount == 2)
-    #expect(decision.trace.appendedMessageCount == 1)
-    #expect(decision.trace.mismatchReason == nil)
-  }
-
-  @Test
-  func cacheDecisionReportsNativeToolCallBoundaryInvalidation() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("call a native tool")
-    ])
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .dirty(reason: .nativeToolCallBoundary),
-      currentHistory: prefix,
-      currentSettings: settings
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.reuseStrategy == .none)
-    #expect(decision.trace.cacheMode == .invalidatedNativeToolCallBoundary)
-    #expect(decision.trace.cacheReason == .invalidatedNativeToolCallBoundary)
-    #expect(decision.trace.mismatchReason == nil)
-  }
-
-  @Test
-  func cacheDecisionInvalidatesWhenRenderedHistoryChanges() {
-    let settings = ChatGenerationSettings.agentDefault
+  func cacheTraceReportsHistoryMismatch() {
     let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
@@ -1867,303 +1210,48 @@ struct GemmaMLXRuntimeTemplateTests {
       .user("hello"),
       .assistant("different"),
     ])
+    let identity = GemmaSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Use concise coding steps.",
+      settings: .agentDefault,
+      projectionMode: .fullHistory
+    )
 
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .clean,
+    let trace = GemmaSessionCachePolicy.trace(
+      mode: .dirtyRebuild,
+      reason: .historyChanged,
       currentHistory: changedHistory,
-      currentSettings: settings
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedHistoryPrefixMismatch)
-    #expect(!decision.trace.appendOnly)
-    #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
-    #expect(decision.trace.firstMismatchIndex == 1)
-  }
-
-  @Test
-  func cacheDecisionReusesWhenOnlySamplingSettingsChange() {
-    // Sampling params and maxTokens are applied at decode time and do not change the
-    // KV-cache prefix, so changing them must keep the cached session reusable.
-    var changedSettings = ChatGenerationSettings.agentDefault
-    changedSettings.maxTokens = 128
-    changedSettings.temperature = 0.9
-    changedSettings.topP = 0.5
-    changedSettings.topK = 40
-    changedSettings.repetitionPenalty = 1.15
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
+      currentIdentity: identity,
       cachedPrefix: prefix,
-      cachedSettings: .agentDefault,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: changedSettings
-    )
-
-    #expect(decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .sessionReused)
-    #expect(decision.trace.cacheReason == .sessionReused)
-    #expect(decision.trace.mismatchReason == nil)
-  }
-
-  @Test
-  func cacheDecisionInvalidatesWhenMaxKVSizeChanges() {
-    // maxKVSize controls cache rotation/eviction, so it must still invalidate.
-    var changedSettings = ChatGenerationSettings.agentDefault
-    changedSettings.maxKVSize = 2048
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: .agentDefault,
-      cachedState: .clean,
-      currentHistory: prefix,
-      currentSettings: changedSettings
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedSettingsChanged)
-    #expect(decision.trace.mismatchReason == "settings_changed")
-    #expect(decision.trace.firstMismatchIndex == nil)
-  }
-
-  @Test
-  func cacheDecisionReportsCurrentPromptContextMismatchSeparatelyFromBasePrompt() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = [
-      GemmaMessageSnapshot(
-        role: "user",
-        content: """
-          System instructions:
-          Base prompt.
-
-          Current focused file: robots.html
-          Source: previous read_file
-          Explicit file paths in the user request or tool call take precedence.
-
-          User request:
-          show the file
-          """
-      ),
-      GemmaMessageSnapshot(role: "assistant", content: "hi"),
-    ]
-    let changedCurrentPromptContext = [
-      GemmaMessageSnapshot(
-        role: "user",
-        content: """
-          System instructions:
-          Base prompt.
-
-          Current focused file: index.html
-          Source: previous read_file
-          Explicit file paths in the user request or tool call take precedence.
-
-          User request:
-          show the file
-          """
-      ),
-      GemmaMessageSnapshot(role: "assistant", content: "hi"),
-    ]
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .clean,
-      currentHistory: changedCurrentPromptContext,
-      currentSettings: settings
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedCurrentPromptContextBoundary)
-    #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
-    #expect(decision.trace.firstMismatchIndex == 0)
-    #expect(decision.trace.systemPromptChanged == false)
-    #expect(decision.trace.currentPromptContextChanged == true)
-  }
-
-  @Test
-  func cacheDecisionReportsAttachedFileContextMismatchSeparatelyFromBasePrompt() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = [
-      GemmaMessageSnapshot(
-        role: "user",
-        content: """
-          System instructions:
-          Base prompt.
-
-          Attached file: Sources/Foo.swift
-          Content hash: hash-1
-          Attached content excerpt:
-          let value = 1
-          Explicit file paths in the user request or tool call take precedence.
-
-          User request:
-          explain the attachment
-          """
+      cachedIdentity: identity,
+      appendOnly: GemmaSessionCachePolicy.isPrefix(prefix, of: changedHistory),
+      mismatchReason: "history_changed",
+      firstMismatchIndex: GemmaSessionCachePolicy.firstMismatchIndex(
+        cachedPrefix: prefix,
+        currentHistory: changedHistory
       )
-    ]
-    let changedAttachedFile = [
-      GemmaMessageSnapshot(
-        role: "user",
-        content: """
-          System instructions:
-          Base prompt.
-
-          Attached file: Sources/Bar.swift
-          Content hash: hash-2
-          Attached content excerpt:
-          let value = 2
-          Explicit file paths in the user request or tool call take precedence.
-
-          User request:
-          explain the attachment
-          """
-      )
-    ]
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .clean,
-      currentHistory: changedAttachedFile,
-      currentSettings: settings
     )
 
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedSignatureMismatch)
-    #expect(decision.trace.cacheReason == .invalidatedCurrentPromptContextBoundary)
-    #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
-    #expect(decision.trace.firstMismatchIndex == 0)
-    #expect(decision.trace.systemPromptChanged == false)
-    #expect(decision.trace.currentPromptContextChanged == true)
+    #expect(trace.cacheMode == .dirtyRebuild)
+    #expect(trace.cacheReason == .historyChanged)
+    #expect(!trace.appendOnly)
+    #expect(trace.mismatchReason == "history_changed")
+    #expect(trace.firstMismatchIndex == 1)
   }
 
   @Test
-  func cacheDecisionReportsBasePromptMismatch() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = [
-      GemmaMessageSnapshot(
-        role: "user",
-        content: """
-          System instructions:
-          Base prompt.
-
-          User request:
-          hello
-          """
-      )
-    ]
-    let changedBasePrompt = [
-      GemmaMessageSnapshot(
-        role: "user",
-        content: """
-          System instructions:
-          Different base prompt.
-
-          User request:
-          hello
-          """
-      )
-    ]
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .clean,
-      currentHistory: changedBasePrompt,
-      currentSettings: settings
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheReason == .invalidatedToolPromptChanged)
-    #expect(decision.trace.mismatchReason == "history_prefix_mismatch")
-    #expect(decision.trace.firstMismatchIndex == 0)
-    #expect(decision.trace.systemPromptChanged == true)
-    #expect(decision.trace.currentPromptContextChanged == false)
-  }
-
-  @Test
-  func cacheDecisionInvalidatesInFlightSessionAsInterrupted() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-
-    let decision = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .inFlight(generationID: GemmaGenerationID(rawValue: 1)),
-      currentHistory: prefix,
-      currentSettings: settings
-    )
-
-    #expect(!decision.shouldReuse)
-    #expect(decision.trace.cacheMode == .invalidatedInterrupted)
-    #expect(decision.trace.cacheReason == .invalidatedGenInterrupted)
-  }
-
-  @Test
-  func cacheDecisionInvalidatesAfterDirtyStreamLifecycle() {
-    let settings = ChatGenerationSettings.agentDefault
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
-      .user("hello"),
-      .assistant("hi"),
-    ])
-
-    let cancelled = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .dirty(reason: .cancelled),
-      currentHistory: prefix,
-      currentSettings: settings
-    )
-    let interrupted = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .dirty(reason: .interrupted),
-      currentHistory: prefix,
-      currentSettings: settings
-    )
-    let downstreamTerminated = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .dirty(reason: .downstreamTerminated),
-      currentHistory: prefix,
-      currentSettings: settings
-    )
-    let runtimeError = GemmaSessionCachePolicy.cacheDecision(
-      cachedPrefix: prefix,
-      cachedSettings: settings,
-      cachedState: .dirty(reason: .runtimeError),
-      currentHistory: prefix,
-      currentSettings: settings
-    )
-
-    #expect(!cancelled.shouldReuse)
-    #expect(cancelled.trace.cacheMode == .invalidatedCancelled)
-    #expect(cancelled.trace.cacheReason == .invalidatedGenCancelled)
-    #expect(!interrupted.shouldReuse)
-    #expect(interrupted.trace.cacheMode == .invalidatedInterrupted)
-    #expect(interrupted.trace.cacheReason == .invalidatedGenInterrupted)
-    #expect(!downstreamTerminated.shouldReuse)
-    #expect(downstreamTerminated.trace.cacheMode == .invalidatedDownstreamTerminated)
-    #expect(downstreamTerminated.trace.cacheReason == .invalidatedGenDownstreamTerminated)
-    #expect(!runtimeError.shouldReuse)
-    #expect(runtimeError.trace.cacheMode == .invalidatedRuntimeError)
-    #expect(runtimeError.trace.cacheReason == .invalidatedGenRuntimeError)
+  func cacheInvalidationReasonsMapToDirtyRebuildReasons() {
+    #expect(
+      GemmaSessionCacheReason.generationInvalidationReason(from: .cancelled)
+        == .invalidatedGenCancelled)
+    #expect(
+      GemmaSessionCacheReason.generationInvalidationReason(from: .interrupted)
+        == .invalidatedGenInterrupted)
+    #expect(
+      GemmaSessionCacheReason.generationInvalidationReason(from: .downstreamTerminated)
+        == .invalidatedGenDownstreamTerminated)
+    #expect(
+      GemmaSessionCacheReason.generationInvalidationReason(from: .runtimeError)
+        == .invalidatedGenRuntimeError)
   }
 
   @Test
@@ -2853,7 +1941,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   private func defaultCacheTrace() -> GemmaSessionCacheTrace {
     GemmaSessionCacheTrace(
-      cacheMode: .newSessionHistory,
+      cacheMode: .newSession,
       cacheReason: .newSessionNoCache,
       contextSignature: "context",
       previousContextSignature: nil,
