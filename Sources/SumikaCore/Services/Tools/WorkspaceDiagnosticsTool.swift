@@ -1,5 +1,41 @@
 import Foundation
 
+public struct WorkspaceDiagnosticsInput: Codable, Equatable, Sendable {
+  public var outputRef: String
+
+  public init(outputRef: String) {
+    self.outputRef = outputRef
+  }
+}
+
+public struct WorkspaceDiagnosticsResult: Codable, Equatable, Sendable {
+  public var outputRef: String
+  public var diagnostics: [WorkspaceDiagnostic]
+
+  public init(outputRef: String, diagnostics: [WorkspaceDiagnostic]) {
+    self.outputRef = outputRef
+    self.diagnostics = diagnostics
+  }
+}
+
+nonisolated extension WorkspaceDiagnosticsResult {
+  var preview: ToolResultPreview {
+    guard !diagnostics.isEmpty else {
+      return ToolResultPreview(text: "No diagnostics found for \(outputRef).")
+    }
+
+    let lines = diagnostics.map { diagnostic in
+      let column = diagnostic.column.map { ":\($0)" } ?? ""
+      return
+        "\(diagnostic.path.rawValue):\(diagnostic.line)\(column): \(diagnostic.severity.rawValue): \(diagnostic.message)"
+    }
+    return ToolResultPreview(
+      text: lines.joined(separator: "\n"),
+      affectedPaths: diagnostics.map(\.path.rawValue)
+    )
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let workspaceDiagnostics = ToolDefinition(
     name: .workspaceDiagnostics,

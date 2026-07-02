@@ -128,6 +128,12 @@ central runtime files keep the exhaustive cross-tool boundaries.
   tests and persisted payloads can compare and encode them. The input owns
   argument-specific decoding quirks such as accepting integer strings or
   numbered fields.
+- `Result`: the Swift domain result model for one tool. Public built-in results
+  usually use `Codable, Equatable, Sendable` because `ToolResultPayload` is
+  persisted and tested structurally. Keep tool-specific result cases and result
+  preview helpers next to the executor; keep shared result infrastructure such
+  as `ToolResultPayload`, `ToolResultPreview`, `ToolFailure`, and
+  `ToolTextOutput` central.
 - `ToolDefinition.<tool>`: the model-facing contract. It declares the tool
   name, description, parameters, examples, capabilities, and risk level. Its
   `functionSchema` projection is what provider adapters render as a function
@@ -172,7 +178,7 @@ central runtime files keep the exhaustive cross-tool boundaries.
   result payload should render or feed back to the model differently from the
   generic failure/default paths.
 
-Minimum tool-local code is usually: input, `ToolDefinition` extension,
+Minimum tool-local code is usually: input, result, `ToolDefinition` extension,
 `ToolCodec`, `TypedToolExecutor`, and private helpers. Minimum central updates
 are usually: `ToolName`, `ToolCallPayload`, `ToolResultPayload`,
 `ToolCodecCatalog`, the relevant `ToolExecutorRegistry` profile, projections,
@@ -188,7 +194,16 @@ and tests.
    }
    ```
 
-2. Define the model-facing schema next to the tool.
+2. Define a typed result in the same tool file.
+
+   ```swift
+   public enum ReadFileResult: Codable, Equatable, Sendable {
+     case success(path: WorkspaceRelativePath, content: ToolTextOutput)
+     case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+   }
+   ```
+
+3. Define the model-facing schema next to the tool.
 
    ```swift
    nonisolated extension ToolDefinition {
@@ -211,7 +226,7 @@ and tests.
    }
    ```
 
-3. Implement `TypedToolExecutor` with a `ToolCodec`.
+4. Implement `TypedToolExecutor` with a `ToolCodec`.
 
    ```swift
    public struct ReadFileToolExecutor: TypedToolExecutor {
@@ -248,7 +263,7 @@ and tests.
    }
    ```
 
-4. Add the codec to `ToolCodecCatalog.builtIn` and register the executor in
+5. Add the codec to `ToolCodecCatalog.builtIn` and register the executor in
    the appropriate registry profile.
 
    ```swift
@@ -263,7 +278,7 @@ and tests.
    ])
    ```
 
-5. Add tests for argument decoding, permission, execution, registry visibility,
+6. Add tests for argument decoding, permission, execution, registry visibility,
    and any security-sensitive failure mode.
 
 ## Security Rules

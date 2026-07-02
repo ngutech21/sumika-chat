@@ -48,6 +48,130 @@ public enum RunCommandInputValidationError: LocalizedError, Equatable {
   }
 }
 
+public struct RunCommandResult: Codable, Equatable, Sendable {
+  public var command: String
+  public var timeoutSeconds: Int
+  public var exitCode: Int32?
+  public var durationMs: Int
+  public var stdout: ToolTextOutput
+  public var stderr: ToolTextOutput
+  public var outputRef: String?
+  public var stdoutOmittedChars: Int
+  public var stderrOmittedChars: Int
+  public var timedOut: Bool
+  public var cancelled: Bool
+
+  private enum CodingKeys: String, CodingKey {
+    case command
+    case timeoutSeconds
+    case exitCode
+    case durationMs
+    case stdout
+    case stderr
+    case outputRef
+    case stdoutOmittedChars
+    case stderrOmittedChars
+    case timedOut
+    case cancelled
+  }
+
+  public init(
+    command: String,
+    timeoutSeconds: Int,
+    exitCode: Int32?,
+    durationMs: Int,
+    stdout: ToolTextOutput,
+    stderr: ToolTextOutput,
+    outputRef: String? = nil,
+    stdoutOmittedChars: Int = 0,
+    stderrOmittedChars: Int = 0,
+    timedOut: Bool = false,
+    cancelled: Bool = false
+  ) {
+    self.command = command
+    self.timeoutSeconds = timeoutSeconds
+    self.exitCode = exitCode
+    self.durationMs = durationMs
+    self.stdout = stdout
+    self.stderr = stderr
+    self.outputRef = outputRef
+    self.stdoutOmittedChars = stdoutOmittedChars
+    self.stderrOmittedChars = stderrOmittedChars
+    self.timedOut = timedOut
+    self.cancelled = cancelled
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    command = try container.decode(String.self, forKey: .command)
+    timeoutSeconds = try container.decode(Int.self, forKey: .timeoutSeconds)
+    exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
+    durationMs = try container.decode(Int.self, forKey: .durationMs)
+    stdout = try container.decode(ToolTextOutput.self, forKey: .stdout)
+    stderr = try container.decode(ToolTextOutput.self, forKey: .stderr)
+    outputRef = try container.decodeIfPresent(String.self, forKey: .outputRef)
+    stdoutOmittedChars = try container.decodeIfPresent(Int.self, forKey: .stdoutOmittedChars) ?? 0
+    stderrOmittedChars = try container.decodeIfPresent(Int.self, forKey: .stderrOmittedChars) ?? 0
+    timedOut = try container.decodeIfPresent(Bool.self, forKey: .timedOut) ?? false
+    cancelled = try container.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
+  }
+
+  public var outputTruncated: Bool {
+    stdout.truncated || stderr.truncated
+  }
+}
+
+nonisolated extension RunCommandResult {
+  var outcomeStatus: ToolResultStatus {
+    guard !timedOut, !cancelled, let exitCode, exitCode == 0 else {
+      return .failed
+    }
+    return .success
+  }
+
+  var preview: ToolResultPreview {
+    ToolResultPreview(
+      status: outcomeStatus,
+      text: previewText,
+      truncated: outputTruncated,
+      affectedPaths: ["."]
+    )
+  }
+
+  public var previewText: String {
+    var lines: [String] = [
+      "Command: \(command)",
+      "Exit code: \(exitCode.map(String.init) ?? "none")",
+      "Duration: \(durationMs) ms",
+      "Timed out: \(timedOut)",
+      "Cancelled: \(cancelled)",
+    ]
+    if let outputRef {
+      lines.append("Output ref: \(outputRef)")
+    }
+    if outputTruncated {
+      lines.append("Output truncated: true")
+    }
+    if stdoutOmittedChars > 0 {
+      lines.append("Stdout omitted chars: \(stdoutOmittedChars)")
+    }
+    if stderrOmittedChars > 0 {
+      lines.append("Stderr omitted chars: \(stderrOmittedChars)")
+    }
+    if !stdout.text.isEmpty {
+      lines.append("stdout:\n\(stdout.text)")
+    }
+    if !stderr.text.isEmpty {
+      lines.append("stderr:\n\(stderr.text)")
+    }
+    if let outputRef {
+      lines.append(
+        "Hint: Run workspace_diagnostics(outputRef: \(outputRef)) for structured errors.")
+    }
+    return lines.joined(separator: "\n")
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let runCommand = ToolDefinition(
     name: .runCommand,

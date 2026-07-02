@@ -5,6 +5,37 @@ public struct GlobFilesInput: Codable, Equatable, Sendable {
   public let path: String?
 }
 
+public struct GlobFilesResult: Codable, Equatable, Sendable {
+  public var root: WorkspaceRelativePath
+  public var pattern: String
+  public var matches: [WorkspaceRelativePath]
+  public var truncated: Bool
+
+  public init(
+    root: WorkspaceRelativePath,
+    pattern: String,
+    matches: [WorkspaceRelativePath],
+    truncated: Bool = false
+  ) {
+    self.root = root
+    self.pattern = pattern
+    self.matches = matches
+    self.truncated = truncated
+  }
+}
+
+nonisolated extension GlobFilesResult {
+  var preview: ToolResultPreview {
+    ToolResultPreview(
+      text: matches.isEmpty
+        ? "(no matches)"
+        : matches.map(\.rawValue).joined(separator: "\n"),
+      truncated: truncated,
+      affectedPaths: [root.rawValue]
+    )
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let globFiles = ToolDefinition(
     name: .globFiles,

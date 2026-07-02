@@ -1,5 +1,73 @@
 import Foundation
 
+public struct WebFetchInput: Codable, Equatable, Sendable {
+  public var url: String
+  public var maxBytes: Int?
+
+  public init(url: String, maxBytes: Int? = nil) {
+    self.url = url
+    self.maxBytes = maxBytes
+  }
+}
+
+public enum WebFetchToolResult: Codable, Equatable, Sendable {
+  case success(
+    url: String,
+    finalURL: String,
+    statusCode: Int,
+    contentType: String?,
+    content: ToolTextOutput,
+    byteCount: Int
+  )
+  case failed(url: String, finalURL: String?, reason: ToolFailureReason)
+
+  public init(
+    url: String,
+    finalURL: String,
+    statusCode: Int,
+    contentType: String?,
+    content: ToolTextOutput,
+    byteCount: Int
+  ) {
+    self = .success(
+      url: url,
+      finalURL: finalURL,
+      statusCode: statusCode,
+      contentType: contentType,
+      content: content,
+      byteCount: byteCount
+    )
+  }
+}
+
+nonisolated extension WebFetchToolResult {
+  var preview: ToolResultPreview {
+    switch self {
+    case .success(
+      let url, let finalURL, let statusCode, let contentType, let content, let byteCount):
+      let redirectText = url == finalURL ? "" : "\nFinal URL: \(finalURL)"
+      return ToolResultPreview(
+        text: """
+          URL: \(url)\(redirectText)
+          Status: \(statusCode)
+          Content-Type: \(contentType ?? "unknown")
+          Bytes: \(byteCount)
+
+          \(content.text)
+          """,
+        truncated: content.truncated,
+        redacted: content.redacted
+      )
+    case .failed(let url, let finalURL, let reason):
+      let finalURLText = finalURL.map { "\nFinal URL: \($0)" } ?? ""
+      return ToolResultPreview(
+        status: reason.previewStatus,
+        text: "URL: \(url)\(finalURLText)\n\(reason.message)"
+      )
+    }
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let webFetch = ToolDefinition(
     name: .webFetch,

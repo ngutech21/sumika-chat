@@ -5,6 +5,29 @@ public struct WriteFileInput: Codable, Equatable, Sendable {
   public let content: String
 }
 
+public enum WriteFileResult: Codable, Equatable, Sendable {
+  case success(path: WorkspaceRelativePath, bytesWritten: Int)
+  case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+}
+
+nonisolated extension WriteFileResult {
+  var preview: ToolResultPreview {
+    switch self {
+    case .success(let path, let bytesWritten):
+      return ToolResultPreview(
+        text: "Wrote \(bytesWritten) bytes to \(path.rawValue).",
+        affectedPaths: [path.rawValue]
+      )
+    case .failed(let path, let reason):
+      return ToolResultPreview(
+        status: reason.previewStatus,
+        text: reason.message,
+        affectedPaths: path.map { [$0.rawValue] } ?? []
+      )
+    }
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let writeFile = ToolDefinition(
     name: .writeFile,

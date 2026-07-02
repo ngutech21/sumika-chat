@@ -1,5 +1,29 @@
 import Foundation
 
+public struct AskUserInput: Codable, Equatable, Sendable {
+  public let question: String
+  public let options: [String]
+
+  public init(question: String, options: [String]) {
+    self.question = question
+    self.options = options
+  }
+}
+
+public struct AskUserResult: Codable, Equatable, Sendable {
+  public let answer: String
+
+  public init(answer: String) {
+    self.answer = answer
+  }
+}
+
+nonisolated extension AskUserResult {
+  var preview: ToolResultPreview {
+    ToolResultPreview(text: "User answered: \(answer)")
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let askUser = ToolDefinition(
     name: .askUser,

@@ -8,6 +8,31 @@ public struct WorkspaceDiffInput: Codable, Equatable, Sendable {
   }
 }
 
+public enum WorkspaceDiffResult: Codable, Equatable, Sendable {
+  case success(path: WorkspaceRelativePath?, content: ToolTextOutput)
+  case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+}
+
+nonisolated extension WorkspaceDiffResult {
+  var preview: ToolResultPreview {
+    switch self {
+    case .success(let path, let content):
+      return ToolResultPreview(
+        text: content.text,
+        truncated: content.truncated,
+        redacted: content.redacted,
+        affectedPaths: [path?.rawValue ?? "."]
+      )
+    case .failed(let path, let reason):
+      return ToolResultPreview(
+        status: reason.previewStatus,
+        text: reason.message,
+        affectedPaths: path.map { [$0.rawValue] } ?? []
+      )
+    }
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let workspaceDiff = ToolDefinition(
     name: .workspaceDiff,

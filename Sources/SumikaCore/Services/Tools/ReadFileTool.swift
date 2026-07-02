@@ -104,6 +104,46 @@ public struct ReadFileInput: Codable, Equatable, Sendable {
   }
 }
 
+public enum ReadFileResult: Codable, Equatable, Sendable {
+  case success(path: WorkspaceRelativePath, content: ToolTextOutput)
+  case unchanged(path: WorkspaceRelativePath, readKey: ReadKey)
+  case repeatedReadWarning(path: WorkspaceRelativePath, count: Int)
+  case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
+}
+
+nonisolated extension ReadFileResult {
+  var preview: ToolResultPreview {
+    switch self {
+    case .success(let path, let content):
+      return ToolResultPreview(
+        text: content.text,
+        truncated: content.truncated,
+        redacted: content.redacted,
+        affectedPaths: [path.rawValue]
+      )
+    case .unchanged(let path, let readKey):
+      let rangeText = readKey.range.map { " for \($0)" } ?? ""
+      return ToolResultPreview(
+        text:
+          "File unchanged since previous read: \(path.rawValue)\(rangeText). Use the existing context instead of reading it again.",
+        affectedPaths: [path.rawValue]
+      )
+    case .repeatedReadWarning(let path, let count):
+      return ToolResultPreview(
+        text:
+          "Repeated read_file loop detected for \(path.rawValue) after \(count) reads. Stop reading this file again unless it changed or you need a different range.",
+        affectedPaths: [path.rawValue]
+      )
+    case .failed(let path, let reason):
+      return ToolResultPreview(
+        status: reason.previewStatus,
+        text: reason.message,
+        affectedPaths: path.map { [$0.rawValue] } ?? []
+      )
+    }
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let readFile = ToolDefinition(
     name: .readFile,

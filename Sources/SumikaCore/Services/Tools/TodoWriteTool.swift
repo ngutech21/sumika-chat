@@ -145,6 +145,22 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
   }
 }
 
+public enum TodoWriteResult: Codable, Equatable, Sendable {
+  case success
+  case failed(reason: ToolFailureReason)
+}
+
+nonisolated extension TodoWriteResult {
+  var preview: ToolResultPreview {
+    switch self {
+    case .success:
+      ToolResultPreview(text: "Plan updated.")
+    case .failed(let reason):
+      ToolResultPreview(status: reason.previewStatus, text: reason.message)
+    }
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let todoWrite = ToolDefinition(
     name: .todoWrite,

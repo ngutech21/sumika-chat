@@ -1,5 +1,164 @@
 import Foundation
 
+public struct BrowserInspectInput: Codable, Equatable, Sendable {
+  public static let defaultMaxLength = 4000
+
+  public var selector: String?
+  public var maxLength: Int?
+  public var includeHTML: Bool?
+
+  private enum CodingKeys: String, CodingKey {
+    case selector
+    case maxLength
+    case includeHTML = "includeHtml"
+  }
+
+  public init(selector: String? = nil, maxLength: Int? = nil, includeHTML: Bool? = nil) {
+    self.selector = selector
+    self.maxLength = maxLength
+    self.includeHTML = includeHTML
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    selector = try container.decodeIfPresent(String.self, forKey: .selector)
+    maxLength = try Self.decodeOptionalInt(from: container, forKey: .maxLength)
+    includeHTML = try Self.decodeOptionalBool(from: container, forKey: .includeHTML)
+
+    if let selector,
+      selector.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      throw BrowserToolInputValidationError.emptySelector
+    }
+    if let maxLength, maxLength < 1 {
+      throw BrowserToolInputValidationError.invalidMaxLength
+    }
+  }
+
+  public var resolvedMaxLength: Int {
+    maxLength ?? Self.defaultMaxLength
+  }
+
+  public var resolvedSelector: String? {
+    Self.normalizedSelector(selector)
+  }
+
+  public var resolvedIncludeHTML: Bool {
+    includeHTML ?? false
+  }
+
+  public static func normalizedSelector(_ selector: String?) -> String? {
+    guard var normalized = selector?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !normalized.isEmpty
+    else {
+      return nil
+    }
+
+    while normalized.count >= 2,
+      let first = normalized.first,
+      let last = normalized.last,
+      first == last,
+      first == "\"" || first == "'"
+    {
+      normalized.removeFirst()
+      normalized.removeLast()
+      normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+      if normalized.isEmpty {
+        return nil
+      }
+    }
+
+    return normalized
+  }
+
+  private static func decodeOptionalInt(
+    from container: KeyedDecodingContainer<CodingKeys>,
+    forKey key: CodingKeys
+  ) throws -> Int? {
+    guard container.contains(key) else {
+      return nil
+    }
+    if let value = try? container.decode(Int.self, forKey: key) {
+      return value
+    }
+    if let stringValue = try? container.decode(String.self, forKey: key),
+      let value = Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
+    {
+      return value
+    }
+    throw BrowserToolInputValidationError.invalidIntegerArgument(key.stringValue)
+  }
+
+  private static func decodeOptionalBool(
+    from container: KeyedDecodingContainer<CodingKeys>,
+    forKey key: CodingKeys
+  ) throws -> Bool? {
+    guard container.contains(key) else {
+      return nil
+    }
+    if let value = try? container.decode(Bool.self, forKey: key) {
+      return value
+    }
+    if let rawValue = try? container.decode(String.self, forKey: key) {
+      switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+      case "true":
+        return true
+      case "false":
+        return false
+      default:
+        break
+      }
+    }
+    throw BrowserToolInputValidationError.invalidBooleanArgument(key.stringValue)
+  }
+}
+
+public enum BrowserInspectResult: Codable, Equatable, Sendable {
+  case success(
+    path: WorkspaceRelativePath?,
+    title: String,
+    url: String,
+    selector: String?,
+    text: ToolTextOutput,
+    html: ToolTextOutput?
+  )
+  case failed(reason: ToolFailureReason)
+}
+
+nonisolated extension BrowserInspectResult {
+  var preview: ToolResultPreview {
+    switch self {
+    case .success(let path, let title, let url, let selector, let text, let html):
+      var lines: [String] = []
+      if let path {
+        lines.append("Preview path: \(path.rawValue)")
+      }
+      lines.append("Title: \(title)")
+      lines.append("URL: \(url)")
+      lines.append("Scope: \(selector ?? "document.body")")
+      lines.append("Text truncated: \(text.truncated)")
+      lines.append("")
+      lines.append("Text:")
+      lines.append(text.text)
+      if let html {
+        lines.append("")
+        lines.append("HTML truncated: \(html.truncated)")
+        lines.append("")
+        lines.append("HTML:")
+        lines.append(html.text)
+      }
+      return ToolResultPreview(
+        text: lines.joined(separator: "\n"),
+        truncated: text.truncated || (html?.truncated ?? false),
+        redacted: text.redacted || (html?.redacted ?? false),
+        affectedPaths: path.map { [$0.rawValue] } ?? []
+      )
+    case .failed(let reason):
+      return ToolResultPreview(status: reason.previewStatus, text: reason.message)
+    }
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let browserInspect = ToolDefinition(
     name: .browserInspect,

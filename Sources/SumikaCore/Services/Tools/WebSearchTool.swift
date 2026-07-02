@@ -1,5 +1,63 @@
 import Foundation
 
+public struct WebSearchInput: Codable, Equatable, Sendable {
+  public var query: String
+  public var maxResults: Int?
+
+  public init(query: String, maxResults: Int? = nil) {
+    self.query = query
+    self.maxResults = maxResults
+  }
+}
+
+public struct WebSearchResult: Codable, Equatable, Sendable {
+  public var title: String
+  public var url: String
+  public var snippet: String?
+
+  public init(title: String, url: String, snippet: String? = nil) {
+    self.title = title
+    self.url = url
+    self.snippet = snippet
+  }
+}
+
+public enum WebSearchToolResult: Codable, Equatable, Sendable {
+  case success(
+    query: String, provider: WebSearchProvider, results: [WebSearchResult], truncated: Bool)
+  case failed(query: String, reason: ToolFailureReason)
+
+  public init(
+    query: String,
+    provider: WebSearchProvider,
+    results: [WebSearchResult],
+    truncated: Bool = false
+  ) {
+    self = .success(query: query, provider: provider, results: results, truncated: truncated)
+  }
+}
+
+nonisolated extension WebSearchToolResult {
+  var preview: ToolResultPreview {
+    switch self {
+    case .success(let query, let provider, let results, let truncated):
+      let resultText =
+        results.isEmpty
+        ? "(no results)"
+        : results.enumerated().map { index, result in
+          let snippet = result.snippet.map { "\n\($0)" } ?? ""
+          return "\(index + 1). \(result.title)\n\(result.url)\(snippet)"
+        }.joined(separator: "\n\n")
+      return ToolResultPreview(
+        text: "Search provider: \(provider.displayName)\nQuery: \(query)\n\n\(resultText)",
+        truncated: truncated
+      )
+    case .failed(_, let reason):
+      return ToolResultPreview(status: reason.previewStatus, text: reason.message)
+    }
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let webSearch = ToolDefinition(
     name: .webSearch,

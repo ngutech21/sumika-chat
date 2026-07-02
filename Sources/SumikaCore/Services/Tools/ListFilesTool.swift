@@ -4,6 +4,36 @@ public struct ListFilesInput: Codable, Equatable, Sendable {
   public let path: String?
 }
 
+public struct ListFilesResult: Codable, Equatable, Sendable {
+  public var root: WorkspaceRelativePath
+  public var entries: [WorkspaceFileEntry]
+  public var truncated: Bool
+
+  public init(
+    root: WorkspaceRelativePath,
+    entries: [WorkspaceFileEntry],
+    truncated: Bool = false
+  ) {
+    self.root = root
+    self.entries = entries
+    self.truncated = truncated
+  }
+}
+
+nonisolated extension ListFilesResult {
+  var preview: ToolResultPreview {
+    ToolResultPreview(
+      text: entries.isEmpty
+        ? "(empty)"
+        : entries.map { entry in
+          entry.kind == .directory ? entry.path.rawValue + "/" : entry.path.rawValue
+        }.joined(separator: "\n"),
+      truncated: truncated,
+      affectedPaths: [root.rawValue]
+    )
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let listFiles = ToolDefinition(
     name: .listFiles,

@@ -6,6 +6,38 @@ public struct SearchFilesInput: Codable, Equatable, Sendable {
   public let include: String?
 }
 
+public struct SearchFilesResult: Codable, Equatable, Sendable {
+  public var root: WorkspaceRelativePath
+  public var pattern: String
+  public var matches: [SearchFileMatch]
+  public var truncated: Bool
+
+  public init(
+    root: WorkspaceRelativePath,
+    pattern: String,
+    matches: [SearchFileMatch],
+    truncated: Bool = false
+  ) {
+    self.root = root
+    self.pattern = pattern
+    self.matches = matches
+    self.truncated = truncated
+  }
+}
+
+nonisolated extension SearchFilesResult {
+  var preview: ToolResultPreview {
+    ToolResultPreview(
+      text: matches.isEmpty
+        ? "(no matches)"
+        : matches.map { "\($0.path.rawValue):\($0.line): \($0.snippet)" }
+          .joined(separator: "\n"),
+      truncated: truncated,
+      affectedPaths: [root.rawValue]
+    )
+  }
+}
+
 nonisolated extension ToolDefinition {
   public static let searchFiles = ToolDefinition(
     name: .searchFiles,
