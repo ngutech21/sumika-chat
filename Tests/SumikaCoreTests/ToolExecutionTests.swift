@@ -2011,7 +2011,7 @@ private struct MismatchedWriteFileToolExecutor: TypedToolExecutor {
   ) -> ToolPermissionEvaluation {
     _ = input
     _ = context
-      Issue.record("Input extraction failure should fail before permission evaluation.")
+    Issue.record("Input extraction failure should fail before permission evaluation.")
     return ToolPermissionEvaluation(
       decision: .allowed,
       reason: "Unexpected permission evaluation.",
