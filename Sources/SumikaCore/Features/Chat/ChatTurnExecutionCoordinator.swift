@@ -63,7 +63,7 @@ struct ChatTurnExecutionCoordinator {
     modelContextBuilder: ChatModelContextBuilder = ChatModelContextBuilder(),
     toolPromptPolicy: ToolPromptPolicy = ToolPromptPolicy(),
     turnTracer: any TurnTracing = NoopTurnTracer(),
-    maxToolLoopIterations: Int = 6
+    maxToolLoopIterations: Int = ChatToolLoopLimits.defaultMaxToolLoopIterations
   ) {
     self.focusedFileReducer = focusedFileReducer
     self.modelContextBuilder = modelContextBuilder

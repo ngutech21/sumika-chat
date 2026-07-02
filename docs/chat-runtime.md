@@ -28,7 +28,7 @@ flowchart TD
   K -- "no" --> L["Record tool state/result events"]
   L --> Q["Stream direct follow-up with current turn included"]
   Q --> U{"Follow-up emitted another allowed tool call?"}
-  U -- "yes, within 6-call turn budget" --> J
+  U -- "yes, within configured turn budget" --> J
   U -- "no" --> I
   K -- "yes" --> R["Mark turn awaitingApproval"]
   R --> S["User approves or denies"]
@@ -101,7 +101,7 @@ flowchart TD
    a `ChatWorkflowStep`. The turn coordinator emits its events, then follows the
    continuation. Read-style tools append a second assistant placeholder and
    stream the direct follow-up response. Each follow-up is inspected for another
-   tool call until the turn budget of six tool iterations is exhausted. Failed
+   tool call until the configured turn budget is exhausted. Failed
    tools, unknown tools, and invalid tool-call observations also count against
    this budget and are returned to the model as observations so it can choose the
    next step. The last budgeted follow-up disables tools; if it produces no
@@ -146,12 +146,11 @@ flowchart TD
 - The currently active turn is allowed to include its own tool result while
   generating the direct follow-up response.
 - Direct follow-up responses may emit another tool call within the turn
-  coordinator's
-  six-iteration turn budget. When the budget is exhausted, the final follow-up
-  prompt disables tools. If that final generation has no visible assistant text,
-  the coordinator runs one additional `.disabled` finalization generation and
-  falls back to a deterministic visible assistant message if the model still
-  emits no text.
+  coordinator's configured turn budget. When the budget is exhausted, the final
+  follow-up prompt disables tools. If that final generation has no visible
+  assistant text, the coordinator runs one additional `.disabled` finalization
+  generation and falls back to a deterministic visible assistant message if the
+  model still emits no text.
 - Final no-tools follow-ups after approved write/edit tools or denied tools also
   disable tools. If the model still emits a native tool attempt, the caller
   treats the follow-up as final and does not execute another tool.

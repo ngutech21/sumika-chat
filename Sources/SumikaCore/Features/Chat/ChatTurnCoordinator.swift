@@ -1,5 +1,9 @@
 import Foundation
 
+public enum ChatToolLoopLimits {
+  public static let defaultMaxToolLoopIterations = 8
+}
+
 @MainActor
 public final class ChatTurnCoordinator {
   private(set) var activeTurnID: ChatTurn.ID?
@@ -13,7 +17,7 @@ public final class ChatTurnCoordinator {
     toolPromptPolicy: ToolPromptPolicy = ToolPromptPolicy(),
     toolResumeCoordinator: ToolResumeCoordinator = ToolResumeCoordinator(),
     turnTracer: any TurnTracing = NoopTurnTracer(),
-    maxToolLoopIterations: Int = 6
+    maxToolLoopIterations: Int = ChatToolLoopLimits.defaultMaxToolLoopIterations
   ) {
     let executionCoordinator = ChatTurnExecutionCoordinator(
       focusedFileReducer: focusedFileReducer,

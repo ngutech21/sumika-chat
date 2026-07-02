@@ -8,13 +8,14 @@ import Testing
 struct ChatSessionControllerToolLoopTests {
   @Test
   func sendMessageRunsReadOnlyToolsUntilBudgetThenStreamsFinalAssistantResponse() async throws {
+    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let readEvent = ChatModelStreamEvent.toolCall(
       ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")])
     )
     let runtime = ChatSessionFakeChatModelRuntime(
-      eventTurns: Array(repeating: [readEvent], count: 6)
+      eventTurns: Array(repeating: [readEvent], count: budget)
         + [[.chunk("I read the README repeatedly.")]]
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -25,28 +26,29 @@ struct ChatSessionControllerToolLoopTests {
 
     try await waitUntil { !controller.isGenerating }
 
-    #expect(controller.chatSession.toolCalls.count == 6)
+    #expect(controller.chatSession.toolCalls.count == budget)
     #expect(controller.chatSession.toolCalls.allSatisfy { $0.status == .completed })
     #expect(controller.chatSession.testMessages.last?.content == "I read the README repeatedly.")
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
-    #expect(capturedSystemPrompts.count == 7)
+    #expect(capturedSystemPrompts.count == budget + 1)
     #expect(capturedSystemPrompts[1].contains("Available tools:"))
-    #expect(capturedSystemPrompts[5].contains("Available tools:"))
-    #expect(capturedSystemPrompts[6].contains("No more tools may run in this response."))
-    #expect(!capturedSystemPrompts[6].contains("tool budget"))
-    #expect(!capturedSystemPrompts[6].contains("Available tools:"))
+    #expect(capturedSystemPrompts[budget - 1].contains("Available tools:"))
+    #expect(capturedSystemPrompts[budget].contains("No more tools may run in this response."))
+    #expect(!capturedSystemPrompts[budget].contains("tool budget"))
+    #expect(!capturedSystemPrompts[budget].contains("Available tools:"))
   }
 
   @Test
   func sendMessageForcesVisibleFinalResponseWhenBudgetFinalizationHasNoText() async throws {
+    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let readEvent = ChatModelStreamEvent.toolCall(
       ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")])
     )
     let runtime = ChatSessionFakeChatModelRuntime(
-      eventTurns: Array(repeating: [readEvent], count: 7)
+      eventTurns: Array(repeating: [readEvent], count: budget + 1)
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -56,7 +58,7 @@ struct ChatSessionControllerToolLoopTests {
 
     try await waitUntil { !controller.isGenerating }
 
-    #expect(controller.chatSession.toolCalls.count == 6)
+    #expect(controller.chatSession.toolCalls.count == budget)
     #expect(controller.chatSession.toolCalls.allSatisfy { $0.status == .completed })
     #expect(controller.chatSession.testMessages.last?.kind == .assistant)
     #expect(
@@ -65,22 +67,22 @@ struct ChatSessionControllerToolLoopTests {
       controller.chatSession.testMessages.last?.content.contains("send another message") == true)
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
-    #expect(capturedSystemPrompts.count == 8)
-    #expect(capturedSystemPrompts[6].contains("No more tools may run in this response."))
-    #expect(!capturedSystemPrompts[7].contains("Available tools:"))
+    #expect(capturedSystemPrompts.count == budget + 2)
+    #expect(capturedSystemPrompts[budget].contains("No more tools may run in this response."))
+    #expect(!capturedSystemPrompts[budget + 1].contains("Available tools:"))
 
     let capturedMessages = await runtime.capturedMessages
-    #expect(capturedMessages.count == 8)
+    #expect(capturedMessages.count == budget + 2)
     #expect(
-      capturedMessages[7].contains { message in
+      capturedMessages[budget + 1].contains { message in
         message.role == .user
           && message.content.contains("Tool limit reached. Tools are no longer available.")
       })
 
     let capturedToolContexts = await runtime.capturedToolContexts
-    #expect(capturedToolContexts.count == 8)
-    #expect(capturedToolContexts[6]?.registry.tools.isEmpty == true)
-    #expect(capturedToolContexts[7] == nil)
+    #expect(capturedToolContexts.count == budget + 2)
+    #expect(capturedToolContexts[budget]?.registry.tools.isEmpty == true)
+    #expect(capturedToolContexts[budget + 1] == nil)
   }
 
   @Test
