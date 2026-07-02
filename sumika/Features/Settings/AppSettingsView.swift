@@ -91,11 +91,24 @@ struct AppSettingsView: View {
             settingsState.webAccessSettings.policy == .off
               || settingsState.webAccessSettings.provider != .searxng
           )
+
+        Picker("Fetch Provider", selection: webFetchProviderBinding) {
+          ForEach(WebFetchProvider.allCases, id: \.self) { provider in
+            Text(provider.displayName).tag(provider)
+          }
+        }
+        .disabled(settingsState.webAccessSettings.policy == .off)
+
+        TextField("Firecrawl URL", text: webFirecrawlURLBinding)
+          .disabled(
+            settingsState.webAccessSettings.policy == .off
+              || settingsState.webAccessSettings.fetchProvider != .firecrawl
+          )
       } header: {
         Text("Web Access")
       } footer: {
         Text(
-          "Lets Chat and Agent use public web tools. Pick a provider, or point at a self-hosted SearXNG instance."
+          "Lets Chat and Agent use public web tools. Search can use DuckDuckGo or SearXNG; fetch can use the built-in extractor or a self-hosted Firecrawl instance."
         )
       }
     }
@@ -280,6 +293,28 @@ struct AppSettingsView: View {
       set: { searxngBaseURL in
         var updatedSettings = settingsState.webAccessSettings
         updatedSettings.searxngBaseURL = searxngBaseURL
+        settingsState.updateWebAccessSettings(updatedSettings)
+      }
+    )
+  }
+
+  private var webFetchProviderBinding: Binding<WebFetchProvider> {
+    Binding(
+      get: { settingsState.webAccessSettings.fetchProvider },
+      set: { provider in
+        var updatedSettings = settingsState.webAccessSettings
+        updatedSettings.fetchProvider = provider
+        settingsState.updateWebAccessSettings(updatedSettings)
+      }
+    )
+  }
+
+  private var webFirecrawlURLBinding: Binding<String> {
+    Binding(
+      get: { settingsState.webAccessSettings.firecrawlBaseURL },
+      set: { firecrawlBaseURL in
+        var updatedSettings = settingsState.webAccessSettings
+        updatedSettings.firecrawlBaseURL = firecrawlBaseURL
         settingsState.updateWebAccessSettings(updatedSettings)
       }
     )

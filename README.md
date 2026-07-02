@@ -24,6 +24,8 @@ keep the conversation on your Mac.
   through approval instead of running as hidden automation.
 - 🌐 **Bring your own search**: connect a self-hosted SearXNG instance or use the
   built-in DuckDuckGo search provider.
+- 📄 **Bring your own fetcher**: keep the built-in page extractor or point fetch
+  at a self-hosted Firecrawl instance.
 - 🧰 **Terminal and browser built in**: run approved workspace commands and
   inspect local previews without leaving the app.
 - 🖥 **Build and preview locally**: create small apps, prototypes, and HTML
@@ -64,8 +66,9 @@ chat into a cloud workflow.
 - Let the agent read, list, search, and summarize local workspace files.
 - Review generated file writes, file edits, shell commands, and workspace diffs
   before they run.
-- Search and fetch the public web through policy-gated tools, using either a
-  self-hosted SearXNG instance or the built-in DuckDuckGo provider.
+- Search and fetch the public web through policy-gated tools, using DuckDuckGo,
+  a self-hosted SearXNG instance, the built-in fetcher, or self-hosted
+  Firecrawl.
 - Use the integrated terminal and browser preview while working through an agent
   task.
 - Open local HTML previews and inspect browser state while iterating.
@@ -98,7 +101,8 @@ Sumika is built for local-first work, not a hosted assistant subscription.
 - Network access is explicit: web search and fetch tools only run when available
   in the selected mode and approved by policy.
 - You can use the built-in DuckDuckGo search provider or point Sumika at your
-  own SearXNG instance.
+  own SearXNG instance. Fetch uses the built-in extractor by default and can
+  optionally use a self-hosted Firecrawl instance without storing an API key.
 
 ## Voice And Dictation
 

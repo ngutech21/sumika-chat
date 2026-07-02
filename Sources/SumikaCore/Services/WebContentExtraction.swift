@@ -58,12 +58,12 @@ public struct BuiltInWebPageExtractor: WebPageExtracting {
   public func extract(_ request: WebPageExtractionRequest) async -> WebFetchToolResult {
     if let error = urlValidator.validatePublicHTTPURL(request.url) {
       return .failed(
-        url: request.url.absoluteString, finalURL: nil,
+        url: request.url.absoluteString, provider: .builtIn, finalURL: nil,
         reason: .executionError(error.localizedDescription))
     }
     if let error = await resolvedHostValidationError(for: request.url) {
       return .failed(
-        url: request.url.absoluteString, finalURL: nil,
+        url: request.url.absoluteString, provider: .builtIn, finalURL: nil,
         reason: .executionError(error.localizedDescription))
     }
 
@@ -78,23 +78,24 @@ public struct BuiltInWebPageExtractor: WebPageExtracting {
       )
       guard let httpResponse = response as? HTTPURLResponse else {
         return .failed(
-          url: request.url.absoluteString, finalURL: nil,
+          url: request.url.absoluteString, provider: .builtIn, finalURL: nil,
           reason: .executionError(WebAccessError.nonHTTPResponse.localizedDescription))
       }
       let finalURL = httpResponse.url ?? request.url
       if let error = urlValidator.validatePublicHTTPURL(finalURL) {
         return .failed(
-          url: request.url.absoluteString, finalURL: finalURL.absoluteString,
+          url: request.url.absoluteString, provider: .builtIn, finalURL: finalURL.absoluteString,
           reason: .executionError(error.localizedDescription))
       }
       if let error = await resolvedHostValidationError(for: finalURL) {
         return .failed(
-          url: request.url.absoluteString, finalURL: finalURL.absoluteString,
+          url: request.url.absoluteString, provider: .builtIn, finalURL: finalURL.absoluteString,
           reason: .executionError(error.localizedDescription))
       }
       guard (200..<300).contains(httpResponse.statusCode) else {
         return .failed(
           url: request.url.absoluteString,
+          provider: .builtIn,
           finalURL: finalURL.absoluteString,
           reason: .executionError("Fetch returned HTTP \(httpResponse.statusCode).")
         )
@@ -104,6 +105,7 @@ public struct BuiltInWebPageExtractor: WebPageExtracting {
       guard Self.isSupportedTextContentType(contentType) else {
         return .failed(
           url: request.url.absoluteString,
+          provider: .builtIn,
           finalURL: finalURL.absoluteString,
           reason: .unsupportedFileType(contentType ?? "unknown")
         )
@@ -115,6 +117,7 @@ public struct BuiltInWebPageExtractor: WebPageExtracting {
       guard !Self.looksBinary(limitedData) else {
         return .failed(
           url: request.url.absoluteString,
+          provider: .builtIn,
           finalURL: finalURL.absoluteString,
           reason: .unsupportedFileType(contentType ?? "binary")
         )
@@ -122,6 +125,7 @@ public struct BuiltInWebPageExtractor: WebPageExtracting {
       guard let rawText = String(data: limitedData, encoding: .utf8) else {
         return .failed(
           url: request.url.absoluteString,
+          provider: .builtIn,
           finalURL: finalURL.absoluteString,
           reason: .executionError(WebAccessError.invalidResponseEncoding.localizedDescription)
         )
@@ -131,6 +135,7 @@ public struct BuiltInWebPageExtractor: WebPageExtracting {
       let cappedText = String(text.prefix(WebAccessLimits.maxFetchObservationCharacters))
       return WebFetchToolResult(
         url: request.url.absoluteString,
+        provider: .builtIn,
         finalURL: finalURL.absoluteString,
         statusCode: httpResponse.statusCode,
         contentType: contentType,
@@ -143,6 +148,7 @@ public struct BuiltInWebPageExtractor: WebPageExtracting {
     } catch {
       return .failed(
         url: request.url.absoluteString,
+        provider: .builtIn,
         finalURL: nil,
         reason: .executionError(error.localizedDescription)
       )

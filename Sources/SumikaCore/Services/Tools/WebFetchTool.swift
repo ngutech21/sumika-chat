@@ -13,16 +13,23 @@ public struct WebFetchInput: Codable, Equatable, Sendable {
 public enum WebFetchToolResult: Codable, Equatable, Sendable {
   case success(
     url: String,
+    provider: WebFetchProvider?,
     finalURL: String,
     statusCode: Int,
     contentType: String?,
     content: ToolTextOutput,
     byteCount: Int
   )
-  case failed(url: String, finalURL: String?, reason: ToolFailureReason)
+  case failed(
+    url: String,
+    provider: WebFetchProvider?,
+    finalURL: String?,
+    reason: ToolFailureReason
+  )
 
   public init(
     url: String,
+    provider: WebFetchProvider?,
     finalURL: String,
     statusCode: Int,
     contentType: String?,
@@ -31,6 +38,7 @@ public enum WebFetchToolResult: Codable, Equatable, Sendable {
   ) {
     self = .success(
       url: url,
+      provider: provider,
       finalURL: finalURL,
       statusCode: statusCode,
       contentType: contentType,
@@ -44,11 +52,13 @@ nonisolated extension WebFetchToolResult {
   var preview: ToolResultPreview {
     switch self {
     case .success(
-      let url, let finalURL, let statusCode, let contentType, let content, let byteCount):
+      let url, let provider, let finalURL, let statusCode, let contentType, let content,
+      let byteCount):
       let redirectText = url == finalURL ? "" : "\nFinal URL: \(finalURL)"
       return ToolResultPreview(
         text: """
           URL: \(url)\(redirectText)
+          Fetch provider: \(providerDisplayName(provider))
           Status: \(statusCode)
           Content-Type: \(contentType ?? "unknown")
           Bytes: \(byteCount)
@@ -58,13 +68,21 @@ nonisolated extension WebFetchToolResult {
         truncated: content.truncated,
         redacted: content.redacted
       )
-    case .failed(let url, let finalURL, let reason):
+    case .failed(let url, let provider, let finalURL, let reason):
       let finalURLText = finalURL.map { "\nFinal URL: \($0)" } ?? ""
       return ToolResultPreview(
         status: reason.previewStatus,
-        text: "URL: \(url)\(finalURLText)\n\(reason.message)"
+        text: """
+          URL: \(url)\(finalURLText)
+          Fetch provider: \(providerDisplayName(provider))
+          \(reason.message)
+          """
       )
     }
+  }
+
+  private func providerDisplayName(_ provider: WebFetchProvider?) -> String {
+    provider?.displayName ?? "Unknown"
   }
 }
 
@@ -153,6 +171,7 @@ public struct WebFetchToolExecutor: TypedToolExecutor {
     ToolResultPreview(
       text: """
         Web fetch requires approval.
+        Provider: \(context.webAccessSettings.fetchProvider.displayName)
         URL: \(input.url)
         Max bytes: \(WebAccessLimits.cappedFetchBytes(input.maxBytes))
         """
@@ -161,12 +180,19 @@ public struct WebFetchToolExecutor: TypedToolExecutor {
 
   public func run(_ input: WebFetchInput, context: ToolContext) async -> ToolResultPayload {
     guard context.webAccessSettings.policy != .off else {
-      return .webFetch(.failed(url: input.url, finalURL: nil, reason: .permissionDenied))
+      return .webFetch(
+        .failed(
+          url: input.url,
+          provider: context.webAccessSettings.fetchProvider,
+          finalURL: nil,
+          reason: .permissionDenied
+        ))
     }
     guard let url = URL(string: input.url.trimmingCharacters(in: .whitespacesAndNewlines)) else {
       return .webFetch(
         .failed(
           url: input.url,
+          provider: context.webAccessSettings.fetchProvider,
           finalURL: nil,
           reason: .invalidArguments(
             .parserError(WebAccessError.invalidURL(input.url).localizedDescription))
@@ -176,7 +202,8 @@ public struct WebFetchToolExecutor: TypedToolExecutor {
     let result = await context.webFetcher.fetch(
       WebFetchRequest(
         url: url,
-        maxBytes: WebAccessLimits.cappedFetchBytes(input.maxBytes)
+        maxBytes: WebAccessLimits.cappedFetchBytes(input.maxBytes),
+        settings: context.webAccessSettings
       )
     )
     return .webFetch(result)

@@ -39,19 +39,39 @@ public enum WebSearchProvider: String, Codable, CaseIterable, Equatable, Sendabl
   }
 }
 
+public enum WebFetchProvider: String, Codable, CaseIterable, Equatable, Sendable {
+  case builtIn
+  case firecrawl
+
+  public var displayName: String {
+    switch self {
+    case .builtIn:
+      "Built-in"
+    case .firecrawl:
+      "Firecrawl"
+    }
+  }
+}
+
 public struct WebAccessSettings: Codable, Equatable, Sendable {
   public var policy: WebAccessPolicy
   public var provider: WebSearchProvider
   public var searxngBaseURL: String
+  public var fetchProvider: WebFetchProvider
+  public var firecrawlBaseURL: String
 
   public init(
     policy: WebAccessPolicy = .off,
     provider: WebSearchProvider = .duckDuckGo,
-    searxngBaseURL: String = ""
+    searxngBaseURL: String = "",
+    fetchProvider: WebFetchProvider = .builtIn,
+    firecrawlBaseURL: String = ""
   ) {
     self.policy = policy
     self.provider = provider
     self.searxngBaseURL = searxngBaseURL
+    self.fetchProvider = fetchProvider
+    self.firecrawlBaseURL = firecrawlBaseURL
   }
 
   public static let disabled = WebAccessSettings()
@@ -60,6 +80,8 @@ public struct WebAccessSettings: Codable, Equatable, Sendable {
     case policy
     case provider
     case searxngBaseURL
+    case fetchProvider
+    case firecrawlBaseURL
   }
 
   public init(from decoder: Decoder) throws {
@@ -75,6 +97,16 @@ public struct WebAccessSettings: Codable, Equatable, Sendable {
       forKey: .searxngBaseURL,
       default: ""
     )
+    fetchProvider = try container.decodeIfPresent(
+      WebFetchProvider.self,
+      forKey: .fetchProvider,
+      default: .builtIn
+    )
+    firecrawlBaseURL = try container.decodeIfPresent(
+      String.self,
+      forKey: .firecrawlBaseURL,
+      default: ""
+    )
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -82,6 +114,8 @@ public struct WebAccessSettings: Codable, Equatable, Sendable {
     try container.encode(policy, forKey: .policy)
     try container.encode(provider, forKey: .provider)
     try container.encode(searxngBaseURL, forKey: .searxngBaseURL)
+    try container.encode(fetchProvider, forKey: .fetchProvider)
+    try container.encode(firecrawlBaseURL, forKey: .firecrawlBaseURL)
   }
 }
 
@@ -167,17 +201,20 @@ public struct WebFetchRequest: Equatable, Sendable {
   public var maxBytes: Int
   public var timeoutSeconds: Int
   public var maxRedirects: Int
+  public var settings: WebAccessSettings
 
   public init(
     url: URL,
     maxBytes: Int = WebAccessLimits.maxFetchBytes,
     timeoutSeconds: Int = WebAccessLimits.fetchTimeoutSeconds,
-    maxRedirects: Int = WebAccessLimits.maxRedirects
+    maxRedirects: Int = WebAccessLimits.maxRedirects,
+    settings: WebAccessSettings = .disabled
   ) {
     self.url = url
     self.maxBytes = maxBytes
     self.timeoutSeconds = timeoutSeconds
     self.maxRedirects = maxRedirects
+    self.settings = settings
   }
 }
 
@@ -222,6 +259,7 @@ public enum WebAccessError: LocalizedError, Equatable, Sendable {
   case invalidQuery
   case invalidURL(String)
   case missingSearXNGBaseURL
+  case missingFirecrawlBaseURL
   case unsupportedURLScheme(String)
   case blockedHost(String)
   case blockedAddress(String)
@@ -241,6 +279,8 @@ public enum WebAccessError: LocalizedError, Equatable, Sendable {
       "Invalid URL: \(value)."
     case .missingSearXNGBaseURL:
       "SearXNG URL is required when SearXNG is selected."
+    case .missingFirecrawlBaseURL:
+      "Firecrawl URL is required when Firecrawl is selected."
     case .unsupportedURLScheme(let scheme):
       "Unsupported URL scheme: \(scheme). Only http and https are allowed."
     case .blockedHost(let host):
@@ -269,7 +309,11 @@ public struct WebURLValidator: Sendable {
   }
 
   public func validateConfiguredSearchProviderHTTPURL(_ url: URL) -> WebAccessError? {
-    validateHTTPURL(url, profile: .configuredSearchProviderURL)
+    validateConfiguredWebProviderHTTPURL(url)
+  }
+
+  public func validateConfiguredWebProviderHTTPURL(_ url: URL) -> WebAccessError? {
+    validateHTTPURL(url, profile: .configuredWebProviderURL)
   }
 
   public func validateHTTPURL(
@@ -321,7 +365,7 @@ public struct WebURLValidator: Sendable {
 
 public enum WebURLValidationProfile: Sendable {
   case publicWebURL
-  case configuredSearchProviderURL
+  case configuredWebProviderURL
 }
 
 private struct IPv4Address: Equatable {
@@ -711,7 +755,7 @@ public struct DefaultWebSearchService: WebSearching {
     }
     let validationProfile: WebURLValidationProfile =
       urlValidator.isLocalOrPrivateHost(baseHost)
-      ? .configuredSearchProviderURL
+      ? .configuredWebProviderURL
       : .publicWebURL
     guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
       return .failed(query: query, reason: .executionError("Could not build SearXNG search URL."))
@@ -799,14 +843,20 @@ public struct DefaultWebSearchService: WebSearching {
 }
 
 public struct DefaultWebFetchService: WebFetching {
-  private let extractor: any WebPageExtracting
+  private let builtInExtractor: any WebPageExtracting
+  private let firecrawlFetcher: any WebFetching
 
   public init(
     httpClient: any WebHTTPClient = URLSessionWebHTTPClient(),
     urlValidator: WebURLValidator = WebURLValidator(),
     hostResolver: any WebHostResolving = SystemWebHostResolver()
   ) {
-    self.extractor = BuiltInWebPageExtractor(
+    self.builtInExtractor = BuiltInWebPageExtractor(
+      httpClient: httpClient,
+      urlValidator: urlValidator,
+      hostResolver: hostResolver
+    )
+    self.firecrawlFetcher = FirecrawlWebFetchService(
       httpClient: httpClient,
       urlValidator: urlValidator,
       hostResolver: hostResolver
@@ -814,11 +864,313 @@ public struct DefaultWebFetchService: WebFetching {
   }
 
   public init(extractor: any WebPageExtracting) {
-    self.extractor = extractor
+    self.builtInExtractor = extractor
+    self.firecrawlFetcher = FirecrawlWebFetchService()
   }
 
   public func fetch(_ request: WebFetchRequest) async -> WebFetchToolResult {
-    await extractor.extract(WebPageExtractionRequest(request))
+    switch request.settings.fetchProvider {
+    case .builtIn:
+      return await builtInExtractor.extract(WebPageExtractionRequest(request))
+    case .firecrawl:
+      return await firecrawlFetcher.fetch(request)
+    }
+  }
+}
+
+private struct FirecrawlScrapePayload: Encodable {
+  var url: String
+  var formats: [String]
+  var onlyMainContent: Bool
+  var waitFor: Int
+
+  init(url: String) {
+    self.url = url
+    formats = ["markdown"]
+    onlyMainContent = true
+    waitFor = 1_000
+  }
+}
+
+private struct FirecrawlScrapeMetadata: Decodable {
+  var sourceURL: String?
+  var url: String?
+  var statusCode: Int?
+  var error: String?
+}
+
+private struct FirecrawlScrapeData: Decodable {
+  var markdown: String?
+  var metadata: FirecrawlScrapeMetadata?
+}
+
+private struct FirecrawlScrapeResponse: Decodable {
+  var success: Bool?
+  var data: FirecrawlScrapeData?
+  var error: String?
+  var message: String?
+}
+
+public struct FirecrawlWebFetchService: WebFetching {
+  private let httpClient: any WebHTTPClient
+  private let urlValidator: WebURLValidator
+  private let hostResolver: any WebHostResolving
+
+  public init(
+    httpClient: any WebHTTPClient = URLSessionWebHTTPClient(),
+    urlValidator: WebURLValidator = WebURLValidator(),
+    hostResolver: any WebHostResolving = SystemWebHostResolver()
+  ) {
+    self.httpClient = httpClient
+    self.urlValidator = urlValidator
+    self.hostResolver = hostResolver
+  }
+
+  public func fetch(_ request: WebFetchRequest) async -> WebFetchToolResult {
+    if let error = urlValidator.validatePublicHTTPURL(request.url) {
+      return .failed(
+        url: request.url.absoluteString, provider: .firecrawl, finalURL: nil,
+        reason: .executionError(error.localizedDescription))
+    }
+
+    let trimmedBaseURL = request.settings.firecrawlBaseURL
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let baseURL = URL(string: trimmedBaseURL), !trimmedBaseURL.isEmpty else {
+      return .failed(
+        url: request.url.absoluteString,
+        provider: .firecrawl,
+        finalURL: nil,
+        reason: .executionError(WebAccessError.missingFirecrawlBaseURL.localizedDescription)
+      )
+    }
+    if let error = urlValidator.validateConfiguredWebProviderHTTPURL(baseURL) {
+      return .failed(
+        url: request.url.absoluteString,
+        provider: .firecrawl,
+        finalURL: nil,
+        reason: .executionError(error.localizedDescription)
+      )
+    }
+    if let error = await resolvedHostValidationError(for: request.url) {
+      return .failed(
+        url: request.url.absoluteString, provider: .firecrawl, finalURL: nil,
+        reason: .executionError(error.localizedDescription))
+    }
+    guard let scrapeURL = Self.scrapeEndpoint(from: baseURL) else {
+      return .failed(
+        url: request.url.absoluteString,
+        provider: .firecrawl,
+        finalURL: nil,
+        reason: .executionError("Could not build Firecrawl scrape URL.")
+      )
+    }
+    guard let baseHost = scrapeURL.host(percentEncoded: false) else {
+      return .failed(
+        url: request.url.absoluteString,
+        provider: .firecrawl,
+        finalURL: nil,
+        reason: .executionError(
+          WebAccessError.invalidURL(scrapeURL.absoluteString).localizedDescription)
+      )
+    }
+
+    let validationProfile: WebURLValidationProfile =
+      urlValidator.isLocalOrPrivateHost(baseHost)
+      ? .configuredWebProviderURL
+      : .publicWebURL
+    if validationProfile == .publicWebURL,
+      let error = await resolvedHostValidationError(for: scrapeURL)
+    {
+      return .failed(
+        url: request.url.absoluteString,
+        provider: .firecrawl,
+        finalURL: nil,
+        reason: .executionError(error.localizedDescription)
+      )
+    }
+
+    do {
+      var urlRequest = URLRequest(url: scrapeURL)
+      urlRequest.httpMethod = "POST"
+      urlRequest.timeoutInterval = TimeInterval(request.timeoutSeconds)
+      urlRequest.setValue("Sumika/1.0", forHTTPHeaderField: "User-Agent")
+      urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      urlRequest.httpBody = try JSONEncoder().encode(
+        FirecrawlScrapePayload(url: request.url.absoluteString)
+      )
+      let (data, response) = try await httpClient.data(
+        for: urlRequest,
+        maxRedirects: request.maxRedirects,
+        validationProfile: validationProfile
+      )
+      guard let httpResponse = response as? HTTPURLResponse else {
+        return .failed(
+          url: request.url.absoluteString,
+          provider: .firecrawl,
+          finalURL: nil,
+          reason: .executionError(WebAccessError.nonHTTPResponse.localizedDescription))
+      }
+      guard (200..<300).contains(httpResponse.statusCode) else {
+        return .failed(
+          url: request.url.absoluteString,
+          provider: .firecrawl,
+          finalURL: nil,
+          reason: .executionError("Firecrawl returned HTTP \(httpResponse.statusCode).")
+        )
+      }
+
+      let scrapeResponse = try JSONDecoder().decode(FirecrawlScrapeResponse.self, from: data)
+      if scrapeResponse.success == false {
+        return .failed(
+          url: request.url.absoluteString,
+          provider: .firecrawl,
+          finalURL: await firecrawlFinalURL(from: scrapeResponse, fallback: request.url),
+          reason: .executionError(Self.failureMessage(from: scrapeResponse))
+        )
+      }
+      if let pageError = scrapeResponse.data?.metadata?.error,
+        !pageError.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        return .failed(
+          url: request.url.absoluteString,
+          provider: .firecrawl,
+          finalURL: await firecrawlFinalURL(from: scrapeResponse, fallback: request.url),
+          reason: .executionError(pageError)
+        )
+      }
+      guard let markdown = scrapeResponse.data?.markdown else {
+        return .failed(
+          url: request.url.absoluteString,
+          provider: .firecrawl,
+          finalURL: await firecrawlFinalURL(from: scrapeResponse, fallback: request.url),
+          reason: .executionError("Firecrawl response did not include markdown.")
+        )
+      }
+
+      let finalURL = await validatedFinalURL(from: scrapeResponse, fallback: request.url)
+      if let targetStatusCode = scrapeResponse.data?.metadata?.statusCode,
+        !(200..<300).contains(targetStatusCode)
+      {
+        return .failed(
+          url: request.url.absoluteString,
+          provider: .firecrawl,
+          finalURL: finalURL.absoluteString,
+          reason: .executionError("Fetch returned HTTP \(targetStatusCode).")
+        )
+      }
+      let normalizedMarkdown = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+      let maxBytes = WebAccessLimits.cappedFetchBytes(request.maxBytes)
+      let limitedMarkdown = Self.limitedUTF8String(normalizedMarkdown, maxBytes: maxBytes)
+      let cappedText = String(
+        limitedMarkdown.text.prefix(WebAccessLimits.maxFetchObservationCharacters)
+      )
+      return WebFetchToolResult(
+        url: request.url.absoluteString,
+        provider: .firecrawl,
+        finalURL: finalURL.absoluteString,
+        statusCode: scrapeResponse.data?.metadata?.statusCode ?? httpResponse.statusCode,
+        contentType: "text/markdown",
+        content: ToolTextOutput(
+          text: cappedText,
+          truncated: limitedMarkdown.truncated || normalizedMarkdown.count > cappedText.count
+        ),
+        byteCount: normalizedMarkdown.utf8.count
+      )
+    } catch {
+      return .failed(
+        url: request.url.absoluteString,
+        provider: .firecrawl,
+        finalURL: nil,
+        reason: .executionError(error.localizedDescription)
+      )
+    }
+  }
+
+  static func scrapeEndpoint(from baseURL: URL) -> URL? {
+    guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+      return nil
+    }
+    let pathComponents = components.path
+      .split(separator: "/", omittingEmptySubsequences: true)
+      .map(String.init)
+    let lowercasedPathComponents = pathComponents.map { $0.lowercased() }
+    if lowercasedPathComponents.last == "scrape" {
+      components.path = "/" + pathComponents.joined(separator: "/")
+    } else if lowercasedPathComponents.last == "v1" || lowercasedPathComponents.last == "v2" {
+      components.path = "/" + (pathComponents + ["scrape"]).joined(separator: "/")
+    } else {
+      components.path = "/" + (pathComponents + ["v2", "scrape"]).joined(separator: "/")
+    }
+    components.queryItems = nil
+    components.fragment = nil
+    return components.url
+  }
+
+  private func firecrawlFinalURL(
+    from response: FirecrawlScrapeResponse,
+    fallback: URL
+  ) async -> String {
+    await validatedFinalURL(from: response, fallback: fallback).absoluteString
+  }
+
+  private func validatedFinalURL(
+    from response: FirecrawlScrapeResponse,
+    fallback: URL
+  ) async -> URL {
+    let rawFinalURL = response.data?.metadata?.sourceURL ?? response.data?.metadata?.url
+    guard
+      let rawFinalURL,
+      let finalURL = URL(string: rawFinalURL),
+      urlValidator.validatePublicHTTPURL(finalURL) == nil,
+      await resolvedHostValidationError(for: finalURL) == nil
+    else {
+      return fallback
+    }
+    return finalURL
+  }
+
+  private func resolvedHostValidationError(for url: URL) async -> WebAccessError? {
+    guard let host = url.host(percentEncoded: false) else {
+      return .blockedHost(url.absoluteString)
+    }
+    do {
+      let addresses = try await hostResolver.addresses(for: host)
+      for address in addresses where WebAddressClassifier.isPrivateOrLocal(address) {
+        return .blockedAddress(address)
+      }
+      return nil
+    } catch let error as WebAccessError {
+      return error
+    } catch {
+      return .requestFailed(error.localizedDescription)
+    }
+  }
+
+  private static func failureMessage(from response: FirecrawlScrapeResponse) -> String {
+    for message in [response.error, response.message, response.data?.metadata?.error] {
+      if let message = message?.trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty {
+        return message
+      }
+    }
+    return "Firecrawl scrape failed."
+  }
+
+  private static func limitedUTF8String(
+    _ text: String,
+    maxBytes: Int
+  ) -> (text: String, truncated: Bool) {
+    var endIndex = text.startIndex
+    var byteCount = 0
+    while endIndex < text.endIndex {
+      let nextIndex = text.index(after: endIndex)
+      let characterByteCount = text[endIndex..<nextIndex].utf8.count
+      guard byteCount + characterByteCount <= maxBytes else {
+        return (String(text[..<endIndex]), true)
+      }
+      byteCount += characterByteCount
+      endIndex = nextIndex
+    }
+    return (text, false)
   }
 }
 

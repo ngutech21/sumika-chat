@@ -229,7 +229,7 @@ struct WebAccessTests {
     #expect(results.count == 2)
     let requests = await httpClient.requests
     #expect(requests.first?.url?.absoluteString.contains("http://127.0.0.1:8080/search?") == true)
-    #expect(await httpClient.validationProfiles == [.configuredSearchProviderURL])
+    #expect(await httpClient.validationProfiles == [.configuredWebProviderURL])
   }
 
   @Test
@@ -277,7 +277,7 @@ struct WebAccessTests {
       WebFetchRequest(url: try #require(URL(string: "https://docs.example/page")))
     )
 
-    guard case .failed(_, _, let reason) = result else {
+    guard case .failed(_, .builtIn, _, let reason) = result else {
       Issue.record("Expected private resolved address to fail.")
       return
     }
@@ -297,11 +297,205 @@ struct WebAccessTests {
       WebFetchRequest(url: try #require(URL(string: "http://localhost:8000/private")))
     )
 
-    guard case .failed(_, _, let reason) = result else {
+    guard case .failed(_, .builtIn, _, let reason) = result else {
       Issue.record("Expected localhost web_fetch to fail.")
       return
     }
     #expect(reason.message.contains("Blocked non-public host"))
+    #expect(await httpClient.requests.isEmpty)
+  }
+
+  @Test
+  func firecrawlFetchUsesSelfHostedScrapeEndpointWithoutAuth() async throws {
+    let response = """
+      {
+        "success": true,
+        "data": {
+          "markdown": "# Example Domain\\n\\nFetched through Firecrawl.",
+          "metadata": {
+            "sourceURL": "https://docs.example/final",
+            "statusCode": 200
+          }
+        }
+      }
+      """
+    let httpClient = CapturingHTTPClient(
+      data: Data(response.utf8),
+      contentType: "application/json"
+    )
+    let service = DefaultWebFetchService(
+      httpClient: httpClient,
+      hostResolver: HostMappingResolver(addressesByHost: [
+        "docs.example": ["93.184.216.34"]
+      ])
+    )
+
+    let result = await service.fetch(
+      WebFetchRequest(
+        url: try #require(URL(string: "https://docs.example/page")),
+        settings: WebAccessSettings(
+          policy: .allow,
+          fetchProvider: .firecrawl,
+          firecrawlBaseURL: "http://127.0.0.1:3002"
+        )
+      )
+    )
+
+    guard
+      case .success(
+        _, .firecrawl, let finalURL, 200, let contentType, let content, let byteCount) = result
+    else {
+      Issue.record("Expected successful Firecrawl fetch.")
+      return
+    }
+    #expect(finalURL == "https://docs.example/final")
+    #expect(contentType == "text/markdown")
+    #expect(content.text.contains("Fetched through Firecrawl."))
+    #expect(byteCount == "# Example Domain\n\nFetched through Firecrawl.".utf8.count)
+    #expect(result.preview.text.contains("Fetch provider: Firecrawl"))
+
+    let requests = await httpClient.requests
+    #expect(requests.count == 1)
+    let request = try #require(requests.first)
+    #expect(request.url?.absoluteString == "http://127.0.0.1:3002/v2/scrape")
+    #expect(request.httpMethod == "POST")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+    #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+    let payload = try JSONDecoder().decode(
+      FirecrawlRequestBody.self,
+      from: try #require(request.httpBody)
+    )
+    #expect(payload.url == "https://docs.example/page")
+    #expect(payload.formats == ["markdown"])
+    #expect(payload.onlyMainContent)
+    #expect(payload.waitFor == 1_000)
+    #expect(await httpClient.validationProfiles == [.configuredWebProviderURL])
+  }
+
+  @Test
+  func firecrawlFetchRejectsTargetNon2xxStatus() async throws {
+    let response = """
+      {
+        "success": true,
+        "data": {
+          "markdown": "Missing page evidence",
+          "metadata": {
+            "sourceURL": "https://docs.example/missing",
+            "statusCode": 404
+          }
+        }
+      }
+      """
+    let httpClient = CapturingHTTPClient(
+      data: Data(response.utf8),
+      contentType: "application/json"
+    )
+    let service = DefaultWebFetchService(
+      httpClient: httpClient,
+      hostResolver: HostMappingResolver(addressesByHost: [
+        "docs.example": ["93.184.216.34"]
+      ])
+    )
+    let url = try #require(URL(string: "https://docs.example/page"))
+
+    let result = await service.fetch(
+      WebFetchRequest(
+        url: url,
+        settings: WebAccessSettings(
+          policy: .allow,
+          fetchProvider: .firecrawl,
+          firecrawlBaseURL: "http://127.0.0.1:3002"
+        )
+      )
+    )
+
+    guard case .failed(let requestedURL, .firecrawl, let finalURL, let reason) = result else {
+      Issue.record("Expected Firecrawl target 404 to fail.")
+      return
+    }
+    #expect(requestedURL == url.absoluteString)
+    #expect(finalURL == "https://docs.example/missing")
+    #expect(reason.message == "Fetch returned HTTP 404.")
+    #expect(!reason.message.contains("Missing page evidence"))
+  }
+
+  @Test
+  func firecrawlFetchRejectsLocalhostTargetBeforeProviderRequest() async throws {
+    let httpClient = CapturingHTTPClient(data: Data("{}".utf8), contentType: "application/json")
+    let service = DefaultWebFetchService(
+      httpClient: httpClient,
+      hostResolver: FailingResolver()
+    )
+
+    let result = await service.fetch(
+      WebFetchRequest(
+        url: try #require(URL(string: "http://localhost:8000/private")),
+        settings: WebAccessSettings(
+          policy: .allow,
+          fetchProvider: .firecrawl,
+          firecrawlBaseURL: "http://127.0.0.1:3002"
+        )
+      )
+    )
+
+    guard case .failed(_, .firecrawl, _, let reason) = result else {
+      Issue.record("Expected localhost target to fail.")
+      return
+    }
+    #expect(reason.message.contains("Blocked non-public host"))
+    #expect(await httpClient.requests.isEmpty)
+  }
+
+  @Test
+  func firecrawlFetchRequiresConfiguredBaseURL() async throws {
+    let httpClient = CapturingHTTPClient(data: Data("{}".utf8), contentType: "application/json")
+    let service = DefaultWebFetchService(
+      httpClient: httpClient,
+      hostResolver: FailingResolver()
+    )
+
+    let result = await service.fetch(
+      WebFetchRequest(
+        url: try #require(URL(string: "https://docs.example/page")),
+        settings: WebAccessSettings(policy: .allow, fetchProvider: .firecrawl)
+      )
+    )
+
+    guard case .failed(_, .firecrawl, _, let reason) = result else {
+      Issue.record("Expected missing Firecrawl URL to fail.")
+      return
+    }
+    #expect(reason.message == "Firecrawl URL is required when Firecrawl is selected.")
+    #expect(await httpClient.requests.isEmpty)
+  }
+
+  @Test
+  func publicFirecrawlProviderBlocksPrivateResolvedAddressBeforeHTTPRequest() async throws {
+    let httpClient = CapturingHTTPClient(data: Data("{}".utf8), contentType: "application/json")
+    let service = DefaultWebFetchService(
+      httpClient: httpClient,
+      hostResolver: HostMappingResolver(addressesByHost: [
+        "docs.example": ["93.184.216.34"],
+        "firecrawl.example": ["127.0.0.1"],
+      ])
+    )
+
+    let result = await service.fetch(
+      WebFetchRequest(
+        url: try #require(URL(string: "https://docs.example/page")),
+        settings: WebAccessSettings(
+          policy: .allow,
+          fetchProvider: .firecrawl,
+          firecrawlBaseURL: "https://firecrawl.example"
+        )
+      )
+    )
+
+    guard case .failed(_, .firecrawl, _, let reason) = result else {
+      Issue.record("Expected public Firecrawl private DNS resolution to fail.")
+      return
+    }
+    #expect(reason.message.contains("Blocked non-public network address"))
     #expect(await httpClient.requests.isEmpty)
   }
 
@@ -354,7 +548,7 @@ struct WebAccessTests {
       WebFetchRequest(url: try #require(URL(string: "https://docs.example/page")))
     )
 
-    guard case .failed(_, _, let reason) = result else {
+    guard case .failed(_, _, _, let reason) = result else {
       Issue.record("Expected remote address block to fail web_fetch.")
       return
     }
@@ -378,7 +572,7 @@ struct WebAccessTests {
 
     let result = await service.fetch(WebFetchRequest(url: url))
 
-    guard case .failed(let requestedURL, let finalURL, let reason) = result else {
+    guard case .failed(let requestedURL, .builtIn, let finalURL, let reason) = result else {
       Issue.record("Expected 404 web_fetch response to fail.")
       return
     }
@@ -404,7 +598,7 @@ struct WebAccessTests {
       WebFetchRequest(url: try #require(URL(string: "https://docs.example/failure")))
     )
 
-    guard case .failed(_, _, let reason) = result else {
+    guard case .failed(_, .builtIn, _, let reason) = result else {
       Issue.record("Expected 500 web_fetch response to fail.")
       return
     }
@@ -481,7 +675,8 @@ struct WebAccessTests {
     let record = await orchestrator.execute(request: raw, workspace: workspace)
 
     #expect(record.status == .completed)
-    guard case .webFetch(.success(_, _, 200, _, let content, _)) = record.resultPayload else {
+    guard case .webFetch(.success(_, .builtIn, _, 200, _, let content, _)) = record.resultPayload
+    else {
       Issue.record("Expected successful web_fetch payload.")
       return
     }
@@ -506,7 +701,7 @@ struct WebAccessTests {
       )
     )
 
-    guard case .success(_, _, 200, _, let content, 200) = result else {
+    guard case .success(_, .builtIn, _, 200, _, let content, 200) = result else {
       Issue.record("Expected successful truncated fetch.")
       return
     }
@@ -692,7 +887,7 @@ struct WebAccessTests {
       WebFetchRequest(url: try #require(URL(string: "https://docs.example/fetched")))
     )
 
-    guard case .success(_, _, 200, _, let content, _) = result else {
+    guard case .success(_, .builtIn, _, 200, _, let content, _) = result else {
       Issue.record("Expected successful HTML fetch.")
       return
     }
@@ -711,7 +906,7 @@ struct WebAccessTests {
       WebFetchRequest(url: url, maxBytes: 123, timeoutSeconds: 7, maxRedirects: 2)
     )
 
-    guard case .success(_, _, 200, _, let content, _) = result else {
+    guard case .success(_, .builtIn, _, 200, _, let content, _) = result else {
       Issue.record("Expected injected extractor result.")
       return
     }
@@ -738,7 +933,7 @@ struct WebAccessTests {
       WebFetchRequest(url: try #require(URL(string: "https://docs.example/plain")))
     )
 
-    guard case .success(_, _, 200, _, let content, _) = result else {
+    guard case .success(_, .builtIn, _, 200, _, let content, _) = result else {
       Issue.record("Expected successful plain-text fetch.")
       return
     }
@@ -752,7 +947,9 @@ struct WebAccessTests {
     let settings = WebAccessSettings(
       policy: .allow,
       provider: .searxng,
-      searxngBaseURL: "https://search.example"
+      searxngBaseURL: "https://search.example",
+      fetchProvider: .firecrawl,
+      firecrawlBaseURL: "http://127.0.0.1:3002"
     )
 
     let store = WebAccessSettingsStore(settingsURL: url)
@@ -782,6 +979,13 @@ private func makeWorkspace() throws -> Workspace {
     .appending(path: "sumika-web-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
   try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
   return Workspace(name: "Web Tests", rootURL: root)
+}
+
+private struct FirecrawlRequestBody: Decodable {
+  var url: String
+  var formats: [String]
+  var onlyMainContent: Bool
+  var waitFor: Int
 }
 
 private actor CapturingHTTPClient: WebHTTPClient {
@@ -824,6 +1028,20 @@ private struct FakeResolver: WebHostResolving {
   }
 }
 
+private struct HostMappingResolver: WebHostResolving {
+  var addressesByHost: [String: [String]]
+
+  func addresses(for host: String) async throws -> [String] {
+    addressesByHost[host] ?? []
+  }
+}
+
+private struct FailingResolver: WebHostResolving {
+  func addresses(for host: String) async throws -> [String] {
+    throw WebAccessError.requestFailed("Unexpected DNS resolution for \(host).")
+  }
+}
+
 private struct ThrowingHTTPClient: WebHTTPClient {
   var error: Error
 
@@ -843,6 +1061,7 @@ private struct FakeFetcher: WebFetching {
   func fetch(_ request: WebFetchRequest) async -> WebFetchToolResult {
     WebFetchToolResult(
       url: request.url.absoluteString,
+      provider: request.settings.fetchProvider,
       finalURL: request.url.absoluteString,
       statusCode: 200,
       contentType: "text/plain",
@@ -859,6 +1078,7 @@ private actor RecordingPageExtractor: WebPageExtracting {
     requests.append(request)
     return WebFetchToolResult(
       url: request.url.absoluteString,
+      provider: .builtIn,
       finalURL: request.url.absoluteString,
       statusCode: 200,
       contentType: "text/plain",

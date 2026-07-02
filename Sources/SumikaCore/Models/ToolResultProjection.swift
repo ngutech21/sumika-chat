@@ -224,6 +224,7 @@ public enum ToolObservationBlock: Equatable, Sendable {
     query: String, provider: WebSearchProvider, results: [WebSearchResult], truncated: Bool)
   case webFetch(
     url: String,
+    provider: WebFetchProvider?,
     finalURL: String,
     statusCode: Int,
     contentType: String?,
@@ -786,12 +787,14 @@ private func projectWebFetch(
 ) -> ToolResultProjection {
   switch result {
   case .success(
-    let url, let finalURL, let statusCode, let contentType, let content, let byteCount):
+    let url, let provider, let finalURL, let statusCode, let contentType, let content,
+    let byteCount):
     return ToolResultProjection(
       display: .summary(
         status: .success,
         text: webFetchDisplayText(
           url: url,
+          provider: provider,
           finalURL: finalURL,
           statusCode: statusCode,
           contentType: contentType,
@@ -806,6 +809,7 @@ private func projectWebFetch(
         blocks: [
           .webFetch(
             url: url,
+            provider: provider,
             finalURL: finalURL,
             statusCode: statusCode,
             contentType: contentType,
@@ -815,11 +819,11 @@ private func projectWebFetch(
         ]
       )
     )
-  case .failed(_, _, let reason):
+  case .failed(_, let provider, _, let reason):
     return summaryProjection(
       toolName: request.toolName,
       status: reason.projectedStatus,
-      text: reason.message,
+      text: "Fetch provider: \(webFetchProviderDisplayName(provider))\n\(reason.message)",
       affectedPaths: []
     )
   }
@@ -882,6 +886,7 @@ private func webSearchDisplayText(
 
 private func webFetchDisplayText(
   url: String,
+  provider: WebFetchProvider?,
   finalURL: String,
   statusCode: Int,
   contentType: String?,
@@ -891,12 +896,17 @@ private func webFetchDisplayText(
   let redirectText = url == finalURL ? "" : "\nFinal URL: \(finalURL)"
   return """
     URL: \(url)\(redirectText)
+    Fetch provider: \(webFetchProviderDisplayName(provider))
     Status: \(statusCode)
     Content-Type: \(contentType ?? "unknown")
     Bytes: \(byteCount)
 
     \(content.text)
     """
+}
+
+private func webFetchProviderDisplayName(_ provider: WebFetchProvider?) -> String {
+  provider?.displayName ?? "Unknown"
 }
 
 private func readRange(from request: ToolCallRequest) -> String? {

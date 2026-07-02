@@ -481,7 +481,8 @@ public enum ToolModelObservationRenderer {
         \(body)
         """
     case .webFetch(
-      let url, let finalURL, let statusCode, let contentType, let content, let byteCount):
+      let url, let provider, let finalURL, let statusCode, let contentType, let content,
+      let byteCount):
       let flags = [
         content.truncated ? "truncated" : nil,
         content.redacted ? "redacted" : nil,
@@ -490,6 +491,7 @@ public enum ToolModelObservationRenderer {
       let redirect = url == finalURL ? "" : "\nFinal URL: \(finalURL)"
       return """
         Web fetch URL: \(url)\(redirect)
+        Web fetch provider: \(provider?.displayName ?? "Unknown")
         Status: \(statusCode)
         Content-Type: \(contentType ?? "unknown")
         Bytes: \(byteCount)\(suffix)

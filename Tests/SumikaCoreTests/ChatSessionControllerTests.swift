@@ -1697,6 +1697,7 @@ private struct ChatControllerFakeFetcher: WebFetching {
   func fetch(_ request: WebFetchRequest) async -> WebFetchToolResult {
     WebFetchToolResult(
       url: request.url.absoluteString,
+      provider: request.settings.fetchProvider,
       finalURL: request.url.absoluteString,
       statusCode: 200,
       contentType: "text/plain",
