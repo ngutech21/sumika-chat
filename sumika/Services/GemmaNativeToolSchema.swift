@@ -142,16 +142,10 @@ nonisolated enum GemmaNativeToolSchema {
     from toolCall: MLXLMCommon.ToolCall,
     usedIDs: inout Set<UUID>
   ) -> ChatRuntimeToolCall {
-    let runtimeToolCall = ChatRuntimeToolCall(
+    ChatRuntimeToolCall(
       id: RuntimeToolCallID.normalizedString(from: toolCall.id, usedIDs: &usedIDs),
       name: toolCall.function.name,
       arguments: toolCall.function.arguments.mapValues(toolArgumentValue(from:))
-    )
-    return ChatRuntimeToolCall(
-      id: runtimeToolCall.id,
-      name: runtimeToolCall.name,
-      arguments: runtimeToolCall.arguments,
-      rawText: NativeToolCallBoundaryRenderer.renderGemma4(runtimeToolCall)
     )
   }
 

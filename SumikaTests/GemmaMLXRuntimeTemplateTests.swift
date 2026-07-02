@@ -671,8 +671,9 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
-        content: NativeToolCallBoundaryRenderer.renderGemma4(
-          toolName: ToolName.readFile.rawValue,
+        content: toolCallContent(
+          callID: callID,
+          toolName: .readFile,
           arguments: ["path": .string("README.md")]
         )
       ),
@@ -734,10 +735,10 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
-        content: NativeToolCallBoundaryRenderer.renderGemma4([
-          ChatRuntimeToolCall(name: ToolName.readFile.rawValue, arguments: readArguments),
-          ChatRuntimeToolCall(name: ToolName.listFiles.rawValue, arguments: listArguments),
-        ])
+        content: [
+          toolCallContent(callID: readCallID, toolName: .readFile, arguments: readArguments),
+          toolCallContent(callID: listCallID, toolName: .listFiles, arguments: listArguments),
+        ].joined(separator: "\n")
       ),
       try ModelFacingPromptRenderer.toolResultEntry(
         turnID: turnID,
@@ -820,8 +821,9 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
-        content: NativeToolCallBoundaryRenderer.renderGemma4(
-          toolName: ToolName.readFile.rawValue,
+        content: toolCallContent(
+          callID: callID,
+          toolName: .readFile,
           arguments: arguments
         )
       ),
@@ -919,7 +921,7 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
-        content: NativeToolCallBoundaryRenderer.renderModelContextGemma4([
+        content: [
           ToolCallModelMessage(
             rawRequest: RawToolCallRequest(
               id: readCallID,
@@ -927,9 +929,10 @@ struct GemmaMLXRuntimeTemplateTests {
               sessionID: UUID(),
               toolName: .readFile,
               arguments: readArguments
-            )),
-          writeFileToolCall(callID: writeCallID, arguments: writeArguments),
-        ])
+            )
+          ).modelContextContent,
+          writeFileToolCall(callID: writeCallID, arguments: writeArguments).modelContextContent,
+        ].joined(separator: "\n")
       ),
       try ModelFacingPromptRenderer.toolResultEntry(
         turnID: turnID,
@@ -983,8 +986,9 @@ struct GemmaMLXRuntimeTemplateTests {
       try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: "read README.md"),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
-        content: NativeToolCallBoundaryRenderer.renderGemma4(
-          toolName: ToolName.readFile.rawValue,
+        content: toolCallContent(
+          callID: callID,
+          toolName: .readFile,
           arguments: ["path": .string("README.md")]
         )
       ),
@@ -1035,8 +1039,9 @@ struct GemmaMLXRuntimeTemplateTests {
       try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: "read README.md"),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
-        content: NativeToolCallBoundaryRenderer.renderGemma4(
-          toolName: ToolName.readFile.rawValue,
+        content: toolCallContent(
+          callID: callID,
+          toolName: .readFile,
           arguments: ["path": .string("README.md")]
         )
       ),
@@ -1773,7 +1778,6 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(runtimeToolCall.arguments["path"] == .string("README.md"))
     #expect(runtimeToolCall.arguments["limit"] == .number(20))
     #expect(runtimeToolCall.arguments["include_hidden"] == .bool(false))
-    #expect(runtimeToolCall.rawText == NativeToolCallBoundaryRenderer.renderGemma4(runtimeToolCall))
   }
 
   private func consumeFirstEventAndWait(
@@ -1919,6 +1923,22 @@ struct GemmaMLXRuntimeTemplateTests {
         toolName: .writeFile,
         arguments: arguments
       ))
+  }
+
+  private func toolCallContent(
+    callID: UUID,
+    toolName: ToolName,
+    arguments: ToolCallArguments
+  ) -> String {
+    ToolCallModelMessage(
+      rawRequest: RawToolCallRequest(
+        id: callID,
+        workspaceID: UUID(),
+        sessionID: UUID(),
+        toolName: toolName,
+        arguments: arguments
+      )
+    ).modelContextContent
   }
 
   private func toolRequest(

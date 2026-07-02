@@ -186,10 +186,14 @@ struct ChatModelContextBuilderTests {
   func toolResultAppendIsPrefixStableWhenTranscriptMutates() throws {
     let turnID = UUID()
     let sourceMessageID = UUID()
-    let nativeBoundary = NativeToolCallBoundaryRenderer.renderGemma4(
-      toolName: ToolName.readFile.rawValue,
-      arguments: ["path": .string("README.md")]
-    )
+    let nativeBoundary = ToolCallModelMessage(
+      rawRequest: RawToolCallRequest(
+        workspaceID: UUID(),
+        sessionID: UUID(),
+        toolName: .readFile,
+        arguments: ["path": .string("README.md")]
+      )
+    ).modelContextContent
     let firstEntry = try ModelFacingPromptRenderer.assistantOutputEntry(
       turnID: turnID,
       sourceMessageID: sourceMessageID,

@@ -91,7 +91,6 @@ public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   public var toolName: ToolName
   public var arguments: ToolCallArguments
   public var originalToolName: String?
-  public var rawText: String?
   public var createdAt: Date
 
   public init(
@@ -101,7 +100,6 @@ public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
     toolName: ToolName,
     arguments: ToolCallArguments = [:],
     originalToolName: String? = nil,
-    rawText: String? = nil,
     createdAt: Date = Date()
   ) {
     self.id = id
@@ -110,7 +108,6 @@ public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
     self.toolName = toolName
     self.arguments = arguments
     self.originalToolName = originalToolName
-    self.rawText = rawText
     self.createdAt = createdAt
   }
 }
@@ -340,14 +337,12 @@ public struct ToolCallModelMessage: Codable, Equatable, Sendable {
   public var toolName: ToolName
   public var arguments: [ToolCallModelArgument]
   public var rawArguments: ToolCallArguments
-  public var rawText: String?
 
   public init(
     callID: UUID,
     toolName: ToolName,
     arguments: [ToolCallModelArgument],
-    rawArguments: ToolCallArguments? = nil,
-    rawText: String? = nil
+    rawArguments: ToolCallArguments? = nil
   ) {
     self.callID = callID
     self.toolName = toolName
@@ -357,7 +352,6 @@ public struct ToolCallModelMessage: Codable, Equatable, Sendable {
       ?? Dictionary(
         uniqueKeysWithValues: arguments.map { ($0.name, ToolArgumentValue.string($0.value)) }
       )
-    self.rawText = rawText
   }
 
   public init(rawRequest: RawToolCallRequest) {
@@ -367,8 +361,7 @@ public struct ToolCallModelMessage: Codable, Equatable, Sendable {
       arguments: rawRequest.arguments.keys.sorted().map { key in
         ToolCallModelArgument(name: key, value: rawRequest.arguments[key]?.displayValue ?? "")
       },
-      rawArguments: rawRequest.arguments,
-      rawText: rawRequest.rawText
+      rawArguments: rawRequest.arguments
     )
   }
 
@@ -398,16 +391,23 @@ nonisolated extension ToolCallModelMessage {
       return terminalWriteModelContextContent
     }
 
-    if let rawText, !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      return rawText
+    guard !arguments.isEmpty else {
+      return """
+        Tool call \(toolName.rawValue) requested.
+        Arguments: none.
+        """
     }
 
-    return NativeToolCallBoundaryRenderer.renderGemma4(
-      toolName: toolName.rawValue,
-      arguments: Dictionary(
-        uniqueKeysWithValues: arguments.map { ($0.name, ToolArgumentValue.string($0.value)) }
-      )
-    )
+    let renderedArguments =
+      arguments
+      .map { "\($0.name): \($0.value)" }
+      .joined(separator: "\n")
+
+    return """
+      Tool call \(toolName.rawValue) requested.
+      Arguments:
+      \(renderedArguments)
+      """
   }
 
   public var modelContextRole: ModelContextRole {

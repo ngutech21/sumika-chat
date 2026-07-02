@@ -48,18 +48,15 @@ public struct ChatRuntimeToolCall: Equatable, Sendable {
   public var id: String?
   public var name: String
   public var arguments: ToolCallArguments
-  public var rawText: String?
 
   public init(
     id: String? = nil,
     name: String,
-    arguments: ToolCallArguments = [:],
-    rawText: String? = nil
+    arguments: ToolCallArguments = [:]
   ) {
     self.id = id
     self.name = name
     self.arguments = arguments
-    self.rawText = rawText
   }
 }
 

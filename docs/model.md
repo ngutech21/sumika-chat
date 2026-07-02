@@ -234,7 +234,6 @@ classDiagram
     toolName: ToolName
     arguments: ToolCallArguments
     originalToolName: String?
-    rawText: String?
     createdAt: Date
   }
 
@@ -466,7 +465,6 @@ classDiagram
     toolName: ToolName
     arguments: [ToolCallModelArgument]
     rawArguments: ToolCallArguments
-    rawText: String?
   }
 
   class ToolCallModelArgument {

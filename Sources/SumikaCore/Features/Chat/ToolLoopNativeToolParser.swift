@@ -22,10 +22,6 @@ enum ToolLoopNativeToolParser {
       let resolution = resolver.resolve(toolCall.name, registry: registry)
       let canonicalToolName =
         resolution.canonicalToolName ?? ToolName(rawValue: toolCall.name)
-      let rawText = NativeToolCallBoundaryRenderer.renderGemma4(
-        toolName: canonicalToolName.rawValue,
-        arguments: toolCall.arguments
-      )
       let request = RawToolCallRequest(
         id: RuntimeToolCallID.uniqueUUID(from: toolCall.id, usedIDs: &usedRequestIDs),
         workspaceID: workspaceID,
@@ -33,7 +29,6 @@ enum ToolLoopNativeToolParser {
         toolName: canonicalToolName,
         arguments: toolCall.arguments,
         originalToolName: originalToolName(from: resolution),
-        rawText: rawText,
         createdAt: Date()
       )
       return ToolCallParseOutput(

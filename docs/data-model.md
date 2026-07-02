@@ -400,7 +400,6 @@ Properties:
 - `createdAt: Date`
 - `id: UUID`
 - `originalToolName: String?`
-- `rawText: String?`
 - `sessionID: ChatSession.ID`
 - `toolName: ToolName`
 - `workspaceID: Workspace.ID`
@@ -525,7 +524,6 @@ Properties:
 - `arguments: [ToolCallModelArgument]`
 - `callID: UUID`
 - `rawArguments: ToolCallArguments`
-- `rawText: String?`
 - `toolName: ToolName`
 
 Relations:

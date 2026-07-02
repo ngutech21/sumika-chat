@@ -279,7 +279,6 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
       hasher.combine(record.status.rawValue)
       hasher.combine(record.request.toolName.rawValue)
       hasher.combine(record.request.raw.originalToolName)
-      hasher.combine(record.request.raw.rawText)
       for argument in record.request.rawArguments.sorted(by: { $0.key < $1.key }) {
         hasher.combine(argument.key)
         hasher.combine(argument.value.displayValue)

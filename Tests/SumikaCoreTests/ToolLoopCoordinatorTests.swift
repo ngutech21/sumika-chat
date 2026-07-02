@@ -234,7 +234,8 @@ struct ToolLoopCoordinatorTests {
     )
 
     let boundary = try #require(nativeAssistantBoundary(from: result))
-    #expect(boundary.contains("<|tool_call>call:read_file{path:<|\"|>README.md<|\"|>}<tool_call|>"))
+    #expect(boundary.contains("Tool call read_file requested."))
+    #expect(boundary.contains("path: README.md"))
     #expect(boundary.contains("Tool call edit_file requested."))
     #expect(boundary.contains("Path:\nREADME.md"))
     #expect(boundary.contains("Payload omitted from history."))

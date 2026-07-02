@@ -945,7 +945,7 @@ struct ChatSessionControllerTests {
         .contains("lies die projektbeschreibung"))
     #expect(
       controller.chatSession.modelContextSnapshot.entries[1].frozenContent.content.contains(
-        "<|tool_call>call:read_file")
+        "Tool call read_file requested.")
     )
     #expect(
       controller.chatSession.modelContextSnapshot.entries[2].frozenContent.content.contains(

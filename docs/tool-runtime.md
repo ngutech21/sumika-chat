@@ -10,7 +10,7 @@ or provider-specific payloads.
 ```mermaid
 flowchart TD
   A["ChatTurnCoordinator receives native ChatRuntimeToolCall event"] --> B["ToolLoopCoordinator"]
-  B --> C["RawToolCallRequest(id, name, arguments, rawText)"]
+  B --> C["RawToolCallRequest(id, name, arguments)"]
   C --> D["ToolCallRequestValidator"]
   D --> E["ToolCallRequest(payload: ToolCallPayload)"]
   E --> F["ToolExecutorRegistry lookup"]

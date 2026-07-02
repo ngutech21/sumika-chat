@@ -232,8 +232,7 @@ private func makeTestingToolCallRecord(
     workspaceID: UUID(),
     sessionID: UUID(),
     toolName: toolName,
-    arguments: arguments,
-    rawText: toolCall?.rawText
+    arguments: arguments
   )
   let request = ToolCallRequest.invalid(
     raw: raw,

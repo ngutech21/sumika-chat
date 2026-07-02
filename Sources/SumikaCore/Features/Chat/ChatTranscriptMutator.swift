@@ -155,7 +155,6 @@ public struct ChatTranscriptMutator: Sendable {
     for messageID: UUID,
     in state: inout ChatSession
   ) {
-    redactModelFacingToolCallPayloadIfNeeded(toolCall, sourceMessageID: messageID, in: &state)
     guard let turnID = turnID(containingMessageID: messageID, in: state) else {
       return
     }
@@ -341,8 +340,7 @@ public struct ChatTranscriptMutator: Sendable {
       workspaceID: UUID(),
       sessionID: UUID(),
       toolName: toolCall.toolName,
-      arguments: arguments,
-      rawText: toolCall.rawText
+      arguments: arguments
     )
     let request = ToolCallRequest.invalid(
       raw: raw,
@@ -361,62 +359,5 @@ public struct ChatTranscriptMutator: Sendable {
       ),
       state: .pending
     )
-  }
-
-  private func redactModelFacingToolCallPayloadIfNeeded(
-    _ toolCall: ToolCallModelMessage,
-    sourceMessageID: UUID,
-    in state: inout ChatSession
-  ) {
-    guard toolCall.shouldRedactPayloadInModelHistory else {
-      return
-    }
-
-    for index in state.modelContextSnapshot.entries.indices {
-      let entry = state.modelContextSnapshot.entries[index]
-      guard entry.sourceMessageID == sourceMessageID,
-        case .assistantOutput(let context) = entry.body
-      else {
-        continue
-      }
-
-      let redactedContent = redactedAssistantOutputContent(context.content, using: toolCall)
-      guard redactedContent != context.content,
-        let redactedEntry = try? ModelFacingPromptRenderer.assistantOutputEntry(
-          id: entry.id,
-          turnID: entry.turnID,
-          sourceMessageID: entry.sourceMessageID,
-          content: redactedContent
-        )
-      else {
-        continue
-      }
-
-      state.modelContextSnapshot.entries[index] = redactedEntry
-    }
-  }
-
-  private func redactedAssistantOutputContent(
-    _ content: String,
-    using toolCall: ToolCallModelMessage
-  ) -> String {
-    let redactedToolCall = toolCall.modelContextContent
-    guard let rawText = toolCall.rawText?.trimmingCharacters(in: .whitespacesAndNewlines),
-      !rawText.isEmpty
-    else {
-      return redactedToolCall
-    }
-
-    if content.contains(rawText) {
-      return content.replacingOccurrences(of: rawText, with: redactedToolCall)
-    }
-
-    return redactedToolCall
-  }
-}
-
-nonisolated extension ToolCallModelMessage {
-  fileprivate var shouldRedactPayloadInModelHistory: Bool {
-    toolName == .writeFile || toolName == .editFile
   }
 }

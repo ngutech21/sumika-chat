@@ -339,9 +339,7 @@ public struct ToolLoopCoordinator: Sendable {
     }
     return [
       .nativeAssistantBoundaryAppended(
-        content: NativeToolCallBoundaryRenderer.renderModelContextGemma4(
-          outputs.map(\.modelMessage)
-        ),
+        content: outputs.map(\.modelMessage.modelContextContent).joined(separator: "\n"),
         sourceMessageID: request.assistantMessageID,
         turnID: request.turnID
       )
