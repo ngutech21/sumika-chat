@@ -1,0 +1,71 @@
+import Foundation
+
+public struct WriteFileInput: Codable, Equatable, Sendable {
+  public let path: String
+  public let content: String
+}
+
+public struct WriteFileToolExecutor: TypedToolExecutor {
+  public static let definition = ToolDefinition.writeFile
+
+  public init() {}
+
+  public static func input(from payload: ToolCallPayload) throws -> WriteFileInput {
+    guard case .writeFile(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
+
+  public func evaluatePermission(
+    _ input: WriteFileInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    do {
+      let resolvedPath = try context.workspace.resolveAllowedPath(input.path)
+      return ToolPermissionEvaluation(
+        decision: .requiresApproval,
+        reason: "Writing files inside the workspace requires approval.",
+        riskLevel: .high,
+        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
+        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
+      )
+    } catch {
+      return ToolPermissionEvaluation(
+        decision: .denied,
+        reason: error.localizedDescription,
+        riskLevel: .high
+      )
+    }
+  }
+
+  public func run(_ input: WriteFileInput, context: ToolContext) async -> ToolResultPayload {
+    var resolvedURL: URL?
+    do {
+      return try context.workspace.withSecurityScopedAccess {
+        let resolvedPathURL = try context.workspace.resolveAllowedPath(input.path)
+        resolvedURL = resolvedPathURL
+        let relativePath = context.workspace.relativePath(for: resolvedPathURL)
+        try FileManager.default.createDirectory(
+          at: resolvedPathURL.deletingLastPathComponent(),
+          withIntermediateDirectories: true
+        )
+        try input.content.write(to: resolvedPathURL, atomically: true, encoding: .utf8)
+        return .writeFile(
+          .success(path: relativePath, bytesWritten: input.content.utf8.count)
+        )
+      }
+    } catch {
+      return .writeFile(
+        .failed(
+          path: ToolResultFailureMapper.relativePath(
+            for: input.path, resolvedURL: resolvedURL, workspace: context.workspace),
+          reason: ToolResultFailureMapper.reason(from: error)
+        )
+      )
+    }
+  }
+}

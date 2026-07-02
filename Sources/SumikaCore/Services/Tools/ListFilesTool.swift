@@ -1,0 +1,175 @@
+import Foundation
+
+public struct ListFilesInput: Codable, Equatable, Sendable {
+  public let path: String?
+}
+
+public struct ListFilesToolExecutor: TypedToolExecutor {
+  public static let definition = ToolDefinition.listFiles
+
+  private let maxDepth: Int
+  private let maxEntries: Int
+  private let skippedNames: Set<String>
+
+  public init(
+    maxDepth: Int = 4,
+    maxEntries: Int = 300,
+    skippedNames: Set<String> = [
+      ".git",
+      "node_modules",
+      ".build",
+      "DerivedData",
+      ".swiftpm",
+      "dist",
+      "build",
+      ".cache",
+      ".DS_Store",
+    ]
+  ) {
+    self.maxDepth = maxDepth
+    self.maxEntries = maxEntries
+    self.skippedNames = skippedNames
+  }
+
+  public static func input(from payload: ToolCallPayload) throws -> ListFilesInput {
+    guard case .listFiles(let input) = payload else {
+      throw ToolInputDecodingError.payloadMismatch(
+        expected: definition.name.rawValue,
+        actual: payload.toolName.rawValue
+      )
+    }
+    return input
+  }
+
+  public func evaluatePermission(
+    _ input: ListFilesInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    do {
+      let resolvedPath = try context.workspace.resolveAllowedPath(input.path ?? ".")
+      return ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Listing files inside the workspace is allowed.",
+        riskLevel: .low,
+        normalizedPaths: [resolvedPath.path(percentEncoded: false)],
+        workspaceRelativePaths: [context.workspace.relativePath(for: resolvedPath)]
+      )
+    } catch {
+      return ToolPermissionEvaluation(
+        decision: .denied,
+        reason: error.localizedDescription,
+        riskLevel: .low
+      )
+    }
+  }
+
+  public func run(_ input: ListFilesInput, context: ToolContext) async -> ToolResultPayload {
+    let path = input.path ?? "."
+    var resolvedURL: URL?
+
+    do {
+      return try context.workspace.withSecurityScopedAccess {
+        let rootURL = try context.workspace.resolveAllowedPath(path)
+        resolvedURL = rootURL
+        let rootPath = context.workspace.relativePath(for: rootURL)
+        var entries: [String] = []
+        var truncated = false
+        try appendEntries(
+          at: rootURL,
+          displayPrefix: "",
+          depth: 0,
+          entries: &entries,
+          truncated: &truncated
+        )
+
+        return .listFiles(
+          ListFilesResult(
+            root: rootPath,
+            entries: entries.map { entry in
+              let isDirectory = entry.hasSuffix("/")
+              let path = isDirectory ? String(entry.dropLast()) : entry
+              let workspacePath =
+                rootPath.rawValue == "." ? path : rootPath.rawValue + "/" + path
+              return WorkspaceFileEntry(
+                path: WorkspaceRelativePath(rawValue: workspacePath),
+                kind: isDirectory ? .directory : .file
+              )
+            },
+            truncated: truncated
+          )
+        )
+      }
+    } catch {
+      return .failure(
+        ToolFailure(
+          toolName: .listFiles,
+          path: ToolResultFailureMapper.relativePath(
+            for: path, resolvedURL: resolvedURL, workspace: context.workspace),
+          reason: ToolResultFailureMapper.reason(from: error)
+        )
+      )
+    }
+  }
+
+  private func appendEntries(
+    at url: URL,
+    displayPrefix: String,
+    depth: Int,
+    entries: inout [String],
+    truncated: inout Bool
+  ) throws {
+    guard entries.count < maxEntries else {
+      truncated = true
+      return
+    }
+    guard depth <= maxDepth else {
+      truncated = true
+      return
+    }
+
+    let resourceValues = try url.resourceValues(forKeys: [.isDirectoryKey])
+    guard resourceValues.isDirectory == true else {
+      entries.append(displayPrefix.isEmpty ? url.lastPathComponent : displayPrefix)
+      return
+    }
+
+    let children = try FileManager.default.contentsOfDirectory(
+      at: url,
+      includingPropertiesForKeys: [.isDirectoryKey],
+      options: []
+    )
+    .filter { !skippedNames.contains($0.lastPathComponent) }
+    .sorted { lhs, rhs in
+      lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent) == .orderedAscending
+    }
+
+    for child in children {
+      guard entries.count < maxEntries else {
+        truncated = true
+        return
+      }
+
+      let childValues = try child.resourceValues(forKeys: [.isDirectoryKey])
+      let isDirectory = childValues.isDirectory == true
+      let relativePath =
+        displayPrefix.isEmpty
+        ? child.lastPathComponent
+        : displayPrefix + "/" + child.lastPathComponent
+      entries.append(isDirectory ? relativePath + "/" : relativePath)
+
+      if isDirectory {
+        if depth < maxDepth {
+          try appendEntries(
+            at: child,
+            displayPrefix: relativePath,
+            depth: depth + 1,
+            entries: &entries,
+            truncated: &truncated
+          )
+        } else {
+          truncated = true
+        }
+      }
+    }
+  }
+}
