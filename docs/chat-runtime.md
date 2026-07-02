@@ -101,10 +101,13 @@ flowchart TD
    a `ChatWorkflowStep`. The turn coordinator emits its events, then follows the
    continuation. Read-style tools append a second assistant placeholder and
    stream the direct follow-up response. Each follow-up is inspected for another
-   tool call until the turn budget of six tool calls is exhausted. Failed tools,
-   unknown tools, and invalid tool-call observations also count against this
-   budget and are returned to the model as observations so it can choose the
-   next step. Successful `write_file` and `edit_file` calls switch to a final
+   tool call until the turn budget of six tool iterations is exhausted. Failed
+   tools, unknown tools, and invalid tool-call observations also count against
+   this budget and are returned to the model as observations so it can choose the
+   next step. The last budgeted follow-up disables tools; if it produces no
+   visible assistant text, the coordinator appends an internal no-tools
+   finalization instruction and forces one text-only summary or deterministic
+   fallback. Successful `write_file` and `edit_file` calls switch to a final
    no-tools follow-up instead of continuing the normal tool loop.
 6. If the tool call requires approval, workflow events record the call and mark
    the turn `.awaitingApproval`; active generation ends until the user approves
@@ -144,12 +147,14 @@ flowchart TD
   generating the direct follow-up response.
 - Direct follow-up responses may emit another tool call within the turn
   coordinator's
-  six-call turn budget. When the budget is exhausted, the final follow-up prompt
-  disables tools and any remaining tool attempt is recorded as a structured
-  `toolBudgetExceeded` failure observation.
+  six-iteration turn budget. When the budget is exhausted, the final follow-up
+  prompt disables tools. If that final generation has no visible assistant text,
+  the coordinator runs one additional `.disabled` finalization generation and
+  falls back to a deterministic visible assistant message if the model still
+  emits no text.
 - Final no-tools follow-ups after approved write/edit tools or denied tools also
-  disable tools. Any remaining tool attempt is recorded as a structured
-  `finalModeToolAttempt` failure observation.
+  disable tools. If the model still emits a native tool attempt, the caller
+  treats the follow-up as final and does not execute another tool.
 - Cancel should schedule a normal context-usage refresh with the latest filtered
   snapshot. It must not block turn cancellation on synchronous token counting.
 

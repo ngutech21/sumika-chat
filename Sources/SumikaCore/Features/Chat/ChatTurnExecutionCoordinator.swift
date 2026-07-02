@@ -42,6 +42,16 @@ enum ChatTurnTaskOutcome {
 
 @MainActor
 struct ChatTurnExecutionCoordinator {
+  private static let toolLimitFinalizationPrompt = """
+    Tool limit reached. Tools are no longer available.
+    Do not call tools. Briefly summarize what you completed, what changed,
+    what remains unfinished, and the next recommended step.
+    """
+
+  private static let toolLimitFallbackMessage =
+    "Tool limit reached. I stopped tool use for this turn. Some work may be unfinished; "
+    + "send another message to continue from the recorded tool results."
+
   private let focusedFileReducer: FocusedFileStateReducer
   private let modelContextBuilder: ChatModelContextBuilder
   private let toolPromptPolicy: ToolPromptPolicy
@@ -336,14 +346,89 @@ struct ChatTurnExecutionCoordinator {
           toolLoopIteration: toolLoopIteration
         )
         currentNativeToolCalls = generationResult.nativeToolCalls
-        guard promptMode != .afterToolResultFinal else { return true }
+        guard promptMode != .afterToolResultFinal else {
+          if !hasVisibleAssistantContent(generationResult) {
+            try await streamToolLimitFinalization(
+              runtime: runtime,
+              callbacks: callbacks,
+              isActive: isActive,
+              interactionMode: interactionMode,
+              turnID: turnID
+            )
+          }
+          return true
+        }
         currentAssistantMessageID = nextAssistantMessageID
       case .none, .stopTurn:
         return true
       }
     }
 
+    try await streamToolLimitFinalization(
+      runtime: runtime,
+      callbacks: callbacks,
+      isActive: isActive,
+      interactionMode: interactionMode,
+      turnID: turnID
+    )
     return true
+  }
+
+  private func streamToolLimitFinalization(
+    runtime: ChatTurnRuntimeContext,
+    callbacks: ChatTurnCallbacks,
+    isActive: ChatTurnActiveChecker,
+    interactionMode: WorkspaceInteractionMode,
+    turnID: ChatTurn.ID
+  ) async throws {
+    guard isActive(turnID) else {
+      return
+    }
+
+    let assistantMessageID = UUID()
+    callbacks.emitEvents([
+      .assistantPlaceholderAppended(messageID: assistantMessageID, turnID: turnID)
+    ])
+    if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
+      turnID: turnID,
+      prompt: Self.toolLimitFinalizationPrompt
+    ) {
+      callbacks.emitEvents([.modelContextEntryAppended(entry)])
+    }
+    callbacks.notifySessionDidChange()
+
+    let generationResult = try await streamAssistantReply(
+      to: assistantMessageID,
+      runtime: runtime,
+      callbacks: callbacks,
+      isActive: isActive,
+      interactionMode: interactionMode,
+      toolPromptMode: .disabled,
+      turnID: turnID
+    )
+
+    guard isActive(turnID), !hasVisibleAssistantContent(generationResult) else {
+      return
+    }
+
+    callbacks.emitEvents([
+      .assistantChunkAppended(
+        chunk: Self.toolLimitFallbackMessage,
+        messageID: assistantMessageID
+      )
+    ])
+    if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
+      turnID: turnID,
+      sourceMessageID: assistantMessageID,
+      content: Self.toolLimitFallbackMessage
+    ) {
+      callbacks.emitEvents([.modelContextEntryAppended(entry)])
+    }
+    callbacks.notifySessionDidChange()
+  }
+
+  private func hasVisibleAssistantContent(_ generationResult: ChatGenerationResult) -> Bool {
+    !generationResult.assistantContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   func activeToolProfile(
