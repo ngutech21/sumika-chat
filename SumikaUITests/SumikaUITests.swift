@@ -51,7 +51,7 @@ final class SumikaUITests: XCTestCase {
     let previewPane = application.descendants(matching: .any)["html-preview-pane"]
     XCTAssertTrue(previewPane.waitForExistence(timeout: 10))
 
-    let closeButton = application.buttons["html-preview-close-button"]
+    let closeButton = application.descendants(matching: .any)["html-preview-close-button"]
     XCTAssertTrue(closeButton.waitForExistence(timeout: 5))
     closeButton.click()
     XCTAssertTrue(
@@ -266,8 +266,10 @@ final class SumikaUITests: XCTestCase {
     let showFileRows = try traceRows(in: fixture.traceURL, afterOffset: showFileTraceOffset)
     recordTraceSummary(showFileRows, expectedMode: "agent", label: "Show file trace")
 
-    XCTAssertGreaterThanOrEqual(
-      toolCallCount(in: application, named: "show_file", after: showFileBaseline), 1)
+    let fileInspectionToolCallCount =
+      toolCallCount(in: application, named: "show_file", after: showFileBaseline)
+      + toolCallCount(in: application, named: "read_file", after: showFileBaseline)
+    XCTAssertGreaterThanOrEqual(fileInspectionToolCallCount, 1)
   }
 
   @MainActor

@@ -479,6 +479,41 @@ struct AppStateTests {
   }
 
   @Test
+  func automaticMissingModelRouteDoesNotOverrideLoadedActiveChat() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let session = ChatSession(id: sessionID, title: "UI Test Chat")
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [session]
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime(),
+      modelAvailability: { _ in false }
+    )
+
+    appState.startModelRuntimeServices()
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
+    #expect(appState.chatController.chatSession.id == sessionID)
+  }
+
+  @Test
   func workspaceAndChatNavigationPersistThroughRouteSSOT() async throws {
     let firstWorkspaceID = UUID()
     let firstSessionID = UUID()

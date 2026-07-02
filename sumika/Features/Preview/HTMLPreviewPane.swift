@@ -1,3 +1,4 @@
+import AppKit
 import SumikaCore
 import SwiftUI
 
@@ -28,34 +29,29 @@ struct HTMLPreviewPane: View {
 
         Spacer()
 
-        Button {
-          isConsoleVisible.toggle()
-        } label: {
-          Image(systemName: isConsoleVisible ? "terminal.fill" : "terminal")
-            .frame(width: 16, height: 16)
-        }
-        .buttonStyle(.borderless)
+        PreviewIconButton(
+          systemName: isConsoleVisible ? "terminal.fill" : "terminal",
+          accessibilityLabel: isConsoleVisible ? "Hide console" : "Show console",
+          accessibilityIdentifier: "html-preview-console-toggle-button",
+          action: { isConsoleVisible.toggle() }
+        )
         .help(isConsoleVisible ? "Hide console" : "Show console")
-        .accessibilityLabel(isConsoleVisible ? "Hide console" : "Show console")
-        .accessibilityIdentifier("html-preview-console-toggle-button")
 
-        Button(action: onRefresh) {
-          Image(systemName: "arrow.clockwise")
-            .frame(width: 16, height: 16)
-        }
-        .buttonStyle(.borderless)
+        PreviewIconButton(
+          systemName: "arrow.clockwise",
+          accessibilityLabel: "Refresh preview",
+          accessibilityIdentifier: "html-preview-refresh-button",
+          action: onRefresh
+        )
         .help("Refresh preview")
-        .accessibilityLabel("Refresh preview")
-        .accessibilityIdentifier("html-preview-refresh-button")
 
-        Button(action: onClose) {
-          Image(systemName: "xmark")
-            .frame(width: 16, height: 16)
-        }
-        .buttonStyle(.borderless)
+        PreviewIconButton(
+          systemName: "xmark",
+          accessibilityLabel: "Hide preview",
+          accessibilityIdentifier: "html-preview-close-button",
+          action: onClose
+        )
         .help("Hide preview")
-        .accessibilityLabel("Hide preview")
-        .accessibilityIdentifier("html-preview-close-button")
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 10)
@@ -83,6 +79,56 @@ struct HTMLPreviewPane: View {
       Divider()
     }
     .accessibilityIdentifier("html-preview-pane")
+  }
+}
+
+private struct PreviewIconButton: NSViewRepresentable {
+  let systemName: String
+  let accessibilityLabel: String
+  let accessibilityIdentifier: String
+  let action: () -> Void
+
+  func makeNSView(context: Context) -> NSButton {
+    let button = NSButton()
+    button.isBordered = false
+    button.imagePosition = .imageOnly
+    button.bezelStyle = .regularSquare
+    button.target = context.coordinator
+    button.action = #selector(Coordinator.performAction)
+    button.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      button.widthAnchor.constraint(equalToConstant: 22),
+      button.heightAnchor.constraint(equalToConstant: 22),
+    ])
+    updateNSView(button, context: context)
+    return button
+  }
+
+  func updateNSView(_ button: NSButton, context: Context) {
+    context.coordinator.action = action
+    button.image = NSImage(
+      systemSymbolName: systemName,
+      accessibilityDescription: accessibilityLabel
+    )
+    button.setAccessibilityElement(true)
+    button.setAccessibilityLabel(accessibilityLabel)
+    button.setAccessibilityIdentifier(accessibilityIdentifier)
+  }
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(action: action)
+  }
+
+  final class Coordinator: NSObject {
+    var action: () -> Void
+
+    init(action: @escaping () -> Void) {
+      self.action = action
+    }
+
+    @objc func performAction() {
+      action()
+    }
   }
 }
 

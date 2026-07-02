@@ -18,6 +18,7 @@ final class AppState {
   @ObservationIgnored private var defaultSessionModeSettings =
     ManagedModelCatalog.defaultModel.defaultModeSettings
   @ObservationIgnored private var didAttemptAutoloadLastModel = false
+  @ObservationIgnored private var routeWasAutomaticMissingModelRedirect = false
 
   convenience init(
     workspaceStore: any WorkspaceStoring = WorkspaceStore(),
@@ -200,6 +201,7 @@ final class AppState {
   func selectModels() {
     persistActiveSession()
     route = .models
+    routeWasAutomaticMissingModelRedirect = false
   }
 
   func renameSession(_ sessionID: ChatSession.ID, title: String) {
@@ -368,8 +370,9 @@ final class AppState {
       defaultSessionModeSettings = settings.modeSettings
       let defaultSessionFactory = self.makeDefaultSessionFactory()
       await self.workspaceState.loadLibrary(defaultSessionFactory: defaultSessionFactory)
-      if self.route != .models {
+      if self.route != .models || self.routeWasAutomaticMissingModelRedirect {
         self.route = self.routeFromWorkspaceSelection()
+        self.routeWasAutomaticMissingModelRedirect = false
       }
       self.loadRouteSession()
       self.attemptAutoloadLastModelIfReady()
@@ -402,7 +405,9 @@ final class AppState {
       modelRuntime.isModelDownloaded($0)
     }
     if !hasDownloadedModel {
-      selectModels()
+      persistActiveSession()
+      route = .models
+      routeWasAutomaticMissingModelRedirect = true
     }
   }
 
