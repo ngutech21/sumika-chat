@@ -5,6 +5,32 @@ public struct GlobFilesInput: Codable, Equatable, Sendable {
   public let path: String?
 }
 
+nonisolated extension ToolDefinition {
+  public static let globFiles = ToolDefinition(
+    name: .globFiles,
+    description:
+      "Find workspace files by glob pattern. Use this when the target path or file type is unknown but a filename pattern is known.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "pattern",
+        description: "Glob pattern for workspace-relative paths.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "path",
+        description: "Workspace-relative search directory. Defaults to root.",
+        isRequired: false
+      ),
+    ],
+    exampleArguments: [
+      "pattern": .string("**/*.swift"),
+      "path": .string("."),
+    ],
+    capabilities: [.readWorkspace],
+    riskLevel: .low
+  )
+}
+
 public struct GlobFilesToolExecutor: TypedToolExecutor {
   public static let codec = ToolCodec<GlobFilesInput>(
     definition: ToolDefinition.globFiles,

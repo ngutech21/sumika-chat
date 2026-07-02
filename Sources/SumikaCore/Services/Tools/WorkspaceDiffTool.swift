@@ -8,6 +8,25 @@ public struct WorkspaceDiffInput: Codable, Equatable, Sendable {
   }
 }
 
+nonisolated extension ToolDefinition {
+  public static let workspaceDiff = ToolDefinition(
+    name: .workspaceDiff,
+    description: "Show current Git status and diff.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "path",
+        description: "Workspace-relative path to scope the diff. Defaults to root.",
+        isRequired: false
+      )
+    ],
+    exampleArguments: [
+      "path": .string("Sources/App.swift")
+    ],
+    capabilities: [.readWorkspace],
+    riskLevel: .low
+  )
+}
+
 public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
   public static let codec = ToolCodec<WorkspaceDiffInput>(
     definition: ToolDefinition.workspaceDiff,

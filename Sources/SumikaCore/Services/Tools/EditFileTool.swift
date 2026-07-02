@@ -12,6 +12,41 @@ public struct EditFileInput: Codable, Equatable, Sendable {
   }
 }
 
+nonisolated extension ToolDefinition {
+  public static let editFile = ToolDefinition(
+    name: .editFile,
+    description:
+      "Replace exactly one current text span in an existing workspace file. Call read_file first unless the exact current old_text is visible in the latest context. old_text must be copied verbatim from current file content, match once, and be as small as practical. Do not guess from memory.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "path",
+        description: "Workspace-relative existing file path.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "old_text",
+        description:
+          "Exact current file text to replace. Copy verbatim from read_file output or visible current file content. Must match exactly once.",
+        isRequired: true,
+        supportsHeredocPayload: true
+      ),
+      ToolParameterDefinition(
+        name: "new_text",
+        description: "Replacement UTF-8 text.",
+        isRequired: true,
+        supportsHeredocPayload: true
+      ),
+    ],
+    exampleArguments: [
+      "path": .string("Sources/AppState.swift"),
+      "old_text": .string("let title = \"Old\""),
+      "new_text": .string("let title = \"New\""),
+    ],
+    capabilities: [.writeWorkspace],
+    riskLevel: .high
+  )
+}
+
 public struct EditFileToolExecutor: TypedToolExecutor {
   public static let codec = ToolCodec<EditFileInput>(
     definition: ToolDefinition.editFile,

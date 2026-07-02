@@ -4,6 +4,26 @@ public struct ListFilesInput: Codable, Equatable, Sendable {
   public let path: String?
 }
 
+nonisolated extension ToolDefinition {
+  public static let listFiles = ToolDefinition(
+    name: .listFiles,
+    description:
+      "List files and folders in a workspace-relative directory. Use this to explore project structure before choosing a path.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "path",
+        description: "Workspace-relative directory path. Defaults to root.",
+        isRequired: false
+      )
+    ],
+    exampleArguments: [
+      "path": .string(".")
+    ],
+    capabilities: [.readWorkspace],
+    riskLevel: .low
+  )
+}
+
 public struct ListFilesToolExecutor: TypedToolExecutor {
   public static let codec = ToolCodec<ListFilesInput>(
     definition: ToolDefinition.listFiles,

@@ -1,5 +1,34 @@
 import Foundation
 
+nonisolated extension ToolDefinition {
+  public static let webSearch = ToolDefinition(
+    name: .webSearch,
+    description: "Search public web pages without sending workspace contents.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "query",
+        description:
+          "Public web search query. Do not include private source code, secrets, or full logs.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "maxResults",
+        description: "Maximum result count.",
+        isRequired: false,
+        valueType: .integer,
+        minimum: 1,
+        maximum: Double(WebAccessLimits.maxSearchResultCount)
+      ),
+    ],
+    exampleArguments: [
+      "query": .string("Swift URLSession async await timeout"),
+      "maxResults": .number(5),
+    ],
+    capabilities: [.accessWeb],
+    riskLevel: .high
+  )
+}
+
 public struct WebSearchToolExecutor: TypedToolExecutor {
   public static let codec = ToolCodec<WebSearchInput>(
     definition: ToolDefinition.webSearch,

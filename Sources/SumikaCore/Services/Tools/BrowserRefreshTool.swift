@@ -1,5 +1,26 @@
 import Foundation
 
+nonisolated extension ToolDefinition {
+  public static let browserRefresh = ToolDefinition(
+    name: .browserRefresh,
+    description: "Reload the current HTML preview page.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "hard",
+        description: "When true, reload from the original preview file. Defaults to false.",
+        isRequired: false,
+        valueType: .boolean,
+        defaultValue: .bool(false)
+      )
+    ],
+    exampleArguments: [
+      "hard": .bool(false)
+    ],
+    capabilities: [],
+    riskLevel: .low
+  )
+}
+
 extension BrowserRefreshInput {
   static func decodeToolArguments(_ arguments: ToolCallArguments) throws -> BrowserRefreshInput {
     do {

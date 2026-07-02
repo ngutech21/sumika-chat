@@ -104,6 +104,42 @@ public struct ReadFileInput: Codable, Equatable, Sendable {
   }
 }
 
+nonisolated extension ToolDefinition {
+  public static let readFile = ToolDefinition(
+    name: .readFile,
+    description:
+      "Read a workspace text file into your context to inspect, explain, summarize, reason about, or edit it. Use this before editing an existing file unless the exact current content is already visible.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "path",
+        description: "Workspace-relative file path.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "offset",
+        description: "1-based start line.",
+        isRequired: false,
+        valueType: .integer,
+        minimum: 1
+      ),
+      ToolParameterDefinition(
+        name: "limit",
+        description: "Maximum lines to return.",
+        isRequired: false,
+        valueType: .integer,
+        minimum: 1
+      ),
+    ],
+    exampleArguments: [
+      "path": .string("Sources/AppState.swift"),
+      "offset": .number(1),
+      "limit": .number(200),
+    ],
+    capabilities: [.readWorkspace],
+    riskLevel: .low
+  )
+}
+
 extension ReadFileInput {
   static func decodeToolArguments(_ arguments: ToolCallArguments) throws -> ReadFileInput {
     do {

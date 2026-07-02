@@ -1,5 +1,51 @@
 import Foundation
 
+nonisolated extension ToolDefinition {
+  public static let askUser = ToolDefinition(
+    name: .askUser,
+    description:
+      "Ask the user one blocking clarification question with predefined answer options. Use only when workspace inspection cannot resolve the ambiguity and choosing a default would risk wrong changes.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "question",
+        description: "One concise question for the user. Do not include the answer choices here.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "option1",
+        description: "First answer option. Plain short string; no numbering or markdown.",
+        isRequired: true,
+        valueType: .string
+      ),
+      ToolParameterDefinition(
+        name: "option2",
+        description: "Second answer option. Plain short string; no numbering or markdown.",
+        isRequired: true,
+        valueType: .string
+      ),
+      ToolParameterDefinition(
+        name: "option3",
+        description: "Optional third answer option. Plain short string.",
+        isRequired: false,
+        valueType: .string
+      ),
+      ToolParameterDefinition(
+        name: "option4",
+        description: "Optional fourth answer option. Plain short string.",
+        isRequired: false,
+        valueType: .string
+      ),
+    ],
+    exampleArguments: [
+      "question": .string("Which implementation should I use?"),
+      "option1": .string("Minimal fix"),
+      "option2": .string("Broader refactor"),
+    ],
+    capabilities: [],
+    riskLevel: .low
+  )
+}
+
 private enum AskUserToolArguments {
   static func decode(_ arguments: ToolCallArguments) throws -> AskUserInput {
     let question = try stringArgument("question", from: arguments)

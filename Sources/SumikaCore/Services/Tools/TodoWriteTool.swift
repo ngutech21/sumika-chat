@@ -145,6 +145,43 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
   }
 }
 
+nonisolated extension ToolDefinition {
+  public static let todoWrite = ToolDefinition(
+    name: .todoWrite,
+    description:
+      "Create or update the Agent's compact todo plan for multi-step work. Send the full current plan in one call, not one call per item.",
+    parameters: (1...6).map { index in
+      ToolParameterDefinition(
+        name: "item\(index)",
+        description:
+          index <= 2
+          ? "Todo item \(index) content. Required; 120 characters or fewer."
+          : "Optional todo item \(index) content. Omit when unused; 120 characters or fewer.",
+        isRequired: index <= 2
+      )
+    }
+      + (1...6).map { index in
+        ToolParameterDefinition(
+          name: "done\(index)",
+          description: "Whether item\(index) is already done. Defaults to false.",
+          isRequired: false,
+          valueType: .boolean,
+          defaultValue: .bool(false)
+        )
+      },
+    exampleArguments: [
+      "item1": .string("Inspect the affected chat workflow files"),
+      "done1": .bool(true),
+      "item2": .string("Add todo state and tool plumbing"),
+      "done2": .bool(false),
+      "item3": .string("Run focused tests"),
+      "done3": .bool(false),
+    ],
+    capabilities: [],
+    riskLevel: .low
+  )
+}
+
 extension TodoWriteInput {
   static func decodeToolArguments(_ arguments: ToolCallArguments) throws -> TodoWriteInput {
     let input = try ToolInputDecoder.decode(TodoWriteInput.self, from: arguments)

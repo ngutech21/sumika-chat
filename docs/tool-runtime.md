@@ -115,40 +115,131 @@ flowchart TD
   payloads remain omitted from model history and should not be dumped into
   traces.
 
+## What A Tool Consists Of
+
+A built-in tool is not one type. It is a small set of typed pieces that connect
+model-facing schema, validation, permission, execution, persistence, and
+projection. The concrete tool file should contain the tool-local pieces; the
+central runtime files keep the exhaustive cross-tool boundaries.
+
+- `Input`: the Swift argument model for one tool. It must conform to
+  `Decodable & Sendable` because `TypedToolExecutor` is generic over that
+  shape. Public built-in inputs usually use `Codable, Equatable, Sendable` so
+  tests and persisted payloads can compare and encode them. The input owns
+  argument-specific decoding quirks such as accepting integer strings or
+  numbered fields.
+- `ToolDefinition.<tool>`: the model-facing contract. It declares the tool
+  name, description, parameters, examples, capabilities, and risk level. Its
+  `functionSchema` projection is what provider adapters render as a function
+  schema. Keep this next to the tool so schema text and runtime validation stay
+  reviewable together.
+- `ToolCodec<Input>`: the bridge between raw model arguments and the central
+  payload ADT. It owns raw argument decoding, input validation, `Input ->
+  ToolCallPayload`, and `ToolCallPayload -> Input`. `ToolCallRequestValidator`
+  uses the built-in codec catalog, so validation errors happen before permission
+  or execution.
+- `TypedToolExecutor`: the only protocol a concrete executor implements. It
+  binds the typed input to permission and execution behavior. The required
+  static `codec` also provides the default `definition` and `input(from:)`
+  implementations.
+- `evaluatePermission(_:context:)`: validates runtime access to the current
+  workspace/session/settings and returns `.allowed`, `.requiresApproval`, or
+  `.denied`. Read-only tools normally resolve workspace paths here. Write,
+  edit, web, and command tools must express their risk here instead of running
+  side effects.
+- `previewApproval(_:context:)`: optional `TypedToolExecutor` method. Override
+  it only when an approval-required tool can show a safe preview before
+  execution, such as an edit diff or web request summary. The default
+  implementation returns `nil`.
+- `run(_:context:)`: executes the side effect or read operation using typed
+  input only. It returns `ToolResultPayload`; it should not return UI text,
+  mutate transcript state directly, or parse provider-native tool syntax.
+- `ToolContext`: the runtime dependency bundle passed into permission,
+  approval preview, and execution. It carries the active workspace, session ID,
+  browser/web services, read tracker, command output store, and related runtime
+  services.
+- `AnyToolExecutor`: type erasure used by registries and the orchestrator.
+  Concrete tools do not implement it; they are wrapped with
+  `AnyToolExecutor(MyToolExecutor())` in a registry profile.
+- `ToolExecutorRegistry`: controls availability. A tool can exist in the
+  built-in codec catalog but still be unavailable in a given mode if its
+  executor is not in the active registry.
+- `ToolCallPayload` and `ToolResultPayload`: central exhaustive ADTs. A new
+  built-in tool needs cases here so validated calls and executed results remain
+  type-safe, codable, and persistable.
+- `ToolResultProjector`: derives UI display payloads and compact model
+  observations from `ToolResultPayload`. Add projection behavior when the new
+  result payload should render or feed back to the model differently from the
+  generic failure/default paths.
+
+Minimum tool-local code is usually: input, `ToolDefinition` extension,
+`ToolCodec`, `TypedToolExecutor`, and private helpers. Minimum central updates
+are usually: `ToolName`, `ToolCallPayload`, `ToolResultPayload`,
+`ToolCodecCatalog`, the relevant `ToolExecutorRegistry` profile, projections,
+and tests.
+
 ## Adding A Tool
 
-1. Define a typed input.
+1. Define a typed input in the concrete tool file.
 
    ```swift
-   struct ReadFileInput: Decodable, Sendable {
-     let path: String
+   public struct ReadFileInput: Codable, Equatable, Sendable {
+     public let path: String
    }
    ```
 
-2. Implement `TypedToolExecutor`.
+2. Define the model-facing schema next to the tool.
 
    ```swift
-   struct ReadFileToolExecutor: TypedToolExecutor {
-     static let definition = ToolDefinition.readFile
-
-     static func input(from payload: ToolCallPayload) throws -> ReadFileInput {
-       guard case .readFile(let input) = payload else {
-         throw ToolInputDecodingError.payloadMismatch(
-           expected: definition.name.rawValue,
-           actual: payload.toolName.rawValue
+   nonisolated extension ToolDefinition {
+     public static let readFile = ToolDefinition(
+       name: .readFile,
+       description: "Read a workspace text file.",
+       parameters: [
+         ToolParameterDefinition(
+           name: "path",
+           description: "Workspace-relative file path.",
+           isRequired: true
          )
-       }
-       return input
-     }
+       ],
+       exampleArguments: [
+         "path": .string("Sources/AppState.swift")
+       ],
+       capabilities: [.readWorkspace],
+       riskLevel: .low
+     )
+   }
+   ```
 
-     func evaluatePermission(
+3. Implement `TypedToolExecutor` with a `ToolCodec`.
+
+   ```swift
+   public struct ReadFileToolExecutor: TypedToolExecutor {
+     public static let codec = ToolCodec<ReadFileInput>(
+       definition: ToolDefinition.readFile,
+       makePayload: ToolCallPayload.readFile,
+       extractInput: { payload in
+         guard case .readFile(let input) = payload else {
+           throw ToolInputDecodingError.payloadMismatch(
+             expected: ToolDefinition.readFile.name.rawValue,
+             actual: payload.toolName.rawValue
+           )
+         }
+         return input
+       },
+       validateInput: { input in
+         try ToolArgumentValidation.requireNonEmptyPath(input.path)
+       }
+     )
+
+     public func evaluatePermission(
        _ input: ReadFileInput,
        context: ToolContext
      ) -> ToolPermissionEvaluation {
        // Resolve and validate affected paths here.
      }
 
-     func run(
+     public func run(
        _ input: ReadFileInput,
        context: ToolContext
      ) async -> ToolResultPayload {
@@ -157,7 +248,8 @@ flowchart TD
    }
    ```
 
-3. Register the tool in the appropriate registry profile.
+4. Add the codec to `ToolCodecCatalog.builtIn` and register the executor in
+   the appropriate registry profile.
 
    ```swift
    static let readOnly = ToolExecutorRegistry([
@@ -171,7 +263,7 @@ flowchart TD
    ])
    ```
 
-4. Add tests for argument decoding, permission, execution, registry visibility,
+5. Add tests for argument decoding, permission, execution, registry visibility,
    and any security-sensitive failure mode.
 
 ## Security Rules

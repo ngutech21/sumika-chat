@@ -1,5 +1,36 @@
 import Foundation
 
+nonisolated extension ToolDefinition {
+  public static let webFetch = ToolDefinition(
+    name: .webFetch,
+    description: "Fetch public text content from an http or https URL.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "url",
+        description:
+          "Public http or https URL. Local, private, file, and internal network URLs are blocked.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "maxBytes",
+        description: "Maximum response bytes to read.",
+        isRequired: false,
+        valueType: .integer,
+        minimum: 1,
+        maximum: Double(WebAccessLimits.maxFetchBytes)
+      ),
+    ],
+    exampleArguments: [
+      "url": .string(
+        "https://www.swift.org/documentation/server/guides/libraries/concurrency-adoption-guidelines.html"
+      ),
+      "maxBytes": .number(65536),
+    ],
+    capabilities: [.accessWeb],
+    riskLevel: .high
+  )
+}
+
 public struct WebFetchToolExecutor: TypedToolExecutor {
   public static let codec = ToolCodec<WebFetchInput>(
     definition: ToolDefinition.webFetch,

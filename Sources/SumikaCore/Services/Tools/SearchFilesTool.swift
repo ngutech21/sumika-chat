@@ -6,6 +6,38 @@ public struct SearchFilesInput: Codable, Equatable, Sendable {
   public let include: String?
 }
 
+nonisolated extension ToolDefinition {
+  public static let searchFiles = ToolDefinition(
+    name: .searchFiles,
+    description:
+      "Search text contents of workspace files. Use this to locate symbols, strings, errors, or relevant code before reading or editing files.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "pattern",
+        description: "Regex or literal search pattern.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "path",
+        description: "Workspace-relative search directory. Defaults to root.",
+        isRequired: false
+      ),
+      ToolParameterDefinition(
+        name: "include",
+        description: "Glob file-name filter.",
+        isRequired: false
+      ),
+    ],
+    exampleArguments: [
+      "pattern": .string("ToolDefinition"),
+      "path": .string("."),
+      "include": .string("*.swift"),
+    ],
+    capabilities: [.readWorkspace],
+    riskLevel: .low
+  )
+}
+
 public struct SearchFilesToolExecutor: TypedToolExecutor {
   public static let codec = ToolCodec<SearchFilesInput>(
     definition: ToolDefinition.searchFiles,

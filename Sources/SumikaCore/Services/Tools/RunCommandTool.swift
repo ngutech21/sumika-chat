@@ -48,6 +48,42 @@ public enum RunCommandInputValidationError: LocalizedError, Equatable {
   }
 }
 
+nonisolated extension ToolDefinition {
+  public static let runCommand = ToolDefinition(
+    name: .runCommand,
+    description:
+      "Run an approved foreground shell command in the workspace root. Do not use this to write files when write_file or edit_file can do the change.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "command",
+        description: "Exact shell command to run.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "timeoutSeconds",
+        description: "Timeout in seconds. Defaults to 120 when omitted.",
+        isRequired: false,
+        valueType: .integer,
+        defaultValue: .number(120),
+        minimum: 1,
+        maximum: 120
+      ),
+      ToolParameterDefinition(
+        name: "reason",
+        description: "Short reason.",
+        isRequired: false
+      ),
+    ],
+    exampleArguments: [
+      "command": .string("just test-core"),
+      "timeoutSeconds": .number(120),
+      "reason": .string("Verify the core test suite after the code change."),
+    ],
+    capabilities: [.runCommand],
+    riskLevel: .high
+  )
+}
+
 extension RunCommandInput {
   static func decodeToolArguments(_ arguments: ToolCallArguments) throws -> RunCommandInput {
     do {

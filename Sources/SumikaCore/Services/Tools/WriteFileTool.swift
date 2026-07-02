@@ -5,6 +5,34 @@ public struct WriteFileInput: Codable, Equatable, Sendable {
   public let content: String
 }
 
+nonisolated extension ToolDefinition {
+  public static let writeFile = ToolDefinition(
+    name: .writeFile,
+    description:
+      "Create a new workspace text file or intentionally replace an entire small file. Prefer edit_file for targeted changes to existing files.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "path",
+        description: "Workspace-relative file path.",
+        isRequired: true
+      ),
+      ToolParameterDefinition(
+        name: "content",
+        description:
+          "Complete UTF-8 file content written exactly as provided. Replaces the entire file.",
+        isRequired: true,
+        supportsHeredocPayload: true
+      ),
+    ],
+    exampleArguments: [
+      "path": .string("Sources/AppState.swift"),
+      "content": .string("import Foundation\n"),
+    ],
+    capabilities: [.writeWorkspace],
+    riskLevel: .high
+  )
+}
+
 public struct WriteFileToolExecutor: TypedToolExecutor {
   public static let codec = ToolCodec<WriteFileInput>(
     definition: ToolDefinition.writeFile,

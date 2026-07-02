@@ -1,5 +1,26 @@
 import Foundation
 
+nonisolated extension ToolDefinition {
+  public static let workspaceDiagnostics = ToolDefinition(
+    name: .workspaceDiagnostics,
+    description:
+      "Extract compiler, linter, and test diagnostics from a previous run_command outputRef. Use after build, test, lint, or typecheck commands to get structured file/line/column errors before editing.",
+    parameters: [
+      ToolParameterDefinition(
+        name: "outputRef",
+        description:
+          "The outputRef returned by run_command, e.g. cmd_abc123. Must refer to the command whose stdout/stderr should be parsed.",
+        isRequired: true
+      )
+    ],
+    exampleArguments: [
+      "outputRef": .string("cmd_abc123")
+    ],
+    capabilities: [.readWorkspace],
+    riskLevel: .low
+  )
+}
+
 public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
   public static let codec = ToolCodec<WorkspaceDiagnosticsInput>(
     definition: ToolDefinition.workspaceDiagnostics,
