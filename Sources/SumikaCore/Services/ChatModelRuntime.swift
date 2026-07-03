@@ -113,7 +113,7 @@ public struct MockChatRuntime: ChatModelRuntime {
     _ = settings
 
     let lastMessage = transcript.projectedEntries(mode: .fullHistory)
-      .last(where: { $0.role == .user })
+      .last(where: { $0.role == .user || $0.role == .tool })
     let attachmentSummary = attachments.map(\.displayName).joined(separator: ", ")
     let lastPrompt = lastMessage?.content ?? ""
     let chunks = [

@@ -196,7 +196,7 @@ struct ModelContextSnapshotTests {
   }
 
   @Test
-  func finalToolResultFollowUpAppendsPromptAfterTerminalAssistantLedgerEntry() throws {
+  func finalToolResultFollowUpDoesNotAppendSyntheticUserPrompt() throws {
     let turnID = UUID()
     let callID = UUID()
     let mutator = ChatTranscriptMutator()
@@ -250,7 +250,7 @@ struct ModelContextSnapshotTests {
 
     #expect(
       state.modelContextSnapshot.entries.map(\.frozenContent.role) == [
-        .user, .assistant, .assistant, .user,
+        .user, .assistant, .tool,
       ])
     let terminalEntry = try #require(
       state.modelContextSnapshot.entries.first { entry in
@@ -266,18 +266,19 @@ struct ModelContextSnapshotTests {
     #expect(terminalContext.toolName == .writeFile)
     #expect(terminalContext.content.contains("Summary: Wrote 18 bytes to movies.html."))
 
-    let finalEntry = try #require(state.modelContextSnapshot.entries.last)
-    guard case .userPrompt(let context) = finalEntry.body else {
-      Issue.record("Expected the follow-up to become the current user prompt.")
-      return
-    }
-    #expect(context.prompt == followUpInstruction)
-    #expect(finalEntry.frozenContent.content.contains(followUpInstruction))
-    #expect(!finalEntry.frozenContent.content.contains("No more tools may run in this response."))
+    #expect(state.modelContextSnapshot.entries.count == 3)
+    #expect(
+      state.modelContextSnapshot.entries.contains { entry in
+        if case .userPrompt(let context) = entry.body {
+          return context.prompt == followUpInstruction
+        }
+        return false
+      } == false
+    )
   }
 
   @Test
-  func failedEditFileResultEntryFreezesAsToolObservationPrompt() throws {
+  func failedEditFileResultEntryFreezesAsToolObservation() throws {
     let turnID = UUID()
     let callID = UUID()
     let path = WorkspaceRelativePath(rawValue: "README.md")
@@ -297,7 +298,7 @@ struct ModelContextSnapshotTests {
       originalUserRequest: "replace missing text in README"
     )
 
-    #expect(entry.frozenContent.role == .user)
+    #expect(entry.frozenContent.role == .tool)
     guard case .toolObservation(let context) = entry.body else {
       Issue.record("Expected failed edit_file result to be a model-facing tool observation.")
       return
@@ -306,9 +307,9 @@ struct ModelContextSnapshotTests {
     #expect(context.status == .failed)
     #expect(context.content.contains("edit_file failed: old_text was not found in README.md"))
     #expect(context.content.contains("First call read_file(path: \"README.md\")"))
-    #expect(entry.frozenContent.content.contains("Original user request:"))
-    #expect(entry.frozenContent.content.contains("replace missing text in README"))
-    #expect(entry.frozenContent.content.contains("Tool observation:"))
+    #expect(entry.frozenContent.content.contains("Original user request:") == false)
+    #expect(entry.frozenContent.content.contains("replace missing text in README") == false)
+    #expect(entry.frozenContent.content.contains("Tool observation:") == false)
     #expect(entry.frozenContent.content.contains("Do not retry edit_file from memory"))
   }
 
@@ -394,7 +395,7 @@ struct ModelContextSnapshotTests {
   }
 
   @Test
-  func toolObservationEntryFreezesSameTurnFollowUpPrompt() throws {
+  func toolObservationEntryFreezesToolObservationOnly() throws {
     let turnID = UUID()
     let callID = UUID()
     let transcript = ModelContextSnapshot(entries: [
@@ -425,11 +426,11 @@ struct ModelContextSnapshotTests {
     let projected = transcript.projectedEntries(mode: .fullHistory)
 
     #expect(projected.count == 2)
-    #expect(projected.last?.content.contains("Original user request:") == true)
-    #expect(projected.last?.content.contains("run the smoke test") == true)
-    #expect(projected.last?.content.contains("Assistant tool call:") == true)
+    #expect(projected.last?.role == .tool)
+    #expect(projected.last?.content.contains("Original user request:") == false)
+    #expect(projected.last?.content.contains("Assistant tool call:") == false)
     #expect(projected.last?.content.contains("tool=\"run_command\"") == true)
-    #expect(projected.last?.content.contains("Tool observation:") == true)
+    #expect(projected.last?.content.contains("Tool observation:") == false)
     #expect(projected.last?.content.contains("passed") == true)
   }
 
@@ -480,16 +481,18 @@ struct ModelContextSnapshotTests {
 
     let projected = transcript.projectedEntries(mode: .fullHistory)
 
-    // Each observation is its own stable message; earlier observations are
+    // Each observation is its own stable tool message; earlier observations are
     // never re-rendered into later prompts, so the history stays append-only
     // and a cached KV prefix remains valid across tool-loop iterations.
     #expect(projected.count == 3)
     let firstObservation = try #require(projected[1].content as String?)
-    #expect(firstObservation.contains("Original user request:"))
+    #expect(projected[1].role == .tool)
+    #expect(firstObservation.contains("Original user request:") == false)
     #expect(firstObservation.contains("tool=\"read_file\""))
     #expect(firstObservation.contains("Project overview"))
     let secondObservation = try #require(projected[2].content as String?)
-    #expect(secondObservation.contains("Original user request:"))
+    #expect(projected[2].role == .tool)
+    #expect(secondObservation.contains("Original user request:") == false)
     #expect(secondObservation.contains("tool=\"run_command\""))
     #expect(secondObservation.contains("passed"))
     #expect(secondObservation.contains("Project overview") == false)

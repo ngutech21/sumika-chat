@@ -30,7 +30,7 @@ struct ModelContextDebugRendererTests {
   }
 
   @Test
-  func renderMarksFrozenSameTurnToolFollowUpPrompt() throws {
+  func renderShowsToolResultsAsToolEntries() throws {
     let turnID = UUID()
     let callID = UUID()
     let transcript = ModelContextSnapshot(entries: [
@@ -64,11 +64,10 @@ struct ModelContextDebugRendererTests {
     )
 
     #expect(document.entries.count == 2)
-    #expect(document.entries.map(\.role) == [.user, .toolFollowUpPrompt])
+    #expect(document.entries.map(\.role) == [.user, .tool])
     let content = try #require(document.entries.last?.content)
-    #expect(content.contains("Original user request:"))
-    #expect(content.contains("run the smoke test"))
-    #expect(content.contains("Tool observation:"))
+    #expect(content.contains("Original user request:") == false)
+    #expect(content.contains("<observation"))
     #expect(content.contains("passed"))
   }
 

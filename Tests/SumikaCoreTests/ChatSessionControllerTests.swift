@@ -938,7 +938,7 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.testMessages[2].content == "The README says project notes.")
     #expect(
       controller.chatSession.modelContextSnapshot.entries.map(\.frozenContent.role) == [
-        .user, .assistant, .user, .assistant,
+        .user, .assistant, .tool, .assistant,
       ])
     #expect(
       controller.chatSession.modelContextSnapshot.entries[0].frozenContent.content
@@ -957,12 +957,12 @@ struct ChatSessionControllerTests {
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
     #expect(
-      capturedMessages[1].last(where: { $0.role == .user })?.content.contains(
+      capturedMessages[1].last(where: { $0.role == .tool })?.content.contains(
         "1: project notes"
       ) == true)
     #expect(
       capturedMessages[1].contains(where: { message in
-        message.role == .user && message.content.contains("1: project notes")
+        message.role == .tool && message.content.contains("1: project notes")
       }))
     #expect(
       !capturedMessages[1].contains(where: { message in
@@ -976,14 +976,15 @@ struct ChatSessionControllerTests {
     #expect(capturedSystemPrompts[0].contains("search_files"))
     #expect(capturedSystemPrompts[0].contains("write_file"))
     #expect(capturedSystemPrompts[0].contains("edit_file"))
-    #expect(capturedSystemPrompts[1].contains("You received a tool result."))
+    #expect(capturedSystemPrompts[0] == capturedSystemPrompts[1])
+    #expect(!capturedSystemPrompts[1].contains("You received a tool result."))
     #expect(capturedSystemPrompts[1].contains("Available tools: read_file"))
     #expect(capturedSystemPrompts[1].contains("edit_file"))
     #expect(!capturedSystemPrompts[1].contains("Tool calling:"))
   }
 
   @Test
-  func nativeReadFileFollowUpIncludesOriginalUserRequestAndToolObservation() async throws {
+  func nativeReadFileFollowUpUsesToolRoleForObservation() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
@@ -1010,12 +1011,12 @@ struct ChatSessionControllerTests {
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
-    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .user }))
-    #expect(followUp.content.contains("Original user request:"))
-    #expect(followUp.content.contains("summarize the README"))
-    #expect(followUp.content.contains("Assistant tool call:"))
+    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .tool }))
+    #expect(!followUp.content.contains("Original user request:"))
+    #expect(!followUp.content.contains("summarize the README"))
+    #expect(!followUp.content.contains("Assistant tool call:"))
     #expect(followUp.content.contains("tool=\"read_file\""))
-    #expect(followUp.content.contains("Tool observation:"))
+    #expect(followUp.content.contains("<observation"))
     #expect(followUp.content.contains("1: project notes"))
     let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
     #expect(
@@ -1024,7 +1025,7 @@ struct ChatSessionControllerTests {
   }
 
   @Test
-  func nativeWebFetchFollowUpIncludesOriginalUserRequestAndToolObservation() async throws {
+  func nativeWebFetchFollowUpUsesToolRoleForObservation() async throws {
     let sessionID = UUID()
     let workspace = Workspace(
       name: "Project",
@@ -1074,12 +1075,12 @@ struct ChatSessionControllerTests {
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
-    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .user }))
-    #expect(followUp.content.contains("Original user request:"))
-    #expect(followUp.content.contains("read and summarize this article"))
-    #expect(followUp.content.contains("Assistant tool call:"))
+    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .tool }))
+    #expect(!followUp.content.contains("Original user request:"))
+    #expect(!followUp.content.contains("read and summarize this article"))
+    #expect(!followUp.content.contains("Assistant tool call:"))
     #expect(followUp.content.contains("tool=\"web_fetch\""))
-    #expect(followUp.content.contains("Tool observation:"))
+    #expect(followUp.content.contains("<observation"))
     #expect(followUp.content.contains("Fetched fixture text."))
     let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
     #expect(
@@ -1130,8 +1131,8 @@ struct ChatSessionControllerTests {
     #expect(record.status == .completed)
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
-    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .user }))
-    #expect(followUp.content.contains("Tool observation:"))
+    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .tool }))
+    #expect(followUp.content.contains("<observation"))
     #expect(followUp.content.contains("Swift docs fixture."))
   }
 
@@ -1181,7 +1182,7 @@ struct ChatSessionControllerTests {
     #expect(record.status == .completed)
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
-    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .user }))
+    let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .tool }))
     #expect(followUp.content.contains("tool=\"web_fetch\""))
     #expect(followUp.content.contains("Fetched fixture text."))
   }
@@ -1389,7 +1390,7 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.testMessages[2].content.contains("1: project notes"))
     #expect(
       controller.chatSession.modelContextSnapshot.entries.map(\.frozenContent.role) == [
-        .user, .assistant, .user, .assistant,
+        .user, .assistant, .tool, .assistant,
       ])
     #expect(
       controller.chatSession.modelContextSnapshot.entries[2].frozenContent.content.contains(

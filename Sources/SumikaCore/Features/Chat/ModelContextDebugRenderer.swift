@@ -50,7 +50,7 @@ public enum ModelContextDebugRole: String, Equatable, Sendable {
   case system
   case user
   case assistant
-  case toolFollowUpPrompt = "tool_follow_up_prompt"
+  case tool
 }
 
 public enum ModelContextDebugRenderer {
@@ -67,19 +67,13 @@ public enum ModelContextDebugRenderer {
       content: normalizedSystemPrompt
     )
     let projectedEntries = transcript.projectedEntries(mode: projectionMode)
-    let toolFollowUpIndex = toolFollowUpPromptIndex(
-      in: transcript,
-      projectedEntryCount: projectedEntries.count
-    )
     let entries =
       projectedEntries
       .enumerated()
       .map { offset, entry in
         ModelContextDebugEntry(
           index: offset + 1,
-          role: offset == toolFollowUpIndex
-            ? .toolFollowUpPrompt
-            : ModelContextDebugRole(entry.role),
+          role: ModelContextDebugRole(entry.role),
           content: entry.content
         )
       }
@@ -157,20 +151,6 @@ public enum ModelContextDebugRenderer {
     }
     return String(format: "%016llx", hash)
   }
-
-  private static func toolFollowUpPromptIndex(
-    in transcript: ModelContextSnapshot,
-    projectedEntryCount: Int
-  ) -> Int? {
-    guard projectedEntryCount > 0,
-      let lastEntry = transcript.entries.last,
-      case .toolObservation = lastEntry.body
-    else {
-      return nil
-    }
-
-    return projectedEntryCount - 1
-  }
 }
 
 extension ModelContextDebugRole {
@@ -180,6 +160,8 @@ extension ModelContextDebugRole {
       self = .user
     case .assistant:
       self = .assistant
+    case .tool:
+      self = .tool
     }
   }
 }

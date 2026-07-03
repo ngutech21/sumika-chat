@@ -42,24 +42,9 @@ enum ChatTurnTaskOutcome {
 
 @MainActor
 struct ChatTurnExecutionCoordinator {
-  private static let toolLimitFinalizationPrompt = """
-    Tool limit reached. Tools are no longer available.
-    Do not call tools. Briefly summarize what you completed, what changed,
-    what remains unfinished, and the next recommended step.
-    """
-
   private static let toolLimitFallbackMessage =
     "Tool limit reached. I stopped tool use for this turn. Some work may be unfinished; "
     + "send another message to continue from the recorded tool results."
-
-  private static let finalToolResultFollowUpInstruction = """
-    Provide a brief final response based on the preceding tool result.
-    Mention completed changes, affected paths, and run or verification steps if useful.
-    Do not include generated file contents, code blocks, diffs, or tool arguments unless the user explicitly asked to display them in chat.
-    Never say files were changed unless a successful write_file or edit_file result exists in this turn.
-    Failed or invalid write/edit tool results mean no workspace change happened.
-    If more work is needed, say what remains and ask the user to send another message.
-    """
 
   private let focusedFileReducer: FocusedFileStateReducer
   private let modelContextBuilder: ChatModelContextBuilder
@@ -398,12 +383,6 @@ struct ChatTurnExecutionCoordinator {
     callbacks.emitEvents([
       .assistantPlaceholderAppended(messageID: assistantMessageID, turnID: turnID)
     ])
-    if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
-      turnID: turnID,
-      prompt: Self.toolLimitFinalizationPrompt
-    ) {
-      callbacks.emitEvents([.modelContextEntryAppended(entry)])
-    }
     callbacks.notifySessionDidChange()
 
     let generationResult = try await streamAssistantReply(
@@ -412,7 +391,7 @@ struct ChatTurnExecutionCoordinator {
       callbacks: callbacks,
       isActive: isActive,
       interactionMode: interactionMode,
-      toolPromptMode: .disabled,
+      toolPromptMode: .afterToolResultFinal,
       turnID: turnID
     )
 
@@ -481,16 +460,7 @@ struct ChatTurnExecutionCoordinator {
     turnID: ChatTurn.ID,
     emitEvents: ChatWorkflowEventEmitter
   ) {
-    guard toolPromptMode == .afterToolResultFinal else {
-      return
-    }
-
-    emitEvents([
-      .finalToolResultFollowUpBoundaryAppended(
-        content: Self.finalToolResultFollowUpInstruction,
-        turnID: turnID
-      )
-    ])
+    _ = (toolPromptMode, turnID, emitEvents)
   }
 
   func systemPrompt(
@@ -541,10 +511,10 @@ struct ChatTurnExecutionCoordinator {
       return nil
     }
     switch toolPromptMode {
-    case .disabled, .enabled(false):
+    case .disabled, .enabled(false), .afterToolResultFinal:
       return nil
     case .chatWeb, .afterChatWebToolResultCanContinue, .afterToolResultCanContinue,
-      .afterToolResultFinal, .enabled(true):
+      .enabled(true):
       break
     }
     let registry = toolRegistry(for: toolPromptMode, toolLoopCoordinator: toolLoopCoordinator)

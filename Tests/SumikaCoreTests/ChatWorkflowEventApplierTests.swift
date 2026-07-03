@@ -218,7 +218,7 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
-  func appendsFinalToolResultFollowUpBoundary() {
+  func finalToolResultFollowUpBoundaryDoesNotAppendSyntheticUserPrompt() {
     let turnID = UUID()
     let content = "Provide a brief final response based on the preceding tool result."
     var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
@@ -228,10 +228,7 @@ struct ChatWorkflowEventApplierTests {
       to: &state
     )
 
-    #expect(state.modelContextSnapshot.entries.count == 1)
-    #expect(state.modelContextSnapshot.entries[0].turnID == turnID)
-    #expect(state.modelContextSnapshot.entries[0].frozenContent.role == .user)
-    #expect(state.modelContextSnapshot.entries[0].frozenContent.content.contains(content))
+    #expect(state.modelContextSnapshot.entries.isEmpty)
   }
 
   @Test

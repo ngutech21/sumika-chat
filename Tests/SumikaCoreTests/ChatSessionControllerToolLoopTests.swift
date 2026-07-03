@@ -11,11 +11,9 @@ struct ChatSessionControllerToolLoopTests {
     let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let readEvent = ChatModelStreamEvent.toolCall(
-      ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")])
-    )
+    try createListFixtureDirectories(in: workspace, count: budget)
     let runtime = ChatSessionFakeChatModelRuntime(
-      eventTurns: Array(repeating: [readEvent], count: budget)
+      eventTurns: listFileEventTurns(count: budget)
         + [[.chunk("I read the README repeatedly.")]]
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -42,11 +40,11 @@ struct ChatSessionControllerToolLoopTests {
     #expect(capturedToolContexts.count == budget + 1)
     #expect(capturedToolContexts[0]?.cacheSystemPrompt == capturedSystemPrompts[0])
     #expect(capturedToolContexts[1]?.cacheSystemPrompt == capturedSystemPrompts[1])
+    #expect(capturedSystemPrompts[0] == capturedSystemPrompts[1])
     #expect(
-      capturedToolContexts[1]?.cacheSystemPrompt?.contains("You received a tool result.") == true)
-    #expect(
-      capturedToolContexts[0]?.cacheSystemPrompt != capturedToolContexts[1]?.cacheSystemPrompt)
-    #expect(capturedToolContexts[budget]?.cacheSystemPrompt == capturedSystemPrompts[budget])
+      capturedToolContexts[0]?.cacheSystemPrompt
+        == capturedToolContexts[1]?.cacheSystemPrompt)
+    #expect(capturedToolContexts[budget] == nil)
   }
 
   @Test
@@ -54,11 +52,9 @@ struct ChatSessionControllerToolLoopTests {
     let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let readEvent = ChatModelStreamEvent.toolCall(
-      ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")])
-    )
+    try createListFixtureDirectories(in: workspace, count: budget + 1)
     let runtime = ChatSessionFakeChatModelRuntime(
-      eventTurns: Array(repeating: [readEvent], count: budget + 1)
+      eventTurns: listFileEventTurns(count: budget + 1)
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -84,14 +80,15 @@ struct ChatSessionControllerToolLoopTests {
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == budget + 2)
     #expect(
-      capturedMessages[budget + 1].contains { message in
+      !capturedMessages[budget + 1].contains { message in
         message.role == .user
           && message.content.contains("Tool limit reached. Tools are no longer available.")
-      })
+      }
+    )
 
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 2)
-    #expect(capturedToolContexts[budget]?.registry.tools.isEmpty == true)
+    #expect(capturedToolContexts[budget] == nil)
     #expect(capturedToolContexts[budget + 1] == nil)
   }
 
@@ -352,7 +349,7 @@ struct ChatSessionControllerToolLoopTests {
     #expect(capturedMessages.count == 2)
     #expect(
       capturedMessages[1].contains { message in
-        message.role == .user && message.content.contains("User answered: Minimal fix")
+        message.role == .tool && message.content.contains("User answered: Minimal fix")
       })
   }
 
@@ -459,7 +456,7 @@ struct ChatSessionControllerToolLoopTests {
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count >= 2)
-    let recoveryPrompt = try #require(capturedMessages[1].last(where: { $0.role == .user }))
+    let recoveryPrompt = try #require(capturedMessages[1].last(where: { $0.role == .tool }))
     #expect(
       recoveryPrompt.content.contains("edit_file failed: old_text was not found in README.md"))
     #expect(recoveryPrompt.content.contains("Do not retry edit_file from memory"))
@@ -534,6 +531,26 @@ struct ChatSessionControllerToolLoopTests {
         throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))
+    }
+  }
+
+  private func createListFixtureDirectories(in workspace: Workspace, count: Int) throws {
+    for index in 1..<count {
+      try FileManager.default.createDirectory(
+        at: workspace.rootURL.appending(path: "dir-\(index)", directoryHint: .isDirectory),
+        withIntermediateDirectories: true
+      )
+    }
+  }
+
+  private func listFileEventTurns(count: Int) -> [[ChatModelStreamEvent]] {
+    (0..<count).map { index in
+      let path = index == 0 ? "." : "dir-\(index)"
+      return [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(path)])
+        )
+      ]
     }
   }
 

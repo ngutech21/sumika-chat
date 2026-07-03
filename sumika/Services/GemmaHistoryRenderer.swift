@@ -29,6 +29,8 @@ nonisolated enum GemmaHistoryRenderer {
       return .user(entry.content, images: images)
     case .assistant:
       return .assistant(entry.content)
+    case .tool:
+      return .tool(entry.content)
     }
   }
 
@@ -95,18 +97,21 @@ nonisolated enum GemmaHistoryRenderer {
     images: [UserInput.Image] = []
   ) throws -> GemmaGenerationInput {
     let entries = transcript.entries
-    guard let lastUserIndex = entries.lastIndex(where: { $0.body.modelRole == .user }) else {
+    guard let lastPromptInputIndex = entries.lastIndex(where: { $0.body.isPromptInput }) else {
       throw GemmaMLXRuntimeError.missingUserMessage
     }
 
-    let promptStartIndex = promptStartIndex(in: entries, lastUserIndex: lastUserIndex)
+    let promptStartIndex = promptStartIndex(
+      in: entries,
+      lastPromptInputIndex: lastPromptInputIndex
+    )
     let historySnapshot = normalizedSnapshots(
       from: entries[..<promptStartIndex],
       transcript: transcript,
       dropsTrailingUser: true
     )
     let promptSnapshot = normalizedSnapshots(
-      from: entries[promptStartIndex...lastUserIndex],
+      from: entries[promptStartIndex...lastPromptInputIndex],
       transcript: transcript,
       dropsTrailingUser: false
     )
@@ -173,7 +178,15 @@ nonisolated enum GemmaHistoryRenderer {
       guard !entry.content.isEmpty else {
         continue
       }
-      let role: Chat.Message.Role = entry.role == .user ? .user : .assistant
+      let role: Chat.Message.Role =
+        switch entry.role {
+        case .user:
+          .user
+        case .assistant:
+          .assistant
+        case .tool:
+          .tool
+        }
       if let last = items.last, last.role == role.rawValue {
         appendNormalized(
           GemmaMessageSnapshot(
@@ -524,17 +537,17 @@ nonisolated enum GemmaHistoryRenderer {
 
   nonisolated private static func promptStartIndex(
     in entries: [ModelContextEntry],
-    lastUserIndex: Int
+    lastPromptInputIndex: Int
   ) -> Int {
-    switch entries[lastUserIndex].body {
-    case .toolObservation:
-      var index = lastUserIndex
+    switch entries[lastPromptInputIndex].body {
+    case .toolObservation, .terminalToolResult:
+      var index = lastPromptInputIndex
       while index > 0, isStructuredToolResultEntry(entries[index - 1]) {
         index -= 1
       }
       return index
     case .userPrompt:
-      var index = lastUserIndex
+      var index = lastPromptInputIndex
       while index > 0 {
         guard isStructuredToolResultEntry(entries[index - 1]),
           hasStructuredAssistantBoundary(before: index - 1, in: entries)
@@ -544,8 +557,8 @@ nonisolated enum GemmaHistoryRenderer {
         index -= 1
       }
       return index
-    case .assistantOutput, .terminalToolResult:
-      return lastUserIndex
+    case .assistantOutput:
+      return lastPromptInputIndex
     }
   }
 

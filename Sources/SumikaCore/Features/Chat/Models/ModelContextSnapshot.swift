@@ -24,7 +24,9 @@ public struct ModelContextSnapshot: Codable, Equatable, Sendable {
   public func projectedEntries(
     mode: ModelContextProjectionMode = .fullHistory
   ) -> [ProjectedModelContextEntry] {
-    let currentPromptIndex = entries.lastIndex { $0.frozenContent.role == .user }
+    let currentPromptIndex = entries.lastIndex { entry in
+      entry.body.isPromptInput
+    }
     return entries.indices.map { index in
       entries[index].projectedEntry(
         mode: mode,
@@ -154,10 +156,21 @@ public enum ModelContextEntryBody: Codable, Equatable, Sendable {
 
   public var modelRole: ModelContextRole {
     switch self {
-    case .userPrompt, .toolObservation:
+    case .userPrompt:
       return .user
-    case .assistantOutput, .terminalToolResult:
+    case .assistantOutput:
       return .assistant
+    case .toolObservation, .terminalToolResult:
+      return .tool
+    }
+  }
+
+  public var isPromptInput: Bool {
+    switch self {
+    case .userPrompt, .toolObservation, .terminalToolResult:
+      return true
+    case .assistantOutput:
+      return false
     }
   }
 
@@ -637,6 +650,7 @@ public struct FrozenModelContent: Codable, Equatable, Sendable {
 public enum ModelContextRole: String, Codable, Equatable, Sendable {
   case user
   case assistant
+  case tool
 }
 
 extension ModelContextEntry {
@@ -668,7 +682,7 @@ extension ModelContextEntry {
         )
       }
       return ProjectedModelContextEntry(
-        role: .user,
+        role: .tool,
         content: ToolReceiptRenderer.render(toolReceipt)
       )
     case .terminalToolResult(let context):
@@ -679,7 +693,7 @@ extension ModelContextEntry {
         )
       }
       return ProjectedModelContextEntry(
-        role: .assistant,
+        role: .tool,
         content: ToolReceiptRenderer.render(toolReceipt)
       )
     case .userPrompt, .assistantOutput:

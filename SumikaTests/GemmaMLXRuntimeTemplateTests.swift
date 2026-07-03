@@ -225,10 +225,11 @@ struct GemmaMLXRuntimeTemplateTests {
       history: projectedHistory
     )
 
-    #expect(history.map(\.role) == [.system, .user, .assistant])
+    #expect(history.map(\.role) == [.system, .user, .assistant, .tool])
     #expect(history[0].content.contains("Use concise coding steps."))
     #expect(!history[1].content.contains("System instructions:"))
     #expect(!history[1].content.contains("Use concise coding steps."))
+    #expect(!history[3].content.contains("Use concise coding steps."))
   }
 
   @Test
@@ -879,10 +880,6 @@ struct GemmaMLXRuntimeTemplateTests {
         request: toolRequest(callID: callID, toolName: .writeFile, arguments: arguments),
         originalUserRequest: "create movies.html"
       ),
-      try ModelFacingPromptRenderer.userPromptEntry(
-        turnID: turnID,
-        prompt: finalToolResultInstruction
-      ),
     ]
 
     let input = try generationInput(from: entries)
@@ -903,7 +900,7 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(rawAssistantToolCall["id"] as? String == RuntimeToolCallID.string(for: callID))
     #expect(rawAssistantFunction["name"] as? String == ToolName.writeFile.rawValue)
     #expect(rawArguments["content"] as? String == "<html></html>")
-    #expect(input.promptMessages.map(\.role) == [.tool, .user])
+    #expect(input.promptMessages.map(\.role) == [.tool])
     #expect(rawMessages[2]["tool_call_id"] as? String == RuntimeToolCallID.string(for: callID))
   }
 
@@ -962,10 +959,6 @@ struct GemmaMLXRuntimeTemplateTests {
         request: toolRequest(callID: writeCallID, toolName: .writeFile, arguments: writeArguments),
         originalUserRequest: "read README.md and create movies.html"
       ),
-      try ModelFacingPromptRenderer.userPromptEntry(
-        turnID: turnID,
-        prompt: finalToolResultInstruction
-      ),
     ]
 
     let input = try generationInput(from: entries)
@@ -976,9 +969,10 @@ struct GemmaMLXRuntimeTemplateTests {
         RuntimeToolCallID.string(for: readCallID),
         RuntimeToolCallID.string(for: writeCallID),
       ])
-    #expect(input.promptMessages.map(\.role) == [.tool, .tool, .user])
-    #expect(input.promptMessages[2].content.contains("Do not include generated file contents"))
-    #expect(!input.promptMessages[2].content.contains("Original user request:"))
+    #expect(input.promptMessages.map(\.role) == [.tool, .tool])
+    #expect(input.promptMessages[0].content.contains("Project overview"))
+    #expect(input.promptMessages[1].content.contains("Wrote 13 bytes to movies.html."))
+    #expect(!input.promptMessages[1].content.contains("Original user request:"))
   }
 
   @Test
@@ -1112,7 +1106,6 @@ struct GemmaMLXRuntimeTemplateTests {
     let writeCallID = UUID()
     let turnID = UUID()
     let originalPrompt = "read README.md and write summary.txt"
-    let finalInstruction = finalToolResultInstruction
     let readArguments: ToolCallArguments = ["path": .string("README.md")]
     let writeArguments: ToolCallArguments = [
       "path": .string("summary.txt"),
@@ -1188,13 +1181,11 @@ struct GemmaMLXRuntimeTemplateTests {
           request: writeRequest,
           originalUserRequest: originalPrompt
         ),
-        try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: finalInstruction),
       ]
     ).historySnapshot
 
     #expect(cachedPrefix.map(\.role) == ["user", "assistant", "tool", "assistant"])
     #expect(currentHistory[3].toolCalls.map(\.id) == [RuntimeToolCallID.string(for: writeCallID)])
-    #expect(!currentHistory[3].content.contains(finalInstruction))
     #expect(cachedPrefix == currentHistory)
     #expect(GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
     #expect(
@@ -1259,8 +1250,8 @@ struct GemmaMLXRuntimeTemplateTests {
     let (history, prompt) = try generationHistoryAndPrompt(from: entries)
 
     #expect(history.map(\.role) == [.user, .assistant])
-    #expect(prompt.role == .user)
-    #expect(prompt.content.contains("Original user request:"))
+    #expect(prompt.role == .tool)
+    #expect(!prompt.content.contains("Original user request:"))
     #expect(prompt.content.contains("Summary: Wrote 13 bytes to movies.html."))
     #expect(prompt.content.contains("Do not include generated file contents"))
     #expect(!prompt.content.contains("No more tools may run in this response."))
@@ -2001,11 +1992,13 @@ struct GemmaMLXRuntimeTemplateTests {
     from entries: [ModelContextEntry]
   ) throws -> (history: [Chat.Message], prompt: Chat.Message) {
     let projectedEntries = projectedEntries(from: entries)
-    let lastUserIndex = try #require(projectedEntries.lastIndex { $0.role == .user })
-    let history = try GemmaHistoryRenderer.generationHistoryMessages(
-      from: projectedEntries[..<lastUserIndex]
+    let lastPromptIndex = try #require(
+      projectedEntries.lastIndex { $0.role == .user || $0.role == .tool }
     )
-    let prompt = GemmaHistoryRenderer.chatMessage(from: projectedEntries[lastUserIndex])
+    let history = try GemmaHistoryRenderer.generationHistoryMessages(
+      from: projectedEntries[..<lastPromptIndex]
+    )
+    let prompt = GemmaHistoryRenderer.chatMessage(from: projectedEntries[lastPromptIndex])
     return (history, prompt)
   }
 

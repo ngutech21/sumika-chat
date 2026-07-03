@@ -365,8 +365,8 @@ extension ModelContextDebugRole {
       "User"
     case .assistant:
       "Assistant"
-    case .toolFollowUpPrompt:
-      "Tool follow-up prompt"
+    case .tool:
+      "Tool"
     }
   }
 
@@ -378,8 +378,8 @@ extension ModelContextDebugRole {
       "person"
     case .assistant:
       "cpu"
-    case .toolFollowUpPrompt:
-      "arrow.triangle.2.circlepath"
+    case .tool:
+      "wrench.and.screwdriver"
     }
   }
 }

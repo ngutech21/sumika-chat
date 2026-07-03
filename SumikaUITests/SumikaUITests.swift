@@ -265,8 +265,20 @@ final class SumikaUITests: XCTestCase {
     let listRows = try traceRows(in: fixture.traceURL, afterOffset: listTraceOffset)
     recordTraceSummary(listRows, expectedMode: "agent", label: "List files trace")
 
-    XCTAssertGreaterThanOrEqual(
-      toolCallCount(in: application, named: "list_files", after: listBaseline), 1)
+    XCTAssertEqual(
+      toolCallCount(in: application, named: "list_files", after: listBaseline),
+      1,
+      "Listing files for a simple directory request must show exactly one list_files call."
+    )
+    XCTAssertEqual(
+      listRows.toolExecutionCount(
+        named: "list_files",
+        argumentName: "path",
+        preview: "."
+      ),
+      1,
+      "Listing files for a simple directory request must execute list_files(path: .) exactly once."
+    )
 
     let showFileTraceOffset = fileSize(at: fixture.traceURL)
     let showFileBaseline = try sendPrompt("show the contents of robots.html", in: application)
@@ -305,6 +317,15 @@ final class SumikaUITests: XCTestCase {
       rows.containsToolLoopRuntimeCacheReuse()
     }
     recordTraceSummary(rows, expectedMode: "agent", label: "Read file cache trace")
+    XCTAssertEqual(
+      rows.toolExecutionCount(
+        named: "read_file",
+        argumentName: "path",
+        preview: "README.md"
+      ),
+      1,
+      "A native read_file follow-up must execute read_file(path: README.md) exactly once."
+    )
     XCTAssertFalse(
       rows.containsToolLoopRuntimeCacheReason("invalidated_history_prefix_mismatch"),
       "Gemma 4 native tool follow-ups should not be diagnosed as history prefix mismatches."

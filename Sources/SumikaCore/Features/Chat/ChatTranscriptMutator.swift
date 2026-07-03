@@ -29,36 +29,7 @@ public struct ChatTranscriptMutator: Sendable {
     turnID: ChatTurn.ID,
     to state: inout ChatSession
   ) {
-    guard
-      let terminalIndex = state.modelContextSnapshot.entries.lastIndex(where: { entry in
-        guard entry.turnID == turnID else {
-          return false
-        }
-        if case .terminalToolResult = entry.body {
-          return true
-        }
-        return false
-      })
-    else {
-      if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
-        turnID: turnID,
-        prompt: content
-      ) {
-        appendModelContextEntry(entry, to: &state)
-      }
-      return
-    }
-
-    guard state.modelContextSnapshot.entries.indices.contains(terminalIndex),
-      let followUpEntry = try? ModelFacingPromptRenderer.userPromptEntry(
-        turnID: turnID,
-        prompt: content
-      )
-    else {
-      return
-    }
-
-    appendModelContextEntry(followUpEntry, to: &state)
+    _ = (content, turnID, state)
   }
 
   public func appendAssistantPlaceholder(
