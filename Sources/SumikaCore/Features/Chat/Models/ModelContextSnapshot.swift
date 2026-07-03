@@ -33,10 +33,10 @@ public struct ModelContextSnapshot: Codable, Equatable, Sendable {
     }
   }
 
-  /// The raw prompt text of the latest user prompt in the given turn. Used to
+  /// The raw prompt text of the original user prompt in the given turn. Used to
   /// freeze the tool follow-up form into observation entries at creation time.
   public func originalUserPromptText(forTurn turnID: ChatTurn.ID) -> String? {
-    for entry in entries.reversed() {
+    for entry in entries {
       guard entry.turnID == turnID, case .userPrompt(let context) = entry.body else {
         continue
       }

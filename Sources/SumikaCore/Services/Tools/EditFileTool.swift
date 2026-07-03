@@ -82,7 +82,7 @@ nonisolated extension ToolDefinition {
   public static let editFile = ToolDefinition(
     name: .editFile,
     description:
-      "Replace exactly one current text span in an existing workspace file. Call read_file first unless the exact current old_text is visible in the latest context. old_text must be copied verbatim from current file content, match once, and be as small as practical. Do not guess from memory.",
+      "Replace exactly one current text span in an existing workspace file. Always provide all required arguments: path, old_text, and new_text. Never call edit_file with empty arguments. Call read_file first unless the exact current old_text is visible in the latest context. old_text must be copied verbatim from current file content, match once, and be as small as practical. Do not guess from memory.",
     parameters: [
       ToolParameterDefinition(
         name: "path",

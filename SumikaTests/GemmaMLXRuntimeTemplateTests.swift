@@ -5,6 +5,13 @@ import Testing
 
 @testable import Sumika
 
+private let finalToolResultInstruction = """
+  Provide a brief final response based on the preceding tool result.
+  Mention completed changes, affected paths, and run or verification steps if useful.
+  Do not include generated file contents, code blocks, diffs, or tool arguments unless the user explicitly asked to display them in chat.
+  If more work is needed, say what remains and ask the user to send another message.
+  """
+
 @Suite
 struct GemmaMLXRuntimeTemplateTests {
   @Test
@@ -878,7 +885,7 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
-        prompt: "Use the preceding tool result to answer the user's request."
+        prompt: finalToolResultInstruction
       ),
     ]
 
@@ -961,7 +968,7 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
-        prompt: "Use the preceding tool result to answer the user's request."
+        prompt: finalToolResultInstruction
       ),
     ]
 
@@ -974,7 +981,7 @@ struct GemmaMLXRuntimeTemplateTests {
         RuntimeToolCallID.string(for: writeCallID),
       ])
     #expect(input.promptMessages.map(\.role) == [.tool, .tool, .user])
-    #expect(input.promptMessages[2].content.contains("Use the preceding tool result"))
+    #expect(input.promptMessages[2].content.contains("Do not include generated file contents"))
     #expect(!input.promptMessages[2].content.contains("Original user request:"))
   }
 
@@ -1107,6 +1114,104 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func cachePrefixSurvivesTerminalWriteFollowUpBoundary() throws {
+    let readCallID = UUID()
+    let writeCallID = UUID()
+    let turnID = UUID()
+    let originalPrompt = "read README.md and write summary.txt"
+    let finalInstruction = finalToolResultInstruction
+    let readArguments: ToolCallArguments = ["path": .string("README.md")]
+    let writeArguments: ToolCallArguments = [
+      "path": .string("summary.txt"),
+      "content": .string("Project summary"),
+    ]
+    let entriesBeforeWriteResult = [
+      try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: originalPrompt),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: toolCallContent(
+          callID: readCallID,
+          toolName: .readFile,
+          arguments: readArguments
+        )
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: readCallID,
+          toolName: .readFile,
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            ))
+        ),
+        request: toolRequest(callID: readCallID, toolName: .readFile, arguments: readArguments),
+        originalUserRequest: originalPrompt
+      ),
+    ]
+    let writeRequest = toolRequest(
+      callID: writeCallID,
+      toolName: .writeFile,
+      arguments: writeArguments
+    )
+    let writeBoundary = try ModelFacingPromptRenderer.assistantOutputEntry(
+      turnID: turnID,
+      content: toolCallContent(
+        callID: writeCallID,
+        toolName: .writeFile,
+        arguments: writeArguments
+      )
+    )
+
+    let writeGenerationInput = try generationInput(from: entriesBeforeWriteResult)
+    let cachedPrefix =
+      writeGenerationInput.historySnapshot
+      + writeGenerationInput.promptSnapshot
+      + [
+        GemmaMessageSnapshot(
+          role: Chat.Message.Role.assistant.rawValue,
+          content: "",
+          toolCalls: [
+            GemmaToolCallSnapshot(
+              id: RuntimeToolCallID.string(for: writeCallID),
+              name: ToolName.writeFile.rawValue,
+              arguments: writeArguments
+            )
+          ]
+        )
+      ]
+    let currentHistory = try generationInput(
+      from: entriesBeforeWriteResult + [
+        writeBoundary,
+        try ModelFacingPromptRenderer.toolResultEntry(
+          turnID: turnID,
+          toolResult: ToolResultModelMessage(
+            callID: writeCallID,
+            toolName: .writeFile,
+            payload: .writeFile(
+              .success(path: WorkspaceRelativePath(rawValue: "summary.txt"), bytesWritten: 15))
+          ),
+          request: writeRequest,
+          originalUserRequest: originalPrompt
+        ),
+        try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: finalInstruction),
+      ]
+    ).historySnapshot
+
+    #expect(cachedPrefix.map(\.role) == ["user", "assistant", "tool", "user", "assistant"])
+    #expect(currentHistory[3].content.contains(originalPrompt))
+    #expect(!currentHistory[3].content.contains(finalInstruction))
+    #expect(cachedPrefix == currentHistory)
+    #expect(GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
+    #expect(
+      GemmaSessionCachePolicy.firstMismatchIndex(
+        cachedPrefix: cachedPrefix,
+        currentHistory: currentHistory
+      ) == nil)
+  }
+
+  @Test
   func terminalToolResultFollowUpUsesCachedPrefixAsHistoryAndResultAsPrompt() throws {
     let callID = UUID()
     let turnID = UUID()
@@ -1154,7 +1259,7 @@ struct GemmaMLXRuntimeTemplateTests {
             callID: terminalResult.callID
           )
         ),
-        followUpInstruction: "Use the preceding tool result to answer the user's request.",
+        followUpInstruction: finalToolResultInstruction,
         originalUserRequest: "create movies.html"
       ),
     ]
@@ -1164,7 +1269,7 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(prompt.role == .user)
     #expect(prompt.content.contains("Original user request:"))
     #expect(prompt.content.contains("Summary: Wrote 13 bytes to movies.html."))
-    #expect(prompt.content.contains("Use the preceding tool result to answer"))
+    #expect(prompt.content.contains("Do not include generated file contents"))
     #expect(!prompt.content.contains("No more tools may run in this response."))
   }
 

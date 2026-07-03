@@ -220,7 +220,7 @@ struct ChatWorkflowEventApplierTests {
   @Test
   func appendsFinalToolResultFollowUpBoundary() {
     let turnID = UUID()
-    let content = "Use the preceding tool result to answer the user's request."
+    let content = "Provide a brief final response based on the preceding tool result."
     var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
 
     ChatWorkflowEventApplier().apply(

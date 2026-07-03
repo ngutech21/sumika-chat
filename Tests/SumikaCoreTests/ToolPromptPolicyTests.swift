@@ -71,6 +71,15 @@ struct ToolPromptPolicyTests {
 
     #expect(prompt.contains("No more tools may run"))
     #expect(prompt.contains("Do not call another tool"))
+    #expect(prompt.contains("Do not include generated file contents"))
+    #expect(
+      prompt.contains(
+        "Never say files were changed unless a successful write_file or edit_file result exists in this turn."
+      ))
+    #expect(
+      prompt.contains(
+        "Failed or invalid write/edit tool results mean no workspace change happened."
+      ))
   }
 
   @Test
@@ -87,6 +96,14 @@ struct ToolPromptPolicyTests {
     )
 
     #expect(enabledPrompt.contains("todo_write"))
+    #expect(
+      enabledPrompt.contains(
+        "Never say files were changed unless a successful write_file or edit_file result exists in this turn."
+      ))
+    #expect(
+      enabledPrompt.contains(
+        "Failed or invalid write/edit tool results mean no workspace change happened."
+      ))
     #expect(disabledPrompt.contains("Available tools:"))
     #expect(!disabledPrompt.contains("todo_write"))
     #expect(!disabledPrompt.contains("planned todo"))

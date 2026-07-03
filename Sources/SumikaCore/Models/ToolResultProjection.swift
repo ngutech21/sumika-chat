@@ -305,7 +305,7 @@ public enum ToolResultProjector {
     case .webFetch(let result):
       return projectWebFetch(result, request: request)
     case .invalidTool(let result):
-      let text = "The tool call was invalid: \(result.reason.message)"
+      let text = invalidToolText(result, request: request)
       return summaryProjection(
         toolName: request.toolName,
         status: .failed,
@@ -322,6 +322,32 @@ public enum ToolResultProjector {
     }
   }
 
+}
+
+private func invalidToolText(
+  _ result: InvalidToolResult,
+  request: ToolCallRequest
+) -> String {
+  let baseText = "The tool call was invalid: \(result.reason.message)"
+  switch request.toolName {
+  case .editFile:
+    return """
+      \(baseText)
+      No file was changed.
+      Do not claim completion.
+      Retry edit_file with path, old_text, and new_text, or say no change was made.
+      If old_text is unknown, call read_file first.
+      """
+  case .writeFile:
+    return """
+      \(baseText)
+      No file was changed.
+      Do not claim completion.
+      Retry write_file with path and content, or say no change was made.
+      """
+  default:
+    return baseText
+  }
 }
 
 private func summaryProjection(

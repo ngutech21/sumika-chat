@@ -64,7 +64,11 @@ public struct ToolPromptPolicy: Sendable {
         basePrompt,
         """
         You just received a tool result. No more tools may run in this response.
-        Answer the user's request directly. Do not call another tool.
+        Provide a brief final response for the turn. Do not call another tool.
+        Mention completed changes, affected paths, and run or verification steps if useful.
+        Do not include generated file contents, code blocks, diffs, or tool arguments unless the user explicitly asked to display them in chat.
+        Never say files were changed unless a successful write_file or edit_file result exists in this turn.
+        Failed or invalid write/edit tool results mean no workspace change happened.
         If more work is needed, briefly say what remains and ask the user to send another message.
         """,
       ].joined(separator: "\n\n")
@@ -165,6 +169,8 @@ public struct ToolPromptPolicy: Sendable {
       basePrompt,
       """
       You received a tool result. Answer now if sufficient, or call tools using the native tool interface.
+      Never say files were changed unless a successful write_file or edit_file result exists in this turn.
+      Failed or invalid write/edit tool results mean no workspace change happened.
       Available tools: \(availableToolNames(in: toolRegistry)).
       \(nativeMultipleToolCallInstruction(policy: toolCallingPolicy))
       \(todoFollowUpInstruction)

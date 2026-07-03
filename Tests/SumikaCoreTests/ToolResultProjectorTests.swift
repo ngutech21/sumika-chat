@@ -428,6 +428,39 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func invalidEditFileObservationSaysNoFileChangedAndHowToRetry() {
+    let reason = InvalidToolCallReason.missingRequiredArgument("path")
+    let projection = ToolResultProjector.project(
+      payload: .invalidTool(
+        InvalidToolResult(originalName: "edit_file", reason: reason)
+      ),
+      request: request(
+        toolName: .editFile,
+        payload: .invalid(
+          InvalidToolInput(
+            originalName: "edit_file",
+            rawArguments: [:],
+            reason: reason
+          ))
+      )
+    )
+
+    guard case .summary(let status, let text, let affectedPaths) = projection.display else {
+      Issue.record("Expected invalid edit_file display summary.")
+      return
+    }
+    #expect(status == .failed)
+    #expect(affectedPaths.isEmpty)
+    #expect(text.contains("The tool call was invalid: Missing required argument: path."))
+    #expect(text.contains("No file was changed."))
+    #expect(text.contains("Do not claim completion."))
+    #expect(text.contains("Retry edit_file with path, old_text, and new_text"))
+    #expect(text.contains("If old_text is unknown, call read_file first."))
+    #expect(projection.observation.status == .failed)
+    #expect(projection.observation.blocks == [.failure(text)])
+  }
+
+  @Test
   func projectionLimiterLeavesTextBelowLimitUnchanged() {
     let result = ProjectionLimiter.limit(
       "short observation",

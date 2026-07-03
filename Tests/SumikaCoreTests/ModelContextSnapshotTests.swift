@@ -240,8 +240,10 @@ struct ModelContextSnapshotTests {
       to: &state
     )
 
+    let followUpInstruction =
+      "Provide a brief final response based on the preceding tool result."
     mutator.appendFinalToolResultFollowUpBoundary(
-      "Use the preceding tool result to answer the user's request.",
+      followUpInstruction,
       turnID: turnID,
       to: &state
     )
@@ -269,10 +271,8 @@ struct ModelContextSnapshotTests {
       Issue.record("Expected the follow-up to become the current user prompt.")
       return
     }
-    #expect(context.prompt == "Use the preceding tool result to answer the user's request.")
-    #expect(
-      finalEntry.frozenContent.content.contains(
-        "Use the preceding tool result to answer the user's request."))
+    #expect(context.prompt == followUpInstruction)
+    #expect(finalEntry.frozenContent.content.contains(followUpInstruction))
     #expect(!finalEntry.frozenContent.content.contains("No more tools may run in this response."))
   }
 
@@ -527,7 +527,7 @@ struct ModelContextSnapshotTests {
 
     let followUpEntry = try ModelFacingPromptRenderer.finalToolResultPromptEntry(
       terminalToolResult: terminalContext,
-      followUpInstruction: "Use the preceding tool result to answer the user's request.",
+      followUpInstruction: "Provide a brief final response based on the preceding tool result.",
       originalUserRequest: nil
     )
 

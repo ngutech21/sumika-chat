@@ -52,6 +52,15 @@ struct ChatTurnExecutionCoordinator {
     "Tool limit reached. I stopped tool use for this turn. Some work may be unfinished; "
     + "send another message to continue from the recorded tool results."
 
+  private static let finalToolResultFollowUpInstruction = """
+    Provide a brief final response based on the preceding tool result.
+    Mention completed changes, affected paths, and run or verification steps if useful.
+    Do not include generated file contents, code blocks, diffs, or tool arguments unless the user explicitly asked to display them in chat.
+    Never say files were changed unless a successful write_file or edit_file result exists in this turn.
+    Failed or invalid write/edit tool results mean no workspace change happened.
+    If more work is needed, say what remains and ask the user to send another message.
+    """
+
   private let focusedFileReducer: FocusedFileStateReducer
   private let modelContextBuilder: ChatModelContextBuilder
   private let toolPromptPolicy: ToolPromptPolicy
@@ -478,7 +487,7 @@ struct ChatTurnExecutionCoordinator {
 
     emitEvents([
       .finalToolResultFollowUpBoundaryAppended(
-        content: "Use the preceding tool result to answer the user's request.",
+        content: Self.finalToolResultFollowUpInstruction,
         turnID: turnID
       )
     ])

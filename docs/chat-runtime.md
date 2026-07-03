@@ -107,15 +107,23 @@ flowchart TD
    next step. The last budgeted follow-up disables tools; if it produces no
    visible assistant text, the coordinator appends an internal no-tools
    finalization instruction and forces one text-only summary or deterministic
-   fallback. Successful `write_file` and `edit_file` calls switch to a final
-   no-tools follow-up instead of continuing the normal tool loop.
+   fallback. Successful `write_file` and `edit_file` calls switch to a brief
+   final no-tools follow-up instead of continuing the normal tool loop; that
+   follow-up should summarize affected paths and useful run or verification
+   steps without echoing generated file contents, code blocks, diffs, or tool
+   arguments unless the user explicitly asked to display them in chat. The model
+   must not say files changed unless a successful `write_file` or `edit_file`
+   result exists in the turn; failed or invalid write/edit results mean no
+   workspace change happened.
 6. If the tool call requires approval, workflow events record the call and mark
    the turn `.awaitingApproval`; active generation ends until the user approves
    or denies the call.
 7. Approval delegates to `ChatTurnCoordinator.approveToolCall`, which executes
    the same validated tool request and appends a real tool
    result. Successful `write_file` and `edit_file` approvals stream one final
-   no-tools assistant response; other successful tools resume the normal tool
+   no-tools assistant response that summarizes the completed write without
+   echoing generated file contents or diffs and only claims changed files from a
+   successful write/edit result; other successful tools resume the normal tool
    loop with a direct follow-up response.
 8. Answering `ask_user` delegates to
    `ChatTurnCoordinator.answerAskUserToolCall`, appends the compact answer

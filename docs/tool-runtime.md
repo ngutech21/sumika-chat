@@ -449,8 +449,13 @@ and tests.
 - `edit_file` is the only model-facing tool for changing existing files.
 - Successful `write_file` and `edit_file` results are terminal for additional
   tool execution in the current chat turn. `ChatTurnCoordinator` may request one
-  final no-tools assistant follow-up so the model can summarize the completed write,
-  but any emitted tool attempt in that final response must be converted into a
+  final no-tools assistant follow-up so the model can briefly summarize the
+  completed write and mention useful run or verification steps, but it should not
+  echo generated file contents, code blocks, diffs, or tool arguments unless the
+  user explicitly asked to display them in chat. The follow-up must not say files
+  changed unless a successful `write_file` or `edit_file` result exists in the
+  turn; failed or invalid write/edit results mean no workspace change happened.
+  Any emitted tool attempt in that final response must be converted into a
   structured failure observation and must not execute.
 - Denied approval-sensitive tools may also receive one final no-tools assistant
   follow-up. The denied tool result stays auditable, no side effect occurs, and

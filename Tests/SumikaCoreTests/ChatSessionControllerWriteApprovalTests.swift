@@ -174,8 +174,22 @@ struct ChatSessionControllerWriteApprovalTests {
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
     #expect(capturedMessages.last?.last?.content.contains("No more tools may run") == false)
+    #expect(
+      capturedMessages.last?.last?.content.contains("Do not include generated file contents")
+        == true)
+    #expect(
+      capturedMessages.last?.last?.content.contains("Never say files were changed")
+        == true)
+    #expect(
+      capturedMessages.last?.last?.content.contains("no workspace change happened")
+        == true)
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.last?.contains("No more tools may run") == true)
+    #expect(
+      capturedSystemPrompts.last?.contains("Do not include generated file contents")
+        == true)
+    #expect(capturedSystemPrompts.last?.contains("Never say files were changed") == true)
+    #expect(capturedSystemPrompts.last?.contains("no workspace change happened") == true)
   }
 
   @Test

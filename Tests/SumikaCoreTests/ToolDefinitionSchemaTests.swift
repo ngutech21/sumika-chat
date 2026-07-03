@@ -63,6 +63,10 @@ struct ToolDefinitionSchemaTests {
       writeDefinition.parameters.first { $0.name == "content" }?.supportsHeredocPayload == true)
 
     #expect(editDefinition.functionSchema.parameters.required == ["path", "old_text", "new_text"])
+    #expect(
+      editDefinition.description.contains(
+        "Always provide all required arguments: path, old_text, and new_text."))
+    #expect(editDefinition.description.contains("Never call edit_file with empty arguments."))
     #expect(editDefinition.parameters.first { $0.name == "old_text" }?.valueType == .string)
     #expect(
       editDefinition.parameters.first { $0.name == "old_text" }?.supportsHeredocPayload == true)
