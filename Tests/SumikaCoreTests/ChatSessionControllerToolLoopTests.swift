@@ -37,6 +37,16 @@ struct ChatSessionControllerToolLoopTests {
     #expect(capturedSystemPrompts[budget].contains("No more tools may run in this response."))
     #expect(!capturedSystemPrompts[budget].contains("tool budget"))
     #expect(!capturedSystemPrompts[budget].contains("Available tools:"))
+
+    let capturedToolContexts = await runtime.capturedToolContexts
+    #expect(capturedToolContexts.count == budget + 1)
+    #expect(capturedToolContexts[0]?.cacheSystemPrompt == capturedSystemPrompts[0])
+    #expect(capturedToolContexts[1]?.cacheSystemPrompt == capturedSystemPrompts[1])
+    #expect(
+      capturedToolContexts[1]?.cacheSystemPrompt?.contains("You received a tool result.") == true)
+    #expect(
+      capturedToolContexts[0]?.cacheSystemPrompt != capturedToolContexts[1]?.cacheSystemPrompt)
+    #expect(capturedToolContexts[budget]?.cacheSystemPrompt == capturedSystemPrompts[budget])
   }
 
   @Test

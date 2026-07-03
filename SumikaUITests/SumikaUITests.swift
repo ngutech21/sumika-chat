@@ -191,6 +191,15 @@ final class SumikaUITests: XCTestCase {
 
     recordTraceSummary(chatRows, expectedMode: "chat", label: "Chat mode trace")
     recordTraceSummary(agentRows, expectedMode: "agent", label: "Agent mode trace")
+    XCTAssertEqual(
+      agentRows.toolExecutionCount(
+        named: "read_file",
+        argumentName: "path",
+        preview: "table.html"
+      ),
+      1,
+      "Inspect table.html must execute read_file(path: table.html) exactly once."
+    )
   }
 
   @MainActor
@@ -661,6 +670,7 @@ final class SumikaUITests: XCTestCase {
         kind: kind,
         phase: object["phase"] as? String,
         toolName: object["toolName"] as? String,
+        toolArguments: traceToolArguments(from: object["toolArguments"]),
         output: object["output"] as? String,
         interactionMode: object["interactionMode"] as? String,
         toolLoopIteration: object["toolLoopIteration"] as? Int,
@@ -686,6 +696,22 @@ final class SumikaUITests: XCTestCase {
       latestRows = try traceRows(in: traceURL, afterOffset: offset)
     }
     return latestRows
+  }
+
+  private func traceToolArguments(from value: Any?) -> [TraceToolArgument] {
+    guard let arguments = value as? [[String: Any]] else {
+      return []
+    }
+
+    return arguments.compactMap { argument in
+      guard let name = argument["name"] as? String else {
+        return nil
+      }
+      return TraceToolArgument(
+        name: name,
+        preview: argument["preview"] as? String
+      )
+    }
   }
 
   private func fileSize(at url: URL) -> UInt64 {
@@ -791,6 +817,7 @@ private struct TraceRow {
   let kind: String
   let phase: String?
   let toolName: String?
+  let toolArguments: [TraceToolArgument]
   let output: String?
   let interactionMode: String?
   let toolLoopIteration: Int?
@@ -804,6 +831,11 @@ private struct TraceRow {
     return (cacheMode == "reused_session" && cacheReason == "reused_session")
       || (cacheMode == "append_delta" && cacheReason == "append_only_delta")
   }
+}
+
+private struct TraceToolArgument {
+  let name: String
+  let preview: String?
 }
 
 private enum SumikaUITestError: Error {
@@ -832,6 +864,21 @@ extension Array where Element == TraceRow {
   fileprivate func toolExecutionCount(named toolName: String) -> Int {
     filter { row in
       row.kind == "turn_trace" && row.phase == "tool_execute" && row.toolName == toolName
+    }.count
+  }
+
+  fileprivate func toolExecutionCount(
+    named toolName: String,
+    argumentName: String,
+    preview: String
+  ) -> Int {
+    filter { row in
+      row.kind == "turn_trace"
+        && row.phase == "tool_execute"
+        && row.toolName == toolName
+        && row.toolArguments.contains { argument in
+          argument.name == argumentName && argument.preview == preview
+        }
     }.count
   }
 

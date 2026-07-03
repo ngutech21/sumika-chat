@@ -244,7 +244,6 @@ nonisolated enum GemmaHistoryRenderer {
           from: index,
           until: entries.endIndex,
           in: allEntries,
-          transcript: transcript,
           to: &items
         )
       case .terminalToolResult:
@@ -252,7 +251,6 @@ nonisolated enum GemmaHistoryRenderer {
           from: index,
           until: entries.endIndex,
           in: allEntries,
-          transcript: transcript,
           to: &items
         )
       }
@@ -272,7 +270,6 @@ nonisolated enum GemmaHistoryRenderer {
     from startIndex: Int,
     until endIndex: Int,
     in allEntries: [ModelContextEntry],
-    transcript: ModelContextSnapshot,
     to items: inout [GemmaMessageSnapshot]
   ) -> Int {
     guard hasStructuredAssistantBoundary(before: startIndex, in: allEntries) else {
@@ -282,38 +279,20 @@ nonisolated enum GemmaHistoryRenderer {
 
     var index = startIndex
     var didAppendResult = false
-    var continuationSystemContext: [String] = []
 
     while index < endIndex {
       guard let result = structuredToolResultSnapshot(for: allEntries[index]) else {
         break
       }
 
-      appendNormalized(result.snapshot, to: &items)
+      appendNormalized(result, to: &items)
       didAppendResult = true
-      if let systemContext = result.systemContext {
-        continuationSystemContext = systemContext
-      }
       index += 1
     }
 
     guard didAppendResult else {
       appendUnstructuredToolResultEntry(allEntries[startIndex], to: &items)
       return startIndex + 1
-    }
-
-    if !hasExplicitContinuationUserPrompt(
-      at: index,
-      startIndex: startIndex,
-      endIndex: endIndex,
-      in: allEntries
-    ) {
-      let continuation = toolResultContinuationSnapshot(
-        turnID: allEntries[startIndex].turnID,
-        transcript: transcript,
-        systemContext: continuationSystemContext
-      )
-      appendNormalized(continuation, to: &items)
     }
 
     return index
@@ -427,21 +406,6 @@ nonisolated enum GemmaHistoryRenderer {
     )
   }
 
-  nonisolated private static func toolResultContinuationSnapshot(
-    turnID: ChatTurn.ID?,
-    transcript: ModelContextSnapshot,
-    systemContext: [String]
-  ) -> GemmaMessageSnapshot {
-    let originalUserRequest = turnID.flatMap {
-      transcript.originalUserPromptText(forTurn: $0)
-    }
-    let content = ModelFacingPromptRenderer.nativeToolResultContinuationContent(
-      originalUserRequest: originalUserRequest,
-      systemContext: systemContext
-    )
-    return GemmaMessageSnapshot(role: Chat.Message.Role.user.rawValue, content: content)
-  }
-
   nonisolated private static func structuredToolCalls(
     afterAssistantBoundaryAt boundaryIndex: Int,
     in entries: [ModelContextEntry]
@@ -531,36 +495,21 @@ nonisolated enum GemmaHistoryRenderer {
 
   nonisolated private static func structuredToolResultSnapshot(
     for entry: ModelContextEntry
-  ) -> (snapshot: GemmaMessageSnapshot, systemContext: [String]?)? {
+  ) -> GemmaMessageSnapshot? {
     switch entry.body {
     case .toolObservation(let context):
       guard canRenderStructuredToolResult(context) else {
         return nil
       }
-      return (toolResultSnapshot(for: context), context.systemContext)
+      return toolResultSnapshot(for: context)
     case .terminalToolResult(let context):
       guard canRenderStructuredToolResult(context) else {
         return nil
       }
-      return (toolResultSnapshot(for: context), nil)
+      return toolResultSnapshot(for: context)
     case .userPrompt, .assistantOutput:
       return nil
     }
-  }
-
-  nonisolated private static func hasExplicitContinuationUserPrompt(
-    at index: Int,
-    startIndex: Int,
-    endIndex: Int,
-    in entries: [ModelContextEntry]
-  ) -> Bool {
-    guard index < endIndex,
-      index < entries.count,
-      case .userPrompt = entries[index].body
-    else {
-      return false
-    }
-    return entries[index].turnID == entries[startIndex].turnID
   }
 
   nonisolated private static func toolCallSnapshot(

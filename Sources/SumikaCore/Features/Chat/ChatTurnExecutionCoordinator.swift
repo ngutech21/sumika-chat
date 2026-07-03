@@ -198,7 +198,7 @@ struct ChatTurnExecutionCoordinator {
       toolContext: runtimeToolContext(
         for: toolPromptMode,
         policy: toolCallingPolicy,
-        session: callbacks.session(),
+        cacheSystemPrompt: renderedSystemPrompt,
         toolLoopCoordinator: runtime.toolLoopCoordinator
       ),
       appendChunk: { chunk in
@@ -534,7 +534,7 @@ struct ChatTurnExecutionCoordinator {
   private func runtimeToolContext(
     for toolPromptMode: ToolPromptMode,
     policy: ToolCallingPolicy,
-    session: ChatSession,
+    cacheSystemPrompt: String,
     toolLoopCoordinator: ToolLoopCoordinator
   ) -> ChatRuntimeToolContext? {
     guard policy.strategy == .nativeGemma4 else {
@@ -551,7 +551,7 @@ struct ChatTurnExecutionCoordinator {
     return ChatRuntimeToolContext(
       strategy: policy.strategy,
       registry: registry,
-      cacheSystemPrompt: session.systemPrompt
+      cacheSystemPrompt: cacheSystemPrompt
     )
   }
 

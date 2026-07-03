@@ -706,7 +706,7 @@ struct GemmaMLXRuntimeTemplateTests {
     let input = try generationInput(from: entries)
 
     #expect(input.history.map(\.role) == [.user, .assistant])
-    #expect(input.promptMessages.map(\.role) == [.tool, .user])
+    #expect(input.promptMessages.map(\.role) == [.tool])
     let rawMessages = DefaultMessageGenerator().generate(
       messages: input.history + input.promptMessages
     )
@@ -722,9 +722,7 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(rawMessages[2]["tool_call_id"] as? String == RuntimeToolCallID.string(for: callID))
     #expect(input.promptMessages[0].content.contains("<observation"))
     #expect(input.promptMessages[0].content.contains("Project overview"))
-    #expect(input.promptMessages[1].content.contains("Original user request:"))
-    #expect(!input.promptMessages[1].content.contains("Project overview"))
-    #expect(input.promptSnapshot.map(\.role) == ["tool", "user"])
+    #expect(input.promptSnapshot.map(\.role) == ["tool"])
     #expect(input.promptSnapshot[0].toolCallID == RuntimeToolCallID.string(for: callID))
   }
 
@@ -808,11 +806,9 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(firstFunction["name"] as? String == ToolName.readFile.rawValue)
     #expect(secondToolCall["id"] as? String == RuntimeToolCallID.string(for: listCallID))
     #expect(secondFunction["name"] as? String == ToolName.listFiles.rawValue)
-    #expect(input.promptMessages.map(\.role) == [.tool, .tool, .user])
+    #expect(input.promptMessages.map(\.role) == [.tool, .tool])
     #expect(rawMessages[2]["tool_call_id"] as? String == RuntimeToolCallID.string(for: readCallID))
     #expect(rawMessages[3]["tool_call_id"] as? String == RuntimeToolCallID.string(for: listCallID))
-    #expect(input.promptMessages[2].content.contains("Original user request:"))
-    #expect(!input.promptMessages[2].content.contains("Project overview"))
   }
 
   @Test
@@ -855,7 +851,7 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(input.history.map(\.role) == [.user, .assistant])
     #expect(input.historySnapshot[1].content == "I'll inspect that.")
     #expect(input.historySnapshot[1].toolCalls.count == 1)
-    #expect(input.promptMessages.map(\.role) == [.tool, .user])
+    #expect(input.promptMessages.map(\.role) == [.tool])
   }
 
   @Test
@@ -986,7 +982,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func laterUserTurnHistoryKeepsStructuredToolResultAndContinuation() throws {
+  func laterUserTurnHistoryKeepsStructuredToolResult() throws {
     let callID = UUID()
     let turnID = UUID()
     let transcript = ModelContextSnapshot(entries: [
@@ -1026,18 +1022,16 @@ struct GemmaMLXRuntimeTemplateTests {
 
     let history = try GemmaHistoryRenderer.generationHistoryMessages(from: transcript)
 
-    #expect(history.map(\.role) == [.user, .assistant, .tool, .user, .assistant])
+    #expect(history.map(\.role) == [.user, .assistant, .tool, .assistant])
     #expect(history[2].content.contains("<observation"))
     #expect(history[2].content.contains("Project overview"))
     #expect(history[2].content.contains("Tool receipt:") == false)
-    #expect(history[3].content.contains("Original user request:"))
-    #expect(!history[3].content.contains("Project overview"))
+    #expect(history[3].content.contains("README.md is a project file."))
   }
 
-  // The tool follow-up prompt is frozen into the observation entry, and the
-  // runtime renders full history without receipt compaction. The next user
-  // turn therefore renders the observation byte-identically to what was
-  // prefilled, and the cached KV prefix survives the turn boundary.
+  // The native tool result is rendered as the same structured tool message in
+  // both the prompt batch and later history, so the cached KV prefix survives
+  // the turn boundary.
   @Test
   func cachePrefixSurvivesUserTurnAfterToolObservation() throws {
     let callID = UUID()
@@ -1085,8 +1079,8 @@ struct GemmaMLXRuntimeTemplateTests {
         )
       ]
 
-    // The next user turn: the observation now lives in history, frozen in the
-    // same follow-up form that was sent as the prompt.
+    // The next user turn: the observation now lives in history in the same
+    // structured tool form that was sent as the prompt.
     let nextTurn = ModelContextSnapshot(
       entries: toolTurnEntries + [
         try ModelFacingPromptRenderer.assistantOutputEntry(
@@ -1095,15 +1089,14 @@ struct GemmaMLXRuntimeTemplateTests {
       ])
     let currentHistory = try GemmaHistoryRenderer.generationInput(from: nextTurn).historySnapshot
 
-    // Same position, same wire form: the prefilled structured tool result and
-    // continuation are identical to their later history rendering.
-    #expect(cachedPrefix.map(\.role) == ["user", "assistant", "tool", "user", "assistant"])
+    // Same position, same wire form: the prefilled structured tool result is
+    // identical to its later history rendering.
+    #expect(cachedPrefix.map(\.role) == ["user", "assistant", "tool", "assistant"])
     #expect(cachedPrefix[1].toolCalls.count == 1)
     #expect(cachedPrefix[2].toolCallID == RuntimeToolCallID.string(for: callID))
     #expect(cachedPrefix[2].content.contains("<observation"))
     #expect(currentHistory[2].content.contains("<observation"))
     #expect(cachedPrefix[2] == currentHistory[2])
-    #expect(cachedPrefix[3] == currentHistory[3])
     #expect(cachedPrefix == currentHistory)
     #expect(GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
     #expect(
@@ -1199,8 +1192,8 @@ struct GemmaMLXRuntimeTemplateTests {
       ]
     ).historySnapshot
 
-    #expect(cachedPrefix.map(\.role) == ["user", "assistant", "tool", "user", "assistant"])
-    #expect(currentHistory[3].content.contains(originalPrompt))
+    #expect(cachedPrefix.map(\.role) == ["user", "assistant", "tool", "assistant"])
+    #expect(currentHistory[3].toolCalls.map(\.id) == [RuntimeToolCallID.string(for: writeCallID)])
     #expect(!currentHistory[3].content.contains(finalInstruction))
     #expect(cachedPrefix == currentHistory)
     #expect(GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
