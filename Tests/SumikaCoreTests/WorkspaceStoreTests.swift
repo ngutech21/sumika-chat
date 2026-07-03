@@ -55,12 +55,14 @@ struct WorkspaceStoreTests {
     let store = WorkspaceStore(libraryURL: libraryURL)
     let session = ChatSession(
       selectedModelID: "gemma4-12b-qat-4bit",
-      modelContextSnapshot: ModelContextSnapshot(
-        entries: [
-          try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello"),
-          try ModelFacingPromptRenderer.assistantOutputEntry(content: "hi"),
-        ]
-      ),
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [
+            .userMessage(UserTurnMessage(content: "hello")),
+            .assistantMessage(AssistantTurnMessage(content: "hi")),
+          ])
+      ],
       modeSettings: testModeSettings(
         systemPrompt: "Use short answers.",
         generationSettings: ChatGenerationSettings(
@@ -239,7 +241,7 @@ struct WorkspaceStoreTests {
   }
 
   @Test
-  func chatSessionDecodeDefaultsMissingModelContextSnapshot() throws {
+  func chatSessionDecodeIgnoresAbsentLegacyModelContextSnapshot() throws {
     let session = ChatSession(
       title: "Current",
       selectedModelID: "gemma4-12b-qat-4bit",
@@ -261,20 +263,21 @@ struct WorkspaceStoreTests {
     let data = try JSONSerialization.data(withJSONObject: object)
 
     let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
-    #expect(decoded.modelContextSnapshot == ModelContextSnapshot())
     #expect(decoded.title == "Current")
     #expect(decoded.modeSettings == session.modeSettings)
   }
 
   @Test
-  func chatSessionEncodingOmitsPendingAttachmentsAndTranscriptWrapper() throws {
+  func chatSessionEncodingOmitsPendingAttachmentsTranscriptWrapperAndLegacyModelContextSnapshot()
+    throws
+  {
     let session = ChatSession(
       selectedModelID: "gemma4-12b-qat-4bit",
-      modelContextSnapshot: ModelContextSnapshot(
-        entries: [
-          try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
-        ]
-      ),
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [.userMessage(UserTurnMessage(content: "hello"))])
+      ],
       pendingAttachments: [
         ChatAttachment(
           url: URL(filePath: "/tmp/project/README.md"),
@@ -297,7 +300,7 @@ struct WorkspaceStoreTests {
     #expect(object["modeSettings"] != nil)
     #expect(object["systemPrompt"] == nil)
     #expect(object["generationSettings"] == nil)
-    #expect(object["modelContextSnapshot"] != nil)
+    #expect(object["modelContextSnapshot"] == nil)
     #expect(decoded.pendingAttachments.isEmpty)
     #expect(decoded == session)
   }

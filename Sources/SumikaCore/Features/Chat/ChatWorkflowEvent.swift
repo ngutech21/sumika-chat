@@ -6,13 +6,8 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
     content: String,
     messageID: UUID,
     turnID: ChatTurn.ID,
-    attachments: [ChatAttachment]
-  )
-  case modelContextEntryAppended(ModelContextEntry)
-  case nativeAssistantBoundaryAppended(
-    content: String,
-    sourceMessageID: UUID,
-    turnID: ChatTurn.ID
+    attachments: [ChatAttachment],
+    promptContext: CurrentPromptContext
   )
   case assistantMessageAnnotatedAsToolCall(
     assistantMessageID: UUID,
@@ -67,10 +62,6 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
   )
   case focusedFileStateChanged(FocusedFileState)
   case todoStateChanged(TodoState)
-  case finalToolResultFollowUpBoundaryAppended(
-    content: String,
-    turnID: ChatTurn.ID
-  )
   case streamingAssistantMessagesCancelled(turnID: ChatTurn.ID)
   case transientAssistantPlaceholdersRemoved
 }
@@ -149,24 +140,21 @@ public struct ChatWorkflowEventApplier: Sendable {
     switch event {
     case .turnAppended(let turn):
       mutator.appendTurn(turn, to: &state)
-    case .userMessageAppended(let content, let messageID, let turnID, let attachments):
+    case .userMessageAppended(
+      let content,
+      let messageID,
+      let turnID,
+      let attachments,
+      let promptContext
+    ):
       mutator.appendUserMessage(
         content,
         id: messageID,
         turnID: turnID,
         attachments: attachments,
+        promptContext: promptContext,
         to: &state
       )
-    case .modelContextEntryAppended(let entry):
-      mutator.appendModelContextEntry(entry, to: &state)
-    case .nativeAssistantBoundaryAppended(let content, let sourceMessageID, let turnID):
-      if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
-        turnID: turnID,
-        sourceMessageID: sourceMessageID,
-        content: content
-      ) {
-        mutator.appendModelContextEntry(entry, to: &state)
-      }
     case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, let toolCall):
       mutator.annotateToolCall(toolCall, for: assistantMessageID, in: &state)
     case .assistantAnnotatedAsNativeToolCall(let assistantMessageID, let toolCall):
@@ -177,17 +165,6 @@ public struct ChatWorkflowEventApplier: Sendable {
       mutator.updateToolCallRecord(record, in: &state)
     case .toolResultAppended(let toolResult, let turnID):
       mutator.appendToolResult(toolResult, turnID: turnID, to: &state)
-      if let request = state.toolCallRecord(id: toolResult.callID)?.request {
-        if let entry = try? ModelFacingPromptRenderer.toolResultEntry(
-          turnID: turnID,
-          sourceMessageID: toolResult.callID,
-          toolResult: toolResult,
-          request: request,
-          originalUserRequest: state.modelContextSnapshot.originalUserPromptText(forTurn: turnID)
-        ) {
-          mutator.appendModelContextEntry(entry, to: &state)
-        }
-      }
     case .assistantPlaceholderAppended(let messageID, let turnID):
       mutator.appendAssistantPlaceholder(id: messageID, turnID: turnID, to: &state)
     case .assistantThinkingPlaceholderAppended(let messageID, let turnID):
@@ -208,13 +185,7 @@ public struct ChatWorkflowEventApplier: Sendable {
       let turnID
     ):
       mutator.appendAssistantMessage(content, id: messageID, turnID: turnID, to: &state)
-      if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
-        turnID: turnID,
-        sourceMessageID: messageID,
-        content: modelContextContent
-      ) {
-        mutator.appendModelContextEntry(entry, to: &state)
-      }
+      _ = modelContextContent
     case .turnStatusChanged(let turnID, let status, let modelContextPolicy):
       mutator.updateTurnStatus(
         status,
@@ -226,8 +197,6 @@ public struct ChatWorkflowEventApplier: Sendable {
       state.focusedFileState = focusedFileState
     case .todoStateChanged(let todoState):
       state.todoState = todoState
-    case .finalToolResultFollowUpBoundaryAppended(let content, let turnID):
-      mutator.appendFinalToolResultFollowUpBoundary(content, turnID: turnID, to: &state)
     case .streamingAssistantMessagesCancelled(let turnID):
       mutator.markStreamingAssistantMessagesCancelled(inTurn: turnID, in: &state)
     case .transientAssistantPlaceholdersRemoved:
@@ -241,13 +210,10 @@ public struct ChatWorkflowEventApplier: Sendable {
     in state: ChatSession
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
     switch event {
-    case .turnAppended, .modelContextEntryAppended:
+    case .turnAppended:
       return []
-    case .userMessageAppended(_, _, let turnID, _):
+    case .userMessageAppended(_, _, let turnID, _, _):
       return missingTurnDiagnostics([turnID], event: event, in: state)
-    case .nativeAssistantBoundaryAppended(_, let sourceMessageID, let turnID):
-      return missingMessageDiagnostics([sourceMessageID], event: event, in: state)
-        + missingTurnDiagnostics([turnID], event: event, in: state)
     case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, _):
       return missingMessageDiagnostics([assistantMessageID], event: event, in: state)
     case .assistantAnnotatedAsNativeToolCall(let assistantMessageID, _):
@@ -269,7 +235,6 @@ public struct ChatWorkflowEventApplier: Sendable {
       .assistantPlaceholderAppended(_, let turnID),
       .assistantThinkingPlaceholderAppended(_, let turnID),
       .assistantMessageAppended(_, _, _, let turnID),
-      .finalToolResultFollowUpBoundaryAppended(_, let turnID),
       .turnStatusChanged(let turnID, _, _),
       .streamingAssistantMessagesCancelled(let turnID):
       return missingTurnDiagnostics([turnID], event: event, in: state)

@@ -26,7 +26,7 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -81,7 +81,7 @@ actor ControlledContextUsageRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -110,7 +110,7 @@ actor CountingClearContextRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -142,7 +142,7 @@ actor InterruptedStreamingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -193,7 +193,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -248,7 +248,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,
@@ -303,7 +303,7 @@ actor PartialFailingStreamingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -352,7 +352,7 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -465,7 +465,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -503,7 +503,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,

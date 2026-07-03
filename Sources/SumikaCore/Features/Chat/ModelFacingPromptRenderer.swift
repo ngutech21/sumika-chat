@@ -118,49 +118,6 @@ public enum ModelFacingPromptRenderer {
     status == .success && (toolName == .writeFile || toolName == .editFile)
   }
 
-  public static func finalToolResultPromptEntry(
-    id: UUID = UUID(),
-    turnID: ChatTurn.ID? = nil,
-    sourceMessageID: UUID? = nil,
-    terminalToolResult: TerminalToolResultContext,
-    followUpInstruction: String,
-    originalUserRequest _: String?,
-    policy: ToolResultProjectionPolicy = .default,
-    systemContext: [String] = []
-  ) throws -> ModelContextEntry {
-    let toolResultContent = limitedToolObservationContent(
-      terminalToolResult.content,
-      policy: policy
-    )
-    let prompt = [
-      toolResultContent,
-      followUpInstruction,
-    ]
-    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-    .filter { !$0.isEmpty }
-    .joined(separator: "\n\n")
-
-    let observationContext = ToolObservationContext(
-      callID: terminalToolResult.callID,
-      toolName: terminalToolResult.toolName,
-      status: terminalToolResult.status,
-      content: prompt,
-      toolReceipt: terminalToolResult.toolReceipt,
-      toolCall: terminalToolResult.toolCall,
-      systemContext: normalizedSystemContext(systemContext)
-    )
-    return try ModelContextEntry(
-      id: id,
-      turnID: turnID,
-      sourceMessageID: sourceMessageID,
-      body: .toolObservation(observationContext),
-      frozenContent: FrozenModelContent(
-        role: .tool,
-        content: prompt
-      )
-    )
-  }
-
   public static func userContent(
     _ content: String,
     systemContext: [String]

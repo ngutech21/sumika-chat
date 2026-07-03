@@ -75,7 +75,7 @@ public actor RuntimeOperationCoordinator {
   }
 
   public func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,

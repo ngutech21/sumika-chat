@@ -468,7 +468,7 @@ private actor RuntimeControllerRecordingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -513,7 +513,7 @@ private actor RuntimeControllerRaceLoadingRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -562,7 +562,7 @@ private actor RuntimeControllerDelayedUnloadRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings

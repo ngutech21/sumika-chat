@@ -66,8 +66,8 @@ flowchart TD
   pending call and its eventual result state.
 - `AssistantTurnMessage.deliveryStatus` distinguishes complete assistant
   messages from streaming or cancelled partial output.
-- `ChatModelContextBuilder` turns `ChatSession` into the model context
-  `ModelContextSnapshot`. It excludes entries belonging to turns whose
+- `ChatModelContextBuilder` turns `ChatSession.turns` into a non-persisted
+  `ModelPromptProjection`. It excludes entries belonging to turns whose
   `modelContextPolicy` is `.excluded`, except while that same turn is actively
   generating its direct follow-up response.
 - `ChatGenerationCoordinator` streams model events into assistant chunks,
@@ -85,16 +85,16 @@ flowchart TD
 - `ChatWorkflowEventApplier` applies typed workflow events to `ChatSession`
   using `ChatTranscriptMutator`. These events are not persisted; persistence
   stores only the resulting turns, turn items, and tool-call records.
-- `ContextUsageCoordinator` computes token usage from the same filtered frozen
-  model-facing transcript used for generation.
+- `ContextUsageCoordinator` computes token usage from the same derived
+  model-facing projection used for generation.
 
 ## Turn Lifecycle
 
 1. `sendMessage` validates UI-facing state, clears the draft and pending
    attachments, then calls `ChatTurnCoordinator.startUserTurn`.
-2. `ChatTurnCoordinator` emits events that create a `ChatTurn` with status
-   `.running`, append the user message, append the frozen model-context entry,
-   and append the assistant placeholder.
+2. `ChatTurnCoordinator` computes the current prompt context, then emits events
+   that create a `ChatTurn` with status `.running`, append the user message with
+   its frozen `promptContext`, and append the assistant placeholder.
 3. `ChatTurnCoordinator` starts the async operation for that turn.
 4. Initial generation streams into the assistant placeholder.
 5. If the assistant output is an allowed tool call, `ToolLoopCoordinator` returns
@@ -163,43 +163,32 @@ flowchart TD
   disable tools. If the model still emits a native tool attempt, the caller
   treats the follow-up as final and does not execute another tool.
 - Cancel should schedule a normal context-usage refresh with the latest filtered
-  snapshot. It must not block turn cancellation on synchronous token counting.
+  projection. It must not block turn cancellation on synchronous token counting.
 
 ## Model Context Rules
 
 - Always build model input through `ChatModelContextBuilder`; do not pass the
   raw transcript directly to the model runtime from new code.
-- `ModelContextSnapshot` is the source for runtime generation and context
-  usage. Each `ModelContextEntry` stores typed intent in `body` and the
-  byte-stable rendered role/content in `frozenContent`.
-- Derive model role from the ADT body. Persisted entries whose body role and
-  frozen rendered role disagree are invalid and must be rejected or explicitly
-  repaired by a migration.
-- Freeze rendered content when appending user prompts, assistant outputs, tool
-  observations, and terminal tool results. Do not reconstruct old model-facing
-  history from mutable UI state, focused context, current tool prompt mode, or
-  attachments.
-- `ModelContextSnapshot` is the only persisted model context ledger.
-  Runtime calls consume the full-history projection of that ledger; rendering
-  is append-only so the cached KV prefix stays a byte-stable prefix of every
-  later generation.
-- Same-turn tool follow-ups must not treat `toolObservation` entries as new user
-  instructions. The follow-up form is frozen into the entry at creation time:
-  the original user request, an assistant tool-call marker, the untrusted tool
-  observation, and a continue instruction. Each observation carries only its
-  own result; earlier observations stay in history as their own messages and
-  are never re-rendered into later prompts. An observation created without a
-  resolvable original user request freezes the bare observation form instead.
-- Receipt compaction (`compactedHistoryForLaterTurns`) is not applied by the
-  runtime. It remains a model-level projection reserved for a future explicit
-  compaction boundary, because rewriting past observations invalidates the
-  cached KV prefix after every tool turn.
-- Legacy model-context messages are not stored or backfilled.
-- Completed turns are included by default.
+- `ChatSession.turns` and `ChatTurn.items` are the persisted source of truth for
+  chat history, assistant output, and tool lifecycle state. `ModelPromptProjection`
+  is a derived read model, not session state.
+- Prompt-affecting data must live with its canonical owner. User prompts carry
+  their frozen `UserTurnMessage.promptContext` and attachments, assistant items
+  carry assistant text, and tool items carry `ToolCallRecord` plus the completed
+  result payload.
+- `ModelPromptProjection` renders typed `ModelContextEntry` values from turns at
+  generation time. Each entry stores typed intent in `body` and the byte-stable
+  rendered role/content in `frozenContent` for that request.
+- Tool follow-ups are rendered as provider-native role sequences, not synthetic
+  user continuations. A completed native tool call projects as assistant
+  `tool_calls` metadata with a stable call ID followed by one or more `tool`
+  observation messages with the matching `tool_call_id`.
+- Empty or cancelled streaming placeholders and assistant-thinking items are
+  skipped. Completed turns are included by default.
 - Cancelled and failed turns with `modelContextPolicy == .excluded` are omitted
   from future prompts and context-usage calculations.
-- The UI transcript remains the audit source. The frozen ledger is the
-  model-facing prompt and cache-correctness source.
+- The UI/debug model-context pane renders the same derived projection that the
+  runtime receives, so the debug view cannot drift from generation input.
 
 ## Gemma/MLX Cache Rules
 
@@ -218,16 +207,14 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   send either the current prompt or the appended history delta plus the current
   prompt through `streamDetails(to messages:)`.
 - Native Gemma 4 tool calls are not assistant prose in the MLX session. Core
-  still stores a canonical non-visible assistant boundary plus the typed raw
-  arguments in `ModelContextSnapshot`, but the Gemma renderer replays that ledger
-  as structured assistant `tool_calls` with stable `call_<uuid>` IDs and matching
-  `tool` result messages. Consecutive tool results after one assistant boundary
-  become consecutive `tool` messages followed by one continuation user message.
-  The continuation restates the original user request and tool-result trust
-  boundary without duplicating the tool output.
+  stores only the canonical turn/tool records. `ChatModelContextBuilder` derives
+  a transient assistant tool-call boundary and the Gemma renderer sends it as
+  structured assistant `tool_calls` with stable `call_<uuid>` IDs and matching
+  `tool` result messages. No user-role continuation message is synthesized after
+  a tool result.
 - Image prompts stay cacheable. The content signatures of the images consumed
-  with a user prompt are frozen into the entry (`UserPromptContext.imageSignatures`)
-  and carried through the projection into the prefix snapshots, so identical
+  with a user prompt are derived from the user message attachments and carried
+  through the projection into the prefix snapshots, so identical
   rendered text with different prefilled images can never reuse a cached
   session. Signatures are bookkeeping only and are never sent to the model.
   The image tokens stay in the reused KV cache; after a full re-prefill from
@@ -245,22 +232,22 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   before decode. It is not part of prefix comparison because the Gemma template
   does not render tool specs into the prefilled prompt.
 
-The native Gemma 4 fast path preserves the assistant tool-call boundary in Core
-while replaying it to MLX as native structured tool-call metadata.
+The native Gemma 4 fast path preserves the assistant tool-call boundary as a
+derived projection while replaying it to MLX as native structured tool-call
+metadata.
 
 ## Persistence Rules
 
-- `ChatSession` persists `modelContextSnapshot` and `turns`. Tool-call records
-  live only inside `ChatTurn.items` and `ChatSession.toolCalls` is a derived
-  projection, not a second persisted list.
-- Sessions without a stored `modelContextSnapshot` do not decode.
 - `ChatSession.turns` is the transcript and tool-state source of truth. Append
   new turn items for new user, assistant, and tool facts; update existing items
   only for their own lifecycle fields. Do not persist workflow event logs,
   derived tool lists, or UI caches as session state.
-- `ModelContextSnapshot` is intentionally persisted as a frozen model-facing
-  copy. It is separate from the UI transcript so prompt bytes and cache prefixes
-  stay stable after later transcript projections change.
+- `ChatSession.toolCalls` is a derived projection from `ChatTurn.items`, not a
+  second persisted list.
+- User messages persist `promptContext` so the model-facing prompt can be
+  re-derived byte-stably without a parallel prompt ledger.
+- `ModelPromptProjection` is never persisted on `ChatSession`; generation,
+  context usage, debug panels, and traces rebuild it from turns.
 - Clearing a chat transcript removes turns, derived tool-call projections, and
   attachments, but keeps session settings such as per-mode system prompts and
   generation settings.
@@ -277,6 +264,6 @@ while replaying it to MLX as native structured tool-call metadata.
 3. Put UI-free async loop behavior in `ChatTurnCoordinator`. UI facades should
    provide existing state and callbacks, not duplicate the loop.
 4. Gate async mutations with the active `turnID`.
-5. Use `ChatModelContextBuilder` for generation and context-usage snapshots.
+5. Use `ChatModelContextBuilder` for generation and context-usage projections.
 6. Add tests for cancelled turns, stale async results, persistence defaults, and
    model-context filtering when the behavior touches turn state.

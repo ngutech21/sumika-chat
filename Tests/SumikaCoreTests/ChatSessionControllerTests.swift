@@ -474,7 +474,8 @@ struct ChatSessionControllerTests {
     controller.sendMessage(prompt: "second")
     try await waitUntil { !controller.isGenerating }
 
-    let userEntries = controller.chatSession.modelContextSnapshot.entries.filter {
+    let projection = ChatModelContextBuilder().transcript(from: controller.chatSession)
+    let userEntries = projection.entries.filter {
       $0.frozenContent.role == .user
     }
     #expect(userEntries.count == 2)
@@ -569,23 +570,21 @@ struct ChatSessionControllerTests {
       capturedMessages.first?.contains(where: { message in
         message.role == .user && message.content.contains("Attached file: source.swift")
       }) == true)
+    let projection = ChatModelContextBuilder().transcript(from: controller.chatSession)
+    #expect(projection.entries.map(\.frozenContent.role) == [.user, .assistant])
     #expect(
-      controller.chatSession.modelContextSnapshot.entries.map(\.frozenContent.role) == [
-        .user, .assistant,
-      ])
-    #expect(
-      controller.chatSession.modelContextSnapshot.entries[0].frozenContent.content.contains(
+      projection.entries[0].frozenContent.content.contains(
         "Attached file: source.swift"))
     #expect(
-      controller.chatSession.modelContextSnapshot.entries[0].frozenContent.content.contains(
+      projection.entries[0].frozenContent.content.contains(
         "Attached content excerpt:"))
     #expect(
-      controller.chatSession.modelContextSnapshot.entries[0].frozenContent.content.contains(
+      projection.entries[0].frozenContent.content.contains(
         "Attached context:") == false)
     #expect(
-      controller.chatSession.modelContextSnapshot.entries[0].frozenContent.content.contains(
+      projection.entries[0].frozenContent.content.contains(
         "Explain this"))
-    if case .userPrompt(let context) = controller.chatSession.modelContextSnapshot.entries[0].body {
+    if case .userPrompt(let context) = projection.entries[0].body {
       #expect(context.attachmentNames == [attachment.displayName])
       guard case .selected(let selection) = context.currentPromptContext,
         case .attachedFile(let attachedFile) = selection.blocks.values[0]
@@ -599,9 +598,7 @@ struct ChatSessionControllerTests {
     } else {
       Issue.record("Expected first model-facing entry to be a user prompt.")
     }
-    #expect(
-      controller.chatSession.modelContextSnapshot.entries[1].frozenContent.content == "hello world"
-    )
+    #expect(projection.entries[1].frozenContent.content == "hello world")
   }
 
   @Test
@@ -936,22 +933,20 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.testMessages[1].toolResult?.preview.status == .success)
     #expect(controller.chatSession.testMessages[1].toolResult?.preview.text == "1: project notes")
     #expect(controller.chatSession.testMessages[2].content == "The README says project notes.")
+    let projection = ChatModelContextBuilder().transcript(from: controller.chatSession)
     #expect(
-      controller.chatSession.modelContextSnapshot.entries.map(\.frozenContent.role) == [
+      projection.entries.map(\.frozenContent.role) == [
         .user, .assistant, .tool, .assistant,
       ])
     #expect(
-      controller.chatSession.modelContextSnapshot.entries[0].frozenContent.content
+      projection.entries[0].frozenContent.content
         .contains("lies die projektbeschreibung"))
+    #expect(projection.entries[1].frozenContent.content.isEmpty)
     #expect(
-      controller.chatSession.modelContextSnapshot.entries[1].frozenContent.content.contains(
-        "Tool call read_file requested.")
-    )
-    #expect(
-      controller.chatSession.modelContextSnapshot.entries[2].frozenContent.content.contains(
+      projection.entries[2].frozenContent.content.contains(
         "1: project notes"))
     #expect(
-      controller.chatSession.modelContextSnapshot.entries[3].frozenContent.content
+      projection.entries[3].frozenContent.content
         == "The README says project notes.")
 
     let capturedMessages = await runtime.capturedMessages
@@ -1388,19 +1383,20 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.testMessages[2].kind == .assistant)
     #expect(controller.chatSession.testMessages[2].content.contains("Here is `README.md`:"))
     #expect(controller.chatSession.testMessages[2].content.contains("1: project notes"))
+    let projection = ChatModelContextBuilder().transcript(from: controller.chatSession)
     #expect(
-      controller.chatSession.modelContextSnapshot.entries.map(\.frozenContent.role) == [
+      projection.entries.map(\.frozenContent.role) == [
         .user, .assistant, .tool, .assistant,
       ])
     #expect(
-      controller.chatSession.modelContextSnapshot.entries[2].frozenContent.content.contains(
+      projection.entries[2].frozenContent.content.contains(
         "Displayed file to user: README.md"))
     #expect(
-      !controller.chatSession.modelContextSnapshot.entries[2].frozenContent.content.contains(
+      !projection.entries[2].frozenContent.content.contains(
         "1: project notes"))
     #expect(
-      controller.chatSession.modelContextSnapshot.entries[3].frozenContent.content
-        == "Displayed show_file result for README.md directly to the user.")
+      projection.entries[3].frozenContent.content.contains("Here is `README.md`:"))
+    #expect(projection.entries[3].frozenContent.content.contains("1: project notes"))
     #expect(controller.chatSession.focusedFileState == .empty)
 
     let capturedMessages = await runtime.capturedMessages

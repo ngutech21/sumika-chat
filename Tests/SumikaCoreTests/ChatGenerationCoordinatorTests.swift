@@ -17,7 +17,7 @@ struct ChatGenerationCoordinatorTests {
     var updatedMetrics: ChatGenerationMetrics?
 
     let assistantContent = try await coordinator.streamAssistantReply(
-      transcript: ModelContextSnapshot(),
+      transcript: ModelPromptProjection(),
       systemPrompt: "Answer normally.",
       settings: .agentDefault,
       appendChunk: { _ in },
@@ -45,7 +45,7 @@ struct ChatGenerationCoordinatorTests {
 
     await #expect(throws: ChatGenerationError.streamInterrupted) {
       try await coordinator.streamAssistantReply(
-        transcript: ModelContextSnapshot(),
+        transcript: ModelPromptProjection(),
         systemPrompt: "Answer normally.",
         settings: .agentDefault,
         appendChunk: { chunks.append($0) },
@@ -68,7 +68,7 @@ struct ChatGenerationCoordinatorTests {
     var chunks: [String] = []
 
     _ = try await coordinator.streamAssistantReply(
-      transcript: ModelContextSnapshot(),
+      transcript: ModelPromptProjection(),
       systemPrompt: "Answer normally.",
       settings: .agentDefault,
       appendChunk: { chunks.append($0) },
@@ -94,7 +94,7 @@ struct ChatGenerationCoordinatorTests {
     var didUpdateContextUsage = false
 
     let result = try await coordinator.streamAssistantReplyResult(
-      transcript: ModelContextSnapshot(),
+      transcript: ModelPromptProjection(),
       systemPrompt: "Answer normally.",
       settings: .agentDefault,
       appendChunk: { visibleChunks.append($0) },
@@ -136,7 +136,7 @@ struct ChatGenerationCoordinatorTests {
     var publishedSnapshot: RuntimeCacheDebugSnapshot?
 
     _ = try await coordinator.streamAssistantReply(
-      transcript: ModelContextSnapshot(),
+      transcript: ModelPromptProjection(),
       systemPrompt: "Answer normally.",
       settings: .agentDefault,
       appendChunk: { _ in },
@@ -165,7 +165,7 @@ struct ChatGenerationCoordinatorTests {
     _ = try await coordinator.streamAssistantReply(
       turnID: turnID,
       toolLoopIteration: 2,
-      transcript: ModelContextSnapshot(entries: [
+      transcript: ModelPromptProjection(entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "hi")
       ]),
       systemPrompt: "Answer normally.",
@@ -203,7 +203,7 @@ struct ChatGenerationCoordinatorTests {
     let generationTask = Task {
       try await coordinator.streamAssistantReply(
         operationID: operationID,
-        transcript: ModelContextSnapshot(),
+        transcript: ModelPromptProjection(),
         systemPrompt: "Answer normally.",
         settings: .agentDefault,
         appendChunk: { chunks.append($0) },
@@ -271,7 +271,7 @@ private actor RuntimeCacheSnapshotRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -312,7 +312,7 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings

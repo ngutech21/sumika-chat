@@ -8,28 +8,20 @@ public struct ChatTranscriptMutator: Sendable {
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
     attachments: [ChatAttachment],
+    promptContext: CurrentPromptContext = .empty(.focusedFileDefault),
     to state: inout ChatSession
   ) {
     appendItem(
-      .userMessage(UserTurnMessage(id: id, content: content, attachments: attachments)),
+      .userMessage(
+        UserTurnMessage(
+          id: id,
+          content: content,
+          attachments: attachments,
+          promptContext: promptContext
+        )),
       toTurn: turnID,
       in: &state
     )
-  }
-
-  public func appendModelContextEntry(
-    _ entry: ModelContextEntry,
-    to state: inout ChatSession
-  ) {
-    state.modelContextSnapshot.entries.append(entry)
-  }
-
-  public func appendFinalToolResultFollowUpBoundary(
-    _ content: String,
-    turnID: ChatTurn.ID,
-    to state: inout ChatSession
-  ) {
-    _ = (content, turnID, state)
   }
 
   public func appendAssistantPlaceholder(
@@ -195,7 +187,6 @@ public struct ChatTranscriptMutator: Sendable {
   }
 
   public func clearTranscript(in state: inout ChatSession) {
-    state.modelContextSnapshot.entries.removeAll()
     state.turns.removeAll()
     state.pendingAttachments.removeAll()
     state.focusedFileState = .empty

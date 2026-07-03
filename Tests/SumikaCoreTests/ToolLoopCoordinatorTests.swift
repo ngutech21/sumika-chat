@@ -86,7 +86,7 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
-  func duplicateReadFileInSameTurnReturnsUnchangedWithoutExecutingAgain() async throws {
+  func duplicateReadFileInSameTurnStopsWithoutExecutingAgain() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let previousRequest = RawToolCallRequest(
@@ -128,16 +128,8 @@ struct ToolLoopCoordinatorTests {
     )
 
     #expect(await orchestrator.executionCount == 0)
-    #expect(toolCallRecord(from: result)?.status == .completed)
-    let payload = toolCallRecord(from: result)?.resultPayload
-    guard
-      case .readFile(.unchanged(let path, let readKey)) = payload
-    else {
-      Issue.record("Expected duplicate read_file to return unchanged without execution.")
-      return
-    }
-    #expect(path.rawValue == "README.md")
-    #expect(readKey == ReadKey(path: path))
+    #expect(toolCallRecords(from: result).isEmpty)
+    #expect(toolResults(from: result).isEmpty)
     #expect(resumePromptMode(from: result) == .afterToolResultFinal)
   }
 
@@ -162,15 +154,12 @@ struct ToolLoopCoordinatorTests {
 
     #expect(await orchestrator.executionCount == 1)
     let records = toolCallRecords(from: result)
-    #expect(records.count == 2)
+    #expect(records.count == 1)
     guard case .readFile(.success) = records.first?.resultPayload else {
       Issue.record("Expected first read_file to execute normally.")
       return
     }
-    guard case .readFile(.unchanged) = records.dropFirst().first?.resultPayload else {
-      Issue.record("Expected duplicate read_file to reuse the previous result.")
-      return
-    }
+    #expect(resumePromptMode(from: result) == .afterToolResultFinal)
   }
 
   @Test
@@ -218,9 +207,8 @@ struct ToolLoopCoordinatorTests {
     )
 
     #expect(await orchestrator.executionCount == 0)
-    let record = try #require(toolCallRecord(from: result))
-    #expect(record.status == .failed)
-    #expect(record.resultPayload?.preview.text.contains("Identical list_files") == true)
+    #expect(toolCallRecords(from: result).isEmpty)
+    #expect(toolResults(from: result).isEmpty)
     #expect(resumePromptMode(from: result) == .afterToolResultFinal)
   }
 
@@ -245,16 +233,11 @@ struct ToolLoopCoordinatorTests {
 
     #expect(await orchestrator.executionCount == 1)
     let records = toolCallRecords(from: result)
-    #expect(records.count == 2)
+    #expect(records.count == 1)
     guard case .listFiles = records.first?.resultPayload else {
       Issue.record("Expected first list_files to execute normally.")
       return
     }
-    guard case .failure(let failure) = records.dropFirst().first?.resultPayload else {
-      Issue.record("Expected duplicate list_files to be blocked as no progress.")
-      return
-    }
-    #expect(failure.message.contains("Identical list_files"))
     #expect(resumePromptMode(from: result) == .afterToolResultFinal)
   }
 
@@ -406,7 +389,9 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    let boundary = try #require(nativeAssistantBoundary(from: result))
+    let boundary = annotatedNativeToolCalls(from: result)
+      .map(\.modelContextContent)
+      .joined(separator: "\n")
     #expect(boundary.contains("Tool call read_file requested."))
     #expect(boundary.contains("path: README.md"))
     #expect(boundary.contains("Tool call edit_file requested."))
@@ -666,16 +651,6 @@ struct ToolLoopCoordinatorTests {
       }
       return toolCall
     }
-  }
-
-  private func nativeAssistantBoundary(from step: ChatWorkflowStep?) -> String? {
-    for event in step?.events ?? [] {
-      guard case .nativeAssistantBoundaryAppended(let content, _, _) = event else {
-        continue
-      }
-      return content
-    }
-    return nil
   }
 
   private func toolCallRecord(from step: ChatWorkflowStep?) -> ToolCallRecord? {

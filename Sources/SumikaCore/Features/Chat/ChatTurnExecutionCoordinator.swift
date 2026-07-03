@@ -82,6 +82,13 @@ struct ChatTurnExecutionCoordinator {
       workspace: workspace,
       focusedFileState: session.focusedFileState
     )
+    let currentPromptContext = modelContextBuilder.currentPromptContext(
+      userInput: prompt,
+      mode: interactionMode,
+      focusedFileState: session.focusedFileState,
+      attachments: attachments,
+      workspace: workspace
+    )
     callbacks.emitEvents(
       focusedEvents + [
         .turnAppended(
@@ -93,27 +100,11 @@ struct ChatTurnExecutionCoordinator {
           content: prompt,
           messageID: userMessageID,
           turnID: turnID,
-          attachments: attachments
+          attachments: attachments,
+          promptContext: currentPromptContext.consumedContext
         ),
       ])
 
-    let currentPromptContext = modelContextBuilder.currentPromptContext(
-      userInput: prompt,
-      mode: interactionMode,
-      focusedFileState: session.focusedFileState,
-      attachments: attachments,
-      workspace: workspace
-    )
-    if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
-      turnID: turnID,
-      sourceMessageID: userMessageID,
-      prompt: prompt,
-      attachments: attachments,
-      systemContext: currentPromptContext.renderedBlocks,
-      currentPromptContext: currentPromptContext.consumedContext
-    ) {
-      callbacks.emitEvents([.modelContextEntryAppended(entry)])
-    }
     callbacks.emitEvents([
       .assistantPlaceholderAppended(
         messageID: assistantMessageID,
@@ -153,12 +144,12 @@ struct ChatTurnExecutionCoordinator {
       turnID: turnID,
       generationID: nil,
       promptBytes: renderedSystemPrompt.utf8.count,
-      messageCount: callbacks.session().modelContextSnapshot.entries.count,
+      messageCount: callbacks.session().turns.flatMap(\.items).count,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
     let contextBuildStartedAt = Date()
-    let modelContextSnapshot = modelContextBuilder.transcript(
+    let modelPromptProjection = modelContextBuilder.transcript(
       from: callbacks.session(),
       includingTurnID: turnID
     )
@@ -167,7 +158,7 @@ struct ChatTurnExecutionCoordinator {
       startedAt: contextBuildStartedAt,
       turnID: turnID,
       generationID: nil,
-      messageCount: modelContextSnapshot.entries.count,
+      messageCount: modelPromptProjection.entries.count,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
@@ -176,7 +167,7 @@ struct ChatTurnExecutionCoordinator {
       operationID: runtime.operationID,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode,
-      transcript: modelContextSnapshot,
+      transcript: modelPromptProjection,
       attachments: attachments,
       systemPrompt: renderedSystemPrompt,
       settings: callbacks.session().generationSettings,
@@ -245,15 +236,6 @@ struct ChatTurnExecutionCoordinator {
     )
     guard isActive(turnID) else {
       return ChatGenerationResult(assistantContent: "")
-    }
-    if !generationResult.assistantContent.isEmpty {
-      if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
-        turnID: turnID,
-        sourceMessageID: assistantMessageID,
-        content: generationResult.assistantContent
-      ) {
-        callbacks.emitEvents([.modelContextEntryAppended(entry)])
-      }
     }
     callbacks.refreshContextUsage(toolPromptMode)
     return generationResult
@@ -405,13 +387,6 @@ struct ChatTurnExecutionCoordinator {
         messageID: assistantMessageID
       )
     ])
-    if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
-      turnID: turnID,
-      sourceMessageID: assistantMessageID,
-      content: Self.toolLimitFallbackMessage
-    ) {
-      callbacks.emitEvents([.modelContextEntryAppended(entry)])
-    }
     callbacks.notifySessionDidChange()
   }
 

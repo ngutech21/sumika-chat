@@ -62,7 +62,7 @@ public struct ChatGenerationCoordinator {
     operationID: UUID? = nil,
     toolLoopIteration: Int? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
-    transcript: ModelContextSnapshot,
+    transcript: ModelPromptProjection,
     attachments: [ChatAttachment] = [],
     systemPrompt: String,
     settings: ChatGenerationSettings,
@@ -96,7 +96,7 @@ public struct ChatGenerationCoordinator {
     operationID requestedOperationID: UUID? = nil,
     toolLoopIteration: Int? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
-    transcript: ModelContextSnapshot,
+    transcript: ModelPromptProjection,
     attachments: [ChatAttachment] = [],
     systemPrompt: String,
     settings: ChatGenerationSettings,
@@ -147,7 +147,7 @@ public struct ChatGenerationCoordinator {
     operationID: UUID,
     generationID: UUID,
     interactionMode: WorkspaceInteractionMode?,
-    transcript: ModelContextSnapshot,
+    transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,
@@ -347,7 +347,7 @@ public struct ChatGenerationCoordinator {
   }
 
   private func requestRuntimeStream(
-    transcript: ModelContextSnapshot,
+    transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,

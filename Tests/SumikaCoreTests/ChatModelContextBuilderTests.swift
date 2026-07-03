@@ -5,28 +5,23 @@ import Testing
 
 struct ChatModelContextBuilderTests {
   @Test
-  func filtersTranscriptEntriesFromExcludedTurnsButKeepsEntriesWithoutTurnID() throws {
+  func filtersProjectionEntriesFromExcludedTurns() throws {
     let includedTurnID = UUID()
     let excludedTurnID = UUID()
-    let unscopedEntry = try ModelFacingPromptRenderer.userPromptEntry(prompt: "unscoped")
-    let includedEntry = try ModelFacingPromptRenderer.assistantOutputEntry(
-      turnID: includedTurnID,
-      content: "included"
-    )
-    let excludedEntry = try ModelFacingPromptRenderer.userPromptEntry(
-      turnID: excludedTurnID,
-      prompt: "large listing"
-    )
     let state = ChatSession(
-      modelContextSnapshot: ModelContextSnapshot(
-        entries: [unscopedEntry, includedEntry, excludedEntry]
-      ),
       turns: [
-        ChatTurn(id: includedTurnID, status: .completed),
+        ChatTurn(
+          id: includedTurnID,
+          status: .completed,
+          items: [
+            .userMessage(UserTurnMessage(content: "included prompt")),
+            .assistantMessage(AssistantTurnMessage(content: "included")),
+          ]),
         ChatTurn(
           id: excludedTurnID,
           status: .cancelled,
-          modelContextPolicy: .excluded
+          modelContextPolicy: .excluded,
+          items: [.userMessage(UserTurnMessage(content: "large listing"))]
         ),
       ],
       pendingAttachments: [],
@@ -38,23 +33,21 @@ struct ChatModelContextBuilderTests {
 
     let transcript = ChatModelContextBuilder().transcript(from: state)
 
-    #expect(transcript.entries == [unscopedEntry, includedEntry])
+    #expect(transcript.entries.map(\.frozenContent.role) == [.user, .assistant])
+    #expect(transcript.entries[0].frozenContent.content == "included prompt")
+    #expect(transcript.entries[1].frozenContent.content == "included")
   }
 
   @Test
   func includesExcludedTurnWhenItIsTheActiveTurn() throws {
     let turnID = UUID()
-    let toolResult = try ModelFacingPromptRenderer.userPromptEntry(
-      turnID: turnID,
-      prompt: "README.md"
-    )
     let state = ChatSession(
-      modelContextSnapshot: ModelContextSnapshot(entries: [toolResult]),
       turns: [
         ChatTurn(
           id: turnID,
           status: .cancelled,
-          modelContextPolicy: .excluded
+          modelContextPolicy: .excluded,
+          items: [.userMessage(UserTurnMessage(content: "README.md"))]
         )
       ],
       pendingAttachments: [],
@@ -66,7 +59,7 @@ struct ChatModelContextBuilderTests {
 
     let transcript = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
 
-    #expect(transcript.entries == [toolResult])
+    #expect(transcript.entries.map(\.frozenContent.content) == ["README.md"])
   }
 
   @Test
@@ -186,21 +179,8 @@ struct ChatModelContextBuilderTests {
   func toolResultAppendIsPrefixStableWhenTranscriptMutates() throws {
     let turnID = UUID()
     let sourceMessageID = UUID()
-    let nativeBoundary = ToolCallModelMessage(
-      rawRequest: RawToolCallRequest(
-        workspaceID: UUID(),
-        sessionID: UUID(),
-        toolName: .readFile,
-        arguments: ["path": .string("README.md")]
-      )
-    ).modelContextContent
-    let firstEntry = try ModelFacingPromptRenderer.assistantOutputEntry(
-      turnID: turnID,
-      sourceMessageID: sourceMessageID,
-      content: nativeBoundary
-    )
+    let toolRecord = makeCompletedReadFileRecord()
     var state = ChatSession(
-      modelContextSnapshot: ModelContextSnapshot(entries: [firstEntry]),
       turns: [
         ChatTurn(
           id: turnID,
@@ -222,19 +202,44 @@ struct ChatModelContextBuilderTests {
     )
     let before = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
 
-    ChatTranscriptMutator().annotateToolCall(
-      ToolCallModelMessage(callID: UUID(), toolName: .readFile, arguments: []),
-      for: sourceMessageID,
-      in: &state
-    )
-    ChatTranscriptMutator().appendModelContextEntry(
-      try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: "observation"),
-      to: &state
-    )
+    ChatTranscriptMutator().recordToolCall(toolRecord, turnID: turnID, in: &state)
     let after = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
 
-    #expect(Array(after.entries.prefix(before.entries.count)) == before.entries)
-    #expect(state.transcriptItemsForTesting.map(\.kindForTesting) == [.assistant, .toolCall])
-    #expect(after.entries.last?.frozenContent.content == "observation")
+    #expect(
+      Array(after.entries.prefix(before.entries.count)).map(\.frozenContent)
+        == before.entries.map(\.frozenContent))
+    #expect(
+      Array(after.entries.prefix(before.entries.count)).map(\.sourceMessageID)
+        == before.entries.map(\.sourceMessageID))
+    #expect(state.transcriptItemsForTesting.map(\.kindForTesting) == [.assistant, .toolResult])
+    #expect(after.entries.last?.sourceMessageID == toolRecord.id)
+  }
+
+  private func makeCompletedReadFileRecord() -> ToolCallRecord {
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+    let rawRequest = RawToolCallRequest(
+      workspaceID: UUID(),
+      sessionID: UUID(),
+      toolName: .readFile,
+      arguments: ["path": .string(path.rawValue)]
+    )
+    let request = ToolCallRequest.validated(
+      raw: rawRequest,
+      payload: .readFile(ReadFileInput(path: path.rawValue))
+    )
+    return ToolCallRecord(
+      request: request,
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Allowed in test.",
+        riskLevel: .low
+      ),
+      state: .completed(
+        .readFile(
+          .success(
+            path: path,
+            content: ToolTextOutput(text: "contents", truncated: false, redacted: false)
+          )))
+    )
   }
 }

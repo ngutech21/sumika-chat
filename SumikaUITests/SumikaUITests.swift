@@ -580,8 +580,16 @@ final class SumikaUITests: XCTestCase {
   private func recordTraceSummary(
     _ rows: [TraceRow],
     expectedMode: String?,
-    label: String
+    label: String,
+    allowedDuplicateToolSignatures: Set<String> = []
   ) {
+    if expectedMode == "agent" {
+      assertNoUnexpectedDuplicateToolExecutions(
+        rows,
+        allowedDuplicateToolSignatures: allowedDuplicateToolSignatures
+      )
+    }
+
     XCTContext.runActivity(named: label) { activity in
       activity.add(
         XCTAttachment(
@@ -696,7 +704,8 @@ final class SumikaUITests: XCTestCase {
         interactionMode: object["interactionMode"] as? String,
         toolLoopIteration: object["toolLoopIteration"] as? Int,
         cacheMode: object["cacheMode"] as? String,
-        cacheReason: object["cacheReason"] as? String
+        cacheReason: object["cacheReason"] as? String,
+        toolValidationStatus: object["toolValidationStatus"] as? String
       )
     }
   }
@@ -730,8 +739,31 @@ final class SumikaUITests: XCTestCase {
       }
       return TraceToolArgument(
         name: name,
-        preview: argument["preview"] as? String
+        preview: argument["preview"] as? String,
+        previewTruncated: argument["previewTruncated"] as? Bool
       )
+    }
+  }
+
+  private func assertNoUnexpectedDuplicateToolExecutions(
+    _ rows: [TraceRow],
+    allowedDuplicateToolSignatures: Set<String> = [],
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    var seenSignatures: Set<String> = []
+    for row in rows where row.isValidToolExecution {
+      let signature = row.toolExecutionSignature
+      if seenSignatures.contains(signature),
+        !allowedDuplicateToolSignatures.contains(signature)
+      {
+        XCTFail(
+          "Unexpected duplicate tool execution in one agent turn: \(signature)",
+          file: file,
+          line: line
+        )
+      }
+      seenSignatures.insert(signature)
     }
   }
 
@@ -844,6 +876,7 @@ private struct TraceRow {
   let toolLoopIteration: Int?
   let cacheMode: String?
   let cacheReason: String?
+  let toolValidationStatus: String?
 
   var isRuntimeCacheReuse: Bool {
     guard kind == "turn_trace", phase?.hasPrefix("runtime_") == true else {
@@ -852,11 +885,38 @@ private struct TraceRow {
     return (cacheMode == "reused_session" && cacheReason == "reused_session")
       || (cacheMode == "append_delta" && cacheReason == "append_only_delta")
   }
+
+  var isValidToolExecution: Bool {
+    kind == "turn_trace"
+      && phase == "tool_execute"
+      && toolName != nil
+      && toolValidationStatus != "invalid"
+  }
+
+  var toolExecutionSignature: String {
+    let name = toolName ?? "<unknown>"
+    let arguments =
+      toolArguments
+      .sorted { lhs, rhs in lhs.name < rhs.name }
+      .map { "\($0.name): \($0.normalizedPreview)" }
+      .joined(separator: ", ")
+    return "\(name)(\(arguments))"
+  }
 }
 
 private struct TraceToolArgument {
   let name: String
   let preview: String?
+
+  let previewTruncated: Bool?
+
+  var normalizedPreview: String {
+    var value = preview ?? "<nil>"
+    if previewTruncated == true {
+      value += "..."
+    }
+    return value
+  }
 }
 
 private enum SumikaUITestError: Error {

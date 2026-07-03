@@ -5,13 +5,6 @@ import Testing
 
 @testable import Sumika
 
-private let finalToolResultInstruction = """
-  Provide a brief final response based on the preceding tool result.
-  Mention completed changes, affected paths, and run or verification steps if useful.
-  Do not include generated file contents, code blocks, diffs, or tool arguments unless the user explicitly asked to display them in chat.
-  If more work is needed, say what remains and ask the user to send another message.
-  """
-
 @Suite
 struct GemmaMLXRuntimeTemplateTests {
   @Test
@@ -120,7 +113,7 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func templateMessagesUseFrozenTranscriptContent() throws {
     let callID = UUID()
-    let transcript = ModelContextSnapshot(
+    let transcript = ModelPromptProjection(
       entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "create index.htm"),
         try ModelFacingPromptRenderer.assistantOutputEntry(
@@ -239,7 +232,7 @@ struct GemmaMLXRuntimeTemplateTests {
       systemContext: ["When tools are available, use them."]
     )
     let initialRendered = try GemmaHistoryRenderer.templateMessages(
-      from: ModelContextSnapshot(entries: [initialUser]),
+      from: ModelPromptProjection(entries: [initialUser]),
       attachments: [],
       systemPrompt: "When tools are available, use them."
     )
@@ -266,7 +259,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func templateMessagesPreserveFocusedFileSystemContextInsideUserMessage() throws {
-    let transcript = ModelContextSnapshot(
+    let transcript = ModelPromptProjection(
       entries: [
         try ModelFacingPromptRenderer.userPromptEntry(
           prompt: "change the background color to green",
@@ -330,7 +323,7 @@ struct GemmaMLXRuntimeTemplateTests {
       systemContext: []
     )
     let initialRendered = try GemmaHistoryRenderer.templateMessages(
-      from: ModelContextSnapshot(entries: [initialUser]),
+      from: ModelPromptProjection(entries: [initialUser]),
       attachments: [],
       systemPrompt: "Use concise coding steps."
     )
@@ -366,7 +359,7 @@ struct GemmaMLXRuntimeTemplateTests {
   func templateMessagesDoNotTeachGemmaInternalInvalidToolActions() throws {
     let callID = UUID()
     let turnID = UUID()
-    let transcript = ModelContextSnapshot(
+    let transcript = ModelPromptProjection(
       entries: [
         try ModelFacingPromptRenderer.userPromptEntry(
           turnID: turnID,
@@ -979,7 +972,7 @@ struct GemmaMLXRuntimeTemplateTests {
   func laterUserTurnHistoryKeepsStructuredToolResult() throws {
     let callID = UUID()
     let turnID = UUID()
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: "read README.md"),
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
@@ -1075,7 +1068,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
     // The next user turn: the observation now lives in history in the same
     // structured tool form that was sent as the prompt.
-    let nextTurn = ModelContextSnapshot(
+    let nextTurn = ModelPromptProjection(
       entries: toolTurnEntries + [
         try ModelFacingPromptRenderer.assistantOutputEntry(
           turnID: turnID, content: "README.md is a project file."),
@@ -1196,7 +1189,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func terminalToolResultFollowUpUsesCachedPrefixAsHistoryAndResultAsPrompt() throws {
+  func terminalToolResultFollowUpUsesStructuredToolResultAsPrompt() throws {
     let callID = UUID()
     let turnID = UUID()
     let terminalResult = ToolResultModelMessage(
@@ -1213,10 +1206,6 @@ struct GemmaMLXRuntimeTemplateTests {
         "content": .string("<html></html>"),
       ]
     )
-    let terminalObservation = ToolResultProjector.project(
-      payload: terminalResult.payload,
-      request: terminalRequest
-    ).observation
     let entries = [
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
@@ -1232,19 +1221,11 @@ struct GemmaMLXRuntimeTemplateTests {
           ]
         ).modelContextContent
       ),
-      try ModelFacingPromptRenderer.finalToolResultPromptEntry(
+      try ModelFacingPromptRenderer.toolResultEntry(
         turnID: turnID,
-        terminalToolResult: TerminalToolResultContext(
-          callID: callID,
-          toolName: terminalResult.toolName,
-          status: terminalResult.preview.status,
-          content: ToolModelObservationRenderer.render(
-            terminalObservation,
-            callID: terminalResult.callID
-          )
-        ),
-        followUpInstruction: finalToolResultInstruction,
-        originalUserRequest: "create movies.html"
+        toolResult: terminalResult,
+        request: terminalRequest,
+        originalUserRequest: nil
       ),
     ]
     let (history, prompt) = try generationHistoryAndPrompt(from: entries)
@@ -1253,7 +1234,7 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(prompt.role == .tool)
     #expect(!prompt.content.contains("Original user request:"))
     #expect(prompt.content.contains("Summary: Wrote 13 bytes to movies.html."))
-    #expect(prompt.content.contains("Do not include generated file contents"))
+    #expect(!prompt.content.contains("Do not include generated file contents"))
     #expect(!prompt.content.contains("No more tools may run in this response."))
   }
 
@@ -1978,14 +1959,14 @@ struct GemmaMLXRuntimeTemplateTests {
   private func projectedEntries(
     from entries: [ModelContextEntry]
   ) -> [ProjectedModelContextEntry] {
-    ModelContextSnapshot(entries: entries)
+    ModelPromptProjection(entries: entries)
       .projectedEntries(mode: GemmaHistoryRenderer.runtimeProjectionMode)
   }
 
   private func generationInput(
     from entries: [ModelContextEntry]
   ) throws -> GemmaGenerationInput {
-    try GemmaHistoryRenderer.generationInput(from: ModelContextSnapshot(entries: entries))
+    try GemmaHistoryRenderer.generationInput(from: ModelPromptProjection(entries: entries))
   }
 
   private func generationHistoryAndPrompt(

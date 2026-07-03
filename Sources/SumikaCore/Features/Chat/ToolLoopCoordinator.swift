@@ -62,7 +62,7 @@ public struct ToolLoopRequest: Sendable {
 }
 
 private struct DuplicateToolCallDecision: Sendable {
-  let record: ToolCallRecord
+  let record: ToolCallRecord?
   let finalizesTurn: Bool
 }
 
@@ -192,10 +192,13 @@ public struct ToolLoopCoordinator: Sendable {
         registry: toolOrchestrator.toolRegistry,
         items: seenItems
       ) {
-        record = duplicateDecision.record
         if duplicateDecision.finalizesTurn {
           nextFollowUpPromptMode = .afterToolResultFinal
         }
+        guard let duplicateRecord = duplicateDecision.record else {
+          continue
+        }
+        record = duplicateRecord
       } else {
         let executeStartedAt = Date()
         record = await toolOrchestrator.execute(
@@ -315,7 +318,8 @@ public struct ToolLoopCoordinator: Sendable {
       request: request,
       items: items
     ) {
-      return DuplicateToolCallDecision(record: duplicateReadRecord, finalizesTurn: true)
+      _ = duplicateReadRecord
+      return DuplicateToolCallDecision(record: nil, finalizesTurn: true)
     }
 
     guard suppressesIdenticalCompletedCall(output.request.toolName) else {
@@ -344,13 +348,7 @@ public struct ToolLoopCoordinator: Sendable {
         return nil
       }
 
-      return DuplicateToolCallDecision(
-        record: duplicateNoProgressRecord(
-          request: validatedRequest,
-          reason: "Identical \(output.request.toolName.rawValue) already completed in this turn."
-        ),
-        finalizesTurn: true
-      )
+      return DuplicateToolCallDecision(record: nil, finalizesTurn: true)
     }
 
     return nil
@@ -414,30 +412,6 @@ public struct ToolLoopCoordinator: Sendable {
     default:
       return false
     }
-  }
-
-  private func duplicateNoProgressRecord(
-    request: ToolCallRequest,
-    reason: String
-  ) -> ToolCallRecord {
-    ToolCallRecord(
-      request: request,
-      evaluation: ToolPermissionEvaluation(
-        decision: .allowed,
-        reason: reason,
-        riskLevel: .low
-      ),
-      state: .failed(
-        .failure(
-          ToolFailure(
-            toolName: request.toolName,
-            path: nil,
-            reason: .executionError(
-              "\(reason) Use the previous result instead of repeating the same tool call."
-            ),
-            recovery: .stop
-          )))
-    )
   }
 
   private func currentTurnItems(in items: [ChatTurnItem]) -> ArraySlice<ChatTurnItem> {
@@ -583,16 +557,8 @@ public struct ToolLoopCoordinator: Sendable {
     for request: ToolLoopRequest,
     outputs: [ToolCallParseOutput]
   ) -> [ChatWorkflowEvent] {
-    guard !outputs.isEmpty else {
-      return []
-    }
-    return [
-      .nativeAssistantBoundaryAppended(
-        content: outputs.map(\.modelMessage.modelContextContent).joined(separator: "\n"),
-        sourceMessageID: request.assistantMessageID,
-        turnID: request.turnID
-      )
-    ]
+    _ = (request, outputs)
+    return []
   }
 
   private func followUpPromptMode(

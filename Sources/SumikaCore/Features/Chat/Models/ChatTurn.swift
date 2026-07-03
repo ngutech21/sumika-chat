@@ -301,21 +301,25 @@ public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
   public let id: UUID
   public var content: String
   public var attachments: [ChatAttachment]
+  public var promptContext: CurrentPromptContext
 
   public init(
     id: UUID = UUID(),
     content: String,
-    attachments: [ChatAttachment] = []
+    attachments: [ChatAttachment] = [],
+    promptContext: CurrentPromptContext = .empty(.focusedFileDefault)
   ) {
     self.id = id
     self.content = content
     self.attachments = attachments
+    self.promptContext = promptContext
   }
 
   private enum CodingKeys: String, CodingKey {
     case id
     case content
     case attachments
+    case promptContext
   }
 
   public init(from decoder: Decoder) throws {
@@ -323,6 +327,11 @@ public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
     id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
     content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
     attachments = try container.decodeLossyArray([ChatAttachment].self, forKey: .attachments)
+    promptContext = try container.decodeIfPresent(
+      CurrentPromptContext.self,
+      forKey: .promptContext,
+      default: .empty(.focusedFileDefault)
+    )
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -330,6 +339,7 @@ public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
     try container.encode(id, forKey: .id)
     try container.encode(content, forKey: .content)
     try container.encode(attachments, forKey: .attachments)
+    try container.encode(promptContext, forKey: .promptContext)
   }
 }
 

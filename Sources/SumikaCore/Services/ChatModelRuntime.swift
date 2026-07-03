@@ -7,13 +7,13 @@ public protocol ChatModelRuntime: Sendable {
   func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot?
   func generatedTokenCount(for text: String) async throws -> Int
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,
@@ -66,7 +66,7 @@ extension ChatModelRuntime {
   }
 
   public func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,
@@ -103,7 +103,7 @@ public struct MockChatRuntime: ChatModelRuntime {
   }
 
   public func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
