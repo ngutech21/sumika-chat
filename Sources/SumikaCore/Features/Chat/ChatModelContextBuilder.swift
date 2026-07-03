@@ -41,12 +41,13 @@ public struct ChatModelContextBuilder: Sendable {
         break
       case .assistantMessage(let message):
         guard message.deliveryStatus != .cancelled,
-          !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          let modelContent = message.modelProjectedContent,
+          !modelContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
           previousProjectedItemWasTool = false
           continue
         }
-        appendAssistantEntry(message, turnID: turn.id, to: &entries)
+        appendAssistantEntry(message, content: modelContent, turnID: turn.id, to: &entries)
         previousProjectedItemWasTool = false
       case .tool(let record):
         guard record.resultPayload != nil else {
@@ -84,6 +85,7 @@ public struct ChatModelContextBuilder: Sendable {
 
   private func appendAssistantEntry(
     _ message: AssistantTurnMessage,
+    content: String,
     turnID: ChatTurn.ID,
     to entries: inout [ModelContextEntry]
   ) {
@@ -91,7 +93,7 @@ public struct ChatModelContextBuilder: Sendable {
       let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
         sourceMessageID: message.id,
-        content: message.content
+        content: content
       )
     else {
       return

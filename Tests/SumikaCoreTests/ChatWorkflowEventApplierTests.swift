@@ -254,7 +254,9 @@ struct ChatWorkflowEventApplierTests {
       [
         .assistantMessageAppended(
           content: "Here is `README.md`:\n\n    1: project notes",
-          modelContextContent: "Displayed show_file result for README.md directly to the user.",
+          modelProjectionPolicy: .override(
+            "Displayed show_file result for README.md directly to the user."
+          ),
           messageID: messageID,
           turnID: turnID
         )
@@ -267,12 +269,19 @@ struct ChatWorkflowEventApplierTests {
     #expect(items[0].kindForTesting == .assistant)
     #expect(items[0].contentForTesting.contains("1: project notes"))
     #expect(items[0].deliveryStatusForTesting == .complete)
+    guard case .assistantMessage(let message) = items[0] else {
+      Issue.record("Expected assistant message.")
+      return
+    }
+    #expect(
+      message.modelProjectionPolicy
+        == .override("Displayed show_file result for README.md directly to the user."))
     #expect(state.turns[0].items == items)
     let projection = ChatModelContextBuilder().transcript(from: state)
     #expect(projection.entries.map(\.frozenContent.role) == [.assistant])
     #expect(
       projection.entries[0].frozenContent.content
-        == "Here is `README.md`:\n\n    1: project notes")
+        == "Displayed show_file result for README.md directly to the user.")
   }
 
   @Test

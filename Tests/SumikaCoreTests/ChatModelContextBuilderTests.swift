@@ -63,6 +63,38 @@ struct ChatModelContextBuilderTests {
   }
 
   @Test
+  func assistantProjectionPolicyOverridesOrExcludesVisibleContent() throws {
+    let state = ChatSession(
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [
+            .assistantMessage(AssistantTurnMessage(content: "Visible content.")),
+            .assistantMessage(
+              AssistantTurnMessage(
+                content: "Large direct tool response.",
+                modelProjectionPolicy: .override("Displayed direct tool result.")
+              )),
+            .assistantMessage(
+              AssistantTurnMessage(
+                content: "Visible but excluded from model context.",
+                modelProjectionPolicy: .excluded
+              )),
+          ])
+      ]
+    )
+
+    let transcript = ChatModelContextBuilder().transcript(from: state)
+
+    #expect(transcript.entries.map(\.frozenContent.role) == [.assistant, .assistant])
+    #expect(
+      transcript.entries.map(\.frozenContent.content) == [
+        "Visible content.",
+        "Displayed direct tool result.",
+      ])
+  }
+
+  @Test
   func currentPromptSystemContextFreezesRenderedFocusedFileContextIntoUserPrompt() throws {
     let path = WorkspaceRelativePath(rawValue: "index.html")
     let state = FocusedFileState(

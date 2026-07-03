@@ -466,8 +466,8 @@ struct ToolLoopCoordinatorTests {
     #expect(assistant?.content.contains("Here is `README.md`:") == true)
     #expect(assistant?.content.contains("1: project notes") == true)
     #expect(
-      assistant?.modelContextContent
-        == "Displayed show_file result for README.md directly to the user.")
+      assistant?.modelProjectionPolicy
+        == .override("Displayed show_file result for README.md directly to the user."))
   }
 
   @Test
@@ -496,8 +496,8 @@ struct ToolLoopCoordinatorTests {
     #expect(assistant?.content.contains("Workspace changes:") == true)
     #expect(assistant?.content.contains("    diff --git a/README.md b/README.md") == true)
     #expect(
-      assistant?.modelContextContent
-        == "Displayed workspace_diff result directly to the user.")
+      assistant?.modelProjectionPolicy
+        == .override("Displayed workspace_diff result directly to the user."))
   }
 
   @Test
@@ -687,14 +687,14 @@ struct ToolLoopCoordinatorTests {
   }
 
   private func directAssistantMessage(from step: ChatWorkflowStep?) -> (
-    content: String, modelContextContent: String
+    content: String, modelProjectionPolicy: AssistantModelProjectionPolicy
   )? {
     for event in step?.events ?? [] {
-      guard case .assistantMessageAppended(let content, let modelContextContent, _, _) = event
+      guard case .assistantMessageAppended(let content, let modelProjectionPolicy, _, _) = event
       else {
         continue
       }
-      return (content, modelContextContent)
+      return (content, modelProjectionPolicy)
     }
     return nil
   }

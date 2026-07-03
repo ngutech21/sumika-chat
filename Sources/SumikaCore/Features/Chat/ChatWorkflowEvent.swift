@@ -51,7 +51,7 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
   )
   case assistantMessageAppended(
     content: String,
-    modelContextContent: String,
+    modelProjectionPolicy: AssistantModelProjectionPolicy,
     messageID: UUID,
     turnID: ChatTurn.ID
   )
@@ -180,12 +180,17 @@ public struct ChatWorkflowEventApplier: Sendable {
       mutator.updateDeliveryStatus(.complete, for: messageID, in: &state)
     case .assistantMessageAppended(
       let content,
-      let modelContextContent,
+      let modelProjectionPolicy,
       let messageID,
       let turnID
     ):
-      mutator.appendAssistantMessage(content, id: messageID, turnID: turnID, to: &state)
-      _ = modelContextContent
+      mutator.appendAssistantMessage(
+        content,
+        id: messageID,
+        turnID: turnID,
+        modelProjectionPolicy: modelProjectionPolicy,
+        to: &state
+      )
     case .turnStatusChanged(let turnID, let status, let modelContextPolicy):
       mutator.updateTurnStatus(
         status,

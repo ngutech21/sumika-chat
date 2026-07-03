@@ -1395,8 +1395,9 @@ struct ChatSessionControllerTests {
       !projection.entries[2].frozenContent.content.contains(
         "1: project notes"))
     #expect(
-      projection.entries[3].frozenContent.content.contains("Here is `README.md`:"))
-    #expect(projection.entries[3].frozenContent.content.contains("1: project notes"))
+      projection.entries[3].frozenContent.content
+        == "Displayed show_file result for README.md directly to the user.")
+    #expect(!projection.entries[3].frozenContent.content.contains("1: project notes"))
     #expect(controller.chatSession.focusedFileState == .empty)
 
     let capturedMessages = await runtime.capturedMessages

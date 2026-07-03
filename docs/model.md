@@ -137,9 +137,17 @@ classDiagram
   class AssistantTurnMessage {
     id: UUID
     content: String
+    modelProjectionPolicy: AssistantModelProjectionPolicy
     attachments: [ChatAttachment]
     generationMetrics: ChatGenerationMetrics?
     deliveryStatus: DeliveryStatus
+  }
+
+  class AssistantModelProjectionPolicy {
+    <<enum>>
+    visibleContent
+    override(String)
+    excluded
   }
 
   class DeliveryStatus {
@@ -577,6 +585,7 @@ classDiagram
   AssistantTurnMessage --> ChatAttachment
   AssistantTurnMessage --> ChatGenerationMetrics
   AssistantTurnMessage --> DeliveryStatus
+  AssistantTurnMessage --> AssistantModelProjectionPolicy
 
   ChatAttachment --> AttachmentID
   ChatAttachment --> ChatAttachmentKind

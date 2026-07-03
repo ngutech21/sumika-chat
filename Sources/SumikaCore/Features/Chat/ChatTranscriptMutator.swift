@@ -42,11 +42,17 @@ public struct ChatTranscriptMutator: Sendable {
     _ content: String,
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
+    modelProjectionPolicy: AssistantModelProjectionPolicy = .visibleContent,
     to state: inout ChatSession
   ) {
     appendItem(
       .assistantMessage(
-        AssistantTurnMessage(id: id, content: content, deliveryStatus: .complete)
+        AssistantTurnMessage(
+          id: id,
+          content: content,
+          deliveryStatus: .complete,
+          modelProjectionPolicy: modelProjectionPolicy
+        )
       ),
       toTurn: turnID,
       in: &state

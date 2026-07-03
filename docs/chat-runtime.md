@@ -66,6 +66,10 @@ flowchart TD
   pending call and its eventual result state.
 - `AssistantTurnMessage.deliveryStatus` distinguishes complete assistant
   messages from streaming or cancelled partial output.
+- `AssistantTurnMessage.modelProjectionPolicy` controls how that visible
+  assistant content is reintroduced to the model. Normal messages use
+  `.visibleContent`; direct tool display responses can use `.override(...)` to
+  keep rich UI output out of model context, or `.excluded` to omit a message.
 - `ChatModelContextBuilder` turns `ChatSession.turns` into a non-persisted
   `ModelPromptProjection`. It excludes entries belonging to turns whose
   `modelContextPolicy` is `.excluded`, except while that same turn is actively
@@ -246,6 +250,9 @@ metadata.
   second persisted list.
 - User messages persist `promptContext` so the model-facing prompt can be
   re-derived byte-stably without a parallel prompt ledger.
+- Assistant messages persist their model projection policy so direct tool
+  display responses can remain rich in the UI while projecting only a compact
+  receipt back to the model.
 - `ModelPromptProjection` is never persisted on `ChatSession`; generation,
   context usage, debug panels, and traces rebuild it from turns.
 - Clearing a chat transcript removes turns, derived tool-call projections, and

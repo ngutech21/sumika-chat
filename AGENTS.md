@@ -64,8 +64,8 @@ Keep the persisted data model minimal and SSOT-first:
 - Model-facing prompts are derived projections from the turn SSOT. Keep
   prompt-affecting facts with their canonical owner, such as
   `UserTurnMessage.promptContext`, tool results on `ToolCallRecord`, and
-  assistant content on `AssistantTurnMessage`; do not persist a separate prompt
-  ledger.
+  assistant content/projection policy on `AssistantTurnMessage`; do not persist
+  a separate prompt ledger.
 - Enforce append-only turn membership in the model: append new user, assistant,
   and tool facts; update existing items only for their own lifecycle fields.
   Filter read models instead of deleting persisted transcript items.

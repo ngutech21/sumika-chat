@@ -269,7 +269,7 @@ public struct ToolLoopCoordinator: Sendable {
         events.append(
           .assistantMessageAppended(
             content: directResponse.content,
-            modelContextContent: directResponse.modelContextContent,
+            modelProjectionPolicy: directResponse.modelProjectionPolicy,
             messageID: nextAssistantMessageID,
             turnID: request.turnID
           ))

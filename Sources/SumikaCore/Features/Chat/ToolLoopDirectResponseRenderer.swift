@@ -1,6 +1,6 @@
 struct DirectToolResultResponse: Equatable, Sendable {
   var content: String
-  var modelContextContent: String
+  var modelProjectionPolicy: AssistantModelProjectionPolicy
 }
 
 enum ToolLoopDirectResponseRenderer {
@@ -19,22 +19,24 @@ enum ToolLoopDirectResponseRenderer {
         payload: toolResult.payload, request: record.request)
       return DirectToolResultResponse(
         content: directReadFileResponse(path: path, display: projection.display),
-        modelContextContent:
+        modelProjectionPolicy: .override(
           "Displayed show_file result for \(path.rawValue) directly to the user."
+        )
       )
     case .listFiles(let result) where shouldRespondDirectlyToListFiles(request):
       let projection = ToolResultProjector.project(
         payload: toolResult.payload, request: record.request)
       return DirectToolResultResponse(
         content: directListFilesResponse(result: result, display: projection.display),
-        modelContextContent:
+        modelProjectionPolicy: .override(
           "Displayed list_files result for \(result.root.rawValue) directly to the user."
+        )
       )
     case .workspaceDiff(.success(let path, let content))
     where shouldRespondDirectlyToWorkspaceDiff(request):
       return DirectToolResultResponse(
         content: directWorkspaceDiffResponse(path: path, content: content),
-        modelContextContent: "Displayed workspace_diff result directly to the user."
+        modelProjectionPolicy: .override("Displayed workspace_diff result directly to the user.")
       )
     default:
       return nil

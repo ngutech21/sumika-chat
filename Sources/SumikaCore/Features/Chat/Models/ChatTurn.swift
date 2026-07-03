@@ -343,6 +343,48 @@ public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
+public enum AssistantModelProjectionPolicy: Codable, Equatable, Sendable {
+  case visibleContent
+  case override(String)
+  case excluded
+
+  private enum CodingKeys: String, CodingKey {
+    case kind
+    case content
+  }
+
+  private enum Kind: String, Codable {
+    case visibleContent
+    case override
+    case excluded
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    switch try container.decode(Kind.self, forKey: .kind) {
+    case .visibleContent:
+      self = .visibleContent
+    case .override:
+      self = .override(try container.decode(String.self, forKey: .content))
+    case .excluded:
+      self = .excluded
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+    case .visibleContent:
+      try container.encode(Kind.visibleContent, forKey: .kind)
+    case .override(let content):
+      try container.encode(Kind.override, forKey: .kind)
+      try container.encode(content, forKey: .content)
+    case .excluded:
+      try container.encode(Kind.excluded, forKey: .kind)
+    }
+  }
+}
+
 public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
   public enum DeliveryStatus: String, Codable, Equatable, Sendable {
     case complete
@@ -352,6 +394,7 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
 
   public let id: UUID
   public var content: String
+  public var modelProjectionPolicy: AssistantModelProjectionPolicy
   public var attachments: [ChatAttachment]
   public var generationMetrics: ChatGenerationMetrics?
   public var deliveryStatus: DeliveryStatus
@@ -361,10 +404,12 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
     content: String,
     attachments: [ChatAttachment] = [],
     generationMetrics: ChatGenerationMetrics? = nil,
-    deliveryStatus: DeliveryStatus = .complete
+    deliveryStatus: DeliveryStatus = .complete,
+    modelProjectionPolicy: AssistantModelProjectionPolicy = .visibleContent
   ) {
     self.id = id
     self.content = content
+    self.modelProjectionPolicy = modelProjectionPolicy
     self.attachments = attachments
     self.generationMetrics = generationMetrics
     self.deliveryStatus = deliveryStatus
@@ -373,6 +418,7 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
   private enum CodingKeys: String, CodingKey {
     case id
     case content
+    case modelProjectionPolicy
     case attachments
     case generationMetrics
     case deliveryStatus
@@ -382,6 +428,10 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
     content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
+    modelProjectionPolicy = try container.decode(
+      AssistantModelProjectionPolicy.self,
+      forKey: .modelProjectionPolicy
+    )
     attachments = try container.decodeLossyArray([ChatAttachment].self, forKey: .attachments)
     generationMetrics = try container.decodeIfPresent(
       ChatGenerationMetrics.self,
@@ -398,9 +448,23 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(id, forKey: .id)
     try container.encode(content, forKey: .content)
+    try container.encode(modelProjectionPolicy, forKey: .modelProjectionPolicy)
     try container.encode(attachments, forKey: .attachments)
     try container.encodeIfPresent(generationMetrics, forKey: .generationMetrics)
     try container.encode(deliveryStatus, forKey: .deliveryStatus)
+  }
+}
+
+nonisolated extension AssistantTurnMessage {
+  public var modelProjectedContent: String? {
+    switch modelProjectionPolicy {
+    case .visibleContent:
+      return content
+    case .override(let content):
+      return content
+    case .excluded:
+      return nil
+    }
   }
 }
 
