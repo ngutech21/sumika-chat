@@ -41,7 +41,17 @@ struct ToolResultPayloadTests {
         DuplicateToolCallResult(
           previousCallID: duplicatePreviousCallID,
           message: "Duplicate of call_old.",
-          affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")]
+          affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")],
+          replayedObservation: ToolModelObservation.success(
+            toolName: .readFile,
+            affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")],
+            blocks: [
+              .fileContent(
+                path: WorkspaceRelativePath(rawValue: "README.md"),
+                content: ToolTextOutput(text: "1: hello", truncated: true)
+              )
+            ]
+          )
         )),
       .invalidTool(
         InvalidToolResult(

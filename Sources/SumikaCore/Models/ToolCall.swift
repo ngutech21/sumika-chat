@@ -660,15 +660,18 @@ public struct DuplicateToolCallResult: Codable, Equatable, Sendable {
   public var previousCallID: UUID
   public var message: String
   public var affectedPaths: [WorkspaceRelativePath]
+  public var replayedObservation: ToolModelObservation?
 
   public init(
     previousCallID: UUID,
     message: String,
-    affectedPaths: [WorkspaceRelativePath] = []
+    affectedPaths: [WorkspaceRelativePath] = [],
+    replayedObservation: ToolModelObservation? = nil
   ) {
     self.previousCallID = previousCallID
     self.message = message
     self.affectedPaths = affectedPaths
+    self.replayedObservation = replayedObservation
   }
 }
 

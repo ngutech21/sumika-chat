@@ -89,7 +89,7 @@ public enum ToolDisplayPayload: Equatable, Sendable {
   case summary(status: ToolResultStatus, text: String, affectedPaths: [WorkspaceRelativePath])
 }
 
-public struct ToolModelObservation: Equatable, Sendable {
+public struct ToolModelObservation: Codable, Equatable, Sendable {
   public let toolName: ToolName
   public let status: ToolResultStatus
   public let affectedPaths: [WorkspaceRelativePath]
@@ -189,7 +189,7 @@ public struct ToolModelObservation: Equatable, Sendable {
   }
 }
 
-public enum ToolObservationBlock: Equatable, Sendable {
+public enum ToolObservationBlock: Codable, Equatable, Sendable {
   case summary(String)
   case fileDisplayedToUser(
     path: WorkspaceRelativePath,
@@ -305,6 +305,13 @@ public enum ToolResultProjector {
     case .webFetch(let result):
       return projectWebFetch(result, request: request)
     case .duplicateToolCall(let result):
+      if let replayedObservation = result.replayedObservation {
+        return duplicateProjection(
+          result,
+          request: request,
+          replayedObservation: replayedObservation
+        )
+      }
       return summaryProjection(
         toolName: request.toolName,
         status: .success,
@@ -329,6 +336,61 @@ public enum ToolResultProjector {
     }
   }
 
+}
+
+private func duplicateProjection(
+  _ result: DuplicateToolCallResult,
+  request: ToolCallRequest,
+  replayedObservation: ToolModelObservation
+) -> ToolResultProjection {
+  let affectedPaths =
+    result.affectedPaths.isEmpty ? replayedObservation.affectedPaths : result.affectedPaths
+  let blocks =
+    [ToolObservationBlock.summary(result.message)]
+    + replayedObservation.blocks
+    + [ToolObservationBlock.summary(duplicateNextStepHint(for: request.toolName))]
+
+  return ToolResultProjection(
+    display: .summary(status: .success, text: result.message, affectedPaths: affectedPaths),
+    observation: ToolModelObservation.structured(
+      toolName: request.toolName,
+      status: replayedObservation.status,
+      affectedPaths: affectedPaths,
+      blocks: blocks
+    )
+  )
+}
+
+private func duplicateNextStepHint(for toolName: ToolName) -> String {
+  switch toolName {
+  case .readFile:
+    return
+      "Next step: use the replayed file content to answer or edit. Do not call read_file again with identical arguments unless the file changed or you need a different range."
+  case .listFiles:
+    return
+      "Next step: choose a path and call read_file, or answer. Do not call list_files again with identical arguments."
+  case .globFiles:
+    return
+      "Next step: choose a matched path and call read_file, or answer. Do not call glob_files again with identical arguments."
+  case .searchFiles:
+    return
+      "Next step: choose a matched path and call read_file, or answer. Do not call search_files again with identical arguments."
+  case .workspaceDiff:
+    return
+      "Next step: use the replayed diff to answer or choose a specific file. Do not call workspace_diff again with identical arguments."
+  case .workspaceDiagnostics:
+    return
+      "Next step: use the replayed diagnostics to fix or answer. Do not call workspace_diagnostics again with identical arguments."
+  case .webSearch:
+    return
+      "Next step: use these results, call web_fetch for a specific URL, or answer. Do not call web_search again with identical arguments."
+  case .webFetch:
+    return
+      "Next step: use the replayed page content to answer. Do not call web_fetch again with identical arguments."
+  default:
+    return
+      "Next step: use the replayed result or answer. Do not call this tool again with identical arguments."
+  }
 }
 
 private func invalidToolText(

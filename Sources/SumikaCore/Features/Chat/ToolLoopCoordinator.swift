@@ -343,13 +343,18 @@ public struct ToolLoopCoordinator: Sendable {
         return nil
       }
 
+      let affectedPaths = duplicateAffectedPaths(from: source.record)
+      let replayedObservation = source.record.resultPayload.map { payload in
+        ToolResultProjector.project(payload: payload, request: source.record.request).observation
+      }
+
       return ToolCallRecord(
         request: validatedRequest,
         evaluation: ToolPermissionEvaluation(
           decision: .allowed,
           reason: "Identical \(validatedRequest.toolName.rawValue) already completed in this turn.",
           riskLevel: .low,
-          workspaceRelativePaths: duplicateAffectedPaths(from: source.record)
+          workspaceRelativePaths: affectedPaths
         ),
         state: .completed(
           .duplicateToolCall(
@@ -359,7 +364,8 @@ public struct ToolLoopCoordinator: Sendable {
                 for: validatedRequest,
                 previousRecord: source.record
               ),
-              affectedPaths: duplicateAffectedPaths(from: source.record)
+              affectedPaths: affectedPaths,
+              replayedObservation: replayedObservation
             )))
       )
     }
@@ -443,7 +449,7 @@ public struct ToolLoopCoordinator: Sendable {
     previousRecord: ToolCallRecord
   ) -> String {
     "Duplicate of \(RuntimeToolCallID.string(for: previousRecord.id)): identical "
-      + "\(request.toolName.rawValue) already completed in this turn. Use the previous observation."
+      + "\(request.toolName.rawValue) already completed in this turn; not re-executed. Previous result is replayed below."
   }
 
   private func currentTurnItems(in items: [ChatTurnItem]) -> ArraySlice<ChatTurnItem> {

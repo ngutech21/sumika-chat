@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ChatToolLoopLimits {
-  public static let defaultMaxToolLoopIterations = 30
+  public static let defaultMaxToolLoopIterations = 8
 }
 
 @MainActor

@@ -353,6 +353,69 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func duplicateListFilesInSameNativeBatchReplaysPreviousObservationToModel() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator(tools: [.listFiles])
+    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        userContent: "inspect project",
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")]),
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")]),
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 1)
+    let records = toolCallRecords(from: result)
+    #expect(records.count == 2)
+    let originalRecord = try #require(records.first)
+    let duplicateRecord = try #require(records.dropFirst().first)
+    guard case .listFiles = originalRecord.resultPayload else {
+      Issue.record("Expected first list_files to execute normally.")
+      return
+    }
+    guard case .duplicateToolCall(let duplicate)? = duplicateRecord.resultPayload else {
+      Issue.record("Expected second list_files to be a duplicate observation.")
+      return
+    }
+
+    #expect(duplicate.previousCallID == originalRecord.id)
+    #expect(
+      duplicate.replayedObservation?.blocks == [
+        .fileList(
+          root: WorkspaceRelativePath(rawValue: "."),
+          entries: [
+            WorkspaceFileEntry(path: WorkspaceRelativePath(rawValue: "README.md"), kind: .file)
+          ],
+          totalCount: 1,
+          truncated: false,
+        )
+      ])
+
+    let duplicateToolResult = try #require(toolResults(from: result).last)
+    let entry = try ModelFacingPromptRenderer.toolResultEntry(
+      toolResult: duplicateToolResult,
+      request: duplicateRecord.request,
+      originalUserRequest: nil
+    )
+    guard case .toolObservation(let context) = entry.body else {
+      Issue.record("Expected duplicate result to render as a model-facing tool observation.")
+      return
+    }
+    #expect(context.callID == duplicateRecord.id)
+    #expect(context.content.contains("README.md"))
+    #expect(context.content.contains("not re-executed"))
+    #expect(context.content.contains("call read_file"))
+    #expect(context.content.contains("Do not call list_files again"))
+  }
+
+  @Test
   func duplicateListFilesInSameNativeBatchExecutesOnlyOnceAndContinues() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

@@ -97,6 +97,11 @@ flowchart TD
 - `ToolModelObservation` is compact, capped, and purpose-specific. The prompt
   renderer renders it once into `FrozenModelContent`; that frozen content is the
   stable model-facing ledger artifact.
+- Duplicate safe read-like tool calls reuse the previous completed
+  `ToolResultPayload` instead of invoking the executor again. The duplicate
+  payload carries a replayed `ToolModelObservation` so the prompt tail contains
+  the prior result blocks again, followed by a next-step hint to use the replayed
+  data instead of repeating the same tool call.
 - `ChatTurn.items` is the canonical source for tool turn membership. One
   `.tool(ToolCallRecord)` item carries the call, permission state, and eventual
   result payload. Code that needs reverse lookup derives `toolCallID -> turnID`
