@@ -116,6 +116,7 @@ struct ChatTurnExecutionCoordinator {
     isActive: ChatTurnActiveChecker,
     interactionMode: WorkspaceInteractionMode,
     toolPromptMode: ToolPromptMode,
+    stableInstructions: String,
     turnID: ChatTurn.ID,
     toolLoopIteration: Int? = nil,
     attachments: [ChatAttachment] = []
@@ -128,18 +129,19 @@ struct ChatTurnExecutionCoordinator {
     let toolCallingPolicy = runtime.selectedModel.toolCallingPolicy
     callbacks.setActiveToolPromptMode(toolPromptMode)
     let systemPromptStartedAt = Date()
-    let renderedSystemPrompt = systemPrompt(
+    let promptPlan = runtimePromptPlan(
       session: callbacks.session(),
-      selectedModel: runtime.selectedModel,
-      toolLoopCoordinator: runtime.toolLoopCoordinator,
-      toolPromptMode: toolPromptMode
+      stableInstructions: stableInstructions,
+      toolPromptMode: toolPromptMode,
+      toolCallingPolicy: toolCallingPolicy,
+      toolLoopCoordinator: runtime.toolLoopCoordinator
     )
     traceTurnPhase(
       .renderSystemPrompt,
       startedAt: systemPromptStartedAt,
       turnID: turnID,
       generationID: nil,
-      promptBytes: renderedSystemPrompt.utf8.count,
+      promptBytes: promptPlan.stableInstructions.utf8.count,
       messageCount: callbacks.session().turns.flatMap(\.items).count,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
@@ -165,14 +167,8 @@ struct ChatTurnExecutionCoordinator {
       interactionMode: interactionMode,
       transcript: modelPromptProjection,
       attachments: attachments,
-      systemPrompt: renderedSystemPrompt,
+      promptPlan: promptPlan,
       settings: callbacks.session().generationSettings,
-      toolContext: runtimeToolContext(
-        for: toolPromptMode,
-        policy: toolCallingPolicy,
-        cacheSystemPrompt: renderedSystemPrompt,
-        toolLoopCoordinator: runtime.toolLoopCoordinator
-      ),
       appendChunk: { chunk in
         guard isActive(turnID) else {
           return
@@ -247,6 +243,7 @@ struct ChatTurnExecutionCoordinator {
     callbacks: ChatTurnCallbacks,
     isActive: ChatTurnActiveChecker,
     finishTurn: ChatTurnFinisher,
+    stableInstructions: String,
     remainingIterations initialRemainingIterations: Int? = nil,
     lastNativeToolCalls: [ChatRuntimeToolCall] = []
   ) async throws -> Bool {
@@ -314,6 +311,7 @@ struct ChatTurnExecutionCoordinator {
           isActive: isActive,
           interactionMode: interactionMode,
           toolPromptMode: promptMode,
+          stableInstructions: stableInstructions,
           turnID: turnID,
           toolLoopIteration: toolLoopIteration
         )
@@ -404,19 +402,12 @@ struct ChatTurnExecutionCoordinator {
     toolPromptMode: ToolPromptMode
   ) -> String {
     let registry = toolRegistry(for: toolPromptMode, toolLoopCoordinator: toolLoopCoordinator)
-    let renderedPrompt = toolPromptPolicy.systemPrompt(
+    return toolPromptPolicy.systemPrompt(
       basePrompt: session.systemPrompt,
       mode: toolPromptMode,
       toolRegistry: registry,
       toolCallingPolicy: selectedModel.toolCallingPolicy
     )
-    guard session.interactionMode == .agent,
-      registry.definition(for: .todoWrite) != nil,
-      let planBlock = TodoPromptRenderer.compactPlanBlock(for: session.todoState)
-    else {
-      return renderedPrompt
-    }
-    return [renderedPrompt, planBlock].joined(separator: "\n\n")
   }
 
   func currentToolPromptMode(
@@ -435,10 +426,33 @@ struct ChatTurnExecutionCoordinator {
     )
   }
 
+  private func runtimePromptPlan(
+    session: ChatSession,
+    stableInstructions: String,
+    toolPromptMode: ToolPromptMode,
+    toolCallingPolicy: ToolCallingPolicy,
+    toolLoopCoordinator: ToolLoopCoordinator
+  ) -> ChatRuntimePromptPlan {
+    ChatRuntimePromptPlan(
+      stableInstructions: stableInstructions,
+      transientInstructions: transientInstructions(
+        session: session,
+        toolPromptMode: toolPromptMode,
+        toolLoopCoordinator: toolLoopCoordinator
+      ),
+      toolContext: runtimeToolContext(
+        for: toolPromptMode,
+        policy: toolCallingPolicy,
+        stableInstructions: stableInstructions,
+        toolLoopCoordinator: toolLoopCoordinator
+      )
+    )
+  }
+
   private func runtimeToolContext(
     for toolPromptMode: ToolPromptMode,
     policy: ToolCallingPolicy,
-    cacheSystemPrompt: String,
+    stableInstructions: String,
     toolLoopCoordinator: ToolLoopCoordinator
   ) -> ChatRuntimeToolContext? {
     guard policy.strategy == .nativeGemma4 else {
@@ -455,9 +469,43 @@ struct ChatTurnExecutionCoordinator {
     return ChatRuntimeToolContext(
       strategy: policy.strategy,
       registry: registry,
-      cacheSystemPrompt: cacheSystemPrompt
+      cacheSystemPrompt: stableInstructions
     )
   }
+
+  private func transientInstructions(
+    session: ChatSession,
+    toolPromptMode: ToolPromptMode,
+    toolLoopCoordinator: ToolLoopCoordinator
+  ) -> [String] {
+    var instructions: [String] = []
+    if session.interactionMode == .agent,
+      toolLoopCoordinator.toolRegistry.definition(for: .todoWrite) != nil,
+      let planBlock = TodoPromptRenderer.compactPlanBlock(for: session.todoState)
+    {
+      instructions.append(
+        """
+        [Runtime Context]
+        \(planBlock)
+        """
+      )
+    }
+    if toolPromptMode == .afterToolResultFinal {
+      instructions.append(Self.finalToolResultRuntimeInstruction)
+    }
+    return instructions
+  }
+
+  private static let finalToolResultRuntimeInstruction =
+    """
+    [Runtime Instruction]
+    No more tools are available for this generation. Produce visible final text. Do not call another tool.
+    Mention completed changes, affected paths, and run or verification steps if useful.
+    Do not include generated file contents, code blocks, diffs, or tool arguments unless the user explicitly asked to display them in chat.
+    Never say files were changed unless a successful write_file or edit_file result exists in this turn.
+    Failed or invalid write/edit tool results mean no workspace change happened.
+    If more work is needed, briefly say what remains and ask the user to send another message.
+    """
 
   private func followUpPromptMode(
     for toolProfile: ToolExecutionProfile,

@@ -40,6 +40,11 @@ struct ToolTurnResumeCoordinator {
       interactionMode: callbacks.session().interactionMode,
       selectedModel: runtime.selectedModel
     )
+    let stableInstructions = stableInstructions(
+      toolProfile: toolProfile,
+      runtime: runtime,
+      callbacks: callbacks
+    )
     let resumeResult = toolResumeCoordinator.approvedToolResult(
       record: approvedRecord,
       focusedFileState: callbacks.session().focusedFileState,
@@ -72,6 +77,7 @@ struct ToolTurnResumeCoordinator {
       isActive: isActive,
       interactionMode: callbacks.session().interactionMode,
       toolPromptMode: promptMode,
+      stableInstructions: stableInstructions,
       turnID: turnID,
       toolLoopIteration: 1
     )
@@ -89,6 +95,7 @@ struct ToolTurnResumeCoordinator {
         callbacks: callbacks,
         isActive: isActive,
         finishTurn: finishTurn,
+        stableInstructions: stableInstructions,
         remainingIterations: maxToolLoopIterations - 1,
         lastNativeToolCalls: generationResult.nativeToolCalls
       )
@@ -124,6 +131,17 @@ struct ToolTurnResumeCoordinator {
     callbacks.refreshContextUsage(promptMode)
     callbacks.notifySessionDidChange()
 
+    let toolProfile = executionCoordinator.activeToolProfile(
+      workspace: workspace,
+      sessionID: existingRecord.request.sessionID,
+      interactionMode: callbacks.session().interactionMode,
+      selectedModel: runtime.selectedModel
+    )
+    let stableInstructions = stableInstructions(
+      toolProfile: toolProfile,
+      runtime: runtime,
+      callbacks: callbacks
+    )
     let generationResult = try await executionCoordinator.streamAssistantReply(
       to: nextAssistantMessageID,
       runtime: runtime,
@@ -131,6 +149,7 @@ struct ToolTurnResumeCoordinator {
       isActive: isActive,
       interactionMode: callbacks.session().interactionMode,
       toolPromptMode: promptMode,
+      stableInstructions: stableInstructions,
       turnID: turnID,
       toolLoopIteration: 1
     )
@@ -145,6 +164,7 @@ struct ToolTurnResumeCoordinator {
       callbacks: callbacks,
       isActive: isActive,
       finishTurn: finishTurn,
+      stableInstructions: stableInstructions,
       remainingIterations: maxToolLoopIterations - 1,
       lastNativeToolCalls: generationResult.nativeToolCalls
     )
@@ -179,6 +199,11 @@ struct ToolTurnResumeCoordinator {
     callbacks.refreshContextUsage(promptMode)
     callbacks.notifySessionDidChange()
 
+    let stableInstructions = stableInstructions(
+      toolProfile: callbacks.session().interactionMode == .chat ? .chatWeb : .agent,
+      runtime: runtime,
+      callbacks: callbacks
+    )
     let generationResult = try await executionCoordinator.streamAssistantReply(
       to: nextAssistantMessageID,
       runtime: runtime,
@@ -186,10 +211,24 @@ struct ToolTurnResumeCoordinator {
       isActive: isActive,
       interactionMode: callbacks.session().interactionMode,
       toolPromptMode: promptMode,
+      stableInstructions: stableInstructions,
       turnID: turnID,
       toolLoopIteration: 1
     )
     try executionCoordinator.requireVisibleFinalResponse(generationResult)
     return .complete
+  }
+
+  private func stableInstructions(
+    toolProfile: ToolExecutionProfile,
+    runtime: ChatTurnRuntimeContext,
+    callbacks: ChatTurnCallbacks
+  ) -> String {
+    executionCoordinator.systemPrompt(
+      session: callbacks.session(),
+      selectedModel: runtime.selectedModel,
+      toolLoopCoordinator: runtime.toolLoopCoordinator,
+      toolPromptMode: executionCoordinator.toolPromptMode(for: toolProfile)
+    )
   }
 }

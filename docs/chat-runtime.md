@@ -108,17 +108,16 @@ flowchart TD
    tool call until the configured turn budget is exhausted. Failed
    tools, unknown tools, and invalid tool-call observations also count against
    this budget and are returned to the model as observations so it can choose the
-   next step. The last budgeted follow-up disables tools; if it produces no
-   visible assistant text, the coordinator appends an internal no-tools
-   finalization instruction and forces one text-only summary or deterministic
-   fallback. Successful `write_file` and `edit_file` calls switch to a brief
-   final no-tools follow-up instead of continuing the normal tool loop; that
-   follow-up should summarize affected paths and useful run or verification
-   steps without echoing generated file contents, code blocks, diffs, or tool
-   arguments unless the user explicitly asked to display them in chat. The model
-   must not say files changed unless a successful `write_file` or `edit_file`
-   result exists in the turn; failed or invalid write/edit results mean no
-   workspace change happened.
+   next step. The last budgeted follow-up sends an empty native tool schema and
+   a transient runtime instruction asking for visible final text; the stable
+   `ChatSession.instructions` prompt does not change. Successful `write_file`
+   and `edit_file` calls switch to a brief final no-tools follow-up instead of
+   continuing the normal tool loop; that follow-up should summarize affected
+   paths and useful run or verification steps without echoing generated file
+   contents, code blocks, diffs, or tool arguments unless the user explicitly
+   asked to display them in chat. The model must not say files changed unless a
+   successful `write_file` or `edit_file` result exists in the turn; failed or
+   invalid write/edit results mean no workspace change happened.
 6. If the tool call requires approval, workflow events record the call and mark
    the turn `.awaitingApproval`; active generation ends until the user approves
    or denies the call.
@@ -159,10 +158,9 @@ flowchart TD
   generating the direct follow-up response.
 - Direct follow-up responses may emit another tool call within the turn
   coordinator's configured turn budget. When the budget is exhausted, the final
-  follow-up prompt disables tools. If that final generation has no visible
-  assistant text, the coordinator runs one additional `.disabled` finalization
-  generation and falls back to a deterministic visible assistant message if the
-  model still emits no text.
+  follow-up sends no tool specs and appends a transient no-tools runtime
+  instruction as prompt suffix. If that final generation has no visible
+  assistant text, the turn fails with an empty-response diagnostic.
 - Final no-tools follow-ups after approved write/edit tools or denied tools also
   disable tools. If the model still emits a native tool attempt, the caller
   treats the follow-up as final and does not execute another tool.
@@ -203,9 +201,14 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
 - Reuse is safe when the cached session is clean, the prefill identity matches,
   and the cached prefix is a prefix of the current model-facing history.
 - The prefill identity contains only values that affect bytes already consumed by
-  MLX: normalized cache system prompt, projection mode, `maxKVSize`, and
+  MLX: normalized stable runtime instructions, projection mode, `maxKVSize`, and
   reasoning/template context. Sampling settings, `maxTokens`, and the active
   native tool schema are decode-time inputs and do not rebuild the session.
+- Each user turn freezes one stable `ChatRuntimePromptPlan.stableInstructions`
+  value. The same text is used for `ChatSession.instructions` and
+  `cacheIdentityInstructions`; final/no-tools guidance, todo state, budget
+  warnings, and duplicate nudges must be transient prompt content instead of
+  system instructions.
 - All generation requests use the MLX structured-message path. First requests
   send only the current prompt to a new `ChatSession(history:)`; reused requests
   send either the current prompt or the appended history delta plus the current
@@ -217,8 +220,10 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   stores only the canonical turn/tool records. `ChatModelContextBuilder` derives
   a transient assistant tool-call boundary and the Gemma renderer sends it as
   structured assistant `tool_calls` with stable `call_<uuid>` IDs and matching
-  `tool` result messages. No user-role continuation message is synthesized after
-  a tool result.
+  `tool` result messages. No persisted user-role continuation message is
+  synthesized after a tool result; runtime-only prompt-plan suffixes may append
+  a labelled runtime instruction or context block to the current generation and
+  must be reflected in the cache prefix when consumed by MLX.
 - Image prompts stay cacheable. The content signatures of the images consumed
   with a user prompt are derived from the user message attachments and carried
   through the projection into the prefix snapshots, so identical
@@ -237,7 +242,9 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   that the entire provider-facing message shape still matches the session state.
 - The active native tool schema is applied through `session.tools` immediately
   before decode. It is not part of prefix comparison because the Gemma template
-  does not render tool specs into the prefilled prompt.
+  does not render tool specs into the prefilled prompt. Final no-tools
+  follow-ups clear `session.tools` without changing `ChatSession.instructions` or
+  the cache identity.
 
 The native Gemma 4 fast path preserves the assistant tool-call boundary as a
 derived projection while replaying it to MLX as native structured tool-call

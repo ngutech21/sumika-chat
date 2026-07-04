@@ -425,7 +425,9 @@ and tests.
   approval because it mutates only session state. Registry membership controls
   prompt visibility, native tool schema exposure, and unavailable-tool
   validation. Chat prompts, and Agent prompts while the setting is disabled,
-  must not render the todo tool or current todo plan.
+  must not render the todo tool or current todo plan. When enabled, the current
+  todo plan is rendered as transient runtime prompt context, not as
+  `ChatSession.instructions`, so todo updates do not change the cache identity.
   Model-facing `todo_write` calls pass `item1` and `item2` string fields, plus
   optional `item3` through `item6`. Optional `done1` through `done6` booleans
   mark completed items; missing `doneN` values map to `pending`. The typed
@@ -450,9 +452,11 @@ and tests.
 - Successful `write_file` and `edit_file` results are terminal for additional
   tool execution in the current chat turn. `ChatTurnCoordinator` may request one
   final no-tools assistant follow-up so the model can briefly summarize the
-  completed write and mention useful run or verification steps, but it should not
-  echo generated file contents, code blocks, diffs, or tool arguments unless the
-  user explicitly asked to display them in chat. The follow-up must not say files
+  completed write and mention useful run or verification steps. The follow-up
+  clears native tool specs and uses a transient runtime instruction; it must not
+  change the stable system instructions or cache identity. It should not echo
+  generated file contents, code blocks, diffs, or tool arguments unless the user
+  explicitly asked to display them in chat. The follow-up must not say files
   changed unless a successful `write_file` or `edit_file` result exists in the
   turn; failed or invalid write/edit results mean no workspace change happened.
   Any emitted tool attempt in that final response must be converted into a

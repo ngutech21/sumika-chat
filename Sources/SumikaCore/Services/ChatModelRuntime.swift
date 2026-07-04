@@ -19,6 +19,12 @@ public protocol ChatModelRuntime: Sendable {
     settings: ChatGenerationSettings,
     toolContext: ChatRuntimeToolContext?
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
+  func streamReply(
+    for transcript: ModelPromptProjection,
+    attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
 }
 
 public enum ChatModelStreamEvent: Sendable {
@@ -41,6 +47,27 @@ public struct ChatRuntimeToolContext: Equatable, Sendable {
     self.strategy = strategy
     self.registry = registry
     self.cacheSystemPrompt = cacheSystemPrompt
+  }
+}
+
+public struct ChatRuntimePromptPlan: Equatable, Sendable {
+  public let stableInstructions: String
+  public let transientInstructions: [String]
+  public let toolContext: ChatRuntimeToolContext?
+  public let cacheIdentityInstructions: String
+
+  public init(
+    stableInstructions: String,
+    transientInstructions: [String] = [],
+    toolContext: ChatRuntimeToolContext? = nil
+  ) {
+    self.stableInstructions = stableInstructions
+    self.transientInstructions =
+      transientInstructions
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    self.toolContext = toolContext
+    self.cacheIdentityInstructions = stableInstructions
   }
 }
 
@@ -78,6 +105,21 @@ extension ChatModelRuntime {
       attachments: attachments,
       systemPrompt: systemPrompt,
       settings: settings
+    )
+  }
+
+  public func streamReply(
+    for transcript: ModelPromptProjection,
+    attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    try await streamReply(
+      for: transcript,
+      attachments: attachments,
+      systemPrompt: promptPlan.stableInstructions,
+      settings: settings,
+      toolContext: promptPlan.toolContext
     )
   }
 

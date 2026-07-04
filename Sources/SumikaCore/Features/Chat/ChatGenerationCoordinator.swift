@@ -82,9 +82,8 @@ public struct ChatGenerationCoordinator {
       interactionMode: interactionMode,
       transcript: transcript,
       attachments: attachments,
-      systemPrompt: systemPrompt,
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: systemPrompt),
       settings: settings,
-      toolContext: nil,
       appendChunk: appendChunk,
       appendThinkingChunk: appendThinkingChunk,
       updateGenerationMetrics: updateGenerationMetrics,
@@ -104,6 +103,41 @@ public struct ChatGenerationCoordinator {
     systemPrompt: String,
     settings: ChatGenerationSettings,
     toolContext: ChatRuntimeToolContext? = nil,
+    appendChunk: (String) -> Void,
+    appendThinkingChunk: (String) -> Void = { _ in },
+    updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
+    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void = { _ in },
+    updateContextUsage: () async -> Void
+  ) async throws -> ChatGenerationResult {
+    try await streamAssistantReplyResult(
+      turnID: turnID,
+      operationID: requestedOperationID,
+      toolLoopIteration: toolLoopIteration,
+      interactionMode: interactionMode,
+      transcript: transcript,
+      attachments: attachments,
+      promptPlan: ChatRuntimePromptPlan(
+        stableInstructions: systemPrompt,
+        toolContext: toolContext
+      ),
+      settings: settings,
+      appendChunk: appendChunk,
+      appendThinkingChunk: appendThinkingChunk,
+      updateGenerationMetrics: updateGenerationMetrics,
+      updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot,
+      updateContextUsage: updateContextUsage
+    )
+  }
+
+  public func streamAssistantReplyResult(
+    turnID: ChatTurn.ID? = nil,
+    operationID requestedOperationID: UUID? = nil,
+    toolLoopIteration: Int? = nil,
+    interactionMode: WorkspaceInteractionMode? = nil,
+    transcript: ModelPromptProjection,
+    attachments: [ChatAttachment] = [],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings,
     appendChunk: (String) -> Void,
     appendThinkingChunk: (String) -> Void = { _ in },
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
@@ -133,9 +167,8 @@ public struct ChatGenerationCoordinator {
         interactionMode: interactionMode,
         transcript: transcript,
         attachments: attachments,
-        systemPrompt: systemPrompt,
+        promptPlan: promptPlan,
         settings: settings,
-        toolContext: toolContext,
         appendChunk: appendChunk,
         appendThinkingChunk: appendThinkingChunk,
         updateGenerationMetrics: updateGenerationMetrics,
@@ -152,9 +185,8 @@ public struct ChatGenerationCoordinator {
     interactionMode: WorkspaceInteractionMode?,
     transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext?,
     appendChunk: (String) -> Void,
     appendThinkingChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
@@ -176,9 +208,8 @@ public struct ChatGenerationCoordinator {
     let stream = try await requestRuntimeStream(
       transcript: transcript,
       attachments: attachments,
-      systemPrompt: systemPrompt,
+      promptPlan: promptPlan,
       settings: settings,
-      toolContext: toolContext,
       operationID: operationID
     )
     try await refreshRuntimeCacheDebugSnapshot(
@@ -352,9 +383,8 @@ public struct ChatGenerationCoordinator {
   private func requestRuntimeStream(
     transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext?,
     operationID: UUID
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     let interval = ChatDiagnostics.beginInterval(
@@ -367,9 +397,8 @@ public struct ChatGenerationCoordinator {
     return try await runtimeOperations.streamReply(
       for: transcript,
       attachments: attachments,
-      systemPrompt: systemPrompt,
+      promptPlan: promptPlan,
       settings: settings,
-      toolContext: toolContext,
       operationID: operationID
     )
   }

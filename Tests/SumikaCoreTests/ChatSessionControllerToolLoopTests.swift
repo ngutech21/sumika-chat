@@ -34,9 +34,19 @@ struct ChatSessionControllerToolLoopTests {
     #expect(capturedSystemPrompts.count == budget + 1)
     #expect(capturedSystemPrompts[1].contains("Available tools:"))
     #expect(capturedSystemPrompts[budget - 1].contains("Available tools:"))
-    #expect(capturedSystemPrompts[budget].contains("No more tools may run in this response."))
+    #expect(capturedSystemPrompts[budget].contains("Available tools:"))
+    #expect(!capturedSystemPrompts[budget].contains("No more tools are available"))
     #expect(!capturedSystemPrompts[budget].contains("tool budget"))
-    #expect(!capturedSystemPrompts[budget].contains("Available tools:"))
+    #expect(Set(capturedSystemPrompts).count == 1)
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == budget + 1)
+    #expect(capturedPromptPlans[budget].stableInstructions == capturedSystemPrompts[0])
+    #expect(capturedPromptPlans[budget].cacheIdentityInstructions == capturedSystemPrompts[0])
+    #expect(
+      capturedPromptPlans[budget].transientInstructions.contains {
+        $0.contains("No more tools are available for this generation")
+      })
 
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 1)
@@ -74,7 +84,15 @@ struct ChatSessionControllerToolLoopTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == budget + 1)
-    #expect(capturedSystemPrompts[budget].contains("No more tools may run in this response."))
+    #expect(Set(capturedSystemPrompts).count == 1)
+    #expect(!capturedSystemPrompts[budget].contains("No more tools are available"))
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == budget + 1)
+    #expect(
+      capturedPromptPlans[budget].transientInstructions.contains {
+        $0.contains("No more tools are available for this generation")
+      })
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == budget + 1)
@@ -227,7 +245,7 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
-  func todoWriteUpdatesSessionStateAndRendersPlanOnlyInAgentPrompt() async throws {
+  func todoWriteUpdatesSessionStateAndRendersPlanAsTransientContext() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
@@ -258,15 +276,26 @@ struct ChatSessionControllerToolLoopTests {
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 2)
     #expect(!capturedSystemPrompts[0].contains("Current plan:"))
-    #expect(capturedSystemPrompts[1].contains("Current plan:"))
-    #expect(capturedSystemPrompts[1].contains("- [pending] Run tests"))
+    #expect(!capturedSystemPrompts[1].contains("Current plan:"))
+    #expect(capturedSystemPrompts[0] == capturedSystemPrompts[1])
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 2)
+    #expect(
+      capturedPromptPlans[1].transientInstructions.contains {
+        $0.contains("Current plan:") && $0.contains("- [pending] Run tests")
+      })
 
     controller.setInteractionMode(.agent)
     controller.sendMessage(prompt: "inspect without plan", in: workspace, sessionID: sessionID)
     try await waitUntil { !controller.isGenerating }
 
     let promptsAfterSecondAgentTurn = await runtime.capturedSystemPrompts
-    #expect(promptsAfterSecondAgentTurn.last?.contains("Current plan:") == true)
+    #expect(promptsAfterSecondAgentTurn.last?.contains("Current plan:") == false)
+    let plansAfterSecondAgentTurn = await runtime.capturedPromptPlans
+    #expect(
+      plansAfterSecondAgentTurn.last?.transientInstructions.contains {
+        $0.contains("Current plan:")
+      } == true)
     #expect(controller.chatSession.todoState?.items.count == 2)
   }
 

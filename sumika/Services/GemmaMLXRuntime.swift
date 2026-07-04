@@ -113,6 +113,44 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     settings.repetitionPenalty == 1 ? nil : Float(settings.repetitionPenalty)
   }
 
+  nonisolated private static func appendTransientInstructions(
+    _ instructions: [String],
+    toPromptSnapshot promptSnapshot: [GemmaMessageSnapshot],
+    promptMessages: [Chat.Message]
+  ) -> (promptSnapshot: [GemmaMessageSnapshot], promptMessages: [Chat.Message]) {
+    var updatedSnapshot = promptSnapshot
+    var updatedMessages = promptMessages
+    for instruction in instructions {
+      if let lastSnapshot = updatedSnapshot.last,
+        lastSnapshot.role == Chat.Message.Role.user.rawValue,
+        !lastSnapshot.hasToolMetadata
+      {
+        updatedSnapshot[updatedSnapshot.count - 1] = GemmaMessageSnapshot(
+          role: Chat.Message.Role.user.rawValue,
+          content: [lastSnapshot.content, instruction].joined(separator: "\n\n"),
+          imageSignatures: lastSnapshot.imageSignatures
+        )
+      } else {
+        updatedSnapshot.append(
+          GemmaMessageSnapshot(
+            role: Chat.Message.Role.user.rawValue,
+            content: instruction
+          )
+        )
+      }
+
+      if let lastMessage = updatedMessages.last,
+        lastMessage.role == .user
+      {
+        updatedMessages[updatedMessages.count - 1].content =
+          [lastMessage.content, instruction].joined(separator: "\n\n")
+      } else {
+        updatedMessages.append(.user(instruction))
+      }
+    }
+    return (updatedSnapshot, updatedMessages)
+  }
+
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
@@ -122,9 +160,8 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     try await streamReply(
       for: transcript,
       attachments: attachments,
-      systemPrompt: systemPrompt,
-      settings: settings,
-      toolContext: nil
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: systemPrompt),
+      settings: settings
     )
   }
 
@@ -134,6 +171,23 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     systemPrompt: String,
     settings: ChatGenerationSettings,
     toolContext: ChatRuntimeToolContext?
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    try await streamReply(
+      for: transcript,
+      attachments: attachments,
+      promptPlan: ChatRuntimePromptPlan(
+        stableInstructions: systemPrompt,
+        toolContext: toolContext
+      ),
+      settings: settings
+    )
+  }
+
+  func streamReply(
+    for transcript: ModelPromptProjection,
+    attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     let setupInterval = ChatDiagnostics.beginInterval(
       "Gemma stream reply setup",
@@ -170,12 +224,19 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
     let additionalContext = Self.chatTemplateAdditionalContext(
       reasoningEnabled: settings.reasoningEnabled)
-    let toolSpecs = GemmaNativeToolSchema.toolSpecs(from: toolContext)
-    let cacheSystemPrompt = toolContext?.cacheSystemPrompt ?? systemPrompt
+    let systemPrompt = promptPlan.stableInstructions
+    let toolSpecs = GemmaNativeToolSchema.toolSpecs(from: promptPlan.toolContext)
+    let cacheSystemPrompt = promptPlan.cacheIdentityInstructions
     let historySnapshot = generationInput.historySnapshot
     let history = generationInput.history
-    let promptSnapshot = generationInput.promptSnapshot
-    let finalPrompt = generationInput.promptContent
+    let promptWithTransientInstructions = Self.appendTransientInstructions(
+      promptPlan.transientInstructions,
+      toPromptSnapshot: generationInput.promptSnapshot,
+      promptMessages: generationInput.promptMessages
+    )
+    let promptSnapshot = promptWithTransientInstructions.promptSnapshot
+    let promptMessages = promptWithTransientInstructions.promptMessages
+    let finalPrompt = promptMessages.map(\.content).joined(separator: "\n\n")
     await supersedeActiveGenerationBeforeStartingNew()
     let traceMetadata = TurnTraceContext.current
     let traceID = traceMetadata?.generationID ?? UUID()
@@ -188,7 +249,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       modelContainer: modelContainer,
       history: history,
       historySnapshot: historySnapshot,
-      promptMessages: generationInput.promptMessages,
+      promptMessages: promptMessages,
       systemPrompt: systemPrompt,
       cacheSystemPrompt: cacheSystemPrompt,
       settings: settings,

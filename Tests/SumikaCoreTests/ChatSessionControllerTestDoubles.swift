@@ -170,6 +170,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   private(set) var capturedMessages: [[ProjectedModelContextEntry]] = []
   private(set) var capturedSystemPrompts: [String] = []
   private(set) var capturedToolContexts: [ChatRuntimeToolContext?] = []
+  private(set) var capturedPromptPlans: [ChatRuntimePromptPlan] = []
 
   init(turns: [[String]], blockedCallIndexes: Set<Int>) {
     self.turns = turns.map { $0.map(ChatModelStreamEvent.chunk) }
@@ -259,6 +260,22 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
       for: transcript,
       attachments: attachments,
       systemPrompt: systemPrompt,
+      settings: settings
+    )
+  }
+
+  func streamReply(
+    for transcript: ModelPromptProjection,
+    attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    capturedPromptPlans.append(promptPlan)
+    capturedToolContexts.append(promptPlan.toolContext)
+    return try await streamReply(
+      for: transcript,
+      attachments: attachments,
+      systemPrompt: promptPlan.stableInstructions,
       settings: settings
     )
   }
@@ -436,6 +453,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private(set) var capturedSystemPrompts: [String] = []
   private(set) var capturedGenerationSettings: [ChatGenerationSettings] = []
   private(set) var capturedToolContexts: [ChatRuntimeToolContext?] = []
+  private(set) var capturedPromptPlans: [ChatRuntimePromptPlan] = []
 
   init(
     chunks: [String] = [],
@@ -524,6 +542,22 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
       for: transcript,
       attachments: attachments,
       systemPrompt: systemPrompt,
+      settings: settings
+    )
+  }
+
+  func streamReply(
+    for transcript: ModelPromptProjection,
+    attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    capturedPromptPlans.append(promptPlan)
+    capturedToolContexts.append(promptPlan.toolContext)
+    return try await streamReply(
+      for: transcript,
+      attachments: attachments,
+      systemPrompt: promptPlan.stableInstructions,
       settings: settings
     )
   }

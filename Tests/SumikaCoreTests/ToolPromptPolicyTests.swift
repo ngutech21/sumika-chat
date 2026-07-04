@@ -62,16 +62,19 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
-  func finalToolResultPromptDisablesFurtherToolCalls() {
+  func finalToolResultPromptKeepsStableAgentInstructions() {
     let prompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",
       mode: .afterToolResultFinal,
       toolRegistry: ToolExecutorRegistry.codingAgent.toolRegistry
     )
 
-    #expect(prompt.contains("No more tools may run"))
-    #expect(prompt.contains("Do not call another tool"))
-    #expect(prompt.contains("Do not include generated file contents"))
+    #expect(prompt.contains("Workspace tools are available"))
+    #expect(prompt.contains("read_file"))
+    #expect(prompt.contains("edit_file"))
+    #expect(!prompt.contains("No more tools may run"))
+    #expect(!prompt.contains("Do not call another tool"))
+    #expect(!prompt.contains("Do not include generated file contents"))
     #expect(
       prompt.contains(
         "Never say files were changed unless a successful write_file or edit_file result exists in this turn."
