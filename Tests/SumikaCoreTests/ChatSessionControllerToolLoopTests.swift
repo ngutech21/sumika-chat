@@ -721,6 +721,162 @@ struct ChatSessionControllerToolLoopTests {
     #expect(capturedSystemPrompts[2].contains("list_files"))
   }
 
+  @Test
+  func repeatedRunCommandAddsTransientRuntimeNoticeAfterThirdCall() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [runCommandToolCall("git status")],
+      [runCommandToolCall("git status")],
+      [runCommandToolCall("git status")],
+      [.chunk("I am blocked on repeated git status output.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: allowedRunCommandOrchestrator(exitCode: 0)
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "check status", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.toolCalls.count == 3)
+    #expect(
+      controller.chatSession.toolCalls.allSatisfy { record in
+        record.request.toolName == .runCommand && record.status == .completed
+      })
+    #expect(
+      controller.chatSession.toolCalls.allSatisfy { record in
+        if case .duplicateToolCall = record.resultPayload {
+          return false
+        }
+        return true
+      })
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 4)
+    #expect(
+      capturedPromptPlans[1].transientInstructions.contains(repeatedRunCommandNotice) == false)
+    #expect(
+      capturedPromptPlans[2].transientInstructions.contains(repeatedRunCommandNotice) == false)
+    #expect(capturedPromptPlans[3].transientInstructions.contains(repeatedRunCommandNotice))
+  }
+
+  @Test
+  func failedRunCommandResultsCountTowardRepeatedRuntimeNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [runCommandToolCall("git status")],
+      [runCommandToolCall("git status")],
+      [runCommandToolCall("git status")],
+      [.chunk("The command is still failing.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: allowedRunCommandOrchestrator(exitCode: 1)
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "check status", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.toolCalls.count == 3)
+    #expect(
+      controller.chatSession.toolCalls.allSatisfy { record in
+        guard record.request.toolName == .runCommand,
+          case .runCommand(let result)? = record.resultPayload
+        else {
+          return false
+        }
+        return result.outcomeStatus == .failed
+      })
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 4)
+    #expect(capturedPromptPlans[3].transientInstructions.contains(repeatedRunCommandNotice))
+    #expect(
+      capturedPromptPlans[3].transientInstructions.contains {
+        $0.contains("The previous run_command result in this turn failed.")
+      })
+  }
+
+  @Test
+  func differentRunCommandArgumentsDoNotAddRepeatedRuntimeNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [runCommandToolCall("git status")],
+      [runCommandToolCall("git diff")],
+      [runCommandToolCall("git status")],
+      [.chunk("I inspected different command outputs.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: allowedRunCommandOrchestrator(exitCode: 0)
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect git state", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.toolCalls.count == 3)
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 4)
+    #expect(
+      capturedPromptPlans.allSatisfy {
+        !$0.transientInstructions.contains(repeatedRunCommandNotice)
+      })
+  }
+
+  @Test
+  func differentToolSignatureClearsRepeatedRunCommandRuntimeNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [runCommandToolCall("git status")],
+      [runCommandToolCall("git status")],
+      [runCommandToolCall("git status")],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ],
+      [.chunk("I switched to inspecting files.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: ToolExecutorRegistry([
+          AnyToolExecutor(AllowedRunCommandToolExecutor(exitCode: 0)),
+          AnyToolExecutor(ListFilesToolExecutor()),
+        ])
+      )
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect the workspace", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(
+      controller.chatSession.toolCalls.map(\.request.toolName) == [
+        .runCommand, .runCommand, .runCommand, .listFiles,
+      ])
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 5)
+    #expect(capturedPromptPlans[3].transientInstructions.contains(repeatedRunCommandNotice))
+    #expect(
+      capturedPromptPlans[4].transientInstructions.contains(repeatedRunCommandNotice) == false)
+  }
+
   private func waitUntil(
     timeout: Duration = .seconds(1),
     condition: @escaping @MainActor () -> Bool
@@ -756,6 +912,33 @@ struct ChatSessionControllerToolLoopTests {
         withIntermediateDirectories: true
       )
     }
+  }
+
+  private var repeatedRunCommandNotice: String {
+    """
+    [System Notice]
+    You have made the exact same `run_command` call with identical arguments 3+ times in a row.
+    Do not keep repeating it. Inspect the output, change the command, or report what is blocking you.
+    """
+  }
+
+  private func runCommandToolCall(_ command: String) -> ChatModelStreamEvent {
+    .toolCall(
+      ChatRuntimeToolCall(
+        name: "run_command",
+        arguments: [
+          "command": .string(command),
+          "timeoutSeconds": .number(10),
+        ]
+      ))
+  }
+
+  private func allowedRunCommandOrchestrator(exitCode: Int32) -> ToolOrchestrator {
+    ToolOrchestrator(
+      executorRegistry: ToolExecutorRegistry([
+        AnyToolExecutor(AllowedRunCommandToolExecutor(exitCode: exitCode))
+      ])
+    )
   }
 
   private func listFileEventTurns(count: Int) -> [[ChatModelStreamEvent]] {
@@ -794,5 +977,37 @@ struct ChatSessionControllerToolLoopTests {
         )
       ]
     )
+  }
+}
+
+private struct AllowedRunCommandToolExecutor: TypedToolExecutor {
+  static let codec = RunCommandToolExecutor.codec
+
+  let exitCode: Int32
+
+  func evaluatePermission(
+    _ input: RunCommandInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    _ = (input, context)
+    return ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Allowed for repeated command guard test.",
+      riskLevel: .high,
+      workspaceRelativePaths: [WorkspaceRelativePath(rawValue: ".")]
+    )
+  }
+
+  func run(_ input: RunCommandInput, context: ToolContext) async -> ToolResultPayload {
+    _ = context
+    return .runCommand(
+      RunCommandResult(
+        command: input.command,
+        timeoutSeconds: input.timeoutSeconds,
+        exitCode: exitCode,
+        durationMs: 10,
+        stdout: ToolTextOutput(text: exitCode == 0 ? "ok\n" : ""),
+        stderr: ToolTextOutput(text: exitCode == 0 ? "" : "failed\n")
+      ))
   }
 }

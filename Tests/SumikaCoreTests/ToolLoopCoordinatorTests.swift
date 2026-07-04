@@ -492,6 +492,56 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func identicalRunCommandCallsExecuteWithoutDuplicateReplay() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator(tools: [.runCommand])
+    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        userContent: "check git status repeatedly",
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "run_command",
+            arguments: ["command": .string("git status")]
+          ),
+          ChatRuntimeToolCall(
+            name: "run_command",
+            arguments: ["command": .string("git status")]
+          ),
+          ChatRuntimeToolCall(
+            name: "run_command",
+            arguments: ["command": .string("git status")]
+          ),
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 3)
+    let records = toolCallRecords(from: result)
+    #expect(records.count == 3)
+    #expect(
+      records.allSatisfy { record in
+        if case .runCommand = record.resultPayload {
+          return true
+        }
+        return false
+      })
+    #expect(
+      records.allSatisfy { record in
+        if case .duplicateToolCall = record.resultPayload {
+          return false
+        }
+        return true
+      })
+    #expect(toolResults(from: result).map(\.callID) == records.map(\.id))
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
   func nativeToolNameRepairKeepsOriginalName() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -998,6 +1048,16 @@ private actor CountingToolOrchestrator: ToolOrchestrating {
               kind: .file
             )
           ]
+        ))
+    case .runCommand(let input):
+      payload = .runCommand(
+        RunCommandResult(
+          command: input.command,
+          timeoutSeconds: input.timeoutSeconds,
+          exitCode: 0,
+          durationMs: 10,
+          stdout: ToolTextOutput(text: "ok\n"),
+          stderr: ToolTextOutput(text: "")
         ))
     default:
       payload = .failure(

@@ -101,7 +101,13 @@ flowchart TD
   `ToolResultPayload` instead of invoking the executor again. The duplicate
   payload carries a replayed `ToolModelObservation` so the prompt tail contains
   the prior result blocks again, followed by a next-step hint to use the replayed
-  data instead of repeating the same tool call.
+  data instead of repeating the same tool call. Side-effect-capable tools such
+  as `run_command` are never replayed as duplicates.
+- Repeated identical non-read tool calls are guarded with transient runtime
+  prompt content derived from the current turn items. The guard counts only a
+  trailing streak of completed records with the same validated tool payload;
+  failed `run_command` outcomes still count because they are completed command
+  executions. No repeated-call counters are persisted.
 - `ChatTurn.items` is the canonical source for tool turn membership. One
   `.tool(ToolCallRecord)` item carries the call, permission state, and eventual
   result payload. Code that needs reverse lookup derives `toolCallID -> turnID`

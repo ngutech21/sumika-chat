@@ -135,7 +135,10 @@ flowchart TD
    failure without inferring command-specific side effects. If that follow-up
    has no tool call and makes an unqualified completion claim, Sumika replaces
    the visible text with a generic failed-command response instead of completing
-   the turn with a false success summary.
+   the turn with a false success summary. If the current turn ends in three or
+   more identical completed non-read tool records in a row, including failed
+   `run_command` outcomes, the next follow-up receives a transient repeated-call
+   notice instead of changing persisted turn state.
 8. Answering `ask_user` delegates to
    `ChatTurnCoordinator.answerAskUserToolCall`, appends the compact answer
    receipt, and resumes generation plus the normal tool loop.

@@ -528,6 +528,12 @@ struct ChatTurnExecutionCoordinator {
     ) {
       instructions.append(failedCommandInstruction)
     }
+    if let repeatedCallInstruction = repeatedNonReadToolCallRuntimeInstruction(
+      session: session,
+      turnID: turnID
+    ) {
+      instructions.append(repeatedCallInstruction)
+    }
     if toolPromptMode == .afterToolResultFinal {
       instructions.append(Self.finalToolResultRuntimeInstruction)
     }
@@ -632,6 +638,11 @@ struct ChatTurnExecutionCoordinator {
 }
 
 extension ChatTurnExecutionCoordinator {
+  fileprivate struct RepeatedToolCallSignature: Equatable {
+    var toolName: ToolName
+    var payload: ToolCallPayload
+  }
+
   fileprivate struct FailedRunCommandGuardContext {
     var exitCode: Int32?
     var timedOut: Bool
@@ -756,6 +767,101 @@ extension ChatTurnExecutionCoordinator {
       "If tools are available, inspect the output, use workspace_diagnostics with the outputRef when useful, or rerun a corrected command. If tools are unavailable, say the command failed and briefly state what remains."
     )
     return lines.joined(separator: "\n")
+  }
+
+  fileprivate func repeatedNonReadToolCallRuntimeInstruction(
+    session: ChatSession,
+    turnID: ChatTurn.ID
+  ) -> String? {
+    guard session.interactionMode == .agent,
+      let repeatedCall = repeatedNonReadToolCall(session: session, turnID: turnID),
+      repeatedCall.count >= 3
+    else {
+      return nil
+    }
+
+    if repeatedCall.signature.toolName == .runCommand {
+      return """
+        [System Notice]
+        You have made the exact same `run_command` call with identical arguments 3+ times in a row.
+        Do not keep repeating it. Inspect the output, change the command, or report what is blocking you.
+        """
+    }
+
+    return """
+      [System Notice]
+      You have made the exact same `\(repeatedCall.signature.toolName.rawValue)` tool call with identical arguments 3+ times in a row.
+      Do not keep repeating it. Inspect the output, change approach, or report what is blocking you.
+      """
+  }
+
+  fileprivate func repeatedNonReadToolCall(
+    session: ChatSession,
+    turnID: ChatTurn.ID
+  ) -> (signature: RepeatedToolCallSignature, count: Int)? {
+    guard let turn = session.turns.first(where: { $0.id == turnID }) else {
+      return nil
+    }
+
+    var repeatedSignature: RepeatedToolCallSignature?
+    var repeatedCount = 0
+
+    for item in turn.items.reversed() {
+      guard case .tool(let record) = item else {
+        continue
+      }
+      guard isCompletedToolExecution(record),
+        let signature = nonReadSignature(for: record)
+      else {
+        break
+      }
+
+      if repeatedSignature == nil {
+        repeatedSignature = signature
+      }
+      guard signature == repeatedSignature else {
+        break
+      }
+      repeatedCount += 1
+    }
+
+    guard let repeatedSignature else {
+      return nil
+    }
+    return (repeatedSignature, repeatedCount)
+  }
+
+  fileprivate func isCompletedToolExecution(_ record: ToolCallRecord) -> Bool {
+    if record.status == .completed {
+      return true
+    }
+    if case .runCommand = record.resultPayload {
+      return true
+    }
+    return false
+  }
+
+  fileprivate func nonReadSignature(for record: ToolCallRecord) -> RepeatedToolCallSignature? {
+    guard !isReplayableReadLikeTool(record.request.toolName) else {
+      return nil
+    }
+    if case .invalid = record.request.payload {
+      return nil
+    }
+    return RepeatedToolCallSignature(
+      toolName: record.request.toolName,
+      payload: record.request.payload
+    )
+  }
+
+  fileprivate func isReplayableReadLikeTool(_ toolName: ToolName) -> Bool {
+    switch toolName {
+    case .readFile, .listFiles, .globFiles, .searchFiles, .workspaceDiff, .workspaceDiagnostics,
+      .webSearch, .webFetch:
+      return true
+    default:
+      return false
+    }
   }
 
   fileprivate func latestFailedRunCommandResult(
