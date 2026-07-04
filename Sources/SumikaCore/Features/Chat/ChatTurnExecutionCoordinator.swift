@@ -665,7 +665,7 @@ extension ChatTurnExecutionCoordinator {
     var latestFailedRunCommandResult: RunCommandResult?
     var failedRunCommandStreak: (command: String, count: Int)?
     var repeatedNonReadToolCall: (signature: RepeatedToolCallSignature, count: Int)?
-    var listingWandering: ListingWanderingState = ListingWanderingState()
+    var listingWandering = ListingWanderingState()
     var readReplayStreak: (signature: RepeatedToolCallSignature, count: Int)?
   }
 
@@ -697,7 +697,12 @@ extension ChatTurnExecutionCoordinator {
     session: ChatSession,
     turnID: ChatTurn.ID
   ) -> FailedRunCommandGuardContext? {
-    guard let result = agentTurnState(session: session, turnID: turnID)?.latestFailedRunCommandResult else {
+    guard
+      let result = agentTurnState(
+        session: session,
+        turnID: turnID
+      )?.latestFailedRunCommandResult
+    else {
       return nil
     }
     return FailedRunCommandGuardContext(

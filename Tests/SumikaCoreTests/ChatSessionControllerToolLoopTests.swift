@@ -248,15 +248,19 @@ struct ChatSessionControllerToolLoopTests {
     try await waitUntil { !controller.isGenerating }
 
     #expect(controller.chatSession.toolCalls.count == 3)
-    #expect(controller.chatSession.toolCalls.dropFirst().allSatisfy { record in
-      if case .duplicateToolCall = record.resultPayload {
-        return true
+    #expect(
+      controller.chatSession.toolCalls.dropFirst().allSatisfy { record in
+        if case .duplicateToolCall = record.resultPayload {
+          return true
+        }
+        return false
       }
-      return false
-    })
+    )
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.count == 4)
-    #expect(capturedPromptPlans[2].transientInstructions.contains(readReplayEscalationNotice) == false)
+    #expect(
+      capturedPromptPlans[2].transientInstructions.contains(readReplayEscalationNotice) == false
+    )
     #expect(capturedPromptPlans[3].transientInstructions.contains(readReplayEscalationNotice))
   }
 
@@ -1165,7 +1169,9 @@ struct ChatSessionControllerToolLoopTests {
     #expect(controller.chatSession.toolCalls.count == 2)
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.count == 3)
-    #expect(capturedPromptPlans[1].transientInstructions.contains(failedRunCommandStreakNotice) == false)
+    #expect(
+      capturedPromptPlans[1].transientInstructions.contains(failedRunCommandStreakNotice) == false
+    )
     #expect(capturedPromptPlans[2].transientInstructions.contains(failedRunCommandStreakNotice))
   }
 
