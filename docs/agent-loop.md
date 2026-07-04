@@ -50,6 +50,16 @@ reasoning-only output are not successful stop conditions.
   messages that match the original call IDs.
 - Invalid, unavailable, denied, and failed tools become observations. The model
   gets another iteration while budget remains.
+- A failed tool observation is a recovery boundary, not a successful stopping
+  point. The next model generation must either use available tools to recover or
+  visibly report the failure. It must not claim the requested task completed
+  based on the failed result.
+- If the generation after a failed `run_command` has no tool call and makes an
+  unqualified completion claim, the runtime must not surface that claim as the
+  final assistant answer.
+- Failed `run_command` observations are generic command failures. The loop must
+  not infer command-specific side effects, such as whether a repository changed,
+  unless a later tool result verifies that state.
 - Duplicate read/list/search calls may be executed again or answered with a
   compact duplicate observation. They must not force finalization.
 - Write, edit, command, and other side-effecting tools keep their approval flow.

@@ -103,6 +103,58 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func approvedFailedRunCommandAddsRecoveryRuntimeNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "run_command",
+            arguments: [
+              "command": .string("false"),
+              "timeoutSeconds": .number(1),
+              "reason": .string("Exercise failed command recovery."),
+            ]
+          ))
+      ],
+      [.chunk("I've completed it.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "run a failing command", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { controller.hasPendingApproval }
+    let pending = try #require(controller.chatSession.toolCalls.first)
+    controller.approveToolCall(id: pending.id, in: workspace)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let record = try #require(controller.chatSession.toolCalls.first)
+    #expect(record.request.toolName == .runCommand)
+    #expect(record.resultPreview?.status == .failed)
+    #expect(
+      controller.chatSession.testMessages.last?.content.contains(
+        "The previous command failed."
+      ) == true)
+    #expect(controller.chatSession.testMessages.last?.content.contains("completed it") == false)
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 2)
+    let notice = try #require(
+      capturedPromptPlans[1].transientInstructions.first {
+        $0.contains("The previous run_command result in this turn failed.")
+      }
+    )
+    #expect(notice.contains("Command: false"))
+    #expect(notice.contains("Exit code: 1"))
+    #expect(notice.contains("You MUST NOT report the requested task as complete"))
+    #expect(notice.contains("Do not infer workspace state from this failure alone"))
+    #expect(!notice.contains("committed"))
+  }
+
+  @Test
   func thinkingOnlyResponseWithoutToolCallFailsAndExcludesTurn() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

@@ -134,7 +134,8 @@ struct ChatTurnExecutionCoordinator {
       stableInstructions: stableInstructions,
       toolPromptMode: toolPromptMode,
       toolCallingPolicy: toolCallingPolicy,
-      toolLoopCoordinator: runtime.toolLoopCoordinator
+      toolLoopCoordinator: runtime.toolLoopCoordinator,
+      turnID: turnID
     )
     traceTurnPhase(
       .renderSystemPrompt,
@@ -160,7 +161,12 @@ struct ChatTurnExecutionCoordinator {
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
-    let generationResult = try await runtime.chatGenerationCoordinator.streamAssistantReplyResult(
+    let failedCommandGuard = failedRunCommandGuardContext(
+      session: callbacks.session(),
+      turnID: turnID
+    )
+    var guardedAssistantChunks = ""
+    var generationResult = try await runtime.chatGenerationCoordinator.streamAssistantReplyResult(
       turnID: turnID,
       operationID: runtime.operationID,
       toolLoopIteration: toolLoopIteration,
@@ -171,6 +177,10 @@ struct ChatTurnExecutionCoordinator {
       settings: callbacks.session().generationSettings,
       appendChunk: { chunk in
         guard isActive(turnID) else {
+          return
+        }
+        if failedCommandGuard != nil {
+          guardedAssistantChunks += chunk
           return
         }
         callbacks.emitEvents([
@@ -228,6 +238,25 @@ struct ChatTurnExecutionCoordinator {
     )
     guard isActive(turnID) else {
       return ChatGenerationResult(assistantContent: "")
+    }
+    if let failedCommandGuard {
+      let streamedContent =
+        guardedAssistantChunks.isEmpty ? generationResult.assistantContent : guardedAssistantChunks
+      let guardedContent = guardedVisibleContent(
+        streamedContent,
+        guardContext: failedCommandGuard,
+        nativeToolCalls: generationResult.nativeToolCalls
+      )
+      if !guardedContent.isEmpty {
+        callbacks.emitEvents([
+          .assistantChunkAppended(
+            chunk: guardedContent,
+            messageID: assistantMessageID
+          )
+        ])
+      }
+      generationResult.assistantContent = guardedContent
+      guardedAssistantChunks = ""
     }
     callbacks.refreshContextUsage(toolPromptMode)
     return generationResult
@@ -431,14 +460,16 @@ struct ChatTurnExecutionCoordinator {
     stableInstructions: String,
     toolPromptMode: ToolPromptMode,
     toolCallingPolicy: ToolCallingPolicy,
-    toolLoopCoordinator: ToolLoopCoordinator
+    toolLoopCoordinator: ToolLoopCoordinator,
+    turnID: ChatTurn.ID
   ) -> ChatRuntimePromptPlan {
     ChatRuntimePromptPlan(
       stableInstructions: stableInstructions,
       transientInstructions: transientInstructions(
         session: session,
         toolPromptMode: toolPromptMode,
-        toolLoopCoordinator: toolLoopCoordinator
+        toolLoopCoordinator: toolLoopCoordinator,
+        turnID: turnID
       ),
       toolContext: runtimeToolContext(
         for: toolPromptMode,
@@ -476,7 +507,8 @@ struct ChatTurnExecutionCoordinator {
   private func transientInstructions(
     session: ChatSession,
     toolPromptMode: ToolPromptMode,
-    toolLoopCoordinator: ToolLoopCoordinator
+    toolLoopCoordinator: ToolLoopCoordinator,
+    turnID: ChatTurn.ID
   ) -> [String] {
     var instructions: [String] = []
     if session.interactionMode == .agent,
@@ -489,6 +521,12 @@ struct ChatTurnExecutionCoordinator {
         \(planBlock)
         """
       )
+    }
+    if let failedCommandInstruction = failedRunCommandRuntimeInstruction(
+      session: session,
+      turnID: turnID
+    ) {
+      instructions.append(failedCommandInstruction)
     }
     if toolPromptMode == .afterToolResultFinal {
       instructions.append(Self.finalToolResultRuntimeInstruction)
@@ -590,5 +628,159 @@ struct ChatTurnExecutionCoordinator {
         )
       )
     }
+  }
+}
+
+extension ChatTurnExecutionCoordinator {
+  fileprivate struct FailedRunCommandGuardContext {
+    var exitCode: Int32?
+    var timedOut: Bool
+    var cancelled: Bool
+
+    var replacementAssistantContent: String {
+      var lines = [
+        "The previous command failed.",
+        "Exit code: \(exitCode.map(String.init) ?? "none").",
+        "I cannot report the requested task as complete based on that failed command.",
+      ]
+      if timedOut {
+        lines.append("The command timed out.")
+      }
+      if cancelled {
+        lines.append("The command was cancelled.")
+      }
+      lines.append(
+        "Inspect the output, run a corrected command, or ask me to continue with the next recovery step."
+      )
+      return lines.joined(separator: "\n")
+    }
+  }
+
+  fileprivate func failedRunCommandGuardContext(
+    session: ChatSession,
+    turnID: ChatTurn.ID
+  ) -> FailedRunCommandGuardContext? {
+    guard let result = latestFailedRunCommandResult(session: session, turnID: turnID) else {
+      return nil
+    }
+    return FailedRunCommandGuardContext(
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      cancelled: result.cancelled
+    )
+  }
+
+  fileprivate func guardedVisibleContent(
+    _ content: String,
+    guardContext: FailedRunCommandGuardContext,
+    nativeToolCalls: [ChatRuntimeToolCall]
+  ) -> String {
+    guard nativeToolCalls.isEmpty else {
+      return content
+    }
+    guard containsUnqualifiedCompletionClaim(content) else {
+      return content
+    }
+    return guardContext.replacementAssistantContent
+  }
+
+  fileprivate func containsUnqualifiedCompletionClaim(_ content: String) -> Bool {
+    let lowercasedContent = content.lowercased()
+    let failureSignals = [
+      "failed",
+      "failure",
+      "error",
+      "exit code",
+      "did not",
+      "does not",
+      "cannot",
+      "can't",
+      "could not",
+      "couldn't",
+      "not complete",
+      "not completed",
+      "not successful",
+      "unsuccessful",
+      "non-zero",
+      "nonzero",
+    ]
+    if failureSignals.contains(where: { lowercasedContent.contains($0) }) {
+      return false
+    }
+    let completionSignals = [
+      "success",
+      "successful",
+      "succeeded",
+      "complete",
+      "completed",
+      "done",
+      "finished",
+      "committed",
+      "staged",
+      "passed",
+      "built",
+      "installed",
+      "created",
+      "updated",
+      "applied",
+    ]
+    return completionSignals.contains { lowercasedContent.contains($0) }
+  }
+
+  fileprivate func failedRunCommandRuntimeInstruction(
+    session: ChatSession,
+    turnID: ChatTurn.ID
+  ) -> String? {
+    guard let result = latestFailedRunCommandResult(session: session, turnID: turnID) else {
+      return nil
+    }
+
+    var lines = [
+      "[System Notice]",
+      "The previous run_command result in this turn failed.",
+      "Command: \(result.command)",
+      "Exit code: \(result.exitCode.map(String.init) ?? "none")",
+      "Timed out: \(result.timedOut)",
+      "Cancelled: \(result.cancelled)",
+    ]
+    if let outputRef = result.outputRef {
+      lines.append("Output ref: \(outputRef)")
+    }
+    lines.append(
+      "You MUST NOT report the requested task as complete based on this failed command."
+    )
+    lines.append(
+      "Do not infer workspace state from this failure alone; verify with tools when state matters."
+    )
+    lines.append(
+      "If tools are available, inspect the output, use workspace_diagnostics with the outputRef when useful, or rerun a corrected command. If tools are unavailable, say the command failed and briefly state what remains."
+    )
+    return lines.joined(separator: "\n")
+  }
+
+  fileprivate func latestFailedRunCommandResult(
+    session: ChatSession,
+    turnID: ChatTurn.ID
+  ) -> RunCommandResult? {
+    guard session.interactionMode == .agent,
+      let turn = session.turns.first(where: { $0.id == turnID }),
+      let record = latestToolRecord(in: turn),
+      record.request.toolName == .runCommand,
+      case .runCommand(let result) = record.resultPayload,
+      result.outcomeStatus == .failed
+    else {
+      return nil
+    }
+    return result
+  }
+
+  fileprivate func latestToolRecord(in turn: ChatTurn) -> ToolCallRecord? {
+    for item in turn.items.reversed() {
+      guard case .tool(let record) = item else {
+        continue
+      }
+      return record
+    }
+    return nil
   }
 }

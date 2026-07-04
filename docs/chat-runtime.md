@@ -108,7 +108,9 @@ flowchart TD
    tool call until the configured turn budget is exhausted. Failed
    tools, unknown tools, and invalid tool-call observations also count against
    this budget and are returned to the model as observations so it can choose the
-   next step. The last budgeted follow-up sends an empty native tool schema and
+   next step. A failed tool observation must force recovery or an explicit
+   failure report; the model must not claim the requested task completed from
+   that failed result. The last budgeted follow-up sends an empty native tool schema and
    a transient runtime instruction asking for visible final text; the stable
    `ChatSession.instructions` prompt does not change. Successful `write_file`
    and `edit_file` calls switch to a brief final no-tools follow-up instead of
@@ -127,7 +129,13 @@ flowchart TD
    no-tools assistant response that summarizes the completed write without
    echoing generated file contents or diffs and only claims changed files from a
    successful write/edit result; other successful tools resume the normal tool
-   loop with a direct follow-up response.
+   loop with a direct follow-up response. If an approved `run_command` process
+   exits unsuccessfully, the direct follow-up receives a transient failed-command
+   notice and must recover with tools when possible or report the command
+   failure without inferring command-specific side effects. If that follow-up
+   has no tool call and makes an unqualified completion claim, Sumika replaces
+   the visible text with a generic failed-command response instead of completing
+   the turn with a false success summary.
 8. Answering `ask_user` delegates to
    `ChatTurnCoordinator.answerAskUserToolCall`, appends the compact answer
    receipt, and resumes generation plus the normal tool loop.

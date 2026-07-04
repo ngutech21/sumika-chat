@@ -215,6 +215,9 @@ struct ToolResultProjectorTests {
     #expect(rendered.contains("Exit code: 1"))
     #expect(rendered.contains("Stdout preview:\nbuild started"))
     #expect(rendered.contains("Stderr preview:\nTests failed"))
+    #expect(rendered.contains("Command failed."))
+    #expect(rendered.contains("Do not report the requested task as complete"))
+    #expect(rendered.contains("Do not infer workspace state from this failure alone"))
   }
 
   @Test
@@ -672,7 +675,15 @@ struct ToolResultProjectorTests {
     #expect(text == result.previewText)
     #expect(affectedPaths == [WorkspaceRelativePath(rawValue: ".")])
     #expect(projection.observation.status == expectedStatus)
-    #expect(projection.observation.blocks == [.commandResult(result)])
+    switch expectedStatus {
+    case .success:
+      #expect(projection.observation.blocks == [.commandResult(result)])
+    case .failed:
+      #expect(projection.observation.blocks.first == .commandResult(result))
+      #expect(projection.observation.blocks.containsFailure)
+    case .denied:
+      Issue.record("run_command projections should not be denied.")
+    }
 
     let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
     #expect(

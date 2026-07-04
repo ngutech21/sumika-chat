@@ -726,6 +726,10 @@ private func projectRunCommand(
 ) -> ToolResultProjection {
   let status = result.outcomeStatus
   let affectedPaths = [WorkspaceRelativePath(rawValue: ".")]
+  var blocks: [ToolObservationBlock] = [.commandResult(result)]
+  if status == .failed {
+    blocks.append(.failure(runCommandFailureGuidance(for: result)))
+  }
   return ToolResultProjection(
     display: .summary(
       status: status,
@@ -736,9 +740,33 @@ private func projectRunCommand(
       toolName: request.toolName,
       status: status,
       affectedPaths: affectedPaths,
-      blocks: [.commandResult(result)]
+      blocks: blocks
     )
   )
+}
+
+private func runCommandFailureGuidance(for result: RunCommandResult) -> String {
+  var lines = [
+    "Command failed.",
+    "Exit code: \(result.exitCode.map(String.init) ?? "none").",
+    "The command did not complete successfully.",
+  ]
+  if result.timedOut {
+    lines.append("The command timed out.")
+  }
+  if result.cancelled {
+    lines.append("The command was cancelled.")
+  }
+  lines.append(
+    "Do not report the requested task as complete based on this failed command."
+  )
+  lines.append(
+    "Do not infer workspace state from this failure alone; verify with tools when state matters."
+  )
+  lines.append(
+    "Next step: inspect the output, run workspace_diagnostics with the outputRef if useful, rerun a corrected command, or tell the user the command failed."
+  )
+  return lines.joined(separator: "\n")
 }
 
 private func projectTodoWrite(

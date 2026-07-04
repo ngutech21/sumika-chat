@@ -385,6 +385,10 @@ and tests.
   model-observation projections derive command outcome separately: only exit
   code `0` without timeout or cancellation is `success`; non-zero, missing exit
   code, timeout, or cancellation is `failed`.
+- A failed `run_command` observation must stay generic. It may say the command
+  did not complete successfully and that the assistant must not report the
+  requested task as complete from that failed result, but it must not infer
+  command-specific side effects without a later verifying tool result.
 - After an actual `run_command` process is started, the full stdout/stderr is
   recorded in ephemeral latest-command state keyed by workspace, session, and
   `outputRef`. The model-facing `RunCommandResult` contains only command
