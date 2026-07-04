@@ -321,7 +321,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
     return streamPlan.stream
   }
+}
 
+extension GemmaMLXRuntime {
   private func traceDebugRequest(
     id: UUID,
     systemPrompt: String,
