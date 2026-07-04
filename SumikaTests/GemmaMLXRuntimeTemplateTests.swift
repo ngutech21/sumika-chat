@@ -494,6 +494,32 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func chatSessionInstructionsAreOnlyAppliedWhenBuildingCache() {
+    let systemPrompt = "Use concise coding steps."
+
+    #expect(
+      GemmaSessionCachePolicy.chatSessionInstructions(
+        for: .newSession,
+        systemPrompt: systemPrompt
+      ) == systemPrompt)
+    #expect(
+      GemmaSessionCachePolicy.chatSessionInstructions(
+        for: .dirtyRebuild,
+        systemPrompt: systemPrompt
+      ) == systemPrompt)
+    #expect(
+      GemmaSessionCachePolicy.chatSessionInstructions(
+        for: .reusedSession,
+        systemPrompt: systemPrompt
+      ) == nil)
+    #expect(
+      GemmaSessionCachePolicy.chatSessionInstructions(
+        for: .appendDelta,
+        systemPrompt: systemPrompt
+      ) == nil)
+  }
+
+  @Test
   func runtimeCacheDebugSnapshotMapsCoarseTrace() {
     let generationID = UUID()
     let recordedAt = Date(timeIntervalSince1970: 42)
@@ -815,14 +841,6 @@ struct GemmaMLXRuntimeTemplateTests {
       try ModelFacingPromptRenderer.assistantOutputEntry(
         turnID: turnID,
         content: "I'll inspect that."
-      ),
-      try ModelFacingPromptRenderer.assistantOutputEntry(
-        turnID: turnID,
-        content: toolCallContent(
-          callID: callID,
-          toolName: .readFile,
-          arguments: arguments
-        )
       ),
       try ModelFacingPromptRenderer.toolResultEntry(
         turnID: turnID,
@@ -1698,6 +1716,56 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(await recorder.firstReason == nil)
     #expect(await boundaryRecorder.firstBoundary?.output == "")
     #expect(await boundaryRecorder.firstBoundary?.nativeToolCalls.first?.name == "read_file")
+    #expect(await memoryClearRecorder.reasons.isEmpty)
+  }
+
+  @Test
+  func modelStreamCompletesNativeToolCallWithoutInfoAsCleanBoundary() async throws {
+    let recorder = GemmaStreamInvalidationRecorder()
+    let boundaryRecorder = GemmaNativeBoundaryRecorder()
+    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let toolCall = MLXLMCommon.ToolCall(
+      function: .init(
+        name: "read_file",
+        arguments: ["path": "README.md"]
+      )
+    )
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.toolCall(toolCall))
+      continuation.finish()
+    }
+    let stream = GemmaModelStreamProcessor.modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { _ in
+        await recorder.record(.signatureMismatch)
+      },
+      markNativeToolCallBoundary: { output, nativeToolCalls in
+        await boundaryRecorder.record(output: output, nativeToolCalls: nativeToolCalls)
+      },
+      markCancelled: { reason in
+        await recorder.record(reason)
+      },
+      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    var iterator = stream.makeAsyncIterator()
+    let firstEvent = try await iterator.next()
+    guard case .toolCall(let runtimeToolCall) = firstEvent else {
+      Issue.record("Expected native tool call to be forwarded to the chat runtime.")
+      return
+    }
+    #expect(runtimeToolCall.name == "read_file")
+    #expect(try await iterator.next() == nil)
+    try await waitUntilAsync {
+      await boundaryRecorder.firstBoundary?.nativeToolCalls.count == 1
+    }
+    #expect(await recorder.firstReason == nil)
+    #expect(await boundaryRecorder.firstBoundary?.output == "")
     #expect(await memoryClearRecorder.reasons.isEmpty)
   }
 

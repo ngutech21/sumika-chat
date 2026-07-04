@@ -6,6 +6,8 @@ import Testing
 struct ToolResultPayloadTests {
   @Test
   func toolResultPayloadCodableRoundTripsBuiltInResults() throws {
+    let duplicatePreviousCallID = try #require(
+      UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
     let payloads: [ToolResultPayload] = [
       .readFile(
         .success(
@@ -35,6 +37,12 @@ struct ToolResultPayloadTests {
           stderr: ToolTextOutput(text: "failed")
         )),
       .todoWrite(.success),
+      .duplicateToolCall(
+        DuplicateToolCallResult(
+          previousCallID: duplicatePreviousCallID,
+          message: "Duplicate of call_old.",
+          affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")]
+        )),
       .invalidTool(
         InvalidToolResult(
           originalName: "deploy",
@@ -140,6 +148,23 @@ struct ToolResultPayloadTests {
     #expect(preview.status == .success)
     #expect(preview.text == "Plan updated.")
     #expect(preview.affectedPaths.isEmpty)
+  }
+
+  @Test
+  func duplicateToolCallPreviewReferencesPreviousResult() {
+    let previousCallID = UUID()
+    let payload = ToolResultPayload.duplicateToolCall(
+      DuplicateToolCallResult(
+        previousCallID: previousCallID,
+        message: "Duplicate of \(RuntimeToolCallID.string(for: previousCallID)).",
+        affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")]
+      ))
+
+    let preview = payload.preview
+
+    #expect(preview.status == .success)
+    #expect(preview.text.contains(RuntimeToolCallID.string(for: previousCallID)))
+    #expect(preview.affectedPaths == ["README.md"])
   }
 
   @Test

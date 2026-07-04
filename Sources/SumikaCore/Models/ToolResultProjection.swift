@@ -304,6 +304,13 @@ public enum ToolResultProjector {
       return projectWebSearch(result, request: request, policy: policy)
     case .webFetch(let result):
       return projectWebFetch(result, request: request)
+    case .duplicateToolCall(let result):
+      return summaryProjection(
+        toolName: request.toolName,
+        status: .success,
+        text: result.message,
+        affectedPaths: result.affectedPaths
+      )
     case .invalidTool(let result):
       let text = invalidToolText(result, request: request)
       return summaryProjection(

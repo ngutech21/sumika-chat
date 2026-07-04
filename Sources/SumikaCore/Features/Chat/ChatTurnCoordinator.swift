@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ChatToolLoopLimits {
-  public static let defaultMaxToolLoopIterations = 8
+  public static let defaultMaxToolLoopIterations = 30
 }
 
 @MainActor
@@ -132,6 +132,7 @@ public final class ChatTurnCoordinator {
         return .stop
       }
       if toolProfile.allowsToolLoop {
+        try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
         let shouldComplete = try await executionCoordinator.runToolLoop(
           workspace: workspace,
           sessionID: sessionID,
@@ -147,6 +148,8 @@ public final class ChatTurnCoordinator {
         guard shouldComplete else {
           return .stop
         }
+      } else {
+        try executionCoordinator.requireVisibleFinalResponse(generationResult)
       }
       return .complete
     }

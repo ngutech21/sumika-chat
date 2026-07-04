@@ -651,8 +651,25 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case browserInspect(BrowserInspectResult)
   case webSearch(WebSearchToolResult)
   case webFetch(WebFetchToolResult)
+  case duplicateToolCall(DuplicateToolCallResult)
   case invalidTool(InvalidToolResult)
   case failure(ToolFailure)
+}
+
+public struct DuplicateToolCallResult: Codable, Equatable, Sendable {
+  public var previousCallID: UUID
+  public var message: String
+  public var affectedPaths: [WorkspaceRelativePath]
+
+  public init(
+    previousCallID: UUID,
+    message: String,
+    affectedPaths: [WorkspaceRelativePath] = []
+  ) {
+    self.previousCallID = previousCallID
+    self.message = message
+    self.affectedPaths = affectedPaths
+  }
 }
 
 public struct WorkspaceDiagnostic: Codable, Equatable, Sendable {
@@ -917,6 +934,12 @@ nonisolated extension ToolResultPayload {
       return result.preview
     case .webFetch(let result):
       return result.preview
+    case .duplicateToolCall(let result):
+      return ToolResultPreview(
+        status: .success,
+        text: result.message,
+        affectedPaths: result.affectedPaths.map(\.rawValue)
+      )
     case .invalidTool(let result):
       return ToolResultPreview(
         status: .failed,

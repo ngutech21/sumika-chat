@@ -58,6 +58,94 @@ struct ChatGenerationCoordinatorTests {
   }
 
   @Test
+  func nativeToolCallWithoutCompletedEventReturnsToolCall() async throws {
+    let toolCall = ChatRuntimeToolCall(
+      name: "read_file",
+      arguments: ["path": .string("README.md")]
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [[.toolCall(toolCall)]],
+      automaticallyCompletes: false
+    )
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+
+    let result = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      systemPrompt: "Use tools.",
+      settings: .agentDefault,
+      appendChunk: { _ in },
+      updateGenerationMetrics: { _ in },
+      updateContextUsage: {}
+    )
+
+    #expect(result.assistantContent == "")
+    #expect(result.nativeToolCalls == [toolCall])
+  }
+
+  @Test
+  func completedThinkingOnlyReturnsNoVisibleAssistantContent() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.thinkingChunk("Reasoning only.")]
+    ])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+    var visibleChunks: [String] = []
+    var thinkingChunks: [String] = []
+
+    let result = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      systemPrompt: "Answer normally.",
+      settings: .agentDefault,
+      appendChunk: { visibleChunks.append($0) },
+      appendThinkingChunk: { thinkingChunks.append($0) },
+      updateGenerationMetrics: { _ in },
+      updateContextUsage: {}
+    )
+
+    #expect(result.assistantContent == "")
+    #expect(result.nativeToolCalls.isEmpty)
+    #expect(visibleChunks.isEmpty)
+    #expect(thinkingChunks == ["Reasoning only."])
+  }
+
+  @Test
+  func visibleTextAndNativeToolCallAreBothReturned() async throws {
+    let toolCall = ChatRuntimeToolCall(
+      name: "list_files",
+      arguments: ["path": .string(".")]
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.chunk("I will inspect the project."), .toolCall(toolCall)]
+    ])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+    var visibleChunks: [String] = []
+
+    let result = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      systemPrompt: "Use tools.",
+      settings: .agentDefault,
+      appendChunk: { visibleChunks.append($0) },
+      updateGenerationMetrics: { _ in },
+      updateContextUsage: {}
+    )
+
+    #expect(result.assistantContent == "I will inspect the project.")
+    #expect(result.nativeToolCalls == [toolCall])
+    #expect(visibleChunks == ["I will inspect the project."])
+  }
+
+  @Test
   func regularAssistantStreamingStillFlushesIncrementally() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
     let coordinator = ChatGenerationCoordinator(

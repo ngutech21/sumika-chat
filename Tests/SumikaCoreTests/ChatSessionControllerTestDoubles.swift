@@ -429,6 +429,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private let turns: [[ChatModelStreamEvent]]
   private let failingStreamReplyCalls: Set<Int>
   private let debugSnapshot: RuntimeCacheDebugSnapshot?
+  private let automaticallyCompletes: Bool
   private var streamReplyCount = 0
   private(set) var capturedMessages: [[ProjectedModelContextEntry]] = []
   private(set) var capturedAttachments: [[ChatAttachment]] = []
@@ -436,20 +437,27 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   private(set) var capturedGenerationSettings: [ChatGenerationSettings] = []
   private(set) var capturedToolContexts: [ChatRuntimeToolContext?] = []
 
-  init(chunks: [String] = [], debugSnapshot: RuntimeCacheDebugSnapshot? = nil) {
+  init(
+    chunks: [String] = [],
+    debugSnapshot: RuntimeCacheDebugSnapshot? = nil,
+    automaticallyCompletes: Bool = true
+  ) {
     self.turns = [chunks.map(ChatModelStreamEvent.chunk)]
     self.failingStreamReplyCalls = []
     self.debugSnapshot = debugSnapshot
+    self.automaticallyCompletes = automaticallyCompletes
   }
 
   init(
     eventTurns: [[ChatModelStreamEvent]],
     failingStreamReplyCalls: Set<Int> = [],
-    debugSnapshot: RuntimeCacheDebugSnapshot? = nil
+    debugSnapshot: RuntimeCacheDebugSnapshot? = nil,
+    automaticallyCompletes: Bool = true
   ) {
     self.turns = eventTurns
     self.failingStreamReplyCalls = failingStreamReplyCalls
     self.debugSnapshot = debugSnapshot
+    self.automaticallyCompletes = automaticallyCompletes
   }
 
   func load(configuration: ChatModelConfiguration) async throws {
@@ -489,15 +497,17 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
       for event in events {
         continuation.yield(event)
       }
-      continuation.yield(
-        .completed(
-          ChatGenerationMetrics(
-            generatedTokenCount: events.count,
-            tokensPerSecond: 100,
-            durationMs: Double(events.count) * 10
+      if automaticallyCompletes {
+        continuation.yield(
+          .completed(
+            ChatGenerationMetrics(
+              generatedTokenCount: events.count,
+              tokensPerSecond: 100,
+              durationMs: Double(events.count) * 10
+            )
           )
         )
-      )
+      }
       continuation.finish()
     }
   }

@@ -31,12 +31,14 @@ public struct ChatModelContextBuilder: Sendable {
     to entries: inout [ModelContextEntry]
   ) {
     var previousProjectedItemWasTool = false
+    var previousProjectedItemWasAssistantOutput = false
 
     for item in turn.items {
       switch item {
       case .userMessage(let message):
         appendUserEntry(message, turnID: turn.id, to: &entries)
         previousProjectedItemWasTool = false
+        previousProjectedItemWasAssistantOutput = false
       case .assistantThinking:
         break
       case .assistantMessage(let message):
@@ -45,20 +47,24 @@ public struct ChatModelContextBuilder: Sendable {
           !modelContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
           previousProjectedItemWasTool = false
+          previousProjectedItemWasAssistantOutput = false
           continue
         }
         appendAssistantEntry(message, content: modelContent, turnID: turn.id, to: &entries)
         previousProjectedItemWasTool = false
+        previousProjectedItemWasAssistantOutput = true
       case .tool(let record):
         guard record.resultPayload != nil else {
           previousProjectedItemWasTool = false
+          previousProjectedItemWasAssistantOutput = false
           continue
         }
-        if !previousProjectedItemWasTool {
+        if !previousProjectedItemWasTool && !previousProjectedItemWasAssistantOutput {
           appendAssistantToolBoundary(turnID: turn.id, to: &entries)
         }
         appendToolEntry(record, turnID: turn.id, to: &entries)
         previousProjectedItemWasTool = true
+        previousProjectedItemWasAssistantOutput = false
       }
     }
   }

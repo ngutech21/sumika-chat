@@ -28,6 +28,18 @@ nonisolated enum GemmaSessionCachePolicy {
     return Array(history[boundedStartIndex...]) + promptMessages
   }
 
+  nonisolated static func chatSessionInstructions(
+    for mode: GemmaSessionCacheMode,
+    systemPrompt: String
+  ) -> String? {
+    switch mode {
+    case .newSession, .dirtyRebuild:
+      GemmaHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt)
+    case .reusedSession, .appendDelta:
+      nil
+    }
+  }
+
   nonisolated static func runtimeCacheDebugSnapshot(
     from trace: GemmaSessionCacheTrace,
     appendDeltaStartIndex: Int?,

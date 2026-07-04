@@ -319,6 +319,17 @@ nonisolated enum GemmaModelStreamProcessor {
       return
     }
 
+    if !nativeToolCalls.isEmpty {
+      await markNativeToolCallBoundary(visibleOutput, nativeToolCalls)
+      await GemmaDebugTraceStore.shared.traceResponse(
+        id: traceID,
+        output: output,
+        metrics: completedMetrics
+      )
+      continuation.finish()
+      return
+    }
+
     if !didCompleteNaturally {
       let error = GemmaMLXRuntimeError.interruptedStream
       await markCancelled(.interrupted)
@@ -341,11 +352,7 @@ nonisolated enum GemmaModelStreamProcessor {
       return
     }
 
-    if !nativeToolCalls.isEmpty {
-      await markNativeToolCallBoundary(visibleOutput, nativeToolCalls)
-    } else {
-      await markCompleted(visibleOutput)
-    }
+    await markCompleted(visibleOutput)
     await GemmaDebugTraceStore.shared.traceResponse(
       id: traceID,
       output: output,

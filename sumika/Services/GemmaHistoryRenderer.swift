@@ -237,7 +237,7 @@ nonisolated enum GemmaHistoryRenderer {
           appendNormalized(
             GemmaMessageSnapshot(
               role: Chat.Message.Role.assistant.rawValue,
-              content: "",
+              content: assistantToolBoundaryContent(context.content, toolCalls: toolCalls),
               toolCalls: toolCalls.map(toolCallSnapshot(from:))
             ),
             to: &items
@@ -440,6 +440,25 @@ nonisolated enum GemmaHistoryRenderer {
     }
 
     return toolCalls.isEmpty ? nil : toolCalls
+  }
+
+  nonisolated private static func assistantToolBoundaryContent(
+    _ content: String,
+    toolCalls: [ToolCallModelMessage]
+  ) -> String {
+    let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedContent.isEmpty else {
+      return ""
+    }
+    let syntheticToolCallContent =
+      toolCalls
+      .map(\.modelContextContent)
+      .joined(separator: "\n")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmedContent != syntheticToolCallContent else {
+      return ""
+    }
+    return content
   }
 
   nonisolated private static func hasStructuredAssistantBoundary(

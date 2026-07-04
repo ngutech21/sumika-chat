@@ -14,7 +14,7 @@ struct ChatSessionControllerToolLoopTests {
     try createListFixtureDirectories(in: workspace, count: budget)
     let runtime = ChatSessionFakeChatModelRuntime(
       eventTurns: listFileEventTurns(count: budget)
-        + [[.chunk("I read the README repeatedly.")]]
+        + [[.chunk("Tool limit reached. I stopped after the recorded file listings.")]]
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -26,7 +26,9 @@ struct ChatSessionControllerToolLoopTests {
 
     #expect(controller.chatSession.toolCalls.count == budget)
     #expect(controller.chatSession.toolCalls.allSatisfy { $0.status == .completed })
-    #expect(controller.chatSession.testMessages.last?.content == "I read the README repeatedly.")
+    #expect(
+      controller.chatSession.testMessages.last?.content
+        == "Tool limit reached. I stopped after the recorded file listings.")
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == budget + 1)
@@ -48,13 +50,13 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
-  func sendMessageForcesVisibleFinalResponseWhenBudgetFinalizationHasNoText() async throws {
+  func sendMessageFailsWhenBudgetFinalizationHasNoVisibleText() async throws {
     let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    try createListFixtureDirectories(in: workspace, count: budget + 1)
+    try createListFixtureDirectories(in: workspace, count: budget)
     let runtime = ChatSessionFakeChatModelRuntime(
-      eventTurns: listFileEventTurns(count: budget + 1)
+      eventTurns: listFileEventTurns(count: budget) + [[]]
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
@@ -66,30 +68,162 @@ struct ChatSessionControllerToolLoopTests {
 
     #expect(controller.chatSession.toolCalls.count == budget)
     #expect(controller.chatSession.toolCalls.allSatisfy { $0.status == .completed })
-    #expect(controller.chatSession.testMessages.last?.kind == .assistant)
-    #expect(
-      controller.chatSession.testMessages.last?.content.contains("Tool limit reached.") == true)
-    #expect(
-      controller.chatSession.testMessages.last?.content.contains("send another message") == true)
+    #expect(controller.chatSession.turns.first?.status == .failed)
+    #expect(controller.chatSession.turns.first?.modelContextPolicy == .excluded)
+    #expect(controller.errorMessage == ChatGenerationError.emptyModelResponse.localizedDescription)
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
-    #expect(capturedSystemPrompts.count == budget + 2)
+    #expect(capturedSystemPrompts.count == budget + 1)
     #expect(capturedSystemPrompts[budget].contains("No more tools may run in this response."))
-    #expect(!capturedSystemPrompts[budget + 1].contains("Available tools:"))
 
     let capturedMessages = await runtime.capturedMessages
-    #expect(capturedMessages.count == budget + 2)
-    #expect(
-      !capturedMessages[budget + 1].contains { message in
-        message.role == .user
-          && message.content.contains("Tool limit reached. Tools are no longer available.")
-      }
-    )
+    #expect(capturedMessages.count == budget + 1)
 
     let capturedToolContexts = await runtime.capturedToolContexts
-    #expect(capturedToolContexts.count == budget + 2)
+    #expect(capturedToolContexts.count == budget + 1)
     #expect(capturedToolContexts[budget] == nil)
-    #expect(capturedToolContexts[budget + 1] == nil)
+  }
+
+  @Test
+  func thinkingOnlyResponseWithoutToolCallFailsAndExcludesTurn() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.thinkingChunk("I am reasoning but not answering.")]
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "answer visibly", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.turns.first?.status == .failed)
+    #expect(controller.chatSession.turns.first?.modelContextPolicy == .excluded)
+    #expect(controller.errorMessage == ChatGenerationError.emptyModelResponse.localizedDescription)
+  }
+
+  @Test
+  func duplicateToolCallObservationContinuesToNextModelIteration() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ],
+      [.chunk("Continuing after the duplicate observation.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect the project", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.turns.first?.status == .completed)
+    #expect(controller.chatSession.toolCalls.count == 2)
+    #expect(controller.chatSession.toolCalls.first?.request.toolName == .listFiles)
+    let duplicatePayload = controller.chatSession.toolCalls.last?.resultPayload
+    guard case .duplicateToolCall(let duplicate)? = duplicatePayload
+    else {
+      Issue.record("Expected second tool call to be duplicate observation.")
+      return
+    }
+    #expect(duplicate.previousCallID == controller.chatSession.toolCalls.first?.id)
+    #expect(
+      controller.chatSession.testMessages.last?.content
+        == "Continuing after the duplicate observation.")
+
+    let capturedToolContexts = await runtime.capturedToolContexts
+    #expect(capturedToolContexts.count == 3)
+    #expect(capturedToolContexts[0] != nil)
+    #expect(capturedToolContexts[1] != nil)
+    #expect(capturedToolContexts[2] != nil)
+  }
+
+  @Test
+  func visibleTextWithToolCallRunsToolLoopInsteadOfCompletingTurn() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .chunk("I will inspect the project."),
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        ),
+      ],
+      [.chunk("The project contains README.md.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect the project", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.turns.first?.status == .completed)
+    #expect(controller.chatSession.toolCalls.count == 1)
+    #expect(controller.chatSession.toolCalls.first?.request.toolName == .listFiles)
+    #expect(controller.chatSession.testMessages.last?.content == "The project contains README.md.")
+
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 2)
+    #expect(
+      capturedMessages[1].contains { message in
+        message.role == .assistant && message.content == "I will inspect the project."
+      })
+    #expect(capturedMessages[1].contains { message in message.role == .tool })
+  }
+
+  @Test
+  func duplicateOnLastBudgetIterationUsesToolLimitFinalizationPath() async throws {
+    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    var eventTurns = (0..<budget).map { _ in
+      [
+        ChatModelStreamEvent.toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ]
+    }
+    eventTurns.append([
+      .chunk("Tool limit reached. I stopped after the recorded file listings.")
+    ])
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: eventTurns)
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(
+      prompt: "list until the tool budget is exhausted", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.turns.first?.status == .completed)
+    #expect(controller.chatSession.toolCalls.count == budget)
+    #expect(controller.chatSession.toolCalls.first?.resultPayload?.status == .success)
+    let duplicatePayload = controller.chatSession.toolCalls.last?.resultPayload
+    guard case .duplicateToolCall(let duplicate)? = duplicatePayload
+    else {
+      Issue.record("Expected last budget iteration to append duplicate observation.")
+      return
+    }
+    #expect(duplicate.previousCallID == controller.chatSession.toolCalls.first?.id)
+    #expect(duplicate.previousCallID != controller.chatSession.toolCalls.dropLast().last?.id)
+    #expect(
+      controller.chatSession.testMessages.last?.content
+        == "Tool limit reached. I stopped after the recorded file listings.")
+
+    let capturedToolContexts = await runtime.capturedToolContexts
+    #expect(capturedToolContexts.count == budget + 1)
+    #expect(capturedToolContexts[budget] == nil)
   }
 
   @Test

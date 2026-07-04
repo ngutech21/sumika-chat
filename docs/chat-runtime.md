@@ -210,6 +210,9 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   send only the current prompt to a new `ChatSession(history:)`; reused requests
   send either the current prompt or the appended history delta plus the current
   prompt through `streamDetails(to messages:)`.
+- Reused MLX sessions must not set `ChatSession.instructions`: the system prompt
+  is already encoded in the KV cache, so re-sending instructions before a tool
+  result corrupts the continuation.
 - Native Gemma 4 tool calls are not assistant prose in the MLX session. Core
   stores only the canonical turn/tool records. `ChatModelContextBuilder` derives
   a transient assistant tool-call boundary and the Gemma renderer sends it as

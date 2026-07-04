@@ -61,11 +61,6 @@ public struct ToolLoopRequest: Sendable {
   }
 }
 
-private struct DuplicateToolCallDecision: Sendable {
-  let record: ToolCallRecord?
-  let finalizesTurn: Bool
-}
-
 public struct ToolLoopCoordinator: Sendable {
   private let chatWebToolOrchestrator: any ToolOrchestrating
   private let agentToolOrchestrator: any ToolOrchestrating
@@ -186,18 +181,11 @@ public struct ToolLoopCoordinator: Sendable {
         return ChatWorkflowStep(events: events, continuation: .none)
       }
       let record: ToolCallRecord
-      if let duplicateDecision = duplicateToolCallDecision(
+      if let duplicateRecord = duplicateToolCallRecord(
         for: output,
-        request: request,
         registry: toolOrchestrator.toolRegistry,
         items: seenItems
       ) {
-        if duplicateDecision.finalizesTurn {
-          nextFollowUpPromptMode = .afterToolResultFinal
-        }
-        guard let duplicateRecord = duplicateDecision.record else {
-          continue
-        }
         record = duplicateRecord
       } else {
         let executeStartedAt = Date()
@@ -307,25 +295,11 @@ public struct ToolLoopCoordinator: Sendable {
     )
   }
 
-  private func duplicateToolCallDecision(
+  private func duplicateToolCallRecord(
     for output: ToolCallParseOutput,
-    request: ToolLoopRequest,
     registry: ToolRegistry,
     items: [ChatTurnItem]
-  ) -> DuplicateToolCallDecision? {
-    if let duplicateReadRecord = duplicateReadFileRecord(
-      for: output,
-      request: request,
-      items: items
-    ) {
-      _ = duplicateReadRecord
-      return DuplicateToolCallDecision(record: nil, finalizesTurn: true)
-    }
-
-    guard suppressesIdenticalCompletedCall(output.request.toolName) else {
-      return nil
-    }
-
+  ) -> ToolCallRecord? {
     let validatedRequest = ToolCallRequestValidator().validate(
       output.request,
       registry: registry
@@ -333,35 +307,14 @@ public struct ToolLoopCoordinator: Sendable {
     if case .invalid = validatedRequest.payload {
       return nil
     }
-
-    let currentItems = currentTurnItems(in: items)
-    for index in currentItems.indices.reversed() {
-      guard case .tool(let previousRecord) = currentItems[index],
-        previousRecord.status == .completed,
-        previousRecord.request.toolName == output.request.toolName,
-        previousRecord.request.payload == validatedRequest.payload
-      else {
-        continue
-      }
-
-      guard !hasCompletedWorkspaceMutation(after: index, in: currentItems) else {
-        return nil
-      }
-
-      return DuplicateToolCallDecision(record: nil, finalizesTurn: true)
-    }
-
-    return nil
+    return duplicateValidatedToolCallRecord(for: validatedRequest, items: items)
   }
 
-  private func duplicateReadFileRecord(
-    for output: ToolCallParseOutput,
-    request: ToolLoopRequest,
+  private func duplicateValidatedToolCallRecord(
+    for validatedRequest: ToolCallRequest,
     items: [ChatTurnItem]
   ) -> ToolCallRecord? {
-    guard output.request.toolName == .readFile,
-      let input = try? ReadFileInput.decodeToolArguments(output.request.arguments)
-    else {
+    guard supportsDuplicateObservation(validatedRequest.toolName) else {
       return nil
     }
 
@@ -369,34 +322,44 @@ public struct ToolLoopCoordinator: Sendable {
     for index in currentItems.indices.reversed() {
       guard case .tool(let previousRecord) = currentItems[index],
         previousRecord.status == .completed,
-        case .readFile(let previousInput) = previousRecord.request.payload,
-        previousInput == input,
-        let previousPath = successfulReadPath(from: previousRecord.resultPayload)
+        previousRecord.request.toolName == validatedRequest.toolName,
+        previousRecord.request.payload == validatedRequest.payload
       else {
         continue
       }
 
-      guard !hasCompletedWrite(to: previousPath, after: index, in: currentItems) else {
+      guard
+        let source = duplicateObservationSource(
+          matching: validatedRequest,
+          candidate: previousRecord,
+          candidateIndex: index,
+          items: currentItems
+        )
+      else {
         return nil
       }
 
-      let validatedRequest = ToolCallRequest.validated(
-        raw: output.request,
-        payload: .readFile(input)
-      )
+      guard canReuseCompletedToolResult(source.record, after: source.index, in: currentItems) else {
+        return nil
+      }
+
       return ToolCallRecord(
         request: validatedRequest,
         evaluation: ToolPermissionEvaluation(
           decision: .allowed,
-          reason: "Identical read_file already completed in this turn.",
+          reason: "Identical \(validatedRequest.toolName.rawValue) already completed in this turn.",
           riskLevel: .low,
-          workspaceRelativePaths: [previousPath]
+          workspaceRelativePaths: duplicateAffectedPaths(from: source.record)
         ),
         state: .completed(
-          .readFile(
-            .unchanged(
-              path: previousPath,
-              readKey: ReadKey(path: previousPath, range: readRangeKey(for: input))
+          .duplicateToolCall(
+            DuplicateToolCallResult(
+              previousCallID: source.record.id,
+              message: duplicateMessage(
+                for: validatedRequest,
+                previousRecord: source.record
+              ),
+              affectedPaths: duplicateAffectedPaths(from: source.record)
             )))
       )
     }
@@ -404,14 +367,83 @@ public struct ToolLoopCoordinator: Sendable {
     return nil
   }
 
-  private func suppressesIdenticalCompletedCall(_ toolName: ToolName) -> Bool {
+  private func supportsDuplicateObservation(_ toolName: ToolName) -> Bool {
     switch toolName {
-    case .listFiles, .globFiles, .searchFiles, .workspaceDiff, .workspaceDiagnostics,
+    case .readFile, .listFiles, .globFiles, .searchFiles, .workspaceDiff, .workspaceDiagnostics,
       .webSearch, .webFetch:
       return true
     default:
       return false
     }
+  }
+
+  private func duplicateObservationSource(
+    matching request: ToolCallRequest,
+    candidate: ToolCallRecord,
+    candidateIndex: ArraySlice<ChatTurnItem>.Index,
+    items: ArraySlice<ChatTurnItem>
+  ) -> (record: ToolCallRecord, index: ArraySlice<ChatTurnItem>.Index)? {
+    guard isDuplicateToolCall(candidate.resultPayload) else {
+      return (candidate, candidateIndex)
+    }
+
+    for index in items[..<candidateIndex].indices.reversed() {
+      guard case .tool(let previousRecord) = items[index],
+        previousRecord.status == .completed,
+        previousRecord.request.toolName == request.toolName,
+        previousRecord.request.payload == request.payload,
+        !isDuplicateToolCall(previousRecord.resultPayload)
+      else {
+        continue
+      }
+
+      return (previousRecord, index)
+    }
+
+    return nil
+  }
+
+  private func isDuplicateToolCall(_ payload: ToolResultPayload?) -> Bool {
+    guard case .duplicateToolCall = payload else {
+      return false
+    }
+    return true
+  }
+
+  private func canReuseCompletedToolResult(
+    _ previousRecord: ToolCallRecord,
+    after index: ArraySlice<ChatTurnItem>.Index,
+    in items: ArraySlice<ChatTurnItem>
+  ) -> Bool {
+    switch previousRecord.request.toolName {
+    case .readFile:
+      guard let previousPath = successfulReadPath(from: previousRecord.resultPayload) else {
+        return false
+      }
+      return !hasCompletedWrite(to: previousPath, after: index, in: items)
+    default:
+      return !hasCompletedWorkspaceMutation(after: index, in: items)
+    }
+  }
+
+  private func duplicateAffectedPaths(
+    from previousRecord: ToolCallRecord
+  ) -> [WorkspaceRelativePath] {
+    if let resultPayload = previousRecord.resultPayload {
+      let paths = resultPayload.affectedPaths.map(WorkspaceRelativePath.init(rawValue:))
+      if !paths.isEmpty {
+        return paths
+      }
+    }
+    return previousRecord.evaluation.workspaceRelativePaths
+  }
+
+  private func duplicateMessage(
+    for request: ToolCallRequest,
+    previousRecord: ToolCallRecord
+  ) -> String {
+    "Duplicate of \(RuntimeToolCallID.string(for: previousRecord.id)): identical "
+      + "\(request.toolName.rawValue) already completed in this turn. Use the previous observation."
   }
 
   private func currentTurnItems(in items: [ChatTurnItem]) -> ArraySlice<ChatTurnItem> {
@@ -492,19 +524,6 @@ public struct ToolLoopCoordinator: Sendable {
         return false
       }
     }
-  }
-
-  private func readRangeKey(for input: ReadFileInput) -> String? {
-    let offset = input.offset ?? 1
-    guard offset != 1 || input.limit != nil else {
-      return nil
-    }
-
-    if let limit = input.limit {
-      return "offset=\(offset),limit=\(limit)"
-    }
-
-    return "offset=\(offset)"
   }
 
   private func todoState(from record: ToolCallRecord) -> TodoState? {

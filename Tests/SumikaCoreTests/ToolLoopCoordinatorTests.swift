@@ -86,7 +86,7 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
-  func duplicateReadFileInSameTurnStopsWithoutExecutingAgain() async throws {
+  func duplicateReadFileInSameTurnAppendsDuplicateRecordWithoutExecutingAgain() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let previousRequest = RawToolCallRequest(
@@ -128,9 +128,96 @@ struct ToolLoopCoordinatorTests {
     )
 
     #expect(await orchestrator.executionCount == 0)
-    #expect(toolCallRecords(from: result).isEmpty)
-    #expect(toolResults(from: result).isEmpty)
-    #expect(resumePromptMode(from: result) == .afterToolResultFinal)
+    let record = try #require(toolCallRecord(from: result))
+    guard let payload = record.resultPayload,
+      case .duplicateToolCall(let duplicate) = payload
+    else {
+      Issue.record("Expected duplicate tool call payload.")
+      return
+    }
+    #expect(record.id != previousRecord.id)
+    #expect(duplicate.previousCallID == previousRecord.id)
+    #expect(duplicate.message.contains(RuntimeToolCallID.string(for: previousRecord.id)))
+    #expect(completedToolResult(from: result)?.callID == record.id)
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
+  func repeatedDuplicateReadFileReferencesOriginalCompletedRecord() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let previousRequest = RawToolCallRequest(
+      workspaceID: workspace.id,
+      sessionID: sessionID,
+      toolName: .readFile,
+      arguments: ["path": .string("README.md")]
+    )
+    let previousRecord = ToolCallRecord(
+      request: .validated(
+        raw: previousRequest,
+        payload: .readFile(ReadFileInput(path: "README.md"))
+      ),
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Reading files inside the workspace is allowed.",
+        riskLevel: .low
+      ),
+      state: .completed(
+        .readFile(
+          .success(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            content: ToolTextOutput(text: "1: project notes")
+          )))
+    )
+    let duplicateRequest = RawToolCallRequest(
+      workspaceID: workspace.id,
+      sessionID: sessionID,
+      toolName: .readFile,
+      arguments: ["path": .string("README.md")]
+    )
+    let previousDuplicateRecord = ToolCallRecord(
+      request: .validated(
+        raw: duplicateRequest,
+        payload: .readFile(ReadFileInput(path: "README.md"))
+      ),
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Identical read_file already completed in this turn.",
+        riskLevel: .low,
+        workspaceRelativePaths: [WorkspaceRelativePath(rawValue: "README.md")]
+      ),
+      state: .completed(
+        .duplicateToolCall(
+          DuplicateToolCallResult(
+            previousCallID: previousRecord.id,
+            message: "Duplicate of \(RuntimeToolCallID.string(for: previousRecord.id)).",
+            affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")]
+          )))
+    )
+    let orchestrator = CountingToolOrchestrator()
+    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        userContent: "inspect README",
+        additionalItems: [.tool(previousRecord), .tool(previousDuplicateRecord)],
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")])
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 0)
+    let record = try #require(toolCallRecord(from: result))
+    guard case .duplicateToolCall(let duplicate)? = record.resultPayload else {
+      Issue.record("Expected repeated read_file to be a duplicate observation.")
+      return
+    }
+    #expect(duplicate.previousCallID == previousRecord.id)
+    #expect(duplicate.previousCallID != previousDuplicateRecord.id)
+    #expect(duplicate.message.contains(RuntimeToolCallID.string(for: previousRecord.id)))
   }
 
   @Test
@@ -154,16 +241,61 @@ struct ToolLoopCoordinatorTests {
 
     #expect(await orchestrator.executionCount == 1)
     let records = toolCallRecords(from: result)
-    #expect(records.count == 1)
+    #expect(records.count == 2)
     guard case .readFile(.success) = records.first?.resultPayload else {
       Issue.record("Expected first read_file to execute normally.")
       return
     }
-    #expect(resumePromptMode(from: result) == .afterToolResultFinal)
+    guard let payload = records.last?.resultPayload,
+      case .duplicateToolCall(let duplicate) = payload
+    else {
+      Issue.record("Expected second read_file to be a duplicate observation.")
+      return
+    }
+    #expect(duplicate.previousCallID == records.first?.id)
+    #expect(toolResults(from: result).map(\.callID) == records.map(\.id))
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
   }
 
   @Test
-  func duplicateListFilesInSameTurnStopsWithoutExecutingAgain() async throws {
+  func readFileWithDifferentRangeExecutesAgain() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator()
+    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        userContent: "inspect README",
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md"), "limit": .number(5)]
+          ),
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("README.md"), "limit": .number(10)]
+          ),
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 2)
+    let records = toolCallRecords(from: result)
+    #expect(records.count == 2)
+    #expect(
+      records.allSatisfy {
+        if let payload = $0.resultPayload, case .readFile(.success) = payload {
+          return true
+        }
+        return false
+      })
+  }
+
+  @Test
+  func duplicateListFilesInSameTurnAppendsDuplicateRecordWithoutExecutingAgain() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let previousRequest = RawToolCallRequest(
@@ -207,13 +339,21 @@ struct ToolLoopCoordinatorTests {
     )
 
     #expect(await orchestrator.executionCount == 0)
-    #expect(toolCallRecords(from: result).isEmpty)
-    #expect(toolResults(from: result).isEmpty)
-    #expect(resumePromptMode(from: result) == .afterToolResultFinal)
+    let record = try #require(toolCallRecord(from: result))
+    guard let payload = record.resultPayload,
+      case .duplicateToolCall(let duplicate) = payload
+    else {
+      Issue.record("Expected duplicate tool call payload.")
+      return
+    }
+    #expect(duplicate.previousCallID == previousRecord.id)
+    #expect(duplicate.affectedPaths == [WorkspaceRelativePath(rawValue: ".")])
+    #expect(completedToolResult(from: result)?.callID == record.id)
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
   }
 
   @Test
-  func duplicateListFilesInSameNativeBatchExecutesOnlyOnceAndFinalizes() async throws {
+  func duplicateListFilesInSameNativeBatchExecutesOnlyOnceAndContinues() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator(tools: [.listFiles])
@@ -227,18 +367,65 @@ struct ToolLoopCoordinatorTests {
         nativeToolCalls: [
           ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")]),
           ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")]),
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")]),
         ]
       )
     )
 
     #expect(await orchestrator.executionCount == 1)
     let records = toolCallRecords(from: result)
-    #expect(records.count == 1)
+    #expect(records.count == 3)
     guard case .listFiles = records.first?.resultPayload else {
       Issue.record("Expected first list_files to execute normally.")
       return
     }
-    #expect(resumePromptMode(from: result) == .afterToolResultFinal)
+    let originalID = try #require(records.first?.id)
+    let duplicates = records.dropFirst().compactMap { record -> DuplicateToolCallResult? in
+      guard case .duplicateToolCall(let duplicate)? = record.resultPayload else {
+        return nil
+      }
+      return duplicate
+    }
+    #expect(duplicates.count == 2)
+    #expect(duplicates.map(\.previousCallID) == [originalID, originalID])
+    #expect(toolResults(from: result).map(\.callID) == records.map(\.id))
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
+  func listFilesWithDifferentPathExecutesAgain() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator(tools: [.listFiles])
+    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        userContent: "inspect project",
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")]),
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string("Sources")]),
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 2)
+    let roots = toolCallRecords(from: result).compactMap { record -> WorkspaceRelativePath? in
+      guard let payload = record.resultPayload,
+        case .listFiles(let result) = payload
+      else {
+        return nil
+      }
+      return result.root
+    }
+    #expect(
+      roots == [
+        WorkspaceRelativePath(rawValue: "."),
+        WorkspaceRelativePath(rawValue: "Sources"),
+      ])
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
   }
 
   @Test
@@ -730,18 +917,23 @@ private actor CountingToolOrchestrator: ToolOrchestrating {
     let request = ToolCallRequestValidator().validate(rawRequest, registry: toolRegistry)
     let payload: ToolResultPayload
     switch request.payload {
-    case .readFile:
+    case .readFile(let input):
       payload = .readFile(
         .success(
-          path: WorkspaceRelativePath(rawValue: "README.md"),
+          path: WorkspaceRelativePath(rawValue: input.path),
           content: ToolTextOutput(text: "1: project notes")
         ))
-    case .listFiles:
+    case .listFiles(let input):
+      let root = input.path ?? "."
       payload = .listFiles(
         ListFilesResult(
-          root: WorkspaceRelativePath(rawValue: "."),
+          root: WorkspaceRelativePath(rawValue: root),
           entries: [
-            WorkspaceFileEntry(path: WorkspaceRelativePath(rawValue: "README.md"), kind: .file)
+            WorkspaceFileEntry(
+              path: WorkspaceRelativePath(
+                rawValue: root == "." ? "README.md" : "\(root)/README.md"),
+              kind: .file
+            )
           ]
         ))
     default:

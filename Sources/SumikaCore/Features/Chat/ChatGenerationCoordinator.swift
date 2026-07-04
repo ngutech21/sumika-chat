@@ -2,11 +2,14 @@ import Foundation
 
 public enum ChatGenerationError: LocalizedError, Equatable, Sendable {
   case streamInterrupted
+  case emptyModelResponse
 
   public var errorDescription: String? {
     switch self {
     case .streamInterrupted:
       "Model generation ended before completion."
+    case .emptyModelResponse:
+      "Model generation completed without visible text or tool calls."
     }
   }
 }
@@ -336,7 +339,7 @@ public struct ChatGenerationCoordinator {
       throw CancellationError()
     }
 
-    if !didComplete {
+    if !didComplete, nativeToolCalls.isEmpty {
       throw ChatGenerationError.streamInterrupted
     }
     try await runtimeOperations.checkCurrentOperation(operationID)

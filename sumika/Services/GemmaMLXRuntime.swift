@@ -445,7 +445,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     pendingCacheInvalidationReason = nil
 
     if shouldReuse, let cached {
-      cached.session.instructions = GemmaHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt)
+      cached.session.instructions = GemmaSessionCachePolicy.chatSessionInstructions(
+        for: traceMode,
+        systemPrompt: systemPrompt
+      )
       cached.session.generateParameters = generateParameters
       cached.session.additionalContext = additionalContext
       cachedSession = CachedGemmaSession(
@@ -468,7 +471,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
     let session = MLXLMCommon.ChatSession(
       modelContainer,
-      instructions: GemmaHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt),
+      instructions: GemmaSessionCachePolicy.chatSessionInstructions(
+        for: traceMode,
+        systemPrompt: systemPrompt
+      ),
       history: history,
       generateParameters: generateParameters,
       additionalContext: additionalContext

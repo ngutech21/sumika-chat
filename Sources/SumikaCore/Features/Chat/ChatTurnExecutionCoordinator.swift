@@ -42,10 +42,6 @@ enum ChatTurnTaskOutcome {
 
 @MainActor
 struct ChatTurnExecutionCoordinator {
-  private static let toolLimitFallbackMessage =
-    "Tool limit reached. I stopped tool use for this turn. Some work may be unfinished; "
-    + "send another message to continue from the recorded tool results."
-
   private let focusedFileReducer: FocusedFileStateReducer
   private let modelContextBuilder: ChatModelContextBuilder
   private let toolPromptPolicy: ToolPromptPolicy
@@ -322,16 +318,9 @@ struct ChatTurnExecutionCoordinator {
           toolLoopIteration: toolLoopIteration
         )
         currentNativeToolCalls = generationResult.nativeToolCalls
+        try requireVisibleTextOrToolCall(generationResult)
         guard promptMode != .afterToolResultFinal else {
-          if !hasVisibleAssistantContent(generationResult) {
-            try await streamToolLimitFinalization(
-              runtime: runtime,
-              callbacks: callbacks,
-              isActive: isActive,
-              interactionMode: interactionMode,
-              turnID: turnID
-            )
-          }
+          try requireVisibleFinalResponse(generationResult)
           return true
         }
         currentAssistantMessageID = nextAssistantMessageID
@@ -340,57 +329,27 @@ struct ChatTurnExecutionCoordinator {
       }
     }
 
-    try await streamToolLimitFinalization(
-      runtime: runtime,
-      callbacks: callbacks,
-      isActive: isActive,
-      interactionMode: interactionMode,
-      turnID: turnID
-    )
-    return true
+    throw ChatGenerationError.emptyModelResponse
   }
 
-  private func streamToolLimitFinalization(
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks,
-    isActive: ChatTurnActiveChecker,
-    interactionMode: WorkspaceInteractionMode,
-    turnID: ChatTurn.ID
-  ) async throws {
-    guard isActive(turnID) else {
-      return
+  func requireVisibleTextOrToolCall(_ generationResult: ChatGenerationResult) throws {
+    guard
+      hasVisibleAssistantContent(generationResult)
+        || !generationResult.nativeToolCalls.isEmpty
+    else {
+      throw ChatGenerationError.emptyModelResponse
     }
-
-    let assistantMessageID = UUID()
-    callbacks.emitEvents([
-      .assistantPlaceholderAppended(messageID: assistantMessageID, turnID: turnID)
-    ])
-    callbacks.notifySessionDidChange()
-
-    let generationResult = try await streamAssistantReply(
-      to: assistantMessageID,
-      runtime: runtime,
-      callbacks: callbacks,
-      isActive: isActive,
-      interactionMode: interactionMode,
-      toolPromptMode: .afterToolResultFinal,
-      turnID: turnID
-    )
-
-    guard isActive(turnID), !hasVisibleAssistantContent(generationResult) else {
-      return
-    }
-
-    callbacks.emitEvents([
-      .assistantChunkAppended(
-        chunk: Self.toolLimitFallbackMessage,
-        messageID: assistantMessageID
-      )
-    ])
-    callbacks.notifySessionDidChange()
   }
 
-  private func hasVisibleAssistantContent(_ generationResult: ChatGenerationResult) -> Bool {
+  func requireVisibleFinalResponse(_ generationResult: ChatGenerationResult) throws {
+    guard generationResult.nativeToolCalls.isEmpty,
+      hasVisibleAssistantContent(generationResult)
+    else {
+      throw ChatGenerationError.emptyModelResponse
+    }
+  }
+
+  func hasVisibleAssistantContent(_ generationResult: ChatGenerationResult) -> Bool {
     !generationResult.assistantContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 

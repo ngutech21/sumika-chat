@@ -75,7 +75,10 @@ struct ToolTurnResumeCoordinator {
       turnID: turnID,
       toolLoopIteration: 1
     )
-    if !toolResumeCoordinator.isFinalApprovedToolFollowUp(approvedRecord) {
+    if toolResumeCoordinator.isFinalApprovedToolFollowUp(approvedRecord) {
+      try executionCoordinator.requireVisibleFinalResponse(generationResult)
+    } else {
+      try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
       let shouldComplete = try await executionCoordinator.runToolLoop(
         workspace: workspace,
         sessionID: existingRecord.request.sessionID,
@@ -131,6 +134,7 @@ struct ToolTurnResumeCoordinator {
       turnID: turnID,
       toolLoopIteration: 1
     )
+    try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
     let shouldComplete = try await executionCoordinator.runToolLoop(
       workspace: workspace,
       sessionID: existingRecord.request.sessionID,
@@ -175,7 +179,7 @@ struct ToolTurnResumeCoordinator {
     callbacks.refreshContextUsage(promptMode)
     callbacks.notifySessionDidChange()
 
-    _ = try await executionCoordinator.streamAssistantReply(
+    let generationResult = try await executionCoordinator.streamAssistantReply(
       to: nextAssistantMessageID,
       runtime: runtime,
       callbacks: callbacks,
@@ -185,6 +189,7 @@ struct ToolTurnResumeCoordinator {
       turnID: turnID,
       toolLoopIteration: 1
     )
+    try executionCoordinator.requireVisibleFinalResponse(generationResult)
     return .complete
   }
 }

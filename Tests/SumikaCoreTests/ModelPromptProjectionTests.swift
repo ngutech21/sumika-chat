@@ -241,7 +241,7 @@ struct ModelPromptProjectionTests {
     let projection = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
     #expect(
       projection.entries.map(\.frozenContent.role) == [
-        .user, .assistant, .assistant, .tool,
+        .user, .assistant, .tool,
       ])
     let terminalEntry = try #require(
       projection.entries.first { entry in
@@ -257,7 +257,7 @@ struct ModelPromptProjectionTests {
     #expect(terminalContext.toolName == .writeFile)
     #expect(terminalContext.content.contains("Summary: Wrote 18 bytes to movies.html."))
 
-    #expect(projection.entries.count == 4)
+    #expect(projection.entries.count == 3)
     #expect(
       projection.entries.contains { entry in
         if case .userPrompt(let context) = entry.body {
@@ -267,6 +267,81 @@ struct ModelPromptProjectionTests {
         return false
       } == false
     )
+  }
+
+  @Test
+  func duplicateToolObservationUsesNewCallIDAndReferencesPreviousCallID() throws {
+    let previousCallID = UUID()
+    let duplicateCallID = UUID()
+    let previousCallIDString = RuntimeToolCallID.string(for: previousCallID)
+    let entry = try ModelFacingPromptRenderer.toolResultEntry(
+      toolResult: ToolResultModelMessage(
+        callID: duplicateCallID,
+        toolName: .readFile,
+        payload: .duplicateToolCall(
+          DuplicateToolCallResult(
+            previousCallID: previousCallID,
+            message: "Duplicate of \(previousCallIDString): identical read_file already completed.",
+            affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")]
+          ))
+      ),
+      request: readFileRequest(callID: duplicateCallID),
+      originalUserRequest: nil
+    )
+
+    guard case .toolObservation(let context) = entry.body else {
+      Issue.record("Expected duplicate result to project as a tool observation.")
+      return
+    }
+    #expect(context.callID == duplicateCallID)
+    #expect(context.toolReceipt?.callID == duplicateCallID)
+    #expect(context.content.contains(previousCallIDString))
+    #expect(context.toolReceipt?.summary.text.contains(previousCallIDString) == true)
+  }
+
+  @Test
+  func textAndToolCallProjectsSingleAssistantToolBoundary() throws {
+    let turnID = UUID()
+    let callID = UUID()
+    let request = readFileRequest(callID: callID)
+    let record = ToolCallRecord(
+      request: request,
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Allowed in test.",
+        riskLevel: .low
+      ),
+      state: .completed(
+        .readFile(
+          .success(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            content: ToolTextOutput(text: "Project overview")
+          )))
+    )
+    let state = ChatSession(
+      turns: [
+        ChatTurn(
+          id: turnID,
+          status: .running,
+          items: [
+            .userMessage(UserTurnMessage(content: "read README.md")),
+            .assistantMessage(AssistantTurnMessage(content: "I'll inspect README.md.")),
+            .tool(record),
+          ])
+      ]
+    )
+
+    let projection = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
+
+    #expect(projection.entries.map(\.frozenContent.role) == [.user, .assistant, .tool])
+    #expect(projection.entries[1].frozenContent.content == "I'll inspect README.md.")
+    #expect(projection.entries.count == 3)
+    guard case .toolObservation(let context) = projection.entries[2].body else {
+      Issue.record("Expected tool observation after assistant boundary.")
+      return
+    }
+    #expect(context.callID == callID)
+    #expect(context.toolCall?.callID == callID)
   }
 
   @Test
