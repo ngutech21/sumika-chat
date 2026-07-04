@@ -135,10 +135,10 @@ flowchart TD
    failure without inferring command-specific side effects. If that follow-up
    has no tool call and makes an unqualified completion claim, Sumika replaces
    the visible text with a generic failed-command response instead of completing
-   the turn with a false success summary. If the current turn ends in three or
-   more identical completed non-read tool records in a row, including failed
-   `run_command` outcomes, the next follow-up receives a transient repeated-call
-   notice instead of changing persisted turn state.
+   the turn with a false success summary. Each tool follow-up receives at most
+   one prioritized transient tool notice: final/no-tools guidance, failed
+   `run_command`, repeated same-command `run_command`, listing/read-loop
+   escalation, duplicate replay guidance, or the generic same-turn follow-up.
 8. Answering `ask_user` delegates to
    `ChatTurnCoordinator.answerAskUserToolCall`, appends the compact answer
    receipt, and resumes generation plus the normal tool loop.
@@ -234,7 +234,8 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   `tool` result messages. No persisted user-role continuation message is
   synthesized after a tool result; runtime-only prompt-plan suffixes may append
   a labelled runtime instruction or context block to the current generation and
-  must be reflected in the cache prefix when consumed by MLX.
+  must be reflected in the cache prefix when consumed by MLX. The JSON debug
+  trace records the final prompt after those suffixes are appended.
 - Image prompts stay cacheable. The content signatures of the images consumed
   with a user prompt are derived from the user message attachments and carried
   through the projection into the prefix snapshots, so identical

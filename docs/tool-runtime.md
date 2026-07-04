@@ -103,11 +103,12 @@ flowchart TD
   the prior result blocks again, followed by a next-step hint to use the replayed
   data instead of repeating the same tool call. Side-effect-capable tools such
   as `run_command` are never replayed as duplicates.
-- Repeated identical non-read tool calls are guarded with transient runtime
-  prompt content derived from the current turn items. The guard counts only a
-  trailing streak of completed records with the same validated tool payload;
-  failed `run_command` outcomes still count because they are completed command
-  executions. No repeated-call counters are persisted.
+- Tool follow-up notices are prioritized transient runtime prompt content
+  derived from the current turn items. Final no-tools guidance, failed
+  `run_command`, repeated same-command `run_command`, listing/read-loop
+  escalations, duplicate replays, and the generic same-turn follow-up are
+  mutually exclusive within this tool-follow-up slot. No repeated-call counters
+  or prompt notices are persisted.
 - `ChatTurn.items` is the canonical source for tool turn membership. One
   `.tool(ToolCallRecord)` item carries the call, permission state, and eventual
   result payload. Code that needs reverse lookup derives `toolCallID -> turnID`

@@ -113,7 +113,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     settings.repetitionPenalty == 1 ? nil : Float(settings.repetitionPenalty)
   }
 
-  nonisolated private static func appendTransientInstructions(
+  nonisolated static func appendTransientInstructions(
     _ instructions: [String],
     toPromptSnapshot promptSnapshot: [GemmaMessageSnapshot],
     promptMessages: [Chat.Message]
