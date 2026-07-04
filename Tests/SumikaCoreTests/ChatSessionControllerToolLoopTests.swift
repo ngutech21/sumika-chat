@@ -219,6 +219,48 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func repeatedReadFileReplaysAddEscalationNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")])
+        )
+      ],
+      [.chunk("I will answer from the existing README content.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect README", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.toolCalls.count == 3)
+    #expect(controller.chatSession.toolCalls.dropFirst().allSatisfy { record in
+      if case .duplicateToolCall = record.resultPayload {
+        return true
+      }
+      return false
+    })
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 4)
+    #expect(capturedPromptPlans[2].transientInstructions.contains(readReplayEscalationNotice) == false)
+    #expect(capturedPromptPlans[3].transientInstructions.contains(readReplayEscalationNotice))
+  }
+
+  @Test
   func repeatedListingsWithoutReadAddListingWanderingNoticeWithReplay() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -1100,6 +1142,34 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func repeatedIdenticalFailedRunCommandAddsStreakNoticeAfterSecondFailure() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let command = "git add. && git commit -m \"Initial commit\""
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [runCommandToolCall(command)],
+      [runCommandToolCall(command)],
+      [.chunk("The command is blocked.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: allowedRunCommandOrchestrator(exitCode: 1)
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "commit the project", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.toolCalls.count == 2)
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 3)
+    #expect(capturedPromptPlans[1].transientInstructions.contains(failedRunCommandStreakNotice) == false)
+    #expect(capturedPromptPlans[2].transientInstructions.contains(failedRunCommandStreakNotice))
+  }
+
+  @Test
   func differentRunCommandArgumentsDoNotAddRepeatedRuntimeNotice() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -1234,11 +1304,28 @@ struct ChatSessionControllerToolLoopTests {
     }
   }
 
+  private var readReplayEscalationNotice: String {
+    """
+    [System Notice]
+    Repeated read_file replay detected for the same path/range. You already have this file content in context.
+    Do not call read_file again for this path/range unless the file changed or you need a different range.
+    Answer from the existing content or choose a different action.
+    """
+  }
+
   private var repeatedRunCommandNotice: String {
     """
     [System Notice]
     You have made the same `run_command` command 3+ times in a row.
     Do not keep repeating it. Inspect the output, correct the command, or report what is blocking you.
+    """
+  }
+
+  private var failedRunCommandStreakNotice: String {
+    """
+    [System Notice]
+    This exact run_command command has failed 2+ times in this turn.
+    Do not run it again unchanged. Correct the command, inspect diagnostics, or report the blocker.
     """
   }
 

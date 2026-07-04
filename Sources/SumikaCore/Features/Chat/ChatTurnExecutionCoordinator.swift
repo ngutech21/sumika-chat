@@ -522,23 +522,25 @@ struct ChatTurnExecutionCoordinator {
         """
       )
     }
-    if let failedCommandInstruction = failedRunCommandRuntimeInstruction(
-      session: session,
-      turnID: turnID
-    ) {
+    let agentState = agentTurnState(session: session, turnID: turnID)
+    if let failedCommandInstruction = agentState.flatMap(failedRunCommandRuntimeInstruction) {
       instructions.append(failedCommandInstruction)
     }
-    if let repeatedCallInstruction = repeatedNonReadToolCallRuntimeInstruction(
-      session: session,
-      turnID: turnID
+    if let failedCommandStreakInstruction = agentState.flatMap(
+      failedRunCommandStreakRuntimeInstruction
+    ) {
+      instructions.append(failedCommandStreakInstruction)
+    }
+    if let repeatedCallInstruction = agentState.flatMap(
+      repeatedNonReadToolCallRuntimeInstruction
     ) {
       instructions.append(repeatedCallInstruction)
     }
-    if let listingWanderingInstruction = listingWanderingRuntimeInstruction(
-      session: session,
-      turnID: turnID
-    ) {
+    if let listingWanderingInstruction = agentState.flatMap(listingWanderingRuntimeInstruction) {
       instructions.append(listingWanderingInstruction)
+    }
+    if let readReplayInstruction = agentState.flatMap(readReplayEscalationRuntimeInstruction) {
+      instructions.append(readReplayInstruction)
     }
     if toolPromptMode == .afterToolResultFinal {
       instructions.append(Self.finalToolResultRuntimeInstruction)
@@ -659,6 +661,14 @@ extension ChatTurnExecutionCoordinator {
     var latestReplayLines: [String] = []
   }
 
+  fileprivate struct AgentTurnState {
+    var latestFailedRunCommandResult: RunCommandResult?
+    var failedRunCommandStreak: (command: String, count: Int)?
+    var repeatedNonReadToolCall: (signature: RepeatedToolCallSignature, count: Int)?
+    var listingWandering: ListingWanderingState = ListingWanderingState()
+    var readReplayStreak: (signature: RepeatedToolCallSignature, count: Int)?
+  }
+
   fileprivate struct FailedRunCommandGuardContext {
     var exitCode: Int32?
     var timedOut: Bool
@@ -687,13 +697,29 @@ extension ChatTurnExecutionCoordinator {
     session: ChatSession,
     turnID: ChatTurn.ID
   ) -> FailedRunCommandGuardContext? {
-    guard let result = latestFailedRunCommandResult(session: session, turnID: turnID) else {
+    guard let result = agentTurnState(session: session, turnID: turnID)?.latestFailedRunCommandResult else {
       return nil
     }
     return FailedRunCommandGuardContext(
       exitCode: result.exitCode,
       timedOut: result.timedOut,
       cancelled: result.cancelled
+    )
+  }
+
+  fileprivate func agentTurnState(session: ChatSession, turnID: ChatTurn.ID) -> AgentTurnState? {
+    guard session.interactionMode == .agent,
+      let turn = session.turns.first(where: { $0.id == turnID })
+    else {
+      return nil
+    }
+
+    return AgentTurnState(
+      latestFailedRunCommandResult: latestFailedRunCommandResult(in: turn),
+      failedRunCommandStreak: failedRunCommandStreak(in: turn),
+      repeatedNonReadToolCall: repeatedNonReadToolCall(in: turn),
+      listingWandering: listingWanderingState(in: turn),
+      readReplayStreak: readReplayStreak(in: turn)
     )
   }
 
@@ -754,11 +780,8 @@ extension ChatTurnExecutionCoordinator {
     return completionSignals.contains { lowercasedContent.contains($0) }
   }
 
-  fileprivate func failedRunCommandRuntimeInstruction(
-    session: ChatSession,
-    turnID: ChatTurn.ID
-  ) -> String? {
-    guard let result = latestFailedRunCommandResult(session: session, turnID: turnID) else {
+  fileprivate func failedRunCommandRuntimeInstruction(_ state: AgentTurnState) -> String? {
+    guard let result = state.latestFailedRunCommandResult else {
       return nil
     }
 
@@ -785,12 +808,22 @@ extension ChatTurnExecutionCoordinator {
     return lines.joined(separator: "\n")
   }
 
-  fileprivate func repeatedNonReadToolCallRuntimeInstruction(
-    session: ChatSession,
-    turnID: ChatTurn.ID
-  ) -> String? {
-    guard session.interactionMode == .agent,
-      let repeatedCall = repeatedNonReadToolCall(session: session, turnID: turnID),
+  fileprivate func failedRunCommandStreakRuntimeInstruction(_ state: AgentTurnState) -> String? {
+    guard let streak = state.failedRunCommandStreak,
+      streak.count >= 2
+    else {
+      return nil
+    }
+
+    return """
+      [System Notice]
+      This exact run_command command has failed 2+ times in this turn.
+      Do not run it again unchanged. Correct the command, inspect diagnostics, or report the blocker.
+      """
+  }
+
+  fileprivate func repeatedNonReadToolCallRuntimeInstruction(_ state: AgentTurnState) -> String? {
+    guard let repeatedCall = state.repeatedNonReadToolCall,
       repeatedCall.count >= 3
     else {
       return nil
@@ -811,17 +844,8 @@ extension ChatTurnExecutionCoordinator {
       """
   }
 
-  fileprivate func listingWanderingRuntimeInstruction(
-    session: ChatSession,
-    turnID: ChatTurn.ID
-  ) -> String? {
-    guard session.interactionMode == .agent,
-      let turn = session.turns.first(where: { $0.id == turnID })
-    else {
-      return nil
-    }
-
-    let state = listingWanderingState(in: turn)
+  fileprivate func listingWanderingRuntimeInstruction(_ state: AgentTurnState) -> String? {
+    let state = state.listingWandering
     guard state.listingCountWithoutRead >= 2 else {
       return nil
     }
@@ -838,6 +862,22 @@ extension ChatTurnExecutionCoordinator {
       lines.append(contentsOf: state.latestReplayLines.map { "- \($0)" })
     }
     return lines.joined(separator: "\n")
+  }
+
+  fileprivate func readReplayEscalationRuntimeInstruction(_ state: AgentTurnState) -> String? {
+    guard let streak = state.readReplayStreak,
+      streak.signature.toolName == .readFile,
+      streak.count >= 2
+    else {
+      return nil
+    }
+
+    return """
+      [System Notice]
+      Repeated read_file replay detected for the same path/range. You already have this file content in context.
+      Do not call read_file again for this path/range unless the file changed or you need a different range.
+      Answer from the existing content or choose a different action.
+      """
   }
 
   fileprivate func listingWanderingState(in turn: ChatTurn) -> ListingWanderingState {
@@ -909,13 +949,8 @@ extension ChatTurnExecutionCoordinator {
   }
 
   fileprivate func repeatedNonReadToolCall(
-    session: ChatSession,
-    turnID: ChatTurn.ID
+    in turn: ChatTurn
   ) -> (signature: RepeatedToolCallSignature, count: Int)? {
-    guard let turn = session.turns.first(where: { $0.id == turnID }) else {
-      return nil
-    }
-
     var repeatedSignature: RepeatedToolCallSignature?
     var repeatedCount = 0
 
@@ -925,6 +960,68 @@ extension ChatTurnExecutionCoordinator {
       }
       guard isCompletedToolExecution(record),
         let signature = nonReadSignature(for: record)
+      else {
+        break
+      }
+
+      if repeatedSignature == nil {
+        repeatedSignature = signature
+      }
+      guard signature == repeatedSignature else {
+        break
+      }
+      repeatedCount += 1
+    }
+
+    guard let repeatedSignature else {
+      return nil
+    }
+    return (repeatedSignature, repeatedCount)
+  }
+
+  fileprivate func failedRunCommandStreak(in turn: ChatTurn) -> (command: String, count: Int)? {
+    var repeatedCommand: String?
+    var repeatedCount = 0
+
+    for item in turn.items.reversed() {
+      guard case .tool(let record) = item else {
+        continue
+      }
+      guard case .runCommand(let input) = record.request.payload,
+        case .runCommand(let result) = record.resultPayload,
+        result.outcomeStatus == .failed
+      else {
+        break
+      }
+
+      if repeatedCommand == nil {
+        repeatedCommand = input.command
+      }
+      guard input.command == repeatedCommand else {
+        break
+      }
+      repeatedCount += 1
+    }
+
+    guard let repeatedCommand else {
+      return nil
+    }
+    return (repeatedCommand, repeatedCount)
+  }
+
+  fileprivate func readReplayStreak(
+    in turn: ChatTurn
+  ) -> (signature: RepeatedToolCallSignature, count: Int)? {
+    var repeatedSignature: RepeatedToolCallSignature?
+    var repeatedCount = 0
+
+    for item in turn.items.reversed() {
+      guard case .tool(let record) = item else {
+        continue
+      }
+      guard record.request.toolName == .readFile,
+        case .duplicateToolCall = record.resultPayload,
+        let signature = readLikeSignature(for: record)
       else {
         break
       }
@@ -973,6 +1070,19 @@ extension ChatTurnExecutionCoordinator {
     )
   }
 
+  fileprivate func readLikeSignature(for record: ToolCallRecord) -> RepeatedToolCallSignature? {
+    guard isReplayableReadLikeTool(record.request.toolName) else {
+      return nil
+    }
+    if case .invalid = record.request.payload {
+      return nil
+    }
+    return RepeatedToolCallSignature(
+      toolName: record.request.toolName,
+      value: .payload(record.request.payload)
+    )
+  }
+
   fileprivate func isReplayableReadLikeTool(_ toolName: ToolName) -> Bool {
     switch toolName {
     case .readFile, .listFiles, .globFiles, .searchFiles, .workspaceDiff, .workspaceDiagnostics,
@@ -983,13 +1093,8 @@ extension ChatTurnExecutionCoordinator {
     }
   }
 
-  fileprivate func latestFailedRunCommandResult(
-    session: ChatSession,
-    turnID: ChatTurn.ID
-  ) -> RunCommandResult? {
-    guard session.interactionMode == .agent,
-      let turn = session.turns.first(where: { $0.id == turnID }),
-      let record = latestToolRecord(in: turn),
+  fileprivate func latestFailedRunCommandResult(in turn: ChatTurn) -> RunCommandResult? {
+    guard let record = latestToolRecord(in: turn),
       record.request.toolName == .runCommand,
       case .runCommand(let result) = record.resultPayload,
       result.outcomeStatus == .failed
