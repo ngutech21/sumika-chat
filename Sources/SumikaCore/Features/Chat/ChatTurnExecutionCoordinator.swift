@@ -534,6 +534,12 @@ struct ChatTurnExecutionCoordinator {
     ) {
       instructions.append(repeatedCallInstruction)
     }
+    if let listingWanderingInstruction = listingWanderingRuntimeInstruction(
+      session: session,
+      turnID: turnID
+    ) {
+      instructions.append(listingWanderingInstruction)
+    }
     if toolPromptMode == .afterToolResultFinal {
       instructions.append(Self.finalToolResultRuntimeInstruction)
     }
@@ -640,7 +646,17 @@ struct ChatTurnExecutionCoordinator {
 extension ChatTurnExecutionCoordinator {
   fileprivate struct RepeatedToolCallSignature: Equatable {
     var toolName: ToolName
-    var payload: ToolCallPayload
+    var value: RepeatedToolCallSignatureValue
+  }
+
+  fileprivate enum RepeatedToolCallSignatureValue: Equatable {
+    case payload(ToolCallPayload)
+    case runCommand(String)
+  }
+
+  fileprivate struct ListingWanderingState {
+    var listingCountWithoutRead: Int = 0
+    var latestReplayLines: [String] = []
   }
 
   fileprivate struct FailedRunCommandGuardContext {
@@ -783,8 +799,8 @@ extension ChatTurnExecutionCoordinator {
     if repeatedCall.signature.toolName == .runCommand {
       return """
         [System Notice]
-        You have made the exact same `run_command` call with identical arguments 3+ times in a row.
-        Do not keep repeating it. Inspect the output, change the command, or report what is blocking you.
+        You have made the same `run_command` command 3+ times in a row.
+        Do not keep repeating it. Inspect the output, correct the command, or report what is blocking you.
         """
     }
 
@@ -793,6 +809,103 @@ extension ChatTurnExecutionCoordinator {
       You have made the exact same `\(repeatedCall.signature.toolName.rawValue)` tool call with identical arguments 3+ times in a row.
       Do not keep repeating it. Inspect the output, change approach, or report what is blocking you.
       """
+  }
+
+  fileprivate func listingWanderingRuntimeInstruction(
+    session: ChatSession,
+    turnID: ChatTurn.ID
+  ) -> String? {
+    guard session.interactionMode == .agent,
+      let turn = session.turns.first(where: { $0.id == turnID })
+    else {
+      return nil
+    }
+
+    let state = listingWanderingState(in: turn)
+    guard state.listingCountWithoutRead >= 2 else {
+      return nil
+    }
+
+    var lines = [
+      "[System Notice]",
+      "You are looping on listings/searches. Stop listing.",
+      "Choose one path from the latest entries or matches and call read_file, or provide the final answer.",
+      "Do not call list_files, glob_files, or search_files again for broad exploration.",
+      "Only use them again for one specific missing filename.",
+    ]
+    if !state.latestReplayLines.isEmpty {
+      lines.append("Latest entries or matches:")
+      lines.append(contentsOf: state.latestReplayLines.map { "- \($0)" })
+    }
+    return lines.joined(separator: "\n")
+  }
+
+  fileprivate func listingWanderingState(in turn: ChatTurn) -> ListingWanderingState {
+    var state = ListingWanderingState()
+    for item in turn.items {
+      guard case .tool(let record) = item,
+        let payload = record.resultPayload
+      else {
+        continue
+      }
+
+      switch payload {
+      case .readFile(.success), .readFile(.unchanged):
+        state = ListingWanderingState()
+      case .listFiles(let result):
+        state.listingCountWithoutRead += 1
+        let replayLines = listingReplayLines(for: result)
+        if !replayLines.isEmpty {
+          state.latestReplayLines = replayLines
+        }
+      case .globFiles(let result):
+        state.listingCountWithoutRead += 1
+        let replayLines = listingReplayLines(for: result)
+        if !replayLines.isEmpty {
+          state.latestReplayLines = replayLines
+        }
+      case .searchFiles(let result):
+        state.listingCountWithoutRead += 1
+        let replayLines = listingReplayLines(for: result)
+        if !replayLines.isEmpty {
+          state.latestReplayLines = replayLines
+        }
+      default:
+        continue
+      }
+    }
+    return state
+  }
+
+  fileprivate func listingReplayLines(for result: ListFilesResult) -> [String] {
+    result.entries.prefix(8).map { entry in
+      entry.kind == .directory ? "\(entry.path.rawValue)/" : entry.path.rawValue
+    }
+  }
+
+  fileprivate func listingReplayLines(for result: GlobFilesResult) -> [String] {
+    result.matches.prefix(8).map(\.rawValue)
+  }
+
+  fileprivate func listingReplayLines(for result: SearchFilesResult) -> [String] {
+    result.matches.prefix(8).map { match in
+      let compactSnippet = compactListingReplaySnippet(match.snippet)
+      guard !compactSnippet.isEmpty else {
+        return "\(match.path.rawValue):\(match.line)"
+      }
+      return "\(match.path.rawValue):\(match.line): \(compactSnippet)"
+    }
+  }
+
+  fileprivate func compactListingReplaySnippet(_ snippet: String) -> String {
+    let compact =
+      snippet
+      .replacingOccurrences(of: "\n", with: " ")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard compact.count > 120 else {
+      return compact
+    }
+    return String(compact.prefix(120))
   }
 
   fileprivate func repeatedNonReadToolCall(
@@ -848,9 +961,15 @@ extension ChatTurnExecutionCoordinator {
     if case .invalid = record.request.payload {
       return nil
     }
+    if case .runCommand(let input) = record.request.payload {
+      return RepeatedToolCallSignature(
+        toolName: record.request.toolName,
+        value: .runCommand(input.command)
+      )
+    }
     return RepeatedToolCallSignature(
       toolName: record.request.toolName,
-      payload: record.request.payload
+      value: .payload(record.request.payload)
     )
   }
 

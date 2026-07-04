@@ -219,6 +219,272 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func repeatedListingsWithoutReadAddListingWanderingNoticeWithReplay() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createSourcesAppFile(in: workspace)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string("Sources")])
+        )
+      ],
+      [.chunk("I will read Sources/App.swift next.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 3)
+    #expect(listingWanderingNotice(in: capturedPromptPlans[1]) == nil)
+    let notice = try #require(listingWanderingNotice(in: capturedPromptPlans[2]))
+    #expect(notice.contains(listingWanderingNoticeText))
+    #expect(notice.contains("Latest entries or matches:"))
+    #expect(notice.contains("- Sources/App.swift"))
+  }
+
+  @Test
+  func successfulReadFileClearsListingWanderingNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createSourcesAppFile(in: workspace)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string("Sources")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("Sources/App.swift")]
+          ))
+      ],
+      [.chunk("I read the source file.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 4)
+    #expect(listingWanderingNotice(in: capturedPromptPlans[2]) != nil)
+    #expect(listingWanderingNotice(in: capturedPromptPlans[3]) == nil)
+  }
+
+  @Test
+  func unchangedReadFileClearsListingWanderingNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createSourcesAppFile(in: workspace)
+    let appPath = WorkspaceRelativePath(rawValue: "Sources/App.swift")
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string("Sources")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("Sources/App.swift")]
+          ))
+      ],
+      [.chunk("The file was already in context.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: fixedReadFileOrchestrator(
+        .unchanged(path: appPath, readKey: ReadKey(path: appPath))
+      )
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 4)
+    #expect(listingWanderingNotice(in: capturedPromptPlans[2]) != nil)
+    #expect(listingWanderingNotice(in: capturedPromptPlans[3]) == nil)
+  }
+
+  @Test
+  func failedReadFileDoesNotClearListingWanderingNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createSourcesAppFile(in: workspace)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string("Sources")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("missing.swift")]
+          ))
+      ],
+      [.chunk("The file was missing.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 4)
+    #expect(listingWanderingNotice(in: capturedPromptPlans[2]) != nil)
+    #expect(listingWanderingNotice(in: capturedPromptPlans[3]) != nil)
+  }
+
+  @Test
+  func repeatedReadWarningDoesNotClearListingWanderingNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createSourcesAppFile(in: workspace)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string("Sources")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("Sources/App.swift")]
+          ))
+      ],
+      [.chunk("I should stop looping.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: fixedReadFileOrchestrator(
+        .repeatedReadWarning(path: WorkspaceRelativePath(rawValue: "Sources/App.swift"), count: 4)
+      )
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 4)
+    #expect(listingWanderingNotice(in: capturedPromptPlans[2]) != nil)
+    #expect(listingWanderingNotice(in: capturedPromptPlans[3]) != nil)
+  }
+
+  @Test
+  func duplicateListingDoesNotCountTowardListingWanderingNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createSourcesAppFile(in: workspace)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ],
+      [.chunk("Continuing after the duplicate listing.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    guard case .duplicateToolCall = controller.chatSession.toolCalls.last?.resultPayload else {
+      Issue.record("Expected duplicate list_files replay.")
+      return
+    }
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 3)
+    #expect(listingWanderingNotice(in: capturedPromptPlans[2]) == nil)
+  }
+
+  @Test
+  func mixedListingAndGlobStepsAddListingWanderingNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createSourcesAppFile(in: workspace)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+        )
+      ],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "glob_files",
+            arguments: ["pattern": .string("**/*.swift")]
+          ))
+      ],
+      [.chunk("I found Swift files.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 3)
+    let notice = try #require(listingWanderingNotice(in: capturedPromptPlans[2]))
+    #expect(notice.contains("- Sources/App.swift"))
+  }
+
+  @Test
   func visibleTextWithToolCallRunsToolLoopInsteadOfCompletingTurn() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -765,6 +1031,34 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func repeatedRunCommandWithDifferentReasonsAddsTransientRuntimeNotice() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let command = "git add. && git commit -m \"Initial commit\""
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [runCommandToolCall(command, reason: "Stage all files and commit the changes.")],
+      [runCommandToolCall(command, reason: "Stage all files with the corrected command.")],
+      [runCommandToolCall(command, reason: "Stage all files with the correct syntax.")],
+      [.chunk("I am blocked on repeated git add output.")],
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: allowedRunCommandOrchestrator(exitCode: 1)
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "commit the project", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.toolCalls.count == 3)
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans.count == 4)
+    #expect(capturedPromptPlans[3].transientInstructions.contains(repeatedRunCommandNotice))
+  }
+
+  @Test
   func failedRunCommandResultsCountTowardRepeatedRuntimeNotice() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -914,22 +1208,55 @@ struct ChatSessionControllerToolLoopTests {
     }
   }
 
-  private var repeatedRunCommandNotice: String {
+  private func createSourcesAppFile(in workspace: Workspace) throws {
+    let sourcesURL = workspace.rootURL.appending(path: "Sources", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: sourcesURL, withIntermediateDirectories: true)
+    try "struct App {}\n".write(
+      to: sourcesURL.appending(path: "App.swift"),
+      atomically: true,
+      encoding: .utf8
+    )
+  }
+
+  private var listingWanderingNoticeText: String {
     """
     [System Notice]
-    You have made the exact same `run_command` call with identical arguments 3+ times in a row.
-    Do not keep repeating it. Inspect the output, change the command, or report what is blocking you.
+    You are looping on listings/searches. Stop listing.
+    Choose one path from the latest entries or matches and call read_file, or provide the final answer.
+    Do not call list_files, glob_files, or search_files again for broad exploration.
+    Only use them again for one specific missing filename.
     """
   }
 
-  private func runCommandToolCall(_ command: String) -> ChatModelStreamEvent {
-    .toolCall(
+  private func listingWanderingNotice(in promptPlan: ChatRuntimePromptPlan) -> String? {
+    promptPlan.transientInstructions.first {
+      $0.contains("You are looping on listings/searches. Stop listing.")
+    }
+  }
+
+  private var repeatedRunCommandNotice: String {
+    """
+    [System Notice]
+    You have made the same `run_command` command 3+ times in a row.
+    Do not keep repeating it. Inspect the output, correct the command, or report what is blocking you.
+    """
+  }
+
+  private func runCommandToolCall(
+    _ command: String,
+    reason: String? = nil
+  ) -> ChatModelStreamEvent {
+    var arguments: ToolCallArguments = [
+      "command": .string(command),
+      "timeoutSeconds": .number(10),
+    ]
+    if let reason {
+      arguments["reason"] = .string(reason)
+    }
+    return .toolCall(
       ChatRuntimeToolCall(
         name: "run_command",
-        arguments: [
-          "command": .string(command),
-          "timeoutSeconds": .number(10),
-        ]
+        arguments: arguments
       ))
   }
 
@@ -937,6 +1264,17 @@ struct ChatSessionControllerToolLoopTests {
     ToolOrchestrator(
       executorRegistry: ToolExecutorRegistry([
         AnyToolExecutor(AllowedRunCommandToolExecutor(exitCode: exitCode))
+      ])
+    )
+  }
+
+  private func fixedReadFileOrchestrator(_ result: ReadFileResult) -> ToolOrchestrator {
+    ToolOrchestrator(
+      executorRegistry: ToolExecutorRegistry([
+        AnyToolExecutor(ListFilesToolExecutor()),
+        AnyToolExecutor(GlobFilesToolExecutor()),
+        AnyToolExecutor(SearchFilesToolExecutor()),
+        AnyToolExecutor(FixedReadFileToolExecutor(result: result)),
       ])
     )
   }
@@ -1009,5 +1347,29 @@ private struct AllowedRunCommandToolExecutor: TypedToolExecutor {
         stdout: ToolTextOutput(text: exitCode == 0 ? "ok\n" : ""),
         stderr: ToolTextOutput(text: exitCode == 0 ? "" : "failed\n")
       ))
+  }
+}
+
+private struct FixedReadFileToolExecutor: TypedToolExecutor {
+  static let codec = ReadFileToolExecutor.codec
+
+  let result: ReadFileResult
+
+  func evaluatePermission(
+    _ input: ReadFileInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    _ = context
+    return ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Allowed for listing wandering guard test.",
+      riskLevel: .low,
+      workspaceRelativePaths: [WorkspaceRelativePath(rawValue: input.path)]
+    )
+  }
+
+  func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
+    _ = (input, context)
+    return .readFile(result)
   }
 }
