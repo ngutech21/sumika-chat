@@ -77,17 +77,9 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
   private let skippedNames: Set<String>
 
   public init(
-    maxDepth: Int = 4,
+    maxDepth: Int = 0,
     maxEntries: Int = 300,
     skippedNames: Set<String> = [
-      ".git",
-      "node_modules",
-      ".build",
-      "DerivedData",
-      ".swiftpm",
-      "dist",
-      "build",
-      ".cache",
       ".DS_Store",
     ]
   ) {
