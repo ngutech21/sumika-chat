@@ -200,9 +200,17 @@ flowchart TD
   user continuations. A completed native tool call projects as assistant
   `tool_calls` metadata with a stable call ID followed by one or more `tool`
   result messages with the matching `tool_call_id`. The tool message content is
-  a byte-stable hybrid body: a compact `TOOL_RESULT_JSON` header with control
-  fields followed by a readable `CONTENT` section for entries, file content,
-  command output, matches, or diagnostics. If `modelFollowUpNotice` exists on
+  a byte-stable hybrid body: one valid `TOOL_RESULT_JSON` object followed by one
+  readable `CONTENT` section. The JSON object carries compact control metadata
+  such as `ok`, `tool`, `status`, `kind`, `duplicate`, affected paths,
+  tool-specific counts/flags, and short `next_allowed_actions`. Long file
+  contents, command stdout/stderr, HTML, Markdown, diffs, logs, fetched pages,
+  and other raw bodies stay outside JSON in `CONTENT`. Duplicate replay metadata
+  is derived structurally from `DuplicateToolCallResult`; duplicate headers use
+  `kind: "duplicate_replay"`, `duplicate: true`, `not_reexecuted: true`, and
+  `forbidden_repeat: true`, with `replayed_result_kind` present only when a
+  replayed observation exists. Native `tool_call_id` remains in the provider
+  message field, not in the rendered content. If `modelFollowUpNotice` exists on
   the record, it renders inside the JSON header as `next_step`, not as a
   transient user prompt or trailing prose block. Rebuilds must read this from the
   current `ChatTurn.items` state, not from an old prompt ledger or reused

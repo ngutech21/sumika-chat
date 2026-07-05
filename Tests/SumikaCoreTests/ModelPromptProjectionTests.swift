@@ -296,7 +296,7 @@ struct ModelPromptProjectionTests {
     #expect(context.callID == duplicateCallID)
     #expect(context.toolReceipt?.callID == duplicateCallID)
     #expect(context.content.contains(previousCallIDString) == false)
-    #expect(context.content.contains("\"result_kind\": \"duplicate_replay\""))
+    #expect(context.content.contains("\"kind\": \"duplicate_replay\""))
     #expect(context.toolReceipt?.summary.text.contains(previousCallIDString) == true)
   }
 

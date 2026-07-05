@@ -3,6 +3,56 @@ import Foundation
 public struct ToolResultProjection: Equatable, Sendable {
   public let display: ToolDisplayPayload
   public let observation: ToolModelObservation
+  public let metadata: ToolResultModelMetadata
+}
+
+public struct ToolResultModelMetadata: Equatable, Sendable {
+  public var kind: String
+  public var duplicate: Bool
+  public var fields: [ToolResultModelMetadataField]
+  public var nextAllowedActions: [String]
+  public var notReexecuted: Bool
+  public var replayedResultKind: String?
+  public var forbiddenRepeat: Bool
+  public var nextStep: String?
+
+  public init(
+    kind: String,
+    duplicate: Bool = false,
+    fields: [ToolResultModelMetadataField] = [],
+    nextAllowedActions: [String] = [],
+    notReexecuted: Bool = false,
+    replayedResultKind: String? = nil,
+    forbiddenRepeat: Bool = false,
+    nextStep: String? = nil
+  ) {
+    self.kind = kind
+    self.duplicate = duplicate
+    self.fields = fields
+    self.nextAllowedActions = nextAllowedActions
+    self.notReexecuted = notReexecuted
+    self.replayedResultKind = replayedResultKind
+    self.forbiddenRepeat = forbiddenRepeat
+    self.nextStep = nextStep
+  }
+}
+
+public struct ToolResultModelMetadataField: Equatable, Sendable {
+  public var name: String
+  public var value: ToolResultModelMetadataValue
+
+  public init(name: String, value: ToolResultModelMetadataValue) {
+    self.name = name
+    self.value = value
+  }
+}
+
+public indirect enum ToolResultModelMetadataValue: Equatable, Sendable {
+  case array([ToolResultModelMetadataValue])
+  case string(String)
+  case int(Int)
+  case bool(Bool)
+  case null
 }
 
 public enum ProjectionLimitStrategy: Equatable, Sendable {
@@ -305,19 +355,7 @@ public enum ToolResultProjector {
     case .webFetch(let result):
       return projectWebFetch(result, request: request)
     case .duplicateToolCall(let result):
-      if let replayedObservation = result.replayedObservation {
-        return duplicateProjection(
-          result,
-          request: request,
-          replayedObservation: replayedObservation
-        )
-      }
-      return summaryProjection(
-        toolName: request.toolName,
-        status: .success,
-        text: result.message,
-        affectedPaths: result.affectedPaths
-      )
+      return duplicateProjection(result, request: request)
     case .invalidTool(let result):
       let text = invalidToolText(result, request: request)
       return summaryProjection(
@@ -338,27 +376,252 @@ public enum ToolResultProjector {
 
 }
 
-private func duplicateProjection(
-  _ result: DuplicateToolCallResult,
-  request: ToolCallRequest,
-  replayedObservation: ToolModelObservation
+private func toolResultProjection(
+  display: ToolDisplayPayload,
+  observation: ToolModelObservation,
+  kind: String? = nil,
+  metadataFields: [ToolResultModelMetadataField]? = nil,
+  nextAllowedActions: [String]? = nil,
+  duplicate: Bool = false,
+  notReexecuted: Bool = false,
+  replayedResultKind: String? = nil,
+  forbiddenRepeat: Bool = false,
+  nextStep: String? = nil
 ) -> ToolResultProjection {
-  let affectedPaths =
-    result.affectedPaths.isEmpty ? replayedObservation.affectedPaths : result.affectedPaths
-  let blocks =
-    [ToolObservationBlock.summary(result.message)]
-    + replayedObservation.blocks
-    + [ToolObservationBlock.summary(duplicateNextStepHint(for: request.toolName))]
+  let primaryBlock = primaryResultBlock(from: observation.blocks)
+  let resolvedKind = kind ?? resultKind(for: observation)
+  let resolvedFields = metadataFields ?? primaryBlock.map(metadataFields(for:)) ?? []
+  let resolvedNextAllowedActions =
+    nextAllowedActions
+    ?? defaultNextAllowedActions(
+      for: observation.toolName,
+      block: primaryBlock
+    )
 
   return ToolResultProjection(
-    display: .summary(status: .success, text: result.message, affectedPaths: affectedPaths),
-    observation: ToolModelObservation.structured(
-      toolName: request.toolName,
-      status: replayedObservation.status,
-      affectedPaths: affectedPaths,
-      blocks: blocks
+    display: display,
+    observation: observation,
+    metadata: ToolResultModelMetadata(
+      kind: resolvedKind,
+      duplicate: duplicate,
+      fields: resolvedFields,
+      nextAllowedActions: resolvedNextAllowedActions,
+      notReexecuted: notReexecuted,
+      replayedResultKind: replayedResultKind,
+      forbiddenRepeat: forbiddenRepeat,
+      nextStep: nextStep
     )
   )
+}
+
+private func resultKind(for observation: ToolModelObservation) -> String {
+  guard let primaryBlock = primaryResultBlock(from: observation.blocks) else {
+    return observation.status == .success ? "summary" : "failure"
+  }
+  return resultKind(for: primaryBlock)
+}
+
+private func resultKind(for block: ToolObservationBlock) -> String {
+  switch block {
+  case .summary:
+    return "summary"
+  case .fileDisplayedToUser:
+    return "file_displayed"
+  case .fileContent:
+    return "file_content"
+  case .fileList:
+    return "listing"
+  case .searchSnippets:
+    return "search_matches"
+  case .editReceipt:
+    return "edit_receipt"
+  case .commandResult:
+    return "command_result"
+  case .diagnostics:
+    return "diagnostics"
+  case .webSearch:
+    return "web_search"
+  case .webFetch:
+    return "web_fetch"
+  case .failure:
+    return "failure"
+  }
+}
+
+private func primaryResultBlock(from blocks: [ToolObservationBlock]) -> ToolObservationBlock? {
+  blocks.first { block in
+    if case .summary = block {
+      return false
+    }
+    return true
+  }
+}
+
+private func metadataFields(for block: ToolObservationBlock) -> [ToolResultModelMetadataField] {
+  switch block {
+  case .summary:
+    return []
+  case .fileDisplayedToUser(
+    let path,
+    let range,
+    let lineCount,
+    let byteCount,
+    let truncated,
+    let redacted
+  ):
+    return [
+      .init(name: "path", value: .string(path.rawValue)),
+      .init(name: "range", value: range.map(ToolResultModelMetadataValue.string) ?? .null),
+      .init(name: "line_count", value: lineCount.map(ToolResultModelMetadataValue.int) ?? .null),
+      .init(name: "byte_count", value: byteCount.map(ToolResultModelMetadataValue.int) ?? .null),
+      .init(name: "truncated", value: .bool(truncated)),
+      .init(name: "redacted", value: .bool(redacted)),
+    ]
+  case .fileContent(let path, let content):
+    return [
+      .init(name: "path", value: .string(path.rawValue)),
+      .init(name: "truncated", value: .bool(content.truncated)),
+      .init(name: "redacted", value: .bool(content.redacted)),
+    ]
+  case .fileList(let root, let entries, let totalCount, let truncated):
+    return [
+      .init(name: "path", value: .string(root.rawValue)),
+      .init(name: "entry_count", value: .int(totalCount)),
+      .init(name: "visible_entry_count", value: .int(entries.count)),
+      .init(name: "truncated", value: .bool(truncated)),
+    ]
+  case .searchSnippets(let root, let pattern, let matches, let totalCount, let truncated):
+    return [
+      .init(name: "path", value: .string(root.rawValue)),
+      .init(name: "pattern", value: .string(pattern)),
+      .init(name: "match_count", value: .int(totalCount)),
+      .init(name: "visible_match_count", value: .int(matches.count)),
+      .init(name: "truncated", value: .bool(truncated)),
+    ]
+  case .editReceipt(let path, _, let matchStrategy):
+    var fields = [ToolResultModelMetadataField(name: "path", value: .string(path.rawValue))]
+    if let matchStrategy {
+      fields.append(.init(name: "match_strategy", value: .string(matchStrategy.rawValue)))
+    }
+    return fields
+  case .commandResult(let result):
+    var fields: [ToolResultModelMetadataField] = [
+      .init(name: "command", value: .string(result.command)),
+      .init(
+        name: "exit_code",
+        value: result.exitCode.map { .int(Int($0)) } ?? .null
+      ),
+      .init(name: "timed_out", value: .bool(result.timedOut)),
+      .init(name: "cancelled", value: .bool(result.cancelled)),
+      .init(name: "stdout_present", value: .bool(!result.stdout.text.isEmpty)),
+      .init(name: "stdout_truncated", value: .bool(result.stdout.truncated)),
+      .init(name: "stderr_present", value: .bool(!result.stderr.text.isEmpty)),
+      .init(name: "stderr_truncated", value: .bool(result.stderr.truncated)),
+    ]
+    if let outputRef = result.outputRef {
+      fields.append(.init(name: "output_ref", value: .string(outputRef)))
+    }
+    return fields
+  case .diagnostics(let result):
+    return [
+      .init(name: "output_ref", value: .string(result.outputRef)),
+      .init(name: "diagnostic_count", value: .int(result.diagnostics.count)),
+    ]
+  case .webSearch(let query, let provider, let results, let truncated):
+    return [
+      .init(name: "query", value: .string(query)),
+      .init(name: "provider", value: .string(provider.displayName)),
+      .init(name: "result_count", value: .int(results.count)),
+      .init(name: "truncated", value: .bool(truncated)),
+    ]
+  case .webFetch(
+    let url, let provider, let finalURL, let statusCode, let contentType, let content,
+    let byteCount):
+    return [
+      .init(name: "url", value: .string(url)),
+      .init(name: "final_url", value: .string(finalURL)),
+      .init(name: "provider", value: .string(provider?.displayName ?? "unknown")),
+      .init(name: "status_code", value: .int(statusCode)),
+      .init(
+        name: "content_type",
+        value: contentType.map(ToolResultModelMetadataValue.string) ?? .null
+      ),
+      .init(name: "byte_count", value: .int(byteCount)),
+      .init(name: "truncated", value: .bool(content.truncated)),
+      .init(name: "redacted", value: .bool(content.redacted)),
+    ]
+  case .failure:
+    return []
+  }
+}
+
+private func defaultNextAllowedActions(
+  for toolName: ToolName,
+  block: ToolObservationBlock?
+) -> [String] {
+  switch toolName {
+  case .listFiles, .globFiles, .searchFiles:
+    return ["read_file", "final_answer"]
+  case .readFile:
+    return ["edit_file", "final_answer"]
+  case .runCommand:
+    if case .commandResult(let result) = block, result.outputRef != nil {
+      return ["workspace_diagnostics", "final_answer"]
+    }
+    return ["final_answer"]
+  case .webSearch:
+    return ["web_fetch", "final_answer"]
+  case .workspaceDiagnostics:
+    return ["read_file", "edit_file", "final_answer"]
+  case .workspaceDiff, .webFetch, .showFile, .editFile, .writeFile, .askUser, .browserRefresh,
+    .browserInspect, .todoWrite, .invalid:
+    return ["final_answer"]
+  default:
+    return ["final_answer"]
+  }
+}
+
+private func duplicateProjection(
+  _ result: DuplicateToolCallResult,
+  request: ToolCallRequest
+) -> ToolResultProjection {
+  let replayedObservation = result.replayedObservation
+  let affectedPaths =
+    if result.affectedPaths.isEmpty {
+      replayedObservation?.affectedPaths ?? []
+    } else {
+      result.affectedPaths
+    }
+  let status = replayedObservation?.status ?? .success
+  let blocks =
+    [ToolObservationBlock.summary(duplicateContentSummary(result))]
+    + (replayedObservation?.blocks ?? [])
+  let observation = ToolModelObservation.structured(
+    toolName: request.toolName,
+    status: status,
+    affectedPaths: affectedPaths,
+    blocks: blocks
+  )
+
+  return toolResultProjection(
+    display: .summary(status: .success, text: result.message, affectedPaths: affectedPaths),
+    observation: observation,
+    kind: "duplicate_replay",
+    duplicate: true,
+    notReexecuted: true,
+    replayedResultKind: replayedObservation.map { resultKind(for: $0) },
+    forbiddenRepeat: true,
+    nextStep: duplicateNextStepHint(for: request.toolName)
+  )
+}
+
+private func duplicateContentSummary(_ result: DuplicateToolCallResult) -> String {
+  let previousCallID = RuntimeToolCallID.string(for: result.previousCallID)
+  let prefix = "Duplicate of \(previousCallID): "
+  guard result.message.hasPrefix(prefix) else {
+    return result.message
+  }
+  return "Duplicate replay: " + result.message.dropFirst(prefix.count)
 }
 
 private func duplicateNextStepHint(for toolName: ToolName) -> String {
@@ -423,7 +686,8 @@ private func summaryProjection(
   toolName: ToolName,
   status: ToolResultStatus,
   text: String,
-  affectedPaths: [WorkspaceRelativePath]
+  affectedPaths: [WorkspaceRelativePath],
+  kind: String? = nil
 ) -> ToolResultProjection {
   let observation =
     switch status {
@@ -447,9 +711,10 @@ private func summaryProjection(
       )
     }
 
-  return ToolResultProjection(
+  return toolResultProjection(
     display: .summary(status: status, text: text, affectedPaths: affectedPaths),
-    observation: observation
+    observation: observation,
+    kind: kind
   )
 }
 
@@ -464,7 +729,7 @@ private func projectReadFile(
       request.toolName == .showFile
       ? policy.includeShowFileBodyInObservation
       : policy.includeReadFileBodyInObservation
-    return ToolResultProjection(
+    return toolResultProjection(
       display: .fileContent(path: path, content: content),
       observation: ToolModelObservation.success(
         toolName: request.toolName,
@@ -514,7 +779,7 @@ private func projectListFiles(
   request: ToolCallRequest,
   policy: ToolResultProjectionPolicy
 ) -> ToolResultProjection {
-  ToolResultProjection(
+  toolResultProjection(
     display: .fileList(root: result.root, entries: result.entries, truncated: result.truncated),
     observation: ToolModelObservation.success(
       toolName: request.toolName,
@@ -538,7 +803,7 @@ private func projectGlobFiles(
   policy: ToolResultProjectionPolicy
 ) -> ToolResultProjection {
   let entries = result.matches.map { WorkspaceFileEntry(path: $0, kind: .file) }
-  return ToolResultProjection(
+  return toolResultProjection(
     display: .fileList(root: result.root, entries: entries, truncated: result.truncated),
     observation: ToolModelObservation.success(
       toolName: request.toolName,
@@ -561,7 +826,7 @@ private func projectSearchFiles(
   request: ToolCallRequest,
   policy: ToolResultProjectionPolicy
 ) -> ToolResultProjection {
-  ToolResultProjection(
+  toolResultProjection(
     display: .searchResults(
       root: result.root,
       pattern: result.pattern,
@@ -592,13 +857,22 @@ private func projectWorkspaceDiff(
   switch result {
   case .success(let path, let content):
     let affectedPaths = [path ?? WorkspaceRelativePath(rawValue: ".")]
-    return ToolResultProjection(
+    return toolResultProjection(
       display: .workspaceDiff(path: path, content: content),
       observation: ToolModelObservation.success(
         toolName: request.toolName,
         affectedPaths: affectedPaths,
         blocks: [.summary(content.text)]
-      )
+      ),
+      kind: "workspace_diff",
+      metadataFields: [
+        ToolResultModelMetadataField(
+          name: "path",
+          value: path.map { .string($0.rawValue) } ?? .null
+        ),
+        ToolResultModelMetadataField(name: "truncated", value: .bool(content.truncated)),
+        ToolResultModelMetadataField(name: "redacted", value: .bool(content.redacted)),
+      ]
     )
   case .failed(let path, let reason):
     return summaryProjection(
@@ -616,7 +890,7 @@ private func projectWorkspaceDiagnostics(
 ) -> ToolResultProjection {
   let affectedPaths = result.diagnostics.map(\.path)
   let text = renderedDiagnosticsText(result)
-  return ToolResultProjection(
+  return toolResultProjection(
     display: .summary(
       status: .success,
       text: text,
@@ -636,7 +910,7 @@ private func projectWriteFile(
 ) -> ToolResultProjection {
   switch result {
   case .success(let path, let bytesWritten):
-    return ToolResultProjection(
+    return toolResultProjection(
       display: .summary(
         status: .success,
         text: "Wrote \(bytesWritten) bytes to \(path.rawValue).",
@@ -664,7 +938,7 @@ private func projectEditFile(
 ) -> ToolResultProjection {
   switch result {
   case .success(let path, let diff, let matchStrategy):
-    return ToolResultProjection(
+    return toolResultProjection(
       display: .summary(
         status: .success,
         text: diff ?? "Edited \(path.rawValue).",
@@ -687,7 +961,7 @@ private func projectEditFile(
         "edit_file failed: old_text was not found in \(path.rawValue). \(recovery.message)\n\nCurrent file excerpt:\n\($0.text)"
       }
       ?? text
-    return ToolResultProjection(
+    return toolResultProjection(
       display: .summary(status: .failed, text: displayText, affectedPaths: [path]),
       observation: ToolModelObservation.failed(
         toolName: request.toolName,
@@ -730,7 +1004,7 @@ private func projectRunCommand(
   if status == .failed {
     blocks.append(.failure(runCommandFailureGuidance(for: result)))
   }
-  return ToolResultProjection(
+  return toolResultProjection(
     display: .summary(
       status: status,
       text: result.previewText,
@@ -779,7 +1053,8 @@ private func projectTodoWrite(
       toolName: request.toolName,
       status: .success,
       text: "Plan updated.",
-      affectedPaths: []
+      affectedPaths: [],
+      kind: "plan_update"
     )
   case .failed(let reason):
     return summaryProjection(
@@ -874,7 +1149,7 @@ private func projectWebSearch(
   switch result {
   case .success(let query, let provider, let results, let truncated):
     let projectedResults = Array(results.prefix(WebAccessLimits.maxSearchObservationResults))
-    return ToolResultProjection(
+    return toolResultProjection(
       display: .summary(
         status: .success,
         text: webSearchDisplayText(query: query, provider: provider, results: results),
@@ -912,7 +1187,7 @@ private func projectWebFetch(
   case .success(
     let url, let provider, let finalURL, let statusCode, let contentType, let content,
     let byteCount):
-    return ToolResultProjection(
+    return toolResultProjection(
       display: .summary(
         status: .success,
         text: webFetchDisplayText(

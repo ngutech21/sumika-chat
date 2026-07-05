@@ -738,14 +738,17 @@ struct GemmaMLXRuntimeTemplateTests {
     let rawAssistantFunction = try #require(
       rawAssistantToolCall["function"] as? [String: any Sendable]
     )
-    #expect(rawAssistantToolCall["id"] as? String == RuntimeToolCallID.string(for: callID))
+    let runtimeCallID = RuntimeToolCallID.string(for: callID)
+    #expect(rawAssistantToolCall["id"] as? String == runtimeCallID)
     #expect(rawAssistantFunction["name"] as? String == ToolName.readFile.rawValue)
-    #expect(rawMessages[2]["tool_call_id"] as? String == RuntimeToolCallID.string(for: callID))
+    #expect(rawMessages[2]["tool_call_id"] as? String == runtimeCallID)
     #expect(input.promptMessages[0].content.contains("TOOL_RESULT_JSON:"))
     #expect(input.promptMessages[0].content.contains("\"tool\": \"read_file\""))
     #expect(input.promptMessages[0].content.contains("Project overview"))
+    #expect(input.promptMessages[0].content.contains(runtimeCallID) == false)
+    #expect(input.promptMessages[0].content.contains(callID.uuidString) == false)
     #expect(input.promptSnapshot.map(\.role) == ["tool"])
-    #expect(input.promptSnapshot[0].toolCallID == RuntimeToolCallID.string(for: callID))
+    #expect(input.promptSnapshot[0].toolCallID == runtimeCallID)
   }
 
   @Test

@@ -91,19 +91,28 @@ flowchart TD
   Its model observation is intentionally limited to `Plan updated.`.
 - `ToolResultProjector` derives transient projections from
   `payload + ToolCallRequest + ToolResultProjectionPolicy`: `ToolDisplayPayload`
-  for transcript UI and `ToolModelObservation` for model-facing context.
+  for transcript UI, `ToolModelObservation` for model-facing content blocks, and
+  non-persisted `ToolResultModelMetadata` for the model-facing JSON envelope.
 - `ToolDisplayPayload` may be large and rich because it is UI-only. It is never
   written to the model-facing ledger.
 - `ToolModelObservation` is compact, capped, and purpose-specific. The prompt
   renderer renders it once into `FrozenModelContent` as a stable hybrid tool
-  result: a compact `TOOL_RESULT_JSON` control header followed by a readable
-  `CONTENT` section. That frozen content is the stable model-facing ledger
-  artifact.
+  result: exactly one valid `TOOL_RESULT_JSON` control object followed by exactly
+  one readable `CONTENT` section. JSON includes compact metadata such as `ok`,
+  `tool`, `status`, `kind`, `duplicate`, short counts/flags, and
+  `next_allowed_actions`. Long file contents, command stdout/stderr, HTML,
+  Markdown, diffs, logs, fetched pages, and other raw bodies must stay in
+  `CONTENT`, not escaped inside JSON. That frozen content is the stable
+  model-facing ledger artifact.
 - Duplicate safe read-like tool calls reuse the previous completed
   `ToolResultPayload` instead of invoking the executor again. The duplicate
-  payload carries a replayed `ToolModelObservation` so the prompt tail contains
-  the prior result blocks again. Side-effect-capable tools such as `run_command`
-  are never replayed as duplicates.
+  payload may carry a replayed `ToolModelObservation` so the prompt tail contains
+  the prior result blocks again. Duplicate JSON metadata is structural, not
+  parsed from summary prose: it always includes `kind: "duplicate_replay"`,
+  `duplicate: true`, `not_reexecuted: true`, and `forbidden_repeat: true`.
+  `replayed_result_kind` is emitted only when a replayed observation exists.
+  Side-effect-capable tools such as `run_command` are never replayed as
+  duplicates.
 - Tool follow-up notices are prioritized model-facing additions stored on the
   canonical `ToolCallRecord.modelFollowUpNotice`, separate from
   `ToolResultPayload`. `ToolFollowUpNoticePolicy` derives exactly one notice for

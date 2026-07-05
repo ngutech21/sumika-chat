@@ -79,6 +79,8 @@ flowchart TD
   ToolRegistry --> ToolDefinition
   ToolResultModelMessage --> ToolName
   ToolResultModelMessage --> ToolResultPayload
+  ToolResultModelMetadata --> ToolResultModelMetadataField
+  ToolResultModelMetadataField --> ToolResultModelMetadataValue
   ToolResultPayload --> DuplicateToolCallResult
   ToolResultPayload --> InvalidToolResult
   ToolResultPayload --> ToolFailure
@@ -86,6 +88,7 @@ flowchart TD
   ToolResultPreview --> ToolResultStatus
   ToolResultProjection -. derives .-> ToolDisplayPayload
   ToolResultProjection -. derives .-> ToolModelObservation
+  ToolResultProjection -. derives .-> ToolResultModelMetadata
   ToolResultProjectionPolicy --> ProjectionLimit
   TurnTraceContext --> TurnTraceMetadata
   TurnTraceEvent --> ToolArgumentTrace
@@ -1003,6 +1006,56 @@ Relations:
 - `ToolName`
 - `ToolResultPayload`
 
+### ToolResultModelMetadata
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Conforms to: `Equatable`, `Sendable`
+
+Properties:
+
+- `duplicate: Bool`
+- `fields: [ToolResultModelMetadataField]`
+- `forbiddenRepeat: Bool`
+- `kind: String`
+- `nextAllowedActions: [String]`
+- `nextStep: String?`
+- `notReexecuted: Bool`
+- `replayedResultKind: String?`
+
+Relations:
+
+- `ToolResultModelMetadataField`
+
+### ToolResultModelMetadataField
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Conforms to: `Equatable`, `Sendable`
+
+Properties:
+
+- `name: String`
+- `value: ToolResultModelMetadataValue`
+
+Relations:
+
+- `ToolResultModelMetadataValue`
+
+### ToolResultModelMetadataValue
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Conforms to: `Equatable`, `Sendable`
+
+Cases:
+
+- `array([ToolResultModelMetadataValue])`
+- `bool(Bool)`
+- `int(Int)`
+- `null`
+- `string(String)`
+
 ### ToolResultPayload
 
 - Kind: `enum`
@@ -1065,12 +1118,14 @@ Relations:
 Properties:
 
 - `display: ToolDisplayPayload`
+- `metadata: ToolResultModelMetadata`
 - `observation: ToolModelObservation`
 
 Relations:
 
 - `ToolDisplayPayload`
 - `ToolModelObservation`
+- `ToolResultModelMetadata`
 
 ### ToolResultProjectionPolicy
 
