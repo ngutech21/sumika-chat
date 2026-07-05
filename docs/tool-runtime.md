@@ -95,8 +95,10 @@ flowchart TD
 - `ToolDisplayPayload` may be large and rich because it is UI-only. It is never
   written to the model-facing ledger.
 - `ToolModelObservation` is compact, capped, and purpose-specific. The prompt
-  renderer renders it once into `FrozenModelContent`; that frozen content is the
-  stable model-facing ledger artifact.
+  renderer renders it once into `FrozenModelContent` as a stable hybrid tool
+  result: a compact `TOOL_RESULT_JSON` control header followed by a readable
+  `CONTENT` section. That frozen content is the stable model-facing ledger
+  artifact.
 - Duplicate safe read-like tool calls reuse the previous completed
   `ToolResultPayload` instead of invoking the executor again. The duplicate
   payload carries a replayed `ToolModelObservation` so the prompt tail contains
@@ -110,8 +112,8 @@ flowchart TD
   listing/read-loop escalations, duplicate replays, and the generic same-turn
   follow-up are mutually exclusive within this slot.
 - `ModelFacingPromptRenderer` renders a tool follow-up notice only in the
-  model-facing `tool` message, after the limited observation body, under a
-  `[Follow-up]` label. The notice must not appear in UI previews, receipts, or
+  model-facing `tool` message, inside the `TOOL_RESULT_JSON.next_step` field.
+  The notice must not appear in UI previews, receipts, transient user prompts, or
   `ToolResultPayload.content`, and rebuilds must derive it from
   `ChatTurn.items -> ToolCallRecord` instead of mutating rendered tool output.
 - `ChatTurn.items` is the canonical source for tool turn membership. One

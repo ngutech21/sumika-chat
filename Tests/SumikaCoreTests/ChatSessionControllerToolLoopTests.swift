@@ -1492,11 +1492,22 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   private func toolFollowUpNotice(in content: String) -> String? {
-    guard let range = content.range(of: "\n\n[Follow-up]\n") else {
+    guard let range = content.range(of: "TOOL_RESULT_JSON:\n") else {
       return nil
     }
-    let notice = content[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-    return notice.isEmpty ? nil : notice
+    let remainder = content[range.upperBound...]
+    guard let contentRange = remainder.range(of: "\n\nCONTENT:\n") else {
+      return nil
+    }
+    let jsonText = String(remainder[..<contentRange.lowerBound])
+    guard let data = jsonText.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let notice = object["next_step"] as? String
+    else {
+      return nil
+    }
+    let trimmed = notice.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 
   private var readReplayEscalationNotice: String {

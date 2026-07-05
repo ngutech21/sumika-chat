@@ -199,11 +199,14 @@ flowchart TD
 - Tool follow-ups are rendered as provider-native role sequences, not synthetic
   user continuations. A completed native tool call projects as assistant
   `tool_calls` metadata with a stable call ID followed by one or more `tool`
-  observation messages with the matching `tool_call_id`. If
-  `modelFollowUpNotice` exists on the record, the tool message renders the
-  limited observation first and appends one `[Follow-up]` block. Rebuilds must
-  read this from the current `ChatTurn.items` state, not from an old prompt
-  ledger or reused `ModelContextEntry`.
+  result messages with the matching `tool_call_id`. The tool message content is
+  a byte-stable hybrid body: a compact `TOOL_RESULT_JSON` header with control
+  fields followed by a readable `CONTENT` section for entries, file content,
+  command output, matches, or diagnostics. If `modelFollowUpNotice` exists on
+  the record, it renders inside the JSON header as `next_step`, not as a
+  transient user prompt or trailing prose block. Rebuilds must read this from the
+  current `ChatTurn.items` state, not from an old prompt ledger or reused
+  `ModelContextEntry`.
 - Empty or cancelled streaming placeholders and assistant-thinking items are
   skipped. Completed turns are included by default.
 - Cancelled and failed turns with `modelContextPolicy == .excluded` are omitted

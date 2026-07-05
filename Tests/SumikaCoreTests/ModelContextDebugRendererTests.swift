@@ -67,7 +67,7 @@ struct ModelContextDebugRendererTests {
     #expect(document.entries.map(\.role) == [.user, .tool])
     let content = try #require(document.entries.last?.content)
     #expect(content.contains("Original user request:") == false)
-    #expect(content.contains("<observation"))
+    #expect(content.contains("TOOL_RESULT_JSON:"))
     #expect(content.contains("passed"))
   }
 

@@ -1010,8 +1010,9 @@ struct ChatSessionControllerTests {
     #expect(!followUp.content.contains("Original user request:"))
     #expect(!followUp.content.contains("summarize the README"))
     #expect(!followUp.content.contains("Assistant tool call:"))
-    #expect(followUp.content.contains("tool=\"read_file\""))
-    #expect(followUp.content.contains("<observation"))
+    #expect(followUp.content.contains("TOOL_RESULT_JSON:"))
+    #expect(followUp.content.contains("\"tool\": \"read_file\""))
+    #expect(followUp.content.contains("CONTENT:"))
     #expect(followUp.content.contains("1: project notes"))
     let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
     #expect(
@@ -1074,8 +1075,9 @@ struct ChatSessionControllerTests {
     #expect(!followUp.content.contains("Original user request:"))
     #expect(!followUp.content.contains("read and summarize this article"))
     #expect(!followUp.content.contains("Assistant tool call:"))
-    #expect(followUp.content.contains("tool=\"web_fetch\""))
-    #expect(followUp.content.contains("<observation"))
+    #expect(followUp.content.contains("TOOL_RESULT_JSON:"))
+    #expect(followUp.content.contains("\"tool\": \"web_fetch\""))
+    #expect(followUp.content.contains("CONTENT:"))
     #expect(followUp.content.contains("Fetched fixture text."))
     let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
     #expect(
@@ -1127,7 +1129,7 @@ struct ChatSessionControllerTests {
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
     let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .tool }))
-    #expect(followUp.content.contains("<observation"))
+    #expect(followUp.content.contains("TOOL_RESULT_JSON:"))
     #expect(followUp.content.contains("Swift docs fixture."))
   }
 
@@ -1178,7 +1180,7 @@ struct ChatSessionControllerTests {
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
     let followUp = try #require(capturedMessages.last?.last(where: { $0.role == .tool }))
-    #expect(followUp.content.contains("tool=\"web_fetch\""))
+    #expect(followUp.content.contains("\"tool\": \"web_fetch\""))
     #expect(followUp.content.contains("Fetched fixture text."))
   }
 

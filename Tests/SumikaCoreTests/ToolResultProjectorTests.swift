@@ -131,6 +131,90 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func listFilesRendersHybridToolResultWithEntriesAndNoCallID() {
+    let callID = UUID()
+    let projection = ToolResultProjector.project(
+      payload: .listFiles(
+        ListFilesResult(
+          root: WorkspaceRelativePath(rawValue: "."),
+          entries: [
+            WorkspaceFileEntry(path: WorkspaceRelativePath(rawValue: ".gitignore"), kind: .file),
+            WorkspaceFileEntry(
+              path: WorkspaceRelativePath(rawValue: "snake_game"),
+              kind: .directory
+            ),
+            WorkspaceFileEntry(
+              path: WorkspaceRelativePath(rawValue: "snake_game/main.py"),
+              kind: .file
+            ),
+          ],
+          truncated: true
+        )),
+      request: request(toolName: .listFiles, payload: .listFiles(ListFilesInput(path: ".")))
+    )
+
+    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: callID)
+
+    #expect(rendered.contains("TOOL_RESULT_JSON:"))
+    #expect(rendered.contains("\"tool\": \"list_files\""))
+    #expect(rendered.contains("\"result_kind\": \"listing\""))
+    #expect(rendered.contains("\"entry_count\": 3"))
+    #expect(rendered.contains("CONTENT:"))
+    #expect(rendered.contains("Entries:\n.gitignore\nsnake_game/\nsnake_game/main.py"))
+    #expect(rendered.contains(callID.uuidString) == false)
+    #expect(rendered.contains(RuntimeToolCallID.string(for: callID)) == false)
+  }
+
+  @Test
+  func duplicateListFilesRendersHybridReplayWithEntriesAndNoPreviousCallID() {
+    let previousCallID = UUID()
+    let duplicateCallID = UUID()
+    let listRequest = request(
+      toolName: .listFiles,
+      payload: .listFiles(ListFilesInput(path: "."))
+    )
+    let listProjection = ToolResultProjector.project(
+      payload: .listFiles(
+        ListFilesResult(
+          root: WorkspaceRelativePath(rawValue: "."),
+          entries: [
+            WorkspaceFileEntry(path: WorkspaceRelativePath(rawValue: ".gitignore"), kind: .file),
+            WorkspaceFileEntry(
+              path: WorkspaceRelativePath(rawValue: "snake_game"),
+              kind: .directory
+            ),
+          ]
+        )),
+      request: listRequest
+    )
+    let duplicateProjection = ToolResultProjector.project(
+      payload: .duplicateToolCall(
+        DuplicateToolCallResult(
+          previousCallID: previousCallID,
+          message:
+            "Duplicate of \(RuntimeToolCallID.string(for: previousCallID)): identical list_files already completed in this turn; not re-executed. Previous result is replayed below.",
+          replayedObservation: listProjection.observation
+        )),
+      request: listRequest
+    )
+
+    let rendered = ToolModelObservationRenderer.render(
+      duplicateProjection.observation,
+      callID: duplicateCallID
+    )
+
+    #expect(rendered.contains("\"result_kind\": \"duplicate_replay\""))
+    #expect(rendered.contains("\"duplicate\": true"))
+    #expect(rendered.contains("\"not_reexecuted\": true"))
+    #expect(rendered.contains("\"replayed_result_kind\": \"listing\""))
+    #expect(rendered.contains("\"forbidden_repeat\""))
+    #expect(rendered.contains("Duplicate replay: identical list_files already completed"))
+    #expect(rendered.contains("Entries:\n.gitignore\nsnake_game/"))
+    #expect(rendered.contains(RuntimeToolCallID.string(for: previousCallID)) == false)
+    #expect(rendered.contains(duplicateCallID.uuidString) == false)
+  }
+
+  @Test
   func writeAndEditUseCompactReceipts() {
     let writeProjection = ToolResultProjector.project(
       payload: .writeFile(
@@ -183,7 +267,10 @@ struct ToolResultProjectorTests {
 
     #expect(
       projection.display == .summary(status: .success, text: "Plan updated.", affectedPaths: []))
-    #expect(rendered == "Plan updated.")
+    #expect(rendered.contains("TOOL_RESULT_JSON:"))
+    #expect(rendered.contains("\"tool\": \"todo_write\""))
+    #expect(rendered.contains("\"result_kind\": \"plan_update\""))
+    #expect(rendered.contains("CONTENT:\nPlan updated."))
     #expect(!rendered.contains("Inspect files"))
   }
 
@@ -686,10 +773,11 @@ struct ToolResultProjectorTests {
     }
 
     let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
-    #expect(
-      rendered.contains(
-        "tool=\"run_command\" status=\"\(expectedStatus.rawValue)\""
-      ))
+    #expect(rendered.contains("TOOL_RESULT_JSON:"))
+    #expect(rendered.contains("\"tool\": \"run_command\""))
+    #expect(rendered.contains("\"status\": \"\(expectedStatus.rawValue)\""))
+    #expect(rendered.contains("\"result_kind\": \"command_result\""))
+    #expect(rendered.contains("CONTENT:\nCommand: \(result.command)"))
     return rendered
   }
 

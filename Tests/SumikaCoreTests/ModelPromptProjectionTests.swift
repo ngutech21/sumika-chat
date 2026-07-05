@@ -270,7 +270,7 @@ struct ModelPromptProjectionTests {
   }
 
   @Test
-  func duplicateToolObservationUsesNewCallIDAndReferencesPreviousCallID() throws {
+  func duplicateToolObservationUsesNewCallIDAndOmitsPreviousCallIDFromContent() throws {
     let previousCallID = UUID()
     let duplicateCallID = UUID()
     let previousCallIDString = RuntimeToolCallID.string(for: previousCallID)
@@ -295,7 +295,8 @@ struct ModelPromptProjectionTests {
     }
     #expect(context.callID == duplicateCallID)
     #expect(context.toolReceipt?.callID == duplicateCallID)
-    #expect(context.content.contains(previousCallIDString))
+    #expect(context.content.contains(previousCallIDString) == false)
+    #expect(context.content.contains("\"result_kind\": \"duplicate_replay\""))
     #expect(context.toolReceipt?.summary.text.contains(previousCallIDString) == true)
   }
 
@@ -402,7 +403,7 @@ struct ModelPromptProjectionTests {
     #expect(receipt.summary.text == "Project overview")
     #expect(receipt.outputTruncated)
     #expect(receipt.outputRedacted)
-    #expect(entry.frozenContent.content.contains("<observation"))
+    #expect(entry.frozenContent.content.contains("TOOL_RESULT_JSON:"))
   }
 
   @Test
@@ -438,7 +439,7 @@ struct ModelPromptProjectionTests {
 
     #expect(projected[2].content.contains("Tool receipt: read_file"))
     #expect(projected[2].content.contains("Very large file body"))
-    #expect(projected[2].content.contains("<observation") == false)
+    #expect(projected[2].content.contains("TOOL_RESULT_JSON:") == false)
     #expect(projected[4].content.contains("what did you do?"))
   }
 
@@ -456,7 +457,7 @@ struct ModelPromptProjectionTests {
 
     let projected = transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
 
-    #expect(projected[2].content.contains("<observation"))
+    #expect(projected[2].content.contains("TOOL_RESULT_JSON:"))
     #expect(projected[2].content.contains("Project overview"))
     #expect(projected[2].content.contains("Tool receipt:") == false)
   }
@@ -496,7 +497,7 @@ struct ModelPromptProjectionTests {
     #expect(projected.last?.role == .tool)
     #expect(projected.last?.content.contains("Original user request:") == false)
     #expect(projected.last?.content.contains("Assistant tool call:") == false)
-    #expect(projected.last?.content.contains("tool=\"run_command\"") == true)
+    #expect(projected.last?.content.contains("\"tool\": \"run_command\"") == true)
     #expect(projected.last?.content.contains("Tool observation:") == false)
     #expect(projected.last?.content.contains("passed") == true)
   }
@@ -555,12 +556,12 @@ struct ModelPromptProjectionTests {
     let firstObservation = try #require(projected[1].content as String?)
     #expect(projected[1].role == .tool)
     #expect(firstObservation.contains("Original user request:") == false)
-    #expect(firstObservation.contains("tool=\"read_file\""))
+    #expect(firstObservation.contains("\"tool\": \"read_file\""))
     #expect(firstObservation.contains("Project overview"))
     let secondObservation = try #require(projected[2].content as String?)
     #expect(projected[2].role == .tool)
     #expect(secondObservation.contains("Original user request:") == false)
-    #expect(secondObservation.contains("tool=\"run_command\""))
+    #expect(secondObservation.contains("\"tool\": \"run_command\""))
     #expect(secondObservation.contains("passed"))
     #expect(secondObservation.contains("Project overview") == false)
   }
@@ -570,7 +571,7 @@ struct ModelPromptProjectionTests {
     let callID = UUID()
     let entry = try readFileToolResultEntry(callID: callID, content: "Project overview")
 
-    #expect(entry.frozenContent.content.contains("<observation"))
+    #expect(entry.frozenContent.content.contains("TOOL_RESULT_JSON:"))
     #expect(entry.frozenContent.content.contains("Project overview"))
     #expect(entry.frozenContent.content.contains("Original user request:") == false)
   }
