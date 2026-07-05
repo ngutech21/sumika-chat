@@ -80,7 +80,7 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
     maxDepth: Int = 0,
     maxEntries: Int = 300,
     skippedNames: Set<String> = [
-      ".DS_Store",
+      ".DS_Store"
     ]
   ) {
     self.maxDepth = maxDepth
