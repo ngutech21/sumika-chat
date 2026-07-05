@@ -504,6 +504,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   public var request: ToolCallRequest
   public var evaluation: ToolPermissionEvaluation
   public var state: ToolCallState
+  public var modelFollowUpNotice: String?
 
   public var status: ToolCallStatus {
     state.status
@@ -524,17 +525,20 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   public init(
     request: ToolCallRequest,
     evaluation: ToolPermissionEvaluation,
-    state: ToolCallState
+    state: ToolCallState,
+    modelFollowUpNotice: String? = nil
   ) {
     self.request = request
     self.evaluation = evaluation
     self.state = state
+    self.modelFollowUpNotice = modelFollowUpNotice
   }
 
   private enum CodingKeys: String, CodingKey {
     case request
     case evaluation
     case state
+    case modelFollowUpNotice
   }
 
   public init(from decoder: Decoder) throws {
@@ -550,6 +554,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
       )
     )
     state = try container.decodeIfPresent(ToolCallState.self, forKey: .state, default: .pending)
+    modelFollowUpNotice = try container.decodeIfPresent(String.self, forKey: .modelFollowUpNotice)
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -557,6 +562,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
     try container.encode(request, forKey: .request)
     try container.encode(evaluation, forKey: .evaluation)
     try container.encode(state, forKey: .state)
+    try container.encodeIfPresent(modelFollowUpNotice, forKey: .modelFollowUpNotice)
   }
 }
 

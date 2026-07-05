@@ -747,6 +747,71 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func toolObservationFollowUpNoticeRendersOnlyInToolContent() throws {
+    let callID = UUID()
+    let turnID = UUID()
+    let notice = "Continue from the observation without repeating the same read_file call."
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
+        prompt: "read README.md"
+      ),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: toolCallContent(
+          callID: callID,
+          toolName: .readFile,
+          arguments: ["path": .string("README.md")]
+        )
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .readFile,
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            ))
+        ),
+        request: toolRequest(
+          callID: callID,
+          toolName: .readFile,
+          arguments: ["path": .string("README.md")]
+        ),
+        originalUserRequest: "read README.md",
+        modelFollowUpNotice: notice
+      ),
+    ]
+
+    let input = try generationInput(from: entries)
+    let rawMessages = DefaultMessageGenerator().generate(
+      messages: input.history + input.promptMessages
+    )
+    let rawAssistantToolCalls = try #require(
+      rawMessages[1]["tool_calls"] as? [[String: any Sendable]]
+    )
+    let rawAssistantToolCall = try #require(rawAssistantToolCalls.first)
+    let rawAssistantFunction = try #require(
+      rawAssistantToolCall["function"] as? [String: any Sendable]
+    )
+
+    #expect(input.history.map(\.role) == [.user, .assistant])
+    #expect(input.promptMessages.map(\.role) == [.tool])
+    #expect(rawAssistantToolCall["id"] as? String == RuntimeToolCallID.string(for: callID))
+    #expect(rawAssistantFunction["name"] as? String == ToolName.readFile.rawValue)
+    #expect(rawMessages[2]["tool_call_id"] as? String == RuntimeToolCallID.string(for: callID))
+    #expect(input.history[0].content.contains("[Follow-up]") == false)
+    #expect(input.history[1].content.contains("[Follow-up]") == false)
+    #expect(input.promptMessages[0].content.contains("<observation"))
+    #expect(input.promptMessages[0].content.contains("Project overview"))
+    #expect(input.promptMessages[0].content.contains("\n\n[Follow-up]\n\(notice)"))
+    #expect(input.promptMessages[0].content.contains("Original user request:") == false)
+    #expect(input.promptSnapshot[0].content == input.promptMessages[0].content)
+  }
+
+  @Test
   func multipleToolObservationFollowUpUsesStructuredToolResultPromptBatch() throws {
     let readCallID = UUID()
     let listCallID = UUID()
@@ -1109,6 +1174,126 @@ struct GemmaMLXRuntimeTemplateTests {
         cachedPrefix: cachedPrefix,
         currentHistory: currentHistory
       ) == nil)
+  }
+
+  @Test
+  func cachePrefixSurvivesToolNoticeBeforeNextToolResult() throws {
+    let readCallID = UUID()
+    let writeCallID = UUID()
+    let turnID = UUID()
+    let originalPrompt = "read README.md and write summary.txt"
+    let readArguments: ToolCallArguments = ["path": .string("README.md")]
+    let writeArguments: ToolCallArguments = [
+      "path": .string("summary.txt"),
+      "content": .string("Project summary"),
+    ]
+    let followUpNotice =
+      "Continue using the latest tool observation to answer the original user request."
+    let entriesBeforeSecondToolCall = [
+      try ModelFacingPromptRenderer.userPromptEntry(turnID: turnID, prompt: originalPrompt),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: toolCallContent(
+          callID: readCallID,
+          toolName: .readFile,
+          arguments: readArguments
+        )
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: readCallID,
+          toolName: .readFile,
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            ))
+        ),
+        request: toolRequest(callID: readCallID, toolName: .readFile, arguments: readArguments),
+        originalUserRequest: originalPrompt,
+        modelFollowUpNotice: followUpNotice
+      ),
+    ]
+    let secondToolCallBoundary = try ModelFacingPromptRenderer.assistantOutputEntry(
+      turnID: turnID,
+      content: toolCallContent(
+        callID: writeCallID,
+        toolName: .writeFile,
+        arguments: writeArguments
+      )
+    )
+
+    // What MLX has consumed before the follow-up generation starts: normal
+    // history plus the structured tool prompt that carries the follow-up notice.
+    let followUpInput = try generationInput(from: entriesBeforeSecondToolCall)
+    let cachedPrefix = followUpInput.historySnapshot + followUpInput.promptSnapshot
+
+    // The follow-up generation then calls another tool. A later rebuild must
+    // keep the consumed tool message byte-identical and only append the new
+    // assistant(tool_calls) boundary to history.
+    let writeFollowUpInput = try generationInput(
+      from: entriesBeforeSecondToolCall + [
+        secondToolCallBoundary,
+        try ModelFacingPromptRenderer.toolResultEntry(
+          turnID: turnID,
+          toolResult: ToolResultModelMessage(
+            callID: writeCallID,
+            toolName: .writeFile,
+            payload: .writeFile(
+              .success(path: WorkspaceRelativePath(rawValue: "summary.txt"), bytesWritten: 15))
+          ),
+          request: toolRequest(
+            callID: writeCallID,
+            toolName: .writeFile,
+            arguments: writeArguments
+          ),
+          originalUserRequest: originalPrompt
+        ),
+      ]
+    )
+    let currentHistory = writeFollowUpInput.historySnapshot
+    let trace = GemmaSessionCachePolicy.trace(
+      mode: .appendDelta,
+      reason: .appendOnlyDelta,
+      currentHistory: currentHistory,
+      currentIdentity: GemmaSessionCachePolicy.cacheIdentity(
+        systemPrompt: "Use concise coding steps.",
+        settings: .agentDefault,
+        projectionMode: GemmaHistoryRenderer.runtimeProjectionMode
+      ),
+      cachedPrefix: cachedPrefix,
+      cachedIdentity: GemmaSessionCachePolicy.cacheIdentity(
+        systemPrompt: "Use concise coding steps.",
+        settings: .agentDefault,
+        projectionMode: GemmaHistoryRenderer.runtimeProjectionMode
+      ),
+      appendOnly: GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory),
+      mismatchReason: nil,
+      firstMismatchIndex: nil
+    )
+
+    #expect(cachedPrefix.map(\.role) == ["user", "assistant", "tool"])
+    #expect(currentHistory.map(\.role) == ["user", "assistant", "tool", "assistant"])
+    #expect(cachedPrefix[2].toolCallID == RuntimeToolCallID.string(for: readCallID))
+    #expect(currentHistory[2].toolCallID == RuntimeToolCallID.string(for: readCallID))
+    #expect(cachedPrefix[2].content.contains("\n\n[Follow-up]\n\(followUpNotice)"))
+    #expect(cachedPrefix[2] == currentHistory[2])
+    #expect(GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
+    #expect(
+      GemmaSessionCachePolicy.firstMismatchIndex(
+        cachedPrefix: cachedPrefix,
+        currentHistory: currentHistory
+      ) == cachedPrefix.count)
+    #expect(trace.cacheMode == .appendDelta)
+    #expect(trace.appendOnly)
+    #expect(trace.reusedMessageCount == 3)
+    #expect(trace.appendedMessageCount == 1)
+    #expect(writeFollowUpInput.promptSnapshot.map(\.role) == ["tool"])
+    #expect(
+      writeFollowUpInput.promptSnapshot[0].toolCallID
+        == RuntimeToolCallID.string(for: writeCallID))
+    #expect(writeFollowUpInput.promptSnapshot[0].content.contains("[Follow-up]") == false)
   }
 
   @Test

@@ -64,6 +64,11 @@ struct ToolTurnResumeCoordinator {
     }
 
     callbacks.emitEvents(resumeResult.events)
+    executionCoordinator.applyToolFollowUpNoticeIfNeeded(
+      toolPromptMode: promptMode,
+      turnID: turnID,
+      callbacks: callbacks
+    )
     callbacks.notifySessionDidChange()
     executionCoordinator.appendFinalToolFollowUpBoundaryIfNeeded(
       toolPromptMode: promptMode,
@@ -128,6 +133,11 @@ struct ToolTurnResumeCoordinator {
     }
 
     callbacks.emitEvents(resumeResult.events)
+    executionCoordinator.applyToolFollowUpNoticeIfNeeded(
+      toolPromptMode: promptMode,
+      turnID: turnID,
+      callbacks: callbacks
+    )
     callbacks.refreshContextUsage(promptMode)
     callbacks.notifySessionDidChange()
 
@@ -191,6 +201,11 @@ struct ToolTurnResumeCoordinator {
     }
 
     callbacks.emitEvents(resumeResult.events)
+    executionCoordinator.applyToolFollowUpNoticeIfNeeded(
+      toolPromptMode: promptMode,
+      turnID: turnID,
+      callbacks: callbacks
+    )
     executionCoordinator.appendFinalToolFollowUpBoundaryIfNeeded(
       toolPromptMode: promptMode,
       turnID: turnID,

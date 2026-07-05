@@ -608,6 +608,7 @@ Relations:
 Properties:
 
 - `evaluation: ToolPermissionEvaluation`
+- `modelFollowUpNotice: String?`
 - `request: ToolCallRequest`
 - `state: ToolCallState`
 

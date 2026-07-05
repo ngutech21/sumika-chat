@@ -100,15 +100,20 @@ flowchart TD
 - Duplicate safe read-like tool calls reuse the previous completed
   `ToolResultPayload` instead of invoking the executor again. The duplicate
   payload carries a replayed `ToolModelObservation` so the prompt tail contains
-  the prior result blocks again, followed by a next-step hint to use the replayed
-  data instead of repeating the same tool call. Side-effect-capable tools such
-  as `run_command` are never replayed as duplicates.
-- Tool follow-up notices are prioritized transient runtime prompt content
-  derived from the current turn items. Final no-tools guidance, failed
-  `run_command`, repeated same-command `run_command`, listing/read-loop
-  escalations, duplicate replays, and the generic same-turn follow-up are
-  mutually exclusive within this tool-follow-up slot. No repeated-call counters
-  or prompt notices are persisted.
+  the prior result blocks again. Side-effect-capable tools such as `run_command`
+  are never replayed as duplicates.
+- Tool follow-up notices are prioritized model-facing additions stored on the
+  canonical `ToolCallRecord.modelFollowUpNotice`, separate from
+  `ToolResultPayload`. `ToolFollowUpNoticePolicy` derives exactly one notice for
+  the target tool record before the follow-up generation is projected. Final
+  no-tools guidance, failed `run_command`, repeated same-command `run_command`,
+  listing/read-loop escalations, duplicate replays, and the generic same-turn
+  follow-up are mutually exclusive within this slot.
+- `ModelFacingPromptRenderer` renders a tool follow-up notice only in the
+  model-facing `tool` message, after the limited observation body, under a
+  `[Follow-up]` label. The notice must not appear in UI previews, receipts, or
+  `ToolResultPayload.content`, and rebuilds must derive it from
+  `ChatTurn.items -> ToolCallRecord` instead of mutating rendered tool output.
 - `ChatTurn.items` is the canonical source for tool turn membership. One
   `.tool(ToolCallRecord)` item carries the call, permission state, and eventual
   result payload. Code that needs reverse lookup derives `toolCallID -> turnID`
@@ -469,14 +474,15 @@ and tests.
   tool execution in the current chat turn. `ChatTurnCoordinator` may request one
   final no-tools assistant follow-up so the model can briefly summarize the
   completed write and mention useful run or verification steps. The follow-up
-  clears native tool specs and uses a transient runtime instruction; it must not
-  change the stable system instructions or cache identity. It should not echo
-  generated file contents, code blocks, diffs, or tool arguments unless the user
-  explicitly asked to display them in chat. The follow-up must not say files
-  changed unless a successful `write_file` or `edit_file` result exists in the
-  turn; failed or invalid write/edit results mean no workspace change happened.
-  Any emitted tool attempt in that final response must be converted into a
-  structured failure observation and must not execute.
+  clears native tool specs through `session.tools` and stores final guidance as
+  `modelFollowUpNotice` on the tool record; it must not change the stable system
+  instructions or cache identity. It should not echo generated file contents,
+  code blocks, diffs, or tool arguments unless the user explicitly asked to
+  display them in chat. The follow-up must not say files changed unless a
+  successful `write_file` or `edit_file` result exists in the turn; failed or
+  invalid write/edit results mean no workspace change happened. Any emitted tool
+  attempt in that final response must be converted into a structured failure
+  observation and must not execute.
 - Denied approval-sensitive tools may also receive one final no-tools assistant
   follow-up. The denied tool result stays auditable, no side effect occurs, and
   further tool attempts in the final response are recorded as structured

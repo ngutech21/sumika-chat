@@ -137,7 +137,8 @@ public struct ChatModelContextBuilder: Sendable {
           payload: payload
         ),
         request: record.request,
-        originalUserRequest: nil
+        originalUserRequest: nil,
+        modelFollowUpNotice: record.modelFollowUpNotice
       )
     else {
       return

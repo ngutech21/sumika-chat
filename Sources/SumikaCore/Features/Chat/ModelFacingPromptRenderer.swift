@@ -51,7 +51,8 @@ public enum ModelFacingPromptRenderer {
     request: ToolCallRequest,
     originalUserRequest _: String?,
     policy: ToolResultProjectionPolicy = .default,
-    systemContext: [String] = []
+    systemContext: [String] = [],
+    modelFollowUpNotice: String? = nil
   ) throws -> ModelContextEntry {
     let projection = ToolResultProjector.project(
       payload: toolResult.payload,
@@ -62,7 +63,10 @@ public enum ModelFacingPromptRenderer {
       projection.observation,
       callID: toolResult.callID
     )
-    let content = limitedToolObservationContent(rawContent, policy: policy)
+    let content = appendModelFollowUpNotice(
+      modelFollowUpNotice,
+      to: limitedToolObservationContent(rawContent, policy: policy)
+    )
     let toolReceipt = ToolReceiptFactory.make(
       callID: toolResult.callID,
       toolName: toolResult.toolName,
@@ -160,6 +164,37 @@ public enum ModelFacingPromptRenderer {
   ) -> String {
     ProjectionLimiter.limit(content, limit: policy.modelObservationLimit).text
   }
+
+  private static func appendModelFollowUpNotice(
+    _ notice: String?,
+    to content: String
+  ) -> String {
+    guard let notice = normalizedModelFollowUpNotice(notice) else {
+      return content
+    }
+    return """
+      \(content)
+
+      [Follow-up]
+      \(notice)
+      """
+  }
+
+  private static func normalizedModelFollowUpNotice(_ notice: String?) -> String? {
+    let normalized = notice?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n")
+    guard let normalized, !normalized.isEmpty else {
+      return nil
+    }
+    guard normalized.count > modelFollowUpNoticeLimit else {
+      return normalized
+    }
+    return String(normalized.prefix(modelFollowUpNoticeLimit)) + "\n[follow-up truncated]"
+  }
+
+  private static let modelFollowUpNoticeLimit = 1_200
 }
 
 enum ToolReceiptFactory {
