@@ -1185,9 +1185,14 @@ struct NativeToolDetailContent: Equatable {
 struct NativeTranscriptHeightCache {
   private var heightsByKey: [Key: CGFloat] = [:]
   private var lastKnownKeyByRowID: [String: Key] = [:]
+  private var measuringCell: NativeChatMessageCellView?
 
   var cachedEntryCount: Int {
     heightsByKey.count
+  }
+
+  var measuringCellForTesting: NativeChatMessageCellView? {
+    measuringCell
   }
 
   mutating func height(
@@ -1210,6 +1215,7 @@ struct NativeTranscriptHeightCache {
       return height
     }
     let missReason = cacheMissReason(for: key)
+    let cell = reusableMeasuringCell()
     let height = ChatDiagnostics.measure(
       "Transcript row height cache miss",
       category: .transcript,
@@ -1221,12 +1227,27 @@ struct NativeTranscriptHeightCache {
         for: row,
         width: width,
         state: state,
-        markdownBlocks: markdownBlocks
+        markdownBlocks: markdownBlocks,
+        reusing: cell
       )
     }
     heightsByKey[key] = height
     lastKnownKeyByRowID[row.id] = key
     return height
+  }
+
+  // Reusing one measuring cell keeps its incremental streaming append path
+  // alive across measurements: repeated misses for the growing streaming row
+  // only append the new suffix instead of rebuilding the full cell content.
+  private mutating func reusableMeasuringCell() -> NativeChatMessageCellView {
+    if let measuringCell {
+      return measuringCell
+    }
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Measuring")
+    )
+    measuringCell = cell
+    return cell
   }
 
   private func cacheMissReason(for key: Key) -> String {
@@ -1342,14 +1363,16 @@ enum NativeTranscriptRowMeasurer {
     width: CGFloat,
     state: NativeTranscriptCellState = NativeTranscriptCellState(),
     markdownBlocks: @escaping @MainActor (String) -> [NativeMarkdownBlock] =
-      NativeTranscriptMarkdownRenderer.blocks
+      NativeTranscriptMarkdownRenderer.blocks,
+    reusing reusableCell: NativeChatMessageCellView? = nil
   ) -> CGFloat {
     ChatDiagnostics.measure("Transcript row measure", category: .transcript) {
       NativeChatMessageCellView.measuredHeight(
         for: row,
         width: width,
         state: state,
-        actions: measuringActions(markdownBlocks: markdownBlocks)
+        actions: measuringActions(markdownBlocks: markdownBlocks),
+        reusing: reusableCell
       )
     }
   }
@@ -1500,13 +1523,16 @@ final class NativeChatMessageCellView: NSTableCellView {
     for row: NativeTranscriptRow,
     width: CGFloat,
     state: NativeTranscriptCellState,
-    actions: NativeTranscriptCellActions
+    actions: NativeTranscriptCellActions,
+    reusing reusableCell: NativeChatMessageCellView? = nil
   ) -> CGFloat {
     ChatDiagnostics.measure("Transcript cell measured height", category: .transcript) {
       let constrainedWidth = max(width, 1)
-      let cell = NativeChatMessageCellView(
-        identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Measuring")
-      )
+      let cell =
+        reusableCell
+        ?? NativeChatMessageCellView(
+          identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Measuring")
+        )
       cell.translatesAutoresizingMaskIntoConstraints = false
       cell.configure(row: row, state: state, actions: actions)
       cell.setFrameSize(NSSize(width: constrainedWidth, height: 1))

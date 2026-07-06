@@ -233,6 +233,90 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func heightCacheReusesMeasuringCellForStreamingRevisions() throws {
+    var cache = NativeTranscriptHeightCache()
+    let shortRow = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Hello")
+    let grownRow = nativeStreamingAssistantRow(
+      id: "assistant",
+      revision: 2,
+      content: "Hello " + String(repeating: "streaming answer text that keeps growing. ", count: 12)
+    )
+
+    let shortHeight = cache.height(for: shortRow, width: 640)
+    let measuringCell = try #require(cache.measuringCellForTesting)
+    let hostedView = try #require(measuringCell.hostedContentViewForTesting)
+
+    let grownHeight = cache.height(for: grownRow, width: 640)
+
+    #expect(measuringCell.hostedContentViewForTesting === hostedView)
+    #expect(grownHeight > shortHeight)
+    #expect(shortHeight == NativeTranscriptRowMeasurer.height(for: shortRow, width: 640))
+    #expect(grownHeight == NativeTranscriptRowMeasurer.height(for: grownRow, width: 640))
+  }
+
+  @Test
+  func heightCacheReusesMeasuringCellForStreamingThinkingRevisions() throws {
+    var cache = NativeTranscriptHeightCache()
+    let shortRow = nativeStreamingThinkingRow(id: "thinking", revision: 1, content: "Inspecting")
+    let grownRow = nativeStreamingThinkingRow(
+      id: "thinking",
+      revision: 2,
+      content: "Inspecting " + String(repeating: "more evidence before answering. ", count: 12)
+    )
+
+    let shortHeight = cache.height(for: shortRow, width: 640)
+    let measuringCell = try #require(cache.measuringCellForTesting)
+    let hostedView = try #require(measuringCell.hostedContentViewForTesting)
+
+    let grownHeight = cache.height(for: grownRow, width: 640)
+
+    #expect(measuringCell.hostedContentViewForTesting === hostedView)
+    #expect(grownHeight > shortHeight)
+    #expect(grownHeight == NativeTranscriptRowMeasurer.height(for: grownRow, width: 640))
+  }
+
+  @Test
+  func reusedMeasuringCellMatchesFreshMeasurementAcrossWidths() {
+    var cache = NativeTranscriptHeightCache()
+    let row = nativeAssistantMarkdownRow(
+      id: "assistant",
+      revision: 1,
+      markdown: String(
+        repeating: "A wrapping paragraph that needs several lines at narrow widths. ",
+        count: 6
+      )
+    )
+
+    _ = cache.height(for: row, width: 640)
+    let narrowHeight = cache.height(for: row, width: 360)
+
+    #expect(narrowHeight == NativeTranscriptRowMeasurer.height(for: row, width: 360))
+  }
+
+  @Test
+  func reusedMeasuringCellMatchesFreshMeasurementAcrossRowKinds() {
+    var cache = NativeTranscriptHeightCache()
+    let assistantRow = nativeAssistantMarkdownRow(
+      id: "assistant",
+      revision: 1,
+      markdown: "**bold** answer"
+    )
+    let userRow = nativeUserRow(id: "user", revision: 1, content: "A question")
+    let toolRow = nativeToolRow(id: "tool", revision: 1)
+
+    let assistantHeight = cache.height(for: assistantRow, width: 640)
+    let userHeight = cache.height(for: userRow, width: 640)
+    let toolHeight = cache.height(for: toolRow, width: 640)
+    cache.invalidate(rowID: "assistant")
+    let assistantAgainHeight = cache.height(for: assistantRow, width: 640)
+
+    #expect(assistantHeight == NativeTranscriptRowMeasurer.height(for: assistantRow, width: 640))
+    #expect(userHeight == NativeTranscriptRowMeasurer.height(for: userRow, width: 640))
+    #expect(toolHeight == NativeTranscriptRowMeasurer.height(for: toolRow, width: 640))
+    #expect(assistantAgainHeight == assistantHeight)
+  }
+
+  @Test
   func heightMeasurementUsesProvidedMarkdownBlocks() {
     var markdownBlockRequests = 0
     var cache = NativeTranscriptHeightCache()
