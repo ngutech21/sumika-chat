@@ -113,6 +113,12 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     settings.repetitionPenalty == 1 ? nil : Float(settings.repetitionPenalty)
   }
 
+  nonisolated static func mlxPresencePenalty(
+    from settings: ChatGenerationSettings
+  ) -> Float? {
+    settings.presencePenalty == 0 ? nil : Float(settings.presencePenalty)
+  }
+
   nonisolated static func appendTransientInstructions(
     _ instructions: [String],
     toPromptSnapshot promptSnapshot: [GemmaMessageSnapshot],
@@ -220,7 +226,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       temperature: Float(settings.temperature),
       topP: Float(settings.topP),
       topK: settings.topK,
-      repetitionPenalty: Self.mlxRepetitionPenalty(from: settings)
+      repetitionPenalty: Self.mlxRepetitionPenalty(from: settings),
+      repetitionContextSize: settings.repetitionContextSize,
+      presencePenalty: Self.mlxPresencePenalty(from: settings),
+      presenceContextSize: settings.repetitionContextSize
     )
     let additionalContext = Self.chatTemplateAdditionalContext(
       reasoningEnabled: settings.reasoningEnabled)

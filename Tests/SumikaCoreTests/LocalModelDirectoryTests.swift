@@ -81,6 +81,39 @@ struct LocalModelDirectoryTests {
     #expect(updated.repetitionPenalty == 1.2)
   }
 
+  @Test
+  func applyingGenerationConfigPresetLayersChatFullyButKeepsAgentTemperature() {
+    // Mirrors the Gemma generation_config.json (temp 1.0, top_k 64, top_p 0.95).
+    let preset = ChatGenerationConfigPreset(temperature: 1.0, topP: 0.95, topK: 64)
+
+    let updated = ModelSettingsStore.applyingGenerationConfigPreset(
+      preset,
+      to: .defaultSettings
+    )
+
+    // Chat adopts the model's full recommended sampling.
+    #expect(updated.chat.generationSettings.temperature == 1.0)
+    #expect(updated.chat.generationSettings.topP == 0.95)
+    #expect(updated.chat.generationSettings.topK == 64)
+
+    // Agent keeps its conservative temperature but adopts the model's nucleus/top-k shape.
+    #expect(
+      updated.agent.generationSettings.temperature
+        == ChatGenerationSettings.agentDefault.temperature)
+    #expect(updated.agent.generationSettings.topP == 0.95)
+    #expect(updated.agent.generationSettings.topK == 64)
+    #expect(
+      updated.agent.generationSettings.presencePenalty
+        == ChatGenerationSettings.agentDefault.presencePenalty)
+  }
+
+  @Test
+  func applyingGenerationConfigPresetIsNoOpWhenPresetMissing() {
+    #expect(
+      ModelSettingsStore.applyingGenerationConfigPreset(nil, to: .defaultSettings)
+        == ChatModeSettingsSet.defaultSettings)
+  }
+
   private func makeTemporaryModelDirectory(configJSON: String) throws -> URL {
     try makeTemporaryModelDirectory(configJSON: configJSON, generationConfigJSON: nil)
   }

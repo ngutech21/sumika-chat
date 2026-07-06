@@ -399,13 +399,15 @@ struct ModelAdvancedSettings: View {
         }
 
         Button("Reset \(selectedMode.displayName) Defaults") {
-          modeSettings[selectedMode] = model.defaultModeSettings[selectedMode]
+          // Reset to exactly what the model loads with when nothing is saved: the built-in
+          // defaults layered with the model's generation_config.json preset (chat adopts it
+          // fully, agent keeps its conservative loop-resistant temperature). Single source
+          // of truth with ModelSettingsStore.settings(for:).
+          modeSettings[selectedMode] = ModelSettingsStore.applyingGenerationConfigPreset(
+            generationConfigPreset,
+            to: model.defaultModeSettings
+          )[selectedMode]
         }
-
-        Button("Reset From Model Config") {
-          applyGenerationConfigPreset()
-        }
-        .disabled(generationConfigPreset == nil)
 
         Button("Reset Context Length") {
           contextTokenLimit = model.defaultContextTokenLimit
@@ -490,15 +492,6 @@ struct ModelAdvancedSettings: View {
     Binding(
       get: { selectedGenerationSettings.wrappedValue.maxKVSize ?? contextTokenLimit },
       set: { selectedGenerationSettings.wrappedValue.maxKVSize = $0 }
-    )
-  }
-
-  private func applyGenerationConfigPreset() {
-    guard let generationConfigPreset else {
-      return
-    }
-    selectedGenerationSettings.wrappedValue = generationConfigPreset.applying(
-      to: selectedGenerationSettings.wrappedValue
     )
   }
 

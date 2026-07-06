@@ -18,6 +18,17 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
+  func presencePenaltyMappingMapsZeroToNilAndForwardsNonZero() {
+    // Chat mode leaves presence penalty off; agent mode enables it.
+    #expect(GemmaMLXRuntime.mlxPresencePenalty(from: .chatDefault) == nil)
+    #expect(GemmaMLXRuntime.mlxPresencePenalty(from: .agentDefault) == 0.5)
+
+    var settings = ChatGenerationSettings.chatDefault
+    settings.presencePenalty = 0.8
+    #expect(GemmaMLXRuntime.mlxPresencePenalty(from: settings) == 0.8)
+  }
+
+  @Test
   func imageInputsUseAttachmentFileURLs() throws {
     let directoryURL = FileManager.default.temporaryDirectory
       .appending(

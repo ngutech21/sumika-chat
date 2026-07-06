@@ -113,15 +113,22 @@ public actor ModelSettingsStore: ModelSettingsStoring {
   private let userDefaultsBox: UserDefaultsBox
   private let settingsURL: URL
   private let selectedModelKey = "selectedModelID"
+  private let generationConfigPresetProvider:
+    @Sendable (ManagedModel) -> ChatGenerationConfigPreset?
 
   public init(
     userDefaults: UserDefaults = .standard,
     settingsURL: URL = LocalModelDirectory.defaultBaseURL
       .deletingLastPathComponent()
-      .appending(path: "model-settings.json", directoryHint: .notDirectory)
+      .appending(path: "model-settings.json", directoryHint: .notDirectory),
+    generationConfigPresetProvider: @escaping @Sendable (ManagedModel) ->
+      ChatGenerationConfigPreset? = {
+        LocalModelDirectory.readGenerationConfigPreset(from: $0.localDirectoryURL)
+      }
   ) {
     self.userDefaultsBox = UserDefaultsBox(userDefaults: userDefaults)
     self.settingsURL = settingsURL
+    self.generationConfigPresetProvider = generationConfigPresetProvider
   }
 
   public func selectedModelID(availableModelIDs: Set<String>) async -> String {
@@ -142,12 +149,34 @@ public actor ModelSettingsStore: ModelSettingsStoring {
   public func settings(for model: ManagedModel) async -> StoredModelSettings {
     guard let stored = readSettingsFile().modelSettings[model.id] else {
       return StoredModelSettings(
-        modeSettings: model.defaultModeSettings,
+        modeSettings: Self.applyingGenerationConfigPreset(
+          generationConfigPresetProvider(model),
+          to: model.defaultModeSettings
+        ),
         contextTokenLimit: model.defaultContextTokenLimit
       )
     }
 
     return stored
+  }
+
+  /// Layers the model's own `generation_config.json` sampling preset onto the built-in
+  /// defaults when the user has not saved per-model settings. Chat mode adopts the full
+  /// preset (the model authors' recommendation). Agent mode adopts only the nucleus/top-k
+  /// shape and keeps its conservative, loop-resistant temperature and penalties, since the
+  /// recommended temperature (~1.0 for Gemma) would make tool calling unreliable.
+  public static func applyingGenerationConfigPreset(
+    _ preset: ChatGenerationConfigPreset?,
+    to modeSettings: ChatModeSettingsSet
+  ) -> ChatModeSettingsSet {
+    guard let preset else {
+      return modeSettings
+    }
+    var updated = modeSettings
+    updated.chat.generationSettings = preset.applying(to: updated.chat.generationSettings)
+    let agentSamplingShape = ChatGenerationConfigPreset(topP: preset.topP, topK: preset.topK)
+    updated.agent.generationSettings = agentSamplingShape.applying(to: updated.agent.generationSettings)
+    return updated
   }
 
   public func save(settings: StoredModelSettings, for model: ManagedModel) async throws {
