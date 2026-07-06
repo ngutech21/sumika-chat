@@ -121,7 +121,8 @@ public actor ModelSettingsStore: ModelSettingsStoring {
     settingsURL: URL = LocalModelDirectory.defaultBaseURL
       .deletingLastPathComponent()
       .appending(path: "model-settings.json", directoryHint: .notDirectory),
-    generationConfigPresetProvider: @escaping @Sendable (ManagedModel) ->
+    generationConfigPresetProvider:
+      @escaping @Sendable (ManagedModel) ->
       ChatGenerationConfigPreset? = {
         LocalModelDirectory.readGenerationConfigPreset(from: $0.localDirectoryURL)
       }
@@ -175,7 +176,8 @@ public actor ModelSettingsStore: ModelSettingsStoring {
     var updated = modeSettings
     updated.chat.generationSettings = preset.applying(to: updated.chat.generationSettings)
     let agentSamplingShape = ChatGenerationConfigPreset(topP: preset.topP, topK: preset.topK)
-    updated.agent.generationSettings = agentSamplingShape.applying(to: updated.agent.generationSettings)
+    updated.agent.generationSettings = agentSamplingShape.applying(
+      to: updated.agent.generationSettings)
     return updated
   }
 

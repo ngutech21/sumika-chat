@@ -403,10 +403,11 @@ struct ModelAdvancedSettings: View {
           // defaults layered with the model's generation_config.json preset (chat adopts it
           // fully, agent keeps its conservative loop-resistant temperature). Single source
           // of truth with ModelSettingsStore.settings(for:).
-          modeSettings[selectedMode] = ModelSettingsStore.applyingGenerationConfigPreset(
-            generationConfigPreset,
-            to: model.defaultModeSettings
-          )[selectedMode]
+          modeSettings[selectedMode] =
+            ModelSettingsStore.applyingGenerationConfigPreset(
+              generationConfigPreset,
+              to: model.defaultModeSettings
+            )[selectedMode]
         }
 
         Button("Reset Context Length") {
