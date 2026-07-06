@@ -475,17 +475,35 @@ extension GemmaMLXRuntime {
       mismatchReason = "identity_changed"
     } else if appendOnly, let cached {
       let deltaStartIndex = cached.prefix.count
-      if deltaStartIndex == historySnapshot.count {
+      let deltaBeginsWithToolResult = GemmaSessionCachePolicy.deltaBeginsWithToolResult(
+        cachedPrefixCount: deltaStartIndex,
+        historySnapshot: historySnapshot,
+        promptFirstRole: promptMessages.first?.role.rawValue
+      )
+      if deltaBeginsWithToolResult {
+        // A reused/append-delta render templates only the delta. When the delta
+        // begins with a tool response, the Gemma template drops it (its paired
+        // assistant tool_call sits in the cached prefix, not in this render), so
+        // the model never sees the tool result and repeats the same call. Rebuild
+        // the full history instead so call and result are templated adjacently.
+        traceMode = .dirtyRebuild
+        traceReason = .toolFollowUpRebuild
+        shouldReuse = false
+        appendDeltaStartIndex = nil
+        mismatchReason = "tool_follow_up_response"
+      } else if deltaStartIndex == historySnapshot.count {
         traceMode = .reusedSession
         traceReason = .reusedSession
+        shouldReuse = true
         appendDeltaStartIndex = nil
+        mismatchReason = nil
       } else {
         traceMode = .appendDelta
         traceReason = .appendOnlyDelta
+        shouldReuse = true
         appendDeltaStartIndex = deltaStartIndex
+        mismatchReason = nil
       }
-      shouldReuse = true
-      mismatchReason = nil
     } else {
       traceMode = .dirtyRebuild
       traceReason = .historyChanged
