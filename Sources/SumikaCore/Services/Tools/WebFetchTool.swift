@@ -106,12 +106,6 @@ nonisolated extension ToolDefinition {
         maximum: Double(WebAccessLimits.maxFetchBytes)
       ),
     ],
-    exampleArguments: [
-      "url": .string(
-        "https://www.swift.org/documentation/server/guides/libraries/concurrency-adoption-guidelines.html"
-      ),
-      "maxBytes": .number(65536),
-    ],
     capabilities: [.accessWeb],
     riskLevel: .high
   )

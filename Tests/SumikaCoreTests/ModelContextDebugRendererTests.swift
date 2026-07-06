@@ -6,7 +6,7 @@ import Testing
 struct ModelContextDebugRendererTests {
   @Test
   func renderIncludesSystemPromptAndRuntimeProjectedEntriesInOrder() throws {
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "Inspect README.md"),
       try ModelFacingPromptRenderer.assistantOutputEntry(content: "I will inspect it."),
     ])
@@ -33,7 +33,7 @@ struct ModelContextDebugRendererTests {
   func renderShowsToolResultsAsToolEntries() throws {
     let turnID = UUID()
     let callID = UUID()
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
         prompt: "run the smoke test"
@@ -67,13 +67,13 @@ struct ModelContextDebugRendererTests {
     #expect(document.entries.map(\.role) == [.user, .tool])
     let content = try #require(document.entries.last?.content)
     #expect(content.contains("Original user request:") == false)
-    #expect(content.contains("<observation"))
+    #expect(content.contains("TOOL_RESULT_JSON:"))
     #expect(content.contains("passed"))
   }
 
   @Test
   func renderComputesCountsAndTokenEstimates() throws {
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "12345"),
       try ModelFacingPromptRenderer.assistantOutputEntry(content: "abcdefghi"),
     ])
@@ -95,7 +95,7 @@ struct ModelContextDebugRendererTests {
 
   @Test
   func signatureIsStableAndChangesWhenModelFacingContentChanges() throws {
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
     ])
 
@@ -112,7 +112,7 @@ struct ModelContextDebugRendererTests {
       systemPrompt: "Different system"
     )
     let changedEntry = try ModelContextDebugRenderer.render(
-      transcript: ModelContextSnapshot(entries: [
+      transcript: ModelPromptProjection(entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "goodbye")
       ]),
       systemPrompt: "System"
@@ -125,7 +125,7 @@ struct ModelContextDebugRendererTests {
 
   @Test
   func entryIDsAreStableAcrossRenders() throws {
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello"),
       try ModelFacingPromptRenderer.assistantOutputEntry(content: "hi"),
     ])
@@ -146,7 +146,7 @@ struct ModelContextDebugRendererTests {
 
   @Test
   func renderDoesNotMutateSourceSnapshot() throws {
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
     ])
     let before = transcript

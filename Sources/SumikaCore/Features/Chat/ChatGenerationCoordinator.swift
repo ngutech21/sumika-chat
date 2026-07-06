@@ -2,11 +2,14 @@ import Foundation
 
 public enum ChatGenerationError: LocalizedError, Equatable, Sendable {
   case streamInterrupted
+  case emptyModelResponse
 
   public var errorDescription: String? {
     switch self {
     case .streamInterrupted:
       "Model generation ended before completion."
+    case .emptyModelResponse:
+      "Model generation completed without visible text or tool calls."
     }
   }
 }
@@ -62,7 +65,7 @@ public struct ChatGenerationCoordinator {
     operationID: UUID? = nil,
     toolLoopIteration: Int? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
-    transcript: ModelContextSnapshot,
+    transcript: ModelPromptProjection,
     attachments: [ChatAttachment] = [],
     systemPrompt: String,
     settings: ChatGenerationSettings,
@@ -79,9 +82,8 @@ public struct ChatGenerationCoordinator {
       interactionMode: interactionMode,
       transcript: transcript,
       attachments: attachments,
-      systemPrompt: systemPrompt,
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: systemPrompt),
       settings: settings,
-      toolContext: nil,
       appendChunk: appendChunk,
       appendThinkingChunk: appendThinkingChunk,
       updateGenerationMetrics: updateGenerationMetrics,
@@ -96,11 +98,46 @@ public struct ChatGenerationCoordinator {
     operationID requestedOperationID: UUID? = nil,
     toolLoopIteration: Int? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
-    transcript: ModelContextSnapshot,
+    transcript: ModelPromptProjection,
     attachments: [ChatAttachment] = [],
     systemPrompt: String,
     settings: ChatGenerationSettings,
     toolContext: ChatRuntimeToolContext? = nil,
+    appendChunk: (String) -> Void,
+    appendThinkingChunk: (String) -> Void = { _ in },
+    updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
+    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void = { _ in },
+    updateContextUsage: () async -> Void
+  ) async throws -> ChatGenerationResult {
+    try await streamAssistantReplyResult(
+      turnID: turnID,
+      operationID: requestedOperationID,
+      toolLoopIteration: toolLoopIteration,
+      interactionMode: interactionMode,
+      transcript: transcript,
+      attachments: attachments,
+      promptPlan: ChatRuntimePromptPlan(
+        stableInstructions: systemPrompt,
+        toolContext: toolContext
+      ),
+      settings: settings,
+      appendChunk: appendChunk,
+      appendThinkingChunk: appendThinkingChunk,
+      updateGenerationMetrics: updateGenerationMetrics,
+      updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot,
+      updateContextUsage: updateContextUsage
+    )
+  }
+
+  public func streamAssistantReplyResult(
+    turnID: ChatTurn.ID? = nil,
+    operationID requestedOperationID: UUID? = nil,
+    toolLoopIteration: Int? = nil,
+    interactionMode: WorkspaceInteractionMode? = nil,
+    transcript: ModelPromptProjection,
+    attachments: [ChatAttachment] = [],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings,
     appendChunk: (String) -> Void,
     appendThinkingChunk: (String) -> Void = { _ in },
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
@@ -130,9 +167,8 @@ public struct ChatGenerationCoordinator {
         interactionMode: interactionMode,
         transcript: transcript,
         attachments: attachments,
-        systemPrompt: systemPrompt,
+        promptPlan: promptPlan,
         settings: settings,
-        toolContext: toolContext,
         appendChunk: appendChunk,
         appendThinkingChunk: appendThinkingChunk,
         updateGenerationMetrics: updateGenerationMetrics,
@@ -147,11 +183,10 @@ public struct ChatGenerationCoordinator {
     operationID: UUID,
     generationID: UUID,
     interactionMode: WorkspaceInteractionMode?,
-    transcript: ModelContextSnapshot,
+    transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext?,
     appendChunk: (String) -> Void,
     appendThinkingChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
@@ -173,9 +208,8 @@ public struct ChatGenerationCoordinator {
     let stream = try await requestRuntimeStream(
       transcript: transcript,
       attachments: attachments,
-      systemPrompt: systemPrompt,
+      promptPlan: promptPlan,
       settings: settings,
-      toolContext: toolContext,
       operationID: operationID
     )
     try await refreshRuntimeCacheDebugSnapshot(
@@ -336,7 +370,7 @@ public struct ChatGenerationCoordinator {
       throw CancellationError()
     }
 
-    if !didComplete {
+    if !didComplete, nativeToolCalls.isEmpty {
       throw ChatGenerationError.streamInterrupted
     }
     try await runtimeOperations.checkCurrentOperation(operationID)
@@ -347,11 +381,10 @@ public struct ChatGenerationCoordinator {
   }
 
   private func requestRuntimeStream(
-    transcript: ModelContextSnapshot,
+    transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext?,
     operationID: UUID
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     let interval = ChatDiagnostics.beginInterval(
@@ -364,9 +397,8 @@ public struct ChatGenerationCoordinator {
     return try await runtimeOperations.streamReply(
       for: transcript,
       attachments: attachments,
-      systemPrompt: systemPrompt,
+      promptPlan: promptPlan,
       settings: settings,
-      toolContext: toolContext,
       operationID: operationID
     )
   }

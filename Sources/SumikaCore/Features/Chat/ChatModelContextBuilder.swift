@@ -12,28 +12,138 @@ public struct ChatModelContextBuilder: Sendable {
   public func transcript(
     from state: ChatSession,
     includingTurnID: ChatTurn.ID? = nil
-  ) -> ModelContextSnapshot {
-    let excludedTurnIDs = Set(
-      state.turns.compactMap { turn -> ChatTurn.ID? in
-        guard turn.modelContextPolicy == .excluded, turn.id != includingTurnID else {
-          return nil
-        }
-        return turn.id
-      }
-    )
+  ) -> ModelPromptProjection {
+    var entries: [ModelContextEntry] = []
 
-    guard !excludedTurnIDs.isEmpty else {
-      return state.modelContextSnapshot
+    for turn in state.turns {
+      guard turn.modelContextPolicy != .excluded || turn.id == includingTurnID else {
+        continue
+      }
+
+      appendEntries(for: turn, to: &entries)
     }
 
-    return ModelContextSnapshot(
-      entries: state.modelContextSnapshot.entries.filter { entry in
-        guard let turnID = entry.turnID else {
-          return true
+    return ModelPromptProjection(entries: entries)
+  }
+
+  private func appendEntries(
+    for turn: ChatTurn,
+    to entries: inout [ModelContextEntry]
+  ) {
+    var previousProjectedItemWasTool = false
+    var previousProjectedItemWasAssistantOutput = false
+
+    for item in turn.items {
+      switch item {
+      case .userMessage(let message):
+        appendUserEntry(message, turnID: turn.id, to: &entries)
+        previousProjectedItemWasTool = false
+        previousProjectedItemWasAssistantOutput = false
+      case .assistantThinking:
+        break
+      case .assistantMessage(let message):
+        guard message.deliveryStatus != .cancelled,
+          let modelContent = message.modelProjectedContent,
+          !modelContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+          previousProjectedItemWasTool = false
+          previousProjectedItemWasAssistantOutput = false
+          continue
         }
-        return !excludedTurnIDs.contains(turnID)
+        appendAssistantEntry(message, content: modelContent, turnID: turn.id, to: &entries)
+        previousProjectedItemWasTool = false
+        previousProjectedItemWasAssistantOutput = true
+      case .tool(let record):
+        guard record.resultPayload != nil else {
+          previousProjectedItemWasTool = false
+          previousProjectedItemWasAssistantOutput = false
+          continue
+        }
+        if !previousProjectedItemWasTool && !previousProjectedItemWasAssistantOutput {
+          appendAssistantToolBoundary(turnID: turn.id, to: &entries)
+        }
+        appendToolEntry(record, turnID: turn.id, to: &entries)
+        previousProjectedItemWasTool = true
+        previousProjectedItemWasAssistantOutput = false
       }
-    )
+    }
+  }
+
+  private func appendUserEntry(
+    _ message: UserTurnMessage,
+    turnID: ChatTurn.ID,
+    to entries: inout [ModelContextEntry]
+  ) {
+    guard
+      let entry = try? ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
+        sourceMessageID: message.id,
+        prompt: message.content,
+        attachments: message.attachments,
+        systemContext: CurrentPromptContextRenderer.render(message.promptContext),
+        currentPromptContext: message.promptContext
+      )
+    else {
+      return
+    }
+    entries.append(entry)
+  }
+
+  private func appendAssistantEntry(
+    _ message: AssistantTurnMessage,
+    content: String,
+    turnID: ChatTurn.ID,
+    to entries: inout [ModelContextEntry]
+  ) {
+    guard
+      let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        sourceMessageID: message.id,
+        content: content
+      )
+    else {
+      return
+    }
+    entries.append(entry)
+  }
+
+  private func appendAssistantToolBoundary(
+    turnID: ChatTurn.ID,
+    to entries: inout [ModelContextEntry]
+  ) {
+    guard
+      let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: ""
+      )
+    else {
+      return
+    }
+    entries.append(entry)
+  }
+
+  private func appendToolEntry(
+    _ record: ToolCallRecord,
+    turnID: ChatTurn.ID,
+    to entries: inout [ModelContextEntry]
+  ) {
+    guard let payload = record.resultPayload,
+      let entry = try? ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        sourceMessageID: record.id,
+        toolResult: ToolResultModelMessage(
+          callID: record.id,
+          toolName: record.request.toolName,
+          payload: payload
+        ),
+        request: record.request,
+        originalUserRequest: nil,
+        modelFollowUpNotice: record.modelFollowUpNotice
+      )
+    else {
+      return
+    }
+    entries.append(entry)
   }
 
   public func currentPromptContext(

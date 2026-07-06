@@ -75,20 +75,18 @@ public actor RuntimeOperationCoordinator {
   }
 
   public func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext?,
     operationID: UUID
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     try checkCurrent(operationID)
     let stream = try await runtime.streamReply(
       for: transcript,
       attachments: attachments,
-      systemPrompt: systemPrompt,
-      settings: settings,
-      toolContext: toolContext
+      promptPlan: promptPlan,
+      settings: settings
     )
     try checkCurrent(operationID)
 

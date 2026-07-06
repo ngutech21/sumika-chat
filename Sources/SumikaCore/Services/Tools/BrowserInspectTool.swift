@@ -187,11 +187,6 @@ nonisolated extension ToolDefinition {
         defaultValue: .bool(false)
       ),
     ],
-    exampleArguments: [
-      "selector": .string("main"),
-      "maxLength": .number(4000),
-      "includeHtml": .bool(false),
-    ],
     capabilities: [],
     riskLevel: .low
   )

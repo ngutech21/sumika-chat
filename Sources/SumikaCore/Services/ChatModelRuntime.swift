@@ -7,17 +7,23 @@ public protocol ChatModelRuntime: Sendable {
   func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot?
   func generatedTokenCount(for text: String) async throws -> Int
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,
     toolContext: ChatRuntimeToolContext?
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
+  func streamReply(
+    for transcript: ModelPromptProjection,
+    attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
 }
 
@@ -44,6 +50,27 @@ public struct ChatRuntimeToolContext: Equatable, Sendable {
   }
 }
 
+public struct ChatRuntimePromptPlan: Equatable, Sendable {
+  public let stableInstructions: String
+  public let transientInstructions: [String]
+  public let toolContext: ChatRuntimeToolContext?
+  public let cacheIdentityInstructions: String
+
+  public init(
+    stableInstructions: String,
+    transientInstructions: [String] = [],
+    toolContext: ChatRuntimeToolContext? = nil
+  ) {
+    self.stableInstructions = stableInstructions
+    self.transientInstructions =
+      transientInstructions
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    self.toolContext = toolContext
+    self.cacheIdentityInstructions = stableInstructions
+  }
+}
+
 public struct ChatRuntimeToolCall: Equatable, Sendable {
   public var id: String?
   public var name: String
@@ -66,7 +93,7 @@ extension ChatModelRuntime {
   }
 
   public func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,
@@ -78,6 +105,21 @@ extension ChatModelRuntime {
       attachments: attachments,
       systemPrompt: systemPrompt,
       settings: settings
+    )
+  }
+
+  public func streamReply(
+    for transcript: ModelPromptProjection,
+    attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    try await streamReply(
+      for: transcript,
+      attachments: attachments,
+      systemPrompt: promptPlan.stableInstructions,
+      settings: settings,
+      toolContext: promptPlan.toolContext
     )
   }
 
@@ -103,7 +145,7 @@ public struct MockChatRuntime: ChatModelRuntime {
   }
 
   public func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings

@@ -91,12 +91,55 @@ flowchart TD
   Its model observation is intentionally limited to `Plan updated.`.
 - `ToolResultProjector` derives transient projections from
   `payload + ToolCallRequest + ToolResultProjectionPolicy`: `ToolDisplayPayload`
-  for transcript UI and `ToolModelObservation` for model-facing context.
+  for transcript UI, `ToolModelObservation` for model-facing content blocks, and
+  non-persisted `ToolResultModelMetadata` for the model-facing JSON envelope.
 - `ToolDisplayPayload` may be large and rich because it is UI-only. It is never
   written to the model-facing ledger.
 - `ToolModelObservation` is compact, capped, and purpose-specific. The prompt
-  renderer renders it once into `FrozenModelContent`; that frozen content is the
-  stable model-facing ledger artifact.
+  renderer renders it once into `FrozenModelContent` as a stable hybrid tool
+  result: exactly one valid `TOOL_RESULT_JSON` control object followed by exactly
+  one readable `CONTENT` section. JSON includes compact metadata such as `ok`,
+  `tool`, `status`, `kind`, `duplicate`, short counts/flags, and
+  `next_allowed_actions`. Long file contents, command stdout/stderr, HTML,
+  Markdown, diffs, logs, fetched pages, and other raw bodies must stay in
+  `CONTENT`, not escaped inside JSON. That frozen content is the stable
+  model-facing ledger artifact.
+- Duplicate safe read-like tool calls reuse the previous completed
+  `ToolResultPayload` instead of invoking the executor again. The first duplicate
+  carries a replayed `ToolModelObservation` so the prompt tail contains the prior
+  result blocks again. From the second consecutive identical duplicate the payload
+  is `blocked` (`DuplicateToolCallResult.blocked == true`): the replayed observation
+  is withheld and the model-facing observation is framed non-success
+  (`ok: false`, `status: "denied"`) to break the loop, while the persisted/UI
+  preview stays a benign `success` (no failure chip). A blocked duplicate also
+  forces the next generation into the tools-stripped final mode. Duplicate JSON
+  metadata is structural, not parsed from summary prose: it always includes
+  `kind: "duplicate_replay"`, `duplicate: true`, `not_reexecuted: true`, and
+  `forbidden_repeat: true`. `replayed_result_kind` is emitted only when a replayed
+  observation exists (i.e. not for blocked duplicates). Side-effect-capable tools
+  such as `run_command` are never replayed as duplicates.
+- `run_command` has its own loop brake instead of dedup (`RunCommandRepeatPolicy`).
+  When the same command (`RunCommandResult.command`) fails on two consecutive
+  `run_command` records in a turn, the next generation is forced into the
+  tools-stripped final mode and `ToolFollowUpNoticePolicy` emits a user escalation
+  (names the failing command and error, asks the user to run/fix it manually or
+  rephrase) instead of the generic final notice. The model still gets one
+  self-correction attempt: the brake fires only on the second consecutive identical
+  failure, so a corrected or successful retry between the two resets the streak. The
+  failed result is not withheld — only the follow-up mode and notice change. This is
+  control flow only; no persisted schema field is added.
+- Tool follow-up notices are prioritized model-facing additions stored on the
+  canonical `ToolCallRecord.modelFollowUpNotice`, separate from
+  `ToolResultPayload`. `ToolFollowUpNoticePolicy` derives exactly one notice for
+  the target tool record before the follow-up generation is projected. Final
+  no-tools guidance, failed `run_command`, repeated same-command `run_command`,
+  listing/read-loop escalations, duplicate replays, and the generic same-turn
+  follow-up are mutually exclusive within this slot.
+- `ModelFacingPromptRenderer` renders a tool follow-up notice only in the
+  model-facing `tool` message, inside the `TOOL_RESULT_JSON.next_step` field.
+  The notice must not appear in UI previews, receipts, transient user prompts, or
+  `ToolResultPayload.content`, and rebuilds must derive it from
+  `ChatTurn.items -> ToolCallRecord` instead of mutating rendered tool output.
 - `ChatTurn.items` is the canonical source for tool turn membership. One
   `.tool(ToolCallRecord)` item carries the call, permission state, and eventual
   result payload. Code that needs reverse lookup derives `toolCallID -> turnID`
@@ -223,9 +266,6 @@ and tests.
            description: "Workspace-relative file path.",
            isRequired: true
          )
-       ],
-       exampleArguments: [
-         "path": .string("Sources/AppState.swift")
        ],
        capabilities: [.readWorkspace],
        riskLevel: .low
@@ -380,6 +420,10 @@ and tests.
   model-observation projections derive command outcome separately: only exit
   code `0` without timeout or cancellation is `success`; non-zero, missing exit
   code, timeout, or cancellation is `failed`.
+- A failed `run_command` observation must stay generic. It may say the command
+  did not complete successfully and that the assistant must not report the
+  requested task as complete from that failed result, but it must not infer
+  command-specific side effects without a later verifying tool result.
 - After an actual `run_command` process is started, the full stdout/stderr is
   recorded in ephemeral latest-command state keyed by workspace, session, and
   `outputRef`. The model-facing `RunCommandResult` contains only command
@@ -425,7 +469,9 @@ and tests.
   approval because it mutates only session state. Registry membership controls
   prompt visibility, native tool schema exposure, and unavailable-tool
   validation. Chat prompts, and Agent prompts while the setting is disabled,
-  must not render the todo tool or current todo plan.
+  must not render the todo tool or current todo plan. When enabled, the current
+  todo plan is rendered as transient runtime prompt context, not as
+  `ChatSession.instructions`, so todo updates do not change the cache identity.
   Model-facing `todo_write` calls pass `item1` and `item2` string fields, plus
   optional `item3` through `item6`. Optional `done1` through `done6` booleans
   mark completed items; missing `doneN` values map to `pending`. The typed
@@ -450,13 +496,16 @@ and tests.
 - Successful `write_file` and `edit_file` results are terminal for additional
   tool execution in the current chat turn. `ChatTurnCoordinator` may request one
   final no-tools assistant follow-up so the model can briefly summarize the
-  completed write and mention useful run or verification steps, but it should not
-  echo generated file contents, code blocks, diffs, or tool arguments unless the
-  user explicitly asked to display them in chat. The follow-up must not say files
-  changed unless a successful `write_file` or `edit_file` result exists in the
-  turn; failed or invalid write/edit results mean no workspace change happened.
-  Any emitted tool attempt in that final response must be converted into a
-  structured failure observation and must not execute.
+  completed write and mention useful run or verification steps. The follow-up
+  clears native tool specs through `session.tools` and stores final guidance as
+  `modelFollowUpNotice` on the tool record; it must not change the stable system
+  instructions or cache identity. It should not echo generated file contents,
+  code blocks, diffs, or tool arguments unless the user explicitly asked to
+  display them in chat. The follow-up must not say files changed unless a
+  successful `write_file` or `edit_file` result exists in the turn; failed or
+  invalid write/edit results mean no workspace change happened. Any emitted tool
+  attempt in that final response must be converted into a structured failure
+  observation and must not execute.
 - Denied approval-sensitive tools may also receive one final no-tools assistant
   follow-up. The denied tool result stays auditable, no side effect occurs, and
   further tool attempts in the final response are recorded as structured

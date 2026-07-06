@@ -56,7 +56,7 @@ nonisolated enum GemmaHistoryRenderer {
   }
 
   nonisolated static func templateMessages(
-    from transcript: ModelContextSnapshot,
+    from transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String
   ) throws -> [Chat.Message] {
@@ -93,7 +93,7 @@ nonisolated enum GemmaHistoryRenderer {
   }
 
   nonisolated static func generationInput(
-    from transcript: ModelContextSnapshot,
+    from transcript: ModelPromptProjection,
     images: [UserInput.Image] = []
   ) throws -> GemmaGenerationInput {
     let entries = transcript.entries
@@ -219,7 +219,7 @@ nonisolated enum GemmaHistoryRenderer {
 
   nonisolated private static func normalizedSnapshots(
     from entries: ArraySlice<ModelContextEntry>,
-    transcript: ModelContextSnapshot,
+    transcript: ModelPromptProjection,
     dropsTrailingUser: Bool
   ) -> [GemmaMessageSnapshot] {
     var items: [GemmaMessageSnapshot] = []
@@ -237,7 +237,7 @@ nonisolated enum GemmaHistoryRenderer {
           appendNormalized(
             GemmaMessageSnapshot(
               role: Chat.Message.Role.assistant.rawValue,
-              content: "",
+              content: assistantToolBoundaryContent(context.content, toolCalls: toolCalls),
               toolCalls: toolCalls.map(toolCallSnapshot(from:))
             ),
             to: &items
@@ -442,6 +442,25 @@ nonisolated enum GemmaHistoryRenderer {
     return toolCalls.isEmpty ? nil : toolCalls
   }
 
+  nonisolated private static func assistantToolBoundaryContent(
+    _ content: String,
+    toolCalls: [ToolCallModelMessage]
+  ) -> String {
+    let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedContent.isEmpty else {
+      return ""
+    }
+    let syntheticToolCallContent =
+      toolCalls
+      .map(\.modelContextContent)
+      .joined(separator: "\n")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmedContent != syntheticToolCallContent else {
+      return ""
+    }
+    return content
+  }
+
   nonisolated private static func hasStructuredAssistantBoundary(
     before resultIndex: Int,
     in entries: [ModelContextEntry]
@@ -639,7 +658,7 @@ nonisolated enum GemmaHistoryRenderer {
   }
 
   nonisolated static func generationHistoryMessages(
-    from transcript: ModelContextSnapshot
+    from transcript: ModelPromptProjection
   ) throws -> [Chat.Message] {
     try generationInput(from: transcript).history
   }

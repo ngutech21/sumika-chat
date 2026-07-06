@@ -185,14 +185,6 @@ nonisolated extension ToolDefinition {
           defaultValue: .bool(false)
         )
       },
-    exampleArguments: [
-      "item1": .string("Inspect the affected chat workflow files"),
-      "done1": .bool(true),
-      "item2": .string("Add todo state and tool plumbing"),
-      "done2": .bool(false),
-      "item3": .string("Run focused tests"),
-      "done3": .bool(false),
-    ],
     capabilities: [],
     riskLevel: .low
   )

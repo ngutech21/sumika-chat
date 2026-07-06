@@ -7,6 +7,32 @@ public enum ToolPromptMode: Equatable, Sendable {
   case afterChatWebToolResultCanContinue
   case afterToolResultCanContinue
   case afterToolResultFinal
+  case afterChatWebToolResultFinal
+
+  /// A final generation runs with tools stripped and must produce visible text.
+  /// Both the agent and the chat-web variants are terminal.
+  public var isFinal: Bool {
+    switch self {
+    case .afterToolResultFinal, .afterChatWebToolResultFinal:
+      return true
+    case .disabled, .enabled, .chatWeb, .afterChatWebToolResultCanContinue,
+      .afterToolResultCanContinue:
+      return false
+    }
+  }
+
+  /// The final (tools-stripped) mode appropriate for a tool profile, so a chat-web
+  /// session keeps its own prompt/notice instead of pulling in agent workspace rules.
+  public static func finalMode(for profile: ToolExecutionProfile) -> ToolPromptMode {
+    switch profile {
+    case .chatWeb:
+      return .afterChatWebToolResultFinal
+    case .agent:
+      return .afterToolResultFinal
+    case .disabled:
+      return .disabled
+    }
+  }
 }
 
 public enum ToolAvailability: Equatable, Sendable {
@@ -47,7 +73,7 @@ public struct ToolPromptPolicy: Sendable {
         toolRegistry: toolRegistry,
         toolCallingPolicy: toolCallingPolicy
       )
-    case .afterChatWebToolResultCanContinue:
+    case .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal:
       return nativeChatWebSystemPrompt(
         basePrompt: basePrompt,
         toolRegistry: toolRegistry,
@@ -60,18 +86,11 @@ public struct ToolPromptPolicy: Sendable {
         toolCallingPolicy: toolCallingPolicy
       )
     case .afterToolResultFinal:
-      return [
-        basePrompt,
-        """
-        You just received a tool result. No more tools may run in this response.
-        Provide a brief final response for the turn. Do not call another tool.
-        Mention completed changes, affected paths, and run or verification steps if useful.
-        Do not include generated file contents, code blocks, diffs, or tool arguments unless the user explicitly asked to display them in chat.
-        Never say files were changed unless a successful write_file or edit_file result exists in this turn.
-        Failed or invalid write/edit tool results mean no workspace change happened.
-        If more work is needed, briefly say what remains and ask the user to send another message.
-        """,
-      ].joined(separator: "\n\n")
+      return nativeAgentSystemPrompt(
+        basePrompt: basePrompt,
+        toolRegistry: toolRegistry,
+        toolCallingPolicy: toolCallingPolicy
+      )
     case .enabled(true):
       return nativeAgentSystemPrompt(
         basePrompt: basePrompt,

@@ -27,7 +27,8 @@ public struct ToolResumeCoordinator: Sendable {
     record: ToolCallRecord,
     focusedFileState: FocusedFileState,
     turnID: ChatTurn.ID,
-    toolProfile: ToolExecutionProfile = .agent
+    toolProfile: ToolExecutionProfile = .agent,
+    forceFinal: Bool = false
   ) -> ToolResumeResult {
     var events: [ChatWorkflowEvent] = [
       .toolCallUpdated(record),
@@ -47,7 +48,11 @@ public struct ToolResumeCoordinator: Sendable {
     }
 
     let nextAssistantMessageID = UUID()
-    let promptMode = followUpPromptMode(afterApprovedTool: record, toolProfile: toolProfile)
+    let promptMode = followUpPromptMode(
+      afterApprovedTool: record,
+      toolProfile: toolProfile,
+      forceFinal: forceFinal
+    )
     events.append(
       .assistantPlaceholderAppended(
         messageID: nextAssistantMessageID,
@@ -116,10 +121,11 @@ public struct ToolResumeCoordinator: Sendable {
 
   public func followUpPromptMode(
     afterApprovedTool record: ToolCallRecord,
-    toolProfile: ToolExecutionProfile = .agent
+    toolProfile: ToolExecutionProfile = .agent,
+    forceFinal: Bool = false
   ) -> ToolPromptMode {
-    guard !isFinalApprovedToolFollowUp(record) else {
-      return .afterToolResultFinal
+    guard !(forceFinal || isFinalApprovedToolFollowUp(record)) else {
+      return ToolPromptMode.finalMode(for: toolProfile)
     }
     switch toolProfile {
     case .disabled:

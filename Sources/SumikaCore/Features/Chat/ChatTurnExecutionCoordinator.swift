@@ -42,13 +42,10 @@ enum ChatTurnTaskOutcome {
 
 @MainActor
 struct ChatTurnExecutionCoordinator {
-  private static let toolLimitFallbackMessage =
-    "Tool limit reached. I stopped tool use for this turn. Some work may be unfinished; "
-    + "send another message to continue from the recorded tool results."
-
   private let focusedFileReducer: FocusedFileStateReducer
   private let modelContextBuilder: ChatModelContextBuilder
   private let toolPromptPolicy: ToolPromptPolicy
+  private let toolFollowUpNoticePolicy: ToolFollowUpNoticePolicy
   private let turnTracer: any TurnTracing
   private let maxToolLoopIterations: Int
 
@@ -56,12 +53,14 @@ struct ChatTurnExecutionCoordinator {
     focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer(),
     modelContextBuilder: ChatModelContextBuilder = ChatModelContextBuilder(),
     toolPromptPolicy: ToolPromptPolicy = ToolPromptPolicy(),
+    toolFollowUpNoticePolicy: ToolFollowUpNoticePolicy = ToolFollowUpNoticePolicy(),
     turnTracer: any TurnTracing = NoopTurnTracer(),
     maxToolLoopIterations: Int = ChatToolLoopLimits.defaultMaxToolLoopIterations
   ) {
     self.focusedFileReducer = focusedFileReducer
     self.modelContextBuilder = modelContextBuilder
     self.toolPromptPolicy = toolPromptPolicy
+    self.toolFollowUpNoticePolicy = toolFollowUpNoticePolicy
     self.turnTracer = turnTracer
     self.maxToolLoopIterations = maxToolLoopIterations
   }
@@ -82,6 +81,13 @@ struct ChatTurnExecutionCoordinator {
       workspace: workspace,
       focusedFileState: session.focusedFileState
     )
+    let currentPromptContext = modelContextBuilder.currentPromptContext(
+      userInput: prompt,
+      mode: interactionMode,
+      focusedFileState: session.focusedFileState,
+      attachments: attachments,
+      workspace: workspace
+    )
     callbacks.emitEvents(
       focusedEvents + [
         .turnAppended(
@@ -93,27 +99,11 @@ struct ChatTurnExecutionCoordinator {
           content: prompt,
           messageID: userMessageID,
           turnID: turnID,
-          attachments: attachments
+          attachments: attachments,
+          promptContext: currentPromptContext.consumedContext
         ),
       ])
 
-    let currentPromptContext = modelContextBuilder.currentPromptContext(
-      userInput: prompt,
-      mode: interactionMode,
-      focusedFileState: session.focusedFileState,
-      attachments: attachments,
-      workspace: workspace
-    )
-    if let entry = try? ModelFacingPromptRenderer.userPromptEntry(
-      turnID: turnID,
-      sourceMessageID: userMessageID,
-      prompt: prompt,
-      attachments: attachments,
-      systemContext: currentPromptContext.renderedBlocks,
-      currentPromptContext: currentPromptContext.consumedContext
-    ) {
-      callbacks.emitEvents([.modelContextEntryAppended(entry)])
-    }
     callbacks.emitEvents([
       .assistantPlaceholderAppended(
         messageID: assistantMessageID,
@@ -129,6 +119,7 @@ struct ChatTurnExecutionCoordinator {
     isActive: ChatTurnActiveChecker,
     interactionMode: WorkspaceInteractionMode,
     toolPromptMode: ToolPromptMode,
+    stableInstructions: String,
     turnID: ChatTurn.ID,
     toolLoopIteration: Int? = nil,
     attachments: [ChatAttachment] = []
@@ -140,25 +131,32 @@ struct ChatTurnExecutionCoordinator {
     var didAppendAssistantThinking = false
     let toolCallingPolicy = runtime.selectedModel.toolCallingPolicy
     callbacks.setActiveToolPromptMode(toolPromptMode)
+    applyToolFollowUpNoticeIfNeeded(
+      toolPromptMode: toolPromptMode,
+      turnID: turnID,
+      callbacks: callbacks
+    )
     let systemPromptStartedAt = Date()
-    let renderedSystemPrompt = systemPrompt(
+    let promptPlan = runtimePromptPlan(
       session: callbacks.session(),
-      selectedModel: runtime.selectedModel,
+      stableInstructions: stableInstructions,
+      toolPromptMode: toolPromptMode,
+      toolCallingPolicy: toolCallingPolicy,
       toolLoopCoordinator: runtime.toolLoopCoordinator,
-      toolPromptMode: toolPromptMode
+      turnID: turnID
     )
     traceTurnPhase(
       .renderSystemPrompt,
       startedAt: systemPromptStartedAt,
       turnID: turnID,
       generationID: nil,
-      promptBytes: renderedSystemPrompt.utf8.count,
-      messageCount: callbacks.session().modelContextSnapshot.entries.count,
+      promptBytes: promptPlan.stableInstructions.utf8.count,
+      messageCount: callbacks.session().turns.flatMap(\.items).count,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
     let contextBuildStartedAt = Date()
-    let modelContextSnapshot = modelContextBuilder.transcript(
+    let modelPromptProjection = modelContextBuilder.transcript(
       from: callbacks.session(),
       includingTurnID: turnID
     )
@@ -167,27 +165,30 @@ struct ChatTurnExecutionCoordinator {
       startedAt: contextBuildStartedAt,
       turnID: turnID,
       generationID: nil,
-      messageCount: modelContextSnapshot.entries.count,
+      messageCount: modelPromptProjection.entries.count,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode
     )
-    let generationResult = try await runtime.chatGenerationCoordinator.streamAssistantReplyResult(
+    let failedCommandGuard = failedRunCommandGuardContext(
+      session: callbacks.session(),
+      turnID: turnID
+    )
+    var guardedAssistantChunks = ""
+    var generationResult = try await runtime.chatGenerationCoordinator.streamAssistantReplyResult(
       turnID: turnID,
       operationID: runtime.operationID,
       toolLoopIteration: toolLoopIteration,
       interactionMode: interactionMode,
-      transcript: modelContextSnapshot,
+      transcript: modelPromptProjection,
       attachments: attachments,
-      systemPrompt: renderedSystemPrompt,
+      promptPlan: promptPlan,
       settings: callbacks.session().generationSettings,
-      toolContext: runtimeToolContext(
-        for: toolPromptMode,
-        policy: toolCallingPolicy,
-        cacheSystemPrompt: renderedSystemPrompt,
-        toolLoopCoordinator: runtime.toolLoopCoordinator
-      ),
       appendChunk: { chunk in
         guard isActive(turnID) else {
+          return
+        }
+        if failedCommandGuard != nil {
+          guardedAssistantChunks += chunk
           return
         }
         callbacks.emitEvents([
@@ -246,14 +247,24 @@ struct ChatTurnExecutionCoordinator {
     guard isActive(turnID) else {
       return ChatGenerationResult(assistantContent: "")
     }
-    if !generationResult.assistantContent.isEmpty {
-      if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
-        turnID: turnID,
-        sourceMessageID: assistantMessageID,
-        content: generationResult.assistantContent
-      ) {
-        callbacks.emitEvents([.modelContextEntryAppended(entry)])
+    if let failedCommandGuard {
+      let streamedContent =
+        guardedAssistantChunks.isEmpty ? generationResult.assistantContent : guardedAssistantChunks
+      let guardedContent = guardedVisibleContent(
+        streamedContent,
+        guardContext: failedCommandGuard,
+        nativeToolCalls: generationResult.nativeToolCalls
+      )
+      if !guardedContent.isEmpty {
+        callbacks.emitEvents([
+          .assistantChunkAppended(
+            chunk: guardedContent,
+            messageID: assistantMessageID
+          )
+        ])
       }
+      generationResult.assistantContent = guardedContent
+      guardedAssistantChunks = ""
     }
     callbacks.refreshContextUsage(toolPromptMode)
     return generationResult
@@ -269,6 +280,7 @@ struct ChatTurnExecutionCoordinator {
     callbacks: ChatTurnCallbacks,
     isActive: ChatTurnActiveChecker,
     finishTurn: ChatTurnFinisher,
+    stableInstructions: String,
     remainingIterations initialRemainingIterations: Int? = nil,
     lastNativeToolCalls: [ChatRuntimeToolCall] = []
   ) async throws -> Bool {
@@ -336,20 +348,14 @@ struct ChatTurnExecutionCoordinator {
           isActive: isActive,
           interactionMode: interactionMode,
           toolPromptMode: promptMode,
+          stableInstructions: stableInstructions,
           turnID: turnID,
           toolLoopIteration: toolLoopIteration
         )
         currentNativeToolCalls = generationResult.nativeToolCalls
-        guard promptMode != .afterToolResultFinal else {
-          if !hasVisibleAssistantContent(generationResult) {
-            try await streamToolLimitFinalization(
-              runtime: runtime,
-              callbacks: callbacks,
-              isActive: isActive,
-              interactionMode: interactionMode,
-              turnID: turnID
-            )
-          }
+        try requireVisibleTextOrToolCall(generationResult)
+        guard !promptMode.isFinal else {
+          try requireVisibleFinalResponse(generationResult)
           return true
         }
         currentAssistantMessageID = nextAssistantMessageID
@@ -358,64 +364,27 @@ struct ChatTurnExecutionCoordinator {
       }
     }
 
-    try await streamToolLimitFinalization(
-      runtime: runtime,
-      callbacks: callbacks,
-      isActive: isActive,
-      interactionMode: interactionMode,
-      turnID: turnID
-    )
-    return true
+    throw ChatGenerationError.emptyModelResponse
   }
 
-  private func streamToolLimitFinalization(
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks,
-    isActive: ChatTurnActiveChecker,
-    interactionMode: WorkspaceInteractionMode,
-    turnID: ChatTurn.ID
-  ) async throws {
-    guard isActive(turnID) else {
-      return
+  func requireVisibleTextOrToolCall(_ generationResult: ChatGenerationResult) throws {
+    guard
+      hasVisibleAssistantContent(generationResult)
+        || !generationResult.nativeToolCalls.isEmpty
+    else {
+      throw ChatGenerationError.emptyModelResponse
     }
-
-    let assistantMessageID = UUID()
-    callbacks.emitEvents([
-      .assistantPlaceholderAppended(messageID: assistantMessageID, turnID: turnID)
-    ])
-    callbacks.notifySessionDidChange()
-
-    let generationResult = try await streamAssistantReply(
-      to: assistantMessageID,
-      runtime: runtime,
-      callbacks: callbacks,
-      isActive: isActive,
-      interactionMode: interactionMode,
-      toolPromptMode: .afterToolResultFinal,
-      turnID: turnID
-    )
-
-    guard isActive(turnID), !hasVisibleAssistantContent(generationResult) else {
-      return
-    }
-
-    callbacks.emitEvents([
-      .assistantChunkAppended(
-        chunk: Self.toolLimitFallbackMessage,
-        messageID: assistantMessageID
-      )
-    ])
-    if let entry = try? ModelFacingPromptRenderer.assistantOutputEntry(
-      turnID: turnID,
-      sourceMessageID: assistantMessageID,
-      content: Self.toolLimitFallbackMessage
-    ) {
-      callbacks.emitEvents([.modelContextEntryAppended(entry)])
-    }
-    callbacks.notifySessionDidChange()
   }
 
-  private func hasVisibleAssistantContent(_ generationResult: ChatGenerationResult) -> Bool {
+  func requireVisibleFinalResponse(_ generationResult: ChatGenerationResult) throws {
+    guard generationResult.nativeToolCalls.isEmpty,
+      hasVisibleAssistantContent(generationResult)
+    else {
+      throw ChatGenerationError.emptyModelResponse
+    }
+  }
+
+  func hasVisibleAssistantContent(_ generationResult: ChatGenerationResult) -> Bool {
     !generationResult.assistantContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
@@ -463,6 +432,27 @@ struct ChatTurnExecutionCoordinator {
     _ = (toolPromptMode, turnID, emitEvents)
   }
 
+  @discardableResult
+  func applyToolFollowUpNoticeIfNeeded(
+    toolPromptMode: ToolPromptMode,
+    turnID: ChatTurn.ID,
+    callbacks: ChatTurnCallbacks
+  ) -> Bool {
+    guard
+      let update = toolFollowUpNoticePolicy.update(
+        session: callbacks.session(),
+        turnID: turnID,
+        promptMode: toolPromptMode
+      )
+    else {
+      return false
+    }
+
+    callbacks.emitEvents([.toolCallUpdated(update.record)])
+    callbacks.notifySessionDidChange()
+    return true
+  }
+
   func systemPrompt(
     session: ChatSession,
     selectedModel: ManagedModel,
@@ -470,19 +460,12 @@ struct ChatTurnExecutionCoordinator {
     toolPromptMode: ToolPromptMode
   ) -> String {
     let registry = toolRegistry(for: toolPromptMode, toolLoopCoordinator: toolLoopCoordinator)
-    let renderedPrompt = toolPromptPolicy.systemPrompt(
+    return toolPromptPolicy.systemPrompt(
       basePrompt: session.systemPrompt,
       mode: toolPromptMode,
       toolRegistry: registry,
       toolCallingPolicy: selectedModel.toolCallingPolicy
     )
-    guard session.interactionMode == .agent,
-      registry.definition(for: .todoWrite) != nil,
-      let planBlock = TodoPromptRenderer.compactPlanBlock(for: session.todoState)
-    else {
-      return renderedPrompt
-    }
-    return [renderedPrompt, planBlock].joined(separator: "\n\n")
   }
 
   func currentToolPromptMode(
@@ -501,17 +484,42 @@ struct ChatTurnExecutionCoordinator {
     )
   }
 
+  private func runtimePromptPlan(
+    session: ChatSession,
+    stableInstructions: String,
+    toolPromptMode: ToolPromptMode,
+    toolCallingPolicy: ToolCallingPolicy,
+    toolLoopCoordinator: ToolLoopCoordinator,
+    turnID: ChatTurn.ID
+  ) -> ChatRuntimePromptPlan {
+    ChatRuntimePromptPlan(
+      stableInstructions: stableInstructions,
+      transientInstructions: transientInstructions(
+        session: session,
+        toolPromptMode: toolPromptMode,
+        toolLoopCoordinator: toolLoopCoordinator,
+        turnID: turnID
+      ),
+      toolContext: runtimeToolContext(
+        for: toolPromptMode,
+        policy: toolCallingPolicy,
+        stableInstructions: stableInstructions,
+        toolLoopCoordinator: toolLoopCoordinator
+      )
+    )
+  }
+
   private func runtimeToolContext(
     for toolPromptMode: ToolPromptMode,
     policy: ToolCallingPolicy,
-    cacheSystemPrompt: String,
+    stableInstructions: String,
     toolLoopCoordinator: ToolLoopCoordinator
   ) -> ChatRuntimeToolContext? {
     guard policy.strategy == .nativeGemma4 else {
       return nil
     }
     switch toolPromptMode {
-    case .disabled, .enabled(false), .afterToolResultFinal:
+    case .disabled, .enabled(false), .afterToolResultFinal, .afterChatWebToolResultFinal:
       return nil
     case .chatWeb, .afterChatWebToolResultCanContinue, .afterToolResultCanContinue,
       .enabled(true):
@@ -521,8 +529,29 @@ struct ChatTurnExecutionCoordinator {
     return ChatRuntimeToolContext(
       strategy: policy.strategy,
       registry: registry,
-      cacheSystemPrompt: cacheSystemPrompt
+      cacheSystemPrompt: stableInstructions
     )
+  }
+
+  private func transientInstructions(
+    session: ChatSession,
+    toolPromptMode: ToolPromptMode,
+    toolLoopCoordinator: ToolLoopCoordinator,
+    turnID: ChatTurn.ID
+  ) -> [String] {
+    var instructions: [String] = []
+    if session.interactionMode == .agent,
+      toolLoopCoordinator.toolRegistry.definition(for: .todoWrite) != nil,
+      let planBlock = TodoPromptRenderer.compactPlanBlock(for: session.todoState)
+    {
+      instructions.append(
+        """
+        [Runtime Context]
+        \(planBlock)
+        """
+      )
+    }
+    return instructions
   }
 
   private func followUpPromptMode(
@@ -530,7 +559,7 @@ struct ChatTurnExecutionCoordinator {
     remainingIterations: Int
   ) -> ToolPromptMode {
     guard remainingIterations > 1 else {
-      return .afterToolResultFinal
+      return ToolPromptMode.finalMode(for: toolProfile)
     }
 
     switch toolProfile {
@@ -548,11 +577,11 @@ struct ChatTurnExecutionCoordinator {
     toolLoopCoordinator: ToolLoopCoordinator
   ) -> ToolRegistry {
     switch toolPromptMode {
-    case .chatWeb, .afterChatWebToolResultCanContinue:
+    case .chatWeb, .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal:
       return toolLoopCoordinator.toolRegistry(for: .chatWeb)
-    case .enabled(true), .afterToolResultCanContinue:
+    case .enabled(true), .afterToolResultCanContinue, .afterToolResultFinal:
       return toolLoopCoordinator.toolRegistry
-    case .disabled, .enabled(false), .afterToolResultFinal:
+    case .disabled, .enabled(false):
       return ToolRegistry(tools: [])
     }
   }
@@ -608,5 +637,107 @@ struct ChatTurnExecutionCoordinator {
         )
       )
     }
+  }
+}
+
+extension ChatTurnExecutionCoordinator {
+  fileprivate struct FailedRunCommandGuardContext {
+    var exitCode: Int32?
+    var timedOut: Bool
+    var cancelled: Bool
+
+    var replacementAssistantContent: String {
+      var lines = [
+        "The previous command failed.",
+        "Exit code: \(exitCode.map(String.init) ?? "none").",
+        "I cannot report the requested task as complete based on that failed command.",
+      ]
+      if timedOut {
+        lines.append("The command timed out.")
+      }
+      if cancelled {
+        lines.append("The command was cancelled.")
+      }
+      lines.append(
+        "Inspect the output, run a corrected command, or ask me to continue with the next recovery step."
+      )
+      return lines.joined(separator: "\n")
+    }
+  }
+
+  fileprivate func failedRunCommandGuardContext(
+    session: ChatSession,
+    turnID: ChatTurn.ID
+  ) -> FailedRunCommandGuardContext? {
+    guard
+      let result = toolFollowUpNoticePolicy.latestFailedRunCommandResult(
+        session: session,
+        turnID: turnID
+      )
+    else {
+      return nil
+    }
+    return FailedRunCommandGuardContext(
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      cancelled: result.cancelled
+    )
+  }
+
+  fileprivate func guardedVisibleContent(
+    _ content: String,
+    guardContext: FailedRunCommandGuardContext,
+    nativeToolCalls: [ChatRuntimeToolCall]
+  ) -> String {
+    guard nativeToolCalls.isEmpty else {
+      return content
+    }
+    guard containsUnqualifiedCompletionClaim(content) else {
+      return content
+    }
+    return guardContext.replacementAssistantContent
+  }
+
+  fileprivate func containsUnqualifiedCompletionClaim(_ content: String) -> Bool {
+    let lowercasedContent = content.lowercased()
+    let failureSignals = [
+      "failed",
+      "failure",
+      "error",
+      "exit code",
+      "did not",
+      "does not",
+      "cannot",
+      "can't",
+      "could not",
+      "couldn't",
+      "not complete",
+      "not completed",
+      "not successful",
+      "unsuccessful",
+      "non-zero",
+      "nonzero",
+    ]
+    if failureSignals.contains(where: { lowercasedContent.contains($0) }) {
+      return false
+    }
+    let completionSignals = [
+      "success",
+      "successful",
+      "succeeded",
+      "complete",
+      "completed",
+      "done",
+      "finished",
+      "committed",
+      "staged",
+      "passed",
+      "built",
+      "installed",
+      "created",
+      "updated",
+      "applied",
+    ]
+    return completionSignals.contains { lowercasedContent.contains($0) }
   }
 }

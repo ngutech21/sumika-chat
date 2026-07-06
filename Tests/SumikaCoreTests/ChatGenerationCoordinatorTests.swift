@@ -17,7 +17,7 @@ struct ChatGenerationCoordinatorTests {
     var updatedMetrics: ChatGenerationMetrics?
 
     let assistantContent = try await coordinator.streamAssistantReply(
-      transcript: ModelContextSnapshot(),
+      transcript: ModelPromptProjection(),
       systemPrompt: "Answer normally.",
       settings: .agentDefault,
       appendChunk: { _ in },
@@ -45,7 +45,7 @@ struct ChatGenerationCoordinatorTests {
 
     await #expect(throws: ChatGenerationError.streamInterrupted) {
       try await coordinator.streamAssistantReply(
-        transcript: ModelContextSnapshot(),
+        transcript: ModelPromptProjection(),
         systemPrompt: "Answer normally.",
         settings: .agentDefault,
         appendChunk: { chunks.append($0) },
@@ -55,6 +55,94 @@ struct ChatGenerationCoordinatorTests {
     }
 
     #expect(chunks == ["partial"])
+  }
+
+  @Test
+  func nativeToolCallWithoutCompletedEventReturnsToolCall() async throws {
+    let toolCall = ChatRuntimeToolCall(
+      name: "read_file",
+      arguments: ["path": .string("README.md")]
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: [[.toolCall(toolCall)]],
+      automaticallyCompletes: false
+    )
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+
+    let result = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      systemPrompt: "Use tools.",
+      settings: .agentDefault,
+      appendChunk: { _ in },
+      updateGenerationMetrics: { _ in },
+      updateContextUsage: {}
+    )
+
+    #expect(result.assistantContent == "")
+    #expect(result.nativeToolCalls == [toolCall])
+  }
+
+  @Test
+  func completedThinkingOnlyReturnsNoVisibleAssistantContent() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.thinkingChunk("Reasoning only.")]
+    ])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+    var visibleChunks: [String] = []
+    var thinkingChunks: [String] = []
+
+    let result = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      systemPrompt: "Answer normally.",
+      settings: .agentDefault,
+      appendChunk: { visibleChunks.append($0) },
+      appendThinkingChunk: { thinkingChunks.append($0) },
+      updateGenerationMetrics: { _ in },
+      updateContextUsage: {}
+    )
+
+    #expect(result.assistantContent == "")
+    #expect(result.nativeToolCalls.isEmpty)
+    #expect(visibleChunks.isEmpty)
+    #expect(thinkingChunks == ["Reasoning only."])
+  }
+
+  @Test
+  func visibleTextAndNativeToolCallAreBothReturned() async throws {
+    let toolCall = ChatRuntimeToolCall(
+      name: "list_files",
+      arguments: ["path": .string(".")]
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.chunk("I will inspect the project."), .toolCall(toolCall)]
+    ])
+    let coordinator = ChatGenerationCoordinator(
+      runtime: runtime,
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+    var visibleChunks: [String] = []
+
+    let result = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      systemPrompt: "Use tools.",
+      settings: .agentDefault,
+      appendChunk: { visibleChunks.append($0) },
+      updateGenerationMetrics: { _ in },
+      updateContextUsage: {}
+    )
+
+    #expect(result.assistantContent == "I will inspect the project.")
+    #expect(result.nativeToolCalls == [toolCall])
+    #expect(visibleChunks == ["I will inspect the project."])
   }
 
   @Test
@@ -68,7 +156,7 @@ struct ChatGenerationCoordinatorTests {
     var chunks: [String] = []
 
     _ = try await coordinator.streamAssistantReply(
-      transcript: ModelContextSnapshot(),
+      transcript: ModelPromptProjection(),
       systemPrompt: "Answer normally.",
       settings: .agentDefault,
       appendChunk: { chunks.append($0) },
@@ -94,7 +182,7 @@ struct ChatGenerationCoordinatorTests {
     var didUpdateContextUsage = false
 
     let result = try await coordinator.streamAssistantReplyResult(
-      transcript: ModelContextSnapshot(),
+      transcript: ModelPromptProjection(),
       systemPrompt: "Answer normally.",
       settings: .agentDefault,
       appendChunk: { visibleChunks.append($0) },
@@ -136,7 +224,7 @@ struct ChatGenerationCoordinatorTests {
     var publishedSnapshot: RuntimeCacheDebugSnapshot?
 
     _ = try await coordinator.streamAssistantReply(
-      transcript: ModelContextSnapshot(),
+      transcript: ModelPromptProjection(),
       systemPrompt: "Answer normally.",
       settings: .agentDefault,
       appendChunk: { _ in },
@@ -165,7 +253,7 @@ struct ChatGenerationCoordinatorTests {
     _ = try await coordinator.streamAssistantReply(
       turnID: turnID,
       toolLoopIteration: 2,
-      transcript: ModelContextSnapshot(entries: [
+      transcript: ModelPromptProjection(entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "hi")
       ]),
       systemPrompt: "Answer normally.",
@@ -203,7 +291,7 @@ struct ChatGenerationCoordinatorTests {
     let generationTask = Task {
       try await coordinator.streamAssistantReply(
         operationID: operationID,
-        transcript: ModelContextSnapshot(),
+        transcript: ModelPromptProjection(),
         systemPrompt: "Answer normally.",
         settings: .agentDefault,
         appendChunk: { chunks.append($0) },
@@ -271,7 +359,7 @@ private actor RuntimeCacheSnapshotRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -312,7 +400,7 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings

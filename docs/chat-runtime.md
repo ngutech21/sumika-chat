@@ -66,8 +66,12 @@ flowchart TD
   pending call and its eventual result state.
 - `AssistantTurnMessage.deliveryStatus` distinguishes complete assistant
   messages from streaming or cancelled partial output.
-- `ChatModelContextBuilder` turns `ChatSession` into the model context
-  `ModelContextSnapshot`. It excludes entries belonging to turns whose
+- `AssistantTurnMessage.modelProjectionPolicy` controls how that visible
+  assistant content is reintroduced to the model. Normal messages use
+  `.visibleContent`; direct tool display responses can use `.override(...)` to
+  keep rich UI output out of model context, or `.excluded` to omit a message.
+- `ChatModelContextBuilder` turns `ChatSession.turns` into a non-persisted
+  `ModelPromptProjection`. It excludes entries belonging to turns whose
   `modelContextPolicy` is `.excluded`, except while that same turn is actively
   generating its direct follow-up response.
 - `ChatGenerationCoordinator` streams model events into assistant chunks,
@@ -85,16 +89,16 @@ flowchart TD
 - `ChatWorkflowEventApplier` applies typed workflow events to `ChatSession`
   using `ChatTranscriptMutator`. These events are not persisted; persistence
   stores only the resulting turns, turn items, and tool-call records.
-- `ContextUsageCoordinator` computes token usage from the same filtered frozen
-  model-facing transcript used for generation.
+- `ContextUsageCoordinator` computes token usage from the same derived
+  model-facing projection used for generation.
 
 ## Turn Lifecycle
 
 1. `sendMessage` validates UI-facing state, clears the draft and pending
    attachments, then calls `ChatTurnCoordinator.startUserTurn`.
-2. `ChatTurnCoordinator` emits events that create a `ChatTurn` with status
-   `.running`, append the user message, append the frozen model-context entry,
-   and append the assistant placeholder.
+2. `ChatTurnCoordinator` computes the current prompt context, then emits events
+   that create a `ChatTurn` with status `.running`, append the user message with
+   its frozen `promptContext`, and append the assistant placeholder.
 3. `ChatTurnCoordinator` starts the async operation for that turn.
 4. Initial generation streams into the assistant placeholder.
 5. If the assistant output is an allowed tool call, `ToolLoopCoordinator` returns
@@ -104,17 +108,21 @@ flowchart TD
    tool call until the configured turn budget is exhausted. Failed
    tools, unknown tools, and invalid tool-call observations also count against
    this budget and are returned to the model as observations so it can choose the
-   next step. The last budgeted follow-up disables tools; if it produces no
-   visible assistant text, the coordinator appends an internal no-tools
-   finalization instruction and forces one text-only summary or deterministic
-   fallback. Successful `write_file` and `edit_file` calls switch to a brief
-   final no-tools follow-up instead of continuing the normal tool loop; that
-   follow-up should summarize affected paths and useful run or verification
-   steps without echoing generated file contents, code blocks, diffs, or tool
-   arguments unless the user explicitly asked to display them in chat. The model
-   must not say files changed unless a successful `write_file` or `edit_file`
-   result exists in the turn; failed or invalid write/edit results mean no
-   workspace change happened.
+   next step. A failed tool observation must force recovery or an explicit
+   failure report; the model must not claim the requested task completed from
+   that failed result. Before each follow-up generation,
+   `ToolFollowUpNoticePolicy` writes exactly one model-facing notice to the
+   target `ToolCallRecord`, and the already-updated record is emitted before any
+   prompt or history projection runs. The last budgeted follow-up sends an empty
+   native tool schema and final/no-tools guidance as that tool notice; the
+   stable `ChatSession.instructions` prompt does not change. Successful
+   `write_file` and `edit_file` calls switch to a brief final no-tools follow-up
+   instead of continuing the normal tool loop; that follow-up should summarize
+   affected paths and useful run or verification steps without echoing generated
+   file contents, code blocks, diffs, or tool arguments unless the user
+   explicitly asked to display them in chat. The model must not say files
+   changed unless a successful `write_file` or `edit_file` result exists in the
+   turn; failed or invalid write/edit results mean no workspace change happened.
 6. If the tool call requires approval, workflow events record the call and mark
    the turn `.awaitingApproval`; active generation ends until the user approves
    or denies the call.
@@ -124,7 +132,27 @@ flowchart TD
    no-tools assistant response that summarizes the completed write without
    echoing generated file contents or diffs and only claims changed files from a
    successful write/edit result; other successful tools resume the normal tool
-   loop with a direct follow-up response.
+   loop with a direct follow-up response. If an approved `run_command` process
+   exits unsuccessfully, the direct follow-up receives a failed-command notice on
+   the command's `ToolCallRecord` and must recover with tools when possible or
+   report the command failure without inferring command-specific side effects.
+   If the *same* command fails on two consecutive `run_command` records in the
+   turn (`RunCommandRepeatPolicy`, a small model looping on a malformed command it
+   cannot fix), the approval resume forces the tools-stripped final mode and the
+   notice escalates to the user — naming the failing command and error and asking
+   the user to run/fix it manually or rephrase — instead of looping. The brake
+   fires only on the second consecutive identical failure, leaving one
+   self-correction attempt.
+   If that follow-up has no tool call and makes an unqualified completion claim,
+   Sumika replaces the visible text with a generic failed-command response
+   instead of completing the turn with a false success summary. Each tool
+   follow-up receives at most one prioritized tool-record notice: final/no-tools
+   guidance, failed `run_command`, repeated same-command `run_command`,
+   listing/read-loop escalation, duplicate replay guidance, or the generic
+   same-turn follow-up. Follow-up notices apply in both agent and chat (web)
+   sessions; the final/no-tools guidance is profile-aware — agent sessions get the
+   workspace wording, chat (web) sessions get web wording with no file/workspace
+   references.
 8. Answering `ask_user` delegates to
    `ChatTurnCoordinator.answerAskUserToolCall`, appends the compact answer
    receipt, and resumes generation plus the normal tool loop.
@@ -154,52 +182,57 @@ flowchart TD
 - The currently active turn is allowed to include its own tool result while
   generating the direct follow-up response.
 - Direct follow-up responses may emit another tool call within the turn
-  coordinator's configured turn budget. When the budget is exhausted, the final
-  follow-up prompt disables tools. If that final generation has no visible
-  assistant text, the coordinator runs one additional `.disabled` finalization
-  generation and falls back to a deterministic visible assistant message if the
-  model still emits no text.
+  coordinator's configured turn budget. When the budget is exhausted — or when a
+  second consecutive identical duplicate is blocked — the final follow-up sends no
+  tool specs and adds the profile-appropriate final/no-tools guidance to the latest
+  tool record's `modelFollowUpNotice` (agent vs chat-web variant). If that final
+  generation has no visible assistant text, the turn fails with an empty-response
+  diagnostic.
 - Final no-tools follow-ups after approved write/edit tools or denied tools also
   disable tools. If the model still emits a native tool attempt, the caller
   treats the follow-up as final and does not execute another tool.
 - Cancel should schedule a normal context-usage refresh with the latest filtered
-  snapshot. It must not block turn cancellation on synchronous token counting.
+  projection. It must not block turn cancellation on synchronous token counting.
 
 ## Model Context Rules
 
 - Always build model input through `ChatModelContextBuilder`; do not pass the
   raw transcript directly to the model runtime from new code.
-- `ModelContextSnapshot` is the source for runtime generation and context
-  usage. Each `ModelContextEntry` stores typed intent in `body` and the
-  byte-stable rendered role/content in `frozenContent`.
-- Derive model role from the ADT body. Persisted entries whose body role and
-  frozen rendered role disagree are invalid and must be rejected or explicitly
-  repaired by a migration.
-- Freeze rendered content when appending user prompts, assistant outputs, tool
-  observations, and terminal tool results. Do not reconstruct old model-facing
-  history from mutable UI state, focused context, current tool prompt mode, or
-  attachments.
-- `ModelContextSnapshot` is the only persisted model context ledger.
-  Runtime calls consume the full-history projection of that ledger; rendering
-  is append-only so the cached KV prefix stays a byte-stable prefix of every
-  later generation.
-- Same-turn tool follow-ups must not treat `toolObservation` entries as new user
-  instructions. The follow-up form is frozen into the entry at creation time:
-  the original user request, an assistant tool-call marker, the untrusted tool
-  observation, and a continue instruction. Each observation carries only its
-  own result; earlier observations stay in history as their own messages and
-  are never re-rendered into later prompts. An observation created without a
-  resolvable original user request freezes the bare observation form instead.
-- Receipt compaction (`compactedHistoryForLaterTurns`) is not applied by the
-  runtime. It remains a model-level projection reserved for a future explicit
-  compaction boundary, because rewriting past observations invalidates the
-  cached KV prefix after every tool turn.
-- Legacy model-context messages are not stored or backfilled.
-- Completed turns are included by default.
+- `ChatSession.turns` and `ChatTurn.items` are the persisted source of truth for
+  chat history, assistant output, and tool lifecycle state. `ModelPromptProjection`
+  is a derived read model, not session state.
+- Prompt-affecting data must live with its canonical owner. User prompts carry
+  their frozen `UserTurnMessage.promptContext` and attachments, assistant items
+  carry assistant text, and tool items carry `ToolCallRecord` plus the completed
+  result payload and any `modelFollowUpNotice`.
+- `ModelPromptProjection` renders typed `ModelContextEntry` values from turns at
+  generation time. Each entry stores typed intent in `body` and the byte-stable
+  rendered role/content in `frozenContent` for that request.
+- Tool follow-ups are rendered as provider-native role sequences, not synthetic
+  user continuations. A completed native tool call projects as assistant
+  `tool_calls` metadata with a stable call ID followed by one or more `tool`
+  result messages with the matching `tool_call_id`. The tool message content is
+  a byte-stable hybrid body: one valid `TOOL_RESULT_JSON` object followed by one
+  readable `CONTENT` section. The JSON object carries compact control metadata
+  such as `ok`, `tool`, `status`, `kind`, `duplicate`, affected paths,
+  tool-specific counts/flags, and short `next_allowed_actions`. Long file
+  contents, command stdout/stderr, HTML, Markdown, diffs, logs, fetched pages,
+  and other raw bodies stay outside JSON in `CONTENT`. Duplicate replay metadata
+  is derived structurally from `DuplicateToolCallResult`; duplicate headers use
+  `kind: "duplicate_replay"`, `duplicate: true`, `not_reexecuted: true`, and
+  `forbidden_repeat: true`, with `replayed_result_kind` present only when a
+  replayed observation exists. Native `tool_call_id` remains in the provider
+  message field, not in the rendered content. If `modelFollowUpNotice` exists on
+  the record, it renders inside the JSON header as `next_step`, not as a
+  transient user prompt or trailing prose block. Rebuilds must read this from the
+  current `ChatTurn.items` state, not from an old prompt ledger or reused
+  `ModelContextEntry`.
+- Empty or cancelled streaming placeholders and assistant-thinking items are
+  skipped. Completed turns are included by default.
 - Cancelled and failed turns with `modelContextPolicy == .excluded` are omitted
   from future prompts and context-usage calculations.
-- The UI transcript remains the audit source. The frozen ledger is the
-  model-facing prompt and cache-correctness source.
+- The UI/debug model-context pane renders the same derived projection that the
+  runtime receives, so the debug view cannot drift from generation input.
 
 ## Gemma/MLX Cache Rules
 
@@ -210,24 +243,34 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
 - Reuse is safe when the cached session is clean, the prefill identity matches,
   and the cached prefix is a prefix of the current model-facing history.
 - The prefill identity contains only values that affect bytes already consumed by
-  MLX: normalized cache system prompt, projection mode, `maxKVSize`, and
+  MLX: normalized stable runtime instructions, projection mode, `maxKVSize`, and
   reasoning/template context. Sampling settings, `maxTokens`, and the active
   native tool schema are decode-time inputs and do not rebuild the session.
+- Each user turn freezes one stable `ChatRuntimePromptPlan.stableInstructions`
+  value. The same text is used for `ChatSession.instructions` and
+  `cacheIdentityInstructions`; final/no-tools guidance and tool-loop nudges are
+  rendered as tool-record follow-up notices instead of system instructions. Todo
+  state remains transient runtime context and is not part of the stable system
+  prompt.
 - All generation requests use the MLX structured-message path. First requests
   send only the current prompt to a new `ChatSession(history:)`; reused requests
   send either the current prompt or the appended history delta plus the current
   prompt through `streamDetails(to messages:)`.
+- Reused MLX sessions must not set `ChatSession.instructions`: the system prompt
+  is already encoded in the KV cache, so re-sending instructions before a tool
+  result corrupts the continuation.
 - Native Gemma 4 tool calls are not assistant prose in the MLX session. Core
-  still stores a canonical non-visible assistant boundary plus the typed raw
-  arguments in `ModelContextSnapshot`, but the Gemma renderer replays that ledger
-  as structured assistant `tool_calls` with stable `call_<uuid>` IDs and matching
-  `tool` result messages. Consecutive tool results after one assistant boundary
-  become consecutive `tool` messages followed by one continuation user message.
-  The continuation restates the original user request and tool-result trust
-  boundary without duplicating the tool output.
+  stores only the canonical turn/tool records. `ChatModelContextBuilder` derives
+  a transient assistant tool-call boundary and the Gemma renderer sends it as
+  structured assistant `tool_calls` with stable `call_<uuid>` IDs and matching
+  `tool` result messages. No persisted user-role continuation message is
+  synthesized after a tool result. Tool follow-up guidance is stored on
+  `ToolCallRecord` and rendered inside the matching `tool` message; runtime-only
+  prompt-plan suffixes are limited to non-tool context such as todo state. The
+  JSON debug trace records the final provider-facing messages.
 - Image prompts stay cacheable. The content signatures of the images consumed
-  with a user prompt are frozen into the entry (`UserPromptContext.imageSignatures`)
-  and carried through the projection into the prefix snapshots, so identical
+  with a user prompt are derived from the user message attachments and carried
+  through the projection into the prefix snapshots, so identical
   rendered text with different prefilled images can never reuse a cached
   session. Signatures are bookkeeping only and are never sent to the model.
   The image tokens stay in the reused KV cache; after a full re-prefill from
@@ -243,24 +286,32 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   that the entire provider-facing message shape still matches the session state.
 - The active native tool schema is applied through `session.tools` immediately
   before decode. It is not part of prefix comparison because the Gemma template
-  does not render tool specs into the prefilled prompt.
+  does not render tool specs into the prefilled prompt. Final no-tools
+  follow-ups clear `session.tools` without changing `ChatSession.instructions` or
+  the cache identity.
 
-The native Gemma 4 fast path preserves the assistant tool-call boundary in Core
-while replaying it to MLX as native structured tool-call metadata.
+The native Gemma 4 fast path preserves the assistant tool-call boundary as a
+derived projection while replaying it to MLX as native structured tool-call
+metadata.
 
 ## Persistence Rules
 
-- `ChatSession` persists `modelContextSnapshot` and `turns`. Tool-call records
-  live only inside `ChatTurn.items` and `ChatSession.toolCalls` is a derived
-  projection, not a second persisted list.
-- Sessions without a stored `modelContextSnapshot` do not decode.
 - `ChatSession.turns` is the transcript and tool-state source of truth. Append
   new turn items for new user, assistant, and tool facts; update existing items
   only for their own lifecycle fields. Do not persist workflow event logs,
   derived tool lists, or UI caches as session state.
-- `ModelContextSnapshot` is intentionally persisted as a frozen model-facing
-  copy. It is separate from the UI transcript so prompt bytes and cache prefixes
-  stay stable after later transcript projections change.
+- `ChatSession.toolCalls` is a derived projection from `ChatTurn.items`, not a
+  second persisted list.
+- User messages persist `promptContext` so the model-facing prompt can be
+  re-derived byte-stably without a parallel prompt ledger.
+- Assistant messages persist their model projection policy so direct tool
+  display responses can remain rich in the UI while projecting only a compact
+  receipt back to the model.
+- Tool records persist `modelFollowUpNotice` once it has been consumed by the
+  model. It must not be deleted or folded into `ToolResultPayload`, because
+  later MLX history rebuilds need the same `tool` message bytes for cache reuse.
+- `ModelPromptProjection` is never persisted on `ChatSession`; generation,
+  context usage, debug panels, and traces rebuild it from turns.
 - Clearing a chat transcript removes turns, derived tool-call projections, and
   attachments, but keeps session settings such as per-mode system prompts and
   generation settings.
@@ -277,6 +328,6 @@ while replaying it to MLX as native structured tool-call metadata.
 3. Put UI-free async loop behavior in `ChatTurnCoordinator`. UI facades should
    provide existing state and callbacks, not duplicate the loop.
 4. Gate async mutations with the active `turnID`.
-5. Use `ChatModelContextBuilder` for generation and context-usage snapshots.
+5. Use `ChatModelContextBuilder` for generation and context-usage projections.
 6. Add tests for cancelled turns, stale async results, persistence defaults, and
    model-context filtering when the behavior touches turn state.

@@ -78,10 +78,6 @@ nonisolated extension ToolDefinition {
         maximum: Double(WebAccessLimits.maxSearchResultCount)
       ),
     ],
-    exampleArguments: [
-      "query": .string("Swift URLSession async await timeout"),
-      "maxResults": .number(5),
-    ],
     capabilities: [.accessWeb],
     riskLevel: .high
   )

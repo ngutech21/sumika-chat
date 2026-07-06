@@ -25,6 +25,7 @@ nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
   case appendOnlyDelta = "append_only_delta"
   case identityChanged = "identity_changed"
   case historyChanged = "history_changed"
+  case toolFollowUpRebuild = "tool_follow_up_rebuild"
   case maxKVSizeChanged = "max_kv_size_changed"
   case reasoningChanged = "reasoning_changed"
   case invalidatedGenCancelled = "invalidated_generation_cancelled"

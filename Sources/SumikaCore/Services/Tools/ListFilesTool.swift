@@ -46,9 +46,6 @@ nonisolated extension ToolDefinition {
         isRequired: false
       )
     ],
-    exampleArguments: [
-      "path": .string(".")
-    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )
@@ -77,18 +74,10 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
   private let skippedNames: Set<String>
 
   public init(
-    maxDepth: Int = 4,
+    maxDepth: Int = 0,
     maxEntries: Int = 300,
     skippedNames: Set<String> = [
-      ".git",
-      "node_modules",
-      ".build",
-      "DerivedData",
-      ".swiftpm",
-      "dist",
-      "build",
-      ".cache",
-      ".DS_Store",
+      ".DS_Store"
     ]
   ) {
     self.maxDepth = maxDepth
@@ -178,7 +167,6 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
       return
     }
     guard depth <= maxDepth else {
-      truncated = true
       return
     }
 
@@ -212,18 +200,19 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
         : displayPrefix + "/" + child.lastPathComponent
       entries.append(isDirectory ? relativePath + "/" : relativePath)
 
-      if isDirectory {
-        if depth < maxDepth {
-          try appendEntries(
-            at: child,
-            displayPrefix: relativePath,
-            depth: depth + 1,
-            entries: &entries,
-            truncated: &truncated
-          )
-        } else {
-          truncated = true
-        }
+      // A subdirectory is shown as a "name/" entry the model can descend into with a
+      // follow-up list_files call. Not expanding it is by design (flat listing), NOT
+      // truncation — `truncated` must only reflect the maxEntries cap, otherwise every
+      // listing that contains a subdirectory falsely signals "there is more", which
+      // makes small models re-list instead of progressing.
+      if isDirectory, depth < maxDepth {
+        try appendEntries(
+          at: child,
+          displayPrefix: relativePath,
+          depth: depth + 1,
+          entries: &entries,
+          truncated: &truncated
+        )
       }
     }
   }

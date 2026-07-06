@@ -2,14 +2,14 @@ import Foundation
 
 public struct ContextUsageSnapshot: Sendable {
   public let modelState: ModelLoadState
-  public let transcript: ModelContextSnapshot
+  public let transcript: ModelPromptProjection
   public let attachments: [ChatAttachment]
   public let systemPrompt: String
   public let contextTokenLimit: Int?
 
   public init(
     modelState: ModelLoadState,
-    transcript: ModelContextSnapshot,
+    transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     contextTokenLimit: Int? = nil

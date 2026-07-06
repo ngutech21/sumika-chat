@@ -109,6 +109,12 @@ public final class ChatTurnCoordinator {
       interactionMode: interactionMode,
       callbacks: callbacks
     )
+    let stableInstructions = executionCoordinator.systemPrompt(
+      session: callbacks.session(),
+      selectedModel: runtime.selectedModel,
+      toolLoopCoordinator: runtime.toolLoopCoordinator,
+      toolPromptMode: initialToolPromptMode
+    )
     callbacks.notifySessionDidChange()
 
     runTurnTask(turnID, callbacks: callbacks) { [weak self] turnID in
@@ -125,6 +131,7 @@ public final class ChatTurnCoordinator {
         isActive: self.isActive,
         interactionMode: interactionMode,
         toolPromptMode: initialToolPromptMode,
+        stableInstructions: stableInstructions,
         turnID: turnID,
         attachments: attachments
       )
@@ -132,6 +139,7 @@ public final class ChatTurnCoordinator {
         return .stop
       }
       if toolProfile.allowsToolLoop {
+        try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
         let shouldComplete = try await executionCoordinator.runToolLoop(
           workspace: workspace,
           sessionID: sessionID,
@@ -142,11 +150,14 @@ public final class ChatTurnCoordinator {
           callbacks: callbacks,
           isActive: self.isActive,
           finishTurn: self.finishTurn,
+          stableInstructions: stableInstructions,
           lastNativeToolCalls: generationResult.nativeToolCalls
         )
         guard shouldComplete else {
           return .stop
         }
+      } else {
+        try executionCoordinator.requireVisibleFinalResponse(generationResult)
       }
       return .complete
     }

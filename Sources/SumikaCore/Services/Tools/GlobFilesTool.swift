@@ -53,10 +53,6 @@ nonisolated extension ToolDefinition {
         isRequired: false
       ),
     ],
-    exampleArguments: [
-      "pattern": .string("**/*.swift"),
-      "path": .string("."),
-    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )

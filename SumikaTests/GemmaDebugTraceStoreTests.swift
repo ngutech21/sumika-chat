@@ -1,4 +1,5 @@
 import Foundation
+import MLXLMCommon
 import SumikaCore
 import Testing
 
@@ -103,6 +104,61 @@ struct GemmaDebugTraceStoreTests {
     #expect(toolArguments.first?["valueType"] as? String == "string")
     #expect(toolArguments.first?["preview"] as? String == "setup-project")
     #expect(toolArguments.first?["previewTruncated"] as? Bool == false)
+  }
+
+  @Test
+  func requestTraceRecordsFinalPromptWithTransientInstructions() async throws {
+    setenv("SUMIKA_DEBUG_TRACE", "1", 1)
+    defer {
+      unsetenv("SUMIKA_DEBUG_TRACE")
+    }
+    let fileURL = temporaryTraceFileURL()
+    let store = GemmaDebugTraceStore(fileURL: fileURL)
+    let toolObservation = """
+      <observation call_id="call_1" tool="read_file" status="success">
+      README contents
+      </observation>
+      """
+    let runtimeContext = """
+      [Runtime Context]
+      Active todo plan:
+      - Inspect README.md
+      """
+    let promptWithTransientInstructions = GemmaMLXRuntime.appendTransientInstructions(
+      [runtimeContext],
+      toPromptSnapshot: [
+        GemmaMessageSnapshot(
+          role: Chat.Message.Role.tool.rawValue,
+          content: toolObservation,
+          toolCallID: "call_1"
+        )
+      ],
+      promptMessages: [.tool(toolObservation, id: "call_1")]
+    )
+    let finalPrompt = promptWithTransientInstructions.promptMessages.map(\.content)
+      .joined(separator: "\n\n")
+
+    await store.traceRequest(
+      id: UUID(),
+      history: [(role: "tool", content: toolObservation)],
+      prompt: finalPrompt,
+      settings: .agentDefault,
+      contextTokenLimit: nil
+    )
+
+    let data = try Data(contentsOf: fileURL)
+    let line = try #require(String(data: data, encoding: .utf8)?.split(separator: "\n").first)
+    let object = try #require(
+      JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+    )
+    let history = try #require(object["history"] as? [[String: Any]])
+    let prompt = try #require(object["prompt"] as? String)
+
+    #expect(object["kind"] as? String == "gemma_request")
+    #expect(prompt.contains(runtimeContext))
+    #expect(prompt.contains(toolObservation))
+    #expect((history.first?["content"] as? String)?.contains(runtimeContext) == false)
+    #expect((history.first?["content"] as? String)?.contains(toolObservation) == true)
   }
 
   @Test

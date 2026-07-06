@@ -22,7 +22,6 @@ classDiagram
     id: UUID
     title: String
     selectedModelID: ManagedModel.ID
-    modelContextSnapshot: ModelContextSnapshot
     turns: [ChatTurn]
     focusedFileState: FocusedFileState
     modeSettings: ChatModeSettingsSet
@@ -132,14 +131,23 @@ classDiagram
     id: UUID
     content: String
     attachments: [ChatAttachment]
+    promptContext: CurrentPromptContext
   }
 
   class AssistantTurnMessage {
     id: UUID
     content: String
+    modelProjectionPolicy: AssistantModelProjectionPolicy
     attachments: [ChatAttachment]
     generationMetrics: ChatGenerationMetrics?
     deliveryStatus: DeliveryStatus
+  }
+
+  class AssistantModelProjectionPolicy {
+    <<enum>>
+    visibleContent
+    override(String)
+    excluded
   }
 
   class DeliveryStatus {
@@ -354,7 +362,7 @@ classDiagram
     denied
   }
 
-  class ModelContextSnapshot {
+  class ModelPromptProjection {
     entries: [ModelContextEntry]
     projectedEntries(mode): [ProjectedModelContextEntry] derived
   }
@@ -550,7 +558,7 @@ classDiagram
   Workspace "1" --> "*" ChatSession
 
   ChatSession "1" --> "*" ChatTurn : canonical turn records
-  ChatSession "1" --> "1" ModelContextSnapshot : persisted model context
+  ChatSession ..> ModelPromptProjection : derived model input
   ChatSession "1" --> "1" FocusedFileState
   ChatSession "1" --> "1" ActiveAttachmentContext
   ChatSession "0..1" --> "1" TodoState
@@ -573,9 +581,11 @@ classDiagram
   ChatTurnItem --> AssistantTurnMessage : embeds assistant
   ChatTurnItem --> ToolCallRecord : embeds tool lifecycle
   UserTurnMessage --> ChatAttachment
+  UserTurnMessage --> CurrentPromptContext
   AssistantTurnMessage --> ChatAttachment
   AssistantTurnMessage --> ChatGenerationMetrics
   AssistantTurnMessage --> DeliveryStatus
+  AssistantTurnMessage --> AssistantModelProjectionPolicy
 
   ChatAttachment --> AttachmentID
   ChatAttachment --> ChatAttachmentKind
@@ -603,8 +613,8 @@ classDiagram
   ToolResultPayload --> ToolResultPreview : derived preview
   ToolResultPreview --> ToolResultStatus
 
-  ModelContextSnapshot "1" --> "*" ModelContextEntry
-  ModelContextSnapshot --> ProjectedModelContextEntry : derived projection
+  ModelPromptProjection "1" --> "*" ModelContextEntry
+  ModelPromptProjection --> ProjectedModelContextEntry : derived projection
   ModelContextEntry --> ModelContextEntryBody
   ModelContextEntry --> FrozenModelContent
   ModelContextEntryBody --> UserPromptContext

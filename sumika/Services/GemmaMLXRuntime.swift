@@ -113,8 +113,52 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     settings.repetitionPenalty == 1 ? nil : Float(settings.repetitionPenalty)
   }
 
+  nonisolated static func mlxPresencePenalty(
+    from settings: ChatGenerationSettings
+  ) -> Float? {
+    settings.presencePenalty == 0 ? nil : Float(settings.presencePenalty)
+  }
+
+  nonisolated static func appendTransientInstructions(
+    _ instructions: [String],
+    toPromptSnapshot promptSnapshot: [GemmaMessageSnapshot],
+    promptMessages: [Chat.Message]
+  ) -> (promptSnapshot: [GemmaMessageSnapshot], promptMessages: [Chat.Message]) {
+    var updatedSnapshot = promptSnapshot
+    var updatedMessages = promptMessages
+    for instruction in instructions {
+      if let lastSnapshot = updatedSnapshot.last,
+        lastSnapshot.role == Chat.Message.Role.user.rawValue,
+        !lastSnapshot.hasToolMetadata
+      {
+        updatedSnapshot[updatedSnapshot.count - 1] = GemmaMessageSnapshot(
+          role: Chat.Message.Role.user.rawValue,
+          content: [lastSnapshot.content, instruction].joined(separator: "\n\n"),
+          imageSignatures: lastSnapshot.imageSignatures
+        )
+      } else {
+        updatedSnapshot.append(
+          GemmaMessageSnapshot(
+            role: Chat.Message.Role.user.rawValue,
+            content: instruction
+          )
+        )
+      }
+
+      if let lastMessage = updatedMessages.last,
+        lastMessage.role == .user
+      {
+        updatedMessages[updatedMessages.count - 1].content =
+          [lastMessage.content, instruction].joined(separator: "\n\n")
+      } else {
+        updatedMessages.append(.user(instruction))
+      }
+    }
+    return (updatedSnapshot, updatedMessages)
+  }
+
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -122,18 +166,34 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     try await streamReply(
       for: transcript,
       attachments: attachments,
-      systemPrompt: systemPrompt,
-      settings: settings,
-      toolContext: nil
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: systemPrompt),
+      settings: settings
     )
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,
     toolContext: ChatRuntimeToolContext?
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    try await streamReply(
+      for: transcript,
+      attachments: attachments,
+      promptPlan: ChatRuntimePromptPlan(
+        stableInstructions: systemPrompt,
+        toolContext: toolContext
+      ),
+      settings: settings
+    )
+  }
+
+  func streamReply(
+    for transcript: ModelPromptProjection,
+    attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     let setupInterval = ChatDiagnostics.beginInterval(
       "Gemma stream reply setup",
@@ -166,16 +226,26 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       temperature: Float(settings.temperature),
       topP: Float(settings.topP),
       topK: settings.topK,
-      repetitionPenalty: Self.mlxRepetitionPenalty(from: settings)
+      repetitionPenalty: Self.mlxRepetitionPenalty(from: settings),
+      repetitionContextSize: settings.repetitionContextSize,
+      presencePenalty: Self.mlxPresencePenalty(from: settings),
+      presenceContextSize: settings.repetitionContextSize
     )
     let additionalContext = Self.chatTemplateAdditionalContext(
       reasoningEnabled: settings.reasoningEnabled)
-    let toolSpecs = GemmaNativeToolSchema.toolSpecs(from: toolContext)
-    let cacheSystemPrompt = toolContext?.cacheSystemPrompt ?? systemPrompt
+    let systemPrompt = promptPlan.stableInstructions
+    let toolSpecs = GemmaNativeToolSchema.toolSpecs(from: promptPlan.toolContext)
+    let cacheSystemPrompt = promptPlan.cacheIdentityInstructions
     let historySnapshot = generationInput.historySnapshot
     let history = generationInput.history
-    let promptSnapshot = generationInput.promptSnapshot
-    let finalPrompt = generationInput.promptContent
+    let promptWithTransientInstructions = Self.appendTransientInstructions(
+      promptPlan.transientInstructions,
+      toPromptSnapshot: generationInput.promptSnapshot,
+      promptMessages: generationInput.promptMessages
+    )
+    let promptSnapshot = promptWithTransientInstructions.promptSnapshot
+    let promptMessages = promptWithTransientInstructions.promptMessages
+    let finalPrompt = promptMessages.map(\.content).joined(separator: "\n\n")
     await supersedeActiveGenerationBeforeStartingNew()
     let traceMetadata = TurnTraceContext.current
     let traceID = traceMetadata?.generationID ?? UUID()
@@ -188,7 +258,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       modelContainer: modelContainer,
       history: history,
       historySnapshot: historySnapshot,
-      promptMessages: generationInput.promptMessages,
+      promptMessages: promptMessages,
       systemPrompt: systemPrompt,
       cacheSystemPrompt: cacheSystemPrompt,
       settings: settings,
@@ -260,7 +330,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     }
     return streamPlan.stream
   }
+}
 
+extension GemmaMLXRuntime {
   private func traceDebugRequest(
     id: UUID,
     systemPrompt: String,
@@ -412,17 +484,35 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       mismatchReason = "identity_changed"
     } else if appendOnly, let cached {
       let deltaStartIndex = cached.prefix.count
-      if deltaStartIndex == historySnapshot.count {
+      let deltaBeginsWithToolResult = GemmaSessionCachePolicy.deltaBeginsWithToolResult(
+        cachedPrefixCount: deltaStartIndex,
+        historySnapshot: historySnapshot,
+        promptFirstRole: promptMessages.first?.role.rawValue
+      )
+      if deltaBeginsWithToolResult {
+        // A reused/append-delta render templates only the delta. When the delta
+        // begins with a tool response, the Gemma template drops it (its paired
+        // assistant tool_call sits in the cached prefix, not in this render), so
+        // the model never sees the tool result and repeats the same call. Rebuild
+        // the full history instead so call and result are templated adjacently.
+        traceMode = .dirtyRebuild
+        traceReason = .toolFollowUpRebuild
+        shouldReuse = false
+        appendDeltaStartIndex = nil
+        mismatchReason = "tool_follow_up_response"
+      } else if deltaStartIndex == historySnapshot.count {
         traceMode = .reusedSession
         traceReason = .reusedSession
+        shouldReuse = true
         appendDeltaStartIndex = nil
+        mismatchReason = nil
       } else {
         traceMode = .appendDelta
         traceReason = .appendOnlyDelta
+        shouldReuse = true
         appendDeltaStartIndex = deltaStartIndex
+        mismatchReason = nil
       }
-      shouldReuse = true
-      mismatchReason = nil
     } else {
       traceMode = .dirtyRebuild
       traceReason = .historyChanged
@@ -445,7 +535,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     pendingCacheInvalidationReason = nil
 
     if shouldReuse, let cached {
-      cached.session.instructions = GemmaHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt)
+      cached.session.instructions = GemmaSessionCachePolicy.chatSessionInstructions(
+        for: traceMode,
+        systemPrompt: systemPrompt
+      )
       cached.session.generateParameters = generateParameters
       cached.session.additionalContext = additionalContext
       cachedSession = CachedGemmaSession(
@@ -468,7 +561,10 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
     let session = MLXLMCommon.ChatSession(
       modelContainer,
-      instructions: GemmaHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt),
+      instructions: GemmaSessionCachePolicy.chatSessionInstructions(
+        for: traceMode,
+        systemPrompt: systemPrompt
+      ),
       history: history,
       generateParameters: generateParameters,
       additionalContext: additionalContext

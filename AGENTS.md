@@ -61,9 +61,11 @@ Keep the persisted data model minimal and SSOT-first:
 - For chat state, `ChatSession.turns` and `ChatTurn.items` are the persisted
   transcript and tool-state SSOT. Do not persist a parallel `toolCalls` list or a
   turn event log unless explicitly requested.
-- `ModelContextSnapshot` is an intentional frozen model-facing copy. Keep it as
-  the cache-stable prompt ledger, but do not use it as a reason to duplicate UI
-  transcript or tool lifecycle state elsewhere.
+- Model-facing prompts are derived projections from the turn SSOT. Keep
+  prompt-affecting facts with their canonical owner, such as
+  `UserTurnMessage.promptContext`, tool results on `ToolCallRecord`, and
+  assistant content/projection policy on `AssistantTurnMessage`; do not persist
+  a separate prompt ledger.
 - Enforce append-only turn membership in the model: append new user, assistant,
   and tool facts; update existing items only for their own lifecycle fields.
   Filter read models instead of deleting persisted transcript items.

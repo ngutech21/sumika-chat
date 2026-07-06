@@ -103,11 +103,6 @@ nonisolated extension ToolDefinition {
         supportsHeredocPayload: true
       ),
     ],
-    exampleArguments: [
-      "path": .string("Sources/AppState.swift"),
-      "old_text": .string("let title = \"Old\""),
-      "new_text": .string("let title = \"New\""),
-    ],
     capabilities: [.writeWorkspace],
     riskLevel: .high
   )

@@ -228,7 +228,7 @@ struct ContextUsageCoordinatorTests {
 
     return ContextUsageSnapshot(
       modelState: modelState,
-      transcript: ModelContextSnapshot(entries: [entry]),
+      transcript: ModelPromptProjection(entries: [entry]),
       attachments: [],
       systemPrompt: systemPrompt,
       contextTokenLimit: 100
@@ -268,7 +268,7 @@ private actor ContextUsageFakeRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -312,7 +312,7 @@ private actor ContextUsageDelayedClearRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings

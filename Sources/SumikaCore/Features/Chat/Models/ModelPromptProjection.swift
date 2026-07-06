@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ModelContextSnapshot: Codable, Equatable, Sendable {
+public struct ModelPromptProjection: Codable, Equatable, Sendable {
   public var entries: [ModelContextEntry]
 
   public init(entries: [ModelContextEntry] = []) {
@@ -35,8 +35,7 @@ public struct ModelContextSnapshot: Codable, Equatable, Sendable {
     }
   }
 
-  /// The raw prompt text of the original user prompt in the given turn. Used to
-  /// freeze the tool follow-up form into observation entries at creation time.
+  /// The raw prompt text of the original user prompt in the given turn.
   public func originalUserPromptText(forTurn turnID: ChatTurn.ID) -> String? {
     for entry in entries {
       guard entry.turnID == turnID, case .userPrompt(let context) = entry.body else {

@@ -35,7 +35,7 @@ struct ToolResultProjectorTests {
           redacted: false,
         )
       ])
-    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
+    let rendered = ToolModelObservationRenderer.render(projection, callID: UUID())
     #expect(rendered.contains("Displayed file to user: Sources/App.swift"))
     #expect(!rendered.contains("let secret = true"))
   }
@@ -131,6 +131,273 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func listFilesRendersHybridToolResultWithEntriesAndNoCallID() {
+    let callID = UUID()
+    let projection = ToolResultProjector.project(
+      payload: .listFiles(
+        ListFilesResult(
+          root: WorkspaceRelativePath(rawValue: "."),
+          entries: [
+            WorkspaceFileEntry(path: WorkspaceRelativePath(rawValue: ".gitignore"), kind: .file),
+            WorkspaceFileEntry(
+              path: WorkspaceRelativePath(rawValue: "snake_game"),
+              kind: .directory
+            ),
+            WorkspaceFileEntry(
+              path: WorkspaceRelativePath(rawValue: "snake_game/main.py"),
+              kind: .file
+            ),
+          ],
+          truncated: true
+        )),
+      request: request(toolName: .listFiles, payload: .listFiles(ListFilesInput(path: ".")))
+    )
+
+    let rendered = ToolModelObservationRenderer.render(projection, callID: callID)
+
+    #expect(rendered.contains("TOOL_RESULT_JSON:"))
+    #expect(rendered.contains("\"tool\": \"list_files\""))
+    #expect(rendered.contains("\"kind\": \"listing\""))
+    #expect(rendered.contains("\"entry_count\": 3"))
+    #expect(rendered.contains("CONTENT:"))
+    #expect(rendered.contains("Entries:\n.gitignore\nsnake_game/\nsnake_game/main.py"))
+    #expect(rendered.contains(callID.uuidString) == false)
+    #expect(rendered.contains(RuntimeToolCallID.string(for: callID)) == false)
+  }
+
+  @Test
+  func hybridToolResultContractKeepsLongContentOutOfJSON() throws {
+    let readSentinel = "READ_FILE_LONG_BODY_SENTINEL_alpha"
+    let stdoutSentinel = "RUN_COMMAND_STDOUT_SENTINEL_beta"
+    let stderrSentinel = "RUN_COMMAND_STDERR_SENTINEL_gamma"
+    let webSentinel = "WEB_FETCH_HTML_BODY_SENTINEL_delta"
+    let diffSentinel = "WORKSPACE_DIFF_SENTINEL_epsilon"
+
+    let cases: [(projection: ToolResultProjection, kind: String, sentinels: [String])] = [
+      (
+        ToolResultProjector.project(
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "intro\n\(readSentinel)\nend")
+            )),
+          request: request(
+            toolName: .readFile,
+            payload: .readFile(ReadFileInput(path: "README.md"))
+          )
+        ),
+        "file_content",
+        [readSentinel]
+      ),
+      (
+        ToolResultProjector.project(
+          payload: .runCommand(
+            RunCommandResult(
+              command: "just test-core",
+              timeoutSeconds: 120,
+              exitCode: 1,
+              durationMs: 42,
+              stdout: ToolTextOutput(text: "stdout\n\(stdoutSentinel)\n"),
+              stderr: ToolTextOutput(text: "stderr\n\(stderrSentinel)\n")
+            )),
+          request: request(
+            toolName: .runCommand,
+            payload: .runCommand(RunCommandInput(command: "just test-core", timeoutSeconds: 120))
+          )
+        ),
+        "command_result",
+        [stdoutSentinel, stderrSentinel]
+      ),
+      (
+        ToolResultProjector.project(
+          payload: .webFetch(
+            WebFetchToolResult(
+              url: "https://example.com/article",
+              provider: .builtIn,
+              finalURL: "https://example.com/article",
+              statusCode: 200,
+              contentType: "text/html",
+              content: ToolTextOutput(text: "<main>\(webSentinel)</main>"),
+              byteCount: 128
+            )),
+          request: request(
+            toolName: .webFetch,
+            payload: .webFetch(WebFetchInput(url: "https://example.com/article"))
+          )
+        ),
+        "web_fetch",
+        [webSentinel]
+      ),
+      (
+        ToolResultProjector.project(
+          payload: .workspaceDiff(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "Sources/App.swift"),
+              content: ToolTextOutput(text: "diff --git\n+\(diffSentinel)\n")
+            )),
+          request: request(
+            toolName: .workspaceDiff,
+            payload: .workspaceDiff(WorkspaceDiffInput(path: "Sources/App.swift"))
+          )
+        ),
+        "workspace_diff",
+        [diffSentinel]
+      ),
+    ]
+
+    for testCase in cases {
+      let rendered = ToolModelObservationRenderer.render(testCase.projection, callID: UUID())
+      let hybrid = try hybridToolResult(rendered)
+      #expect(hybrid.json["kind"] as? String == testCase.kind)
+      #expect(hybrid.json["result_kind"] == nil)
+      for sentinel in testCase.sentinels {
+        #expect(hybrid.jsonText.contains(sentinel) == false)
+        #expect(hybrid.content.contains(sentinel))
+      }
+    }
+  }
+
+  @Test
+  func duplicateListFilesRendersHybridReplayWithEntriesAndNoPreviousCallID() {
+    let previousCallID = UUID()
+    let duplicateCallID = UUID()
+    let listRequest = request(
+      toolName: .listFiles,
+      payload: .listFiles(ListFilesInput(path: "."))
+    )
+    let listProjection = ToolResultProjector.project(
+      payload: .listFiles(
+        ListFilesResult(
+          root: WorkspaceRelativePath(rawValue: "."),
+          entries: [
+            WorkspaceFileEntry(path: WorkspaceRelativePath(rawValue: ".gitignore"), kind: .file),
+            WorkspaceFileEntry(
+              path: WorkspaceRelativePath(rawValue: "snake_game"),
+              kind: .directory
+            ),
+          ]
+        )),
+      request: listRequest
+    )
+    let duplicateProjection = ToolResultProjector.project(
+      payload: .duplicateToolCall(
+        DuplicateToolCallResult(
+          previousCallID: previousCallID,
+          message:
+            "Duplicate of \(RuntimeToolCallID.string(for: previousCallID)): identical list_files already completed in this turn; not re-executed. Previous result is replayed below.",
+          replayedObservation: listProjection.observation
+        )),
+      request: listRequest
+    )
+
+    let rendered = ToolModelObservationRenderer.render(duplicateProjection, callID: duplicateCallID)
+
+    #expect(rendered.contains("\"kind\": \"duplicate_replay\""))
+    #expect(rendered.contains("\"duplicate\": true"))
+    #expect(rendered.contains("\"not_reexecuted\": true"))
+    #expect(rendered.contains("\"replayed_result_kind\": \"listing\""))
+    #expect(rendered.contains("\"forbidden_repeat\": true"))
+    #expect(rendered.contains("Duplicate replay: identical list_files already completed"))
+    #expect(rendered.contains("Entries:\n.gitignore\nsnake_game/"))
+    #expect(rendered.contains(RuntimeToolCallID.string(for: previousCallID)) == false)
+    #expect(rendered.contains(duplicateCallID.uuidString) == false)
+  }
+
+  @Test
+  func blockedDuplicateWithholdsContentAndFramesNonSuccessForModel() {
+    let previousCallID = UUID()
+    let duplicateCallID = UUID()
+    let listRequest = request(
+      toolName: .listFiles,
+      payload: .listFiles(ListFilesInput(path: "."))
+    )
+    let duplicateProjection = ToolResultProjector.project(
+      payload: .duplicateToolCall(
+        DuplicateToolCallResult(
+          previousCallID: previousCallID,
+          message:
+            "Duplicate of \(RuntimeToolCallID.string(for: previousCallID)): identical list_files already completed in this turn; not re-executed. The result is not shown again — use the earlier result above, or provide the final answer.",
+          replayedObservation: nil,
+          blocked: true
+        )),
+      request: listRequest
+    )
+
+    // Model-facing observation is framed non-success to break the loop...
+    #expect(duplicateProjection.observation.status == .denied)
+    let rendered = ToolModelObservationRenderer.render(duplicateProjection, callID: duplicateCallID)
+    #expect(rendered.contains("\"ok\": false"))
+    #expect(rendered.contains("\"status\": \"denied\""))
+    #expect(rendered.contains("\"forbidden_repeat\": true"))
+    #expect(rendered.contains("\"duplicate\": true"))
+    // ...with the replayed listing content withheld.
+    #expect(rendered.contains("Entries:") == false)
+    #expect(rendered.contains(".gitignore") == false)
+  }
+
+  @Test
+  func duplicateReplayMetadataDoesNotDependOnSummaryMessage() throws {
+    let previousCallID = UUID()
+    let listRequest = request(
+      toolName: .listFiles,
+      payload: .listFiles(ListFilesInput(path: "."))
+    )
+    let listProjection = ToolResultProjector.project(
+      payload: .listFiles(
+        ListFilesResult(
+          root: WorkspaceRelativePath(rawValue: "."),
+          entries: [
+            WorkspaceFileEntry(path: WorkspaceRelativePath(rawValue: "README.md"), kind: .file)
+          ]
+        )),
+      request: listRequest
+    )
+    let duplicateProjection = ToolResultProjector.project(
+      payload: .duplicateToolCall(
+        DuplicateToolCallResult(
+          previousCallID: previousCallID,
+          message: "Already completed.",
+          replayedObservation: listProjection.observation
+        )),
+      request: listRequest
+    )
+
+    let hybrid = try hybridToolResult(
+      ToolModelObservationRenderer.render(duplicateProjection, callID: UUID())
+    )
+
+    #expect(hybrid.json["kind"] as? String == "duplicate_replay")
+    #expect(hybrid.json["duplicate"] as? Bool == true)
+    #expect(hybrid.json["not_reexecuted"] as? Bool == true)
+    #expect(hybrid.json["forbidden_repeat"] as? Bool == true)
+    #expect(hybrid.json["replayed_result_kind"] as? String == "listing")
+    #expect(hybrid.content.contains("Already completed."))
+  }
+
+  @Test
+  func duplicateReplayWithoutReplayedObservationOmitsReplayedKind() throws {
+    let duplicateProjection = ToolResultProjector.project(
+      payload: .duplicateToolCall(
+        DuplicateToolCallResult(
+          previousCallID: UUID(),
+          message: "Already completed.",
+          affectedPaths: [WorkspaceRelativePath(rawValue: ".")]
+        )),
+      request: request(toolName: .listFiles, payload: .listFiles(ListFilesInput(path: ".")))
+    )
+
+    let hybrid = try hybridToolResult(
+      ToolModelObservationRenderer.render(duplicateProjection, callID: UUID())
+    )
+
+    #expect(hybrid.json["kind"] as? String == "duplicate_replay")
+    #expect(hybrid.json["duplicate"] as? Bool == true)
+    #expect(hybrid.json["not_reexecuted"] as? Bool == true)
+    #expect(hybrid.json["forbidden_repeat"] as? Bool == true)
+    #expect(hybrid.json["replayed_result_kind"] == nil)
+  }
+
+  @Test
   func writeAndEditUseCompactReceipts() {
     let writeProjection = ToolResultProjector.project(
       payload: .writeFile(
@@ -179,11 +446,14 @@ struct ToolResultProjectorTests {
           ]))
       )
     )
-    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
+    let rendered = ToolModelObservationRenderer.render(projection, callID: UUID())
 
     #expect(
       projection.display == .summary(status: .success, text: "Plan updated.", affectedPaths: []))
-    #expect(rendered == "Plan updated.")
+    #expect(rendered.contains("TOOL_RESULT_JSON:"))
+    #expect(rendered.contains("\"tool\": \"todo_write\""))
+    #expect(rendered.contains("\"kind\": \"plan_update\""))
+    #expect(rendered.contains("CONTENT:\nPlan updated."))
     #expect(!rendered.contains("Inspect files"))
   }
 
@@ -215,6 +485,9 @@ struct ToolResultProjectorTests {
     #expect(rendered.contains("Exit code: 1"))
     #expect(rendered.contains("Stdout preview:\nbuild started"))
     #expect(rendered.contains("Stderr preview:\nTests failed"))
+    #expect(rendered.contains("Command failed."))
+    #expect(rendered.contains("Do not report the requested task as complete"))
+    #expect(rendered.contains("Do not infer workspace state from this failure alone"))
   }
 
   @Test
@@ -269,7 +542,7 @@ struct ToolResultProjectorTests {
       )
     )
 
-    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
+    let rendered = ToolModelObservationRenderer.render(projection, callID: UUID())
     #expect(rendered.contains("Sources/App.code:7:2: error: broken"))
     #expect(!rendered.contains("stdout"))
     #expect(!rendered.contains("stderr"))
@@ -559,10 +832,7 @@ struct ToolResultProjectorTests {
     #expect(!context.content.contains(fullContent))
     #expect(
       context.content
-        != ToolModelObservationRenderer.render(
-          projection.observation,
-          callID: callID
-        ))
+        != ToolModelObservationRenderer.render(projection, callID: callID))
   }
 
   @Test
@@ -588,7 +858,7 @@ struct ToolResultProjectorTests {
       )
     )
 
-    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
+    let rendered = ToolModelObservationRenderer.render(projection, callID: UUID())
     #expect(rendered.contains("old_text was not found in pong.py"))
     #expect(rendered.contains("Do not retry edit_file from memory"))
     #expect(rendered.contains("First call read_file(path: \"pong.py\")"))
@@ -626,7 +896,7 @@ struct ToolResultProjectorTests {
       )
     )
 
-    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
+    let rendered = ToolModelObservationRenderer.render(projection, callID: UUID())
     #expect(rendered.contains("Current file excerpt (truncated):"))
     #expect(rendered.contains("[tool observation truncated]"))
     #expect(rendered.count < longContent.count)
@@ -672,13 +942,22 @@ struct ToolResultProjectorTests {
     #expect(text == result.previewText)
     #expect(affectedPaths == [WorkspaceRelativePath(rawValue: ".")])
     #expect(projection.observation.status == expectedStatus)
-    #expect(projection.observation.blocks == [.commandResult(result)])
+    switch expectedStatus {
+    case .success:
+      #expect(projection.observation.blocks == [.commandResult(result)])
+    case .failed:
+      #expect(projection.observation.blocks.first == .commandResult(result))
+      #expect(projection.observation.blocks.containsFailure)
+    case .denied:
+      Issue.record("run_command projections should not be denied.")
+    }
 
-    let rendered = ToolModelObservationRenderer.render(projection.observation, callID: UUID())
-    #expect(
-      rendered.contains(
-        "tool=\"run_command\" status=\"\(expectedStatus.rawValue)\""
-      ))
+    let rendered = ToolModelObservationRenderer.render(projection, callID: UUID())
+    #expect(rendered.contains("TOOL_RESULT_JSON:"))
+    #expect(rendered.contains("\"tool\": \"run_command\""))
+    #expect(rendered.contains("\"status\": \"\(expectedStatus.rawValue)\""))
+    #expect(rendered.contains("\"kind\": \"command_result\""))
+    #expect(rendered.contains("CONTENT:\nCommand: \(result.command)"))
     return rendered
   }
 
@@ -698,6 +977,48 @@ struct ToolResultProjectorTests {
       cancelled: cancelled
     )
   }
+
+  private func hybridToolResult(_ rendered: String) throws -> HybridToolResult {
+    #expect(occurrenceCount("TOOL_RESULT_JSON:", in: rendered) == 1)
+    #expect(occurrenceCount("CONTENT:", in: rendered) == 1)
+
+    guard let jsonMarkerRange = rendered.range(of: "TOOL_RESULT_JSON:\n") else {
+      Issue.record("Expected TOOL_RESULT_JSON marker.")
+      throw HybridToolResultParseError.missingJSONMarker
+    }
+    let remainder = rendered[jsonMarkerRange.upperBound...]
+    guard let contentMarkerRange = remainder.range(of: "\n\nCONTENT:\n") else {
+      Issue.record("Expected CONTENT marker.")
+      throw HybridToolResultParseError.missingContentMarker
+    }
+
+    let jsonText = String(remainder[..<contentMarkerRange.lowerBound])
+    let content = String(remainder[contentMarkerRange.upperBound...])
+    let data = Data(jsonText.utf8)
+    let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    return HybridToolResult(json: json, jsonText: jsonText, content: content)
+  }
+
+  private func occurrenceCount(_ needle: String, in haystack: String) -> Int {
+    var count = 0
+    var searchRange = haystack.startIndex..<haystack.endIndex
+    while let range = haystack.range(of: needle, range: searchRange) {
+      count += 1
+      searchRange = range.upperBound..<haystack.endIndex
+    }
+    return count
+  }
+}
+
+private struct HybridToolResult {
+  var json: [String: Any]
+  var jsonText: String
+  var content: String
+}
+
+private enum HybridToolResultParseError: Error {
+  case missingJSONMarker
+  case missingContentMarker
 }
 
 extension [ToolObservationBlock] {

@@ -49,9 +49,6 @@ nonisolated extension ToolDefinition {
         isRequired: true
       )
     ],
-    exampleArguments: [
-      "outputRef": .string("cmd_abc123")
-    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )

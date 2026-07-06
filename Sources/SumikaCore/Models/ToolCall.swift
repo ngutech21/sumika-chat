@@ -504,6 +504,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   public var request: ToolCallRequest
   public var evaluation: ToolPermissionEvaluation
   public var state: ToolCallState
+  public var modelFollowUpNotice: String?
 
   public var status: ToolCallStatus {
     state.status
@@ -524,17 +525,20 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   public init(
     request: ToolCallRequest,
     evaluation: ToolPermissionEvaluation,
-    state: ToolCallState
+    state: ToolCallState,
+    modelFollowUpNotice: String? = nil
   ) {
     self.request = request
     self.evaluation = evaluation
     self.state = state
+    self.modelFollowUpNotice = modelFollowUpNotice
   }
 
   private enum CodingKeys: String, CodingKey {
     case request
     case evaluation
     case state
+    case modelFollowUpNotice
   }
 
   public init(from decoder: Decoder) throws {
@@ -550,6 +554,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
       )
     )
     state = try container.decodeIfPresent(ToolCallState.self, forKey: .state, default: .pending)
+    modelFollowUpNotice = try container.decodeIfPresent(String.self, forKey: .modelFollowUpNotice)
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -557,6 +562,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
     try container.encode(request, forKey: .request)
     try container.encode(evaluation, forKey: .evaluation)
     try container.encode(state, forKey: .state)
+    try container.encodeIfPresent(modelFollowUpNotice, forKey: .modelFollowUpNotice)
   }
 }
 
@@ -651,8 +657,34 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case browserInspect(BrowserInspectResult)
   case webSearch(WebSearchToolResult)
   case webFetch(WebFetchToolResult)
+  case duplicateToolCall(DuplicateToolCallResult)
   case invalidTool(InvalidToolResult)
   case failure(ToolFailure)
+}
+
+public struct DuplicateToolCallResult: Codable, Equatable, Sendable {
+  public var previousCallID: UUID
+  public var message: String
+  public var affectedPaths: [WorkspaceRelativePath]
+  public var replayedObservation: ToolModelObservation?
+  /// True from the 2nd consecutive identical duplicate: the replayed content is
+  /// withheld and the model-facing observation is framed as non-success to break
+  /// the loop. The persisted/UI preview stays a benign "duplicate replay".
+  public var blocked: Bool
+
+  public init(
+    previousCallID: UUID,
+    message: String,
+    affectedPaths: [WorkspaceRelativePath] = [],
+    replayedObservation: ToolModelObservation? = nil,
+    blocked: Bool = false
+  ) {
+    self.previousCallID = previousCallID
+    self.message = message
+    self.affectedPaths = affectedPaths
+    self.replayedObservation = replayedObservation
+    self.blocked = blocked
+  }
 }
 
 public struct WorkspaceDiagnostic: Codable, Equatable, Sendable {
@@ -917,6 +949,12 @@ nonisolated extension ToolResultPayload {
       return result.preview
     case .webFetch(let result):
       return result.preview
+    case .duplicateToolCall(let result):
+      return ToolResultPreview(
+        status: .success,
+        text: result.message,
+        affectedPaths: result.affectedPaths.map(\.rawValue)
+      )
     case .invalidTool(let result):
       return ToolResultPreview(
         status: .failed,

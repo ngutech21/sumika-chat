@@ -64,7 +64,11 @@ struct ModelManagementTests {
       withIntermediateDirectories: true
     )
     try "not json".write(to: settingsURL, atomically: true, encoding: .utf8)
-    let store = ModelSettingsStore(userDefaults: makeUserDefaults(), settingsURL: settingsURL)
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: settingsURL,
+      generationConfigPresetProvider: { _ in nil }
+    )
 
     let settings = await store.settings(for: ManagedModelCatalog.defaultModel)
 

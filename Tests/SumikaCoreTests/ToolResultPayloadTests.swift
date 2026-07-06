@@ -6,6 +6,8 @@ import Testing
 struct ToolResultPayloadTests {
   @Test
   func toolResultPayloadCodableRoundTripsBuiltInResults() throws {
+    let duplicatePreviousCallID = try #require(
+      UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
     let payloads: [ToolResultPayload] = [
       .readFile(
         .success(
@@ -35,6 +37,22 @@ struct ToolResultPayloadTests {
           stderr: ToolTextOutput(text: "failed")
         )),
       .todoWrite(.success),
+      .duplicateToolCall(
+        DuplicateToolCallResult(
+          previousCallID: duplicatePreviousCallID,
+          message: "Duplicate of call_old.",
+          affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")],
+          replayedObservation: ToolModelObservation.success(
+            toolName: .readFile,
+            affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")],
+            blocks: [
+              .fileContent(
+                path: WorkspaceRelativePath(rawValue: "README.md"),
+                content: ToolTextOutput(text: "1: hello", truncated: true)
+              )
+            ]
+          )
+        )),
       .invalidTool(
         InvalidToolResult(
           originalName: "deploy",
@@ -81,6 +99,32 @@ struct ToolResultPayloadTests {
     )
 
     #expect(decoded == payloads)
+  }
+
+  @Test
+  func duplicateBlockedFlagRoundTrips() throws {
+    let blocked = DuplicateToolCallResult(
+      previousCallID: try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000002")),
+      message: "Duplicate of call_old.",
+      blocked: true
+    )
+    let decoded = try JSONDecoder().decode(
+      DuplicateToolCallResult.self, from: JSONEncoder().encode(blocked))
+    #expect(decoded == blocked)
+    #expect(decoded.blocked)
+  }
+
+  @Test
+  func blockedDuplicatePreviewStaysBenignSuccess() {
+    let payload = ToolResultPayload.duplicateToolCall(
+      DuplicateToolCallResult(
+        previousCallID: UUID(),
+        message: "Duplicate of call_old.",
+        replayedObservation: nil,
+        blocked: true
+      ))
+    // The persisted/UI preview must not look like a tool failure.
+    #expect(payload.preview.status == .success)
   }
 
   @Test
@@ -140,6 +184,23 @@ struct ToolResultPayloadTests {
     #expect(preview.status == .success)
     #expect(preview.text == "Plan updated.")
     #expect(preview.affectedPaths.isEmpty)
+  }
+
+  @Test
+  func duplicateToolCallPreviewReferencesPreviousResult() {
+    let previousCallID = UUID()
+    let payload = ToolResultPayload.duplicateToolCall(
+      DuplicateToolCallResult(
+        previousCallID: previousCallID,
+        message: "Duplicate of \(RuntimeToolCallID.string(for: previousCallID)).",
+        affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")]
+      ))
+
+    let preview = payload.preview
+
+    #expect(preview.status == .success)
+    #expect(preview.text.contains(RuntimeToolCallID.string(for: previousCallID)))
+    #expect(preview.affectedPaths == ["README.md"])
   }
 
   @Test

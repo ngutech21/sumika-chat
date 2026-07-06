@@ -40,11 +40,26 @@ struct ToolTurnResumeCoordinator {
       interactionMode: callbacks.session().interactionMode,
       selectedModel: runtime.selectedModel
     )
+    let stableInstructions = stableInstructions(
+      toolProfile: toolProfile,
+      runtime: runtime,
+      callbacks: callbacks
+    )
+    // run_command is excluded from read-only dedup, so a small model can loop re-proposing
+    // an identical failing command. When the same command fails twice in a row, force a
+    // tools-free final generation that escalates to the user instead of looping.
+    let priorTurnItems =
+      callbacks.session().turns.first { $0.id == turnID }?.items ?? []
+    let forceFinal = RunCommandRepeatPolicy.forcesFinalAfterRepeatedFailure(
+      approvedRecord,
+      priorItems: priorTurnItems
+    )
     let resumeResult = toolResumeCoordinator.approvedToolResult(
       record: approvedRecord,
       focusedFileState: callbacks.session().focusedFileState,
       turnID: turnID,
-      toolProfile: toolProfile
+      toolProfile: toolProfile,
+      forceFinal: forceFinal
     )
 
     guard approvedRecord.status == .completed else {
@@ -59,6 +74,11 @@ struct ToolTurnResumeCoordinator {
     }
 
     callbacks.emitEvents(resumeResult.events)
+    executionCoordinator.applyToolFollowUpNoticeIfNeeded(
+      toolPromptMode: promptMode,
+      turnID: turnID,
+      callbacks: callbacks
+    )
     callbacks.notifySessionDidChange()
     executionCoordinator.appendFinalToolFollowUpBoundaryIfNeeded(
       toolPromptMode: promptMode,
@@ -72,10 +92,14 @@ struct ToolTurnResumeCoordinator {
       isActive: isActive,
       interactionMode: callbacks.session().interactionMode,
       toolPromptMode: promptMode,
+      stableInstructions: stableInstructions,
       turnID: turnID,
       toolLoopIteration: 1
     )
-    if !toolResumeCoordinator.isFinalApprovedToolFollowUp(approvedRecord) {
+    if forceFinal || toolResumeCoordinator.isFinalApprovedToolFollowUp(approvedRecord) {
+      try executionCoordinator.requireVisibleFinalResponse(generationResult)
+    } else {
+      try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
       let shouldComplete = try await executionCoordinator.runToolLoop(
         workspace: workspace,
         sessionID: existingRecord.request.sessionID,
@@ -86,6 +110,7 @@ struct ToolTurnResumeCoordinator {
         callbacks: callbacks,
         isActive: isActive,
         finishTurn: finishTurn,
+        stableInstructions: stableInstructions,
         remainingIterations: maxToolLoopIterations - 1,
         lastNativeToolCalls: generationResult.nativeToolCalls
       )
@@ -118,9 +143,25 @@ struct ToolTurnResumeCoordinator {
     }
 
     callbacks.emitEvents(resumeResult.events)
+    executionCoordinator.applyToolFollowUpNoticeIfNeeded(
+      toolPromptMode: promptMode,
+      turnID: turnID,
+      callbacks: callbacks
+    )
     callbacks.refreshContextUsage(promptMode)
     callbacks.notifySessionDidChange()
 
+    let toolProfile = executionCoordinator.activeToolProfile(
+      workspace: workspace,
+      sessionID: existingRecord.request.sessionID,
+      interactionMode: callbacks.session().interactionMode,
+      selectedModel: runtime.selectedModel
+    )
+    let stableInstructions = stableInstructions(
+      toolProfile: toolProfile,
+      runtime: runtime,
+      callbacks: callbacks
+    )
     let generationResult = try await executionCoordinator.streamAssistantReply(
       to: nextAssistantMessageID,
       runtime: runtime,
@@ -128,9 +169,11 @@ struct ToolTurnResumeCoordinator {
       isActive: isActive,
       interactionMode: callbacks.session().interactionMode,
       toolPromptMode: promptMode,
+      stableInstructions: stableInstructions,
       turnID: turnID,
       toolLoopIteration: 1
     )
+    try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
     let shouldComplete = try await executionCoordinator.runToolLoop(
       workspace: workspace,
       sessionID: existingRecord.request.sessionID,
@@ -141,6 +184,7 @@ struct ToolTurnResumeCoordinator {
       callbacks: callbacks,
       isActive: isActive,
       finishTurn: finishTurn,
+      stableInstructions: stableInstructions,
       remainingIterations: maxToolLoopIterations - 1,
       lastNativeToolCalls: generationResult.nativeToolCalls
     )
@@ -167,6 +211,11 @@ struct ToolTurnResumeCoordinator {
     }
 
     callbacks.emitEvents(resumeResult.events)
+    executionCoordinator.applyToolFollowUpNoticeIfNeeded(
+      toolPromptMode: promptMode,
+      turnID: turnID,
+      callbacks: callbacks
+    )
     executionCoordinator.appendFinalToolFollowUpBoundaryIfNeeded(
       toolPromptMode: promptMode,
       turnID: turnID,
@@ -175,16 +224,36 @@ struct ToolTurnResumeCoordinator {
     callbacks.refreshContextUsage(promptMode)
     callbacks.notifySessionDidChange()
 
-    _ = try await executionCoordinator.streamAssistantReply(
+    let stableInstructions = stableInstructions(
+      toolProfile: callbacks.session().interactionMode == .chat ? .chatWeb : .agent,
+      runtime: runtime,
+      callbacks: callbacks
+    )
+    let generationResult = try await executionCoordinator.streamAssistantReply(
       to: nextAssistantMessageID,
       runtime: runtime,
       callbacks: callbacks,
       isActive: isActive,
       interactionMode: callbacks.session().interactionMode,
       toolPromptMode: promptMode,
+      stableInstructions: stableInstructions,
       turnID: turnID,
       toolLoopIteration: 1
     )
+    try executionCoordinator.requireVisibleFinalResponse(generationResult)
     return .complete
+  }
+
+  private func stableInstructions(
+    toolProfile: ToolExecutionProfile,
+    runtime: ChatTurnRuntimeContext,
+    callbacks: ChatTurnCallbacks
+  ) -> String {
+    executionCoordinator.systemPrompt(
+      session: callbacks.session(),
+      selectedModel: runtime.selectedModel,
+      toolLoopCoordinator: runtime.toolLoopCoordinator,
+      toolPromptMode: executionCoordinator.toolPromptMode(for: toolProfile)
+    )
   }
 }

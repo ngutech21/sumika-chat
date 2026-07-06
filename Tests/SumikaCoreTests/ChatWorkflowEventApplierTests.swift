@@ -122,7 +122,8 @@ struct ChatWorkflowEventApplierTests {
     #expect(items[0].toolResultForTesting(records: state.toolCalls) == result)
     #expect(state.turns[0].items == [.tool(state.toolCalls[0])])
     #expect(state.turnID(containingToolCall: result.callID) == turnID)
-    #expect(state.modelContextSnapshot.entries[0].sourceMessageID == result.callID)
+    let projection = ChatModelContextBuilder().transcript(from: state)
+    #expect(projection.entries.last?.sourceMessageID == result.callID)
   }
 
   @Test
@@ -144,15 +145,10 @@ struct ChatWorkflowEventApplierTests {
   }
 
   @Test
-  func appendsTurnUserMessageModelContextAndStreamingAssistantUpdates() throws {
+  func appendsTurnUserMessagePromptContextAndStreamingAssistantUpdates() throws {
     let turnID = UUID()
     let userMessageID = UUID()
     let assistantMessageID = UUID()
-    let modelContextEntry = try ModelFacingPromptRenderer.userPromptEntry(
-      turnID: turnID,
-      sourceMessageID: userMessageID,
-      prompt: "say hello"
-    )
     let metrics = ChatGenerationMetrics(
       generatedTokenCount: 2,
       tokensPerSecond: 20,
@@ -167,9 +163,9 @@ struct ChatWorkflowEventApplierTests {
           content: "say hello",
           messageID: userMessageID,
           turnID: turnID,
-          attachments: []
+          attachments: [],
+          promptContext: .empty(.focusedFileDefault)
         ),
-        .modelContextEntryAppended(modelContextEntry),
         .assistantPlaceholderAppended(messageID: assistantMessageID, turnID: turnID),
         .assistantChunkAppended(chunk: "hello", messageID: assistantMessageID),
         .assistantGenerationCompleted(messageID: assistantMessageID, metrics: metrics),
@@ -184,7 +180,9 @@ struct ChatWorkflowEventApplierTests {
     #expect(items[1].contentForTesting == "hello")
     #expect(items[1].deliveryStatusForTesting == .complete)
     #expect(items[1].generationMetricsForTesting == metrics)
-    #expect(state.modelContextSnapshot.entries == [modelContextEntry])
+    let projection = ChatModelContextBuilder().transcript(from: state)
+    #expect(projection.entries.map(\.sourceMessageID) == [userMessageID, assistantMessageID])
+    #expect(projection.entries.map(\.frozenContent.role) == [.user, .assistant])
   }
 
   @Test
@@ -206,7 +204,6 @@ struct ChatWorkflowEventApplierTests {
       to: &state
     )
 
-    #expect(state.modelContextSnapshot.entries.isEmpty)
     #expect(state.turns[0].items.map(\.messageID) == [thinkingID, assistantID])
     guard case .assistantThinking(let thinkingMessage) = state.turns[0].items[0] else {
       Issue.record("Expected assistant thinking item.")
@@ -215,24 +212,40 @@ struct ChatWorkflowEventApplierTests {
     #expect(thinkingMessage.content == "Inspecting the prompt.")
     #expect(thinkingMessage.deliveryStatus == .complete)
     #expect(state.turns[0].items[1].contentForTesting == "Visible answer.")
+    let projection = ChatModelContextBuilder().transcript(from: state)
+    #expect(projection.entries.map(\.frozenContent.role) == [.assistant])
+    #expect(projection.entries[0].frozenContent.content == "Visible answer.")
   }
 
   @Test
-  func finalToolResultFollowUpBoundaryDoesNotAppendSyntheticUserPrompt() {
+  func modelProjectionDoesNotAppendSyntheticUserPromptAfterToolResult() {
     let turnID = UUID()
-    let content = "Provide a brief final response based on the preceding tool result."
-    var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
+    let record = makeToolCallRecord(status: .completed)
+    let state = makeState(
+      turns: [
+        ChatTurn(
+          id: turnID,
+          status: .running,
+          items: [
+            .userMessage(UserTurnMessage(content: "read README.md")),
+            .tool(record),
+          ]
+        )
+      ])
 
-    ChatWorkflowEventApplier().apply(
-      .finalToolResultFollowUpBoundaryAppended(content: content, turnID: turnID),
-      to: &state
-    )
+    let projection = ChatModelContextBuilder().transcript(from: state)
 
-    #expect(state.modelContextSnapshot.entries.isEmpty)
+    let userPrompts = projection.entries.compactMap { entry -> String? in
+      guard case .userPrompt(let context) = entry.body else {
+        return nil
+      }
+      return context.prompt
+    }
+    #expect(userPrompts == ["read README.md"])
   }
 
   @Test
-  func appendsDirectAssistantMessageAndModelContextSummary() {
+  func appendsDirectAssistantMessage() {
     let turnID = UUID()
     let messageID = UUID()
     var state = makeState(turns: [ChatTurn(id: turnID, status: .running)])
@@ -241,7 +254,9 @@ struct ChatWorkflowEventApplierTests {
       [
         .assistantMessageAppended(
           content: "Here is `README.md`:\n\n    1: project notes",
-          modelContextContent: "Displayed show_file result for README.md directly to the user.",
+          modelProjectionPolicy: .override(
+            "Displayed show_file result for README.md directly to the user."
+          ),
           messageID: messageID,
           turnID: turnID
         )
@@ -254,10 +269,18 @@ struct ChatWorkflowEventApplierTests {
     #expect(items[0].kindForTesting == .assistant)
     #expect(items[0].contentForTesting.contains("1: project notes"))
     #expect(items[0].deliveryStatusForTesting == .complete)
-    #expect(state.turns[0].items == items)
-    #expect(state.modelContextSnapshot.entries.map(\.frozenContent.role) == [.assistant])
+    guard case .assistantMessage(let message) = items[0] else {
+      Issue.record("Expected assistant message.")
+      return
+    }
     #expect(
-      state.modelContextSnapshot.entries[0].frozenContent.content
+      message.modelProjectionPolicy
+        == .override("Displayed show_file result for README.md directly to the user."))
+    #expect(state.turns[0].items == items)
+    let projection = ChatModelContextBuilder().transcript(from: state)
+    #expect(projection.entries.map(\.frozenContent.role) == [.assistant])
+    #expect(
+      projection.entries[0].frozenContent.content
         == "Displayed show_file result for README.md directly to the user.")
   }
 

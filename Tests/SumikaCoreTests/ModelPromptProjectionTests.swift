@@ -3,7 +3,7 @@ import Testing
 
 @testable import SumikaCore
 
-struct ModelContextSnapshotTests {
+struct ModelPromptProjectionTests {
   @Test
   func entryInitRejectsRoleBodyMismatch() {
     #expect(throws: ModelContextEntryError.roleMismatch(expected: .user, actual: .assistant)) {
@@ -173,14 +173,14 @@ struct ModelContextSnapshotTests {
   }
 
   @Test
-  func chatSessionDecodeDefaultsMissingModelContextSnapshot() throws {
+  func chatSessionEncodingDoesNotPersistModelPromptProjection() throws {
     let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
-      modelContextSnapshot: ModelContextSnapshot(
-        entries: [
-          try ModelFacingPromptRenderer.userPromptEntry(prompt: "summarize the file")
-        ]
-      ),
+      turns: [
+        ChatTurn(
+          status: .completed,
+          items: [.userMessage(UserTurnMessage(content: "summarize the file"))])
+      ],
       modeSettings: testModeSettings(
         systemPrompt: "Fallback prompt should not rewrite frozen history.",
         generationSettings: .agentDefault
@@ -188,72 +188,63 @@ struct ModelContextSnapshotTests {
     )
     let data = try JSONEncoder().encode(session)
     var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    object.removeValue(forKey: "modelContextSnapshot")
-    let legacyData = try JSONSerialization.data(withJSONObject: object)
+    #expect(object["modelContextSnapshot"] == nil)
+    object["modelContextSnapshot"] = ["entries": []]
+    let dataWithIgnoredSnapshot = try JSONSerialization.data(withJSONObject: object)
 
-    let decoded = try JSONDecoder().decode(ChatSession.self, from: legacyData)
-    #expect(decoded.modelContextSnapshot == ModelContextSnapshot())
+    let decoded = try JSONDecoder().decode(ChatSession.self, from: dataWithIgnoredSnapshot)
+    #expect(decoded.turns == session.turns)
   }
 
   @Test
   func finalToolResultFollowUpDoesNotAppendSyntheticUserPrompt() throws {
     let turnID = UUID()
     let callID = UUID()
-    let mutator = ChatTranscriptMutator()
-    var state = ChatSession.defaultSession
-    mutator.appendModelContextEntry(
-      try ModelFacingPromptRenderer.userPromptEntry(
-        turnID: turnID,
-        prompt: "create movies.html",
-        systemContext: ["Tools are available."]
+    let request = ToolCallRequest.validated(
+      raw: RawToolCallRequest(
+        id: callID,
+        workspaceID: UUID(),
+        sessionID: UUID(),
+        toolName: .writeFile
       ),
-      to: &state
+      payload: .writeFile(WriteFileInput(path: "movies.html", content: "movies.html written"))
     )
-    mutator.appendModelContextEntry(
-      try ModelFacingPromptRenderer.assistantOutputEntry(
-        turnID: turnID,
-        content: "Tool call write_file requested."
+    let record = ToolCallRecord(
+      request: request,
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Allowed in test.",
+        riskLevel: .low
       ),
-      to: &state
+      state: .completed(
+        .writeFile(
+          .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 18)
+        ))
     )
-    mutator.appendModelContextEntry(
-      try ModelFacingPromptRenderer.toolResultEntry(
-        turnID: turnID,
-        toolResult: ToolResultModelMessage(
-          callID: callID,
-          toolName: .writeFile,
-          payload: .writeFile(
-            .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 18)
-          )
-        ),
-        request: ToolCallRequest.validated(
-          raw: RawToolCallRequest(
-            id: callID,
-            workspaceID: UUID(),
-            sessionID: UUID(),
-            toolName: .writeFile
-          ),
-          payload: .writeFile(WriteFileInput(path: "movies.html", content: "movies.html written"))
-        ),
-        originalUserRequest: nil
-      ),
-      to: &state
+    let state = ChatSession(
+      turns: [
+        ChatTurn(
+          id: turnID,
+          status: .completed,
+          items: [
+            .userMessage(
+              UserTurnMessage(
+                content: "create movies.html",
+                promptContext: .empty(.focusedFileDefault)
+              )),
+            .assistantMessage(AssistantTurnMessage(content: "Tool call write_file requested.")),
+            .tool(record),
+          ])
+      ]
     )
 
-    let followUpInstruction =
-      "Provide a brief final response based on the preceding tool result."
-    mutator.appendFinalToolResultFollowUpBoundary(
-      followUpInstruction,
-      turnID: turnID,
-      to: &state
-    )
-
+    let projection = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
     #expect(
-      state.modelContextSnapshot.entries.map(\.frozenContent.role) == [
+      projection.entries.map(\.frozenContent.role) == [
         .user, .assistant, .tool,
       ])
     let terminalEntry = try #require(
-      state.modelContextSnapshot.entries.first { entry in
+      projection.entries.first { entry in
         if case .terminalToolResult = entry.body {
           return true
         }
@@ -266,15 +257,92 @@ struct ModelContextSnapshotTests {
     #expect(terminalContext.toolName == .writeFile)
     #expect(terminalContext.content.contains("Summary: Wrote 18 bytes to movies.html."))
 
-    #expect(state.modelContextSnapshot.entries.count == 3)
+    #expect(projection.entries.count == 3)
     #expect(
-      state.modelContextSnapshot.entries.contains { entry in
+      projection.entries.contains { entry in
         if case .userPrompt(let context) = entry.body {
-          return context.prompt == followUpInstruction
+          return context.prompt
+            == "Provide a brief final response based on the preceding tool result."
         }
         return false
       } == false
     )
+  }
+
+  @Test
+  func duplicateToolObservationUsesNewCallIDAndOmitsPreviousCallIDFromContent() throws {
+    let previousCallID = UUID()
+    let duplicateCallID = UUID()
+    let previousCallIDString = RuntimeToolCallID.string(for: previousCallID)
+    let entry = try ModelFacingPromptRenderer.toolResultEntry(
+      toolResult: ToolResultModelMessage(
+        callID: duplicateCallID,
+        toolName: .readFile,
+        payload: .duplicateToolCall(
+          DuplicateToolCallResult(
+            previousCallID: previousCallID,
+            message: "Duplicate of \(previousCallIDString): identical read_file already completed.",
+            affectedPaths: [WorkspaceRelativePath(rawValue: "README.md")]
+          ))
+      ),
+      request: readFileRequest(callID: duplicateCallID),
+      originalUserRequest: nil
+    )
+
+    guard case .toolObservation(let context) = entry.body else {
+      Issue.record("Expected duplicate result to project as a tool observation.")
+      return
+    }
+    #expect(context.callID == duplicateCallID)
+    #expect(context.toolReceipt?.callID == duplicateCallID)
+    #expect(context.content.contains(previousCallIDString) == false)
+    #expect(context.content.contains("\"kind\": \"duplicate_replay\""))
+    #expect(context.toolReceipt?.summary.text.contains(previousCallIDString) == true)
+  }
+
+  @Test
+  func textAndToolCallProjectsSingleAssistantToolBoundary() throws {
+    let turnID = UUID()
+    let callID = UUID()
+    let request = readFileRequest(callID: callID)
+    let record = ToolCallRecord(
+      request: request,
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Allowed in test.",
+        riskLevel: .low
+      ),
+      state: .completed(
+        .readFile(
+          .success(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            content: ToolTextOutput(text: "Project overview")
+          )))
+    )
+    let state = ChatSession(
+      turns: [
+        ChatTurn(
+          id: turnID,
+          status: .running,
+          items: [
+            .userMessage(UserTurnMessage(content: "read README.md")),
+            .assistantMessage(AssistantTurnMessage(content: "I'll inspect README.md.")),
+            .tool(record),
+          ])
+      ]
+    )
+
+    let projection = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
+
+    #expect(projection.entries.map(\.frozenContent.role) == [.user, .assistant, .tool])
+    #expect(projection.entries[1].frozenContent.content == "I'll inspect README.md.")
+    #expect(projection.entries.count == 3)
+    guard case .toolObservation(let context) = projection.entries[2].body else {
+      Issue.record("Expected tool observation after assistant boundary.")
+      return
+    }
+    #expect(context.callID == callID)
+    #expect(context.toolCall?.callID == callID)
   }
 
   @Test
@@ -335,7 +403,7 @@ struct ModelContextSnapshotTests {
     #expect(receipt.summary.text == "Project overview")
     #expect(receipt.outputTruncated)
     #expect(receipt.outputRedacted)
-    #expect(entry.frozenContent.content.contains("<observation"))
+    #expect(entry.frozenContent.content.contains("TOOL_RESULT_JSON:"))
   }
 
   @Test
@@ -359,7 +427,7 @@ struct ModelContextSnapshotTests {
       callID: UUID(),
       content: "Very large file body that should not remain in later history."
     )
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
       try ModelFacingPromptRenderer.assistantOutputEntry(content: "I will read it."),
       toolEntry,
@@ -371,7 +439,7 @@ struct ModelContextSnapshotTests {
 
     #expect(projected[2].content.contains("Tool receipt: read_file"))
     #expect(projected[2].content.contains("Very large file body"))
-    #expect(projected[2].content.contains("<observation") == false)
+    #expect(projected[2].content.contains("TOOL_RESULT_JSON:") == false)
     #expect(projected[4].content.contains("what did you do?"))
   }
 
@@ -381,7 +449,7 @@ struct ModelContextSnapshotTests {
       callID: UUID(),
       content: "Project overview"
     )
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
       try ModelFacingPromptRenderer.assistantOutputEntry(content: "I will read it."),
       toolEntry,
@@ -389,7 +457,7 @@ struct ModelContextSnapshotTests {
 
     let projected = transcript.projectedEntries(mode: .compactedHistoryForLaterTurns)
 
-    #expect(projected[2].content.contains("<observation"))
+    #expect(projected[2].content.contains("TOOL_RESULT_JSON:"))
     #expect(projected[2].content.contains("Project overview"))
     #expect(projected[2].content.contains("Tool receipt:") == false)
   }
@@ -398,7 +466,7 @@ struct ModelContextSnapshotTests {
   func toolObservationEntryFreezesToolObservationOnly() throws {
     let turnID = UUID()
     let callID = UUID()
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
         prompt: "run the smoke test"
@@ -429,7 +497,7 @@ struct ModelContextSnapshotTests {
     #expect(projected.last?.role == .tool)
     #expect(projected.last?.content.contains("Original user request:") == false)
     #expect(projected.last?.content.contains("Assistant tool call:") == false)
-    #expect(projected.last?.content.contains("tool=\"run_command\"") == true)
+    #expect(projected.last?.content.contains("\"tool\": \"run_command\"") == true)
     #expect(projected.last?.content.contains("Tool observation:") == false)
     #expect(projected.last?.content.contains("passed") == true)
   }
@@ -440,7 +508,7 @@ struct ModelContextSnapshotTests {
     let readCallID = UUID()
     let commandCallID = UUID()
     let request = "read the README and run the smoke test"
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
         prompt: request
@@ -488,12 +556,12 @@ struct ModelContextSnapshotTests {
     let firstObservation = try #require(projected[1].content as String?)
     #expect(projected[1].role == .tool)
     #expect(firstObservation.contains("Original user request:") == false)
-    #expect(firstObservation.contains("tool=\"read_file\""))
+    #expect(firstObservation.contains("\"tool\": \"read_file\""))
     #expect(firstObservation.contains("Project overview"))
     let secondObservation = try #require(projected[2].content as String?)
     #expect(projected[2].role == .tool)
     #expect(secondObservation.contains("Original user request:") == false)
-    #expect(secondObservation.contains("tool=\"run_command\""))
+    #expect(secondObservation.contains("\"tool\": \"run_command\""))
     #expect(secondObservation.contains("passed"))
     #expect(secondObservation.contains("Project overview") == false)
   }
@@ -503,13 +571,13 @@ struct ModelContextSnapshotTests {
     let callID = UUID()
     let entry = try readFileToolResultEntry(callID: callID, content: "Project overview")
 
-    #expect(entry.frozenContent.content.contains("<observation"))
+    #expect(entry.frozenContent.content.contains("TOOL_RESULT_JSON:"))
     #expect(entry.frozenContent.content.contains("Project overview"))
     #expect(entry.frozenContent.content.contains("Original user request:") == false)
   }
 
   @Test
-  func finalToolResultFollowUpPreservesToolReceiptMetadata() throws {
+  func terminalToolResultPreservesToolReceiptMetadata() throws {
     let callID = UUID()
     let terminalEntry = try ModelFacingPromptRenderer.toolResultEntry(
       toolResult: ToolResultModelMessage(
@@ -528,17 +596,7 @@ struct ModelContextSnapshotTests {
       return
     }
 
-    let followUpEntry = try ModelFacingPromptRenderer.finalToolResultPromptEntry(
-      terminalToolResult: terminalContext,
-      followUpInstruction: "Provide a brief final response based on the preceding tool result.",
-      originalUserRequest: nil
-    )
-
-    guard case .toolObservation(let context) = followUpEntry.body else {
-      Issue.record("Expected tool observation context.")
-      return
-    }
-    let receipt = try #require(context.toolReceipt)
+    let receipt = try #require(terminalContext.toolReceipt)
     #expect(receipt.callID == callID)
     #expect(receipt.toolName == .writeFile)
     #expect(receipt.summary.text == "Wrote 18 bytes to movies.html.")
@@ -591,7 +649,7 @@ struct ModelContextSnapshotTests {
         ImageAttachmentPayload(mimeType: "image/jpeg", byteSize: 1024, contentSHA256: "abc123")
       )
     )
-    let transcript = ModelContextSnapshot(entries: [
+    let transcript = ModelPromptProjection(entries: [
       try ModelFacingPromptRenderer.userPromptEntry(
         prompt: "what is in the picture",
         attachments: [imageAttachment]
@@ -600,7 +658,7 @@ struct ModelContextSnapshotTests {
     ])
 
     let decoded = try JSONDecoder().decode(
-      ModelContextSnapshot.self,
+      ModelPromptProjection.self,
       from: JSONEncoder().encode(transcript)
     )
 
@@ -613,10 +671,10 @@ struct ModelContextSnapshotTests {
   @Test
   func toolReceiptMetadataCodableRoundTripsInTranscript() throws {
     let entry = try readFileToolResultEntry(callID: UUID(), content: "Project overview")
-    let transcript = ModelContextSnapshot(entries: [entry])
+    let transcript = ModelPromptProjection(entries: [entry])
 
     let decoded = try JSONDecoder().decode(
-      ModelContextSnapshot.self,
+      ModelPromptProjection.self,
       from: JSONEncoder().encode(transcript)
     )
 

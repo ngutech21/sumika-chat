@@ -1314,6 +1314,7 @@ private actor AppStateTestRuntime: ChatModelRuntime {
   private var streamReplyCount = 0
   private(set) var capturedSystemPrompts: [String] = []
   private(set) var capturedToolContexts: [ChatRuntimeToolContext?] = []
+  private(set) var capturedPromptPlans: [ChatRuntimePromptPlan] = []
 
   init(eventTurns: [[ChatModelStreamEvent]] = []) {
     self.turns = eventTurns
@@ -1331,7 +1332,7 @@ private actor AppStateTestRuntime: ChatModelRuntime {
   func clearContext() async {}
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings
@@ -1345,7 +1346,7 @@ private actor AppStateTestRuntime: ChatModelRuntime {
   }
 
   func streamReply(
-    for transcript: ModelContextSnapshot,
+    for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     systemPrompt: String,
     settings: ChatGenerationSettings,
@@ -1356,6 +1357,21 @@ private actor AppStateTestRuntime: ChatModelRuntime {
     _ = settings
     capturedSystemPrompts.append(systemPrompt)
     capturedToolContexts.append(toolContext)
+    return stream(from: nextEvents())
+  }
+
+  func streamReply(
+    for transcript: ModelPromptProjection,
+    attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = transcript
+    _ = attachments
+    _ = settings
+    capturedPromptPlans.append(promptPlan)
+    capturedSystemPrompts.append(promptPlan.stableInstructions)
+    capturedToolContexts.append(promptPlan.toolContext)
     return stream(from: nextEvents())
   }
 

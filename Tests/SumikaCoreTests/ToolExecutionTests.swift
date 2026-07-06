@@ -474,15 +474,16 @@ struct ToolExecutionTests {
   }
 
   @Test
-  func listFilesSortsSkipsAndTruncates() async throws {
+  func listFilesSortsSkipsAndTruncatesFlatDefault() async throws {
     let workspace = try makeWorkspace()
     try write("root", to: "zeta.txt", in: workspace)
     try write("root", to: "alpha.txt", in: workspace)
+    try write("skip", to: ".DS_Store", in: workspace)
     try write("skip", to: ".git/config", in: workspace)
     try write("skip", to: "node_modules/pkg/index.js", in: workspace)
     try write("nested", to: "Sources/App.swift", in: workspace)
 
-    let result = await ListFilesToolExecutor(maxDepth: 4, maxEntries: 3).run(
+    let result = await ListFilesToolExecutor(maxEntries: 3).run(
       ListFilesInput(path: nil),
       context: ToolContext(workspace: workspace)
     )
@@ -490,10 +491,12 @@ struct ToolExecutionTests {
     #expect(result.status == .success)
     #expect(
       result.text.split(separator: "\n").map(String.init) == [
-        "alpha.txt", "Sources/", "Sources/App.swift",
+        ".git/", "alpha.txt", "node_modules/",
       ])
-    #expect(!result.text.contains(".git"))
-    #expect(!result.text.contains("node_modules"))
+    #expect(!result.text.contains(".DS_Store"))
+    #expect(!result.text.contains(".git/config"))
+    #expect(!result.text.contains("node_modules/pkg/index.js"))
+    #expect(!result.text.contains("Sources/App.swift"))
     #expect(result.truncated)
   }
 
@@ -511,7 +514,10 @@ struct ToolExecutionTests {
     #expect(result.text.contains("a/"))
     #expect(result.text.contains("a/b/"))
     #expect(!result.text.contains("a/b/c/"))
-    #expect(result.truncated)
+    // The unexpanded `a/b/c/` is visible as the `a/b/` entry, so nothing is omitted:
+    // a depth-limited listing is complete, not truncated. `truncated` is reserved for
+    // the maxEntries cap (exercised by listFilesSortsSkipsAndTruncatesFlatDefault).
+    #expect(!result.truncated)
   }
 
   @Test

@@ -93,7 +93,6 @@ public final class ChatSessionController {
       modelPath: selectedModel.localPath,
       modelContextTokenLimit: storedSettings.contextTokenLimit,
       chatSession: ChatSession(
-        modelContextSnapshot: ModelContextSnapshot(),
         turns: [],
         pendingAttachments: [],
         modeSettings: storedSettings.modeSettings
@@ -302,7 +301,6 @@ extension ChatSessionController {
     var snapshot = session
     snapshot.title = chatSession.title
     snapshot.selectedModelID = modelRuntime.selectedModelID
-    snapshot.modelContextSnapshot = chatSession.modelContextSnapshot
     snapshot.turns = chatSession.turns
     snapshot.focusedFileState = chatSession.focusedFileState
     snapshot.modeSettings = chatSession.modeSettings
@@ -1006,17 +1004,14 @@ extension ChatSessionController {
 extension ChatWorkflowEvent {
   fileprivate var affectsModelContextDebugDocument: Bool {
     switch self {
-    case .modelContextEntryAppended,
-      .nativeAssistantBoundaryAppended,
+    case .userMessageAppended,
       .toolResultAppended,
       .assistantMessageAppended,
-      .todoStateChanged,
-      .finalToolResultFollowUpBoundaryAppended:
+      .todoStateChanged:
       return true
     case .turnStatusChanged(_, _, let modelContextPolicy):
       return modelContextPolicy != nil
     case .turnAppended,
-      .userMessageAppended,
       .assistantMessageAnnotatedAsToolCall,
       .assistantAnnotatedAsNativeToolCall,
       .toolCallAppended,

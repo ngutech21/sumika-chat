@@ -6,7 +6,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
   public let id: UUID
   public var title: String
   public var selectedModelID: ManagedModel.ID
-  public var modelContextSnapshot: ModelContextSnapshot
   public var toolCalls: [ToolCallRecord] {
     turns.flatMap(\.items).compactMap { item in
       guard case .tool(let record) = item else {
@@ -41,7 +40,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     id: UUID = UUID(),
     title: String = ChatSession.defaultTitle,
     selectedModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID,
-    modelContextSnapshot: ModelContextSnapshot = ModelContextSnapshot(),
     turns: [ChatTurn] = [],
     pendingAttachments: [ChatAttachment] = [],
     focusedFileState: FocusedFileState = .empty,
@@ -55,7 +53,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.id = id
     self.title = title
     self.selectedModelID = selectedModelID
-    self.modelContextSnapshot = modelContextSnapshot
     self.turns = turns
     self.focusedFileState = focusedFileState
     self.interactionMode = interactionMode
@@ -73,7 +70,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     lhs.id == rhs.id
       && lhs.title == rhs.title
       && lhs.selectedModelID == rhs.selectedModelID
-      && lhs.modelContextSnapshot == rhs.modelContextSnapshot
       && lhs.turns == rhs.turns
       && lhs.focusedFileState == rhs.focusedFileState
       && lhs.modeSettings == rhs.modeSettings
@@ -88,7 +84,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     case id
     case title
     case selectedModelID
-    case modelContextSnapshot
     case turns
     case focusedFileState
     case modeSettings
@@ -107,11 +102,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       ManagedModel.ID.self,
       forKey: .selectedModelID,
       default: ManagedModelCatalog.defaultModelID
-    )
-    modelContextSnapshot = try container.decodeIfPresent(
-      ModelContextSnapshot.self,
-      forKey: .modelContextSnapshot,
-      default: ModelContextSnapshot()
     )
     turns = Self.resolvingInterruptedStreams(
       in: try container.decodeLossyArray([ChatTurn].self, forKey: .turns)
@@ -147,7 +137,6 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     try container.encode(id, forKey: .id)
     try container.encode(title, forKey: .title)
     try container.encode(selectedModelID, forKey: .selectedModelID)
-    try container.encode(modelContextSnapshot, forKey: .modelContextSnapshot)
     try container.encode(turns, forKey: .turns)
     try container.encode(focusedFileState, forKey: .focusedFileState)
     try container.encode(modeSettings, forKey: .modeSettings)
