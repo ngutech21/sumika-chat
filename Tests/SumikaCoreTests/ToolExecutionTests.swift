@@ -514,7 +514,10 @@ struct ToolExecutionTests {
     #expect(result.text.contains("a/"))
     #expect(result.text.contains("a/b/"))
     #expect(!result.text.contains("a/b/c/"))
-    #expect(result.truncated)
+    // The unexpanded `a/b/c/` is visible as the `a/b/` entry, so nothing is omitted:
+    // a depth-limited listing is complete, not truncated. `truncated` is reserved for
+    // the maxEntries cap (exercised by listFilesSortsSkipsAndTruncatesFlatDefault).
+    #expect(!result.truncated)
   }
 
   @Test
