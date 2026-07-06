@@ -220,6 +220,11 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
   let generationMetrics: ChatGenerationMetrics?
   let assistantRenderBlocks: [AssistantRenderBlock]
   let assistantSpokenText: String?
+  // Stored, not computed: rows() reads the revision for every item on every
+  // updateNSView pass (~20x/s while streaming). All fields are immutable and
+  // the renderer only creates new items when their content changed, so hashing
+  // once per creation replaces rehashing the whole transcript per flush.
+  let renderRevision: Int
 
   init(
     id: String,
@@ -235,9 +240,20 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
     self.generationMetrics = generationMetrics
     self.assistantRenderBlocks = assistantRenderBlocks
     self.assistantSpokenText = assistantSpokenText
+    renderRevision = Self.computeRenderRevision(
+      id: id,
+      item: item,
+      generationMetrics: generationMetrics,
+      assistantRenderBlocks: assistantRenderBlocks
+    )
   }
 
-  var renderRevision: Int {
+  private static func computeRenderRevision(
+    id: String,
+    item: ChatTurnItem,
+    generationMetrics: ChatGenerationMetrics?,
+    assistantRenderBlocks: [AssistantRenderBlock]
+  ) -> Int {
     var hasher = Hasher()
     hasher.combine(id)
     hasher.combine(generationMetrics?.generatedTokenCount)
