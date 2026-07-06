@@ -273,8 +273,13 @@ extension NativeChatTranscriptCoordinator {
             speechStateChangedIDs: speechStateChangedIDs,
             changedIDs: plan.changedIDs
           ),
-          scrollToBottomAfterFlush: shouldDeferPinnedScroll && streamingThinkingChangedIDs.isEmpty
-            || (wasPinnedToBottom && didChangeColumnWidth)
+          // Re-anchor the pinned viewport on every flush that changed rows —
+          // including streaming thinking growth. Skipping the scroll only for
+          // thinking rows made the anchor alternate between "stay" and "jump
+          // to bottom" across flushes, which reads as the reasoning block
+          // hopping up and down.
+          scrollToBottomAfterFlush: wasPinnedToBottom
+            && (!plan.changedIDs.isEmpty || didChangeColumnWidth)
         )
         let hasRowChanges = !plan.changedIDs.isEmpty
         if shouldScrollAfterAppend
@@ -665,8 +670,23 @@ extension NativeChatTranscriptCoordinator {
       category: .transcript,
       metadata: heightInvalidationMetadata(rowIndexes: rowIndexes, reason: reason)
     ) {
-      tableView.noteHeightOfRows(withIndexesChanged: rowIndexes)
+      noteHeightOfRowsWithoutAnimation(tableView, rowIndexes: rowIndexes)
       tableView.layoutSubtreeIfNeeded()
+    }
+  }
+
+  // noteHeightOfRows animates height changes by default; streaming invalidates
+  // heights up to ~16x per second, so overlapping ease animations make rows
+  // (and everything anchored below them) visibly bounce. Streaming growth must
+  // land instantly instead.
+  private func noteHeightOfRowsWithoutAnimation(
+    _ tableView: NSTableView,
+    rowIndexes: IndexSet
+  ) {
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = 0
+      context.allowsImplicitAnimation = false
+      tableView.noteHeightOfRows(withIndexesChanged: rowIndexes)
     }
   }
 
@@ -720,6 +740,16 @@ extension NativeChatTranscriptCoordinator {
     DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(60), execute: workItem)
   }
 
+  // Runs a pending debounced flush synchronously. Test-only: the 60ms
+  // asyncAfter hop cannot be drained from inside a main-queue test body.
+  func flushPendingHeightInvalidationForTesting() {
+    guard let workItem = pendingHeightInvalidationWorkItem else {
+      return
+    }
+    workItem.cancel()
+    flushHeightInvalidation()
+  }
+
   private func flushHeightInvalidation() {
     guard let tableView else {
       pendingHeightInvalidationRows.removeAll()
@@ -742,10 +772,14 @@ extension NativeChatTranscriptCoordinator {
         reason: reasons.isEmpty ? "unknown" : reasons.joined(separator: "+")
       )
     ) {
-      tableView.noteHeightOfRows(withIndexesChanged: rows)
+      noteHeightOfRowsWithoutAnimation(tableView, rowIndexes: rows)
     }
     if shouldScrollToBottom, let scrollView = tableView.enclosingScrollView {
-      scrollToBottom(scrollView)
+      // Scroll in the same pass as the height change: an async scroll targets
+      // a document height that is still settling and visibly overshoots back
+      // and forth while streaming.
+      tableView.layoutSubtreeIfNeeded()
+      scrollToBottomImmediately(scrollView)
     }
   }
 

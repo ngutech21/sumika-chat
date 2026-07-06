@@ -1,0 +1,162 @@
+import AppKit
+import SumikaCore
+import Testing
+
+@testable import Sumika
+
+// Pins the viewport stability contract while a thinking row streams: pinned
+// viewports follow reasoning growth monotonically, unpinned viewports do not
+// move at all. Guards against the streaming transcript bouncing up and down.
+@MainActor
+struct ThinkingStreamingStabilityTests {
+
+  @Test
+  func pinnedViewportFollowsStreamingThinkingWithoutBouncing() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 640, height: 300))
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    let viewportHeight = scrollView.contentView.bounds.height
+
+    var thinkingContent = "Inspecting the workspace."
+    var revision = 1
+
+    func applyAndFlush() {
+      coordinator.update(
+        rows: [
+          stabilityUserRow(id: "user", revision: 1),
+          stabilityThinkingRow(id: "thinking", revision: revision, content: thinkingContent),
+        ],
+        accessibilityValue: "ready",
+        isSpeechEnabled: false,
+        activeSpeechRowID: nil,
+        in: scrollView
+      )
+      coordinator.flushPendingHeightInvalidationForTesting()
+      tableView.layoutSubtreeIfNeeded()
+    }
+
+    applyAndFlush()
+
+    let initialThinkingHeight = tableView.rect(ofRow: 1).height
+    let userRowTop = tableView.rect(ofRow: 0).minY
+    var previousClipY = scrollView.contentView.bounds.origin.y
+    var previousDocumentHeight = tableView.bounds.height
+
+    for _ in 1...24 {
+      thinkingContent += " More reasoning arrives with additional evidence to weigh carefully."
+      revision += 1
+      applyAndFlush()
+
+      let clipY = scrollView.contentView.bounds.origin.y
+      let documentHeight = tableView.bounds.height
+      let pinnedTargetY = max(documentHeight - viewportHeight, 0)
+
+      #expect(documentHeight >= previousDocumentHeight)
+      #expect(clipY >= previousClipY)
+      #expect(abs(clipY - pinnedTargetY) <= 1)
+      #expect(tableView.rect(ofRow: 0).minY == userRowTop)
+
+      previousClipY = clipY
+      previousDocumentHeight = documentHeight
+    }
+
+    #expect(tableView.rect(ofRow: 1).height > initialThinkingHeight)
+    #expect(previousDocumentHeight > viewportHeight)
+    #expect(previousClipY > 0)
+  }
+
+  @Test
+  func unpinnedViewportStaysStillWhileThinkingGrows() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 640, height: 300))
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+
+    var thinkingContent = String(
+      repeating: "Reasoning already tall enough to scroll well past the viewport. ",
+      count: 24
+    )
+    var revision = 1
+
+    func applyAndFlush() {
+      coordinator.update(
+        rows: [
+          stabilityUserRow(id: "user", revision: 1),
+          stabilityThinkingRow(id: "thinking", revision: revision, content: thinkingContent),
+        ],
+        accessibilityValue: "ready",
+        isSpeechEnabled: false,
+        activeSpeechRowID: nil,
+        in: scrollView
+      )
+      coordinator.flushPendingHeightInvalidationForTesting()
+      tableView.layoutSubtreeIfNeeded()
+    }
+
+    applyAndFlush()
+    #expect(tableView.bounds.height > scrollView.contentView.bounds.height + 48)
+
+    scrollView.contentView.scroll(to: .zero)
+    scrollView.reflectScrolledClipView(scrollView.contentView)
+    let userRowTop = tableView.rect(ofRow: 0).minY
+    let initialThinkingHeight = tableView.rect(ofRow: 1).height
+
+    for _ in 1...8 {
+      thinkingContent += " More reasoning arrives while the reader stays scrolled up."
+      revision += 1
+      applyAndFlush()
+
+      #expect(scrollView.contentView.bounds.origin.y == 0)
+      #expect(tableView.rect(ofRow: 0).minY == userRowTop)
+    }
+
+    #expect(tableView.rect(ofRow: 1).height > initialThinkingHeight)
+  }
+}
+
+private func stabilityUserRow(id: String, revision: Int) -> NativeTranscriptRow {
+  NativeTranscriptRow(
+    id: id,
+    revision: revision,
+    body: .item(
+      RenderedChatTurnItem(
+        id: id,
+        item: .userMessage(UserTurnMessage(content: "Please explain the workspace.")),
+        toolCallRecord: nil,
+        generationMetrics: nil,
+        assistantRenderBlocks: []
+      ))
+  )
+}
+
+private func stabilityThinkingRow(
+  id: String,
+  revision: Int,
+  content: String
+) -> NativeTranscriptRow {
+  NativeTranscriptRow(
+    id: id,
+    revision: revision,
+    body: .item(
+      RenderedChatTurnItem(
+        id: id,
+        item: .assistantThinking(
+          AssistantThinkingMessage(content: content, deliveryStatus: .streaming)
+        ),
+        toolCallRecord: nil,
+        generationMetrics: nil,
+        assistantRenderBlocks: []
+      ))
+  )
+}
