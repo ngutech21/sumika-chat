@@ -158,6 +158,57 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func repeatedIdenticalFailingRunCommandForcesFinalEscalation() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let failingCall = ChatRuntimeToolCall(
+      name: "run_command",
+      arguments: [
+        "command": .string("false"),
+        "timeoutSeconds": .number(1),
+        "reason": .string("Exercise repeated failure escalation."),
+      ]
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.toolCall(failingCall)],
+      [.toolCall(failingCall)],
+      [.chunk("The command keeps failing; please run it yourself.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "stage the changes", in: workspace, sessionID: sessionID)
+
+    // First failing command → approve → the model re-proposes the identical command.
+    try await waitUntil { controller.hasPendingApproval }
+    let first = try #require(controller.chatSession.toolCalls.first)
+    controller.approveToolCall(id: first.id, in: workspace)
+
+    // Second identical failure → approve → the brake forces a tools-free final generation.
+    try await waitUntil {
+      controller.chatSession.toolCalls.count == 2 && controller.hasPendingApproval
+    }
+    let second = try #require(controller.chatSession.toolCalls.last)
+    controller.approveToolCall(id: second.id, in: workspace)
+
+    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
+
+    #expect(controller.chatSession.toolCalls.count == 2)
+    #expect(!controller.hasPendingApproval)
+    #expect(
+      controller.chatSession.testMessages.last?.content
+        == "The command keeps failing; please run it yourself.")
+
+    // The final generation received the escalation notice, not the generic close.
+    let capturedMessages = await runtime.capturedMessages
+    #expect(capturedMessages.count == 3)
+    let escalation = try #require(latestToolFollowUpNotice(in: capturedMessages, at: 2))
+    #expect(escalation.contains("failed both times"))
+    #expect(escalation.contains("Command: false"))
+    #expect(escalation.contains("run or fix the command manually"))
+  }
+
+  @Test
   func thinkingOnlyResponseWithoutToolCallFailsAndExcludesTurn() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

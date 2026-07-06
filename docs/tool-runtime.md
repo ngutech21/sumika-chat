@@ -118,6 +118,16 @@ flowchart TD
   `forbidden_repeat: true`. `replayed_result_kind` is emitted only when a replayed
   observation exists (i.e. not for blocked duplicates). Side-effect-capable tools
   such as `run_command` are never replayed as duplicates.
+- `run_command` has its own loop brake instead of dedup (`RunCommandRepeatPolicy`).
+  When the same command (`RunCommandResult.command`) fails on two consecutive
+  `run_command` records in a turn, the next generation is forced into the
+  tools-stripped final mode and `ToolFollowUpNoticePolicy` emits a user escalation
+  (names the failing command and error, asks the user to run/fix it manually or
+  rephrase) instead of the generic final notice. The model still gets one
+  self-correction attempt: the brake fires only on the second consecutive identical
+  failure, so a corrected or successful retry between the two resets the streak. The
+  failed result is not withheld — only the follow-up mode and notice change. This is
+  control flow only; no persisted schema field is added.
 - Tool follow-up notices are prioritized model-facing additions stored on the
   canonical `ToolCallRecord.modelFollowUpNotice`, separate from
   `ToolResultPayload`. `ToolFollowUpNoticePolicy` derives exactly one notice for

@@ -44,6 +44,43 @@ struct ToolFollowUpNoticePolicyTests {
   }
 
   @Test
+  func repeatedFailingRunCommandEscalatesToUserOnFinal() throws {
+    // Two consecutive identical failing run_commands + a forced final generation must yield
+    // an actionable escalation (names the command + error, asks the user to act) rather than
+    // the generic "no more tools" close.
+    let first = completedRunCommandRecord(id: UUID(), command: "git add.", exitCode: 1)
+    let second = completedRunCommandRecord(id: UUID(), command: "git add.", exitCode: 1)
+
+    let update = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: session(with: [first, second]),
+        turnID: defaultTurnID,
+        promptMode: .afterToolResultFinal
+      ))
+
+    let notice = try #require(update.record.modelFollowUpNotice)
+    #expect(notice.contains("failed both times"))
+    #expect(notice.contains("Command: git add."))
+    #expect(notice.contains("run or fix the command manually"))
+    #expect(!notice.contains("Mention completed changes"))
+  }
+
+  @Test
+  func finalWithoutRepeatedRunCommandUsesGenericFinalNotice() throws {
+    let record = completedReadRecord(id: UUID(), path: "README.md", content: "hi")
+
+    let update = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: session(with: [record]),
+        turnID: defaultTurnID,
+        promptMode: .afterToolResultFinal
+      ))
+
+    #expect(update.record.modelFollowUpNotice?.contains("No more tools are available") == true)
+    #expect(update.record.modelFollowUpNotice?.contains("failed both times") == false)
+  }
+
+  @Test
   func chatSessionFinalNoticeUsesWebWordingNotAgentRules() throws {
     // A chat (web) session must receive a follow-up notice at all (guard is no longer
     // agent-only), and the final notice must be web-flavored — no workspace/file wording.

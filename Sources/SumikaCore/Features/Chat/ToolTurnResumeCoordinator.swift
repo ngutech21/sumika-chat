@@ -45,11 +45,21 @@ struct ToolTurnResumeCoordinator {
       runtime: runtime,
       callbacks: callbacks
     )
+    // run_command is excluded from read-only dedup, so a small model can loop re-proposing
+    // an identical failing command. When the same command fails twice in a row, force a
+    // tools-free final generation that escalates to the user instead of looping.
+    let priorTurnItems =
+      callbacks.session().turns.first { $0.id == turnID }?.items ?? []
+    let forceFinal = RunCommandRepeatPolicy.forcesFinalAfterRepeatedFailure(
+      approvedRecord,
+      priorItems: priorTurnItems
+    )
     let resumeResult = toolResumeCoordinator.approvedToolResult(
       record: approvedRecord,
       focusedFileState: callbacks.session().focusedFileState,
       turnID: turnID,
-      toolProfile: toolProfile
+      toolProfile: toolProfile,
+      forceFinal: forceFinal
     )
 
     guard approvedRecord.status == .completed else {
@@ -86,7 +96,7 @@ struct ToolTurnResumeCoordinator {
       turnID: turnID,
       toolLoopIteration: 1
     )
-    if toolResumeCoordinator.isFinalApprovedToolFollowUp(approvedRecord) {
+    if forceFinal || toolResumeCoordinator.isFinalApprovedToolFollowUp(approvedRecord) {
       try executionCoordinator.requireVisibleFinalResponse(generationResult)
     } else {
       try executionCoordinator.requireVisibleTextOrToolCall(generationResult)

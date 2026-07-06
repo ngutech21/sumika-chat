@@ -83,6 +83,62 @@ struct ToolResumeCoordinatorTests {
     #expect(resultMessage.payload.preview.affectedPaths == [path.rawValue])
     #expect(turnStatus(from: result.events) == .running)
   }
+
+  @Test
+  func forceFinalRequestsAgentFinalFollowUp() throws {
+    let result = ToolResumeCoordinator().approvedToolResult(
+      record: failedRunCommandRecord(command: "git add."),
+      focusedFileState: .empty,
+      turnID: UUID(),
+      toolProfile: .agent,
+      forceFinal: true
+    )
+
+    #expect(result.followUpPromptMode == .afterToolResultFinal)
+    #expect(result.nextAssistantMessageID != nil)
+  }
+
+  @Test
+  func forceFinalRequestsChatWebFinalFollowUpForChatWebProfile() throws {
+    let result = ToolResumeCoordinator().approvedToolResult(
+      record: failedRunCommandRecord(command: "git add."),
+      focusedFileState: .empty,
+      turnID: UUID(),
+      toolProfile: .chatWeb,
+      forceFinal: true
+    )
+
+    #expect(result.followUpPromptMode == .afterChatWebToolResultFinal)
+  }
+
+  @Test
+  func failedRunCommandWithoutForceFinalCanContinue() throws {
+    let result = ToolResumeCoordinator().approvedToolResult(
+      record: failedRunCommandRecord(command: "git add."),
+      focusedFileState: .empty,
+      turnID: UUID(),
+      toolProfile: .agent
+    )
+
+    #expect(result.followUpPromptMode == .afterToolResultCanContinue)
+  }
+}
+
+private func failedRunCommandRecord(command: String) -> ToolCallRecord {
+  makeRecord(
+    toolName: .runCommand,
+    payload: .runCommand(RunCommandInput(command: command, timeoutSeconds: 10)),
+    state: .completed(
+      .runCommand(
+        RunCommandResult(
+          command: command,
+          timeoutSeconds: 10,
+          exitCode: 1,
+          durationMs: 5,
+          stdout: ToolTextOutput(text: ""),
+          stderr: ToolTextOutput(text: "failed")
+        )))
+  )
 }
 
 private func makeRecord(

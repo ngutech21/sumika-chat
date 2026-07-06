@@ -136,6 +136,13 @@ flowchart TD
    exits unsuccessfully, the direct follow-up receives a failed-command notice on
    the command's `ToolCallRecord` and must recover with tools when possible or
    report the command failure without inferring command-specific side effects.
+   If the *same* command fails on two consecutive `run_command` records in the
+   turn (`RunCommandRepeatPolicy`, a small model looping on a malformed command it
+   cannot fix), the approval resume forces the tools-stripped final mode and the
+   notice escalates to the user — naming the failing command and error and asking
+   the user to run/fix it manually or rephrase — instead of looping. The brake
+   fires only on the second consecutive identical failure, leaving one
+   self-correction attempt.
    If that follow-up has no tool call and makes an unqualified completion claim,
    Sumika replaces the visible text with a generic failed-command response
    instead of completing the turn with a false success summary. Each tool
