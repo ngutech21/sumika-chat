@@ -416,7 +416,7 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
-  func duplicateListFilesInSameNativeBatchExecutesOnlyOnceAndContinues() async throws {
+  func duplicateListFilesInSameNativeBatchExecutesOnceAndBlocksSecondDuplicate() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator(tools: [.listFiles])
@@ -451,8 +451,13 @@ struct ToolLoopCoordinatorTests {
     }
     #expect(duplicates.count == 2)
     #expect(duplicates.map(\.previousCallID) == [originalID, originalID])
+    // 1st duplicate replays content; the 2nd consecutive duplicate is blocked and forces
+    // the tools-stripped final generation.
+    #expect(duplicates.map(\.blocked) == [false, true])
+    #expect(duplicates.first?.replayedObservation != nil)
+    #expect(duplicates.last?.replayedObservation == nil)
     #expect(toolResults(from: result).map(\.callID) == records.map(\.id))
-    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+    #expect(resumePromptMode(from: result) == .afterToolResultFinal)
   }
 
   @Test

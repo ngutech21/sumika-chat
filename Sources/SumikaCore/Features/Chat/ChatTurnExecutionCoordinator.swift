@@ -354,7 +354,7 @@ struct ChatTurnExecutionCoordinator {
         )
         currentNativeToolCalls = generationResult.nativeToolCalls
         try requireVisibleTextOrToolCall(generationResult)
-        guard promptMode != .afterToolResultFinal else {
+        guard !promptMode.isFinal else {
           try requireVisibleFinalResponse(generationResult)
           return true
         }
@@ -519,7 +519,7 @@ struct ChatTurnExecutionCoordinator {
       return nil
     }
     switch toolPromptMode {
-    case .disabled, .enabled(false), .afterToolResultFinal:
+    case .disabled, .enabled(false), .afterToolResultFinal, .afterChatWebToolResultFinal:
       return nil
     case .chatWeb, .afterChatWebToolResultCanContinue, .afterToolResultCanContinue,
       .enabled(true):
@@ -559,7 +559,7 @@ struct ChatTurnExecutionCoordinator {
     remainingIterations: Int
   ) -> ToolPromptMode {
     guard remainingIterations > 1 else {
-      return .afterToolResultFinal
+      return ToolPromptMode.finalMode(for: toolProfile)
     }
 
     switch toolProfile {
@@ -577,7 +577,7 @@ struct ChatTurnExecutionCoordinator {
     toolLoopCoordinator: ToolLoopCoordinator
   ) -> ToolRegistry {
     switch toolPromptMode {
-    case .chatWeb, .afterChatWebToolResultCanContinue:
+    case .chatWeb, .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal:
       return toolLoopCoordinator.toolRegistry(for: .chatWeb)
     case .enabled(true), .afterToolResultCanContinue, .afterToolResultFinal:
       return toolLoopCoordinator.toolRegistry

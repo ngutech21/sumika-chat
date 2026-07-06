@@ -304,6 +304,38 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func blockedDuplicateWithholdsContentAndFramesNonSuccessForModel() {
+    let previousCallID = UUID()
+    let duplicateCallID = UUID()
+    let listRequest = request(
+      toolName: .listFiles,
+      payload: .listFiles(ListFilesInput(path: "."))
+    )
+    let duplicateProjection = ToolResultProjector.project(
+      payload: .duplicateToolCall(
+        DuplicateToolCallResult(
+          previousCallID: previousCallID,
+          message:
+            "Duplicate of \(RuntimeToolCallID.string(for: previousCallID)): identical list_files already completed in this turn; not re-executed. The result is not shown again — use the earlier result above, or provide the final answer.",
+          replayedObservation: nil,
+          blocked: true
+        )),
+      request: listRequest
+    )
+
+    // Model-facing observation is framed non-success to break the loop...
+    #expect(duplicateProjection.observation.status == .denied)
+    let rendered = ToolModelObservationRenderer.render(duplicateProjection, callID: duplicateCallID)
+    #expect(rendered.contains("\"ok\": false"))
+    #expect(rendered.contains("\"status\": \"denied\""))
+    #expect(rendered.contains("\"forbidden_repeat\": true"))
+    #expect(rendered.contains("\"duplicate\": true"))
+    // ...with the replayed listing content withheld.
+    #expect(rendered.contains("Entries:") == false)
+    #expect(rendered.contains(".gitignore") == false)
+  }
+
+  @Test
   func duplicateReplayMetadataDoesNotDependOnSummaryMessage() throws {
     let previousCallID = UUID()
     let listRequest = request(

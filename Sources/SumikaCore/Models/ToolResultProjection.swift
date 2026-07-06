@@ -592,16 +592,25 @@ private func duplicateProjection(
     } else {
       result.affectedPaths
     }
-  let status = replayedObservation?.status ?? .success
-  let blocks =
-    [ToolObservationBlock.summary(duplicateContentSummary(result))]
-    + (replayedObservation?.blocks ?? [])
-  let observation = ToolModelObservation.structured(
-    toolName: request.toolName,
-    status: status,
-    affectedPaths: affectedPaths,
-    blocks: blocks
-  )
+  // A blocked (2nd+) duplicate withholds the replayed content and is framed non-success
+  // FOR THE MODEL only (a denied observation), to break the loop. The UI/persisted
+  // display below stays `.success` (benign "duplicate replay").
+  let observation: ToolModelObservation
+  if result.blocked {
+    observation = ToolModelObservation.denied(
+      toolName: request.toolName,
+      affectedPaths: affectedPaths,
+      text: duplicateContentSummary(result)
+    )
+  } else {
+    observation = ToolModelObservation.structured(
+      toolName: request.toolName,
+      status: replayedObservation?.status ?? .success,
+      affectedPaths: affectedPaths,
+      blocks: [ToolObservationBlock.summary(duplicateContentSummary(result))]
+        + (replayedObservation?.blocks ?? [])
+    )
+  }
 
   return toolResultProjection(
     display: .summary(status: .success, text: result.message, affectedPaths: affectedPaths),

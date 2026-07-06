@@ -667,17 +667,23 @@ public struct DuplicateToolCallResult: Codable, Equatable, Sendable {
   public var message: String
   public var affectedPaths: [WorkspaceRelativePath]
   public var replayedObservation: ToolModelObservation?
+  /// True from the 2nd consecutive identical duplicate: the replayed content is
+  /// withheld and the model-facing observation is framed as non-success to break
+  /// the loop. The persisted/UI preview stays a benign "duplicate replay".
+  public var blocked: Bool
 
   public init(
     previousCallID: UUID,
     message: String,
     affectedPaths: [WorkspaceRelativePath] = [],
-    replayedObservation: ToolModelObservation? = nil
+    replayedObservation: ToolModelObservation? = nil,
+    blocked: Bool = false
   ) {
     self.previousCallID = previousCallID
     self.message = message
     self.affectedPaths = affectedPaths
     self.replayedObservation = replayedObservation
+    self.blocked = blocked
   }
 }
 

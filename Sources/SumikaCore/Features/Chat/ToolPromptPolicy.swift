@@ -7,6 +7,32 @@ public enum ToolPromptMode: Equatable, Sendable {
   case afterChatWebToolResultCanContinue
   case afterToolResultCanContinue
   case afterToolResultFinal
+  case afterChatWebToolResultFinal
+
+  /// A final generation runs with tools stripped and must produce visible text.
+  /// Both the agent and the chat-web variants are terminal.
+  public var isFinal: Bool {
+    switch self {
+    case .afterToolResultFinal, .afterChatWebToolResultFinal:
+      return true
+    case .disabled, .enabled, .chatWeb, .afterChatWebToolResultCanContinue,
+      .afterToolResultCanContinue:
+      return false
+    }
+  }
+
+  /// The final (tools-stripped) mode appropriate for a tool profile, so a chat-web
+  /// session keeps its own prompt/notice instead of pulling in agent workspace rules.
+  public static func finalMode(for profile: ToolExecutionProfile) -> ToolPromptMode {
+    switch profile {
+    case .chatWeb:
+      return .afterChatWebToolResultFinal
+    case .agent:
+      return .afterToolResultFinal
+    case .disabled:
+      return .disabled
+    }
+  }
 }
 
 public enum ToolAvailability: Equatable, Sendable {
@@ -47,7 +73,7 @@ public struct ToolPromptPolicy: Sendable {
         toolRegistry: toolRegistry,
         toolCallingPolicy: toolCallingPolicy
       )
-    case .afterChatWebToolResultCanContinue:
+    case .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal:
       return nativeChatWebSystemPrompt(
         basePrompt: basePrompt,
         toolRegistry: toolRegistry,

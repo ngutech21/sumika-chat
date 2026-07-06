@@ -102,6 +102,32 @@ struct ToolResultPayloadTests {
   }
 
   @Test
+  func duplicateBlockedFlagRoundTrips() throws {
+    let blocked = DuplicateToolCallResult(
+      previousCallID: try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000002")),
+      message: "Duplicate of call_old.",
+      blocked: true
+    )
+    let decoded = try JSONDecoder().decode(
+      DuplicateToolCallResult.self, from: JSONEncoder().encode(blocked))
+    #expect(decoded == blocked)
+    #expect(decoded.blocked)
+  }
+
+  @Test
+  func blockedDuplicatePreviewStaysBenignSuccess() {
+    let payload = ToolResultPayload.duplicateToolCall(
+      DuplicateToolCallResult(
+        previousCallID: UUID(),
+        message: "Duplicate of call_old.",
+        replayedObservation: nil,
+        blocked: true
+      ))
+    // The persisted/UI preview must not look like a tool failure.
+    #expect(payload.preview.status == .success)
+  }
+
+  @Test
   func runCommandResultDecodesStoredResultsBeforeOutputRefs() throws {
     let json = """
       {

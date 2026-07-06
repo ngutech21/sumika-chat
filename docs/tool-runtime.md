@@ -105,14 +105,19 @@ flowchart TD
   `CONTENT`, not escaped inside JSON. That frozen content is the stable
   model-facing ledger artifact.
 - Duplicate safe read-like tool calls reuse the previous completed
-  `ToolResultPayload` instead of invoking the executor again. The duplicate
-  payload may carry a replayed `ToolModelObservation` so the prompt tail contains
-  the prior result blocks again. Duplicate JSON metadata is structural, not
-  parsed from summary prose: it always includes `kind: "duplicate_replay"`,
-  `duplicate: true`, `not_reexecuted: true`, and `forbidden_repeat: true`.
-  `replayed_result_kind` is emitted only when a replayed observation exists.
-  Side-effect-capable tools such as `run_command` are never replayed as
-  duplicates.
+  `ToolResultPayload` instead of invoking the executor again. The first duplicate
+  carries a replayed `ToolModelObservation` so the prompt tail contains the prior
+  result blocks again. From the second consecutive identical duplicate the payload
+  is `blocked` (`DuplicateToolCallResult.blocked == true`): the replayed observation
+  is withheld and the model-facing observation is framed non-success
+  (`ok: false`, `status: "denied"`) to break the loop, while the persisted/UI
+  preview stays a benign `success` (no failure chip). A blocked duplicate also
+  forces the next generation into the tools-stripped final mode. Duplicate JSON
+  metadata is structural, not parsed from summary prose: it always includes
+  `kind: "duplicate_replay"`, `duplicate: true`, `not_reexecuted: true`, and
+  `forbidden_repeat: true`. `replayed_result_kind` is emitted only when a replayed
+  observation exists (i.e. not for blocked duplicates). Side-effect-capable tools
+  such as `run_command` are never replayed as duplicates.
 - Tool follow-up notices are prioritized model-facing additions stored on the
   canonical `ToolCallRecord.modelFollowUpNotice`, separate from
   `ToolResultPayload`. `ToolFollowUpNoticePolicy` derives exactly one notice for

@@ -250,6 +250,11 @@ public struct ToolLoopCoordinator: Sendable {
         after: record,
         defaultMode: nextFollowUpPromptMode
       )
+      if isBlockedDuplicate(record) {
+        // 2nd+ identical duplicate: stop exploring — force the tools-stripped final
+        // generation, using the profile-appropriate final mode (agent vs chat-web).
+        nextFollowUpPromptMode = ToolPromptMode.finalMode(for: request.toolProfile)
+      }
 
       if let directResponse = ToolLoopDirectResponseRenderer.directResponse(
         after: record, toolResult: toolResult, request: request)
@@ -344,9 +349,15 @@ public struct ToolLoopCoordinator: Sendable {
       }
 
       let affectedPaths = duplicateAffectedPaths(from: source.record)
-      let replayedObservation = source.record.resultPayload.map { payload in
-        ToolResultProjector.project(payload: payload, request: source.record.request).observation
-      }
+      // Off-by-one: this new record is the 2nd (or later) consecutive identical
+      // duplicate exactly when at least one matching duplicate already trails the turn.
+      let blocked = priorDuplicateStreak(for: validatedRequest, in: currentItems) >= 1
+      let replayedObservation =
+        blocked
+        ? nil
+        : source.record.resultPayload.map { payload in
+          ToolResultProjector.project(payload: payload, request: source.record.request).observation
+        }
 
       return ToolCallRecord(
         request: validatedRequest,
@@ -362,10 +373,12 @@ public struct ToolLoopCoordinator: Sendable {
               previousCallID: source.record.id,
               message: duplicateMessage(
                 for: validatedRequest,
-                previousRecord: source.record
+                previousRecord: source.record,
+                blocked: blocked
               ),
               affectedPaths: affectedPaths,
-              replayedObservation: replayedObservation
+              replayedObservation: replayedObservation,
+              blocked: blocked
             )))
       )
     }
@@ -416,6 +429,13 @@ public struct ToolLoopCoordinator: Sendable {
     return true
   }
 
+  private func isBlockedDuplicate(_ record: ToolCallRecord) -> Bool {
+    guard case .duplicateToolCall(let result)? = record.resultPayload else {
+      return false
+    }
+    return result.blocked
+  }
+
   private func canReuseCompletedToolResult(
     _ previousRecord: ToolCallRecord,
     after index: ArraySlice<ChatTurnItem>.Index,
@@ -446,10 +466,40 @@ public struct ToolLoopCoordinator: Sendable {
 
   private func duplicateMessage(
     for request: ToolCallRequest,
-    previousRecord: ToolCallRecord
+    previousRecord: ToolCallRecord,
+    blocked: Bool
   ) -> String {
-    "Duplicate of \(RuntimeToolCallID.string(for: previousRecord.id)): identical "
-      + "\(request.toolName.rawValue) already completed in this turn; not re-executed. Previous result is replayed below."
+    let prefix =
+      "Duplicate of \(RuntimeToolCallID.string(for: previousRecord.id)): identical "
+      + "\(request.toolName.rawValue) already completed in this turn; not re-executed. "
+    if blocked {
+      return prefix
+        + "The result is not shown again — use the earlier result above, or provide the final answer."
+    }
+    return prefix + "Previous result is replayed below."
+  }
+
+  /// Number of identical duplicate records already trailing the current turn for this
+  /// request (same tool name and payload). Non-tool items are skipped; the first
+  /// non-matching tool record ends the streak — mirrors `readReplayStreak`.
+  private func priorDuplicateStreak(
+    for request: ToolCallRequest,
+    in items: ArraySlice<ChatTurnItem>
+  ) -> Int {
+    var count = 0
+    for item in items.reversed() {
+      guard case .tool(let record) = item else {
+        continue
+      }
+      guard isDuplicateToolCall(record.resultPayload),
+        record.request.toolName == request.toolName,
+        record.request.payload == request.payload
+      else {
+        break
+      }
+      count += 1
+    }
+    return count
   }
 
   private func currentTurnItems(in items: [ChatTurnItem]) -> ArraySlice<ChatTurnItem> {

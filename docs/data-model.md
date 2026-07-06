@@ -127,7 +127,9 @@ Properties:
 
 - `maxKVSize: Int?`
 - `maxTokens: Int`
+- `presencePenalty: Double`
 - `reasoningEnabled: Bool`
+- `repetitionContextSize: Int`
 - `repetitionPenalty: Double`
 - `temperature: Double`
 - `topK: Int`
@@ -154,6 +156,7 @@ Properties:
 Properties:
 
 - `affectedPaths: [WorkspaceRelativePath]`
+- `blocked: Bool`
 - `message: String`
 - `previousCallID: UUID`
 - `replayedObservation: ToolModelObservation?`

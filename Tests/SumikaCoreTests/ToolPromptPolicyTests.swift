@@ -86,6 +86,34 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
+  func chatWebFinalPromptKeepsChatWebInstructionsNotAgentRules() {
+    let prompt = ToolPromptPolicy().systemPrompt(
+      basePrompt: "Base",
+      mode: .afterChatWebToolResultFinal,
+      toolRegistry: ToolExecutorRegistry.chatWeb.toolRegistry
+    )
+
+    #expect(prompt.contains("Public web tools"))
+    #expect(prompt.contains("web_search"))
+    #expect(!prompt.contains("Workspace tools are available"))
+    #expect(!prompt.contains("edit_file"))
+    #expect(!prompt.contains("run_command"))
+  }
+
+  @Test
+  func isFinalAndFinalModeCoverBothProfiles() {
+    #expect(ToolPromptMode.afterToolResultFinal.isFinal)
+    #expect(ToolPromptMode.afterChatWebToolResultFinal.isFinal)
+    #expect(!ToolPromptMode.afterToolResultCanContinue.isFinal)
+    #expect(!ToolPromptMode.afterChatWebToolResultCanContinue.isFinal)
+    #expect(!ToolPromptMode.chatWeb.isFinal)
+
+    #expect(ToolPromptMode.finalMode(for: .agent) == .afterToolResultFinal)
+    #expect(ToolPromptMode.finalMode(for: .chatWeb) == .afterChatWebToolResultFinal)
+    #expect(ToolPromptMode.finalMode(for: .disabled) == .disabled)
+  }
+
+  @Test
   func followUpPromptMentionsTodoOnlyWhenTodoWriteAvailable() {
     let enabledPrompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",

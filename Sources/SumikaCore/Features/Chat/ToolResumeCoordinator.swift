@@ -119,7 +119,7 @@ public struct ToolResumeCoordinator: Sendable {
     toolProfile: ToolExecutionProfile = .agent
   ) -> ToolPromptMode {
     guard !isFinalApprovedToolFollowUp(record) else {
-      return .afterToolResultFinal
+      return ToolPromptMode.finalMode(for: toolProfile)
     }
     switch toolProfile {
     case .disabled:

@@ -142,7 +142,10 @@ flowchart TD
    follow-up receives at most one prioritized tool-record notice: final/no-tools
    guidance, failed `run_command`, repeated same-command `run_command`,
    listing/read-loop escalation, duplicate replay guidance, or the generic
-   same-turn follow-up.
+   same-turn follow-up. Follow-up notices apply in both agent and chat (web)
+   sessions; the final/no-tools guidance is profile-aware — agent sessions get the
+   workspace wording, chat (web) sessions get web wording with no file/workspace
+   references.
 8. Answering `ask_user` delegates to
    `ChatTurnCoordinator.answerAskUserToolCall`, appends the compact answer
    receipt, and resumes generation plus the normal tool loop.
@@ -172,10 +175,12 @@ flowchart TD
 - The currently active turn is allowed to include its own tool result while
   generating the direct follow-up response.
 - Direct follow-up responses may emit another tool call within the turn
-  coordinator's configured turn budget. When the budget is exhausted, the final
-  follow-up sends no tool specs and adds final/no-tools guidance to the latest
-  tool record's `modelFollowUpNotice`. If that final generation has no visible
-  assistant text, the turn fails with an empty-response diagnostic.
+  coordinator's configured turn budget. When the budget is exhausted — or when a
+  second consecutive identical duplicate is blocked — the final follow-up sends no
+  tool specs and adds the profile-appropriate final/no-tools guidance to the latest
+  tool record's `modelFollowUpNotice` (agent vs chat-web variant). If that final
+  generation has no visible assistant text, the turn fails with an empty-response
+  diagnostic.
 - Final no-tools follow-ups after approved write/edit tools or denied tools also
   disable tools. If the model still emits a native tool attempt, the caller
   treats the follow-up as final and does not execute another tool.

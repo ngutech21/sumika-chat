@@ -44,6 +44,27 @@ struct ToolFollowUpNoticePolicyTests {
   }
 
   @Test
+  func chatSessionFinalNoticeUsesWebWordingNotAgentRules() throws {
+    // A chat (web) session must receive a follow-up notice at all (guard is no longer
+    // agent-only), and the final notice must be web-flavored — no workspace/file wording.
+    let record = completedReadRecord(id: UUID(), path: "README.md", content: "1: hi")
+
+    let update = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: session(with: [record], interactionMode: .chat),
+        turnID: defaultTurnID,
+        promptMode: .afterChatWebToolResultFinal
+      ))
+
+    let notice = try #require(update.record.modelFollowUpNotice)
+    #expect(notice.contains("No more tools are available"))
+    #expect(notice.contains("web results already in context"))
+    #expect(!notice.contains("write_file"))
+    #expect(!notice.contains("workspace change"))
+    #expect(!notice.contains("affected paths"))
+  }
+
+  @Test
   func failedRunCommandBeatsRunCommandResultNotice() throws {
     let command = "just test"
     let first = completedRunCommandRecord(id: UUID(), command: command, exitCode: 1)
@@ -180,7 +201,10 @@ struct ToolFollowUpNoticePolicyTests {
 
 private let defaultTurnID = UUID()
 
-private func session(with records: [ToolCallRecord]) -> ChatSession {
+private func session(
+  with records: [ToolCallRecord],
+  interactionMode: WorkspaceInteractionMode = .agent
+) -> ChatSession {
   ChatSession(
     turns: [
       ChatTurn(
@@ -189,7 +213,7 @@ private func session(with records: [ToolCallRecord]) -> ChatSession {
         items: records.map(ChatTurnItem.tool)
       )
     ],
-    interactionMode: .agent
+    interactionMode: interactionMode
   )
 }
 
