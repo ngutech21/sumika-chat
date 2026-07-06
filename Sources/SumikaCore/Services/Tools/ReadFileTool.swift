@@ -170,11 +170,6 @@ nonisolated extension ToolDefinition {
         minimum: 1
       ),
     ],
-    exampleArguments: [
-      "path": .string("Sources/AppState.swift"),
-      "offset": .number(1),
-      "limit": .number(200),
-    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )

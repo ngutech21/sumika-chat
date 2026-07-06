@@ -257,9 +257,6 @@ and tests.
            isRequired: true
          )
        ],
-       exampleArguments: [
-         "path": .string("Sources/AppState.swift")
-       ],
        capabilities: [.readWorkspace],
        riskLevel: .low
      )

@@ -198,11 +198,6 @@ nonisolated extension ToolDefinition {
         isRequired: false
       ),
     ],
-    exampleArguments: [
-      "command": .string("just test-core"),
-      "timeoutSeconds": .number(120),
-      "reason": .string("Verify the core test suite after the code change."),
-    ],
     capabilities: [.runCommand],
     riskLevel: .high
   )

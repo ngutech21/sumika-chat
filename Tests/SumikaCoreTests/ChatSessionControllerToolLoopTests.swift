@@ -298,8 +298,9 @@ struct ChatSessionControllerToolLoopTests {
     #expect(controller.chatSession.turns.first?.status == .completed)
 
     // 1st duplicate replays content and stays success; 2nd duplicate is blocked.
-    guard case .duplicateToolCall(let firstDuplicate)? =
-      controller.chatSession.toolCalls[1].resultPayload
+    guard
+      case .duplicateToolCall(let firstDuplicate)? =
+        controller.chatSession.toolCalls[1].resultPayload
     else {
       Issue.record("Expected the second call to be a replayed duplicate.")
       return
@@ -307,8 +308,9 @@ struct ChatSessionControllerToolLoopTests {
     #expect(!firstDuplicate.blocked)
     #expect(firstDuplicate.replayedObservation != nil)
 
-    guard case .duplicateToolCall(let secondDuplicate)? =
-      controller.chatSession.toolCalls[2].resultPayload
+    guard
+      case .duplicateToolCall(let secondDuplicate)? =
+        controller.chatSession.toolCalls[2].resultPayload
     else {
       Issue.record("Expected the third call to be a blocked duplicate.")
       return

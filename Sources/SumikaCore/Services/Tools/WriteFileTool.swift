@@ -47,10 +47,6 @@ nonisolated extension ToolDefinition {
         supportsHeredocPayload: true
       ),
     ],
-    exampleArguments: [
-      "path": .string("Sources/AppState.swift"),
-      "content": .string("import Foundation\n"),
-    ],
     capabilities: [.writeWorkspace],
     riskLevel: .high
   )

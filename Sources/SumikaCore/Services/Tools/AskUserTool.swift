@@ -60,11 +60,6 @@ nonisolated extension ToolDefinition {
         valueType: .string
       ),
     ],
-    exampleArguments: [
-      "question": .string("Which implementation should I use?"),
-      "option1": .string("Minimal fix"),
-      "option2": .string("Broader refactor"),
-    ],
     capabilities: [],
     riskLevel: .low
   )

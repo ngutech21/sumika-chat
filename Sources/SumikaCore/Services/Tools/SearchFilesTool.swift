@@ -60,11 +60,6 @@ nonisolated extension ToolDefinition {
         isRequired: false
       ),
     ],
-    exampleArguments: [
-      "pattern": .string("ToolDefinition"),
-      "path": .string("."),
-      "include": .string("*.swift"),
-    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )

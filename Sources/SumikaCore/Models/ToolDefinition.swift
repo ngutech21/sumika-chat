@@ -59,7 +59,6 @@ public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
   public var name: ToolName
   public var description: String
   public var parameters: [ToolParameterDefinition]
-  public var exampleArguments: ToolCallArguments
   public var capabilities: Set<ToolCapability>
   public var riskLevel: ToolRiskLevel
 
@@ -67,7 +66,6 @@ public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
     name: ToolName,
     description: String,
     parameters: [ToolParameterDefinition],
-    exampleArguments: ToolCallArguments,
     capabilities: Set<ToolCapability> = [],
     riskLevel: ToolRiskLevel = .low
   ) {
@@ -78,7 +76,6 @@ public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
     self.name = name
     self.description = description
     self.parameters = parameters
-    self.exampleArguments = exampleArguments
     self.capabilities = capabilities
     self.riskLevel = riskLevel
   }

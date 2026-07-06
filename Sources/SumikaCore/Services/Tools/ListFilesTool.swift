@@ -46,9 +46,6 @@ nonisolated extension ToolDefinition {
         isRequired: false
       )
     ],
-    exampleArguments: [
-      "path": .string(".")
-    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )

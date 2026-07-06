@@ -40,7 +40,6 @@ flowchart TD
   ToolCallState --> ToolResultPayload
   ToolCallState --> ToolResultPreview
   ToolCallingPolicy --> ToolCallingStrategy
-  ToolDefinition --> ToolCallArguments
   ToolDefinition --> ToolCapability
   ToolDefinition --> ToolName
   ToolDefinition --> ToolParameterDefinition
@@ -728,14 +727,12 @@ Properties:
 
 - `capabilities: Set<ToolCapability>`
 - `description: String`
-- `exampleArguments: ToolCallArguments`
 - `name: ToolName`
 - `parameters: [ToolParameterDefinition]`
 - `riskLevel: ToolRiskLevel`
 
 Relations:
 
-- `ToolCallArguments`
 - `ToolCapability`
 - `ToolName`
 - `ToolParameterDefinition`

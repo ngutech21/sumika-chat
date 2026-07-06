@@ -44,9 +44,6 @@ nonisolated extension ToolDefinition {
         isRequired: false
       )
     ],
-    exampleArguments: [
-      "path": .string("Sources/App.swift")
-    ],
     capabilities: [.readWorkspace],
     riskLevel: .low
   )

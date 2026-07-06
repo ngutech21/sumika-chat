@@ -94,9 +94,6 @@ nonisolated extension ToolDefinition {
         defaultValue: .bool(false)
       )
     ],
-    exampleArguments: [
-      "hard": .bool(false)
-    ],
     capabilities: [],
     riskLevel: .low
   )
