@@ -2202,7 +2202,7 @@ final class NativeAssistantThinkingView: NSView {
   private let disclosureButton = NativeActionButton(title: "")
   private let toggleThinkingExpansion: (String) -> Void
   private var statusView: NSView?
-  private var contentLabel: NSTextField?
+  private var contentTextView: NativeStreamingTextView?
   private var currentRowID: String
   private var currentContent = ""
   private var currentStatus: AssistantThinkingMessage.DeliveryStatus?
@@ -2322,52 +2322,47 @@ final class NativeAssistantThinkingView: NSView {
 
   private func updateContent(_ content: String, isExpanded: Bool) {
     guard isExpanded, !content.isEmpty else {
-      removeContentLabel()
+      removeContentTextView()
       return
     }
 
-    let label = ensureContentLabel()
+    let textView = ensureContentTextView()
     if content.hasPrefix(currentContent) {
       let suffix = String(content.dropFirst(currentContent.count))
       if !suffix.isEmpty {
-        let updated = NSMutableAttributedString(attributedString: label.attributedStringValue)
-        updated.append(Self.thinkingAttributedString(for: suffix, usesPlaceholderForEmpty: false))
-        label.attributedStringValue = updated
+        textView.appendAttributedText(
+          Self.thinkingAttributedString(for: suffix, usesPlaceholderForEmpty: false)
+        )
       }
     } else {
-      label.attributedStringValue = Self.thinkingAttributedString(for: content)
+      textView.setAttributedText(Self.thinkingAttributedString(for: content))
     }
 
     currentContent = content
-    label.invalidateIntrinsicContentSize()
     invalidateIntrinsicContentSize()
     needsLayout = true
   }
 
-  private func ensureContentLabel() -> NSTextField {
-    if let contentLabel {
-      return contentLabel
+  private func ensureContentTextView() -> NativeStreamingTextView {
+    if let contentTextView {
+      return contentTextView
     }
 
-    let label = NSTextField(labelWithAttributedString: NSAttributedString())
-    label.maximumNumberOfLines = 0
-    label.lineBreakMode = .byWordWrapping
-    label.isSelectable = true
-    label.allowsEditingTextAttributes = true
-    label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    contentLabel = label
-    stack.addArrangedSubview(label)
-    return label
+    let textView = NativeStreamingTextView()
+    contentTextView = textView
+    stack.addArrangedSubview(textView)
+    textView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    return textView
   }
 
-  private func removeContentLabel() {
-    guard let contentLabel else {
+  private func removeContentTextView() {
+    guard let contentTextView else {
       currentContent = ""
       return
     }
-    stack.removeArrangedSubview(contentLabel)
-    contentLabel.removeFromSuperview()
-    self.contentLabel = nil
+    stack.removeArrangedSubview(contentTextView)
+    contentTextView.removeFromSuperview()
+    self.contentTextView = nil
     currentContent = ""
     invalidateIntrinsicContentSize()
   }
@@ -2400,7 +2395,7 @@ final class NativeAssistantMessageView: NSView {
   private let makeFooterView: ContentBuilder
   private var contentView: NSView?
   private var footerView: NSView?
-  private var streamingTextLabel: NSTextField?
+  private var streamingTextView: NativeStreamingTextView?
   private var currentStreamingContent = ""
   private var contentMode: ContentMode?
 
@@ -2505,33 +2500,31 @@ final class NativeAssistantMessageView: NSView {
   }
 
   private func updatePlainStreamingText(_ content: String) {
-    if contentMode != .streamingPlain || streamingTextLabel == nil {
-      let label = makeStreamingTextLabel()
-      streamingTextLabel = label
+    if contentMode != .streamingPlain || streamingTextView == nil {
+      let textView = NativeStreamingTextView()
+      streamingTextView = textView
       currentStreamingContent = ""
-      replaceContentView(label)
+      replaceContentView(textView)
+      textView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
       contentMode = .streamingPlain
     }
 
-    guard let streamingTextLabel else {
+    guard let streamingTextView else {
       return
     }
 
     if content.hasPrefix(currentStreamingContent) {
       let suffix = String(content.dropFirst(currentStreamingContent.count))
       if !suffix.isEmpty {
-        let updated = NSMutableAttributedString(
-          attributedString: streamingTextLabel.attributedStringValue
+        streamingTextView.appendAttributedText(
+          Self.streamingAttributedString(for: suffix, usesPlaceholderForEmpty: false)
         )
-        updated.append(Self.streamingAttributedString(for: suffix, usesPlaceholderForEmpty: false))
-        streamingTextLabel.attributedStringValue = updated
       }
     } else {
-      streamingTextLabel.attributedStringValue = Self.streamingAttributedString(for: content)
+      streamingTextView.setAttributedText(Self.streamingAttributedString(for: content))
     }
 
     currentStreamingContent = content
-    streamingTextLabel.invalidateIntrinsicContentSize()
     invalidateIntrinsicContentSize()
     needsLayout = true
   }
@@ -2569,18 +2562,8 @@ final class NativeAssistantMessageView: NSView {
     invalidateIntrinsicContentSize()
   }
 
-  private func makeStreamingTextLabel() -> NSTextField {
-    let label = NSTextField(labelWithAttributedString: NSAttributedString())
-    label.maximumNumberOfLines = 0
-    label.lineBreakMode = .byWordWrapping
-    label.isSelectable = true
-    label.allowsEditingTextAttributes = true
-    label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    return label
-  }
-
   private func resetStreamingText() {
-    streamingTextLabel = nil
+    streamingTextView = nil
     currentStreamingContent = ""
   }
 
@@ -2644,6 +2627,114 @@ final class NativeCodeBlockView: NSStackView {
       for: highlightedCode
     )
     hasHighlightedCode = true
+  }
+}
+
+// Non-scrolling, self-sizing text view for live streaming text. Unlike an
+// NSTextField label, TextKit keeps its layout between updates: appending a
+// suffix relayouts only the affected tail lines instead of re-measuring the
+// whole text, keeping per-flush cost O(delta) while a long message streams.
+final class NativeStreamingTextView: NSTextView {
+  // The manually assembled TextKit 1 stack only retains downwards
+  // (storage -> layout manager -> container); the view must keep the storage
+  // alive itself.
+  private let streamingStorage: NSTextStorage
+
+  init() {
+    let storage = NSTextStorage()
+    let layoutManager = NSLayoutManager()
+    let container = NSTextContainer(
+      containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+    )
+    container.widthTracksTextView = true
+    container.lineFragmentPadding = 0
+    storage.addLayoutManager(layoutManager)
+    layoutManager.addTextContainer(container)
+    streamingStorage = storage
+    super.init(frame: .zero, textContainer: container)
+    translatesAutoresizingMaskIntoConstraints = false
+    isEditable = false
+    isSelectable = true
+    drawsBackground = false
+    textContainerInset = .zero
+    isVerticallyResizable = false
+    isHorizontallyResizable = false
+    minSize = .zero
+    maxSize = NSSize(
+      width: CGFloat.greatestFiniteMagnitude,
+      height: CGFloat.greatestFiniteMagnitude
+    )
+    setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
+    setContentHuggingPriority(.defaultHigh, for: .vertical)
+    // Read-only transcript text: expose it to VoiceOver like the NSTextField
+    // labels it replaced, not as an editable "text entry area".
+    setAccessibilityRole(.staticText)
+  }
+
+  @available(*, unavailable)
+  required init?(coder _: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  // The width is pinned to the full content column because NSTextView has no
+  // intrinsic width. Without these overrides a short streamed line would turn
+  // the whole column into an I-beam/selection strip whose clicks also steal
+  // first-responder focus from the composer; confine interaction to the text.
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    guard let superview, let layoutManager, let textContainer else {
+      return super.hitTest(point)
+    }
+    let localPoint = convert(point, from: superview)
+    let usedRect = layoutManager.usedRect(for: textContainer)
+    guard localPoint.x <= usedRect.maxX + textContainerOrigin.x else {
+      return nil
+    }
+    return super.hitTest(point)
+  }
+
+  override func resetCursorRects() {
+    guard let layoutManager, let textContainer else {
+      super.resetCursorRects()
+      return
+    }
+    let usedRect = layoutManager.usedRect(for: textContainer)
+    let textRect = NSRect(
+      x: 0,
+      y: 0,
+      width: usedRect.maxX + textContainerOrigin.x,
+      height: bounds.height
+    )
+    addCursorRect(textRect.intersection(bounds), cursor: .iBeam)
+  }
+
+  override var intrinsicContentSize: NSSize {
+    guard let layoutManager, let textContainer else {
+      return super.intrinsicContentSize
+    }
+    layoutManager.ensureLayout(for: textContainer)
+    let usedRect = layoutManager.usedRect(for: textContainer)
+    return NSSize(width: NSView.noIntrinsicMetric, height: ceil(usedRect.height))
+  }
+
+  // The intrinsic height depends on the wrapping width, which only exists
+  // after a layout pass has assigned the frame.
+  override func setFrameSize(_ newSize: NSSize) {
+    let widthChanged = abs(frame.width - newSize.width) >= 0.5
+    super.setFrameSize(newSize)
+    if widthChanged {
+      invalidateIntrinsicContentSize()
+    }
+  }
+
+  func setAttributedText(_ attributedString: NSAttributedString) {
+    streamingStorage.setAttributedString(attributedString)
+    invalidateIntrinsicContentSize()
+  }
+
+  func appendAttributedText(_ attributedString: NSAttributedString) {
+    streamingStorage.append(attributedString)
+    invalidateIntrinsicContentSize()
   }
 }
 

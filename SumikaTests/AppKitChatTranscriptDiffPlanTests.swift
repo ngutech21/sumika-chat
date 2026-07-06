@@ -1112,6 +1112,109 @@ struct AppKitChatTranscriptDiffPlanTests {
       cell.descendants(of: NSImageView.self).contains { $0.image === loadedThumbnail }
     )
   }
+
+  @Test
+  func streamingTextAppendsIntoTheSameTextViewStorage() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let firstRow = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Hello")
+    let grownRow = nativeStreamingAssistantRow(
+      id: "assistant",
+      revision: 2,
+      content: "Hello world, streaming continues."
+    )
+    let replacedRow = nativeStreamingAssistantRow(
+      id: "assistant",
+      revision: 3,
+      content: "Regenerated from scratch."
+    )
+
+    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let textView = try #require(cell.descendants(of: NativeStreamingTextView.self).first)
+    #expect(textView.string == "Hello")
+
+    cell.configure(row: grownRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let textViewAfterAppend = try #require(
+      cell.descendants(of: NativeStreamingTextView.self).first
+    )
+    #expect(textViewAfterAppend === textView)
+    #expect(textViewAfterAppend.string == "Hello world, streaming continues.")
+
+    cell.configure(
+      row: replacedRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    #expect(textView.string == "Regenerated from scratch.")
+  }
+
+  @Test
+  func streamingThinkingTextAppendsIntoTheSameTextView() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let firstRow = nativeStreamingThinkingRow(id: "thinking", revision: 1, content: "Inspecting")
+    let grownRow = nativeStreamingThinkingRow(
+      id: "thinking",
+      revision: 2,
+      content: "Inspecting the workspace carefully."
+    )
+
+    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let textView = try #require(cell.descendants(of: NativeStreamingTextView.self).first)
+    #expect(textView.string == "Inspecting")
+
+    cell.configure(row: grownRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let textViewAfterAppend = try #require(
+      cell.descendants(of: NativeStreamingTextView.self).first
+    )
+    #expect(textViewAfterAppend === textView)
+    #expect(textViewAfterAppend.string == "Inspecting the workspace carefully.")
+  }
+
+  @Test
+  func streamingTextViewLimitsHitTestingToLaidOutText() throws {
+    let row = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Ok.")
+    let cell = configuredNativeCell(for: row)
+    let textView = try #require(cell.descendants(of: NativeStreamingTextView.self).first)
+    let superview = try #require(textView.superview)
+
+    let insideText = superview.convert(
+      NSPoint(x: 2, y: textView.bounds.midY), from: textView
+    )
+    let besideText = superview.convert(
+      NSPoint(x: textView.bounds.maxX - 2, y: textView.bounds.midY), from: textView
+    )
+
+    #expect(textView.bounds.width > 200)
+    #expect(textView.hitTest(insideText) != nil)
+    #expect(textView.hitTest(besideText) == nil)
+  }
+
+  @Test
+  func streamingTextViewExposesStaticTextAccessibilityRole() throws {
+    let row = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Hello")
+    let cell = configuredNativeCell(for: row)
+    let textView = try #require(cell.descendants(of: NativeStreamingTextView.self).first)
+
+    #expect(textView.accessibilityRole() == .staticText)
+  }
+
+  @Test
+  func streamingTextWrapsToMeasurementWidth() {
+    let row = nativeStreamingAssistantRow(
+      id: "assistant",
+      revision: 1,
+      content: String(
+        repeating: "Streaming text that wraps across several lines at narrow widths. ",
+        count: 8
+      )
+    )
+
+    let wideHeight = NativeTranscriptRowMeasurer.height(for: row, width: 640)
+    let narrowHeight = NativeTranscriptRowMeasurer.height(for: row, width: 360)
+
+    #expect(narrowHeight > wideHeight)
+    #expect(wideHeight > 44)
+  }
 }
 
 private func revisionMap(_ rows: [NativeTranscriptRow]) -> [String: Int] {
@@ -1496,7 +1599,7 @@ extension NSView {
   }
 
   fileprivate var descendantTextValues: [String] {
-    descendantTextFields.map(\.stringValue)
+    descendantTextFields.map(\.stringValue) + descendants(of: NSTextView.self).map(\.string)
   }
 
   fileprivate var descendantTextFields: [NSTextField] {
