@@ -552,7 +552,7 @@ extension NativeChatTranscriptCoordinator {
               rowID: rowID,
               codeBlock: codeBlock
             ) { [weak self] updatedRowID in
-              self?.reconfigureRows(ids: [updatedRowID])
+              self?.applyCodeHighlightToVisibleRows(rowID: updatedRowID)
             }
           },
           attachmentThumbnail: { [weak self] attachment, maxPixelSize in
@@ -692,6 +692,28 @@ extension NativeChatTranscriptCoordinator {
 
   private func reconfigureRows(ids: [String]) {
     reconfigureVisibleRows(changedIDs: Set(ids))
+  }
+
+  // Finished highlights recolor the affected code labels of the visible cell
+  // in place. Cells that are offscreen pick the cached result up from the
+  // store on their next configure, exactly like before.
+  private func applyCodeHighlightToVisibleRows(rowID: String) {
+    guard let tableView else {
+      return
+    }
+    let visibleRows = tableView.rows(in: tableView.visibleRect)
+    guard visibleRows.location != NSNotFound else {
+      return
+    }
+    for row in visibleRows.location..<(visibleRows.location + visibleRows.length) {
+      guard row >= 0, row < rowIDs.count, rowIDs[row] == rowID,
+        let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+          as? NativeChatMessageCellView
+      else {
+        continue
+      }
+      cell.applyAvailableCodeHighlights(rowID: rowID)
+    }
   }
 
   private func reconfigureVisibleRows(changedIDs: Set<String>) {
@@ -1612,7 +1634,12 @@ final class NativeChatMessageCellView: NSTableCellView {
       case .item(let item) = row.body,
       let assistantView = hostedContentView as? NativeAssistantMessageView
     {
-      assistantView.update(item: item, rowID: row.id, state: state)
+      assistantView.update(
+        item: item,
+        rowID: row.id,
+        state: state,
+        assetsRevision: assistantAssetsRevision(for: item)
+      )
       updateAccessibility(for: row)
       return
     }
@@ -1803,6 +1830,7 @@ final class NativeChatMessageCellView: NSTableCellView {
       item: item,
       rowID: rowID,
       state: state,
+      assetsRevision: assistantAssetsRevision(for: item),
       makePlaceholderView: { [weak self] title in
         self?.makeGenerationIndicator(title: title) ?? NSView()
       },
@@ -2068,10 +2096,6 @@ final class NativeChatMessageCellView: NSTableCellView {
     _ codeBlock: AssistantRenderBlock.CodeBlock,
     highlightedCode: HighlightedCode?
   ) -> NSView {
-    let stack = verticalStack(spacing: 4)
-    if let language = codeBlock.language, !language.isEmpty {
-      stack.addArrangedSubview(makeSecondaryLabel(language))
-    }
     let language = CodeLanguage(fenceLanguage: codeBlock.language)
     let attributedCode =
       highlightedCode.map(NativeTranscriptCodeRenderer.attributedString)
@@ -2079,9 +2103,18 @@ final class NativeChatMessageCellView: NSTableCellView {
         code: codeBlock.text.isEmpty ? " " : codeBlock.text,
         language: language
       )
+    let codeLabel = makeCodeAttributedLabel(attributedCode)
+    let stack = NativeCodeBlockView(
+      codeBlock: codeBlock,
+      codeLabel: codeLabel,
+      hasHighlightedCode: highlightedCode != nil
+    )
+    if let languageName = codeBlock.language, !languageName.isEmpty {
+      stack.addArrangedSubview(makeSecondaryLabel(languageName))
+    }
     stack.addArrangedSubview(
       borderedPaddedContainer(
-        makeCodeAttributedLabel(attributedCode),
+        codeLabel,
         fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.08),
         strokeColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12),
         cornerRadius: 8
@@ -2375,6 +2408,7 @@ final class NativeAssistantMessageView: NSView {
     item: RenderedChatTurnItem,
     rowID: String,
     state: NativeTranscriptCellState,
+    assetsRevision: Int,
     makePlaceholderView: @escaping PlaceholderBuilder,
     makeFinalContentView: @escaping ContentBuilder,
     makeFooterView: @escaping ContentBuilder
@@ -2384,7 +2418,7 @@ final class NativeAssistantMessageView: NSView {
     self.makeFooterView = makeFooterView
     super.init(frame: .zero)
     setupStack()
-    update(item: item, rowID: rowID, state: state)
+    update(item: item, rowID: rowID, state: state, assetsRevision: assetsRevision)
   }
 
   @available(*, unavailable)
@@ -2395,9 +2429,10 @@ final class NativeAssistantMessageView: NSView {
   func update(
     item: RenderedChatTurnItem,
     rowID: String,
-    state: NativeTranscriptCellState
+    state: NativeTranscriptCellState,
+    assetsRevision: Int
   ) {
-    updateContent(item: item, rowID: rowID, state: state)
+    updateContent(item: item, rowID: rowID, state: state, assetsRevision: assetsRevision)
     if item.isStreamingAssistantMessage {
       replaceFooterView(nil)
     } else {
@@ -2423,7 +2458,8 @@ final class NativeAssistantMessageView: NSView {
   private func updateContent(
     item: RenderedChatTurnItem,
     rowID: String,
-    state: NativeTranscriptCellState
+    state: NativeTranscriptCellState,
+    assetsRevision: Int
   ) {
     if item.shouldShowAssistantPlaceholder {
       let mode = ContentMode.placeholder(item.assistantPlaceholderTitle)
@@ -2437,7 +2473,10 @@ final class NativeAssistantMessageView: NSView {
 
     if item.isStreamingAssistantMessage {
       guard item.nativeAttachments.isEmpty else {
-        let mode = ContentMode.streamingStructured(item.renderRevision)
+        let mode = ContentMode.streamingStructured(
+          revision: item.renderRevision,
+          assetsRevision: assetsRevision
+        )
         if contentMode != mode {
           replaceContentView(makeFinalContentView(item, rowID, state))
           resetStreamingText()
@@ -2450,9 +2489,19 @@ final class NativeAssistantMessageView: NSView {
       return
     }
 
-    replaceContentView(makeFinalContentView(item, rowID, state))
-    resetStreamingText()
-    contentMode = .final
+    // Rebuild only when the content itself or an async asset (attachment
+    // thumbnail) changed. Copy/speech state lives in the separately rebuilt
+    // footer, and finished code highlights are applied in place via
+    // NativeCodeBlockView, so neither needs a content rebuild anymore.
+    let mode = ContentMode.final(
+      revision: item.renderRevision,
+      assetsRevision: assetsRevision
+    )
+    if contentMode != mode {
+      replaceContentView(makeFinalContentView(item, rowID, state))
+      resetStreamingText()
+      contentMode = mode
+    }
   }
 
   private func updatePlainStreamingText(_ content: String) {
@@ -2554,8 +2603,47 @@ final class NativeAssistantMessageView: NSView {
   private enum ContentMode: Equatable {
     case placeholder(String)
     case streamingPlain
-    case streamingStructured(Int)
-    case final
+    case streamingStructured(revision: Int, assetsRevision: Int)
+    case final(revision: Int, assetsRevision: Int)
+  }
+}
+
+final class NativeCodeBlockView: NSStackView {
+  let codeBlock: AssistantRenderBlock.CodeBlock
+  private let codeLabel: NSTextField
+  private var hasHighlightedCode: Bool
+
+  init(
+    codeBlock: AssistantRenderBlock.CodeBlock,
+    codeLabel: NSTextField,
+    hasHighlightedCode: Bool
+  ) {
+    self.codeBlock = codeBlock
+    self.codeLabel = codeLabel
+    self.hasHighlightedCode = hasHighlightedCode
+    super.init(frame: .zero)
+    orientation = .vertical
+    alignment = .leading
+    distribution = .gravityAreas
+    spacing = 4
+  }
+
+  @available(*, unavailable)
+  required init?(coder _: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  // Metric-neutral by construction: the highlighted string is the same code in
+  // the same monospaced font, spans only recolor. No relayout or height
+  // invalidation is needed, so a finished highlight never rebuilds the row.
+  func applyHighlightedCodeIfNeeded(_ highlightedCode: HighlightedCode?) {
+    guard !hasHighlightedCode, let highlightedCode else {
+      return
+    }
+    codeLabel.attributedStringValue = NativeTranscriptCodeRenderer.attributedString(
+      for: highlightedCode
+    )
+    hasHighlightedCode = true
   }
 }
 
@@ -2647,6 +2735,46 @@ extension NativeChatMessageCellView {
     container.layer?.borderColor = strokeColor.cgColor
     container.layer?.borderWidth = 1
     return container
+  }
+
+  // Fingerprints the async-loaded assets a final content build would bake in.
+  // Thumbnail completion reconfigures the row with an unchanged renderRevision
+  // and relies on this value changing to get past the ContentMode guard.
+  fileprivate func assistantAssetsRevision(for item: RenderedChatTurnItem) -> Int {
+    let attachments = item.nativeAttachments
+    guard !attachments.isEmpty else {
+      return 0
+    }
+    var hasher = Hasher()
+    let maxPixelSize = NativeTranscriptAttachmentPreviewMetrics.maxImagePixelSize
+    for attachment in attachments {
+      hasher.combine(attachment.id)
+      hasher.combine(actions?.attachmentThumbnail(attachment, maxPixelSize) != nil)
+    }
+    return hasher.finalize()
+  }
+
+  func applyAvailableCodeHighlights(rowID: String) {
+    guard configuredRowID == rowID, let hostedContentView, let actions else {
+      return
+    }
+    applyAvailableCodeHighlights(in: hostedContentView, rowID: rowID, actions: actions)
+  }
+
+  private func applyAvailableCodeHighlights(
+    in view: NSView,
+    rowID: String,
+    actions: NativeTranscriptCellActions
+  ) {
+    if let codeBlockView = view as? NativeCodeBlockView {
+      codeBlockView.applyHighlightedCodeIfNeeded(
+        actions.highlightedCode(rowID, codeBlockView.codeBlock)
+      )
+      return
+    }
+    for subview in view.subviews {
+      applyAvailableCodeHighlights(in: subview, rowID: rowID, actions: actions)
+    }
   }
 
   fileprivate func verticalStack(spacing: CGFloat) -> NSStackView {

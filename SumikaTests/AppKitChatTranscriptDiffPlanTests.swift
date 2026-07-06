@@ -998,6 +998,120 @@ struct AppKitChatTranscriptDiffPlanTests {
     #expect(cell.descendantTextValues.contains { $0.contains("bold") })
     #expect(!cell.descendantTextValues.contains("**bold**"))
   }
+
+  @Test
+  func finalAssistantReconfigureWithUnchangedRevisionKeepsContentViews() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let row = nativeAssistantMarkdownRow(
+      id: "assistant",
+      revision: 1,
+      markdown: "Stable answer text."
+    )
+    let revisedRow = nativeAssistantMarkdownRow(
+      id: "assistant",
+      revision: 2,
+      markdown: "Stable answer text with more content."
+    )
+
+    cell.configure(row: row, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let initialLabel = try #require(
+      cell.descendantTextFields.first { $0.stringValue.contains("Stable") }
+    )
+
+    cell.configure(
+      row: row,
+      state: NativeTranscriptCellState(isCopied: true),
+      actions: testNativeActions()
+    )
+    let labelAfterFooterStateChange = try #require(
+      cell.descendantTextFields.first { $0.stringValue.contains("Stable") }
+    )
+    #expect(labelAfterFooterStateChange === initialLabel)
+
+    cell.configure(
+      row: revisedRow,
+      state: NativeTranscriptCellState(),
+      actions: testNativeActions()
+    )
+    let labelAfterContentChange = try #require(
+      cell.descendantTextFields.first { $0.stringValue.contains("Stable") }
+    )
+    #expect(labelAfterContentChange !== initialLabel)
+    #expect(labelAfterContentChange.stringValue.contains("more content"))
+  }
+
+  @Test
+  func highlightCompletionRecolorsCodeLabelWithoutRebuild() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let code = "let value = 1"
+    let row = nativeAssistantCodeRow(id: "assistant", revision: 1, code: code)
+    var highlighted: HighlightedCode?
+    var actions = testNativeActions()
+    actions.highlightedCode = { _, _ in highlighted }
+
+    cell.configure(row: row, state: NativeTranscriptCellState(), actions: actions)
+    let codeLabel = try #require(
+      cell.descendantTextFields.first { $0.stringValue == code }
+    )
+    let plainColor =
+      codeLabel.attributedStringValue.attribute(.foregroundColor, at: 0, effectiveRange: nil)
+      as? NSColor
+
+    highlighted = HighlightedCode(
+      code: code,
+      language: CodeLanguage(fenceLanguage: "js"),
+      spans: [
+        HighlightSpan(
+          range: HighlightTextRange(location: 0, length: 3),
+          style: .keyword,
+          captureName: "keyword"
+        )
+      ]
+    )
+    cell.applyAvailableCodeHighlights(rowID: "assistant")
+
+    let labelAfterHighlight = try #require(
+      cell.descendantTextFields.first { $0.stringValue == code }
+    )
+    #expect(labelAfterHighlight === codeLabel)
+    let keywordColor =
+      labelAfterHighlight.attributedStringValue.attribute(
+        .foregroundColor, at: 0, effectiveRange: nil
+      ) as? NSColor
+    #expect(keywordColor == NativeTranscriptCodeRenderer.color(for: .keyword))
+    #expect(keywordColor != plainColor)
+  }
+
+  @Test
+  func thumbnailArrivalRebuildsAssistantAttachmentContent() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let row = nativeAssistantRow(
+      id: "assistant",
+      revision: 1,
+      attachments: [nativeImageAttachment(displayName: "diagram.png")]
+    )
+    var thumbnail: NSImage?
+    var actions = testNativeActions()
+    actions.attachmentThumbnail = { _, _ in thumbnail }
+
+    cell.configure(row: row, state: NativeTranscriptCellState(), actions: actions)
+    #expect(
+      !cell.descendants(of: NSImageView.self).contains { $0.image === thumbnail }
+    )
+
+    let loadedThumbnail = NSImage(size: NSSize(width: 8, height: 8))
+    thumbnail = loadedThumbnail
+    cell.configure(row: row, state: NativeTranscriptCellState(), actions: actions)
+    #expect(
+      cell.descendants(of: NSImageView.self).contains { $0.image === loadedThumbnail }
+    )
+  }
 }
 
 private func revisionMap(_ rows: [NativeTranscriptRow]) -> [String: Int] {
