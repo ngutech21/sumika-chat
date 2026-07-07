@@ -110,40 +110,29 @@ struct ChatComposer: View {
           .disabled(isGenerating || modelState != .ready)
           .accessibilityLabel("Add context files")
 
+          modelPicker
+          modeSelector
+          reasoningToggle
+
+          // The contextual load control lives at the trailing end of the
+          // leading cluster and keeps a fixed width. Because nothing sits
+          // between it and the Spacer, switching "Load" → "Loading" or hiding
+          // it once the model is ready never nudges the controls to its left
+          // or the send cluster to its right.
+          if modelState != .ready {
+            loadButton
+          }
+
+          Spacer(minLength: 8)
+
+          ComposerContextRing(usage: contextUsage)
+
           ComposerSpeechInputControl(
             controller: speechInputController,
             isDisabled: isGenerating || modelState != .ready,
             onTranscript: insertSpeechTranscript(_:),
             onNeedsAudioModel: onOpenAudioModels
           )
-
-          modelPicker
-
-          if modelState != .ready {
-            Button(action: onLoadModel) {
-              if modelState == .loading {
-                HStack(spacing: 6) {
-                  ProgressView()
-                    .controlSize(.small)
-                    .accessibilityIdentifier("load-model-progress")
-                  Text(modelLoadActionTitle)
-                }
-              } else {
-                Label(modelLoadActionTitle, systemImage: "play.fill")
-              }
-            }
-            .controlSize(.small)
-            .disabled(!canLoadSelectedModel)
-            .accessibilityLabel(modelLoadHelp)
-            .accessibilityIdentifier("load-model-button")
-          }
-
-          modeSelector
-          reasoningToggle
-
-          Spacer()
-
-          ComposerContextRing(usage: contextUsage)
 
           Button(action: isGenerating ? onCancel : sendMessage) {
             Image(systemName: isGenerating ? "stop.fill" : "arrow.up")
@@ -157,19 +146,25 @@ struct ChatComposer: View {
           .accessibilityIdentifier(isGenerating ? "cancel-generation-button" : "send-button")
           .disabled(!isGenerating && !canSubmitDraft)
           .accessibilityLabel(isGenerating ? "Cancel" : "Send")
+
         }
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 14)
-      .background(
-        composerBackground,
-        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-      )
+      .glassPanel(cornerRadius: 18)
       .overlay {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .strokeBorder(composerBorderColor, lineWidth: isDropTarget ? 1.5 : 1)
+        // Drop-target affordance layered on top of the glass surface so the
+        // base panel keeps its translucency while a drag is in progress.
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+          .fill(Color.accentColor.opacity(0.08))
+          .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+              .strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 1.5)
+          }
+          .opacity(isDropTarget && canAcceptAttachments ? 1 : 0)
+          .allowsHitTesting(false)
       }
-      .shadow(color: Color.black.opacity(0.14), radius: 16, x: 0, y: 8)
+      .shadow(color: Color.black.opacity(0.22), radius: 22, x: 0, y: 10)
       .onPasteCommand(of: Self.attachmentPasteTypes) { providers in
         handlePaste(providers)
       }
@@ -280,6 +275,30 @@ struct ChatComposer: View {
     .accessibilityIdentifier("chat.reasoningToggle")
   }
 
+  private var loadButton: some View {
+    Button(action: onLoadModel) {
+      Group {
+        if modelState == .loading {
+          HStack(spacing: 6) {
+            ProgressView()
+              .controlSize(.small)
+              .accessibilityIdentifier("load-model-progress")
+            Text(modelLoadActionTitle)
+          }
+        } else {
+          Label(modelLoadActionTitle, systemImage: "play.fill")
+        }
+      }
+      // A fixed content width keeps the button itself from resizing as it
+      // moves between the "Load" and "Loading" states.
+      .frame(width: 74)
+    }
+    .controlSize(.small)
+    .disabled(!canLoadSelectedModel)
+    .accessibilityLabel(modelLoadHelp)
+    .accessibilityIdentifier("load-model-button")
+  }
+
   // Clickable model picker. Uses a button + `.popover` rather than a native
   // `Menu`/NSMenu: when an accessibility client walks the tree, a closed popover
   // contributes only the button (its content lives in a separate window shown on
@@ -362,19 +381,6 @@ struct ChatComposer: View {
 
   private func sendButtonForeground(canActivateSend: Bool) -> Color {
     canActivateSend ? Color.white : Color.secondary
-  }
-
-  private var composerBackground: AnyShapeStyle {
-    if isDropTarget && canAcceptAttachments {
-      return AnyShapeStyle(Color.accentColor.opacity(0.08))
-    }
-    return AnyShapeStyle(.regularMaterial)
-  }
-
-  private var composerBorderColor: Color {
-    isDropTarget && canAcceptAttachments
-      ? Color.accentColor.opacity(0.55)
-      : Color.secondary.opacity(0.18)
   }
 
   private var modelLoadActionTitle: String {
@@ -792,6 +798,16 @@ private struct ComposerSpeechInputControl: View {
 
   var body: some View {
     HStack(spacing: 6) {
+      // Status sits to the left of the icon so the mic stays the trailing
+      // anchor of the row and the transient text grows inward, not off-edge.
+      if let statusText = controller.statusText {
+        Text(statusText)
+          .font(.caption2.monospacedDigit())
+          .foregroundStyle(statusForeground)
+          .lineLimit(1)
+          .frame(maxWidth: 120, alignment: .trailing)
+      }
+
       Button {
         controller.toggle(
           onTranscript: onTranscript,
@@ -799,9 +815,9 @@ private struct ComposerSpeechInputControl: View {
         )
       } label: {
         Image(systemName: controller.isRecording ? "stop.fill" : "mic.fill")
-          .font(.system(size: 11, weight: .semibold))
+          .font(.system(size: 12, weight: .semibold))
           .foregroundStyle(buttonForeground)
-          .frame(width: 24, height: 24)
+          .frame(width: 28, height: 28)
           .background(buttonBackground, in: Circle())
           .contentShape(Circle())
       }
@@ -810,14 +826,6 @@ private struct ComposerSpeechInputControl: View {
       .help(helpText)
       .accessibilityLabel(controller.isRecording ? "Stop dictation" : "Start dictation")
       .accessibilityIdentifier("chat.speechInput")
-
-      if let statusText = controller.statusText {
-        Text(statusText)
-          .font(.caption2)
-          .foregroundStyle(statusForeground)
-          .lineLimit(1)
-          .frame(maxWidth: 120, alignment: .leading)
-      }
     }
     .onDisappear {
       controller.cancel()

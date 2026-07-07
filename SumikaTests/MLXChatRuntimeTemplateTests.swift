@@ -109,11 +109,13 @@ struct MLXChatRuntimeTemplateTests {
 
     var matches: [String] = []
     for directoryURL in searchedDirectories {
-      guard let enumerator = FileManager.default.enumerator(
-        at: directoryURL,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles]
-      ) else {
+      guard
+        let enumerator = FileManager.default.enumerator(
+          at: directoryURL,
+          includingPropertiesForKeys: [.isRegularFileKey],
+          options: [.skipsHiddenFiles]
+        )
+      else {
         continue
       }
       for case let fileURL as URL in enumerator where fileURL.pathExtension == "swift" {
@@ -2333,8 +2335,7 @@ struct MLXChatRuntimeTemplateTests {
     }
   }
 
-  private func consumeFirstModelStreamEvent(recorder: MLXStreamInvalidationRecorder) async throws
-  {
+  private func consumeFirstModelStreamEvent(recorder: MLXStreamInvalidationRecorder) async throws {
     let source = AsyncThrowingStream<Generation, Error> { continuation in
       let task = Task {
         continuation.yield(.chunk("tool"))

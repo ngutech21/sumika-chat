@@ -7,6 +7,7 @@ struct ChatTranscript: View {
   let isGenerating: Bool
   let appBehaviorSettings: AppBehaviorSettings
   let assistantSpeechService: AssistantSpeechService
+  var bottomContentInset: CGFloat = 0
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
   let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
@@ -28,6 +29,9 @@ struct ChatTranscript: View {
       .accessibilityIdentifier("chat.transcript")
       .accessibilityValue(modelState.accessibilityValue)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
+      // Keep the empty-state message centered within the area the floating
+      // composer leaves visible rather than behind it.
+      .padding(.bottom, bottomContentInset)
     } else {
       AppKitChatTranscriptRepresentable(
         items: items,
@@ -38,6 +42,7 @@ struct ChatTranscript: View {
         accessibilityValue: modelState.accessibilityValue,
         isSpeechEnabled: appBehaviorSettings.assistantSpeechEnabled,
         activeSpeechRowID: assistantSpeechService.activeRowID,
+        bottomContentInset: bottomContentInset,
         onToggleSpeech: { rowID, text in
           assistantSpeechService.toggle(
             rowID: rowID,

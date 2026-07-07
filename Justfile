@@ -1,5 +1,3 @@
-set quiet := true
-
 project := "Sumika.xcodeproj"
 scheme := "Sumika"
 destination := "platform=macOS,arch=arm64"

@@ -10,6 +10,9 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
   let accessibilityValue: String
   let isSpeechEnabled: Bool
   let activeSpeechRowID: String?
+  // Space reserved at the bottom of the scroll content so the last message can
+  // scroll clear of the floating composer that overlaps this view.
+  let bottomContentInset: CGFloat
   let onToggleSpeech: (String, String) -> Void
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
@@ -44,6 +47,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         onDenyToolCall: onDenyToolCall,
         onAnswerAskUser: onAnswerAskUser
       )
+      context.coordinator.applyBottomContentInset(bottomContentInset, to: scrollView)
       context.coordinator.update(
         rows: rows,
         accessibilityValue: accessibilityValue,
@@ -123,6 +127,9 @@ extension NativeChatTranscriptCoordinator {
     scrollView.hasVerticalScroller = true
     scrollView.hasHorizontalScroller = false
     scrollView.autohidesScrollers = true
+    // The floating composer manages the bottom inset itself, so opt out of the
+    // system-driven adjustment and drive `contentInsets` explicitly.
+    scrollView.automaticallyAdjustsContentInsets = false
     scrollView.documentView = tableView
     scrollView.postsBoundsChangedNotifications = true
     scrollView.setAccessibilityIdentifier("chat.transcript")
@@ -856,13 +863,42 @@ extension NativeChatTranscriptCoordinator {
     )
   }
 
+  // Applies the bottom inset that keeps the last row clear of the floating
+  // composer. Re-pins to the bottom when the inset grows/shrinks while the
+  // viewport is already pinned, so the newest content stays visible.
+  func applyBottomContentInset(_ inset: CGFloat, to scrollView: NSScrollView) {
+    let clamped = max(0, inset)
+    guard abs(scrollView.contentInsets.bottom - clamped) >= 0.5 else {
+      return
+    }
+    let wasPinnedToBottom = isPinnedToBottom(scrollView)
+    scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: clamped, right: 0)
+    scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: clamped, right: 0)
+    if wasPinnedToBottom {
+      scrollView.layoutSubtreeIfNeeded()
+      scrollToBottomImmediately(scrollView)
+    }
+  }
+
+  // The largest valid vertical scroll offset. `constrainBoundsRect` is the same
+  // routine AppKit uses while scrolling, so it accounts for `contentInsets`
+  // without us re-deriving the arithmetic.
+  private func maxScrollOffsetY(_ scrollView: NSScrollView) -> CGFloat {
+    let clipView = scrollView.contentView
+    let proposed = NSRect(
+      x: clipView.bounds.origin.x,
+      y: .greatestFiniteMagnitude,
+      width: clipView.bounds.width,
+      height: clipView.bounds.height
+    )
+    return clipView.constrainBoundsRect(proposed).origin.y
+  }
+
   private func isPinnedToBottom(_ scrollView: NSScrollView) -> Bool {
-    guard let documentView = scrollView.documentView else {
+    guard scrollView.documentView != nil else {
       return true
     }
-    let visibleMaxY = scrollView.contentView.bounds.maxY
-    let documentHeight = documentView.bounds.height
-    return documentHeight - visibleMaxY < 48
+    return maxScrollOffsetY(scrollView) - scrollView.contentView.bounds.origin.y < 48
   }
 
   private func scrollToBottom(_ scrollView: NSScrollView) {
@@ -872,10 +908,10 @@ extension NativeChatTranscriptCoordinator {
   }
 
   private func scrollToBottomImmediately(_ scrollView: NSScrollView) {
-    guard let documentView = scrollView.documentView else {
+    guard scrollView.documentView != nil else {
       return
     }
-    let targetY = max(documentView.bounds.height - scrollView.contentView.bounds.height, 0)
+    let targetY = max(maxScrollOffsetY(scrollView), 0)
     guard abs(scrollView.contentView.bounds.origin.y - targetY) >= 0.5 else {
       pinnedToBottom = true
       return
