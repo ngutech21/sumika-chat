@@ -7,6 +7,7 @@ struct ChatTranscriptHost: View {
   let sessionID: ChatSession.ID?
   let appBehaviorSettings: AppBehaviorSettings
   let assistantSpeechService: AssistantSpeechService
+  var bottomContentInset: CGFloat = 0
 
   var body: some View {
     #if DEBUG
@@ -20,6 +21,7 @@ struct ChatTranscriptHost: View {
       isGenerating: controller.isGenerating,
       appBehaviorSettings: appBehaviorSettings,
       assistantSpeechService: assistantSpeechService,
+      bottomContentInset: bottomContentInset,
       onApproveToolCall: { toolCallID in
         controller.approveToolCall(id: toolCallID, in: toolWorkspace)
       },

@@ -99,6 +99,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
   @Binding var isWorkspaceTerminalVisible: Bool
   let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
   let onOpenAudioModels: () -> Void
+  @State private var composerHeight: CGFloat = 0
 
   static func == (lhs: WorkspaceChatMainColumn, rhs: WorkspaceChatMainColumn) -> Bool {
     ObjectIdentifier(lhs.controller) == ObjectIdentifier(rhs.controller)
@@ -122,24 +123,40 @@ private struct WorkspaceChatMainColumn: View, Equatable {
     VStack(spacing: 0) {
       Divider()
 
-      ChatTranscriptHost(
-        controller: controller,
-        context: context,
-        sessionID: sessionID,
-        appBehaviorSettings: appBehaviorSettings,
-        assistantSpeechService: assistantSpeechService
-      )
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      ZStack(alignment: .bottom) {
+        ChatTranscriptHost(
+          controller: controller,
+          context: context,
+          sessionID: sessionID,
+          appBehaviorSettings: appBehaviorSettings,
+          assistantSpeechService: assistantSpeechService,
+          bottomContentInset: composerHeight
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-      WorkspaceChatComposerHost(
-        controller: controller,
-        context: context,
-        sessionID: sessionID,
-        previewState: previewState,
-        speechInputController: speechInputController,
-        onSendMessage: onSendMessage,
-        onOpenAudioModels: onOpenAudioModels
-      )
+        WorkspaceChatComposerHost(
+          controller: controller,
+          context: context,
+          sessionID: sessionID,
+          previewState: previewState,
+          speechInputController: speechInputController,
+          onSendMessage: onSendMessage,
+          onOpenAudioModels: onOpenAudioModels
+        )
+        .background {
+          GeometryReader { proxy in
+            Color.clear
+              .preference(
+                key: ComposerHeightPreferenceKey.self,
+                value: proxy.size.height
+              )
+          }
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .onPreferenceChange(ComposerHeightPreferenceKey.self) { height in
+        composerHeight = height
+      }
 
       WorkspaceTerminalSlot(
         context: context,
@@ -148,6 +165,14 @@ private struct WorkspaceChatMainColumn: View, Equatable {
       .equatable()
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+private struct ComposerHeightPreferenceKey: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
   }
 }
 
