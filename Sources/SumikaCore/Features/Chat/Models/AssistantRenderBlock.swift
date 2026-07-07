@@ -59,8 +59,37 @@ public struct AssistantRenderBlockParser: Sendable {
   public init() {}
 
   public func parse(_ content: String) -> [AssistantRenderBlock] {
-    var parser = Parser(content: content)
-    return parser.parse()
+    parseTail(of: content, fromUTF16Offset: 0, nextBlockOrdinal: 0).blocks
+  }
+
+  // Streaming entry point: blocks are delimited by fence lines, so appending
+  // content can only ever change the final block. Callers cache the offset of
+  // that block and reparse just the tail instead of the whole message.
+  public func parseTail(
+    of content: String,
+    fromUTF16Offset offset: Int,
+    nextBlockOrdinal: Int
+  ) -> AssistantRenderBlockTailParse {
+    var parser = Parser(
+      content: content,
+      startIndex: String.Index(utf16Offset: offset, in: content),
+      nextBlockOrdinal: nextBlockOrdinal
+    )
+    let blocks = parser.parse()
+    return AssistantRenderBlockTailParse(
+      blocks: blocks,
+      lastBlockUTF16Offset: parser.lastBlockStartIndex?.utf16Offset(in: content)
+    )
+  }
+}
+
+public struct AssistantRenderBlockTailParse: Sendable, Equatable {
+  public let blocks: [AssistantRenderBlock]
+  public let lastBlockUTF16Offset: Int?
+
+  public init(blocks: [AssistantRenderBlock], lastBlockUTF16Offset: Int?) {
+    self.blocks = blocks
+    self.lastBlockUTF16Offset = lastBlockUTF16Offset
   }
 }
 
@@ -68,20 +97,27 @@ extension AssistantRenderBlockParser {
   private struct Parser {
     let content: String
     var currentIndex: String.Index
-    var nextBlockOrdinal = 0
+    var nextBlockOrdinal: Int
     var blocks: [AssistantRenderBlock] = []
+    var lastBlockStartIndex: String.Index?
 
-    init(content: String) {
+    init(content: String, startIndex: String.Index, nextBlockOrdinal: Int) {
       self.content = content
-      self.currentIndex = content.startIndex
+      self.currentIndex = startIndex
+      self.nextBlockOrdinal = nextBlockOrdinal
     }
 
     mutating func parse() -> [AssistantRenderBlock] {
       while currentIndex < content.endIndex {
+        let blockStart = currentIndex
+        let blockCountBeforeParse = blocks.count
         if let fence = fenceLine(at: currentIndex) {
           appendCodeBlock(openingFence: fence)
         } else {
           appendParagraph()
+        }
+        if blocks.count > blockCountBeforeParse {
+          lastBlockStartIndex = blockStart
         }
       }
 

@@ -6,6 +6,7 @@ final class ChatTranscriptRenderer {
   private let assistantBlocks: @MainActor (String) -> [AssistantRenderBlock]
   private var itemCache: [ChatTranscriptRenderItemKey: RenderedItemCacheEntry] = [:]
   private var assistantBlockCache: [AssistantTurnMessage.ID: AssistantBlockCacheEntry] = [:]
+  private var streamingBlockCache: [AssistantTurnMessage.ID: StreamingBlockCacheEntry] = [:]
 
   init(
     assistantBlocks: @escaping @MainActor (String) -> [AssistantRenderBlock] = {
@@ -22,6 +23,7 @@ final class ChatTranscriptRenderer {
       var renderedItems: [RenderedChatTurnItem] = []
       var activeItemKeys = Set<ChatTranscriptRenderItemKey>()
       var activeAssistantIDs = Set<AssistantTurnMessage.ID>()
+      var activeStreamingAssistantIDs = Set<AssistantTurnMessage.ID>()
 
       for turn in turns {
         let turnGenerationMetrics = turn.items.compactMap(\.generationMetrics).last
@@ -30,6 +32,9 @@ final class ChatTranscriptRenderer {
         for item in displayItems(for: turn) {
           if case .assistantMessage(let message) = item {
             activeAssistantIDs.insert(message.id)
+            if message.deliveryStatus == .streaming {
+              activeStreamingAssistantIDs.insert(message.id)
+            }
           }
 
           let key = ChatTranscriptRenderItemKey(turnID: turn.id, item: item)
@@ -69,7 +74,11 @@ final class ChatTranscriptRenderer {
         }
       }
 
-      pruneCaches(activeItemKeys: activeItemKeys, activeAssistantIDs: activeAssistantIDs)
+      pruneCaches(
+        activeItemKeys: activeItemKeys,
+        activeAssistantIDs: activeAssistantIDs,
+        activeStreamingAssistantIDs: activeStreamingAssistantIDs
+      )
       return renderedItems
     }
   }
@@ -139,7 +148,10 @@ final class ChatTranscriptRenderer {
       )
 
     case .assistantMessage(let message):
-      let blocks = message.deliveryStatus == .streaming ? [] : blocks(for: message)
+      let blocks =
+        message.deliveryStatus == .streaming
+        ? streamingBlocks(for: message)
+        : blocks(for: message)
       return RenderedChatTurnItem(
         id: id,
         item: input.item,
@@ -175,12 +187,55 @@ final class ChatTranscriptRenderer {
     return blocks
   }
 
+  // Streaming messages parse the raw content without the markdown
+  // preprocessor: its code-wrapping heuristics are not stable under appends
+  // and would make the rendering flip mid-stream. Content grows append-only,
+  // so all blocks before the last one are immutable and only the tail is
+  // reparsed per flush.
+  private func streamingBlocks(for message: AssistantTurnMessage) -> [AssistantRenderBlock] {
+    if let cached = streamingBlockCache[message.id], cached.content == message.content {
+      return cached.blocks
+    }
+
+    let parser = AssistantRenderBlockParser()
+    let blocks: [AssistantRenderBlock]
+    let lastBlockUTF16Offset: Int?
+    if let cached = streamingBlockCache[message.id],
+      let resumeOffset = cached.lastBlockUTF16Offset,
+      !cached.blocks.isEmpty,
+      message.content.hasPrefix(cached.content)
+    {
+      let tail = parser.parseTail(
+        of: message.content,
+        fromUTF16Offset: resumeOffset,
+        nextBlockOrdinal: cached.blocks.count - 1
+      )
+      blocks = Array(cached.blocks.dropLast()) + tail.blocks
+      lastBlockUTF16Offset = tail.lastBlockUTF16Offset ?? resumeOffset
+    } else {
+      let parse = parser.parseTail(of: message.content, fromUTF16Offset: 0, nextBlockOrdinal: 0)
+      blocks = parse.blocks
+      lastBlockUTF16Offset = parse.lastBlockUTF16Offset
+    }
+
+    streamingBlockCache[message.id] = StreamingBlockCacheEntry(
+      content: message.content,
+      blocks: blocks,
+      lastBlockUTF16Offset: lastBlockUTF16Offset
+    )
+    return blocks
+  }
+
   private func pruneCaches(
     activeItemKeys: Set<ChatTranscriptRenderItemKey>,
-    activeAssistantIDs: Set<AssistantTurnMessage.ID>
+    activeAssistantIDs: Set<AssistantTurnMessage.ID>,
+    activeStreamingAssistantIDs: Set<AssistantTurnMessage.ID>
   ) {
     itemCache = itemCache.filter { activeItemKeys.contains($0.key) }
     assistantBlockCache = assistantBlockCache.filter { activeAssistantIDs.contains($0.key) }
+    streamingBlockCache = streamingBlockCache.filter {
+      activeStreamingAssistantIDs.contains($0.key)
+    }
   }
 
   private static func spokenText(
@@ -344,6 +399,12 @@ private struct RenderedItemCacheInput: Equatable {
 private struct AssistantBlockCacheEntry {
   let content: String
   let blocks: [AssistantRenderBlock]
+}
+
+private struct StreamingBlockCacheEntry {
+  let content: String
+  let blocks: [AssistantRenderBlock]
+  let lastBlockUTF16Offset: Int?
 }
 
 private struct ChatTranscriptRenderItemKey: Hashable {

@@ -152,7 +152,7 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
-  func streamingAssistantUpdateSkipsBlockParsingUntilComplete() {
+  func streamingAssistantParsesRawBlocksWithoutFinalBlockParser() {
     let turnID = UUID()
     let stableAssistantID = UUID()
     let streamingAssistantID = UUID()
@@ -193,9 +193,13 @@ struct ChatTranscriptRendererTests {
       )
     ])
 
+    // The injected (preprocessing) parser stays reserved for final messages;
+    // streaming content is parsed raw so appends cannot flip its rendering.
     #expect(parser.parsedContents == ["Stable"])
     #expect(streamingItems[0].assistantRenderBlocks == [parsedBlock(for: "Stable")])
-    #expect(streamingItems[1].assistantRenderBlocks.isEmpty)
+    #expect(
+      streamingItems[1].assistantRenderBlocks
+        == AssistantRenderBlockParser().parse("Streaming"))
 
     let completedItems = renderer.items(for: [
       ChatTurn(
@@ -216,6 +220,75 @@ struct ChatTranscriptRendererTests {
 
     #expect(parser.parsedContents == ["Stable", "Streaming"])
     #expect(completedItems[1].assistantRenderBlocks == [parsedBlock(for: "Streaming")])
+  }
+
+  @Test
+  func streamingAssistantBlocksGrowIncrementallyWithStableIdentity() {
+    let turnID = UUID()
+    let assistantID = UUID()
+    let renderer = ChatTranscriptRenderer()
+
+    func streamingTurn(_ content: String) -> ChatTurn {
+      ChatTurn(
+        id: turnID,
+        status: .running,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(id: assistantID, content: content, deliveryStatus: .streaming)
+          )
+        ]
+      )
+    }
+
+    let contentSteps = [
+      "Intro paragraph.",
+      "Intro paragraph.\n\n```swift\nlet value = 1",
+      "Intro paragraph.\n\n```swift\nlet value = 1\nlet other = 2\n```\n",
+      "Intro paragraph.\n\n```swift\nlet value = 1\nlet other = 2\n```\nOutro begins",
+    ]
+
+    for content in contentSteps {
+      let items = renderer.items(for: [streamingTurn(content)])
+      // The incremental tail reparse must be indistinguishable from a full
+      // parse of the same content, including stable ordinal block IDs.
+      #expect(items[0].assistantRenderBlocks == AssistantRenderBlockParser().parse(content))
+    }
+
+    let finalItems = renderer.items(for: [streamingTurn(contentSteps[3])])
+    let codeBlocks = finalItems[0].assistantRenderBlocks.compactMap { block in
+      if case .codeBlock(let codeBlock) = block {
+        return codeBlock
+      }
+      return nil
+    }
+    #expect(codeBlocks.count == 1)
+    #expect(codeBlocks.first?.isClosed == true)
+    #expect(codeBlocks.first?.language == "swift")
+  }
+
+  @Test
+  func streamingAssistantRegenerationReparsesFromScratch() {
+    let turnID = UUID()
+    let assistantID = UUID()
+    let renderer = ChatTranscriptRenderer()
+
+    func streamingTurn(_ content: String) -> ChatTurn {
+      ChatTurn(
+        id: turnID,
+        status: .running,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(id: assistantID, content: content, deliveryStatus: .streaming)
+          )
+        ]
+      )
+    }
+
+    _ = renderer.items(for: [streamingTurn("First answer draft.")])
+    let regenerated = renderer.items(for: [streamingTurn("Rewritten.")])
+
+    #expect(
+      regenerated[0].assistantRenderBlocks == AssistantRenderBlockParser().parse("Rewritten."))
   }
 
   @Test

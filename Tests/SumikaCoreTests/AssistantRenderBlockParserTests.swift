@@ -204,4 +204,67 @@ struct AssistantRenderBlockParserTests {
     #expect(firstPass[0] == secondPass[0])
     #expect(firstPass[1] == secondPass[1])
   }
+
+  @Test
+  func parseTailResumeMatchesFullParseAcrossStreamingAppends() {
+    let parser = AssistantRenderBlockParser()
+    let contentSteps = [
+      "Intro paragraph",
+      "Intro paragraph that keeps growing.\n",
+      "Intro paragraph that keeps growing.\n``",
+      "Intro paragraph that keeps growing.\n```swift\nlet value = 1",
+      "Intro paragraph that keeps growing.\n```swift\nlet value = 1\nlet other = 2\n```\n",
+      "Intro paragraph that keeps growing.\n```swift\nlet value = 1\nlet other = 2\n```\nOutro",
+    ]
+
+    var blocks: [AssistantRenderBlock] = []
+    var lastBlockOffset: Int?
+    for content in contentSteps {
+      if let resumeOffset = lastBlockOffset, !blocks.isEmpty {
+        let tail = parser.parseTail(
+          of: content,
+          fromUTF16Offset: resumeOffset,
+          nextBlockOrdinal: blocks.count - 1
+        )
+        blocks = Array(blocks.dropLast()) + tail.blocks
+        lastBlockOffset = tail.lastBlockUTF16Offset ?? resumeOffset
+      } else {
+        let parse = parser.parseTail(of: content, fromUTF16Offset: 0, nextBlockOrdinal: 0)
+        blocks = parse.blocks
+        lastBlockOffset = parse.lastBlockUTF16Offset
+      }
+
+      #expect(blocks == parser.parse(content), "content step: \(content)")
+    }
+  }
+
+  @Test
+  func parseTailReportsLastBlockOffsetAtItsOpeningFence() {
+    let parser = AssistantRenderBlockParser()
+    let content = "Intro\n```swift\nlet value = 1"
+
+    let parse = parser.parseTail(of: content, fromUTF16Offset: 0, nextBlockOrdinal: 0)
+
+    // The last block is the open code block; its offset must point at the
+    // opening fence line so a resumed parse re-reads the fence info.
+    #expect(parse.lastBlockUTF16Offset == "Intro\n".utf16.count)
+    let resumed = parser.parseTail(
+      of: content,
+      fromUTF16Offset: parse.lastBlockUTF16Offset ?? 0,
+      nextBlockOrdinal: parse.blocks.count - 1
+    )
+    #expect(resumed.blocks == [parse.blocks[1]])
+  }
+
+  @Test
+  func parseTailOnEmptyContentReturnsNoBlocks() {
+    let parse = AssistantRenderBlockParser().parseTail(
+      of: "",
+      fromUTF16Offset: 0,
+      nextBlockOrdinal: 0
+    )
+
+    #expect(parse.blocks.isEmpty)
+    #expect(parse.lastBlockUTF16Offset == nil)
+  }
 }

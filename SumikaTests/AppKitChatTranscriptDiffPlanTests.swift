@@ -1294,6 +1294,179 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func streamingBlocksRenderMarkdownTailInPlace() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let firstRow = nativeStreamingBlocksAssistantRow(
+      id: "assistant",
+      revision: 1,
+      content: "Streaming **bold** prose"
+    )
+    let grownRow = nativeStreamingBlocksAssistantRow(
+      id: "assistant",
+      revision: 2,
+      content: "Streaming **bold** prose keeps going"
+    )
+
+    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let blocksView = try #require(
+      cell.descendants(of: NativeStreamingAssistantBlocksView.self).first
+    )
+    // Markdown is applied live: the asterisks are consumed by the renderer.
+    let tailLabel = try #require(
+      blocksView.descendantTextFields.first { $0.stringValue == "Streaming bold prose" }
+    )
+
+    cell.configure(row: grownRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    #expect(cell.descendants(of: NativeStreamingAssistantBlocksView.self).first === blocksView)
+    #expect(tailLabel.stringValue == "Streaming bold prose keeps going")
+    #expect(tailLabel.superview != nil)
+  }
+
+  @Test
+  func streamingBlocksFreezeParagraphsAtBlankLines() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let firstRow = nativeStreamingBlocksAssistantRow(
+      id: "assistant",
+      revision: 1,
+      content: "First paragraph.\n\nSecond paragraph starts"
+    )
+    let grownRow = nativeStreamingBlocksAssistantRow(
+      id: "assistant",
+      revision: 2,
+      content: "First paragraph.\n\nSecond paragraph starts and grows"
+    )
+
+    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let finalizedLabel = try #require(
+      cell.descendantTextFields.first { $0.stringValue == "First paragraph." }
+    )
+    _ = try #require(
+      cell.descendantTextFields.first { $0.stringValue == "Second paragraph starts" }
+    )
+
+    cell.configure(row: grownRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let finalizedLabelAfterGrowth = try #require(
+      cell.descendantTextFields.first { $0.stringValue == "First paragraph." }
+    )
+    #expect(finalizedLabelAfterGrowth === finalizedLabel)
+    #expect(
+      cell.descendantTextValues.contains("Second paragraph starts and grows")
+    )
+  }
+
+  @Test
+  func streamingBlocksShowLiveOpenCodeBlock() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let openRow = nativeStreamingBlocksAssistantRow(
+      id: "assistant",
+      revision: 1,
+      content: "Intro.\n\n```swift\nlet value = 1"
+    )
+    let grownRow = nativeStreamingBlocksAssistantRow(
+      id: "assistant",
+      revision: 2,
+      content: "Intro.\n\n```swift\nlet value = 1\nlet other = 2"
+    )
+
+    cell.configure(row: openRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let codeTail = try #require(cell.descendants(of: NativeStreamingCodeBlockView.self).first)
+    #expect(codeTail.codeTextForTesting == "let value = 1")
+    #expect(cell.descendants(of: NativeCodeBlockView.self).isEmpty)
+    #expect(cell.descendantTextValues.contains("swift"))
+
+    cell.configure(row: grownRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let grownCodeTail = try #require(
+      cell.descendants(of: NativeStreamingCodeBlockView.self).first
+    )
+    #expect(grownCodeTail === codeTail)
+    #expect(codeTail.codeTextForTesting == "let value = 1\nlet other = 2")
+  }
+
+  @Test
+  func streamingBlocksSwapClosedCodeBlockToFinalViewAndRequestHighlight() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let requestedBlocks = HighlightRequestRecorder()
+    var actions = testNativeActions()
+    actions.requestCodeHighlight = { rowID, codeBlock in
+      requestedBlocks.record(rowID: rowID, codeBlock: codeBlock)
+    }
+    let openRow = nativeStreamingBlocksAssistantRow(
+      id: "assistant",
+      revision: 1,
+      content: "Intro.\n\n```swift\nlet value = 1"
+    )
+    let closedRow = nativeStreamingBlocksAssistantRow(
+      id: "assistant",
+      revision: 2,
+      content: "Intro.\n\n```swift\nlet value = 1\n```\nOutro begins"
+    )
+
+    cell.configure(row: openRow, state: NativeTranscriptCellState(), actions: actions)
+    #expect(requestedBlocks.requests.isEmpty)
+
+    cell.configure(row: closedRow, state: NativeTranscriptCellState(), actions: actions)
+    #expect(cell.descendants(of: NativeStreamingCodeBlockView.self).isEmpty)
+    let finalCodeView = try #require(cell.descendants(of: NativeCodeBlockView.self).first)
+    #expect(finalCodeView.codeBlock.isClosed)
+    #expect(finalCodeView.codeBlock.text == "let value = 1\n")
+    #expect(requestedBlocks.requests.count == 1)
+    #expect(requestedBlocks.requests.first?.rowID == "assistant")
+    #expect(cell.descendantTextValues.contains("Outro begins"))
+  }
+
+  @Test
+  func streamingBlocksResetOnNonPrefixRegeneration() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let firstRow = nativeStreamingBlocksAssistantRow(
+      id: "assistant",
+      revision: 1,
+      content: "First draft.\n\nWith two paragraphs"
+    )
+    let regeneratedRow = nativeStreamingBlocksAssistantRow(
+      id: "assistant",
+      revision: 2,
+      content: "Rewritten from scratch"
+    )
+
+    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    #expect(cell.descendantTextValues.contains("First draft."))
+
+    cell.configure(
+      row: regeneratedRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    #expect(cell.descendantTextValues.contains("Rewritten from scratch"))
+    #expect(!cell.descendantTextValues.contains("First draft."))
+  }
+
+  @Test
+  func streamingBlocksWrapToMeasurementWidth() {
+    let row = nativeStreamingBlocksAssistantRow(
+      id: "assistant",
+      revision: 1,
+      content: "Intro paragraph.\n\n"
+        + String(
+          repeating: "Streaming markdown that wraps across several lines at narrow widths. ",
+          count: 8
+        )
+    )
+
+    let wideHeight = NativeTranscriptRowMeasurer.height(for: row, width: 640)
+    let narrowHeight = NativeTranscriptRowMeasurer.height(for: row, width: 360)
+
+    #expect(narrowHeight > wideHeight)
+    #expect(wideHeight > 44)
+  }
+
+  @Test
   func streamingTextViewLimitsHitTestingToLaidOutText() throws {
     let row = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Ok.")
     let cell = configuredNativeCell(for: row)
@@ -1527,6 +1700,28 @@ private func nativeStreamingAssistantRow(
   )
 }
 
+// Mirrors the renderer's streaming path: raw-parsed blocks, no preprocessor.
+private func nativeStreamingBlocksAssistantRow(
+  id: String,
+  revision: Int,
+  content: String
+) -> NativeTranscriptRow {
+  NativeTranscriptRow(
+    id: id,
+    revision: revision,
+    body: .item(
+      RenderedChatTurnItem(
+        id: id,
+        item: .assistantMessage(
+          AssistantTurnMessage(content: content, deliveryStatus: .streaming)
+        ),
+        toolCallRecord: nil,
+        generationMetrics: nil,
+        assistantRenderBlocks: AssistantRenderBlockParser().parse(content)
+      ))
+  )
+}
+
 private func nativeToolRow(
   id: String,
   revision: Int,
@@ -1708,6 +1903,20 @@ private func configuredNativeCell(
   widthConstraint.isActive = true
   cell.layoutSubtreeIfNeeded()
   return cell
+}
+
+@MainActor
+private final class HighlightRequestRecorder {
+  struct Request {
+    let rowID: String
+    let codeBlock: AssistantRenderBlock.CodeBlock
+  }
+
+  private(set) var requests: [Request] = []
+
+  func record(rowID: String, codeBlock: AssistantRenderBlock.CodeBlock) {
+    requests.append(Request(rowID: rowID, codeBlock: codeBlock))
+  }
 }
 
 @MainActor
