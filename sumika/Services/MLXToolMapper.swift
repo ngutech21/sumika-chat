@@ -2,12 +2,12 @@ import Foundation
 import MLXLMCommon
 import SumikaCore
 
-nonisolated enum GemmaNativeToolSchema {
+nonisolated enum MLXToolMapper {
   nonisolated static func toolSpecs(from toolContext: ChatRuntimeToolContext?) -> [ToolSpec]? {
-    guard toolContext?.strategy == .nativeGemma4 else {
+    guard let toolContext else {
       return nil
     }
-    let tools = toolContext?.registry.tools ?? []
+    let tools = toolContext.registry.tools
     guard !tools.isEmpty else {
       return nil
     }

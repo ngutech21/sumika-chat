@@ -2,18 +2,18 @@ import Foundation
 import MLXLMCommon
 import SumikaCore
 
-nonisolated struct GemmaGenerationInput {
+nonisolated struct MLXGenerationInput {
   let history: [Chat.Message]
-  let historySnapshot: [GemmaMessageSnapshot]
+  let historySnapshot: [MLXMessageSnapshot]
   let promptMessages: [Chat.Message]
-  let promptSnapshot: [GemmaMessageSnapshot]
+  let promptSnapshot: [MLXMessageSnapshot]
 
   var promptContent: String {
     promptMessages.map(\.content).joined(separator: "\n\n")
   }
 }
 
-nonisolated enum GemmaHistoryRenderer {
+nonisolated enum MLXHistoryRenderer {
   /// Full history keeps the rendered transcript append-only so the cached
   /// KV prefix stays a byte-stable prefix of every later generation. Receipt
   /// compaction rewrites past observations and would invalidate the cache
@@ -95,10 +95,10 @@ nonisolated enum GemmaHistoryRenderer {
   nonisolated static func generationInput(
     from transcript: ModelPromptProjection,
     images: [UserInput.Image] = []
-  ) throws -> GemmaGenerationInput {
+  ) throws -> MLXGenerationInput {
     let entries = transcript.entries
     guard let lastPromptInputIndex = entries.lastIndex(where: { $0.body.isPromptInput }) else {
-      throw GemmaMLXRuntimeError.missingUserMessage
+      throw MLXChatRuntimeError.missingUserMessage
     }
 
     let promptStartIndex = promptStartIndex(
@@ -124,7 +124,7 @@ nonisolated enum GemmaHistoryRenderer {
       promptMessages[userIndex].images = images
     }
 
-    return GemmaGenerationInput(
+    return MLXGenerationInput(
       history: history,
       historySnapshot: historySnapshot,
       promptMessages: promptMessages,
@@ -139,7 +139,7 @@ nonisolated enum GemmaHistoryRenderer {
     let bodyMessages: ArraySlice<Chat.Message>
     if messages.first?.role == .system {
       guard allowsSystemPrompt else {
-        throw GemmaMLXRuntimeError.invalidChatTemplateMessageSequence
+        throw MLXChatRuntimeError.invalidChatTemplateMessageSequence
       }
       bodyMessages = messages.dropFirst()
     } else {
@@ -148,7 +148,7 @@ nonisolated enum GemmaHistoryRenderer {
 
     guard bodyMessages.allSatisfy({ $0.role == .user || $0.role == .assistant || $0.role == .tool })
     else {
-      throw GemmaMLXRuntimeError.invalidChatTemplateMessageSequence
+      throw MLXChatRuntimeError.invalidChatTemplateMessageSequence
     }
 
     for index in bodyMessages.indices.dropFirst() {
@@ -156,7 +156,7 @@ nonisolated enum GemmaHistoryRenderer {
       let previousRole = bodyMessages[previousIndex].role
       let currentRole = bodyMessages[index].role
       if previousRole == currentRole, currentRole != .tool {
-        throw GemmaMLXRuntimeError.invalidChatTemplateMessageSequence
+        throw MLXChatRuntimeError.invalidChatTemplateMessageSequence
       }
     }
 
@@ -172,8 +172,8 @@ nonisolated enum GemmaHistoryRenderer {
   nonisolated private static func normalizedSnapshots(
     from entries: ArraySlice<ProjectedModelContextEntry>,
     dropsTrailingUser: Bool
-  ) -> [GemmaMessageSnapshot] {
-    var items: [GemmaMessageSnapshot] = []
+  ) -> [MLXMessageSnapshot] {
+    var items: [MLXMessageSnapshot] = []
     for entry in entries {
       guard !entry.content.isEmpty else {
         continue
@@ -189,7 +189,7 @@ nonisolated enum GemmaHistoryRenderer {
         }
       if let last = items.last, last.role == role.rawValue {
         appendNormalized(
-          GemmaMessageSnapshot(
+          MLXMessageSnapshot(
             role: role.rawValue,
             content: entry.content,
             imageSignatures: entry.imageSignatures
@@ -198,7 +198,7 @@ nonisolated enum GemmaHistoryRenderer {
         )
       } else {
         appendNormalized(
-          GemmaMessageSnapshot(
+          MLXMessageSnapshot(
             role: role.rawValue,
             content: entry.content,
             imageSignatures: entry.imageSignatures
@@ -221,8 +221,8 @@ nonisolated enum GemmaHistoryRenderer {
     from entries: ArraySlice<ModelContextEntry>,
     transcript: ModelPromptProjection,
     dropsTrailingUser: Bool
-  ) -> [GemmaMessageSnapshot] {
-    var items: [GemmaMessageSnapshot] = []
+  ) -> [MLXMessageSnapshot] {
+    var items: [MLXMessageSnapshot] = []
     let allEntries = transcript.entries
     var index = entries.startIndex
 
@@ -235,7 +235,7 @@ nonisolated enum GemmaHistoryRenderer {
       case .assistantOutput(let context):
         if let toolCalls = structuredToolCalls(afterAssistantBoundaryAt: index, in: allEntries) {
           appendNormalized(
-            GemmaMessageSnapshot(
+            MLXMessageSnapshot(
               role: Chat.Message.Role.assistant.rawValue,
               content: assistantToolBoundaryContent(context.content, toolCalls: toolCalls),
               toolCalls: toolCalls.map(toolCallSnapshot(from:))
@@ -244,7 +244,7 @@ nonisolated enum GemmaHistoryRenderer {
           )
         } else {
           appendNormalized(
-            GemmaMessageSnapshot(
+            MLXMessageSnapshot(
               role: Chat.Message.Role.assistant.rawValue,
               content: context.content
             ),
@@ -283,7 +283,7 @@ nonisolated enum GemmaHistoryRenderer {
     from startIndex: Int,
     until endIndex: Int,
     in allEntries: [ModelContextEntry],
-    to items: inout [GemmaMessageSnapshot]
+    to items: inout [MLXMessageSnapshot]
   ) -> Int {
     guard hasStructuredAssistantBoundary(before: startIndex, in: allEntries) else {
       appendUnstructuredToolResultEntry(allEntries[startIndex], to: &items)
@@ -313,12 +313,12 @@ nonisolated enum GemmaHistoryRenderer {
 
   nonisolated private static func appendUnstructuredToolResultEntry(
     _ entry: ModelContextEntry,
-    to items: inout [GemmaMessageSnapshot]
+    to items: inout [MLXMessageSnapshot]
   ) {
     switch entry.body {
     case .toolObservation:
       appendNormalized(
-        GemmaMessageSnapshot(
+        MLXMessageSnapshot(
           role: Chat.Message.Role.user.rawValue,
           content: entry.frozenContent.content
         ),
@@ -326,7 +326,7 @@ nonisolated enum GemmaHistoryRenderer {
       )
     case .terminalToolResult:
       appendNormalized(
-        GemmaMessageSnapshot(
+        MLXMessageSnapshot(
           role: Chat.Message.Role.assistant.rawValue,
           content: entry.frozenContent.content
         ),
@@ -338,8 +338,8 @@ nonisolated enum GemmaHistoryRenderer {
   }
 
   nonisolated private static func appendNormalized(
-    _ snapshot: GemmaMessageSnapshot,
-    to items: inout [GemmaMessageSnapshot]
+    _ snapshot: MLXMessageSnapshot,
+    to items: inout [MLXMessageSnapshot]
   ) {
     guard !snapshot.content.isEmpty || snapshot.hasToolMetadata else {
       return
@@ -355,7 +355,7 @@ nonisolated enum GemmaHistoryRenderer {
         .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         .filter { !$0.isEmpty }
         .joined(separator: "\n\n")
-      items[items.count - 1] = GemmaMessageSnapshot(
+      items[items.count - 1] = MLXMessageSnapshot(
         role: Chat.Message.Role.assistant.rawValue,
         content: content,
         toolCalls: snapshot.toolCalls,
@@ -371,7 +371,7 @@ nonisolated enum GemmaHistoryRenderer {
       !snapshot.hasToolMetadata,
       snapshot.role != Chat.Message.Role.tool.rawValue
     {
-      items[items.count - 1] = GemmaMessageSnapshot(
+      items[items.count - 1] = MLXMessageSnapshot(
         role: last.role,
         content: [last.content, snapshot.content].joined(separator: "\n\n"),
         imageSignatures: last.imageSignatures + snapshot.imageSignatures
@@ -383,7 +383,7 @@ nonisolated enum GemmaHistoryRenderer {
   }
 
   nonisolated private static func snapshot(forUserEntry entry: ModelContextEntry)
-    -> GemmaMessageSnapshot
+    -> MLXMessageSnapshot
   {
     let imageSignatures: [String]
     if case .userPrompt(let context) = entry.body {
@@ -392,7 +392,7 @@ nonisolated enum GemmaHistoryRenderer {
       imageSignatures = []
     }
 
-    return GemmaMessageSnapshot(
+    return MLXMessageSnapshot(
       role: Chat.Message.Role.user.rawValue,
       content: entry.frozenContent.content,
       imageSignatures: imageSignatures
@@ -401,8 +401,8 @@ nonisolated enum GemmaHistoryRenderer {
 
   nonisolated private static func toolResultSnapshot(
     for context: ToolObservationContext
-  ) -> GemmaMessageSnapshot {
-    GemmaMessageSnapshot(
+  ) -> MLXMessageSnapshot {
+    MLXMessageSnapshot(
       role: Chat.Message.Role.tool.rawValue,
       content: context.content,
       toolCallID: RuntimeToolCallID.string(for: context.callID)
@@ -411,8 +411,8 @@ nonisolated enum GemmaHistoryRenderer {
 
   nonisolated private static func toolResultSnapshot(
     for context: TerminalToolResultContext
-  ) -> GemmaMessageSnapshot {
-    GemmaMessageSnapshot(
+  ) -> MLXMessageSnapshot {
+    MLXMessageSnapshot(
       role: Chat.Message.Role.tool.rawValue,
       content: context.content,
       toolCallID: RuntimeToolCallID.string(for: context.callID)
@@ -527,7 +527,7 @@ nonisolated enum GemmaHistoryRenderer {
 
   nonisolated private static func structuredToolResultSnapshot(
     for entry: ModelContextEntry
-  ) -> GemmaMessageSnapshot? {
+  ) -> MLXMessageSnapshot? {
     switch entry.body {
     case .toolObservation(let context):
       guard canRenderStructuredToolResult(context) else {
@@ -546,8 +546,8 @@ nonisolated enum GemmaHistoryRenderer {
 
   nonisolated private static func toolCallSnapshot(
     from toolCall: ToolCallModelMessage
-  ) -> GemmaToolCallSnapshot {
-    GemmaToolCallSnapshot(
+  ) -> MLXToolCallSnapshot {
+    MLXToolCallSnapshot(
       id: RuntimeToolCallID.string(for: toolCall.callID),
       name: toolCall.toolName.rawValue,
       arguments: toolCall.rawArguments
@@ -583,7 +583,7 @@ nonisolated enum GemmaHistoryRenderer {
 
   /// Maps normalized snapshots back to `Chat.Message`.
   nonisolated static func chatMessages(
-    from snapshots: [GemmaMessageSnapshot]
+    from snapshots: [MLXMessageSnapshot]
   ) -> [Chat.Message] {
     snapshots.map { snapshot in
       switch snapshot.role {
@@ -605,7 +605,7 @@ nonisolated enum GemmaHistoryRenderer {
   }
 
   nonisolated private static func mlxToolCall(
-    from snapshot: GemmaToolCallSnapshot
+    from snapshot: MLXToolCallSnapshot
   ) -> MLXLMCommon.ToolCall {
     MLXLMCommon.ToolCall(
       function: MLXLMCommon.ToolCall.Function(
@@ -640,7 +640,7 @@ nonisolated enum GemmaHistoryRenderer {
   }
 
   nonisolated static func validatedChatMessages(
-    from snapshots: [GemmaMessageSnapshot]
+    from snapshots: [MLXMessageSnapshot]
   ) throws -> [Chat.Message] {
     try validatedTemplateMessages(chatMessages(from: snapshots))
   }
@@ -653,7 +653,7 @@ nonisolated enum GemmaHistoryRenderer {
 
   nonisolated static func generationHistorySnapshot(
     from entries: ArraySlice<ProjectedModelContextEntry>
-  ) -> [GemmaMessageSnapshot] {
+  ) -> [MLXMessageSnapshot] {
     normalizedSnapshots(from: entries, dropsTrailingUser: true)
   }
 

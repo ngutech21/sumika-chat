@@ -896,7 +896,7 @@ struct ToolLoopCoordinatorTests {
       interactionMode: interactionMode,
       toolProfile: toolProfile,
       followUpPromptMode: followUpPromptMode,
-      toolCallingPolicy: .nativeGemma4,
+      toolCallingPolicy: .nativeMLX,
       nativeToolCalls: nativeToolCalls
     )
   }

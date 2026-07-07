@@ -124,10 +124,10 @@ struct GemmaDebugTraceStoreTests {
       Active todo plan:
       - Inspect README.md
       """
-    let promptWithTransientInstructions = GemmaMLXRuntime.appendTransientInstructions(
+    let promptWithTransientInstructions = MLXChatRuntime.appendTransientInstructions(
       [runtimeContext],
       toPromptSnapshot: [
-        GemmaMessageSnapshot(
+        MLXMessageSnapshot(
           role: Chat.Message.Role.tool.rawValue,
           content: toolObservation,
           toolCallID: "call_1"

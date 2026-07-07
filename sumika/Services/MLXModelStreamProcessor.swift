@@ -2,24 +2,24 @@ import Foundation
 import MLXLMCommon
 import SumikaCore
 
-nonisolated struct GemmaModelStreamPlan {
+nonisolated struct MLXModelStreamPlan {
   let stream: AsyncThrowingStream<ChatModelStreamEvent, Error>
   let task: Task<Void, Never>
 }
 
-nonisolated enum GemmaModelStreamProcessor {
+nonisolated enum MLXModelStreamProcessor {
   nonisolated static func modelStream(
     from stream: AsyncThrowingStream<Generation, Error>,
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
-    cacheTrace: GemmaSessionCacheTrace,
+    cacheTrace: MLXSessionCacheTrace,
     markCompleted: @escaping @Sendable (String) async -> Void,
     markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
       {
         _, _ in
       },
-    markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void,
-    memoryCacheClearer: GemmaMemoryCacheClearer = .live
+    markCancelled: @escaping @Sendable (MLXSessionInvalidationReason) async -> Void,
+    memoryCacheClearer: MLXMemoryCacheClearer = .live
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     modelStreamPlan(
       from: stream,
@@ -37,20 +37,20 @@ nonisolated enum GemmaModelStreamProcessor {
     from stream: AsyncThrowingStream<Generation, Error>,
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
-    cacheTrace: GemmaSessionCacheTrace,
+    cacheTrace: MLXSessionCacheTrace,
     markCompleted: @escaping @Sendable (String) async -> Void,
     markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
       {
         _, _ in
       },
-    markCancelled: @escaping @Sendable (GemmaSessionInvalidationReason) async -> Void,
-    memoryCacheClearer: GemmaMemoryCacheClearer = .live
-  ) -> GemmaModelStreamPlan {
+    markCancelled: @escaping @Sendable (MLXSessionInvalidationReason) async -> Void,
+    memoryCacheClearer: MLXMemoryCacheClearer = .live
+  ) -> MLXModelStreamPlan {
     let (outputStream, continuation) = AsyncThrowingStream<ChatModelStreamEvent, Error>
       .makeStream(bufferingPolicy: .unbounded)
     let task = Task {
       let streamInterval = ChatDiagnostics.beginInterval(
-        "Gemma process model stream",
+        "MLX process model stream",
         category: .generation
       )
       defer {
@@ -95,7 +95,7 @@ nonisolated enum GemmaModelStreamProcessor {
           }
 
           if let toolCall = generation.toolCall {
-            let runtimeToolCall = GemmaNativeToolSchema.chatRuntimeToolCall(
+            let runtimeToolCall = MLXToolMapper.chatRuntimeToolCall(
               from: toolCall,
               usedIDs: &usedNativeToolCallIDs
             )
@@ -141,7 +141,7 @@ nonisolated enum GemmaModelStreamProcessor {
         }
 
         let finalizeInterval = ChatDiagnostics.beginInterval(
-          "Gemma finalize model stream",
+          "MLX finalize model stream",
           category: .generation
         )
         defer {
@@ -204,13 +204,13 @@ nonisolated enum GemmaModelStreamProcessor {
       }
     }
 
-    return GemmaModelStreamPlan(stream: outputStream, task: task)
+    return MLXModelStreamPlan(stream: outputStream, task: task)
   }
 
   nonisolated private static func recordRuntimeTTFT(
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
-    cacheTrace: GemmaSessionCacheTrace,
+    cacheTrace: MLXSessionCacheTrace,
     iterationStartedAt: Date,
     firstChunkAt: Date
   ) async {
@@ -245,7 +245,7 @@ nonisolated enum GemmaModelStreamProcessor {
   nonisolated private static func recordRuntimeDecode(
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
-    cacheTrace: GemmaSessionCacheTrace,
+    cacheTrace: MLXSessionCacheTrace,
     decodeStartedAt: Date,
     tokensPerSecond: Double
   ) async {
@@ -307,11 +307,11 @@ nonisolated enum GemmaModelStreamProcessor {
     nativeToolCalls: [ChatRuntimeToolCall],
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
-    cacheTrace: GemmaSessionCacheTrace,
+    cacheTrace: MLXSessionCacheTrace,
     markCompleted: @Sendable (String) async -> Void,
     markNativeToolCallBoundary: @Sendable (String, [ChatRuntimeToolCall]) async -> Void,
-    markCancelled: @Sendable (GemmaSessionInvalidationReason) async -> Void,
-    memoryCacheClearer: GemmaMemoryCacheClearer
+    markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void,
+    memoryCacheClearer: MLXMemoryCacheClearer
   ) async {
     if didTerminateDownstream {
       await markCancelled(.downstreamTerminated)
@@ -331,7 +331,7 @@ nonisolated enum GemmaModelStreamProcessor {
     }
 
     if !didCompleteNaturally {
-      let error = GemmaMLXRuntimeError.interruptedStream
+      let error = MLXChatRuntimeError.interruptedStream
       await markCancelled(.interrupted)
       if let memoryClearReason = memoryClearReason(for: .interruptedStream) {
         await clearMemoryCache(
@@ -362,8 +362,8 @@ nonisolated enum GemmaModelStreamProcessor {
   }
 
   nonisolated static func memoryClearReason(
-    for termination: GemmaModelStreamTermination
-  ) -> GemmaMemoryClearReason? {
+    for termination: MLXModelStreamTermination
+  ) -> MLXMemoryClearReason? {
     switch termination {
     case .runtimeError:
       .runtimeError
@@ -375,11 +375,11 @@ nonisolated enum GemmaModelStreamProcessor {
   }
 
   nonisolated static func clearMemoryCache(
-    reason: GemmaMemoryClearReason,
+    reason: MLXMemoryClearReason,
     traceID: UUID?,
     traceMetadata: TurnTraceMetadata?,
-    cacheTrace: GemmaSessionCacheTrace?,
-    memoryCacheClearer: GemmaMemoryCacheClearer
+    cacheTrace: MLXSessionCacheTrace?,
+    memoryCacheClearer: MLXMemoryCacheClearer
   ) async {
     let memoryClearStartedAt = Date()
     await memoryCacheClearer.clearCache(reason)

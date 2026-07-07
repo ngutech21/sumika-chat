@@ -525,7 +525,7 @@ struct ChatTurnExecutionCoordinator {
     stableInstructions: String,
     toolLoopCoordinator: ToolLoopCoordinator
   ) -> ChatRuntimeToolContext? {
-    guard policy.strategy == .nativeGemma4 else {
+    guard policy.isEnabled else {
       return nil
     }
     switch toolPromptMode {
@@ -537,7 +537,6 @@ struct ChatTurnExecutionCoordinator {
     }
     let registry = toolRegistry(for: toolPromptMode, toolLoopCoordinator: toolLoopCoordinator)
     return ChatRuntimeToolContext(
-      strategy: policy.strategy,
       registry: registry,
       cacheSystemPrompt: stableInstructions
     )

@@ -8,7 +8,7 @@ enum AppLaunchConfiguration {
     runtime: (any ChatModelRuntime)? = nil
   ) -> AppState {
     if environment["SUMIKA_UI_TEST_MODE"] == "1" {
-      return makeUITestAppState(environment: environment, runtime: runtime ?? GemmaMLXRuntime())
+      return makeUITestAppState(environment: environment, runtime: runtime ?? MLXChatRuntime())
     }
 
     if isXcodeUnitTestHost(environment: environment) {
@@ -16,7 +16,7 @@ enum AppLaunchConfiguration {
         environment: environment, runtime: runtime ?? MockChatRuntime())
     }
 
-    return AppState(runtime: runtime ?? GemmaMLXRuntime())
+    return AppState(runtime: runtime ?? MLXChatRuntime())
   }
 
   @MainActor

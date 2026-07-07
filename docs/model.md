@@ -59,14 +59,8 @@ classDiagram
   }
 
   class ToolCallingPolicy {
-    strategy: ToolCallingStrategy
+    isEnabled: Bool
     allowsMultipleToolCalls: Bool
-  }
-
-  class ToolCallingStrategy {
-    <<enum>>
-    unsupported
-    nativeGemma4
   }
 
   class ChatGenerationSettings {
@@ -570,7 +564,6 @@ classDiagram
   ManagedModel --> ManagedModelStability
   ManagedModel --> ToolCallingPolicy
   ManagedModel --> ChatModeSettingsSet
-  ToolCallingPolicy --> ToolCallingStrategy
   ChatModeSettingsSet --> ChatModeSettings
   ChatModeSettings --> ChatGenerationSettings
 

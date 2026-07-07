@@ -35,15 +35,16 @@ flowchart TD
 
 ## Roles
 
-- Native Gemma 4 tool-call events are the only supported model-facing tool
-  protocol. `ToolLoopCoordinator` converts those native events into the same
-  neutral `RawToolCallRequest` execution boundary used by the rest of Core.
+- Native MLX tool-call events are the supported model-facing tool protocol when
+  `ToolCallingPolicy.isEnabled` is true. MLX owns model-family tool-call format
+  inference; `ToolLoopCoordinator` converts native events into the same neutral
+  `RawToolCallRequest` execution boundary used by the rest of Core.
 - Native tool-call IDs are normalized as `call_<uuid-without-dashes-lowercase>`
   at the MLX boundary. Parseable native IDs seed `RawToolCallRequest.id`; missing,
   malformed, or duplicate IDs fall back to fresh UUIDs so execution records stay
   unique.
 - Native tool-call boundaries are committed to the Core model ledger as canonical
-  Gemma 4 boundary text generated from the tool name and sorted arguments, with
+  boundary text generated from the tool name and sorted arguments, with
   the typed raw arguments preserved next to that text. MLX replay renders those
   ledger entries as structured assistant `tool_calls` plus matching `tool`
   result messages, so provider history keeps the native call/result relationship

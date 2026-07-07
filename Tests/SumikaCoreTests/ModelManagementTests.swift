@@ -20,6 +20,30 @@ struct ModelManagementTests {
   }
 
   @Test
+  func supportsWorkspaceToolsTracksToolCallingPolicyEnabledFlag() {
+    #expect(ManagedModelCatalog.defaultModel.supportsWorkspaceTools)
+
+    let model = ManagedModel(
+      id: "test-model",
+      displayName: "Test model",
+      detail: "Fixture model",
+      huggingFaceRepoID: "example/test-model",
+      localDirectoryName: "test-model",
+      estimatedDownloadSize: "1 MB",
+      isRecommended: false,
+      requiresLargeMemory: false,
+      stability: .experimental,
+      toolCallingPolicy: .unsupported,
+      supportsImageInput: false,
+      defaultModeSettings: .defaultSettings,
+      defaultContextTokenLimit: 1024,
+      enabled: true
+    )
+
+    #expect(!model.supportsWorkspaceTools)
+  }
+
+  @Test
   func settingsStorePersistsSelectedModelAndPerModelSettings() async throws {
     let userDefaultsSuiteName = makeUserDefaultsSuiteName()
     let settingsURL = temporarySettingsURL()

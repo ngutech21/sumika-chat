@@ -62,7 +62,7 @@ public struct ToolPromptPolicy: Sendable {
     basePrompt: String,
     mode: ToolPromptMode,
     toolRegistry: ToolRegistry,
-    toolCallingPolicy: ToolCallingPolicy = .nativeGemma4
+    toolCallingPolicy: ToolCallingPolicy = .nativeMLX
   ) -> String {
     switch mode {
     case .disabled, .enabled(false):

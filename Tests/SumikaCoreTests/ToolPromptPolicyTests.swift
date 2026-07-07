@@ -30,6 +30,19 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
+  func nativeAgentPromptHonorsSingleNativeToolCallPolicy() {
+    let prompt = ToolPromptPolicy().systemPrompt(
+      basePrompt: "Base",
+      mode: .enabled(true),
+      toolRegistry: ToolExecutorRegistry.codingAgent.toolRegistry,
+      toolCallingPolicy: ToolCallingPolicy(isEnabled: true, allowsMultipleToolCalls: false)
+    )
+
+    #expect(prompt.contains("Emit at most one native tool call"))
+    #expect(!prompt.contains("You may emit multiple native tool calls"))
+  }
+
+  @Test
   func nativeAgentPromptOmitsTodoInstructionsWhenTodoWriteUnavailable() {
     let prompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",

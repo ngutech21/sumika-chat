@@ -26,7 +26,7 @@ final class AppState {
     webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
     modelDownloader: any ModelDownloading = HuggingFaceModelDownloader(),
-    runtime: any ChatModelRuntime = GemmaMLXRuntime(),
+    runtime: any ChatModelRuntime = MLXChatRuntime(),
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,
     turnTracer: any TurnTracing = GemmaDebugTraceStore.shared,

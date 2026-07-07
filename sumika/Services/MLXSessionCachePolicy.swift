@@ -2,14 +2,14 @@ import Foundation
 import MLXLMCommon
 import SumikaCore
 
-nonisolated enum GemmaSessionCachePolicy {
+nonisolated enum MLXSessionCachePolicy {
   nonisolated static func cacheIdentity(
     systemPrompt: String,
     settings: ChatGenerationSettings,
     projectionMode: ModelContextProjectionMode
-  ) -> GemmaSessionCacheIdentity {
-    GemmaSessionCacheIdentity(
-      systemPrompt: GemmaHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt),
+  ) -> MLXSessionCacheIdentity {
+    MLXSessionCacheIdentity(
+      systemPrompt: MLXHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt),
       projectionMode: projectionMode,
       maxKVSize: settings.maxKVSize,
       reasoningEnabled: settings.reasoningEnabled
@@ -29,19 +29,19 @@ nonisolated enum GemmaSessionCachePolicy {
   }
 
   nonisolated static func chatSessionInstructions(
-    for mode: GemmaSessionCacheMode,
+    for mode: MLXSessionCacheMode,
     systemPrompt: String
   ) -> String? {
     switch mode {
     case .newSession, .dirtyRebuild:
-      GemmaHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt)
+      MLXHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt)
     case .reusedSession, .appendDelta:
       nil
     }
   }
 
   nonisolated static func runtimeCacheDebugSnapshot(
-    from trace: GemmaSessionCacheTrace,
+    from trace: MLXSessionCacheTrace,
     appendDeltaStartIndex: Int?,
     generationID: UUID,
     recordedAt: Date = Date()
@@ -65,7 +65,7 @@ nonisolated enum GemmaSessionCachePolicy {
     )
   }
 
-  nonisolated private static func reuseStrategyName(for mode: GemmaSessionCacheMode) -> String {
+  nonisolated private static func reuseStrategyName(for mode: MLXSessionCacheMode) -> String {
     switch mode {
     case .newSession, .dirtyRebuild:
       "new_session"
@@ -77,20 +77,20 @@ nonisolated enum GemmaSessionCachePolicy {
   }
 
   nonisolated static func trace(
-    mode: GemmaSessionCacheMode,
-    reason: GemmaSessionCacheReason,
-    currentHistory: [GemmaMessageSnapshot],
-    currentIdentity: GemmaSessionCacheIdentity,
-    cachedPrefix: [GemmaMessageSnapshot]?,
-    cachedIdentity: GemmaSessionCacheIdentity?,
+    mode: MLXSessionCacheMode,
+    reason: MLXSessionCacheReason,
+    currentHistory: [MLXMessageSnapshot],
+    currentIdentity: MLXSessionCacheIdentity,
+    cachedPrefix: [MLXMessageSnapshot]?,
+    cachedIdentity: MLXSessionCacheIdentity?,
     appendOnly: Bool,
     mismatchReason: String?,
     firstMismatchIndex: Int?
-  ) -> GemmaSessionCacheTrace {
+  ) -> MLXSessionCacheTrace {
     let reusedMessageCount = appendOnly ? (cachedPrefix?.count ?? 0) : 0
     let appendedMessageCount =
       appendOnly ? max(0, currentHistory.count - (cachedPrefix?.count ?? 0)) : currentHistory.count
-    return GemmaSessionCacheTrace(
+    return MLXSessionCacheTrace(
       cacheMode: mode,
       cacheReason: reason,
       contextSignature: contextSignature(for: currentHistory, identity: currentIdentity),
@@ -110,9 +110,9 @@ nonisolated enum GemmaSessionCachePolicy {
   }
 
   nonisolated static func identityMismatchReason(
-    cached: GemmaSessionCacheIdentity,
-    current: GemmaSessionCacheIdentity
-  ) -> GemmaSessionCacheReason {
+    cached: MLXSessionCacheIdentity,
+    current: MLXSessionCacheIdentity
+  ) -> MLXSessionCacheReason {
     if cached.maxKVSize != current.maxKVSize {
       return .maxKVSizeChanged
     }
@@ -123,8 +123,8 @@ nonisolated enum GemmaSessionCachePolicy {
   }
 
   nonisolated static func firstMismatchIndex(
-    cachedPrefix: [GemmaMessageSnapshot],
-    currentHistory: [GemmaMessageSnapshot]
+    cachedPrefix: [MLXMessageSnapshot],
+    currentHistory: [MLXMessageSnapshot]
   ) -> Int? {
     let sharedCount = min(cachedPrefix.count, currentHistory.count)
     for index in 0..<sharedCount where cachedPrefix[index] != currentHistory[index] {
@@ -134,8 +134,8 @@ nonisolated enum GemmaSessionCachePolicy {
   }
 
   nonisolated static func isPrefix(
-    _ prefix: [GemmaMessageSnapshot],
-    of messages: [GemmaMessageSnapshot]
+    _ prefix: [MLXMessageSnapshot],
+    of messages: [MLXMessageSnapshot]
   ) -> Bool {
     guard prefix.count <= messages.count else {
       return false
@@ -145,13 +145,13 @@ nonisolated enum GemmaSessionCachePolicy {
 
   /// Whether an append-only delta (the messages appended after `cachedPrefixCount`)
   /// begins with a tool-response message. Such a delta must not reuse the cached
-  /// session: rendering a lone tool response through the Gemma template drops it,
+  /// session: rendering a lone tool response through the chat template drops it,
   /// because its paired assistant tool_call lives in the cached prefix, not in the
   /// delta. The caller forces a full rebuild in that case so call and result are
   /// templated adjacently.
   nonisolated static func deltaBeginsWithToolResult(
     cachedPrefixCount: Int,
-    historySnapshot: [GemmaMessageSnapshot],
+    historySnapshot: [MLXMessageSnapshot],
     promptFirstRole: String?
   ) -> Bool {
     let toolRole = Chat.Message.Role.tool.rawValue
@@ -168,14 +168,14 @@ nonisolated enum GemmaSessionCachePolicy {
   }
 
   nonisolated static func contextSignature(
-    for messages: [GemmaMessageSnapshot],
-    identity: GemmaSessionCacheIdentity
+    for messages: [MLXMessageSnapshot],
+    identity: MLXSessionCacheIdentity
   ) -> String {
     "identity-\(identitySignature(for: identity)):history-\(contextSignature(for: messages))"
   }
 
   nonisolated private static func identitySignature(
-    for identity: GemmaSessionCacheIdentity
+    for identity: MLXSessionCacheIdentity
   ) -> String {
     hashSignature { updateString in
       updateString("mlx_owned_cache_identity_v1")
@@ -186,7 +186,7 @@ nonisolated enum GemmaSessionCachePolicy {
     }
   }
 
-  nonisolated static func contextSignature(for messages: [GemmaMessageSnapshot]) -> String {
+  nonisolated static func contextSignature(for messages: [MLXMessageSnapshot]) -> String {
     var hash: UInt64 = 14_695_981_039_346_656_037
     func update(_ byte: UInt8) {
       hash ^= UInt64(byte)

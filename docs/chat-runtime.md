@@ -234,10 +234,10 @@ flowchart TD
 - The UI/debug model-context pane renders the same derived projection that the
   runtime receives, so the debug view cannot drift from generation input.
 
-## Gemma/MLX Cache Rules
+## MLX Cache Rules
 
-`GemmaMLXRuntime` treats `MLXLMCommon.ChatSession` as the KV-cache owner. Sumika
-keeps only a minimal shadow ledger: the last accepted `GemmaMessageSnapshot`
+`MLXChatRuntime` treats `MLXLMCommon.ChatSession` as the KV-cache owner. Sumika
+keeps only a minimal shadow ledger: the last accepted `MLXMessageSnapshot`
 prefix, a small prefill identity, and a conservative clean/in-flight/dirty state.
 
 - Reuse is safe when the cached session is clean, the prefill identity matches,
@@ -259,9 +259,9 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
 - Reused MLX sessions must not set `ChatSession.instructions`: the system prompt
   is already encoded in the KV cache, so re-sending instructions before a tool
   result corrupts the continuation.
-- Native Gemma 4 tool calls are not assistant prose in the MLX session. Core
+- Native MLX tool calls are not assistant prose in the MLX session. Core
   stores only the canonical turn/tool records. `ChatModelContextBuilder` derives
-  a transient assistant tool-call boundary and the Gemma renderer sends it as
+  a transient assistant tool-call boundary and the MLX renderer sends it as
   structured assistant `tool_calls` with stable `call_<uuid>` IDs and matching
   `tool` result messages. No persisted user-role continuation message is
   synthesized after a tool result. Tool follow-up guidance is stored on
@@ -285,14 +285,31 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   result call IDs. A plain UUID alone is not enough because the cache must prove
   that the entire provider-facing message shape still matches the session state.
 - The active native tool schema is applied through `session.tools` immediately
-  before decode. It is not part of prefix comparison because the Gemma template
-  does not render tool specs into the prefilled prompt. Final no-tools
-  follow-ups clear `session.tools` without changing `ChatSession.instructions` or
-  the cache identity.
+  before decode. It is not part of prefix comparison because MLX owns the active
+  model's chat template and native tool rendering. Final no-tools follow-ups
+  clear `session.tools` without changing `ChatSession.instructions` or the cache
+  identity.
 
-The native Gemma 4 fast path preserves the assistant tool-call boundary as a
-derived projection while replaying it to MLX as native structured tool-call
-metadata.
+The native MLX tool path preserves the assistant tool-call boundary as a derived
+projection while replaying it to MLX as native structured tool-call metadata.
+
+## MLX Tool Format Coverage
+
+Sumika enables native tools by passing the active registry through
+`ChatRuntimeToolContext` and setting `session.tools` before decode. Core tracks
+only whether native MLX tool calling is enabled and whether multiple tool calls
+are allowed; it does not select a model-family parser.
+
+The pinned MLX revision infers Gemma 4 `gemma4_unified` as `.gemma4` and
+`qwen3_5*`/`qwen3_next*` as `.xmlFunction`. Plain `qwen2` and `qwen3` currently
+infer `nil`, so Qwen text generation can be prepared separately, but native
+Qwen tool calling remains deferred until MLX supports or explicitly configures
+that format.
+
+Thought streaming is a separate model-family gap. Sumika still parses Gemma's
+thought channel through `GemmaThoughtChannelParser`; Qwen3-style
+`<think>...</think>` parsing needs a later family-aware parser. The
+`enable_thinking` additional-context key remains generic.
 
 ## Persistence Rules
 

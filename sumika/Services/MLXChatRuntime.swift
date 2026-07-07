@@ -6,26 +6,26 @@ import MLXVLM
 import SumikaCore
 import Tokenizers
 
-final actor GemmaMLXRuntime: ChatModelRuntime {
+final actor MLXChatRuntime: ChatModelRuntime {
   private var modelContainer: ModelContainer?
   private var loadedModelSupportsImageInput = false
-  private var cachedSession: CachedGemmaSession?
-  private var pendingCacheInvalidationReason: GemmaSessionInvalidationReason?
+  private var cachedSession: CachedMLXSession?
+  private var pendingCacheInvalidationReason: MLXSessionInvalidationReason?
   private var lastRuntimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
   private let attachmentStore = ChatAttachmentStore()
   private var contextTokenLimit: Int?
-  private var generationOwnership = GemmaGenerationOwnership()
-  private var activeGenerationRegistry = GemmaActiveGenerationRegistry()
+  private var generationOwnership = MLXGenerationOwnership()
+  private var activeGenerationRegistry = MLXActiveGenerationRegistry()
   private var lifecycleTransitionInProgress = false
-  private let memoryCacheClearer: GemmaMemoryCacheClearer
+  private let memoryCacheClearer: MLXMemoryCacheClearer
 
-  init(memoryCacheClearer: GemmaMemoryCacheClearer = .live) {
+  init(memoryCacheClearer: MLXMemoryCacheClearer = .live) {
     self.memoryCacheClearer = memoryCacheClearer
   }
 
   func load(configuration: ChatModelConfiguration) async throws {
     #if !arch(arm64)
-      throw GemmaMLXRuntimeError.unsupportedArchitecture
+      throw MLXChatRuntimeError.unsupportedArchitecture
     #endif
 
     lifecycleTransitionInProgress = true
@@ -33,10 +33,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     await cancelAndDrainActiveGeneration(reason: .modelChanged)
     configureMLXMemory()
 
-    let modelConfiguration = ModelConfiguration(
-      directory: configuration.localModelDirectory,
-      extraEOSTokens: ["<end_of_turn>"]
-    )
+    let modelConfiguration = ModelConfiguration(directory: configuration.localModelDirectory)
 
     let container =
       if configuration.supportsImageInput {
@@ -69,7 +66,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     loadedModelSupportsImageInput = false
     contextTokenLimit = nil
     lastRuntimeCacheDebugSnapshot = nil
-    await GemmaModelStreamProcessor.clearMemoryCache(
+    await MLXModelStreamProcessor.clearMemoryCache(
       reason: .unload,
       traceID: nil,
       traceMetadata: TurnTraceContext.current,
@@ -84,7 +81,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     await cancelAndDrainActiveGeneration(reason: .signatureMismatch)
     invalidateCachedSession(reason: .signatureMismatch)
     lastRuntimeCacheDebugSnapshot = nil
-    await GemmaModelStreamProcessor.clearMemoryCache(
+    await MLXModelStreamProcessor.clearMemoryCache(
       reason: .clearContext,
       traceID: nil,
       traceMetadata: TurnTraceContext.current,
@@ -95,7 +92,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
   func generatedTokenCount(for text: String) async throws -> Int {
     guard let modelContainer else {
-      throw GemmaMLXRuntimeError.modelNotLoaded
+      throw MLXChatRuntimeError.modelNotLoaded
     }
 
     return await modelContainer.perform { context in
@@ -121,9 +118,9 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
 
   nonisolated static func appendTransientInstructions(
     _ instructions: [String],
-    toPromptSnapshot promptSnapshot: [GemmaMessageSnapshot],
+    toPromptSnapshot promptSnapshot: [MLXMessageSnapshot],
     promptMessages: [Chat.Message]
-  ) -> (promptSnapshot: [GemmaMessageSnapshot], promptMessages: [Chat.Message]) {
+  ) -> (promptSnapshot: [MLXMessageSnapshot], promptMessages: [Chat.Message]) {
     var updatedSnapshot = promptSnapshot
     var updatedMessages = promptMessages
     for instruction in instructions {
@@ -131,14 +128,14 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
         lastSnapshot.role == Chat.Message.Role.user.rawValue,
         !lastSnapshot.hasToolMetadata
       {
-        updatedSnapshot[updatedSnapshot.count - 1] = GemmaMessageSnapshot(
+        updatedSnapshot[updatedSnapshot.count - 1] = MLXMessageSnapshot(
           role: Chat.Message.Role.user.rawValue,
           content: [lastSnapshot.content, instruction].joined(separator: "\n\n"),
           imageSignatures: lastSnapshot.imageSignatures
         )
       } else {
         updatedSnapshot.append(
-          GemmaMessageSnapshot(
+          MLXMessageSnapshot(
             role: Chat.Message.Role.user.rawValue,
             content: instruction
           )
@@ -196,7 +193,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     let setupInterval = ChatDiagnostics.beginInterval(
-      "Gemma stream reply setup",
+      "MLX stream reply setup",
       category: .generation
     )
     defer {
@@ -207,16 +204,16 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       throw CancellationError()
     }
     guard let modelContainer else {
-      throw GemmaMLXRuntimeError.modelNotLoaded
+      throw MLXChatRuntimeError.modelNotLoaded
     }
     let imageAttachments = attachments.filter { $0.kind == .image }
     guard imageAttachments.isEmpty || loadedModelSupportsImageInput else {
-      throw GemmaMLXRuntimeError.unsupportedImageInput
+      throw MLXChatRuntimeError.unsupportedImageInput
     }
-    let imageInputs = try GemmaHistoryRenderer.imageInputs(
+    let imageInputs = try MLXHistoryRenderer.imageInputs(
       from: imageAttachments, attachmentStore: attachmentStore)
-    let projectionMode = GemmaHistoryRenderer.runtimeProjectionMode
-    let generationInput = try GemmaHistoryRenderer.generationInput(
+    let projectionMode = MLXHistoryRenderer.runtimeProjectionMode
+    let generationInput = try MLXHistoryRenderer.generationInput(
       from: transcript,
       images: imageInputs
     )
@@ -234,7 +231,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let additionalContext = Self.chatTemplateAdditionalContext(
       reasoningEnabled: settings.reasoningEnabled)
     let systemPrompt = promptPlan.stableInstructions
-    let toolSpecs = GemmaNativeToolSchema.toolSpecs(from: promptPlan.toolContext)
+    let toolSpecs = MLXToolMapper.toolSpecs(from: promptPlan.toolContext)
     let cacheSystemPrompt = promptPlan.cacheIdentityInstructions
     let historySnapshot = generationInput.historySnapshot
     let history = generationInput.history
@@ -251,7 +248,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     let traceID = traceMetadata?.generationID ?? UUID()
     let generationID = generationOwnership.beginGeneration()
     let prepareSessionInterval = ChatDiagnostics.beginInterval(
-      "Gemma prepare session",
+      "MLX prepare session",
       category: .generation
     )
     let cachePlan = prepareSession(
@@ -268,7 +265,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       generationID: generationID
     )
     ChatDiagnostics.endInterval(prepareSessionInterval)
-    lastRuntimeCacheDebugSnapshot = GemmaSessionCachePolicy.runtimeCacheDebugSnapshot(
+    lastRuntimeCacheDebugSnapshot = MLXSessionCachePolicy.runtimeCacheDebugSnapshot(
       from: cachePlan.trace,
       appendDeltaStartIndex: cachePlan.appendDeltaStartIndex,
       generationID: traceID
@@ -285,7 +282,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
     )
 
     let createStreamInterval = ChatDiagnostics.beginInterval(
-      "Gemma create MLX stream",
+      "MLX create stream",
       category: .generation
     )
     let stream = cachePlan.session.streamDetails(to: cachePlan.streamMessages)
@@ -298,7 +295,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
       messageCount: transcript.entries.count,
       imageAttachments: imageAttachments
     )
-    let streamPlan = GemmaModelStreamProcessor.modelStreamPlan(
+    let streamPlan = MLXModelStreamProcessor.modelStreamPlan(
       from: stream,
       traceID: traceID,
       traceMetadata: traceMetadata,
@@ -332,7 +329,7 @@ final actor GemmaMLXRuntime: ChatModelRuntime {
   }
 }
 
-extension GemmaMLXRuntime {
+extension MLXChatRuntime {
   private func traceDebugRequest(
     id: UUID,
     systemPrompt: String,
@@ -341,7 +338,7 @@ extension GemmaMLXRuntime {
     settings: ChatGenerationSettings,
     imageAttachments: [ChatAttachment]
   ) async throws {
-    let traceMessages = try GemmaHistoryRenderer.runtimeHistoryMessages(
+    let traceMessages = try MLXHistoryRenderer.runtimeHistoryMessages(
       systemPrompt: systemPrompt,
       history: history
     )
@@ -349,7 +346,7 @@ extension GemmaMLXRuntime {
       (role: message.role.rawValue, content: message.content)
     }
     let interval = ChatDiagnostics.beginInterval(
-      "Gemma debug trace request",
+      "MLX debug trace request",
       category: .generation
     )
     defer {
@@ -368,7 +365,7 @@ extension GemmaMLXRuntime {
   private func recordRuntimeStreamStart(
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
-    cachePlan: GemmaSessionCachePlan,
+    cachePlan: MLXSessionCachePlan,
     streamStartStartedAt: Date,
     messageCount: Int,
     imageAttachments: [ChatAttachment]
@@ -382,7 +379,7 @@ extension GemmaMLXRuntime {
         generationID: traceID,
         phase: .runtimeStreamStart,
         durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
-        promptBytes: GemmaSessionCachePolicy.contentByteCount(for: cachePlan.streamMessages),
+        promptBytes: MLXSessionCachePolicy.contentByteCount(for: cachePlan.streamMessages),
         messageCount: messageCount,
         toolLoopIteration: traceMetadata.toolLoopIteration,
         cacheMode: cachePlan.trace.cacheMode.rawValue,
@@ -398,8 +395,8 @@ extension GemmaMLXRuntime {
         systemPromptChanged: cachePlan.trace.systemPromptChanged,
         currentPromptContextChanged: cachePlan.trace.currentPromptContextChanged,
         imageCount: imageAttachments.isEmpty ? nil : imageAttachments.count,
-        imageTypes: GemmaHistoryRenderer.imageTypes(from: imageAttachments),
-        imageByteCount: GemmaHistoryRenderer.imageByteCount(from: imageAttachments)
+        imageTypes: MLXHistoryRenderer.imageTypes(from: imageAttachments),
+        imageByteCount: MLXHistoryRenderer.imageByteCount(from: imageAttachments)
       )
     )
   }
@@ -408,7 +405,7 @@ extension GemmaMLXRuntime {
     await cancelAndDrainActiveGeneration(reason: .cancelled)
   }
 
-  private func cancelAndDrainActiveGeneration(reason: GemmaSessionInvalidationReason) async {
+  private func cancelAndDrainActiveGeneration(reason: MLXSessionInvalidationReason) async {
     guard let superseded = activeGenerationRegistry.supersedeActiveGeneration() else {
       return
     }
@@ -420,7 +417,7 @@ extension GemmaMLXRuntime {
   private func prepareSession(
     modelContainer: ModelContainer,
     history: [Chat.Message],
-    historySnapshot: [GemmaMessageSnapshot],
+    historySnapshot: [MLXMessageSnapshot],
     promptMessages: [Chat.Message],
     systemPrompt: String,
     cacheSystemPrompt: String,
@@ -428,9 +425,9 @@ extension GemmaMLXRuntime {
     generateParameters: GenerateParameters,
     additionalContext: [String: any Sendable],
     projectionMode: ModelContextProjectionMode,
-    generationID: GemmaGenerationID
-  ) -> GemmaSessionCachePlan {
-    let currentIdentity = GemmaSessionCachePolicy.cacheIdentity(
+    generationID: MLXGenerationID
+  ) -> MLXSessionCachePlan {
+    let currentIdentity = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: cacheSystemPrompt,
       settings: settings,
       projectionMode: projectionMode
@@ -439,8 +436,8 @@ extension GemmaMLXRuntime {
     let appendOnly: Bool
     let firstMismatchIndex: Int?
     if let cached {
-      appendOnly = GemmaSessionCachePolicy.isPrefix(cached.prefix, of: historySnapshot)
-      firstMismatchIndex = GemmaSessionCachePolicy.firstMismatchIndex(
+      appendOnly = MLXSessionCachePolicy.isPrefix(cached.prefix, of: historySnapshot)
+      firstMismatchIndex = MLXSessionCachePolicy.firstMismatchIndex(
         cachedPrefix: cached.prefix,
         currentHistory: historySnapshot
       )
@@ -449,8 +446,8 @@ extension GemmaMLXRuntime {
       firstMismatchIndex = nil
     }
     let cachedState = cached?.state ?? pendingCacheInvalidationReason.map { .dirty(reason: $0) }
-    let traceMode: GemmaSessionCacheMode
-    let traceReason: GemmaSessionCacheReason
+    let traceMode: MLXSessionCacheMode
+    let traceReason: MLXSessionCacheReason
     let shouldReuse: Bool
     let appendDeltaStartIndex: Int?
     let mismatchReason: String?
@@ -475,7 +472,7 @@ extension GemmaMLXRuntime {
       mismatchReason = nil
     } else if let cached, cached.identity != currentIdentity {
       traceMode = .dirtyRebuild
-      traceReason = GemmaSessionCachePolicy.identityMismatchReason(
+      traceReason = MLXSessionCachePolicy.identityMismatchReason(
         cached: cached.identity,
         current: currentIdentity
       )
@@ -484,14 +481,14 @@ extension GemmaMLXRuntime {
       mismatchReason = "identity_changed"
     } else if appendOnly, let cached {
       let deltaStartIndex = cached.prefix.count
-      let deltaBeginsWithToolResult = GemmaSessionCachePolicy.deltaBeginsWithToolResult(
+      let deltaBeginsWithToolResult = MLXSessionCachePolicy.deltaBeginsWithToolResult(
         cachedPrefixCount: deltaStartIndex,
         historySnapshot: historySnapshot,
         promptFirstRole: promptMessages.first?.role.rawValue
       )
       if deltaBeginsWithToolResult {
         // A reused/append-delta render templates only the delta. When the delta
-        // begins with a tool response, the Gemma template drops it (its paired
+        // begins with a tool response, the chat template drops it (its paired
         // assistant tool_call sits in the cached prefix, not in this render), so
         // the model never sees the tool result and repeats the same call. Rebuild
         // the full history instead so call and result are templated adjacently.
@@ -521,7 +518,7 @@ extension GemmaMLXRuntime {
       mismatchReason = "history_changed"
     }
 
-    let trace = GemmaSessionCachePolicy.trace(
+    let trace = MLXSessionCachePolicy.trace(
       mode: traceMode,
       reason: traceReason,
       currentHistory: historySnapshot,
@@ -535,23 +532,23 @@ extension GemmaMLXRuntime {
     pendingCacheInvalidationReason = nil
 
     if shouldReuse, let cached {
-      cached.session.instructions = GemmaSessionCachePolicy.chatSessionInstructions(
+      cached.session.instructions = MLXSessionCachePolicy.chatSessionInstructions(
         for: traceMode,
         systemPrompt: systemPrompt
       )
       cached.session.generateParameters = generateParameters
       cached.session.additionalContext = additionalContext
-      cachedSession = CachedGemmaSession(
+      cachedSession = CachedMLXSession(
         session: cached.session,
         prefix: cached.prefix,
         identity: cached.identity,
         state: .inFlight(generationID: generationID)
       )
-      return GemmaSessionCachePlan(
+      return MLXSessionCachePlan(
         session: cached.session,
         trace: trace,
         appendDeltaStartIndex: appendDeltaStartIndex,
-        streamMessages: GemmaSessionCachePolicy.streamMessages(
+        streamMessages: MLXSessionCachePolicy.streamMessages(
           history: history,
           promptMessages: promptMessages,
           appendDeltaStartIndex: appendDeltaStartIndex
@@ -561,7 +558,7 @@ extension GemmaMLXRuntime {
 
     let session = MLXLMCommon.ChatSession(
       modelContainer,
-      instructions: GemmaSessionCachePolicy.chatSessionInstructions(
+      instructions: MLXSessionCachePolicy.chatSessionInstructions(
         for: traceMode,
         systemPrompt: systemPrompt
       ),
@@ -569,17 +566,17 @@ extension GemmaMLXRuntime {
       generateParameters: generateParameters,
       additionalContext: additionalContext
     )
-    cachedSession = CachedGemmaSession(
+    cachedSession = CachedMLXSession(
       session: session,
       prefix: historySnapshot,
       identity: currentIdentity,
       state: .inFlight(generationID: generationID)
     )
-    return GemmaSessionCachePlan(
+    return MLXSessionCachePlan(
       session: session,
       trace: trace,
       appendDeltaStartIndex: nil,
-      streamMessages: GemmaSessionCachePolicy.streamMessages(
+      streamMessages: MLXSessionCachePolicy.streamMessages(
         history: history,
         promptMessages: promptMessages,
         appendDeltaStartIndex: nil
@@ -588,9 +585,9 @@ extension GemmaMLXRuntime {
   }
 
   private func markSessionCompleted(
-    generationID: GemmaGenerationID,
-    historyPrefix: [GemmaMessageSnapshot],
-    promptSnapshot: [GemmaMessageSnapshot],
+    generationID: MLXGenerationID,
+    historyPrefix: [MLXMessageSnapshot],
+    promptSnapshot: [MLXMessageSnapshot],
     output: String
   ) {
     guard generationOwnership.completeIfCurrent(generationID) else {
@@ -607,8 +604,8 @@ extension GemmaMLXRuntime {
     let completedPrefix =
       historyPrefix
       + promptSnapshot
-      + [GemmaMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: output)]
-    cachedSession = CachedGemmaSession(
+      + [MLXMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: output)]
+    cachedSession = CachedMLXSession(
       session: cached.session,
       prefix: completedPrefix,
       identity: cached.identity,
@@ -618,9 +615,9 @@ extension GemmaMLXRuntime {
   }
 
   private func markSessionNativeToolCallBoundary(
-    generationID: GemmaGenerationID,
-    historyPrefix: [GemmaMessageSnapshot],
-    promptSnapshot: [GemmaMessageSnapshot],
+    generationID: MLXGenerationID,
+    historyPrefix: [MLXMessageSnapshot],
+    promptSnapshot: [MLXMessageSnapshot],
     output: String,
     nativeToolCalls: [ChatRuntimeToolCall]
   ) {
@@ -637,7 +634,7 @@ extension GemmaMLXRuntime {
 
     let assistantOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
     let assistantSnapshots = [
-      GemmaMessageSnapshot(
+      MLXMessageSnapshot(
         role: Chat.Message.Role.assistant.rawValue,
         content: assistantOutput,
         toolCalls: nativeToolCalls.map(Self.toolCallSnapshot(from:))
@@ -647,7 +644,7 @@ extension GemmaMLXRuntime {
       historyPrefix
       + promptSnapshot
       + assistantSnapshots
-    cachedSession = CachedGemmaSession(
+    cachedSession = CachedMLXSession(
       session: cached.session,
       prefix: completedPrefix,
       identity: cached.identity,
@@ -657,8 +654,8 @@ extension GemmaMLXRuntime {
   }
 
   private func markCachedSessionInvalid(
-    generationID: GemmaGenerationID,
-    reason: GemmaSessionInvalidationReason
+    generationID: MLXGenerationID,
+    reason: MLXSessionInvalidationReason
   ) {
     guard generationOwnership.invalidateIfCurrent(generationID) else {
       return
@@ -671,7 +668,7 @@ extension GemmaMLXRuntime {
       return
     }
 
-    cachedSession = CachedGemmaSession(
+    cachedSession = CachedMLXSession(
       session: cached.session,
       prefix: cached.prefix,
       identity: cached.identity,
@@ -680,14 +677,14 @@ extension GemmaMLXRuntime {
     activeGenerationRegistry.clearIfCurrent(generationID)
   }
 
-  private func invalidateCachedSession(reason: GemmaSessionInvalidationReason) {
+  private func invalidateCachedSession(reason: MLXSessionInvalidationReason) {
     generationOwnership.invalidateActiveGeneration()
     cachedSession = nil
     pendingCacheInvalidationReason = reason
   }
 
   #if DEBUG
-    func registerActiveGenerationForTesting(id: GemmaGenerationID, task: Task<Void, Never>) {
+    func registerActiveGenerationForTesting(id: MLXGenerationID, task: Task<Void, Never>) {
       activeGenerationRegistry.register(id: id, task: task)
     }
   #endif
@@ -708,8 +705,8 @@ extension GemmaMLXRuntime {
 
   nonisolated private static func toolCallSnapshot(
     from toolCall: ChatRuntimeToolCall
-  ) -> GemmaToolCallSnapshot {
-    GemmaToolCallSnapshot(
+  ) -> MLXToolCallSnapshot {
+    MLXToolCallSnapshot(
       id: RuntimeToolCallID.uuid(from: toolCall.id).map(RuntimeToolCallID.string(for:))
         ?? toolCall.id,
       name: toolCall.name,

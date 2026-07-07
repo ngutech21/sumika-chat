@@ -2,16 +2,16 @@ import Foundation
 import MLXLMCommon
 import SumikaCore
 
-nonisolated struct GemmaToolCallSnapshot: Equatable, Sendable {
+nonisolated struct MLXToolCallSnapshot: Equatable, Sendable {
   let id: String?
   let name: String
   let arguments: ToolCallArguments
 }
 
-nonisolated struct GemmaMessageSnapshot: Equatable, Sendable {
+nonisolated struct MLXMessageSnapshot: Equatable, Sendable {
   let role: String
   let content: String
-  let toolCalls: [GemmaToolCallSnapshot]
+  let toolCalls: [MLXToolCallSnapshot]
   let toolCallID: String?
   /// Identities of images prefilled with this message. Part of the prefix
   /// comparison so identical text with different images never reuses a
@@ -25,7 +25,7 @@ nonisolated struct GemmaMessageSnapshot: Equatable, Sendable {
   init(
     role: String,
     content: String,
-    toolCalls: [GemmaToolCallSnapshot] = [],
+    toolCalls: [MLXToolCallSnapshot] = [],
     toolCallID: String? = nil,
     imageSignatures: [String] = []
   ) {

@@ -39,7 +39,6 @@ flowchart TD
   ToolCallRequest --> ToolCallPayload
   ToolCallState --> ToolResultPayload
   ToolCallState --> ToolResultPreview
-  ToolCallingPolicy --> ToolCallingStrategy
   ToolDefinition --> ToolCapability
   ToolDefinition --> ToolName
   ToolDefinition --> ToolParameterDefinition
@@ -687,22 +686,7 @@ Cases:
 Properties:
 
 - `allowsMultipleToolCalls: Bool`
-- `strategy: ToolCallingStrategy`
-
-Relations:
-
-- `ToolCallingStrategy`
-
-### ToolCallingStrategy
-
-- Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ManagedModel.swift`
-- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
-
-Cases:
-
-- `nativeGemma4`
-- `unsupported`
+- `isEnabled: Bool`
 
 ### ToolCapability
 

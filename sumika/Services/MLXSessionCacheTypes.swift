@@ -2,14 +2,14 @@ import Foundation
 import MLXLMCommon
 import SumikaCore
 
-nonisolated enum GemmaSessionCacheMode: String, Equatable, Sendable {
+nonisolated enum MLXSessionCacheMode: String, Equatable, Sendable {
   case newSession = "new_session"
   case reusedSession = "reused_session"
   case appendDelta = "append_delta"
   case dirtyRebuild = "dirty_rebuild"
 }
 
-nonisolated enum GemmaSessionInvalidationReason: Equatable, Sendable {
+nonisolated enum MLXSessionInvalidationReason: Equatable, Sendable {
   case signatureMismatch
   case cancelled
   case interrupted
@@ -19,7 +19,7 @@ nonisolated enum GemmaSessionInvalidationReason: Equatable, Sendable {
   case nativeToolCallBoundary
 }
 
-nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
+nonisolated enum MLXSessionCacheReason: String, Equatable, Sendable {
   case newSessionNoCache = "no_cached_session"
   case reusedSession = "reused_session"
   case appendOnlyDelta = "append_only_delta"
@@ -37,8 +37,8 @@ nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
   case invalidatedNativeToolCallBoundary = "invalidated_native_tool_call_boundary"
 
   static func generationInvalidationReason(
-    from reason: GemmaSessionInvalidationReason
-  ) -> GemmaSessionCacheReason {
+    from reason: MLXSessionInvalidationReason
+  ) -> MLXSessionCacheReason {
     switch reason {
     case .signatureMismatch:
       .invalidatedRuntimeContextCleared
@@ -58,17 +58,17 @@ nonisolated enum GemmaSessionCacheReason: String, Equatable, Sendable {
   }
 }
 
-nonisolated struct GemmaSessionCacheIdentity: Equatable, Sendable {
+nonisolated struct MLXSessionCacheIdentity: Equatable, Sendable {
   let systemPrompt: String?
   let projectionMode: ModelContextProjectionMode
   let maxKVSize: Int?
   let reasoningEnabled: Bool
 }
 
-nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
+nonisolated enum MLXCachedSessionState: Equatable, Sendable {
   case clean
-  case inFlight(generationID: GemmaGenerationID)
-  case dirty(reason: GemmaSessionInvalidationReason)
+  case inFlight(generationID: MLXGenerationID)
+  case dirty(reason: MLXSessionInvalidationReason)
 
   var isReusable: Bool {
     switch self {
@@ -79,7 +79,7 @@ nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
     }
   }
 
-  var invalidationReason: GemmaSessionInvalidationReason? {
+  var invalidationReason: MLXSessionInvalidationReason? {
     switch self {
     case .clean:
       nil
@@ -90,7 +90,7 @@ nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
     }
   }
 
-  func completing(generationID: GemmaGenerationID) -> GemmaCachedSessionState? {
+  func completing(generationID: MLXGenerationID) -> MLXCachedSessionState? {
     guard self == .inFlight(generationID: generationID) else {
       return nil
     }
@@ -98,9 +98,9 @@ nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
   }
 
   func invalidating(
-    generationID: GemmaGenerationID,
-    reason: GemmaSessionInvalidationReason
-  ) -> GemmaCachedSessionState? {
+    generationID: MLXGenerationID,
+    reason: MLXSessionInvalidationReason
+  ) -> MLXCachedSessionState? {
     guard self == .inFlight(generationID: generationID) else {
       return nil
     }
@@ -108,9 +108,9 @@ nonisolated enum GemmaCachedSessionState: Equatable, Sendable {
   }
 }
 
-nonisolated struct GemmaSessionCacheTrace: Equatable, Sendable {
-  let cacheMode: GemmaSessionCacheMode
-  let cacheReason: GemmaSessionCacheReason
+nonisolated struct MLXSessionCacheTrace: Equatable, Sendable {
+  let cacheMode: MLXSessionCacheMode
+  let cacheReason: MLXSessionCacheReason
   let contextSignature: String
   let previousContextSignature: String?
   let appendOnly: Bool
@@ -122,16 +122,16 @@ nonisolated struct GemmaSessionCacheTrace: Equatable, Sendable {
   let currentPromptContextChanged: Bool?
 }
 
-nonisolated struct CachedGemmaSession {
+nonisolated struct CachedMLXSession {
   let session: MLXLMCommon.ChatSession
-  let prefix: [GemmaMessageSnapshot]
-  let identity: GemmaSessionCacheIdentity
-  let state: GemmaCachedSessionState
+  let prefix: [MLXMessageSnapshot]
+  let identity: MLXSessionCacheIdentity
+  let state: MLXCachedSessionState
 }
 
-nonisolated struct GemmaSessionCachePlan {
+nonisolated struct MLXSessionCachePlan {
   let session: MLXLMCommon.ChatSession
-  let trace: GemmaSessionCacheTrace
+  let trace: MLXSessionCacheTrace
   let appendDeltaStartIndex: Int?
   let streamMessages: [Chat.Message]
 }

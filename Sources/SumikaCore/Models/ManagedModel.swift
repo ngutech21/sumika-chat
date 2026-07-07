@@ -5,29 +5,24 @@ public enum ManagedModelStability: Equatable, Sendable {
   case experimental
 }
 
-public enum ToolCallingStrategy: String, Codable, Equatable, Sendable {
-  case unsupported
-  case nativeGemma4
-}
-
 public struct ToolCallingPolicy: Codable, Equatable, Sendable {
-  public var strategy: ToolCallingStrategy
+  public var isEnabled: Bool
   public var allowsMultipleToolCalls: Bool
 
   public init(
-    strategy: ToolCallingStrategy,
+    isEnabled: Bool,
     allowsMultipleToolCalls: Bool
   ) {
-    self.strategy = strategy
+    self.isEnabled = isEnabled
     self.allowsMultipleToolCalls = allowsMultipleToolCalls
   }
 
   public static let unsupported = ToolCallingPolicy(
-    strategy: .unsupported,
+    isEnabled: false,
     allowsMultipleToolCalls: false
   )
-  public static let nativeGemma4 = ToolCallingPolicy(
-    strategy: .nativeGemma4,
+  public static let nativeMLX = ToolCallingPolicy(
+    isEnabled: true,
     allowsMultipleToolCalls: true
   )
 }
@@ -56,12 +51,8 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
     defaultModeSettings.agent.generationSettings
   }
 
-  public var toolCallingStrategy: ToolCallingStrategy {
-    toolCallingPolicy.strategy
-  }
-
   public var supportsWorkspaceTools: Bool {
-    toolCallingPolicy.strategy != .unsupported
+    toolCallingPolicy.isEnabled
   }
 
   public var localDirectoryURL: URL {
@@ -89,7 +80,7 @@ public enum ManagedModelCatalog {
       isRecommended: false,
       requiresLargeMemory: false,
       stability: .stable,
-      toolCallingPolicy: .nativeGemma4,
+      toolCallingPolicy: .nativeMLX,
       supportsImageInput: false,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
@@ -105,7 +96,7 @@ public enum ManagedModelCatalog {
       isRecommended: false,
       requiresLargeMemory: false,
       stability: .stable,
-      toolCallingPolicy: .nativeGemma4,
+      toolCallingPolicy: .nativeMLX,
       supportsImageInput: false,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
@@ -121,7 +112,7 @@ public enum ManagedModelCatalog {
       isRecommended: false,
       requiresLargeMemory: false,
       stability: .stable,
-      toolCallingPolicy: .nativeGemma4,
+      toolCallingPolicy: .nativeMLX,
       supportsImageInput: false,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
@@ -137,7 +128,7 @@ public enum ManagedModelCatalog {
       isRecommended: true,
       requiresLargeMemory: true,
       stability: .stable,
-      toolCallingPolicy: .nativeGemma4,
+      toolCallingPolicy: .nativeMLX,
       supportsImageInput: true,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
@@ -153,7 +144,7 @@ public enum ManagedModelCatalog {
       isRecommended: false,
       requiresLargeMemory: true,
       stability: .stable,
-      toolCallingPolicy: .nativeGemma4,
+      toolCallingPolicy: .nativeMLX,
       supportsImageInput: true,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
@@ -169,7 +160,7 @@ public enum ManagedModelCatalog {
       isRecommended: false,
       requiresLargeMemory: true,
       stability: .stable,
-      toolCallingPolicy: .nativeGemma4,
+      toolCallingPolicy: .nativeMLX,
       supportsImageInput: true,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,

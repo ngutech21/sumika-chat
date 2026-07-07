@@ -43,7 +43,7 @@ public struct ToolLoopRequest: Sendable {
     toolProfile: ToolExecutionProfile = .agent,
     followUpPromptMode: ToolPromptMode = .afterToolResultCanContinue,
     toolLoopIteration: Int? = nil,
-    toolCallingPolicy: ToolCallingPolicy = .nativeGemma4,
+    toolCallingPolicy: ToolCallingPolicy = .nativeMLX,
     nativeToolCalls: [ChatRuntimeToolCall] = []
   ) {
     self.workspace = workspace

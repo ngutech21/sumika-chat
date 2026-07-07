@@ -6,26 +6,129 @@ import Testing
 @testable import Sumika
 
 @Suite
-struct GemmaMLXRuntimeTemplateTests {
+struct MLXChatRuntimeTemplateTests {
   @Test
   func neutralRepetitionPenaltyDoesNotEnableMLXProcessor() {
-    #expect(GemmaMLXRuntime.mlxRepetitionPenalty(from: .agentDefault) == nil)
+    #expect(MLXChatRuntime.mlxRepetitionPenalty(from: .agentDefault) == nil)
 
     var settings = ChatGenerationSettings.agentDefault
     settings.repetitionPenalty = 1.15
 
-    #expect(GemmaMLXRuntime.mlxRepetitionPenalty(from: settings) == 1.15)
+    #expect(MLXChatRuntime.mlxRepetitionPenalty(from: settings) == 1.15)
   }
 
   @Test
   func presencePenaltyMappingMapsZeroToNilAndForwardsNonZero() {
     // Chat mode leaves presence penalty off; agent mode enables it.
-    #expect(GemmaMLXRuntime.mlxPresencePenalty(from: .chatDefault) == nil)
-    #expect(GemmaMLXRuntime.mlxPresencePenalty(from: .agentDefault) == 0.5)
+    #expect(MLXChatRuntime.mlxPresencePenalty(from: .chatDefault) == nil)
+    #expect(MLXChatRuntime.mlxPresencePenalty(from: .agentDefault) == 0.5)
 
     var settings = ChatGenerationSettings.chatDefault
     settings.presencePenalty = 0.8
-    #expect(GemmaMLXRuntime.mlxPresencePenalty(from: settings) == 0.8)
+    #expect(MLXChatRuntime.mlxPresencePenalty(from: settings) == 0.8)
+  }
+
+  @Test
+  func gemma4GenerationConfigFixtureCarriesEOTTokenID() throws {
+    let data = Data(
+      """
+      {
+        "eos_token_id": [1, 106, 50]
+      }
+      """.utf8)
+
+    let generationConfig = try JSONDecoder().decode(GenerationConfigFile.self, from: data)
+    var modelConfiguration = ModelConfiguration(directory: URL(filePath: "/tmp/gemma-4-fixture"))
+    modelConfiguration.eosTokenIds = Set(generationConfig.eosTokenIds?.values ?? [])
+
+    #expect(modelConfiguration.extraEOSTokens.isEmpty)
+    #expect(modelConfiguration.eosTokenIds.contains(106))
+  }
+
+  @Test
+  func mlxGenerationStopsAtConfiguredEOSTokenIDWithoutExtraEOSTokens() async throws {
+    let tokenizer = EOSStopTestTokenizer()
+    let iterator = EOSStopTestTokenIterator(tokens: [65, 106, 66])
+    let modelConfiguration = ModelConfiguration(
+      directory: URL(filePath: "/tmp/gemma-4-fixture"),
+      eosTokenIds: [106]
+    )
+
+    let (stream, task) = generateTask(
+      promptTokenCount: 0,
+      modelConfiguration: modelConfiguration,
+      tokenizer: tokenizer,
+      iterator: iterator
+    )
+
+    var output = ""
+    var info: GenerateCompletionInfo?
+    for await generation in stream {
+      if let chunk = generation.chunk {
+        output += chunk
+      }
+      if let generationInfo = generation.info {
+        info = generationInfo
+      }
+    }
+    await task.value
+
+    #expect(modelConfiguration.extraEOSTokens.isEmpty)
+    #expect(output == "A")
+    #expect(info?.generationTokenCount == 1)
+  }
+
+  @Test
+  func mlxToolCallFormatInferenceDocumentsGemmaAndQwenCoverage() {
+    #expect(ToolCallFormat.infer(from: "gemma4_unified") == .gemma4)
+    #expect(ToolCallFormat.infer(from: "qwen3_5") == .xmlFunction)
+    #expect(ToolCallFormat.infer(from: "qwen3_next") == .xmlFunction)
+    #expect(ToolCallFormat.infer(from: "qwen3") == nil)
+    #expect(ToolCallFormat.infer(from: "qwen2") == nil)
+  }
+
+  @Test
+  func productSourceDoesNotHardCodeModelStopTokens() throws {
+    let repositoryURL = URL(filePath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+    let searchedDirectories = [
+      repositoryURL.appending(path: "Sources", directoryHint: .isDirectory),
+      repositoryURL.appending(path: "sumika", directoryHint: .isDirectory),
+    ]
+    let forbiddenTokens = [
+      "<end" + "_of_turn>",
+      "<turn" + "|>",
+      "<|" + "im_end" + "|>",
+    ]
+    let allowedFiles = Set([
+      repositoryURL
+        .appending(path: "sumika/Services/GemmaDebugTraceStore.swift", directoryHint: .notDirectory)
+        .standardizedFileURL.path(percentEncoded: false)
+    ])
+
+    var matches: [String] = []
+    for directoryURL in searchedDirectories {
+      guard let enumerator = FileManager.default.enumerator(
+        at: directoryURL,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+      ) else {
+        continue
+      }
+      for case let fileURL as URL in enumerator where fileURL.pathExtension == "swift" {
+        let path = fileURL.standardizedFileURL.path(percentEncoded: false)
+        guard !allowedFiles.contains(path) else {
+          continue
+        }
+        let contents = try String(contentsOf: fileURL, encoding: .utf8)
+        for token in forbiddenTokens where contents.contains(token) {
+          matches.append("\(path): \(token)")
+        }
+      }
+    }
+
+    #expect(matches.isEmpty, "Model stop tokens must come from MLX/model config: \(matches)")
   }
 
   @Test
@@ -52,7 +155,7 @@ struct GemmaMLXRuntimeTemplateTests {
       )
     )
 
-    let images = try GemmaHistoryRenderer.imageInputs(from: [attachment], attachmentStore: store)
+    let images = try MLXHistoryRenderer.imageInputs(from: [attachment], attachmentStore: store)
 
     #expect(images.count == 1)
     guard case .url(let imageURL) = try #require(images.first) else {
@@ -80,7 +183,7 @@ struct GemmaMLXRuntimeTemplateTests {
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "what color are the wheels?"),
     ]
 
-    let snapshot = GemmaHistoryRenderer.generationHistorySnapshot(
+    let snapshot = MLXHistoryRenderer.generationHistorySnapshot(
       from: projectedEntries(from: entries)[..<2]
     )
 
@@ -93,32 +196,32 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func cachePrefixComparisonIncludesImageSignatures() {
     let cachedPrefix = [
-      GemmaMessageSnapshot(
+      MLXMessageSnapshot(
         role: "user",
         content: "what is in the picture",
         imageSignatures: ["sha256:abc"]
       ),
-      GemmaMessageSnapshot(role: "assistant", content: "A blue Mini Cooper."),
+      MLXMessageSnapshot(role: "assistant", content: "A blue Mini Cooper."),
     ]
     let currentHistory = [
-      GemmaMessageSnapshot(
+      MLXMessageSnapshot(
         role: "user",
         content: "what is in the picture",
         imageSignatures: ["sha256:other"]
       ),
-      GemmaMessageSnapshot(role: "assistant", content: "A blue Mini Cooper."),
+      MLXMessageSnapshot(role: "assistant", content: "A blue Mini Cooper."),
     ]
 
-    #expect(GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: cachedPrefix))
-    #expect(!GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
+    #expect(MLXSessionCachePolicy.isPrefix(cachedPrefix, of: cachedPrefix))
+    #expect(!MLXSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
     #expect(
-      GemmaSessionCachePolicy.firstMismatchIndex(
+      MLXSessionCachePolicy.firstMismatchIndex(
         cachedPrefix: cachedPrefix,
         currentHistory: currentHistory
       ) == 0)
     #expect(
-      GemmaSessionCachePolicy.contextSignature(for: cachedPrefix)
-        != GemmaSessionCachePolicy.contextSignature(for: currentHistory))
+      MLXSessionCachePolicy.contextSignature(for: cachedPrefix)
+        != MLXSessionCachePolicy.contextSignature(for: currentHistory))
   }
 
   @Test
@@ -160,7 +263,7 @@ struct GemmaMLXRuntimeTemplateTests {
       ]
     )
 
-    let rendered = try GemmaHistoryRenderer.templateMessages(
+    let rendered = try MLXHistoryRenderer.templateMessages(
       from: transcript,
       attachments: [],
       systemPrompt: "This runtime argument must not rewrite frozen content."
@@ -222,10 +325,10 @@ struct GemmaMLXRuntimeTemplateTests {
       ),
     ]
 
-    let projectedHistory = try GemmaHistoryRenderer.generationHistoryMessages(
+    let projectedHistory = try MLXHistoryRenderer.generationHistoryMessages(
       from: projectedEntries(from: entries)[...]
     )
-    let history = try GemmaHistoryRenderer.runtimeHistoryMessages(
+    let history = try MLXHistoryRenderer.runtimeHistoryMessages(
       systemPrompt: "Use concise coding steps.",
       history: projectedHistory
     )
@@ -243,7 +346,7 @@ struct GemmaMLXRuntimeTemplateTests {
       prompt: "create index.htm",
       systemContext: ["When tools are available, use them."]
     )
-    let initialRendered = try GemmaHistoryRenderer.templateMessages(
+    let initialRendered = try MLXHistoryRenderer.templateMessages(
       from: ModelPromptProjection(entries: [initialUser]),
       attachments: [],
       systemPrompt: "When tools are available, use them."
@@ -259,7 +362,7 @@ struct GemmaMLXRuntimeTemplateTests {
       try ModelFacingPromptRenderer.assistantOutputEntry(content: "Done."),
     ]
 
-    let history = try GemmaHistoryRenderer.generationHistoryMessages(
+    let history = try MLXHistoryRenderer.generationHistoryMessages(
       from: projectedEntries(from: entries)[...]
     )
 
@@ -288,7 +391,7 @@ struct GemmaMLXRuntimeTemplateTests {
       ]
     )
 
-    let rendered = try GemmaHistoryRenderer.templateMessages(
+    let rendered = try MLXHistoryRenderer.templateMessages(
       from: transcript,
       attachments: [],
       systemPrompt: "A later runtime argument must not rewrite frozen content."
@@ -334,7 +437,7 @@ struct GemmaMLXRuntimeTemplateTests {
       prompt: "summarize the current page",
       systemContext: []
     )
-    let initialRendered = try GemmaHistoryRenderer.templateMessages(
+    let initialRendered = try MLXHistoryRenderer.templateMessages(
       from: ModelPromptProjection(entries: [initialUser]),
       attachments: [],
       systemPrompt: "Use concise coding steps."
@@ -368,7 +471,7 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func templateMessagesDoNotTeachGemmaInternalInvalidToolActions() throws {
+  func templateMessagesDoNotTeachModelInternalInvalidToolActions() throws {
     let callID = UUID()
     let turnID = UUID()
     let transcript = ModelPromptProjection(
@@ -406,7 +509,7 @@ struct GemmaMLXRuntimeTemplateTests {
       ]
     )
 
-    let rendered = try GemmaHistoryRenderer.templateMessages(
+    let rendered = try MLXHistoryRenderer.templateMessages(
       from: transcript,
       attachments: [],
       systemPrompt: "Use concise coding steps."
@@ -426,12 +529,12 @@ struct GemmaMLXRuntimeTemplateTests {
     changedSettings.topK = 40
     changedSettings.repetitionPenalty = 1.15
 
-    let first = GemmaSessionCachePolicy.cacheIdentity(
+    let first = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: "Use concise coding steps.",
       settings: .agentDefault,
       projectionMode: .fullHistory
     )
-    let second = GemmaSessionCachePolicy.cacheIdentity(
+    let second = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: "Use concise coding steps.",
       settings: changedSettings,
       projectionMode: .fullHistory
@@ -446,34 +549,34 @@ struct GemmaMLXRuntimeTemplateTests {
     changedMaxKV.maxKVSize = 16_384
     var changedReasoning = ChatGenerationSettings.agentDefault
     changedReasoning.reasoningEnabled = false
-    let base = GemmaSessionCachePolicy.cacheIdentity(
+    let base = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: "Use concise coding steps.",
       settings: .agentDefault,
       projectionMode: .fullHistory
     )
 
     #expect(
-      GemmaSessionCachePolicy.identityMismatchReason(
+      MLXSessionCachePolicy.identityMismatchReason(
         cached: base,
-        current: GemmaSessionCachePolicy.cacheIdentity(
+        current: MLXSessionCachePolicy.cacheIdentity(
           systemPrompt: "Use concise coding steps.",
           settings: changedMaxKV,
           projectionMode: .fullHistory
         )
       ) == .maxKVSizeChanged)
     #expect(
-      GemmaSessionCachePolicy.identityMismatchReason(
+      MLXSessionCachePolicy.identityMismatchReason(
         cached: base,
-        current: GemmaSessionCachePolicy.cacheIdentity(
+        current: MLXSessionCachePolicy.cacheIdentity(
           systemPrompt: "Use concise coding steps.",
           settings: changedReasoning,
           projectionMode: .fullHistory
         )
       ) == .reasoningChanged)
     #expect(
-      GemmaSessionCachePolicy.identityMismatchReason(
+      MLXSessionCachePolicy.identityMismatchReason(
         cached: base,
-        current: GemmaSessionCachePolicy.cacheIdentity(
+        current: MLXSessionCachePolicy.cacheIdentity(
           systemPrompt: "Use detailed coding steps.",
           settings: .agentDefault,
           projectionMode: .fullHistory
@@ -490,12 +593,12 @@ struct GemmaMLXRuntimeTemplateTests {
     ]
     let promptMessages: [Chat.Message] = [.user("continue")]
 
-    let firstPrompt = GemmaSessionCachePolicy.streamMessages(
+    let firstPrompt = MLXSessionCachePolicy.streamMessages(
       history: history,
       promptMessages: promptMessages,
       appendDeltaStartIndex: nil
     )
-    let appendDelta = GemmaSessionCachePolicy.streamMessages(
+    let appendDelta = MLXSessionCachePolicy.streamMessages(
       history: history,
       promptMessages: promptMessages,
       appendDeltaStartIndex: 2
@@ -510,22 +613,22 @@ struct GemmaMLXRuntimeTemplateTests {
     let systemPrompt = "Use concise coding steps."
 
     #expect(
-      GemmaSessionCachePolicy.chatSessionInstructions(
+      MLXSessionCachePolicy.chatSessionInstructions(
         for: .newSession,
         systemPrompt: systemPrompt
       ) == systemPrompt)
     #expect(
-      GemmaSessionCachePolicy.chatSessionInstructions(
+      MLXSessionCachePolicy.chatSessionInstructions(
         for: .dirtyRebuild,
         systemPrompt: systemPrompt
       ) == systemPrompt)
     #expect(
-      GemmaSessionCachePolicy.chatSessionInstructions(
+      MLXSessionCachePolicy.chatSessionInstructions(
         for: .reusedSession,
         systemPrompt: systemPrompt
       ) == nil)
     #expect(
-      GemmaSessionCachePolicy.chatSessionInstructions(
+      MLXSessionCachePolicy.chatSessionInstructions(
         for: .appendDelta,
         systemPrompt: systemPrompt
       ) == nil)
@@ -535,7 +638,7 @@ struct GemmaMLXRuntimeTemplateTests {
   func runtimeCacheDebugSnapshotMapsCoarseTrace() {
     let generationID = UUID()
     let recordedAt = Date(timeIntervalSince1970: 42)
-    let trace = GemmaSessionCacheTrace(
+    let trace = MLXSessionCacheTrace(
       cacheMode: .appendDelta,
       cacheReason: .appendOnlyDelta,
       contextSignature: "ctx-new",
@@ -549,7 +652,7 @@ struct GemmaMLXRuntimeTemplateTests {
       currentPromptContextChanged: nil
     )
 
-    let snapshot = GemmaSessionCachePolicy.runtimeCacheDebugSnapshot(
+    let snapshot = MLXSessionCachePolicy.runtimeCacheDebugSnapshot(
       from: trace,
       appendDeltaStartIndex: 3,
       generationID: generationID,
@@ -571,7 +674,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func generationOwnershipBeginsMonotonicGenerations() {
-    var ownership = GemmaGenerationOwnership()
+    var ownership = MLXGenerationOwnership()
 
     let first = ownership.beginGeneration()
     let second = ownership.beginGeneration()
@@ -583,7 +686,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func generationOwnershipCompletesOnlyCurrentGeneration() {
-    var ownership = GemmaGenerationOwnership()
+    var ownership = MLXGenerationOwnership()
     let first = ownership.beginGeneration()
     let second = ownership.beginGeneration()
 
@@ -600,7 +703,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func generationOwnershipInvalidatesOnlyCurrentGeneration() {
-    var ownership = GemmaGenerationOwnership()
+    var ownership = MLXGenerationOwnership()
     let first = ownership.beginGeneration()
     let second = ownership.beginGeneration()
 
@@ -617,7 +720,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func generationOwnershipInvalidatesActiveGeneration() {
-    var ownership = GemmaGenerationOwnership()
+    var ownership = MLXGenerationOwnership()
     let generationID = ownership.beginGeneration()
 
     ownership.invalidateActiveGeneration()
@@ -632,8 +735,8 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func activeGenerationRegistrySupersedesAndCancelsPreviousTask() async throws {
-    var registry = GemmaActiveGenerationRegistry()
-    let generationID = GemmaGenerationID(rawValue: 1)
+    var registry = MLXActiveGenerationRegistry()
+    let generationID = MLXGenerationID(rawValue: 1)
     let task = Task<Void, Never> {
       do {
         try await Task.sleep(for: .seconds(5))
@@ -655,9 +758,9 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func activeGenerationRegistryClearsOnlyCurrentGeneration() {
-    var registry = GemmaActiveGenerationRegistry()
-    let first = GemmaGenerationID(rawValue: 1)
-    let second = GemmaGenerationID(rawValue: 2)
+    var registry = MLXActiveGenerationRegistry()
+    let first = MLXGenerationID(rawValue: 1)
+    let second = MLXGenerationID(rawValue: 2)
     let task = Task<Void, Never> {}
 
     registry.register(id: first, task: task)
@@ -672,24 +775,24 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cachedSessionStateIsReusableOnlyWhenClean() {
-    let generationID = GemmaGenerationID(rawValue: 1)
+    let generationID = MLXGenerationID(rawValue: 1)
 
-    #expect(GemmaCachedSessionState.clean.isReusable)
-    #expect(!GemmaCachedSessionState.inFlight(generationID: generationID).isReusable)
-    #expect(!GemmaCachedSessionState.dirty(reason: .cancelled).isReusable)
-    #expect(GemmaCachedSessionState.clean.invalidationReason == nil)
+    #expect(MLXCachedSessionState.clean.isReusable)
+    #expect(!MLXCachedSessionState.inFlight(generationID: generationID).isReusable)
+    #expect(!MLXCachedSessionState.dirty(reason: .cancelled).isReusable)
+    #expect(MLXCachedSessionState.clean.invalidationReason == nil)
     #expect(
-      GemmaCachedSessionState.inFlight(generationID: generationID).invalidationReason
+      MLXCachedSessionState.inFlight(generationID: generationID).invalidationReason
         == .interrupted)
     #expect(
-      GemmaCachedSessionState.dirty(reason: .runtimeError).invalidationReason == .runtimeError)
+      MLXCachedSessionState.dirty(reason: .runtimeError).invalidationReason == .runtimeError)
   }
 
   @Test
   func cachedSessionStateTransitionsOnlyForOwningGeneration() {
-    let first = GemmaGenerationID(rawValue: 1)
-    let second = GemmaGenerationID(rawValue: 2)
-    let inFlight = GemmaCachedSessionState.inFlight(generationID: second)
+    let first = MLXGenerationID(rawValue: 1)
+    let second = MLXGenerationID(rawValue: 2)
+    let inFlight = MLXCachedSessionState.inFlight(generationID: second)
 
     #expect(inFlight.completing(generationID: first) == nil)
     #expect(inFlight.invalidating(generationID: first, reason: .cancelled) == nil)
@@ -1106,7 +1209,7 @@ struct GemmaMLXRuntimeTemplateTests {
       try ModelFacingPromptRenderer.userPromptEntry(prompt: "what did you read?"),
     ])
 
-    let history = try GemmaHistoryRenderer.generationHistoryMessages(from: transcript)
+    let history = try MLXHistoryRenderer.generationHistoryMessages(from: transcript)
 
     #expect(history.map(\.role) == [.user, .assistant, .tool, .assistant])
     #expect(history[2].content.contains("TOOL_RESULT_JSON:"))
@@ -1159,7 +1262,7 @@ struct GemmaMLXRuntimeTemplateTests {
       followUpInput.historySnapshot
       + followUpInput.promptSnapshot
       + [
-        GemmaMessageSnapshot(
+        MLXMessageSnapshot(
           role: Chat.Message.Role.assistant.rawValue,
           content: "README.md is a project file."
         )
@@ -1173,7 +1276,7 @@ struct GemmaMLXRuntimeTemplateTests {
           turnID: turnID, content: "README.md is a project file."),
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "what did you read?"),
       ])
-    let currentHistory = try GemmaHistoryRenderer.generationInput(from: nextTurn).historySnapshot
+    let currentHistory = try MLXHistoryRenderer.generationInput(from: nextTurn).historySnapshot
 
     // Same position, same wire form: the prefilled structured tool result is
     // identical to its later history rendering.
@@ -1184,9 +1287,9 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(currentHistory[2].content.contains("TOOL_RESULT_JSON:"))
     #expect(cachedPrefix[2] == currentHistory[2])
     #expect(cachedPrefix == currentHistory)
-    #expect(GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
+    #expect(MLXSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
     #expect(
-      GemmaSessionCachePolicy.firstMismatchIndex(
+      MLXSessionCachePolicy.firstMismatchIndex(
         cachedPrefix: cachedPrefix,
         currentHistory: currentHistory
       ) == nil)
@@ -1269,22 +1372,22 @@ struct GemmaMLXRuntimeTemplateTests {
       ]
     )
     let currentHistory = writeFollowUpInput.historySnapshot
-    let trace = GemmaSessionCachePolicy.trace(
+    let trace = MLXSessionCachePolicy.trace(
       mode: .appendDelta,
       reason: .appendOnlyDelta,
       currentHistory: currentHistory,
-      currentIdentity: GemmaSessionCachePolicy.cacheIdentity(
+      currentIdentity: MLXSessionCachePolicy.cacheIdentity(
         systemPrompt: "Use concise coding steps.",
         settings: .agentDefault,
-        projectionMode: GemmaHistoryRenderer.runtimeProjectionMode
+        projectionMode: MLXHistoryRenderer.runtimeProjectionMode
       ),
       cachedPrefix: cachedPrefix,
-      cachedIdentity: GemmaSessionCachePolicy.cacheIdentity(
+      cachedIdentity: MLXSessionCachePolicy.cacheIdentity(
         systemPrompt: "Use concise coding steps.",
         settings: .agentDefault,
-        projectionMode: GemmaHistoryRenderer.runtimeProjectionMode
+        projectionMode: MLXHistoryRenderer.runtimeProjectionMode
       ),
-      appendOnly: GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory),
+      appendOnly: MLXSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory),
       mismatchReason: nil,
       firstMismatchIndex: nil
     )
@@ -1297,9 +1400,9 @@ struct GemmaMLXRuntimeTemplateTests {
       cachedPrefix[2].content.contains(
         "\"next_step\": \"Continue using the latest tool observation"))
     #expect(cachedPrefix[2] == currentHistory[2])
-    #expect(GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
+    #expect(MLXSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
     #expect(
-      GemmaSessionCachePolicy.firstMismatchIndex(
+      MLXSessionCachePolicy.firstMismatchIndex(
         cachedPrefix: cachedPrefix,
         currentHistory: currentHistory
       ) == cachedPrefix.count)
@@ -1369,11 +1472,11 @@ struct GemmaMLXRuntimeTemplateTests {
       writeGenerationInput.historySnapshot
       + writeGenerationInput.promptSnapshot
       + [
-        GemmaMessageSnapshot(
+        MLXMessageSnapshot(
           role: Chat.Message.Role.assistant.rawValue,
           content: "",
           toolCalls: [
-            GemmaToolCallSnapshot(
+            MLXToolCallSnapshot(
               id: RuntimeToolCallID.string(for: writeCallID),
               name: ToolName.writeFile.rawValue,
               arguments: writeArguments
@@ -1401,9 +1504,9 @@ struct GemmaMLXRuntimeTemplateTests {
     #expect(cachedPrefix.map(\.role) == ["user", "assistant", "tool", "assistant"])
     #expect(currentHistory[3].toolCalls.map(\.id) == [RuntimeToolCallID.string(for: writeCallID)])
     #expect(cachedPrefix == currentHistory)
-    #expect(GemmaSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
+    #expect(MLXSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
     #expect(
-      GemmaSessionCachePolicy.firstMismatchIndex(
+      MLXSessionCachePolicy.firstMismatchIndex(
         cachedPrefix: cachedPrefix,
         currentHistory: currentHistory
       ) == nil)
@@ -1461,29 +1564,29 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheTraceReportsAppendOnlyDelta() {
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
+    let prefix = MLXHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
     ])
-    let appendedHistory = GemmaHistoryRenderer.messageSnapshot(from: [
+    let appendedHistory = MLXHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
       .tool("result", id: "call_1"),
     ])
-    let identity = GemmaSessionCachePolicy.cacheIdentity(
+    let identity = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: "Use concise coding steps.",
       settings: .agentDefault,
       projectionMode: .fullHistory
     )
 
-    let trace = GemmaSessionCachePolicy.trace(
+    let trace = MLXSessionCachePolicy.trace(
       mode: .appendDelta,
       reason: .appendOnlyDelta,
       currentHistory: appendedHistory,
       currentIdentity: identity,
       cachedPrefix: prefix,
       cachedIdentity: identity,
-      appendOnly: GemmaSessionCachePolicy.isPrefix(prefix, of: appendedHistory),
+      appendOnly: MLXSessionCachePolicy.isPrefix(prefix, of: appendedHistory),
       mismatchReason: nil,
       firstMismatchIndex: nil
     )
@@ -1501,21 +1604,21 @@ struct GemmaMLXRuntimeTemplateTests {
     // Reused subcase: cached prefix equals the whole history, so the delta is the
     // prompt. A tool-response prompt must force a rebuild; a user prompt must not.
     let history = [
-      GemmaMessageSnapshot(role: "user", content: "hi"),
-      GemmaMessageSnapshot(role: "assistant", content: "call"),
+      MLXMessageSnapshot(role: "user", content: "hi"),
+      MLXMessageSnapshot(role: "assistant", content: "call"),
     ]
     #expect(
-      GemmaSessionCachePolicy.deltaBeginsWithToolResult(
+      MLXSessionCachePolicy.deltaBeginsWithToolResult(
         cachedPrefixCount: history.count,
         historySnapshot: history,
         promptFirstRole: "tool"))
     #expect(
-      !GemmaSessionCachePolicy.deltaBeginsWithToolResult(
+      !MLXSessionCachePolicy.deltaBeginsWithToolResult(
         cachedPrefixCount: history.count,
         historySnapshot: history,
         promptFirstRole: "user"))
     #expect(
-      !GemmaSessionCachePolicy.deltaBeginsWithToolResult(
+      !MLXSessionCachePolicy.deltaBeginsWithToolResult(
         cachedPrefixCount: history.count,
         historySnapshot: history,
         promptFirstRole: nil))
@@ -1526,23 +1629,23 @@ struct GemmaMLXRuntimeTemplateTests {
     // Append-delta subcase: the cached prefix is shorter than history, so the delta
     // starts inside history at cachedPrefixCount. Detect a tool tail there.
     let history = [
-      GemmaMessageSnapshot(role: "user", content: "hi"),
-      GemmaMessageSnapshot(role: "assistant", content: "call"),
-      GemmaMessageSnapshot(role: "tool", content: "result"),
+      MLXMessageSnapshot(role: "user", content: "hi"),
+      MLXMessageSnapshot(role: "assistant", content: "call"),
+      MLXMessageSnapshot(role: "tool", content: "result"),
     ]
     #expect(
-      GemmaSessionCachePolicy.deltaBeginsWithToolResult(
+      MLXSessionCachePolicy.deltaBeginsWithToolResult(
         cachedPrefixCount: 2,
         historySnapshot: history,
         promptFirstRole: nil))
 
     let nonToolTail = [
-      GemmaMessageSnapshot(role: "user", content: "hi"),
-      GemmaMessageSnapshot(role: "assistant", content: "call"),
-      GemmaMessageSnapshot(role: "user", content: "again"),
+      MLXMessageSnapshot(role: "user", content: "hi"),
+      MLXMessageSnapshot(role: "assistant", content: "call"),
+      MLXMessageSnapshot(role: "user", content: "again"),
     ]
     #expect(
-      !GemmaSessionCachePolicy.deltaBeginsWithToolResult(
+      !MLXSessionCachePolicy.deltaBeginsWithToolResult(
         cachedPrefixCount: 2,
         historySnapshot: nonToolTail,
         promptFirstRole: nil))
@@ -1550,65 +1653,65 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cacheTraceReportsToolFollowUpRebuild() {
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
+    let prefix = MLXHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("calling read_file"),
     ])
-    let followUpHistory = GemmaHistoryRenderer.messageSnapshot(from: [
+    let followUpHistory = MLXHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("calling read_file"),
       .tool("result", id: "call_1"),
     ])
-    let identity = GemmaSessionCachePolicy.cacheIdentity(
+    let identity = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: "Use concise coding steps.",
       settings: .agentDefault,
       projectionMode: .fullHistory
     )
 
-    let trace = GemmaSessionCachePolicy.trace(
+    let trace = MLXSessionCachePolicy.trace(
       mode: .dirtyRebuild,
       reason: .toolFollowUpRebuild,
       currentHistory: followUpHistory,
       currentIdentity: identity,
       cachedPrefix: prefix,
       cachedIdentity: identity,
-      appendOnly: GemmaSessionCachePolicy.isPrefix(prefix, of: followUpHistory),
+      appendOnly: MLXSessionCachePolicy.isPrefix(prefix, of: followUpHistory),
       mismatchReason: "tool_follow_up_response",
       firstMismatchIndex: nil
     )
 
     #expect(trace.cacheMode == .dirtyRebuild)
     #expect(trace.cacheReason == .toolFollowUpRebuild)
-    #expect(GemmaSessionCacheReason.toolFollowUpRebuild.rawValue == "tool_follow_up_rebuild")
+    #expect(MLXSessionCacheReason.toolFollowUpRebuild.rawValue == "tool_follow_up_rebuild")
     #expect(trace.mismatchReason == "tool_follow_up_response")
   }
 
   @Test
   func cacheTraceReportsHistoryMismatch() {
-    let prefix = GemmaHistoryRenderer.messageSnapshot(from: [
+    let prefix = MLXHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("hi"),
     ])
-    let changedHistory = GemmaHistoryRenderer.messageSnapshot(from: [
+    let changedHistory = MLXHistoryRenderer.messageSnapshot(from: [
       .user("hello"),
       .assistant("different"),
     ])
-    let identity = GemmaSessionCachePolicy.cacheIdentity(
+    let identity = MLXSessionCachePolicy.cacheIdentity(
       systemPrompt: "Use concise coding steps.",
       settings: .agentDefault,
       projectionMode: .fullHistory
     )
 
-    let trace = GemmaSessionCachePolicy.trace(
+    let trace = MLXSessionCachePolicy.trace(
       mode: .dirtyRebuild,
       reason: .historyChanged,
       currentHistory: changedHistory,
       currentIdentity: identity,
       cachedPrefix: prefix,
       cachedIdentity: identity,
-      appendOnly: GemmaSessionCachePolicy.isPrefix(prefix, of: changedHistory),
+      appendOnly: MLXSessionCachePolicy.isPrefix(prefix, of: changedHistory),
       mismatchReason: "history_changed",
-      firstMismatchIndex: GemmaSessionCachePolicy.firstMismatchIndex(
+      firstMismatchIndex: MLXSessionCachePolicy.firstMismatchIndex(
         cachedPrefix: prefix,
         currentHistory: changedHistory
       )
@@ -1624,22 +1727,22 @@ struct GemmaMLXRuntimeTemplateTests {
   @Test
   func cacheInvalidationReasonsMapToDirtyRebuildReasons() {
     #expect(
-      GemmaSessionCacheReason.generationInvalidationReason(from: .cancelled)
+      MLXSessionCacheReason.generationInvalidationReason(from: .cancelled)
         == .invalidatedGenCancelled)
     #expect(
-      GemmaSessionCacheReason.generationInvalidationReason(from: .interrupted)
+      MLXSessionCacheReason.generationInvalidationReason(from: .interrupted)
         == .invalidatedGenInterrupted)
     #expect(
-      GemmaSessionCacheReason.generationInvalidationReason(from: .downstreamTerminated)
+      MLXSessionCacheReason.generationInvalidationReason(from: .downstreamTerminated)
         == .invalidatedGenDownstreamTerminated)
     #expect(
-      GemmaSessionCacheReason.generationInvalidationReason(from: .runtimeError)
+      MLXSessionCacheReason.generationInvalidationReason(from: .runtimeError)
         == .invalidatedGenRuntimeError)
   }
 
   @Test
   func modelStreamMarksConsumerTerminationAsDownstreamTerminated() async throws {
-    let recorder = GemmaStreamInvalidationRecorder()
+    let recorder = MLXStreamInvalidationRecorder()
     try await consumeFirstModelStreamEvent(recorder: recorder)
 
     try await waitUntilAsync {
@@ -1650,7 +1753,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func modelStreamPlanCancelsUpstreamTaskWhenConsumerTerminates() async throws {
-    let recorder = GemmaStreamInvalidationRecorder()
+    let recorder = MLXStreamInvalidationRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
       let task = Task {
         try? await Task.sleep(for: .seconds(5))
@@ -1661,7 +1764,7 @@ struct GemmaMLXRuntimeTemplateTests {
         task.cancel()
       }
     }
-    var plan: GemmaModelStreamPlan? = GemmaModelStreamProcessor.modelStreamPlan(
+    var plan: MLXModelStreamPlan? = MLXModelStreamProcessor.modelStreamPlan(
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
@@ -1701,18 +1804,18 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func modelStreamMemoryClearPolicyClearsOnlyDirtyRuntimeState() {
-    #expect(GemmaModelStreamProcessor.memoryClearReason(for: .completed) == nil)
-    #expect(GemmaModelStreamProcessor.memoryClearReason(for: .downstreamTerminated) == nil)
-    #expect(GemmaModelStreamProcessor.memoryClearReason(for: .cancelled) == nil)
-    #expect(GemmaModelStreamProcessor.memoryClearReason(for: .nativeToolCallBoundary) == nil)
-    #expect(GemmaModelStreamProcessor.memoryClearReason(for: .runtimeError) == .runtimeError)
+    #expect(MLXModelStreamProcessor.memoryClearReason(for: .completed) == nil)
+    #expect(MLXModelStreamProcessor.memoryClearReason(for: .downstreamTerminated) == nil)
+    #expect(MLXModelStreamProcessor.memoryClearReason(for: .cancelled) == nil)
+    #expect(MLXModelStreamProcessor.memoryClearReason(for: .nativeToolCallBoundary) == nil)
+    #expect(MLXModelStreamProcessor.memoryClearReason(for: .runtimeError) == .runtimeError)
     #expect(
-      GemmaModelStreamProcessor.memoryClearReason(for: .interruptedStream) == .interruptedStream)
+      MLXModelStreamProcessor.memoryClearReason(for: .interruptedStream) == .interruptedStream)
   }
 
   @Test
   func completedModelStreamDoesNotClearMemoryCache() async throws {
-    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
       continuation.yield(.chunk("done"))
       continuation.yield(
@@ -1726,14 +1829,14 @@ struct GemmaMLXRuntimeTemplateTests {
         ))
       continuation.finish()
     }
-    let stream = GemmaModelStreamProcessor.modelStream(
+    let stream = MLXModelStreamProcessor.modelStream(
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
       markCompleted: { _ in },
       markCancelled: { _ in },
-      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
         await memoryClearRecorder.record(reason)
       }
     )
@@ -1785,8 +1888,8 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func modelStreamSeparatesThoughtChannelChunks() async throws {
-    let memoryClearRecorder = GemmaMemoryClearRecorder()
-    let completionRecorder = GemmaStreamCompletionRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
+    let completionRecorder = MLXStreamCompletionRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
       continuation.yield(.chunk("<|channel>thought"))
       continuation.yield(.chunk(" The user said hey."))
@@ -1803,7 +1906,7 @@ struct GemmaMLXRuntimeTemplateTests {
         ))
       continuation.finish()
     }
-    let stream = GemmaModelStreamProcessor.modelStream(
+    let stream = MLXModelStreamProcessor.modelStream(
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
@@ -1812,7 +1915,7 @@ struct GemmaMLXRuntimeTemplateTests {
         await completionRecorder.record(output)
       },
       markCancelled: { _ in },
-      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
         await memoryClearRecorder.record(reason)
       }
     )
@@ -1839,19 +1942,19 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func cancellationModelStreamDoesNotClearMemoryCache() async throws {
-    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
       continuation.yield(.chunk("partial"))
       continuation.finish(throwing: CancellationError())
     }
-    let stream = GemmaModelStreamProcessor.modelStream(
+    let stream = MLXModelStreamProcessor.modelStream(
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
       markCompleted: { _ in },
       markCancelled: { _ in },
-      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
         await memoryClearRecorder.record(reason)
       }
     )
@@ -1866,19 +1969,19 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func runtimeErrorModelStreamClearsMemoryCache() async throws {
-    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
       continuation.yield(.chunk("partial"))
-      continuation.finish(throwing: GemmaTestStreamError())
+      continuation.finish(throwing: MLXTestStreamError())
     }
-    let stream = GemmaModelStreamProcessor.modelStream(
+    let stream = MLXModelStreamProcessor.modelStream(
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
       markCompleted: { _ in },
       markCancelled: { _ in },
-      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
         await memoryClearRecorder.record(reason)
       }
     )
@@ -1886,26 +1989,26 @@ struct GemmaMLXRuntimeTemplateTests {
     do {
       try await drainModelStream(stream)
       Issue.record("Expected runtime error to propagate from model stream.")
-    } catch is GemmaTestStreamError {
+    } catch is MLXTestStreamError {
       #expect(await memoryClearRecorder.reasons == [.runtimeError])
     }
   }
 
   @Test
   func interruptedModelStreamClearsMemoryCache() async throws {
-    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
       continuation.yield(.chunk("partial"))
       continuation.finish()
     }
-    let stream = GemmaModelStreamProcessor.modelStream(
+    let stream = MLXModelStreamProcessor.modelStream(
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
       markCompleted: { _ in },
       markCancelled: { _ in },
-      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
         await memoryClearRecorder.record(reason)
       }
     )
@@ -1913,7 +2016,7 @@ struct GemmaMLXRuntimeTemplateTests {
     do {
       try await drainModelStream(stream)
       Issue.record("Expected interrupted stream to throw.")
-    } catch GemmaMLXRuntimeError.interruptedStream {
+    } catch MLXChatRuntimeError.interruptedStream {
       #expect(await memoryClearRecorder.reasons == [.interruptedStream])
     } catch {
       Issue.record("Expected interrupted stream error, got \(error).")
@@ -1922,9 +2025,9 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func unloadAndClearContextClearMemoryCacheWithExplicitReasons() async {
-    let memoryClearRecorder = GemmaMemoryClearRecorder()
-    let runtime = GemmaMLXRuntime(
-      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+    let memoryClearRecorder = MLXMemoryClearRecorder()
+    let runtime = MLXChatRuntime(
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
         await memoryClearRecorder.record(reason)
       })
 
@@ -1950,9 +2053,9 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func modelStreamCompletesNativeToolCallAsCleanBoundary() async throws {
-    let recorder = GemmaStreamInvalidationRecorder()
-    let boundaryRecorder = GemmaNativeBoundaryRecorder()
-    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let recorder = MLXStreamInvalidationRecorder()
+    let boundaryRecorder = MLXNativeBoundaryRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
     let toolCall = MLXLMCommon.ToolCall(
       function: .init(
         name: "read_file",
@@ -1972,7 +2075,7 @@ struct GemmaMLXRuntimeTemplateTests {
         ))
       continuation.finish()
     }
-    let stream = GemmaModelStreamProcessor.modelStream(
+    let stream = MLXModelStreamProcessor.modelStream(
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
@@ -1986,7 +2089,7 @@ struct GemmaMLXRuntimeTemplateTests {
       markCancelled: { reason in
         await recorder.record(reason)
       },
-      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
         await memoryClearRecorder.record(reason)
       }
     )
@@ -2011,9 +2114,9 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func modelStreamCompletesNativeToolCallWithoutInfoAsCleanBoundary() async throws {
-    let recorder = GemmaStreamInvalidationRecorder()
-    let boundaryRecorder = GemmaNativeBoundaryRecorder()
-    let memoryClearRecorder = GemmaMemoryClearRecorder()
+    let recorder = MLXStreamInvalidationRecorder()
+    let boundaryRecorder = MLXNativeBoundaryRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
     let toolCall = MLXLMCommon.ToolCall(
       function: .init(
         name: "read_file",
@@ -2024,7 +2127,7 @@ struct GemmaMLXRuntimeTemplateTests {
       continuation.yield(.toolCall(toolCall))
       continuation.finish()
     }
-    let stream = GemmaModelStreamProcessor.modelStream(
+    let stream = MLXModelStreamProcessor.modelStream(
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
@@ -2038,7 +2141,7 @@ struct GemmaMLXRuntimeTemplateTests {
       markCancelled: { reason in
         await recorder.record(reason)
       },
-      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
         await memoryClearRecorder.record(reason)
       }
     )
@@ -2061,7 +2164,7 @@ struct GemmaMLXRuntimeTemplateTests {
 
   @Test
   func modelStreamNormalizesDuplicateNativeToolCallIDs() async throws {
-    let boundaryRecorder = GemmaNativeBoundaryRecorder()
+    let boundaryRecorder = MLXNativeBoundaryRecorder()
     let duplicateID = "call_0123456789ABCDEF0123456789ABCDEF"
     let firstToolCall = MLXLMCommon.ToolCall(
       function: .init(name: "read_file", arguments: ["path": "README.md"]),
@@ -2085,7 +2188,7 @@ struct GemmaMLXRuntimeTemplateTests {
         ))
       continuation.finish()
     }
-    let stream = GemmaModelStreamProcessor.modelStream(
+    let stream = MLXModelStreamProcessor.modelStream(
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
@@ -2120,13 +2223,12 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func nativeGemma4ToolContextMapsRegistryToMLXToolSpecs() throws {
+  func nativeMLXToolContextMapsRegistryToMLXToolSpecs() throws {
     let toolContext = ChatRuntimeToolContext(
-      strategy: .nativeGemma4,
       registry: ToolExecutorRegistry.readOnly.toolRegistry
     )
 
-    let specs = try #require(GemmaNativeToolSchema.toolSpecs(from: toolContext))
+    let specs = try #require(MLXToolMapper.toolSpecs(from: toolContext))
     let readFileSpec = try #require(
       specs.first { spec in
         let function = spec["function"] as? [String: any Sendable]
@@ -2146,13 +2248,12 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   @Test
-  func nativeGemma4ToolContextDefinesSimpleParametersAsStrings() throws {
+  func nativeMLXToolContextDefinesSimpleParametersAsStrings() throws {
     let toolContext = ChatRuntimeToolContext(
-      strategy: .nativeGemma4,
       registry: ToolExecutorRegistry.codingAgent.toolRegistry
     )
 
-    let specs = try #require(GemmaNativeToolSchema.toolSpecs(from: toolContext))
+    let specs = try #require(MLXToolMapper.toolSpecs(from: toolContext))
     let todoSpec = try #require(
       specs.first { spec in
         let function = spec["function"] as? [String: any Sendable]
@@ -2200,7 +2301,7 @@ struct GemmaMLXRuntimeTemplateTests {
       )
     )
 
-    let runtimeToolCall = GemmaNativeToolSchema.chatRuntimeToolCall(from: mlxToolCall)
+    let runtimeToolCall = MLXToolMapper.chatRuntimeToolCall(from: mlxToolCall)
 
     #expect(runtimeToolCall.name == "read_file")
     #expect(runtimeToolCall.arguments["path"] == .string("README.md"))
@@ -2232,7 +2333,7 @@ struct GemmaMLXRuntimeTemplateTests {
     }
   }
 
-  private func consumeFirstModelStreamEvent(recorder: GemmaStreamInvalidationRecorder) async throws
+  private func consumeFirstModelStreamEvent(recorder: MLXStreamInvalidationRecorder) async throws
   {
     let source = AsyncThrowingStream<Generation, Error> { continuation in
       let task = Task {
@@ -2244,7 +2345,7 @@ struct GemmaMLXRuntimeTemplateTests {
         task.cancel()
       }
     }
-    let stream = GemmaModelStreamProcessor.modelStream(
+    let stream = MLXModelStreamProcessor.modelStream(
       from: source,
       traceID: UUID(),
       traceMetadata: nil,
@@ -2275,12 +2376,12 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 
   private func assertLifecycleOperationDrainsBeforeMemoryClear(
-    reason: GemmaMemoryClearReason,
-    operation: @escaping @Sendable (GemmaMLXRuntime) async -> Void
+    reason: MLXMemoryClearReason,
+    operation: @escaping @Sendable (MLXChatRuntime) async -> Void
   ) async throws {
-    let recorder = GemmaLifecycleDrainRecorder()
-    let runtime = GemmaMLXRuntime(
-      memoryCacheClearer: GemmaMemoryCacheClearer { reason in
+    let recorder = MLXLifecycleDrainRecorder()
+    let runtime = MLXChatRuntime(
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
         await recorder.record(.memoryClear(reason))
       })
     let task = Task<Void, Never> {
@@ -2291,7 +2392,7 @@ struct GemmaMLXRuntimeTemplateTests {
       await recorder.waitUntilAllowedToFinish()
       await recorder.record(.taskFinished)
     }
-    await runtime.registerActiveGenerationForTesting(id: GemmaGenerationID(rawValue: 1), task: task)
+    await runtime.registerActiveGenerationForTesting(id: MLXGenerationID(rawValue: 1), task: task)
 
     let lifecycleTask = Task {
       await operation(runtime)
@@ -2318,13 +2419,13 @@ struct GemmaMLXRuntimeTemplateTests {
     from entries: [ModelContextEntry]
   ) -> [ProjectedModelContextEntry] {
     ModelPromptProjection(entries: entries)
-      .projectedEntries(mode: GemmaHistoryRenderer.runtimeProjectionMode)
+      .projectedEntries(mode: MLXHistoryRenderer.runtimeProjectionMode)
   }
 
   private func generationInput(
     from entries: [ModelContextEntry]
-  ) throws -> GemmaGenerationInput {
-    try GemmaHistoryRenderer.generationInput(from: ModelPromptProjection(entries: entries))
+  ) throws -> MLXGenerationInput {
+    try MLXHistoryRenderer.generationInput(from: ModelPromptProjection(entries: entries))
   }
 
   private func generationHistoryAndPrompt(
@@ -2334,10 +2435,10 @@ struct GemmaMLXRuntimeTemplateTests {
     let lastPromptIndex = try #require(
       projectedEntries.lastIndex { $0.role == .user || $0.role == .tool }
     )
-    let history = try GemmaHistoryRenderer.generationHistoryMessages(
+    let history = try MLXHistoryRenderer.generationHistoryMessages(
       from: projectedEntries[..<lastPromptIndex]
     )
-    let prompt = GemmaHistoryRenderer.chatMessage(from: projectedEntries[lastPromptIndex])
+    let prompt = MLXHistoryRenderer.chatMessage(from: projectedEntries[lastPromptIndex])
     return (history, prompt)
   }
 
@@ -2389,8 +2490,8 @@ struct GemmaMLXRuntimeTemplateTests {
     )
   }
 
-  private func defaultCacheTrace() -> GemmaSessionCacheTrace {
-    GemmaSessionCacheTrace(
+  private func defaultCacheTrace() -> MLXSessionCacheTrace {
+    MLXSessionCacheTrace(
       cacheMode: .newSession,
       cacheReason: .newSessionNoCache,
       contextSignature: "context",
@@ -2406,19 +2507,103 @@ struct GemmaMLXRuntimeTemplateTests {
   }
 }
 
-private actor GemmaStreamInvalidationRecorder {
-  private var reasons: [GemmaSessionInvalidationReason] = []
+private struct EOSStopTestTokenIterator: TokenIteratorProtocol {
+  let tokens: [Int]
+  private var index = 0
+  private(set) var tokenCount = 0
 
-  var firstReason: GemmaSessionInvalidationReason? {
+  var maxTokens: Int? {
+    tokens.count
+  }
+
+  var promptPrefillTime: TimeInterval {
+    0
+  }
+
+  init(tokens: [Int]) {
+    self.tokens = tokens
+  }
+
+  func makeIterator() -> EOSStopTestTokenIterator {
+    self
+  }
+
+  mutating func next() -> Int? {
+    guard index < tokens.count else {
+      return nil
+    }
+    defer {
+      index += 1
+      tokenCount += 1
+    }
+    return tokens[index]
+  }
+
+  mutating func discardGeneratedToken() {}
+}
+
+private struct EOSStopTestTokenizer: Tokenizer {
+  func encode(text: String, addSpecialTokens: Bool) -> [Int] {
+    text.utf8.map(Int.init)
+  }
+
+  func decode(tokenIds: [Int], skipSpecialTokens: Bool) -> String {
+    tokenIds.map { tokenID in
+      switch tokenID {
+      case 65:
+        "A"
+      case 66:
+        "B"
+      case 106:
+        "<eot>"
+      default:
+        ""
+      }
+    }.joined()
+  }
+
+  func convertTokenToId(_ token: String) -> Int? {
+    nil
+  }
+
+  func convertIdToToken(_ id: Int) -> String? {
+    nil
+  }
+
+  var bosToken: String? {
+    nil
+  }
+
+  var eosToken: String? {
+    nil
+  }
+
+  var unknownToken: String? {
+    nil
+  }
+
+  func applyChatTemplate(
+    messages: [[String: any Sendable]],
+    tools: [[String: any Sendable]]?,
+    additionalContext: [String: any Sendable]?
+  ) throws -> [Int] {
+    []
+  }
+}
+
+private actor MLXStreamInvalidationRecorder {
+  private var reasons: [MLXSessionInvalidationReason] = []
+
+  var firstReason: MLXSessionInvalidationReason? {
     reasons.first
   }
 
-  func record(_ reason: GemmaSessionInvalidationReason) {
+  func record(_ reason: MLXSessionInvalidationReason) {
     reasons.append(reason)
   }
 }
 
-private actor GemmaStreamCompletionRecorder {
+private actor MLXStreamCompletionRecorder {
   private var outputs: [String] = []
 
   var firstOutput: String? {
@@ -2430,7 +2615,7 @@ private actor GemmaStreamCompletionRecorder {
   }
 }
 
-private actor GemmaNativeBoundaryRecorder {
+private actor MLXNativeBoundaryRecorder {
   private var boundaries: [(output: String, nativeToolCalls: [ChatRuntimeToolCall])] = []
 
   var firstBoundary: (output: String, nativeToolCalls: [ChatRuntimeToolCall])? {
@@ -2442,34 +2627,34 @@ private actor GemmaNativeBoundaryRecorder {
   }
 }
 
-private actor GemmaMemoryClearRecorder {
-  private var recordedReasons: [GemmaMemoryClearReason] = []
+private actor MLXMemoryClearRecorder {
+  private var recordedReasons: [MLXMemoryClearReason] = []
 
-  var reasons: [GemmaMemoryClearReason] {
+  var reasons: [MLXMemoryClearReason] {
     recordedReasons
   }
 
-  func record(_ reason: GemmaMemoryClearReason) {
+  func record(_ reason: MLXMemoryClearReason) {
     recordedReasons.append(reason)
   }
 }
 
-private enum GemmaLifecycleDrainEvent: Equatable {
+private enum MLXLifecycleDrainEvent: Equatable {
   case taskCancelled
   case taskFinished
-  case memoryClear(GemmaMemoryClearReason)
+  case memoryClear(MLXMemoryClearReason)
 }
 
-private actor GemmaLifecycleDrainRecorder {
-  private var recordedEvents: [GemmaLifecycleDrainEvent] = []
+private actor MLXLifecycleDrainRecorder {
+  private var recordedEvents: [MLXLifecycleDrainEvent] = []
   private var shouldFinish = false
   private var finishContinuation: CheckedContinuation<Void, Never>?
 
-  var events: [GemmaLifecycleDrainEvent] {
+  var events: [MLXLifecycleDrainEvent] {
     recordedEvents
   }
 
-  func record(_ event: GemmaLifecycleDrainEvent) {
+  func record(_ event: MLXLifecycleDrainEvent) {
     recordedEvents.append(event)
   }
 
@@ -2490,9 +2675,9 @@ private actor GemmaLifecycleDrainRecorder {
   }
 }
 
-private struct GemmaTestStreamError: Error {}
+private struct MLXTestStreamError: Error {}
 
-private struct GemmaStreamWaitTimeoutError: Error {}
+private struct MLXStreamWaitTimeoutError: Error {}
 
 private func waitUntilAsync(
   timeout: Duration = .seconds(2),
@@ -2501,7 +2686,7 @@ private func waitUntilAsync(
   let start = ContinuousClock.now
   while await condition() == false {
     if ContinuousClock.now - start > timeout {
-      throw GemmaStreamWaitTimeoutError()
+      throw MLXStreamWaitTimeoutError()
     }
     try await Task.sleep(for: .milliseconds(10))
   }
