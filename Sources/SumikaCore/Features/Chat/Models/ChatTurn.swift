@@ -79,6 +79,9 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     at timestamp: Date = Date()
   ) {
     updateAssistantThinkingMessage(messageID, at: timestamp) { message in
+      if message.startedAt == nil {
+        message.startedAt = timestamp
+      }
       message.content += chunk
     }
   }
@@ -99,6 +102,9 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     at timestamp: Date = Date()
   ) {
     updateAssistantThinkingMessage(messageID, at: timestamp) { message in
+      if status != .streaming, message.completedAt == nil {
+        message.completedAt = timestamp
+      }
       message.deliveryStatus = status
     }
   }
@@ -123,6 +129,9 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
         return .assistantMessage(message)
       case .assistantThinking(var message) where message.deliveryStatus == .streaming:
         message.deliveryStatus = .cancelled
+        if message.completedAt == nil {
+          message.completedAt = timestamp
+        }
         didUpdate = true
         return .assistantThinking(message)
       default:
@@ -478,21 +487,36 @@ public struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendab
   public let id: UUID
   public var content: String
   public var deliveryStatus: DeliveryStatus
+  public var startedAt: Date?
+  public var completedAt: Date?
 
   public init(
     id: UUID = UUID(),
     content: String,
-    deliveryStatus: DeliveryStatus = .complete
+    deliveryStatus: DeliveryStatus = .complete,
+    startedAt: Date? = nil,
+    completedAt: Date? = nil
   ) {
     self.id = id
     self.content = content
     self.deliveryStatus = deliveryStatus
+    self.startedAt = startedAt
+    self.completedAt = completedAt
+  }
+
+  public var reasoningDuration: TimeInterval? {
+    guard let startedAt, let completedAt else {
+      return nil
+    }
+    return max(0, completedAt.timeIntervalSince(startedAt))
   }
 
   private enum CodingKeys: String, CodingKey {
     case id
     case content
     case deliveryStatus
+    case startedAt
+    case completedAt
   }
 
   public init(from decoder: Decoder) throws {
@@ -504,6 +528,8 @@ public struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendab
       forKey: .deliveryStatus,
       default: .complete
     )
+    startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
+    completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -511,6 +537,8 @@ public struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendab
     try container.encode(id, forKey: .id)
     try container.encode(content, forKey: .content)
     try container.encode(deliveryStatus, forKey: .deliveryStatus)
+    try container.encodeIfPresent(startedAt, forKey: .startedAt)
+    try container.encodeIfPresent(completedAt, forKey: .completedAt)
   }
 }
 

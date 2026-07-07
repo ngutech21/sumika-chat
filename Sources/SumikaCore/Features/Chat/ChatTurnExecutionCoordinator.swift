@@ -129,6 +129,7 @@ struct ChatTurnExecutionCoordinator {
   {
     let assistantThinkingMessageID = UUID()
     var didAppendAssistantThinking = false
+    var didCompleteAssistantThinking = false
     let toolCallingPolicy = runtime.selectedModel.toolCallingPolicy
     callbacks.setActiveToolPromptMode(toolPromptMode)
     applyToolFollowUpNoticeIfNeeded(
@@ -191,12 +192,20 @@ struct ChatTurnExecutionCoordinator {
           guardedAssistantChunks += chunk
           return
         }
-        callbacks.emitEvents([
+        var events: [ChatWorkflowEvent] = []
+        // Reasoning ends the moment visible output starts, not when the whole
+        // generation finishes: the transcript switches the thinking row to its
+        // "Reasoned for Xs" summary while the answer keeps streaming.
+        if didAppendAssistantThinking, !didCompleteAssistantThinking {
+          didCompleteAssistantThinking = true
+          events.append(.assistantThinkingCompleted(messageID: assistantThinkingMessageID))
+        }
+        events.append(
           .assistantChunkAppended(
             chunk: chunk,
             messageID: assistantMessageID
-          )
-        ])
+          ))
+        callbacks.emitEvents(events)
       },
       appendThinkingChunk: { chunk in
         guard isActive(turnID) else {
@@ -223,7 +232,8 @@ struct ChatTurnExecutionCoordinator {
           return
         }
         var events: [ChatWorkflowEvent] = []
-        if didAppendAssistantThinking {
+        if didAppendAssistantThinking, !didCompleteAssistantThinking {
+          didCompleteAssistantThinking = true
           events.append(.assistantThinkingCompleted(messageID: assistantThinkingMessageID))
         }
         events.append(

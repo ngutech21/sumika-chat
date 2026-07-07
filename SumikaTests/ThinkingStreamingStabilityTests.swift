@@ -4,14 +4,15 @@ import Testing
 
 @testable import Sumika
 
-// Pins the viewport stability contract while a thinking row streams: pinned
-// viewports follow reasoning growth monotonically, unpinned viewports do not
-// move at all. Guards against the streaming transcript bouncing up and down.
+// Pins the viewport stability contract while a thinking row streams: expanded
+// reasoning follows growth monotonically for pinned viewports, unpinned
+// viewports do not move at all, and collapsed reasoning (the default ticker
+// presentation) keeps the transcript height constant entirely.
 @MainActor
 struct ThinkingStreamingStabilityTests {
 
   @Test
-  func pinnedViewportFollowsStreamingThinkingWithoutBouncing() throws {
+  func pinnedViewportFollowsExpandedStreamingThinkingWithoutBouncing() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
@@ -22,6 +23,7 @@ struct ThinkingStreamingStabilityTests {
     scrollView.setFrameSize(NSSize(width: 640, height: 300))
     let tableView = try #require(scrollView.documentView as? NSTableView)
     let viewportHeight = scrollView.contentView.bounds.height
+    coordinator.toggleThinkingExpansion(rowID: "thinking")
 
     var thinkingContent = "Inspecting the workspace."
     var revision = 1
@@ -72,7 +74,7 @@ struct ThinkingStreamingStabilityTests {
   }
 
   @Test
-  func unpinnedViewportStaysStillWhileThinkingGrows() throws {
+  func unpinnedViewportStaysStillWhileExpandedThinkingGrows() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
       onToggleSpeech: { _, _ in },
       onApproveToolCall: { _ in },
@@ -82,6 +84,7 @@ struct ThinkingStreamingStabilityTests {
     let scrollView = coordinator.makeScrollView()
     scrollView.setFrameSize(NSSize(width: 640, height: 300))
     let tableView = try #require(scrollView.documentView as? NSTableView)
+    coordinator.toggleThinkingExpansion(rowID: "thinking")
 
     var thinkingContent = String(
       repeating: "Reasoning already tall enough to scroll well past the viewport. ",
@@ -122,6 +125,53 @@ struct ThinkingStreamingStabilityTests {
     }
 
     #expect(tableView.rect(ofRow: 1).height > initialThinkingHeight)
+  }
+
+  @Test
+  func collapsedStreamingThinkingKeepsViewportAndRowHeightStill() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 640, height: 300))
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+
+    var thinkingContent = "Inspecting the workspace."
+    var revision = 1
+
+    func applyAndFlush() {
+      coordinator.update(
+        rows: [
+          stabilityUserRow(id: "user", revision: 1),
+          stabilityThinkingRow(id: "thinking", revision: revision, content: thinkingContent),
+        ],
+        accessibilityValue: "ready",
+        isSpeechEnabled: false,
+        activeSpeechRowID: nil,
+        in: scrollView
+      )
+      coordinator.flushPendingHeightInvalidationForTesting()
+      tableView.layoutSubtreeIfNeeded()
+    }
+
+    applyAndFlush()
+
+    let initialThinkingHeight = tableView.rect(ofRow: 1).height
+    let initialDocumentHeight = tableView.bounds.height
+    let initialClipY = scrollView.contentView.bounds.origin.y
+
+    for _ in 1...24 {
+      thinkingContent += "\nMore reasoning arrives with additional evidence to weigh carefully."
+      revision += 1
+      applyAndFlush()
+
+      #expect(tableView.rect(ofRow: 1).height == initialThinkingHeight)
+      #expect(tableView.bounds.height == initialDocumentHeight)
+      #expect(scrollView.contentView.bounds.origin.y == initialClipY)
+    }
   }
 }
 

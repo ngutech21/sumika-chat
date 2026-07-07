@@ -168,6 +168,56 @@ struct ChatTurnCoordinatorTests {
   }
 
   @Test
+  func thinkingCompletesWhenFirstVisibleChunkArrives() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .thinkingChunk("Weighing the candidate answers."),
+        .chunk("Here is the answer."),
+      ]
+    ])
+    let harness = ChatTurnCoordinatorHarness(
+      session: ChatSession(interactionMode: .chat),
+      runtime: runtime
+    )
+
+    harness.startUserTurn(prompt: "explain the tradeoff")
+
+    try await waitUntil { harness.finishCount == 1 }
+
+    let thinkingCompletedIndexes = harness.emittedEvents.indices.filter {
+      if case .assistantThinkingCompleted = harness.emittedEvents[$0] {
+        return true
+      }
+      return false
+    }
+    let firstVisibleChunkIndex = harness.emittedEvents.firstIndex {
+      if case .assistantChunkAppended = $0 {
+        return true
+      }
+      return false
+    }
+    #expect(thinkingCompletedIndexes.count == 1)
+    #expect(thinkingCompletedIndexes.first != nil)
+    #expect(firstVisibleChunkIndex != nil)
+    if let completedIndex = thinkingCompletedIndexes.first, let chunkIndex = firstVisibleChunkIndex
+    {
+      #expect(completedIndex < chunkIndex)
+    }
+
+    let thinkingMessage = harness.session.turns.first?.items
+      .compactMap { item -> AssistantThinkingMessage? in
+        if case .assistantThinking(let message) = item {
+          return message
+        }
+        return nil
+      }.first
+    #expect(thinkingMessage?.deliveryStatus == .complete)
+    #expect(thinkingMessage?.startedAt != nil)
+    #expect(thinkingMessage?.completedAt != nil)
+    #expect(thinkingMessage?.reasoningDuration != nil)
+  }
+
+  @Test
   func cancelActiveTurnMarksTurnCancelledAndRemovesTransientPlaceholder() async throws {
     let runtime = ControlledStreamingRuntime(turns: [["partial"]], blockedCallIndexes: [0])
     let harness = ChatTurnCoordinatorHarness(
@@ -192,6 +242,7 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
   var session: ChatSession
   var finishCount = 0
   var errorMessages: [String] = []
+  var emittedEvents: [ChatWorkflowEvent] = []
 
   private let applier = ChatWorkflowEventApplier()
   private let coordinator = ChatTurnCoordinator()
@@ -289,6 +340,7 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
   }
 
   private func emit(_ events: [ChatWorkflowEvent]) {
+    emittedEvents.append(contentsOf: events)
     applier.apply(events, to: &session)
   }
 

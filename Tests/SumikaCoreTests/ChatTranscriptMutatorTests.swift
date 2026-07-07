@@ -53,6 +53,56 @@ struct ChatTranscriptMutatorTests {
   }
 
   @Test
+  func thinkingChunkAndCompletionTimestampsYieldReasoningDuration() throws {
+    let thinkingID = UUID()
+    let firstChunkAt = Date(timeIntervalSinceReferenceDate: 100)
+    var turn = ChatTurn(
+      status: .running,
+      items: [
+        .assistantThinking(
+          AssistantThinkingMessage(id: thinkingID, content: "", deliveryStatus: .streaming))
+      ]
+    )
+
+    turn.appendAssistantThinkingChunk("Weighing options.", to: thinkingID, at: firstChunkAt)
+    turn.appendAssistantThinkingChunk(
+      " More evidence.", to: thinkingID, at: firstChunkAt.addingTimeInterval(5))
+    turn.updateAssistantThinkingDeliveryStatus(
+      .complete, for: thinkingID, at: firstChunkAt.addingTimeInterval(12))
+
+    guard case .assistantThinking(let message) = try #require(turn.items.first) else {
+      Issue.record("Expected assistant thinking item.")
+      return
+    }
+    #expect(message.startedAt == firstChunkAt)
+    #expect(message.completedAt == firstChunkAt.addingTimeInterval(12))
+    #expect(message.reasoningDuration == 12)
+  }
+
+  @Test
+  func cancelledThinkingRecordsCompletionTimestamp() throws {
+    let thinkingID = UUID()
+    let cancelledAt = Date(timeIntervalSinceReferenceDate: 250)
+    var turn = ChatTurn(
+      status: .running,
+      items: [
+        .assistantThinking(
+          AssistantThinkingMessage(id: thinkingID, content: "Partial", deliveryStatus: .streaming))
+      ]
+    )
+
+    turn.markStreamingAssistantMessagesCancelled(at: cancelledAt)
+
+    guard case .assistantThinking(let message) = try #require(turn.items.first) else {
+      Issue.record("Expected assistant thinking item.")
+      return
+    }
+    #expect(message.deliveryStatus == .cancelled)
+    #expect(message.completedAt == cancelledAt)
+    #expect(message.reasoningDuration == nil)
+  }
+
+  @Test
   func updateGenerationMetricsPreservesMessagePayload() {
     let attachment = makeAttachment(name: "main.swift")
     let assistantID = UUID()

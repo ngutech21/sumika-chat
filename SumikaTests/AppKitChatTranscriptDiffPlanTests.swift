@@ -257,6 +257,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   @Test
   func heightCacheReusesMeasuringCellForStreamingThinkingRevisions() throws {
     var cache = NativeTranscriptHeightCache()
+    let expandedState = NativeTranscriptCellState(isThinkingExpanded: true)
     let shortRow = nativeStreamingThinkingRow(id: "thinking", revision: 1, content: "Inspecting")
     let grownRow = nativeStreamingThinkingRow(
       id: "thinking",
@@ -264,15 +265,17 @@ struct AppKitChatTranscriptDiffPlanTests {
       content: "Inspecting " + String(repeating: "more evidence before answering. ", count: 12)
     )
 
-    let shortHeight = cache.height(for: shortRow, width: 640)
+    let shortHeight = cache.height(for: shortRow, width: 640, state: expandedState)
     let measuringCell = try #require(cache.measuringCellForTesting)
     let hostedView = try #require(measuringCell.hostedContentViewForTesting)
 
-    let grownHeight = cache.height(for: grownRow, width: 640)
+    let grownHeight = cache.height(for: grownRow, width: 640, state: expandedState)
 
     #expect(measuringCell.hostedContentViewForTesting === hostedView)
     #expect(grownHeight > shortHeight)
-    #expect(grownHeight == NativeTranscriptRowMeasurer.height(for: grownRow, width: 640))
+    #expect(
+      grownHeight
+        == NativeTranscriptRowMeasurer.height(for: grownRow, width: 640, state: expandedState))
   }
 
   @Test
@@ -1158,16 +1161,136 @@ struct AppKitChatTranscriptDiffPlanTests {
       content: "Inspecting the workspace carefully."
     )
 
-    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let expandedState = NativeTranscriptCellState(isThinkingExpanded: true)
+    cell.configure(row: firstRow, state: expandedState, actions: testNativeActions())
+    #expect(cell.descendants(of: NativeReasoningTickerView.self).isEmpty)
     let textView = try #require(cell.descendants(of: NativeStreamingTextView.self).first)
     #expect(textView.string == "Inspecting")
 
-    cell.configure(row: grownRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    cell.configure(row: grownRow, state: expandedState, actions: testNativeActions())
     let textViewAfterAppend = try #require(
       cell.descendants(of: NativeStreamingTextView.self).first
     )
     #expect(textViewAfterAppend === textView)
     #expect(textViewAfterAppend.string == "Inspecting the workspace carefully.")
+  }
+
+  @Test
+  func collapsedStreamingThinkingShowsFixedHeightLiveTicker() throws {
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    let firstRow = nativeStreamingThinkingRow(
+      id: "thinking",
+      revision: 1,
+      content: "Inspecting the workspace."
+    )
+    let grownRow = nativeStreamingThinkingRow(
+      id: "thinking",
+      revision: 2,
+      content: "Inspecting the workspace.\nComparing candidate files."
+    )
+
+    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let ticker = try #require(cell.descendants(of: NativeReasoningTickerView.self).first)
+    #expect(ticker.textForTesting == "Inspecting the workspace.")
+    let tickerHeight = ticker.intrinsicContentSize.height
+    let threeLineFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+    #expect(tickerHeight >= NSLayoutManager().defaultLineHeight(for: threeLineFont) * 3)
+
+    cell.configure(row: grownRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    let grownTicker = try #require(cell.descendants(of: NativeReasoningTickerView.self).first)
+    #expect(grownTicker === ticker)
+    #expect(ticker.textForTesting == "Inspecting the workspace.\nComparing candidate files.")
+    #expect(ticker.intrinsicContentSize.height == tickerHeight)
+    #expect(cell.descendantTextValues.contains("Reasoning"))
+  }
+
+  @Test
+  func collapsedStreamingThinkingKeepsMeasuredHeightConstant() {
+    let shortRow = nativeStreamingThinkingRow(id: "thinking", revision: 1, content: "Inspecting")
+    let grownRow = nativeStreamingThinkingRow(
+      id: "thinking",
+      revision: 2,
+      content: "Inspecting\n"
+        + String(repeating: "More reasoning that would wrap over many lines. ", count: 12)
+    )
+
+    let shortHeight = NativeTranscriptRowMeasurer.height(for: shortRow, width: 640)
+    let grownHeight = NativeTranscriptRowMeasurer.height(for: grownRow, width: 640)
+    let expandedHeight = NativeTranscriptRowMeasurer.height(
+      for: grownRow,
+      width: 640,
+      state: NativeTranscriptCellState(isThinkingExpanded: true)
+    )
+
+    #expect(shortHeight == grownHeight)
+    #expect(expandedHeight > grownHeight)
+  }
+
+  @Test
+  func completedThinkingShowsReasonedForDuration() throws {
+    let startedAt = Date(timeIntervalSinceReferenceDate: 1000)
+    let row = nativeCompletedThinkingRow(
+      id: "thinking",
+      revision: 3,
+      content: "Weighed the options.",
+      startedAt: startedAt,
+      completedAt: startedAt.addingTimeInterval(12.2)
+    )
+    let cell = configuredNativeCell(for: row)
+
+    #expect(cell.descendantTextValues.contains("Reasoned for 12s"))
+    #expect(cell.descendants(of: NativeStreamingTextView.self).isEmpty)
+  }
+
+  @Test
+  func reasoningTitleReflectsStatusAndDuration() {
+    let startedAt = Date(timeIntervalSinceReferenceDate: 0)
+    func message(
+      status: AssistantThinkingMessage.DeliveryStatus,
+      duration: TimeInterval? = nil
+    ) -> AssistantThinkingMessage {
+      AssistantThinkingMessage(
+        content: "Reasoning text.",
+        deliveryStatus: status,
+        startedAt: duration.map { _ in startedAt },
+        completedAt: duration.map { startedAt.addingTimeInterval($0) }
+      )
+    }
+
+    #expect(
+      NativeAssistantThinkingView.reasoningTitle(for: message(status: .streaming)) == "Reasoning")
+    #expect(
+      NativeAssistantThinkingView.reasoningTitle(for: message(status: .complete)) == "Reasoning")
+    #expect(
+      NativeAssistantThinkingView.reasoningTitle(for: message(status: .cancelled, duration: 8))
+        == "Reasoning")
+    #expect(
+      NativeAssistantThinkingView.reasoningTitle(for: message(status: .complete, duration: 0.3))
+        == "Reasoned for 1s")
+    #expect(
+      NativeAssistantThinkingView.reasoningTitle(for: message(status: .complete, duration: 12.2))
+        == "Reasoned for 12s")
+    #expect(
+      NativeAssistantThinkingView.reasoningTitle(for: message(status: .complete, duration: 75))
+        == "Reasoned for 1m 15s")
+  }
+
+  @Test
+  func tickerWindowKeepsParagraphAlignedTail() {
+    #expect(NativeAssistantThinkingView.tickerWindow(for: "Short reasoning.") == "Short reasoning.")
+
+    let longContent = (1...100)
+      .map { "Paragraph number \($0) weighs additional evidence." }
+      .joined(separator: "\n")
+    let window = NativeAssistantThinkingView.tickerWindow(for: longContent)
+    #expect(window.count < 2400)
+    #expect(window.hasPrefix("Paragraph number"))
+    #expect(window.hasSuffix("Paragraph number 100 weighs additional evidence."))
+
+    let giantParagraph = String(repeating: "y", count: 5000)
+    #expect(NativeAssistantThinkingView.tickerWindow(for: giantParagraph).count == 2400)
   }
 
   @Test
@@ -1297,6 +1420,34 @@ private func nativeStreamingThinkingRow(
         id: id,
         item: .assistantThinking(
           AssistantThinkingMessage(content: content, deliveryStatus: .streaming)
+        ),
+        toolCallRecord: nil,
+        generationMetrics: nil,
+        assistantRenderBlocks: []
+      ))
+  )
+}
+
+private func nativeCompletedThinkingRow(
+  id: String,
+  revision: Int,
+  content: String,
+  startedAt: Date,
+  completedAt: Date
+) -> NativeTranscriptRow {
+  NativeTranscriptRow(
+    id: id,
+    revision: revision,
+    body: .item(
+      RenderedChatTurnItem(
+        id: id,
+        item: .assistantThinking(
+          AssistantThinkingMessage(
+            content: content,
+            deliveryStatus: .complete,
+            startedAt: startedAt,
+            completedAt: completedAt
+          )
         ),
         toolCallRecord: nil,
         generationMetrics: nil,

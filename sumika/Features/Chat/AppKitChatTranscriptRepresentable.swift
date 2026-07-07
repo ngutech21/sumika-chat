@@ -637,7 +637,7 @@ extension NativeChatTranscriptCoordinator {
     )
   }
 
-  private func toggleThinkingExpansion(rowID: String) {
+  func toggleThinkingExpansion(rowID: String) {
     cellStateStore.toggleThinkingExpansion(rowID: rowID)
     applyInteractiveHeightChange(
       rowID: rowID,
@@ -1264,7 +1264,8 @@ struct NativeTranscriptHeightCache {
       revision: row.revision,
       width: normalizedWidth,
       isSpeechEnabled: state.isSpeechEnabled,
-      isToolExpanded: state.isToolExpanded
+      isToolExpanded: state.isToolExpanded,
+      isThinkingExpanded: state.isThinkingExpanded
     )
     if let height = heightsByKey[key] {
       lastKnownKeyByRowID[row.id] = key
@@ -1337,6 +1338,16 @@ struct NativeTranscriptHeightCache {
     else {
       return "toolExpansionChanged"
     }
+    guard
+      rowKeys.contains(where: {
+        $0.revision == key.revision && $0.width == key.width
+          && $0.isSpeechEnabled == key.isSpeechEnabled
+          && $0.isToolExpanded == key.isToolExpanded
+          && $0.isThinkingExpanded == key.isThinkingExpanded
+      })
+    else {
+      return "thinkingExpansionChanged"
+    }
     return "unknown"
   }
 
@@ -1371,6 +1382,9 @@ struct NativeTranscriptHeightCache {
     if lastKnownKey.isToolExpanded != key.isToolExpanded {
       return "toolExpansionChanged"
     }
+    if lastKnownKey.isThinkingExpanded != key.isThinkingExpanded {
+      return "thinkingExpansionChanged"
+    }
     return "unknown"
   }
 
@@ -1380,6 +1394,7 @@ struct NativeTranscriptHeightCache {
     let width: Int
     let isSpeechEnabled: Bool
     let isToolExpanded: Bool
+    let isThinkingExpanded: Bool
 
     static func == (lhs: Key, rhs: Key) -> Bool {
       lhs.rowID == rhs.rowID
@@ -1387,6 +1402,7 @@ struct NativeTranscriptHeightCache {
         && lhs.width == rhs.width
         && lhs.isSpeechEnabled == rhs.isSpeechEnabled
         && lhs.isToolExpanded == rhs.isToolExpanded
+        && lhs.isThinkingExpanded == rhs.isThinkingExpanded
     }
 
     func hash(into hasher: inout Hasher) {
@@ -1395,6 +1411,7 @@ struct NativeTranscriptHeightCache {
       hasher.combine(width)
       hasher.combine(isSpeechEnabled)
       hasher.combine(isToolExpanded)
+      hasher.combine(isThinkingExpanded)
     }
   }
 
@@ -2194,6 +2211,80 @@ final class NativeChatMessageCellView: NSTableCellView {
 
 }
 
+// A fixed-height window onto the tail of the live reasoning text: the text
+// view is pinned to the bottom and grows upward past the clipped top edge, so
+// new lines push old ones out of view like a feed. The fixed intrinsic height
+// keeps the transcript row from ever resizing while the model thinks.
+final class NativeReasoningTickerView: NSView {
+  private static let visibleLineCount: CGFloat = 3
+
+  private let textView = NativeStreamingTextView()
+  private let fadeMask = CAGradientLayer()
+  private let fixedHeight: CGFloat
+
+  init(font: NSFont) {
+    let lineHeight = NSLayoutManager().defaultLineHeight(for: font)
+    fixedHeight = ceil(lineHeight * Self.visibleLineCount)
+    super.init(frame: .zero)
+    translatesAutoresizingMaskIntoConstraints = false
+    wantsLayer = true
+
+    // Fades the oldest visible line out toward the top edge; the mask also
+    // clips the text that has scrolled past the window. Layer origin is
+    // bottom-left, so the fade-to-clear sits at the visual top.
+    fadeMask.colors = [
+      NSColor.black.cgColor,
+      NSColor.black.cgColor,
+      NSColor.clear.cgColor,
+    ]
+    fadeMask.locations = [0, NSNumber(value: 1 - (1 / Self.visibleLineCount)), 1]
+    layer?.mask = fadeMask
+
+    textView.isSelectable = false
+    addSubview(textView)
+    NSLayoutConstraint.activate([
+      textView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      textView.trailingAnchor.constraint(equalTo: trailingAnchor),
+      textView.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  @available(*, unavailable)
+  required init?(coder _: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  override var intrinsicContentSize: NSSize {
+    NSSize(width: NSView.noIntrinsicMetric, height: fixedHeight)
+  }
+
+  // The ticker is an ambient preview, not an interaction target: clicks fall
+  // through to the row so they cannot grab focus or start a text selection.
+  override func hitTest(_: NSPoint) -> NSView? {
+    nil
+  }
+
+  override func layout() {
+    super.layout()
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    fadeMask.frame = bounds
+    CATransaction.commit()
+  }
+
+  func setAttributedText(_ attributedString: NSAttributedString) {
+    textView.setAttributedText(attributedString)
+  }
+
+  func appendAttributedText(_ attributedString: NSAttributedString) {
+    textView.appendAttributedText(attributedString)
+  }
+
+  var textForTesting: String {
+    textView.string
+  }
+}
+
 final class NativeAssistantThinkingView: NSView {
   private let stack = NSStackView()
   private let header = NSStackView()
@@ -2202,9 +2293,11 @@ final class NativeAssistantThinkingView: NSView {
   private let disclosureButton = NativeActionButton(title: "")
   private let toggleThinkingExpansion: (String) -> Void
   private var statusView: NSView?
+  private var tickerView: NativeReasoningTickerView?
   private var contentTextView: NativeStreamingTextView?
   private var currentRowID: String
   private var currentContent = ""
+  private var currentTickerContent = ""
   private var currentStatus: AssistantThinkingMessage.DeliveryStatus?
 
   init(
@@ -2231,9 +2324,11 @@ final class NativeAssistantThinkingView: NSView {
     state: NativeTranscriptCellState
   ) {
     currentRowID = rowID
-    let isExpanded = state.isThinkingExpanded || message.deliveryStatus == .streaming
+    let isExpanded = state.isThinkingExpanded
     updateStatus(message.deliveryStatus)
+    titleLabel.stringValue = Self.reasoningTitle(for: message)
     updateDisclosureButton(isExpanded: isExpanded)
+    updateTicker(for: message, isExpanded: isExpanded)
     updateContent(message.content, isExpanded: isExpanded)
   }
 
@@ -2318,6 +2413,79 @@ final class NativeAssistantThinkingView: NSView {
     disclosureButton.contentTintColor = .tertiaryLabelColor
     disclosureButton.toolTip = accessibilityLabel
     disclosureButton.setAccessibilityLabel(accessibilityLabel)
+  }
+
+  // While streaming collapsed, the row shows a fixed three-line window onto
+  // the live reasoning tail instead of the growing full text: the row height
+  // stays constant, so the transcript neither grows nor scrolls while the
+  // model thinks.
+  private func updateTicker(for message: AssistantThinkingMessage, isExpanded: Bool) {
+    guard message.deliveryStatus == .streaming, !isExpanded, !message.content.isEmpty else {
+      removeTickerView()
+      return
+    }
+
+    let window = Self.tickerWindow(for: message.content)
+    let ticker = ensureTickerView()
+    if window.hasPrefix(currentTickerContent) {
+      let suffix = String(window.dropFirst(currentTickerContent.count))
+      if !suffix.isEmpty {
+        ticker.appendAttributedText(
+          Self.thinkingAttributedString(for: suffix, usesPlaceholderForEmpty: false)
+        )
+      }
+    } else {
+      ticker.setAttributedText(Self.thinkingAttributedString(for: window))
+    }
+    currentTickerContent = window
+  }
+
+  private func ensureTickerView() -> NativeReasoningTickerView {
+    if let tickerView {
+      return tickerView
+    }
+    let ticker = NativeReasoningTickerView(font: .systemFont(ofSize: NSFont.systemFontSize))
+    tickerView = ticker
+    stack.insertArrangedSubview(ticker, at: 1)
+    ticker.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    return ticker
+  }
+
+  private func removeTickerView() {
+    currentTickerContent = ""
+    guard let tickerView else {
+      return
+    }
+    stack.removeArrangedSubview(tickerView)
+    tickerView.removeFromSuperview()
+    self.tickerView = nil
+  }
+
+  // Only the trailing lines are visible, so the ticker feeds a bounded tail
+  // window instead of the whole reasoning text. The window is cut at a
+  // paragraph boundary: reflowing a partially cut first paragraph would shift
+  // the wrapping of the visible lines between flushes.
+  static func tickerWindow(for content: String) -> String {
+    let window = content.suffix(2400)
+    guard window.count == 2400, let newlineIndex = window.firstIndex(of: "\n") else {
+      return String(window)
+    }
+    return String(window[window.index(after: newlineIndex)...])
+  }
+
+  static func reasoningTitle(for message: AssistantThinkingMessage) -> String {
+    guard message.deliveryStatus == .complete, let duration = message.reasoningDuration else {
+      return "Reasoning"
+    }
+    return "Reasoned for \(formattedReasoningDuration(duration))"
+  }
+
+  private static func formattedReasoningDuration(_ duration: TimeInterval) -> String {
+    let totalSeconds = max(1, Int(duration.rounded()))
+    guard totalSeconds >= 60 else {
+      return "\(totalSeconds)s"
+    }
+    return "\(totalSeconds / 60)m \(totalSeconds % 60)s"
   }
 
   private func updateContent(_ content: String, isExpanded: Bool) {
