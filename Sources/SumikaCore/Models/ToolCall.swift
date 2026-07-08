@@ -184,6 +184,35 @@ public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
     self.payload = payload
   }
 
+  private enum CodingKeys: String, CodingKey {
+    case raw
+    case payload
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let raw = try container.decode(RawToolCallRequest.self, forKey: .raw)
+    let payload = try container.decode(ToolCallPayload.self, forKey: .payload)
+    // The memberwise path guards this invariant with a precondition; decoded
+    // data must fail recoverably instead of crashing the app.
+    guard payload.matches(raw.toolName) else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .payload,
+        in: container,
+        debugDescription:
+          "Tool call payload \(payload.toolName.rawValue) does not match raw tool name \(raw.toolName.rawValue)."
+      )
+    }
+    self.raw = raw
+    self.payload = payload
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(raw, forKey: .raw)
+    try container.encode(payload, forKey: .payload)
+  }
+
   public static func validated(
     raw: RawToolCallRequest,
     payload: ToolCallPayload
@@ -221,6 +250,136 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
   case webSearch(WebSearchInput)
   case webFetch(WebFetchInput)
   case invalid(InvalidToolInput)
+
+  private enum CodingKeys: String, CodingKey {
+    case kind
+    case payload
+  }
+
+  private enum Kind: String, Codable {
+    case readFile
+    case showFile
+    case listFiles
+    case globFiles
+    case searchFiles
+    case workspaceDiff
+    case workspaceDiagnostics
+    case writeFile
+    case editFile
+    case runCommand
+    case todoWrite
+    case askUser
+    case browserRefresh
+    case browserInspect
+    case webSearch
+    case webFetch
+    case invalid
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    switch try container.decode(Kind.self, forKey: .kind) {
+    case .readFile:
+      self = .readFile(try container.decode(ReadFileInput.self, forKey: .payload))
+    case .showFile:
+      self = .showFile(try container.decode(ReadFileInput.self, forKey: .payload))
+    case .listFiles:
+      self = .listFiles(try container.decode(ListFilesInput.self, forKey: .payload))
+    case .globFiles:
+      self = .globFiles(try container.decode(GlobFilesInput.self, forKey: .payload))
+    case .searchFiles:
+      self = .searchFiles(try container.decode(SearchFilesInput.self, forKey: .payload))
+    case .workspaceDiff:
+      self = .workspaceDiff(try container.decode(WorkspaceDiffInput.self, forKey: .payload))
+    case .workspaceDiagnostics:
+      self = .workspaceDiagnostics(
+        try container.decode(WorkspaceDiagnosticsInput.self, forKey: .payload)
+      )
+    case .writeFile:
+      self = .writeFile(try container.decode(WriteFileInput.self, forKey: .payload))
+    case .editFile:
+      self = .editFile(try container.decode(EditFileInput.self, forKey: .payload))
+    case .runCommand:
+      self = .runCommand(try container.decode(RunCommandInput.self, forKey: .payload))
+    case .todoWrite:
+      self = .todoWrite(try container.decode(TodoWriteInput.self, forKey: .payload))
+    case .askUser:
+      self = .askUser(try container.decode(AskUserInput.self, forKey: .payload))
+    case .browserRefresh:
+      self = .browserRefresh(try container.decode(BrowserRefreshInput.self, forKey: .payload))
+    case .browserInspect:
+      self = .browserInspect(try container.decode(BrowserInspectInput.self, forKey: .payload))
+    case .webSearch:
+      self = .webSearch(try container.decode(WebSearchInput.self, forKey: .payload))
+    case .webFetch:
+      self = .webFetch(try container.decode(WebFetchInput.self, forKey: .payload))
+    case .invalid:
+      self = .invalid(try container.decode(InvalidToolInput.self, forKey: .payload))
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(kind, forKey: .kind)
+    switch self {
+    case .readFile(let input):
+      try container.encode(input, forKey: .payload)
+    case .showFile(let input):
+      try container.encode(input, forKey: .payload)
+    case .listFiles(let input):
+      try container.encode(input, forKey: .payload)
+    case .globFiles(let input):
+      try container.encode(input, forKey: .payload)
+    case .searchFiles(let input):
+      try container.encode(input, forKey: .payload)
+    case .workspaceDiff(let input):
+      try container.encode(input, forKey: .payload)
+    case .workspaceDiagnostics(let input):
+      try container.encode(input, forKey: .payload)
+    case .writeFile(let input):
+      try container.encode(input, forKey: .payload)
+    case .editFile(let input):
+      try container.encode(input, forKey: .payload)
+    case .runCommand(let input):
+      try container.encode(input, forKey: .payload)
+    case .todoWrite(let input):
+      try container.encode(input, forKey: .payload)
+    case .askUser(let input):
+      try container.encode(input, forKey: .payload)
+    case .browserRefresh(let input):
+      try container.encode(input, forKey: .payload)
+    case .browserInspect(let input):
+      try container.encode(input, forKey: .payload)
+    case .webSearch(let input):
+      try container.encode(input, forKey: .payload)
+    case .webFetch(let input):
+      try container.encode(input, forKey: .payload)
+    case .invalid(let input):
+      try container.encode(input, forKey: .payload)
+    }
+  }
+
+  private var kind: Kind {
+    switch self {
+    case .readFile: .readFile
+    case .showFile: .showFile
+    case .listFiles: .listFiles
+    case .globFiles: .globFiles
+    case .searchFiles: .searchFiles
+    case .workspaceDiff: .workspaceDiff
+    case .workspaceDiagnostics: .workspaceDiagnostics
+    case .writeFile: .writeFile
+    case .editFile: .editFile
+    case .runCommand: .runCommand
+    case .todoWrite: .todoWrite
+    case .askUser: .askUser
+    case .browserRefresh: .browserRefresh
+    case .browserInspect: .browserInspect
+    case .webSearch: .webSearch
+    case .webFetch: .webFetch
+    case .invalid: .invalid
+    }
+  }
 }
 
 nonisolated extension ToolCallPayload {
@@ -567,6 +726,73 @@ public enum ToolCallState: Codable, Equatable, Sendable {
   case denied(ToolResultPayload)
   case failed(ToolResultPayload)
   case cancelled
+
+  private enum CodingKeys: String, CodingKey {
+    case kind
+    case preview
+    case payload
+  }
+
+  private enum Kind: String, Codable {
+    case pending
+    case awaitingApproval
+    case awaitingUserAnswer
+    case running
+    case completed
+    case denied
+    case failed
+    case cancelled
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    switch try container.decode(Kind.self, forKey: .kind) {
+    case .pending:
+      self = .pending
+    case .awaitingApproval:
+      self = .awaitingApproval(
+        preview: try container.decodeIfPresent(ToolResultPreview.self, forKey: .preview)
+      )
+    case .awaitingUserAnswer:
+      self = .awaitingUserAnswer
+    case .running:
+      self = .running
+    case .completed:
+      self = .completed(try container.decode(ToolResultPayload.self, forKey: .payload))
+    case .denied:
+      self = .denied(try container.decode(ToolResultPayload.self, forKey: .payload))
+    case .failed:
+      self = .failed(try container.decode(ToolResultPayload.self, forKey: .payload))
+    case .cancelled:
+      self = .cancelled
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+    case .pending:
+      try container.encode(Kind.pending, forKey: .kind)
+    case .awaitingApproval(let preview):
+      try container.encode(Kind.awaitingApproval, forKey: .kind)
+      try container.encodeIfPresent(preview, forKey: .preview)
+    case .awaitingUserAnswer:
+      try container.encode(Kind.awaitingUserAnswer, forKey: .kind)
+    case .running:
+      try container.encode(Kind.running, forKey: .kind)
+    case .completed(let payload):
+      try container.encode(Kind.completed, forKey: .kind)
+      try container.encode(payload, forKey: .payload)
+    case .denied(let payload):
+      try container.encode(Kind.denied, forKey: .kind)
+      try container.encode(payload, forKey: .payload)
+    case .failed(let payload):
+      try container.encode(Kind.failed, forKey: .kind)
+      try container.encode(payload, forKey: .payload)
+    case .cancelled:
+      try container.encode(Kind.cancelled, forKey: .kind)
+    }
+  }
 }
 
 nonisolated extension ToolCallState {
@@ -652,6 +878,144 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case duplicateToolCall(DuplicateToolCallResult)
   case invalidTool(InvalidToolResult)
   case failure(ToolFailure)
+
+  private enum CodingKeys: String, CodingKey {
+    case kind
+    case payload
+  }
+
+  private enum Kind: String, Codable {
+    case readFile
+    case listFiles
+    case globFiles
+    case searchFiles
+    case workspaceDiff
+    case workspaceDiagnostics
+    case writeFile
+    case editFile
+    case runCommand
+    case todoWrite
+    case askUser
+    case browserRefresh
+    case browserInspect
+    case webSearch
+    case webFetch
+    case duplicateToolCall
+    case invalidTool
+    case failure
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    switch try container.decode(Kind.self, forKey: .kind) {
+    case .readFile:
+      self = .readFile(try container.decode(ReadFileResult.self, forKey: .payload))
+    case .listFiles:
+      self = .listFiles(try container.decode(ListFilesResult.self, forKey: .payload))
+    case .globFiles:
+      self = .globFiles(try container.decode(GlobFilesResult.self, forKey: .payload))
+    case .searchFiles:
+      self = .searchFiles(try container.decode(SearchFilesResult.self, forKey: .payload))
+    case .workspaceDiff:
+      self = .workspaceDiff(try container.decode(WorkspaceDiffResult.self, forKey: .payload))
+    case .workspaceDiagnostics:
+      self = .workspaceDiagnostics(
+        try container.decode(WorkspaceDiagnosticsResult.self, forKey: .payload)
+      )
+    case .writeFile:
+      self = .writeFile(try container.decode(WriteFileResult.self, forKey: .payload))
+    case .editFile:
+      self = .editFile(try container.decode(EditFileResult.self, forKey: .payload))
+    case .runCommand:
+      self = .runCommand(try container.decode(RunCommandResult.self, forKey: .payload))
+    case .todoWrite:
+      self = .todoWrite(try container.decode(TodoWriteResult.self, forKey: .payload))
+    case .askUser:
+      self = .askUser(try container.decode(AskUserResult.self, forKey: .payload))
+    case .browserRefresh:
+      self = .browserRefresh(try container.decode(BrowserRefreshResult.self, forKey: .payload))
+    case .browserInspect:
+      self = .browserInspect(try container.decode(BrowserInspectResult.self, forKey: .payload))
+    case .webSearch:
+      self = .webSearch(try container.decode(WebSearchToolResult.self, forKey: .payload))
+    case .webFetch:
+      self = .webFetch(try container.decode(WebFetchToolResult.self, forKey: .payload))
+    case .duplicateToolCall:
+      self = .duplicateToolCall(
+        try container.decode(DuplicateToolCallResult.self, forKey: .payload)
+      )
+    case .invalidTool:
+      self = .invalidTool(try container.decode(InvalidToolResult.self, forKey: .payload))
+    case .failure:
+      self = .failure(try container.decode(ToolFailure.self, forKey: .payload))
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(kind, forKey: .kind)
+    switch self {
+    case .readFile(let result):
+      try container.encode(result, forKey: .payload)
+    case .listFiles(let result):
+      try container.encode(result, forKey: .payload)
+    case .globFiles(let result):
+      try container.encode(result, forKey: .payload)
+    case .searchFiles(let result):
+      try container.encode(result, forKey: .payload)
+    case .workspaceDiff(let result):
+      try container.encode(result, forKey: .payload)
+    case .workspaceDiagnostics(let result):
+      try container.encode(result, forKey: .payload)
+    case .writeFile(let result):
+      try container.encode(result, forKey: .payload)
+    case .editFile(let result):
+      try container.encode(result, forKey: .payload)
+    case .runCommand(let result):
+      try container.encode(result, forKey: .payload)
+    case .todoWrite(let result):
+      try container.encode(result, forKey: .payload)
+    case .askUser(let result):
+      try container.encode(result, forKey: .payload)
+    case .browserRefresh(let result):
+      try container.encode(result, forKey: .payload)
+    case .browserInspect(let result):
+      try container.encode(result, forKey: .payload)
+    case .webSearch(let result):
+      try container.encode(result, forKey: .payload)
+    case .webFetch(let result):
+      try container.encode(result, forKey: .payload)
+    case .duplicateToolCall(let result):
+      try container.encode(result, forKey: .payload)
+    case .invalidTool(let result):
+      try container.encode(result, forKey: .payload)
+    case .failure(let failure):
+      try container.encode(failure, forKey: .payload)
+    }
+  }
+
+  private var kind: Kind {
+    switch self {
+    case .readFile: .readFile
+    case .listFiles: .listFiles
+    case .globFiles: .globFiles
+    case .searchFiles: .searchFiles
+    case .workspaceDiff: .workspaceDiff
+    case .workspaceDiagnostics: .workspaceDiagnostics
+    case .writeFile: .writeFile
+    case .editFile: .editFile
+    case .runCommand: .runCommand
+    case .todoWrite: .todoWrite
+    case .askUser: .askUser
+    case .browserRefresh: .browserRefresh
+    case .browserInspect: .browserInspect
+    case .webSearch: .webSearch
+    case .webFetch: .webFetch
+    case .duplicateToolCall: .duplicateToolCall
+    case .invalidTool: .invalidTool
+    case .failure: .failure
+    }
+  }
 }
 
 public struct DuplicateToolCallResult: Codable, Equatable, Sendable {

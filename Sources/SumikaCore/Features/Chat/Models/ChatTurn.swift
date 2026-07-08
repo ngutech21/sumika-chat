@@ -304,6 +304,52 @@ public enum ChatTurnItem: Codable, Equatable, Sendable {
   case assistantThinking(AssistantThinkingMessage)
   case assistantMessage(AssistantTurnMessage)
   case tool(ToolCallRecord)
+
+  private enum CodingKeys: String, CodingKey {
+    case kind
+    case payload
+  }
+
+  private enum Kind: String, Codable {
+    case userMessage
+    case assistantThinking
+    case assistantMessage
+    case tool
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    switch try container.decode(Kind.self, forKey: .kind) {
+    case .userMessage:
+      self = .userMessage(try container.decode(UserTurnMessage.self, forKey: .payload))
+    case .assistantThinking:
+      self = .assistantThinking(
+        try container.decode(AssistantThinkingMessage.self, forKey: .payload)
+      )
+    case .assistantMessage:
+      self = .assistantMessage(try container.decode(AssistantTurnMessage.self, forKey: .payload))
+    case .tool:
+      self = .tool(try container.decode(ToolCallRecord.self, forKey: .payload))
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+    case .userMessage(let message):
+      try container.encode(Kind.userMessage, forKey: .kind)
+      try container.encode(message, forKey: .payload)
+    case .assistantThinking(let message):
+      try container.encode(Kind.assistantThinking, forKey: .kind)
+      try container.encode(message, forKey: .payload)
+    case .assistantMessage(let message):
+      try container.encode(Kind.assistantMessage, forKey: .kind)
+      try container.encode(message, forKey: .payload)
+    case .tool(let record):
+      try container.encode(Kind.tool, forKey: .kind)
+      try container.encode(record, forKey: .payload)
+    }
+  }
 }
 
 public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
