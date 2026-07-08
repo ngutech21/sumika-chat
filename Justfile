@@ -14,7 +14,7 @@ default:
 
 # installs the dev tools on macos
 deps:
-   brew install swiftlint swift-format periphery 
+   brew install swiftlint swift-format periphery create-dmg
 
 build:
     @set --; \
@@ -55,10 +55,24 @@ release-package artifact_name="Sumika-macos-release.dmg": release-signed
     @app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
     artifact_dir="{{artifact_dir}}"; \
     artifact="$artifact_dir/{{artifact_name}}"; \
+    dmg_root="$artifact_dir/dmg-root"; \
     test -d "$app_bundle"; \
     mkdir -p "$artifact_dir"; \
     codesign --verify --deep --strict --verbose=2 "$app_bundle"; \
-    hdiutil create -volname "{{app_name}}" -srcfolder "$app_bundle" -ov -format UDZO "$artifact"; \
+    rm -rf "$dmg_root"; \
+    mkdir -p "$dmg_root"; \
+    ditto "$app_bundle" "$dmg_root/{{app_name}}.app"; \
+    create-dmg \
+        --volname "{{app_name}}" \
+        --window-size 640 360 \
+        --icon-size 96 \
+        --icon "{{app_name}}.app" 180 170 \
+        --hide-extension "{{app_name}}.app" \
+        --app-drop-link 460 170 \
+        --format UDZO \
+        --overwrite \
+        "$artifact" \
+        "$dmg_root"; \
     codesign --force --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$artifact"; \
     codesign --verify --strict --verbose=2 "$artifact"; \
     echo "$artifact"

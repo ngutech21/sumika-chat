@@ -42,7 +42,7 @@ jobs:
         timeout-minutes: 10
         run: | 
             brew untap aws/tap || true
-            brew install just swiftlint periphery
+            brew install just swiftlint periphery create-dmg
 
       - name: Run SwiftLint
         timeout-minutes: 10

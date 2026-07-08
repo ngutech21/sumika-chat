@@ -60,7 +60,7 @@ jobs:
 
       - name: Install build tools
         timeout-minutes: 10
-        run: brew install just
+        run: brew install just create-dmg
 
       - name: Prepare release version settings
         id: versions

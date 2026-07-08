@@ -6,6 +6,7 @@ existing macOS packaging tasks.
 ## Prerequisites
 
 - Use conventional commits on `master`, for example `feat: ...` or `fix: ...`.
+- Local release builds require `create-dmg`.
 - GitHub release secrets must be configured and can be checked with the
   `macOS Release Secrets Check` workflow.
 - The release workflow uses `GITHUB_TOKEN` for the first beta process.
