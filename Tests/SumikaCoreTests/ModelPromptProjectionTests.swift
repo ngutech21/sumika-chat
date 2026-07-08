@@ -15,22 +15,6 @@ struct ModelPromptProjectionTests {
   }
 
   @Test
-  func entryDecodeRejectsRoleBodyMismatch() throws {
-    let entry = try ModelFacingPromptRenderer.userPromptEntry(prompt: "hello")
-    let data = try JSONEncoder().encode(entry)
-    var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    var frozenContent = try #require(object["frozenContent"] as? [String: Any])
-    frozenContent["role"] = "assistant"
-    frozenContent["signature"] = FrozenModelContent.signature(role: .assistant, content: "hello")
-    object["frozenContent"] = frozenContent
-    let mismatchData = try JSONSerialization.data(withJSONObject: object)
-
-    #expect(throws: ModelContextEntryError.roleMismatch(expected: .user, actual: .assistant)) {
-      _ = try JSONDecoder().decode(ModelContextEntry.self, from: mismatchData)
-    }
-  }
-
-  @Test
   func frozenContentDerivesSignatureFromRoleAndContent() {
     let content = FrozenModelContent(role: .user, content: "hello")
 
@@ -38,33 +22,7 @@ struct ModelPromptProjectionTests {
   }
 
   @Test
-  func frozenContentDecodeRejectsForgedSignature() throws {
-    let content = FrozenModelContent(role: .user, content: "hello")
-    let data = try JSONEncoder().encode(content)
-    var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    object["signature"] = "forged"
-    let forgedData = try JSONSerialization.data(withJSONObject: object)
-
-    #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(FrozenModelContent.self, from: forgedData)
-    }
-  }
-
-  @Test
-  func frozenContentCodableRoundTripsDerivedSignature() throws {
-    let content = FrozenModelContent(role: .assistant, content: "done")
-
-    let decoded = try JSONDecoder().decode(
-      FrozenModelContent.self,
-      from: JSONEncoder().encode(content)
-    )
-
-    #expect(decoded == content)
-    #expect(decoded.signature == FrozenModelContent.signature(role: .assistant, content: "done"))
-  }
-
-  @Test
-  func userPromptContextCodablePreservesTypedCurrentPromptContext() throws {
+  func currentPromptContextCodablePreservesTypedFocusedFileBlocks() throws {
     let path = WorkspaceRelativePath(rawValue: "Sources/Foo.swift")
     let focusedState = FocusedFileState(
       activePath: path,
@@ -84,20 +42,17 @@ struct ModelPromptProjectionTests {
       mode: .agent,
       focusedFileState: focusedState
     )
-    let entry = try ModelFacingPromptRenderer.userPromptEntry(
-      prompt: "explain",
-      systemContext: currentPromptContext.renderedBlocks,
-      currentPromptContext: currentPromptContext.consumedContext
-    )
+    let consumedContext = currentPromptContext.consumedContext
 
+    // The consumed context is the persisted form (UserTurnMessage.promptContext),
+    // so its typed blocks must survive a JSON round trip.
     let decoded = try JSONDecoder().decode(
-      ModelContextEntry.self,
-      from: JSONEncoder().encode(entry)
+      CurrentPromptContext.self,
+      from: JSONEncoder().encode(consumedContext)
     )
 
-    #expect(decoded == entry)
-    guard case .userPrompt(let context) = decoded.body,
-      case .selected(let selection) = context.currentPromptContext,
+    #expect(decoded == consumedContext)
+    guard case .selected(let selection) = decoded,
       case .focusedFile(let focusedFile) = selection.blocks.values[0]
     else {
       Issue.record("Expected decoded typed focused file context.")
@@ -642,7 +597,7 @@ struct ModelPromptProjectionTests {
   }
 
   @Test
-  func imageSignaturesCodableRoundTripAndProjectIntoFullHistory() throws {
+  func imageSignaturesProjectIntoFullHistory() throws {
     let imageAttachment = ChatAttachment(
       displayName: "car.jpg",
       payload: .image(
@@ -657,33 +612,9 @@ struct ModelPromptProjectionTests {
       try ModelFacingPromptRenderer.assistantOutputEntry(content: "A blue Mini Cooper."),
     ])
 
-    let decoded = try JSONDecoder().decode(
-      ModelPromptProjection.self,
-      from: JSONEncoder().encode(transcript)
-    )
-
-    #expect(decoded == transcript)
-    let projected = decoded.projectedEntries(mode: .fullHistory)
+    let projected = transcript.projectedEntries(mode: .fullHistory)
     #expect(projected[0].imageSignatures == ["sha256:abc123"])
     #expect(projected[1].imageSignatures == [])
-  }
-
-  @Test
-  func toolReceiptMetadataCodableRoundTripsInTranscript() throws {
-    let entry = try readFileToolResultEntry(callID: UUID(), content: "Project overview")
-    let transcript = ModelPromptProjection(entries: [entry])
-
-    let decoded = try JSONDecoder().decode(
-      ModelPromptProjection.self,
-      from: JSONEncoder().encode(transcript)
-    )
-
-    #expect(decoded == transcript)
-    guard case .toolObservation(let context) = decoded.entries[0].body else {
-      Issue.record("Expected decoded tool observation context.")
-      return
-    }
-    #expect(context.toolReceipt?.summary.text == "Project overview")
   }
 
   private func readFileToolResultEntry(

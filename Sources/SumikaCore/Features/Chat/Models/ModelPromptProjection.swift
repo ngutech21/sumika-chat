@@ -1,24 +1,13 @@
 import Foundation
 
-public struct ModelPromptProjection: Codable, Equatable, Sendable {
+/// Derived, per-generation model context. It is rebuilt from `ChatSession.turns`
+/// for every request and never persisted — `ChatSession` encoding is pinned to
+/// omit it — so these types intentionally carry no Codable conformance.
+public struct ModelPromptProjection: Equatable, Sendable {
   public var entries: [ModelContextEntry]
 
   public init(entries: [ModelContextEntry] = []) {
     self.entries = entries
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case entries
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    entries = try container.decodeLossyArray([ModelContextEntry].self, forKey: .entries)
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(entries, forKey: .entries)
   }
 
   public func projectedEntries(
@@ -75,7 +64,7 @@ public struct ProjectedModelContextEntry: Equatable, Sendable {
   }
 }
 
-public struct ModelContextEntry: Codable, Identifiable, Equatable, Sendable {
+public struct ModelContextEntry: Identifiable, Equatable, Sendable {
   public let id: UUID
   public let turnID: ChatTurn.ID?
   public let sourceMessageID: UUID?
@@ -101,39 +90,6 @@ public struct ModelContextEntry: Codable, Identifiable, Equatable, Sendable {
     self.body = body
     self.frozenContent = frozenContent
   }
-
-  private enum CodingKeys: String, CodingKey {
-    case id
-    case turnID
-    case sourceMessageID
-    case body
-    case frozenContent
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    let id = try container.decode(UUID.self, forKey: .id)
-    let turnID = try container.decodeIfPresent(ChatTurn.ID.self, forKey: .turnID)
-    let sourceMessageID = try container.decodeIfPresent(UUID.self, forKey: .sourceMessageID)
-    let body = try container.decode(ModelContextEntryBody.self, forKey: .body)
-    let frozenContent = try container.decode(FrozenModelContent.self, forKey: .frozenContent)
-    try self.init(
-      id: id,
-      turnID: turnID,
-      sourceMessageID: sourceMessageID,
-      body: body,
-      frozenContent: frozenContent
-    )
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(turnID, forKey: .turnID)
-    try container.encodeIfPresent(sourceMessageID, forKey: .sourceMessageID)
-    try container.encode(body, forKey: .body)
-    try container.encode(frozenContent, forKey: .frozenContent)
-  }
 }
 
 public enum ModelContextEntryError: LocalizedError, Equatable, Sendable {
@@ -147,7 +103,7 @@ public enum ModelContextEntryError: LocalizedError, Equatable, Sendable {
   }
 }
 
-public enum ModelContextEntryBody: Codable, Equatable, Sendable {
+public enum ModelContextEntryBody: Equatable, Sendable {
   case userPrompt(UserPromptContext)
   case assistantOutput(AssistantOutputContext)
   case toolObservation(ToolObservationContext)
@@ -172,66 +128,13 @@ public enum ModelContextEntryBody: Codable, Equatable, Sendable {
       return false
     }
   }
-
-  private enum CodingKeys: String, CodingKey {
-    case kind
-    case userPrompt
-    case assistantOutput
-    case toolObservation
-    case terminalToolResult
-  }
-
-  private enum Kind: String, Codable {
-    case userPrompt
-    case assistantOutput
-    case toolObservation
-    case terminalToolResult
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    switch try container.decode(Kind.self, forKey: .kind) {
-    case .userPrompt:
-      self = .userPrompt(try container.decode(UserPromptContext.self, forKey: .userPrompt))
-    case .assistantOutput:
-      self = .assistantOutput(
-        try container.decode(AssistantOutputContext.self, forKey: .assistantOutput)
-      )
-    case .toolObservation:
-      self = .toolObservation(
-        try container.decode(ToolObservationContext.self, forKey: .toolObservation)
-      )
-    case .terminalToolResult:
-      self = .terminalToolResult(
-        try container.decode(TerminalToolResultContext.self, forKey: .terminalToolResult)
-      )
-    }
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    switch self {
-    case .userPrompt(let context):
-      try container.encode(Kind.userPrompt, forKey: .kind)
-      try container.encode(context, forKey: .userPrompt)
-    case .assistantOutput(let context):
-      try container.encode(Kind.assistantOutput, forKey: .kind)
-      try container.encode(context, forKey: .assistantOutput)
-    case .toolObservation(let context):
-      try container.encode(Kind.toolObservation, forKey: .kind)
-      try container.encode(context, forKey: .toolObservation)
-    case .terminalToolResult(let context):
-      try container.encode(Kind.terminalToolResult, forKey: .kind)
-      try container.encode(context, forKey: .terminalToolResult)
-    }
-  }
 }
 
-public struct UserPromptContext: Codable, Equatable, Sendable {
+public struct UserPromptContext: Equatable, Sendable {
   public let prompt: String
   public let attachmentNames: [String]
   /// Content signatures of the image attachments consumed with this prompt.
-  /// Part of the persisted entry so later history renderings reproduce the
+  /// Carried through the projection so later history renderings reproduce the
   /// exact identity of what was prefilled into the runtime KV cache.
   public let imageSignatures: [String]
   public let systemContext: [String]
@@ -250,72 +153,17 @@ public struct UserPromptContext: Codable, Equatable, Sendable {
     self.systemContext = systemContext
     self.currentPromptContext = currentPromptContext
   }
-
-  private enum CodingKeys: String, CodingKey {
-    case prompt
-    case attachmentNames
-    case imageSignatures
-    case systemContext
-    case currentPromptContext
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    prompt = try container.decodeIfPresent(String.self, forKey: .prompt, default: "")
-    attachmentNames = try container.decodeIfPresent(
-      [String].self,
-      forKey: .attachmentNames,
-      default: []
-    )
-    imageSignatures = try container.decodeIfPresent(
-      [String].self,
-      forKey: .imageSignatures,
-      default: []
-    )
-    systemContext = try container.decodeIfPresent(
-      [String].self,
-      forKey: .systemContext,
-      default: []
-    )
-    currentPromptContext = try container.decodeIfPresent(
-      CurrentPromptContext.self,
-      forKey: .currentPromptContext
-    )
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(prompt, forKey: .prompt)
-    try container.encode(attachmentNames, forKey: .attachmentNames)
-    try container.encode(imageSignatures, forKey: .imageSignatures)
-    try container.encode(systemContext, forKey: .systemContext)
-    try container.encodeIfPresent(currentPromptContext, forKey: .currentPromptContext)
-  }
 }
 
-public struct AssistantOutputContext: Codable, Equatable, Sendable {
+public struct AssistantOutputContext: Equatable, Sendable {
   public let content: String
 
   public init(content: String) {
     self.content = content
   }
-
-  private enum CodingKeys: String, CodingKey {
-    case content
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(content, forKey: .content)
-  }
 }
 
-public struct ToolObservationContext: Codable, Equatable, Sendable {
+public struct ToolObservationContext: Equatable, Sendable {
   public let callID: UUID
   public let toolName: ToolName
   public let status: ToolResultStatus
@@ -341,45 +189,9 @@ public struct ToolObservationContext: Codable, Equatable, Sendable {
     self.toolCall = toolCall
     self.systemContext = systemContext
   }
-
-  private enum CodingKeys: String, CodingKey {
-    case callID
-    case toolName
-    case status
-    case content
-    case toolReceipt
-    case toolCall
-    case systemContext
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    callID = try container.decodeIfPresent(UUID.self, forKey: .callID, default: UUID())
-    toolName = try container.decodeIfPresent(ToolName.self, forKey: .toolName, default: .invalid)
-    status = try container.decodeIfPresent(ToolResultStatus.self, forKey: .status, default: .failed)
-    content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
-    toolReceipt = try container.decodeIfPresent(ToolReceipt.self, forKey: .toolReceipt)
-    toolCall = try container.decodeIfPresent(ToolCallModelMessage.self, forKey: .toolCall)
-    systemContext = try container.decodeIfPresent(
-      [String].self,
-      forKey: .systemContext,
-      default: []
-    )
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(callID, forKey: .callID)
-    try container.encode(toolName, forKey: .toolName)
-    try container.encode(status, forKey: .status)
-    try container.encode(content, forKey: .content)
-    try container.encodeIfPresent(toolReceipt, forKey: .toolReceipt)
-    try container.encodeIfPresent(toolCall, forKey: .toolCall)
-    try container.encode(systemContext, forKey: .systemContext)
-  }
 }
 
-public struct TerminalToolResultContext: Codable, Equatable, Sendable {
+public struct TerminalToolResultContext: Equatable, Sendable {
   public let callID: UUID
   public let toolName: ToolName
   public let status: ToolResultStatus
@@ -402,38 +214,9 @@ public struct TerminalToolResultContext: Codable, Equatable, Sendable {
     self.toolReceipt = toolReceipt
     self.toolCall = toolCall
   }
-
-  private enum CodingKeys: String, CodingKey {
-    case callID
-    case toolName
-    case status
-    case content
-    case toolReceipt
-    case toolCall
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    callID = try container.decodeIfPresent(UUID.self, forKey: .callID, default: UUID())
-    toolName = try container.decodeIfPresent(ToolName.self, forKey: .toolName, default: .invalid)
-    status = try container.decodeIfPresent(ToolResultStatus.self, forKey: .status, default: .failed)
-    content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
-    toolReceipt = try container.decodeIfPresent(ToolReceipt.self, forKey: .toolReceipt)
-    toolCall = try container.decodeIfPresent(ToolCallModelMessage.self, forKey: .toolCall)
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(callID, forKey: .callID)
-    try container.encode(toolName, forKey: .toolName)
-    try container.encode(status, forKey: .status)
-    try container.encode(content, forKey: .content)
-    try container.encodeIfPresent(toolReceipt, forKey: .toolReceipt)
-    try container.encodeIfPresent(toolCall, forKey: .toolCall)
-  }
 }
 
-public struct ToolReceipt: Codable, Equatable, Sendable {
+public struct ToolReceipt: Equatable, Sendable {
   public let callID: UUID
   public let toolName: ToolName
   public let status: ToolResultStatus
@@ -479,85 +262,15 @@ public struct ToolReceipt: Codable, Equatable, Sendable {
       outputRedacted: outputRedacted
     )
   }
-
-  private enum CodingKeys: String, CodingKey {
-    case callID
-    case toolName
-    case status
-    case affectedPaths
-    case summary
-    case outputTruncated
-    case outputRedacted
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    self.init(
-      callID: try container.decodeIfPresent(UUID.self, forKey: .callID, default: UUID()),
-      toolName: try container.decodeIfPresent(ToolName.self, forKey: .toolName, default: .invalid),
-      status: try container.decodeIfPresent(
-        ToolResultStatus.self, forKey: .status, default: .failed),
-      affectedPaths: try container.decodeIfPresent(
-        [WorkspaceRelativePath].self,
-        forKey: .affectedPaths,
-        default: []
-      ),
-      summary: try container.decodeIfPresent(
-        ToolReceiptSummary.self,
-        forKey: .summary,
-        default: ToolReceiptSummary(text: "", truncated: false)
-      ),
-      outputTruncated: try container.decodeIfPresent(
-        Bool.self,
-        forKey: .outputTruncated,
-        default: false
-      ),
-      outputRedacted: try container.decodeIfPresent(
-        Bool.self,
-        forKey: .outputRedacted,
-        default: false
-      )
-    )
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(callID, forKey: .callID)
-    try container.encode(toolName, forKey: .toolName)
-    try container.encode(status, forKey: .status)
-    try container.encode(affectedPaths, forKey: .affectedPaths)
-    try container.encode(summary, forKey: .summary)
-    try container.encode(outputTruncated, forKey: .outputTruncated)
-    try container.encode(outputRedacted, forKey: .outputRedacted)
-  }
 }
 
-public struct ToolReceiptSummary: Codable, Equatable, Sendable {
+public struct ToolReceiptSummary: Equatable, Sendable {
   public let text: String
   public let truncated: Bool
 
   fileprivate init(text: String, truncated: Bool) {
     self.text = text
     self.truncated = truncated
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case text
-    case truncated
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    self.init(
-      text: try container.decodeIfPresent(String.self, forKey: .text, default: ""),
-      truncated: try container.decodeIfPresent(Bool.self, forKey: .truncated, default: false)
-    )
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(text, forKey: .text)
-    try container.encode(truncated, forKey: .truncated)
   }
 
   public static func checked(text: String, maxCharacters: Int = 600) -> ToolReceiptSummary? {
@@ -577,7 +290,7 @@ public struct ToolReceiptSummary: Codable, Equatable, Sendable {
   }
 }
 
-public struct FrozenModelContent: Codable, Equatable, Sendable {
+public struct FrozenModelContent: Equatable, Sendable {
   public let role: ModelContextRole
   public let content: String
   public let signature: String
@@ -589,42 +302,6 @@ public struct FrozenModelContent: Codable, Equatable, Sendable {
     self.role = role
     self.content = content
     self.signature = Self.signature(role: role, content: content)
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case role
-    case content
-    case signature
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    let role = try container.decodeIfPresent(ModelContextRole.self, forKey: .role, default: .user)
-    let content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
-    let signature = try container.decodeIfPresent(
-      String.self,
-      forKey: .signature,
-      default: Self.signature(role: role, content: content)
-    )
-    let expectedSignature = Self.signature(role: role, content: content)
-    guard signature == expectedSignature else {
-      throw DecodingError.dataCorruptedError(
-        forKey: .signature,
-        in: container,
-        debugDescription: "Frozen model content signature does not match role and content."
-      )
-    }
-
-    self.role = role
-    self.content = content
-    self.signature = expectedSignature
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(role, forKey: .role)
-    try container.encode(content, forKey: .content)
-    try container.encode(Self.signature(role: role, content: content), forKey: .signature)
   }
 
   public static func signature(role: ModelContextRole, content: String) -> String {
@@ -646,7 +323,7 @@ public struct FrozenModelContent: Codable, Equatable, Sendable {
   }
 }
 
-public enum ModelContextRole: String, Codable, Equatable, Sendable {
+public enum ModelContextRole: String, Equatable, Sendable {
   case user
   case assistant
   case tool
