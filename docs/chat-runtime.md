@@ -89,8 +89,9 @@ flowchart TD
 - `ChatWorkflowEventApplier` applies typed workflow events to `ChatSession`
   using `ChatTranscriptMutator`. These events are not persisted; persistence
   stores only the resulting turns, turn items, and tool-call records.
-- `ContextUsageCoordinator` computes token usage from the same derived
-  model-facing projection used for generation.
+- `ContextUsageSnapshot` computes the byte-based token-usage estimate from the
+  same derived model-facing projection used for generation;
+  `ChatSessionController` builds and publishes it directly.
 
 ## Turn Lifecycle
 
