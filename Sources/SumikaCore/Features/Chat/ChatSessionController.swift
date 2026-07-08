@@ -22,7 +22,6 @@ public final class ChatSessionController {
   public let modelRuntime: ModelRuntimeController
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
   @ObservationIgnored private let runtimeContextClearCoordinator: RuntimeContextClearCoordinator
-  @ObservationIgnored private let contextUsageCoordinator: ContextUsageCoordinator
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
   @ObservationIgnored private var toolOrchestrator: ToolOrchestrator
   @ObservationIgnored private var chatWebToolOrchestrator: ToolOrchestrator
@@ -166,9 +165,6 @@ public final class ChatSessionController {
     self.chatTurnCoordinator = ChatTurnCoordinator(turnTracer: turnTracer)
     self.runtimeContextClearCoordinator = RuntimeContextClearCoordinator(
       modelLifecycleCoordinator: modelLifecycleCoordinator)
-    self.contextUsageCoordinator = ContextUsageCoordinator(
-      modelLifecycleCoordinator: modelLifecycleCoordinator,
-      turnTracer: turnTracer)
     self.chatGenerationCoordinator = ChatGenerationCoordinator(
       runtimeOperations: runtimeOperations,
       turnTracer: turnTracer,
@@ -566,16 +562,15 @@ extension ChatSessionController {
 
   public func refreshContextUsage(toolPromptMode: ToolPromptMode = .disabled) {
     let snapshot = contextUsageSnapshot(toolPromptMode: toolPromptMode)
-    contextUsageCoordinator.refreshDebounced(
-      snapshot: snapshot,
-      onEvent: handleContextUsageEvent(_:))
+    guard snapshot.modelState == .ready else {
+      contextUsage = nil
+      return
+    }
+    contextUsage = snapshot.estimatedUsage(isStale: false)
   }
 
   public func updateContextUsage() async {
-    let snapshot = contextUsageSnapshot()
-    contextUsageCoordinator.refreshDebounced(
-      snapshot: snapshot,
-      onEvent: handleContextUsageEvent(_:))
+    refreshContextUsage()
   }
 
   public func modelContextDebugDocument(
@@ -597,7 +592,7 @@ extension ChatSessionController {
   }
 
   private func invalidateContextUsage() {
-    contextUsageCoordinator.invalidate(onEvent: handleContextUsageEvent(_:))
+    contextUsage = nil
   }
 
   private func updateRuntimeCacheDebugSnapshot(_ snapshot: RuntimeCacheDebugSnapshot?) {
@@ -687,17 +682,6 @@ extension ChatSessionController {
       systemPrompt: renderedSystemPrompt,
       contextTokenLimit: modelRuntime.modelContextTokenLimit
     )
-  }
-
-  private func handleContextUsageEvent(_ event: ContextUsageEvent) {
-    switch event {
-    case .reset, .failed:
-      contextUsage = nil
-    case .updated(let usage):
-      contextUsage = usage
-    case .error(let message):
-      errorMessage = message
-    }
   }
 
   public func addAttachments(from urls: [URL]) {
