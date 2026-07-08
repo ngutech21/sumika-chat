@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Collects elements that lenient decoding had to drop so callers can surface
 /// the loss (log, UI, backups) instead of discarding persisted data silently.
@@ -6,16 +7,20 @@ import Foundation
 /// Install an instance under `CodingUserInfoKey.decodeDiagnostics` in
 /// `JSONDecoder.userInfo` before decoding. Decoders without an installed
 /// collector behave as before.
-public final class DecodeDiagnostics {
+public final class DecodeDiagnostics: Sendable {
   public struct DroppedElement: Equatable, Sendable {
     public let typeName: String
     public let codingPath: String
     public let message: String
   }
 
-  public private(set) var droppedElements: [DroppedElement] = []
+  private let storage = Mutex<[DroppedElement]>([])
 
   public init() {}
+
+  public var droppedElements: [DroppedElement] {
+    storage.withLock { $0 }
+  }
 
   public var summaries: [String] {
     droppedElements.map { element in
@@ -28,14 +33,13 @@ public final class DecodeDiagnostics {
   }
 
   func recordDrop(elementType: Any.Type, codingPath: [any CodingKey], error: Error) {
-    droppedElements.append(
-      DroppedElement(
-        typeName: String(describing: elementType),
-        codingPath: codingPath.isEmpty
-          ? "<root>" : codingPath.map(\.stringValue).joined(separator: "."),
-        message: String(reflecting: error)
-      )
+    let element = DroppedElement(
+      typeName: String(describing: elementType),
+      codingPath: codingPath.isEmpty
+        ? "<root>" : codingPath.map(\.stringValue).joined(separator: "."),
+      message: String(reflecting: error)
     )
+    storage.withLock { $0.append(element) }
   }
 }
 
