@@ -807,7 +807,13 @@ extension NativeChatTranscriptCoordinator {
       // Scroll in the same pass as the height change: an async scroll targets
       // a document height that is still settling and visibly overshoots back
       // and forth while streaming.
+      //
+      // Lay out the scroll view, not just the table view: noteHeightOfRows
+      // grows the document but the clip view only re-tiles the document frame
+      // on a scroll-view layout pass. Without it, scrollToBottomImmediately
+      // reads a stale document frame and the pinned viewport never follows.
       tableView.layoutSubtreeIfNeeded()
+      scrollView.tile()
       scrollToBottomImmediately(scrollView)
     }
   }
@@ -882,7 +888,9 @@ extension NativeChatTranscriptCoordinator {
 
   // The largest valid vertical scroll offset. `constrainBoundsRect` is the same
   // routine AppKit uses while scrolling, so it accounts for `contentInsets`
-  // without us re-deriving the arithmetic.
+  // without us re-deriving the arithmetic. While a table row is growing, AppKit
+  // can briefly return the old constrained value before the clip view has
+  // caught up with the document frame, so also honor the actual document extent.
   private func maxScrollOffsetY(_ scrollView: NSScrollView) -> CGFloat {
     let clipView = scrollView.contentView
     let proposed = NSRect(
@@ -891,7 +899,13 @@ extension NativeChatTranscriptCoordinator {
       width: clipView.bounds.width,
       height: clipView.bounds.height
     )
-    return clipView.constrainBoundsRect(proposed).origin.y
+    let constrainedOffset = clipView.constrainBoundsRect(proposed).origin.y
+    guard let documentView = scrollView.documentView else {
+      return constrainedOffset
+    }
+    let documentOffset =
+      documentView.frame.height + scrollView.contentInsets.bottom - clipView.bounds.height
+    return max(constrainedOffset, documentOffset)
   }
 
   private func isPinnedToBottom(_ scrollView: NSScrollView) -> Bool {
