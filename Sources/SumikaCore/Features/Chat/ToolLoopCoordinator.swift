@@ -246,9 +246,10 @@ public struct ToolLoopCoordinator: Sendable {
         focusedFileState = updatedFocusedFileState
       }
 
-      nextFollowUpPromptMode = followUpPromptMode(
+      nextFollowUpPromptMode = TerminalToolResultPolicy.followUpPromptMode(
         after: record,
-        defaultMode: nextFollowUpPromptMode
+        toolProfile: request.toolProfile,
+        default: nextFollowUpPromptMode
       )
       if isBlockedDuplicate(record) {
         // 2nd+ identical duplicate: stop exploring — force the tools-stripped final
@@ -626,23 +627,6 @@ public struct ToolLoopCoordinator: Sendable {
         )
       )
     )
-  }
-
-  private func followUpPromptMode(
-    after record: ToolCallRecord,
-    defaultMode: ToolPromptMode
-  ) -> ToolPromptMode {
-    guard record.status == .completed,
-      record.resultPayload?.status == .success
-    else {
-      return defaultMode
-    }
-    switch record.request.toolName {
-    case .writeFile, .editFile:
-      return .afterToolResultFinal
-    default:
-      return defaultMode
-    }
   }
 
 }

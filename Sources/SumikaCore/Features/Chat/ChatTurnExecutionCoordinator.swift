@@ -559,15 +559,7 @@ struct ChatTurnExecutionCoordinator {
     guard remainingIterations > 1 else {
       return ToolPromptMode.finalMode(for: toolProfile)
     }
-
-    switch toolProfile {
-    case .disabled:
-      return .disabled
-    case .chatWeb:
-      return .afterChatWebToolResultCanContinue
-    case .agent:
-      return .afterToolResultCanContinue
-    }
+    return ToolPromptMode.continuationMode(for: toolProfile)
   }
 
   private func toolRegistry(

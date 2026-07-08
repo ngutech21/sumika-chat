@@ -70,9 +70,9 @@ public enum ModelFacingPromptRenderer {
       toolName: toolResult.toolName,
       preview: toolResult.preview
     )
-    if isTerminalWriteResult(
+    if TerminalToolResultPolicy.isTerminalWriteResult(
       toolName: toolResult.toolName,
-      status: projection.observation.status
+      resultStatus: projection.observation.status
     ) {
       return try ModelContextEntry(
         id: id,
@@ -111,13 +111,6 @@ public enum ModelFacingPromptRenderer {
         content: content
       )
     )
-  }
-
-  private static func isTerminalWriteResult(
-    toolName: ToolName,
-    status: ToolResultStatus
-  ) -> Bool {
-    status == .success && (toolName == .writeFile || toolName == .editFile)
   }
 
   public static func userContent(

@@ -91,7 +91,7 @@ struct ToolTurnResumeCoordinator {
       turnID: turnID,
       toolLoopIteration: 1
     )
-    if forceFinal || toolResumeCoordinator.isFinalApprovedToolFollowUp(approvedRecord) {
+    if forceFinal || TerminalToolResultPolicy.isTerminalWriteResult(approvedRecord) {
       try executionCoordinator.requireVisibleFinalResponse(generationResult)
     } else {
       try executionCoordinator.requireVisibleTextOrToolCall(generationResult)

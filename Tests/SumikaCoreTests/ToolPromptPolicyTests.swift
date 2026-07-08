@@ -153,3 +153,102 @@ struct ToolPromptPolicyTests {
     #expect(!disabledPrompt.contains("planned todo"))
   }
 }
+
+struct TerminalToolResultPolicyTests {
+  @Test
+  func onlySuccessfulWriteAndEditResultsAreTerminal() {
+    #expect(
+      TerminalToolResultPolicy.isTerminalWriteResult(toolName: .writeFile, resultStatus: .success))
+    #expect(
+      TerminalToolResultPolicy.isTerminalWriteResult(toolName: .editFile, resultStatus: .success))
+    #expect(
+      !TerminalToolResultPolicy.isTerminalWriteResult(toolName: .writeFile, resultStatus: .failed))
+    #expect(
+      !TerminalToolResultPolicy.isTerminalWriteResult(toolName: .readFile, resultStatus: .success))
+  }
+
+  @Test
+  func followUpModeAfterTerminalWriteHonorsToolProfile() {
+    let record = completedWriteRecord()
+
+    #expect(TerminalToolResultPolicy.isTerminalWriteResult(record))
+    #expect(
+      TerminalToolResultPolicy.followUpPromptMode(after: record, toolProfile: .agent)
+        == .afterToolResultFinal)
+    #expect(
+      TerminalToolResultPolicy.followUpPromptMode(after: record, toolProfile: .chatWeb)
+        == .afterChatWebToolResultFinal)
+  }
+
+  @Test
+  func followUpModeAfterNonTerminalResultContinuesPerProfile() {
+    let record = completedReadRecord()
+
+    #expect(!TerminalToolResultPolicy.isTerminalWriteResult(record))
+    #expect(
+      TerminalToolResultPolicy.followUpPromptMode(after: record, toolProfile: .agent)
+        == .afterToolResultCanContinue)
+    #expect(
+      TerminalToolResultPolicy.followUpPromptMode(after: record, toolProfile: .chatWeb)
+        == .afterChatWebToolResultCanContinue)
+    #expect(
+      TerminalToolResultPolicy.followUpPromptMode(
+        after: record,
+        toolProfile: .agent,
+        default: .disabled
+      ) == .disabled)
+  }
+
+  @Test
+  func forceFinalOverridesNonTerminalResult() {
+    let record = completedReadRecord()
+
+    #expect(
+      TerminalToolResultPolicy.followUpPromptMode(
+        after: record,
+        toolProfile: .agent,
+        forceFinal: true
+      ) == .afterToolResultFinal)
+  }
+
+  private func completedWriteRecord() -> ToolCallRecord {
+    let path = WorkspaceRelativePath(rawValue: "index.html")
+    return makePolicyRecord(
+      toolName: .writeFile,
+      payload: .writeFile(WriteFileInput(path: path.rawValue, content: "<h1>Hello</h1>")),
+      state: .completed(.writeFile(.success(path: path, bytesWritten: 14)))
+    )
+  }
+
+  private func completedReadRecord() -> ToolCallRecord {
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+    return makePolicyRecord(
+      toolName: .readFile,
+      payload: .readFile(ReadFileInput(path: path.rawValue)),
+      state: .completed(.readFile(.success(path: path, content: ToolTextOutput(text: "Notes"))))
+    )
+  }
+
+  private func makePolicyRecord(
+    toolName: ToolName,
+    payload: ToolCallPayload,
+    state: ToolCallState
+  ) -> ToolCallRecord {
+    ToolCallRecord(
+      request: ToolCallRequest.validated(
+        raw: RawToolCallRequest(
+          workspaceID: UUID(),
+          sessionID: UUID(),
+          toolName: toolName
+        ),
+        payload: payload
+      ),
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Allowed for test.",
+        riskLevel: .low
+      ),
+      state: state
+    )
+  }
+}

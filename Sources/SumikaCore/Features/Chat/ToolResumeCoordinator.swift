@@ -124,24 +124,11 @@ public struct ToolResumeCoordinator: Sendable {
     toolProfile: ToolExecutionProfile = .agent,
     forceFinal: Bool = false
   ) -> ToolPromptMode {
-    guard !(forceFinal || isFinalApprovedToolFollowUp(record)) else {
-      return ToolPromptMode.finalMode(for: toolProfile)
-    }
-    switch toolProfile {
-    case .disabled:
-      return .disabled
-    case .chatWeb:
-      return .afterChatWebToolResultCanContinue
-    case .agent:
-      return .afterToolResultCanContinue
-    }
-  }
-
-  public func isFinalApprovedToolFollowUp(_ record: ToolCallRecord) -> Bool {
-    guard record.resultPayload?.status == .success else {
-      return false
-    }
-    return record.request.toolName == .writeFile || record.request.toolName == .editFile
+    TerminalToolResultPolicy.followUpPromptMode(
+      after: record,
+      toolProfile: toolProfile,
+      forceFinal: forceFinal
+    )
   }
 
   private func resumedToolEvents(

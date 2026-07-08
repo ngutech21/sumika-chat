@@ -33,6 +33,53 @@ public enum ToolPromptMode: Equatable, Sendable {
       return .disabled
     }
   }
+
+  /// The tools-enabled follow-up mode after a non-terminal tool result, per profile.
+  public static func continuationMode(for profile: ToolExecutionProfile) -> ToolPromptMode {
+    switch profile {
+    case .chatWeb:
+      return .afterChatWebToolResultCanContinue
+    case .agent:
+      return .afterToolResultCanContinue
+    case .disabled:
+      return .disabled
+    }
+  }
+}
+
+/// A successful write_file/edit_file result ends the tool loop: the next generation
+/// runs tools-stripped (`ToolPromptMode.finalMode(for:)`) so the model reports the
+/// change instead of chaining further edits. Single source of truth for that rule —
+/// the tool loop, the approval-resume flow, and the model-facing prompt renderer all
+/// consult it.
+public enum TerminalToolResultPolicy {
+  public static func isTerminalWriteResult(
+    toolName: ToolName,
+    resultStatus: ToolResultStatus
+  ) -> Bool {
+    resultStatus == .success && (toolName == .writeFile || toolName == .editFile)
+  }
+
+  public static func isTerminalWriteResult(_ record: ToolCallRecord) -> Bool {
+    guard record.status == .completed, let resultStatus = record.resultPayload?.status else {
+      return false
+    }
+    return isTerminalWriteResult(toolName: record.request.toolName, resultStatus: resultStatus)
+  }
+
+  /// The prompt mode for the generation that follows `record`, honoring the profile
+  /// so a chat-web turn never inherits the agent final prompt.
+  public static func followUpPromptMode(
+    after record: ToolCallRecord,
+    toolProfile: ToolExecutionProfile,
+    forceFinal: Bool = false,
+    default defaultMode: ToolPromptMode? = nil
+  ) -> ToolPromptMode {
+    guard !(forceFinal || isTerminalWriteResult(record)) else {
+      return ToolPromptMode.finalMode(for: toolProfile)
+    }
+    return defaultMode ?? ToolPromptMode.continuationMode(for: toolProfile)
+  }
 }
 
 public enum ToolAvailability: Equatable, Sendable {
