@@ -2,10 +2,10 @@ import Testing
 
 @testable import SumikaCore
 
-struct ChatSessionTitleDeriverTests {
+struct ChatSessionTitleGeneratorTests {
   @Test
   func titleUsesNormalizedFirstPrompt() {
-    let title = ChatSessionTitleDeriver.title(
+    let title = ChatSessionTitleGenerator.title(
       fromFirstPrompt: "  build   a snake game\nin python  "
     )
 
@@ -14,18 +14,18 @@ struct ChatSessionTitleDeriverTests {
 
   @Test
   func titleTruncatesAtWordBoundary() {
-    let title = ChatSessionTitleDeriver.title(
+    let title = ChatSessionTitleGenerator.title(
       fromFirstPrompt:
         "Implement automatic chat session naming from the first submitted user prompt"
     )
 
     #expect(title == "Implement automatic chat session naming from")
-    #expect(title.count <= ChatSessionTitleDeriver.maximumLength)
+    #expect(title.count <= ChatSessionTitleGenerator.maximumLength)
   }
 
   @Test
   func emptyPromptFallsBackToDefaultTitle() {
-    let title = ChatSessionTitleDeriver.title(fromFirstPrompt: " \n\t ")
+    let title = ChatSessionTitleGenerator.title(fromFirstPrompt: " \n\t ")
 
     #expect(title == ChatSession.defaultTitle)
   }

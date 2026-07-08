@@ -12,6 +12,10 @@ swift := env("SWIFT", "swift")
 default:
   @just --list
 
+# installs the dev tools on macos
+deps:
+   brew install swiftlint swift-format periphery 
+
 build:
     @set --; \
     if [ -n "${MARKETING_VERSION:-}" ]; then set -- "$@" "MARKETING_VERSION=$MARKETING_VERSION"; fi; \

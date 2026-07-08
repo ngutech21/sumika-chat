@@ -5,6 +5,8 @@ suche = "suche"
 finde = "finde"
 ordner = "ordner"
 Hel = "Hel"
+# Swift mutation keyword.
+inout = "inout"
 
 
 [files]

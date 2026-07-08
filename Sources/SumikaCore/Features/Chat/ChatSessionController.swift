@@ -529,7 +529,7 @@ extension ChatSessionController {
       return
     }
 
-    chatSession.title = ChatSessionTitleDeriver.title(fromFirstPrompt: prompt)
+    chatSession.title = ChatSessionTitleGenerator.title(fromFirstPrompt: prompt)
   }
 
   public func cancelGeneration() {

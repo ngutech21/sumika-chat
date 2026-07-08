@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ChatSessionTitleDeriver {
+public enum ChatSessionTitleGenerator {
   public static let maximumLength = 48
 
   public static func title(fromFirstPrompt prompt: String) -> String {

@@ -218,18 +218,15 @@ func parseLogObjects(from data: Data) throws -> [[String: Any]] {
     }
 }
 
-func collectStrings(_ value: Any, into strings: inout [String]) {
+func collectedStrings(from value: Any) -> [String] {
   if let string = value as? String {
-    strings.append(string)
+    return [string]
   } else if let dictionary = value as? [String: Any] {
-    for child in dictionary.values {
-      collectStrings(child, into: &strings)
-    }
+    return dictionary.values.flatMap { collectedStrings(from: $0) }
   } else if let array = value as? [Any] {
-    for child in array {
-      collectStrings(child, into: &strings)
-    }
+    return array.flatMap { collectedStrings(from: $0) }
   }
+  return []
 }
 
 func stringValue(_ dictionary: [String: Any], keys: [String]) -> String? {
@@ -318,8 +315,7 @@ func parseDate(_ text: String?) -> Date? {
 }
 
 func metadata(from dictionary: [String: Any]) -> [String: String] {
-  var strings: [String] = []
-  collectStrings(dictionary, into: &strings)
+  let strings = collectedStrings(from: dictionary)
 
   let regex = try! NSRegularExpression(pattern: #"\b([A-Za-z][A-Za-z0-9_]*)=([^\s]+)"#)
   var result: [String: String] = [:]
