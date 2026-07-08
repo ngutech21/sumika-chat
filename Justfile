@@ -47,8 +47,9 @@ release-signed:
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" "$@" CODE_SIGNING_ALLOWED=NO build
     @app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
     test -d "$app_bundle"; \
-    codesign --force --deep --options runtime --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$app_bundle"; \
-    codesign --verify --deep --strict --verbose=2 "$app_bundle"
+    codesign --force --deep --options runtime --timestamp --entitlements sumika/Sumika.entitlements --sign "$DEVELOPER_ID_APPLICATION" "$app_bundle"; \
+    codesign --verify --deep --strict --verbose=2 "$app_bundle"; \
+    codesign --display --entitlements - "$app_bundle" | grep -F "com.apple.security.device.audio-input" >/dev/null || { echo "Signed app bundle is missing the audio-input entitlement."; exit 1; }
 
 release-package artifact_name="Sumika-macos-release.dmg": release-signed
     @app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
