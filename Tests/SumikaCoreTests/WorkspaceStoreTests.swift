@@ -5,48 +5,114 @@ import Testing
 
 struct WorkspaceStoreTests {
   @Test
-  func workspaceStoreReturnsEmptyLibraryForMissingOrCorruptFile() async throws {
+  func workspaceStoreReturnsCleanEmptyLibraryForMissingFile() async throws {
     let missingStore = WorkspaceStore(libraryURL: temporaryLibraryURL())
 
-    #expect(await missingStore.loadLibrary() == WorkspaceLibrary())
+    let result = await missingStore.loadLibrary()
+    #expect(result.library == WorkspaceLibrary())
+    #expect(result.issues.isEmpty)
+  }
 
+  @Test
+  func workspaceStoreMovesCorruptFileAsideAndReportsDecodeFailure() async throws {
     let corruptURL = temporaryLibraryURL()
     try FileManager.default.createDirectory(
       at: corruptURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
     )
     try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
-    let corruptStore = WorkspaceStore(libraryURL: corruptURL)
+    let store = WorkspaceStore(libraryURL: corruptURL)
 
-    #expect(await corruptStore.loadLibrary() == WorkspaceLibrary())
+    let result = await store.loadLibrary()
+
+    #expect(result.library == WorkspaceLibrary())
+    guard case .decodeFailed(_, let backupPath) = result.issues.first else {
+      Issue.record("Expected a decodeFailed issue, got \(result.issues)")
+      return
+    }
+    let backup = try #require(backupPath)
+    #expect(backup.contains("workspaces.json.corrupt-"))
+    #expect(FileManager.default.fileExists(atPath: backup))
+    #expect(!FileManager.default.fileExists(atPath: corruptURL.path(percentEncoded: false)))
+    #expect(try String(contentsOfFile: backup, encoding: .utf8) == "not json")
   }
 
   @Test
-  func workspaceStoreSignalsCorruptLibraryInsteadOfSilentlyDiscarding() async throws {
-    let corruptURL = temporaryLibraryURL()
-    try FileManager.default.createDirectory(
-      at: corruptURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+  func workspaceStoreKeepsBackupCopyWhenElementsAreDropped() async throws {
+    let libraryURL = temporaryLibraryURL()
+    let store = WorkspaceStore(libraryURL: libraryURL)
+    let intactWorkspace = Workspace(
+      name: "Intact",
+      rootURL: URL(filePath: "/tmp/intact", directoryHint: .isDirectory)
     )
-    try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
+    try await store.saveLibrary(WorkspaceLibrary(workspaces: [intactWorkspace]))
 
-    let recorder = LoadFailureRecorder()
-    let store = WorkspaceStore(libraryURL: corruptURL, onLoadFailure: { recorder.record($0) })
+    // Corrupt one workspace element in place: rootURL is the only required
+    // field, so removing it makes exactly that element undecodable.
+    var object = try #require(
+      JSONSerialization.jsonObject(
+        with: Data(contentsOf: libraryURL)
+      ) as? [String: Any]
+    )
+    var workspaces = try #require(object["workspaces"] as? [[String: Any]])
+    var broken = workspaces[0]
+    broken.removeValue(forKey: "rootURL")
+    broken["name"] = "Broken"
+    workspaces.append(broken)
+    object["workspaces"] = workspaces
+    try JSONSerialization.data(withJSONObject: object).write(to: libraryURL)
 
-    #expect(await store.loadLibrary() == WorkspaceLibrary())
-    #expect(recorder.capturedError != nil)
+    let result = await store.loadLibrary()
+
+    #expect(result.library.workspaces.map(\.name) == ["Intact"])
+    guard case .droppedElements(let details, let backupPath) = result.issues.first else {
+      Issue.record("Expected a droppedElements issue, got \(result.issues)")
+      return
+    }
+    #expect(details.count == 1)
+    let backup = try #require(backupPath)
+    #expect(backup.contains("workspaces.json.partial-"))
+    #expect(FileManager.default.fileExists(atPath: backup))
+    // The original file stays in place for the app to keep using.
+    #expect(FileManager.default.fileExists(atPath: libraryURL.path(percentEncoded: false)))
   }
 
   @Test
-  func workspaceStoreDoesNotSignalFailureForMissingFile() async throws {
-    let recorder = LoadFailureRecorder()
-    let store = WorkspaceStore(
-      libraryURL: temporaryLibraryURL(),
-      onLoadFailure: { recorder.record($0) }
+  func workspaceStoreDropsUndecodableSessionButKeepsSiblings() async throws {
+    let libraryURL = temporaryLibraryURL()
+    let store = WorkspaceStore(libraryURL: libraryURL)
+    let intactSession = ChatSession(title: "Intact", selectedModelID: "gemma4-12b-qat-4bit")
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [intactSession]
     )
+    try await store.saveLibrary(WorkspaceLibrary(workspaces: [workspace]))
 
-    #expect(await store.loadLibrary() == WorkspaceLibrary())
-    #expect(recorder.capturedError == nil)
+    var object = try #require(
+      JSONSerialization.jsonObject(
+        with: Data(contentsOf: libraryURL)
+      ) as? [String: Any]
+    )
+    var workspaces = try #require(object["workspaces"] as? [[String: Any]])
+    var sessions = try #require(workspaces[0]["sessions"] as? [[String: Any]])
+    var broken = sessions[0]
+    // A present-but-mistyped field must fail only this session.
+    broken["interactionMode"] = 42
+    broken["title"] = "Broken"
+    sessions.append(broken)
+    workspaces[0]["sessions"] = sessions
+    object["workspaces"] = workspaces
+    try JSONSerialization.data(withJSONObject: object).write(to: libraryURL)
+
+    let result = await store.loadLibrary()
+
+    #expect(result.library.workspaces.first?.sessions.map(\.title) == ["Intact"])
+    guard case .droppedElements(let details, _) = result.issues.first else {
+      Issue.record("Expected a droppedElements issue, got \(result.issues)")
+      return
+    }
+    #expect(details.count == 1)
   }
 
   @Test
@@ -87,7 +153,7 @@ struct WorkspaceStoreTests {
 
     try await store.saveLibrary(library)
 
-    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary()
+    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary().library
     #expect(reloaded == library)
     #expect(reloaded.workspaces.first?.bookmarkData == Data([1, 2, 3]))
   }
@@ -127,7 +193,7 @@ struct WorkspaceStoreTests {
 
     try await store.saveLibrary(library)
 
-    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary()
+    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary().library
     let reloadedToolCall = try #require(reloaded.workspaces.first?.sessions.first?.toolCalls.first)
     #expect(reloadedToolCall == toolCall)
     #expect(
@@ -182,7 +248,7 @@ struct WorkspaceStoreTests {
 
     try await store.saveLibrary(library)
 
-    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary()
+    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary().library
     #expect(reloaded.workspaces.first?.sessions.first?.focusedFileState == focusedFileState)
   }
 
@@ -210,7 +276,7 @@ struct WorkspaceStoreTests {
 
     try await store.saveLibrary(WorkspaceLibrary(workspaces: [workspace]))
 
-    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary()
+    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary().library
     #expect(reloaded.workspaces.first?.sessions.first?.todoState == todoState)
   }
 
@@ -349,18 +415,5 @@ struct WorkspaceStoreTests {
       preconditionFailure("Invalid test UUID: \(value)")
     }
     return uuid
-  }
-}
-
-private final class LoadFailureRecorder: @unchecked Sendable {
-  private let lock = NSLock()
-  private var storedError: Error?
-
-  func record(_ error: Error) {
-    lock.withLock { storedError = error }
-  }
-
-  var capturedError: Error? {
-    lock.withLock { storedError }
   }
 }

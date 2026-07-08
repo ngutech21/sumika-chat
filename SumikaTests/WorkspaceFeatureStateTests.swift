@@ -342,8 +342,8 @@ private actor WorkspaceFeatureInMemoryStore: WorkspaceStoring {
     self.library = initialLibrary
   }
 
-  func loadLibrary() async -> WorkspaceLibrary {
-    library
+  func loadLibrary() async -> WorkspaceLibraryLoadResult {
+    WorkspaceLibraryLoadResult(library: library)
   }
 
   func saveLibrary(_ library: WorkspaceLibrary) async throws {

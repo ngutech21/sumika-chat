@@ -1,10 +1,67 @@
 import Foundation
 
+/// Collects elements that lenient decoding had to drop so callers can surface
+/// the loss (log, UI, backups) instead of discarding persisted data silently.
+///
+/// Install an instance under `CodingUserInfoKey.decodeDiagnostics` in
+/// `JSONDecoder.userInfo` before decoding. Decoders without an installed
+/// collector behave as before.
+public final class DecodeDiagnostics {
+  public struct DroppedElement: Equatable, Sendable {
+    public let typeName: String
+    public let codingPath: String
+    public let message: String
+  }
+
+  public private(set) var droppedElements: [DroppedElement] = []
+
+  public init() {}
+
+  public var summaries: [String] {
+    droppedElements.map { element in
+      "\(element.typeName) at \(element.codingPath): \(element.message)"
+    }
+  }
+
+  static func installed(in decoder: Decoder) -> DecodeDiagnostics? {
+    decoder.userInfo[.decodeDiagnostics] as? DecodeDiagnostics
+  }
+
+  func recordDrop(elementType: Any.Type, codingPath: [any CodingKey], error: Error) {
+    droppedElements.append(
+      DroppedElement(
+        typeName: String(describing: elementType),
+        codingPath: codingPath.isEmpty
+          ? "<root>" : codingPath.map(\.stringValue).joined(separator: "."),
+        message: String(reflecting: error)
+      )
+    )
+  }
+}
+
+extension CodingUserInfoKey {
+  public static var decodeDiagnostics: CodingUserInfoKey {
+    guard let key = CodingUserInfoKey(rawValue: "chat.sumika.decode-diagnostics") else {
+      preconditionFailure("Static coding user info key must be representable.")
+    }
+    return key
+  }
+}
+
 struct LossyDecodable<Element: Decodable>: Decodable {
   let value: Element?
 
   init(from decoder: Decoder) throws {
-    value = try? Element(from: decoder)
+    do {
+      value = try Element(from: decoder)
+    } catch {
+      value = nil
+      DecodeDiagnostics.installed(in: decoder)?.recordDrop(
+        elementType: Element.self,
+        codingPath: decoder.codingPath,
+        error: error
+      )
+    }
   }
 }
 

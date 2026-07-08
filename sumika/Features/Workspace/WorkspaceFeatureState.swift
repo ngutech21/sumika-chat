@@ -48,6 +48,7 @@ final class WorkspaceFeatureState {
   @ObservationIgnored private let workspaceStore: any WorkspaceStoring
   @ObservationIgnored private let workspaceOpener: any WorkspaceOpening
   @ObservationIgnored private var saveLibraryTask: Task<Void, Never>?
+  @ObservationIgnored private var errorMessageReflectsSaveFailure = false
 
   init(
     workspaceStore: any WorkspaceStoring,
@@ -70,10 +71,16 @@ final class WorkspaceFeatureState {
     -> WorkspaceSelectionChange
   {
     updateDefaultSessionFactory(defaultSessionFactory)
-    let library = await workspaceStore.loadLibrary()
-    workspaceLibraryController.replaceLibrary(library)
-    normalizeLoadedLibrary()
+    let loadResult = await workspaceStore.loadLibrary()
+    workspaceLibraryController.replaceLibrary(loadResult.library)
+    normalizeLoadedLibrary(
+      persistNormalization: loadResult.issues.allSatisfy(\.isSafeToPersistOver)
+    )
     syncWorkspaceProjections()
+    if let loadIssueMessage = Self.loadIssueMessage(for: loadResult.issues) {
+      errorMessage = loadIssueMessage
+      errorMessageReflectsSaveFailure = false
+    }
     isLoading = false
     return .changed(activeSessionID)
   }
@@ -169,7 +176,7 @@ final class WorkspaceFeatureState {
     openActiveWorkspace(destination: .visualStudioCode)
   }
 
-  private func normalizeLoadedLibrary() {
+  private func normalizeLoadedLibrary(persistNormalization: Bool) {
     let resolvedLibrary = WorkspaceLibrary(
       workspaces: library.workspaces.map(resolveBookmarkedWorkspace),
       activeWorkspaceID: library.activeWorkspaceID,
@@ -178,7 +185,31 @@ final class WorkspaceFeatureState {
     workspaceLibraryController.replaceLibrary(resolvedLibrary)
     workspaceLibraryController.normalizeLoadedLibrary()
     syncWorkspaceProjections()
-    saveLibrary()
+    // After a read failure the on-disk file may still hold the only copy of
+    // the user's sessions, so never overwrite it with the fallback library.
+    if persistNormalization {
+      saveLibrary()
+    }
+  }
+
+  private static func loadIssueMessage(for issues: [WorkspaceLibraryLoadIssue]) -> String? {
+    guard let issue = issues.first else {
+      return nil
+    }
+
+    switch issue {
+    case .readFailed:
+      return "Stored workspaces could not be read. Starting with an empty library; "
+        + "the existing file was left untouched."
+    case .decodeFailed(_, let backupPath):
+      let backupNotice = backupPath.map { " The unreadable file was moved to \($0)." } ?? ""
+      return "Stored workspaces could not be loaded and were reset.\(backupNotice)"
+    case .droppedElements(let details, let backupPath):
+      let backupNotice =
+        backupPath.map { " A backup of the previous file was saved to \($0)." } ?? ""
+      return "\(details.count) stored chat item(s) could not be loaded and were skipped."
+        + backupNotice
+    }
   }
 
   private func syncWorkspaceProjections() {
@@ -244,11 +275,17 @@ final class WorkspaceFeatureState {
           )
         )
         await MainActor.run {
-          errorMessage = nil
+          // Only clear messages this save path produced; a pending load-issue
+          // notice must survive until the user dismisses it.
+          if errorMessageReflectsSaveFailure {
+            errorMessage = nil
+            errorMessageReflectsSaveFailure = false
+          }
         }
       } catch {
         await MainActor.run {
           errorMessage = error.localizedDescription
+          errorMessageReflectsSaveFailure = true
         }
       }
     }

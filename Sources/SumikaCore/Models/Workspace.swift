@@ -48,7 +48,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     )
     rootURL = decodedRootURL
     bookmarkData = try container.decodeIfPresent(Data.self, forKey: .bookmarkData)
-    sessions = try container.decodeIfPresent([ChatSession].self, forKey: .sessions, default: [])
+    sessions = try container.decodeLossyArray([ChatSession].self, forKey: .sessions)
     createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt, default: Date())
     updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: createdAt)
   }
@@ -248,7 +248,7 @@ public struct WorkspaceLibrary: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces, default: [])
+    workspaces = try container.decodeLossyArray([Workspace].self, forKey: .workspaces)
     activeWorkspaceID = try container.decodeIfPresent(Workspace.ID.self, forKey: .activeWorkspaceID)
     activeSessionID = try container.decodeIfPresent(ChatSession.ID.self, forKey: .activeSessionID)
   }

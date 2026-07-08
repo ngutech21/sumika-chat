@@ -437,9 +437,10 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
     content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
-    modelProjectionPolicy = try container.decode(
+    modelProjectionPolicy = try container.decodeIfPresent(
       AssistantModelProjectionPolicy.self,
-      forKey: .modelProjectionPolicy
+      forKey: .modelProjectionPolicy,
+      default: .visibleContent
     )
     attachments = try container.decodeLossyArray([ChatAttachment].self, forKey: .attachments)
     generationMetrics = try container.decodeIfPresent(

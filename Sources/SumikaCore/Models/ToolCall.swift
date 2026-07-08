@@ -544,16 +544,8 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     request = try container.decode(ToolCallRequest.self, forKey: .request)
-    evaluation = try container.decodeIfPresent(
-      ToolPermissionEvaluation.self,
-      forKey: .evaluation,
-      default: ToolPermissionEvaluation(
-        decision: .allowed,
-        reason: "Loaded from a record without stored permission metadata.",
-        riskLevel: .low
-      )
-    )
-    state = try container.decodeIfPresent(ToolCallState.self, forKey: .state, default: .pending)
+    evaluation = try container.decode(ToolPermissionEvaluation.self, forKey: .evaluation)
+    state = try container.decode(ToolCallState.self, forKey: .state)
     modelFollowUpNotice = try container.decodeIfPresent(String.self, forKey: .modelFollowUpNotice)
   }
 
@@ -1141,11 +1133,7 @@ public struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    decision = try container.decodeIfPresent(
-      ToolPermissionDecision.self,
-      forKey: .decision,
-      default: .allowed
-    )
+    decision = try container.decode(ToolPermissionDecision.self, forKey: .decision)
     reason = try container.decodeIfPresent(String.self, forKey: .reason, default: "")
     riskLevel = try container.decodeIfPresent(ToolRiskLevel.self, forKey: .riskLevel, default: .low)
     normalizedPaths = try container.decodeIfPresent(
