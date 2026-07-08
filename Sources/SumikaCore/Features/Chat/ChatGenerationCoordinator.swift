@@ -60,75 +60,6 @@ public struct ChatGenerationCoordinator {
     )
   }
 
-  public func streamAssistantReply(
-    turnID: ChatTurn.ID? = nil,
-    operationID: UUID? = nil,
-    toolLoopIteration: Int? = nil,
-    interactionMode: WorkspaceInteractionMode? = nil,
-    transcript: ModelPromptProjection,
-    attachments: [ChatAttachment] = [],
-    systemPrompt: String,
-    settings: ChatGenerationSettings,
-    appendChunk: (String) -> Void,
-    appendThinkingChunk: (String) -> Void = { _ in },
-    updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
-    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void = { _ in },
-    updateContextUsage: () async -> Void
-  ) async throws -> String {
-    let result = try await streamAssistantReplyResult(
-      turnID: turnID,
-      operationID: operationID,
-      toolLoopIteration: toolLoopIteration,
-      interactionMode: interactionMode,
-      transcript: transcript,
-      attachments: attachments,
-      promptPlan: ChatRuntimePromptPlan(stableInstructions: systemPrompt),
-      settings: settings,
-      appendChunk: appendChunk,
-      appendThinkingChunk: appendThinkingChunk,
-      updateGenerationMetrics: updateGenerationMetrics,
-      updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot,
-      updateContextUsage: updateContextUsage
-    )
-    return result.assistantContent
-  }
-
-  public func streamAssistantReplyResult(
-    turnID: ChatTurn.ID? = nil,
-    operationID requestedOperationID: UUID? = nil,
-    toolLoopIteration: Int? = nil,
-    interactionMode: WorkspaceInteractionMode? = nil,
-    transcript: ModelPromptProjection,
-    attachments: [ChatAttachment] = [],
-    systemPrompt: String,
-    settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext? = nil,
-    appendChunk: (String) -> Void,
-    appendThinkingChunk: (String) -> Void = { _ in },
-    updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
-    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void = { _ in },
-    updateContextUsage: () async -> Void
-  ) async throws -> ChatGenerationResult {
-    try await streamAssistantReplyResult(
-      turnID: turnID,
-      operationID: requestedOperationID,
-      toolLoopIteration: toolLoopIteration,
-      interactionMode: interactionMode,
-      transcript: transcript,
-      attachments: attachments,
-      promptPlan: ChatRuntimePromptPlan(
-        stableInstructions: systemPrompt,
-        toolContext: toolContext
-      ),
-      settings: settings,
-      appendChunk: appendChunk,
-      appendThinkingChunk: appendThinkingChunk,
-      updateGenerationMetrics: updateGenerationMetrics,
-      updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot,
-      updateContextUsage: updateContextUsage
-    )
-  }
-
   public func streamAssistantReplyResult(
     turnID: ChatTurn.ID? = nil,
     operationID requestedOperationID: UUID? = nil,
@@ -141,8 +72,7 @@ public struct ChatGenerationCoordinator {
     appendChunk: (String) -> Void,
     appendThinkingChunk: (String) -> Void = { _ in },
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
-    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void = { _ in },
-    updateContextUsage: () async -> Void
+    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void = { _ in }
   ) async throws -> ChatGenerationResult {
     let operationID =
       if let requestedOperationID {
@@ -172,8 +102,7 @@ public struct ChatGenerationCoordinator {
         appendChunk: appendChunk,
         appendThinkingChunk: appendThinkingChunk,
         updateGenerationMetrics: updateGenerationMetrics,
-        updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot,
-        updateContextUsage: updateContextUsage
+        updateRuntimeCacheDebugSnapshot: updateRuntimeCacheDebugSnapshot
       )
     }
   }
@@ -190,8 +119,7 @@ public struct ChatGenerationCoordinator {
     appendChunk: (String) -> Void,
     appendThinkingChunk: (String) -> Void,
     updateGenerationMetrics: (ChatGenerationMetrics?) -> Void,
-    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void,
-    updateContextUsage: () async -> Void
+    updateRuntimeCacheDebugSnapshot: (RuntimeCacheDebugSnapshot?) async -> Void
   ) async throws -> ChatGenerationResult {
     let streamReplyInterval = ChatDiagnostics.beginInterval(
       "Generation stream reply",
@@ -357,7 +285,6 @@ public struct ChatGenerationCoordinator {
           ChatDiagnostics.measure("Generation metrics update", category: .generation) {
             updateGenerationMetrics(completedMetrics)
           }
-          await refreshContextUsage(updateContextUsage)
           didComplete = true
         }
       }
@@ -416,17 +343,6 @@ public struct ChatGenerationCoordinator {
     }
     let snapshot = try await runtimeOperations.runtimeCacheDebugSnapshot(operationID: operationID)
     await updateRuntimeCacheDebugSnapshot(snapshot)
-  }
-
-  private func refreshContextUsage(_ updateContextUsage: () async -> Void) async {
-    let interval = ChatDiagnostics.beginInterval(
-      "Generation context usage refresh",
-      category: .generation
-    )
-    defer {
-      ChatDiagnostics.endInterval(interval)
-    }
-    await updateContextUsage()
   }
 
   private func generationMetrics(

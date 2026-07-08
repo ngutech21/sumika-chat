@@ -171,7 +171,7 @@ public struct ToolLoopCoordinator: Sendable {
     }
 
     let nextAssistantMessageID = UUID()
-    var events = nativeAssistantBoundaryEvents(for: request, outputs: outputs)
+    var events: [ChatWorkflowEvent] = []
     var focusedFileState = request.focusedFileState
     var nextFollowUpPromptMode = request.followUpPromptMode
     var seenItems = request.items
@@ -626,14 +626,6 @@ public struct ToolLoopCoordinator: Sendable {
         )
       )
     )
-  }
-
-  private func nativeAssistantBoundaryEvents(
-    for request: ToolLoopRequest,
-    outputs: [ToolCallParseOutput]
-  ) -> [ChatWorkflowEvent] {
-    _ = (request, outputs)
-    return []
   }
 
   private func followUpPromptMode(

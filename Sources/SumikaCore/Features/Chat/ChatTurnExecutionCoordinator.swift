@@ -249,9 +249,6 @@ struct ChatTurnExecutionCoordinator {
           return
         }
         callbacks.updateRuntimeCacheDebugSnapshot(snapshot)
-      },
-      updateContextUsage: {
-        await MainActor.run {}
       }
     )
     guard isActive(turnID) else {
@@ -432,14 +429,6 @@ struct ChatTurnExecutionCoordinator {
     case .agent:
       return .enabled(true)
     }
-  }
-
-  func appendFinalToolFollowUpBoundaryIfNeeded(
-    toolPromptMode: ToolPromptMode,
-    turnID: ChatTurn.ID,
-    emitEvents: ChatWorkflowEventEmitter
-  ) {
-    _ = (toolPromptMode, turnID, emitEvents)
   }
 
   @discardableResult

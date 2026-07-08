@@ -16,18 +16,16 @@ struct ChatGenerationCoordinatorTests {
     )
     var updatedMetrics: ChatGenerationMetrics?
 
-    let assistantContent = try await coordinator.streamAssistantReply(
+    let result = try await coordinator.streamAssistantReplyResult(
       transcript: ModelPromptProjection(),
-      systemPrompt: "Answer normally.",
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
       settings: .agentDefault,
       appendChunk: { _ in },
       updateGenerationMetrics: { metrics in
         updatedMetrics = metrics
-      },
-      updateContextUsage: {}
-    )
+      })
 
-    #expect(assistantContent == "hello world")
+    #expect(result.assistantContent == "hello world")
     #expect(updatedMetrics?.generatedTokenCount == 2)
     #expect(updatedMetrics?.tokensPerSecond == 100)
     #expect(try #require(updatedMetrics).durationMs > 0)
@@ -44,14 +42,12 @@ struct ChatGenerationCoordinatorTests {
     var chunks: [String] = []
 
     await #expect(throws: ChatGenerationError.streamInterrupted) {
-      try await coordinator.streamAssistantReply(
+      try await coordinator.streamAssistantReplyResult(
         transcript: ModelPromptProjection(),
-        systemPrompt: "Answer normally.",
+        promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
         settings: .agentDefault,
         appendChunk: { chunks.append($0) },
-        updateGenerationMetrics: { _ in },
-        updateContextUsage: {}
-      )
+        updateGenerationMetrics: { _ in })
     }
 
     #expect(chunks == ["partial"])
@@ -75,12 +71,10 @@ struct ChatGenerationCoordinatorTests {
 
     let result = try await coordinator.streamAssistantReplyResult(
       transcript: ModelPromptProjection(),
-      systemPrompt: "Use tools.",
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Use tools."),
       settings: .agentDefault,
       appendChunk: { _ in },
-      updateGenerationMetrics: { _ in },
-      updateContextUsage: {}
-    )
+      updateGenerationMetrics: { _ in })
 
     #expect(result.assistantContent == "")
     #expect(result.nativeToolCalls == [toolCall])
@@ -101,13 +95,11 @@ struct ChatGenerationCoordinatorTests {
 
     let result = try await coordinator.streamAssistantReplyResult(
       transcript: ModelPromptProjection(),
-      systemPrompt: "Answer normally.",
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
       settings: .agentDefault,
       appendChunk: { visibleChunks.append($0) },
       appendThinkingChunk: { thinkingChunks.append($0) },
-      updateGenerationMetrics: { _ in },
-      updateContextUsage: {}
-    )
+      updateGenerationMetrics: { _ in })
 
     #expect(result.assistantContent == "")
     #expect(result.nativeToolCalls.isEmpty)
@@ -133,12 +125,10 @@ struct ChatGenerationCoordinatorTests {
 
     let result = try await coordinator.streamAssistantReplyResult(
       transcript: ModelPromptProjection(),
-      systemPrompt: "Use tools.",
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Use tools."),
       settings: .agentDefault,
       appendChunk: { visibleChunks.append($0) },
-      updateGenerationMetrics: { _ in },
-      updateContextUsage: {}
-    )
+      updateGenerationMetrics: { _ in })
 
     #expect(result.assistantContent == "I will inspect the project.")
     #expect(result.nativeToolCalls == [toolCall])
@@ -155,14 +145,12 @@ struct ChatGenerationCoordinatorTests {
     )
     var chunks: [String] = []
 
-    _ = try await coordinator.streamAssistantReply(
+    _ = try await coordinator.streamAssistantReplyResult(
       transcript: ModelPromptProjection(),
-      systemPrompt: "Answer normally.",
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
       settings: .agentDefault,
       appendChunk: { chunks.append($0) },
-      updateGenerationMetrics: { _ in },
-      updateContextUsage: {}
-    )
+      updateGenerationMetrics: { _ in })
 
     #expect(chunks == ["hello", " world"])
   }
@@ -179,24 +167,19 @@ struct ChatGenerationCoordinatorTests {
     )
     var visibleChunks: [String] = []
     var thinkingChunks: [String] = []
-    var didUpdateContextUsage = false
 
     let result = try await coordinator.streamAssistantReplyResult(
       transcript: ModelPromptProjection(),
-      systemPrompt: "Answer normally.",
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
       settings: .agentDefault,
       appendChunk: { visibleChunks.append($0) },
       appendThinkingChunk: { thinkingChunks.append($0) },
-      updateGenerationMetrics: { _ in },
-      updateContextUsage: {
-        didUpdateContextUsage = true
-      }
+      updateGenerationMetrics: { _ in }
     )
 
     #expect(result.assistantContent == "Visible answer.")
     #expect(visibleChunks == ["Visible answer."])
     #expect(thinkingChunks == ["I should inspect this."])
-    #expect(didUpdateContextUsage)
   }
 
   @Test
@@ -223,17 +206,15 @@ struct ChatGenerationCoordinatorTests {
     )
     var publishedSnapshot: RuntimeCacheDebugSnapshot?
 
-    _ = try await coordinator.streamAssistantReply(
+    _ = try await coordinator.streamAssistantReplyResult(
       transcript: ModelPromptProjection(),
-      systemPrompt: "Answer normally.",
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
       settings: .agentDefault,
       appendChunk: { _ in },
       updateGenerationMetrics: { _ in },
       updateRuntimeCacheDebugSnapshot: { snapshot in
         publishedSnapshot = snapshot
-      },
-      updateContextUsage: {}
-    )
+      })
 
     #expect(publishedSnapshot == runtimeSnapshot)
   }
@@ -250,18 +231,16 @@ struct ChatGenerationCoordinatorTests {
       streamingFlushCharacterLimit: 1
     )
 
-    _ = try await coordinator.streamAssistantReply(
+    _ = try await coordinator.streamAssistantReplyResult(
       turnID: turnID,
       toolLoopIteration: 2,
       transcript: ModelPromptProjection(entries: [
         try ModelFacingPromptRenderer.userPromptEntry(prompt: "hi")
       ]),
-      systemPrompt: "Answer normally.",
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
       settings: .agentDefault,
       appendChunk: { _ in },
-      updateGenerationMetrics: { _ in },
-      updateContextUsage: {}
-    )
+      updateGenerationMetrics: { _ in })
 
     try await waitUntilAsync {
       await tracer.events.contains { $0.phase == .uiFlush }
@@ -289,15 +268,13 @@ struct ChatGenerationCoordinatorTests {
     var chunks: [String] = []
 
     let generationTask = Task {
-      try await coordinator.streamAssistantReply(
+      try await coordinator.streamAssistantReplyResult(
         operationID: operationID,
         transcript: ModelPromptProjection(),
-        systemPrompt: "Answer normally.",
+        promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
         settings: .agentDefault,
         appendChunk: { chunks.append($0) },
-        updateGenerationMetrics: { _ in },
-        updateContextUsage: {}
-      )
+        updateGenerationMetrics: { _ in })
     }
 
     try await waitUntilAsync { await runtime.yieldedChunkCount == 1 }

@@ -80,11 +80,6 @@ struct ToolTurnResumeCoordinator {
       callbacks: callbacks
     )
     callbacks.notifySessionDidChange()
-    executionCoordinator.appendFinalToolFollowUpBoundaryIfNeeded(
-      toolPromptMode: promptMode,
-      turnID: turnID,
-      emitEvents: callbacks.emitEvents
-    )
     let generationResult = try await executionCoordinator.streamAssistantReply(
       to: nextAssistantMessageID,
       runtime: runtime,
@@ -215,11 +210,6 @@ struct ToolTurnResumeCoordinator {
       toolPromptMode: promptMode,
       turnID: turnID,
       callbacks: callbacks
-    )
-    executionCoordinator.appendFinalToolFollowUpBoundaryIfNeeded(
-      toolPromptMode: promptMode,
-      turnID: turnID,
-      emitEvents: callbacks.emitEvents
     )
     callbacks.refreshContextUsage(promptMode)
     callbacks.notifySessionDidChange()
