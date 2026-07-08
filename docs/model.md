@@ -388,7 +388,6 @@ classDiagram
     userPrompt(UserPromptContext)
     assistantOutput(AssistantOutputContext)
     toolObservation(ToolObservationContext)
-    terminalToolResult(TerminalToolResultContext)
   }
 
   class UserPromptContext {
@@ -443,16 +442,7 @@ classDiagram
     content: String
     toolReceipt: ToolReceipt?
     toolCall: ToolCallModelMessage?
-    systemContext: [String]
-  }
-
-  class TerminalToolResultContext {
-    callID: UUID
-    toolName: ToolName
-    status: ToolResultStatus
-    content: String
-    toolReceipt: ToolReceipt?
-    toolCall: ToolCallModelMessage?
+    isTerminal: Bool
   }
 
   class ToolReceipt {
@@ -621,7 +611,6 @@ classDiagram
   ModelContextEntryBody --> UserPromptContext
   ModelContextEntryBody --> AssistantOutputContext
   ModelContextEntryBody --> ToolObservationContext
-  ModelContextEntryBody --> TerminalToolResultContext
   UserPromptContext --> CurrentPromptContext
   UserPromptContext --> ModelContextRole : model role derived
   CurrentPromptContext --> CurrentPromptContextSelection
@@ -633,10 +622,6 @@ classDiagram
   ToolObservationContext --> ToolResultStatus
   ToolObservationContext --> ToolReceipt
   ToolObservationContext --> ToolCallModelMessage
-  TerminalToolResultContext --> ToolName
-  TerminalToolResultContext --> ToolResultStatus
-  TerminalToolResultContext --> ToolReceipt
-  TerminalToolResultContext --> ToolCallModelMessage
   ToolReceipt --> ToolName
   ToolReceipt --> ToolResultStatus
   ToolReceipt --> WorkspaceRelativePath
