@@ -259,13 +259,6 @@ nonisolated enum MLXHistoryRenderer {
           in: allEntries,
           to: &items
         )
-      case .terminalToolResult:
-        index = appendStructuredToolResultGroup(
-          from: index,
-          until: entries.endIndex,
-          in: allEntries,
-          to: &items
-        )
       }
     }
 
@@ -316,18 +309,14 @@ nonisolated enum MLXHistoryRenderer {
     to items: inout [MLXMessageSnapshot]
   ) {
     switch entry.body {
-    case .toolObservation:
+    case .toolObservation(let context):
+      // Terminal write results replay as assistant output in the legacy
+      // unstructured fallback; ordinary observations replay as user input.
       appendNormalized(
         MLXMessageSnapshot(
-          role: Chat.Message.Role.user.rawValue,
-          content: entry.frozenContent.content
-        ),
-        to: &items
-      )
-    case .terminalToolResult:
-      appendNormalized(
-        MLXMessageSnapshot(
-          role: Chat.Message.Role.assistant.rawValue,
+          role: context.isTerminal
+            ? Chat.Message.Role.assistant.rawValue
+            : Chat.Message.Role.user.rawValue,
           content: entry.frozenContent.content
         ),
         to: &items
@@ -409,16 +398,6 @@ nonisolated enum MLXHistoryRenderer {
     )
   }
 
-  nonisolated private static func toolResultSnapshot(
-    for context: TerminalToolResultContext
-  ) -> MLXMessageSnapshot {
-    MLXMessageSnapshot(
-      role: Chat.Message.Role.tool.rawValue,
-      content: context.content,
-      toolCallID: RuntimeToolCallID.string(for: context.callID)
-    )
-  }
-
   nonisolated private static func structuredToolCalls(
     afterAssistantBoundaryAt boundaryIndex: Int,
     in entries: [ModelContextEntry]
@@ -487,8 +466,6 @@ nonisolated enum MLXHistoryRenderer {
     switch entry.body {
     case .toolObservation(let context):
       return canRenderStructuredToolResult(context)
-    case .terminalToolResult(let context):
-      return canRenderStructuredToolResult(context)
     case .userPrompt, .assistantOutput:
       return false
     }
@@ -500,22 +477,11 @@ nonisolated enum MLXHistoryRenderer {
     context.toolName != .invalid && context.toolCall != nil
   }
 
-  nonisolated private static func canRenderStructuredToolResult(
-    _ context: TerminalToolResultContext
-  ) -> Bool {
-    context.toolName != .invalid && context.toolCall != nil
-  }
-
   nonisolated private static func structuredToolCall(
     from entry: ModelContextEntry
   ) -> ToolCallModelMessage? {
     switch entry.body {
     case .toolObservation(let context):
-      guard canRenderStructuredToolResult(context) else {
-        return nil
-      }
-      return context.toolCall
-    case .terminalToolResult(let context):
       guard canRenderStructuredToolResult(context) else {
         return nil
       }
@@ -530,11 +496,6 @@ nonisolated enum MLXHistoryRenderer {
   ) -> MLXMessageSnapshot? {
     switch entry.body {
     case .toolObservation(let context):
-      guard canRenderStructuredToolResult(context) else {
-        return nil
-      }
-      return toolResultSnapshot(for: context)
-    case .terminalToolResult(let context):
       guard canRenderStructuredToolResult(context) else {
         return nil
       }
@@ -559,7 +520,7 @@ nonisolated enum MLXHistoryRenderer {
     lastPromptInputIndex: Int
   ) -> Int {
     switch entries[lastPromptInputIndex].body {
-    case .toolObservation, .terminalToolResult:
+    case .toolObservation:
       var index = lastPromptInputIndex
       while index > 0, isStructuredToolResultEntry(entries[index - 1]) {
         index -= 1

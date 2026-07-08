@@ -200,12 +200,12 @@ struct ModelPromptProjectionTests {
       ])
     let terminalEntry = try #require(
       projection.entries.first { entry in
-        if case .terminalToolResult = entry.body {
-          return true
+        if case .toolObservation(let context) = entry.body {
+          return context.isTerminal
         }
         return false
       })
-    guard case .terminalToolResult(let terminalContext) = terminalEntry.body else {
+    guard case .toolObservation(let terminalContext) = terminalEntry.body else {
       Issue.record("Expected the terminal result to remain in model context history.")
       return
     }
@@ -546,11 +546,12 @@ struct ModelPromptProjectionTests {
       originalUserRequest: nil
     )
 
-    guard case .terminalToolResult(let terminalContext) = terminalEntry.body else {
+    guard case .toolObservation(let terminalContext) = terminalEntry.body else {
       Issue.record("Expected terminal tool result context.")
       return
     }
 
+    #expect(terminalContext.isTerminal)
     let receipt = try #require(terminalContext.toolReceipt)
     #expect(receipt.callID == callID)
     #expect(receipt.toolName == .writeFile)

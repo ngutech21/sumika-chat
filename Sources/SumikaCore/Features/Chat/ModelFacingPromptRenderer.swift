@@ -51,7 +51,6 @@ public enum ModelFacingPromptRenderer {
     request: ToolCallRequest,
     originalUserRequest _: String?,
     policy: ToolResultProjectionPolicy = .default,
-    systemContext: [String] = [],
     modelFollowUpNotice: String? = nil
   ) throws -> ModelContextEntry {
     let projection = ToolResultProjector.project(
@@ -65,41 +64,21 @@ public enum ModelFacingPromptRenderer {
       modelFollowUpNotice: modelFollowUpNotice
     )
     let content = limitedToolObservationContent(rawContent, policy: policy)
-    let toolReceipt = ToolReceiptFactory.make(
-      callID: toolResult.callID,
-      toolName: toolResult.toolName,
-      preview: toolResult.preview
-    )
-    if TerminalToolResultPolicy.isTerminalWriteResult(
-      toolName: toolResult.toolName,
-      resultStatus: projection.observation.status
-    ) {
-      return try ModelContextEntry(
-        id: id,
-        turnID: turnID,
-        sourceMessageID: sourceMessageID,
-        body: .terminalToolResult(
-          TerminalToolResultContext(
-            callID: toolResult.callID,
-            toolName: toolResult.toolName,
-            status: projection.observation.status,
-            content: content,
-            toolReceipt: toolReceipt,
-            toolCall: ToolCallModelMessage(request: request)
-          )
-        ),
-        frozenContent: FrozenModelContent(role: .tool, content: content)
-      )
-    }
-
     let observationContext = ToolObservationContext(
       callID: toolResult.callID,
       toolName: toolResult.toolName,
       status: projection.observation.status,
       content: content,
-      toolReceipt: toolReceipt,
+      toolReceipt: ToolReceiptFactory.make(
+        callID: toolResult.callID,
+        toolName: toolResult.toolName,
+        preview: toolResult.preview
+      ),
       toolCall: ToolCallModelMessage(request: request),
-      systemContext: normalizedSystemContext(systemContext)
+      isTerminal: TerminalToolResultPolicy.isTerminalWriteResult(
+        toolName: toolResult.toolName,
+        resultStatus: projection.observation.status
+      )
     )
     return try ModelContextEntry(
       id: id,

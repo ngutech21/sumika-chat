@@ -107,7 +107,6 @@ public enum ModelContextEntryBody: Equatable, Sendable {
   case userPrompt(UserPromptContext)
   case assistantOutput(AssistantOutputContext)
   case toolObservation(ToolObservationContext)
-  case terminalToolResult(TerminalToolResultContext)
 
   public var modelRole: ModelContextRole {
     switch self {
@@ -115,14 +114,14 @@ public enum ModelContextEntryBody: Equatable, Sendable {
       return .user
     case .assistantOutput:
       return .assistant
-    case .toolObservation, .terminalToolResult:
+    case .toolObservation:
       return .tool
     }
   }
 
   public var isPromptInput: Bool {
     switch self {
-    case .userPrompt, .toolObservation, .terminalToolResult:
+    case .userPrompt, .toolObservation:
       return true
     case .assistantOutput:
       return false
@@ -170,7 +169,11 @@ public struct ToolObservationContext: Equatable, Sendable {
   public let content: String
   public let toolReceipt: ToolReceipt?
   public let toolCall: ToolCallModelMessage?
-  public let systemContext: [String]
+  /// True for a successful write/edit result (`TerminalToolResultPolicy`): the
+  /// turn ends with a tools-stripped final generation after this observation,
+  /// and the legacy unstructured history fallback replays it in the assistant
+  /// role instead of the user role.
+  public let isTerminal: Bool
 
   public init(
     callID: UUID,
@@ -179,7 +182,7 @@ public struct ToolObservationContext: Equatable, Sendable {
     content: String,
     toolReceipt: ToolReceipt? = nil,
     toolCall: ToolCallModelMessage? = nil,
-    systemContext: [String] = []
+    isTerminal: Bool = false
   ) {
     self.callID = callID
     self.toolName = toolName
@@ -187,32 +190,7 @@ public struct ToolObservationContext: Equatable, Sendable {
     self.content = content
     self.toolReceipt = toolReceipt
     self.toolCall = toolCall
-    self.systemContext = systemContext
-  }
-}
-
-public struct TerminalToolResultContext: Equatable, Sendable {
-  public let callID: UUID
-  public let toolName: ToolName
-  public let status: ToolResultStatus
-  public let content: String
-  public let toolReceipt: ToolReceipt?
-  public let toolCall: ToolCallModelMessage?
-
-  public init(
-    callID: UUID,
-    toolName: ToolName,
-    status: ToolResultStatus,
-    content: String,
-    toolReceipt: ToolReceipt? = nil,
-    toolCall: ToolCallModelMessage? = nil
-  ) {
-    self.callID = callID
-    self.toolName = toolName
-    self.status = status
-    self.content = content
-    self.toolReceipt = toolReceipt
-    self.toolCall = toolCall
+    self.isTerminal = isTerminal
   }
 }
 
@@ -351,17 +329,6 @@ extension ModelContextEntry {
 
     switch body {
     case .toolObservation(let context):
-      guard let toolReceipt = context.toolReceipt else {
-        return ProjectedModelContextEntry(
-          role: frozenContent.role,
-          content: frozenContent.content
-        )
-      }
-      return ProjectedModelContextEntry(
-        role: .tool,
-        content: ToolReceiptRenderer.render(toolReceipt)
-      )
-    case .terminalToolResult(let context):
       guard let toolReceipt = context.toolReceipt else {
         return ProjectedModelContextEntry(
           role: frozenContent.role,
