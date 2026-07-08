@@ -124,6 +124,31 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func sessionSnapshotCarriesLiveTodoState() {
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+    let staleTodoState = TodoState(items: [
+      TodoItem(id: "1", content: "Outdated plan", status: .pending)
+    ])
+    let liveTodoState = TodoState(items: [
+      TodoItem(id: "1", content: "Inspect files", status: .completed),
+      TodoItem(id: "2", content: "Run tests", status: .inProgress),
+    ])
+    let persisted = ChatSession(interactionMode: .agent, todoState: staleTodoState)
+
+    controller.loadSession(persisted)
+    controller.chatSession.todoState = liveTodoState
+
+    #expect(controller.sessionSnapshot(updating: persisted).todoState == liveTodoState)
+
+    controller.chatSession.todoState = nil
+
+    #expect(controller.sessionSnapshot(updating: persisted).todoState == nil)
+  }
+
+  @Test
   func loadSessionClearsRuntimeContextWhenModelIsReused() async throws {
     let runtime = CountingClearContextRuntime()
     let session = ChatSession(

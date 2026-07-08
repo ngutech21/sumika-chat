@@ -301,6 +301,7 @@ extension ChatSessionController {
     snapshot.focusedFileState = chatSession.focusedFileState
     snapshot.modeSettings = chatSession.modeSettings
     snapshot.interactionMode = chatSession.interactionMode
+    snapshot.todoState = chatSession.todoState
     snapshot.pendingAttachments = []
     snapshot.updatedAt = Date()
     return snapshot
