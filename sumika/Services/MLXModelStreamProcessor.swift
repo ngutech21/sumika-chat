@@ -10,6 +10,7 @@ nonisolated struct MLXModelStreamPlan {
 nonisolated enum MLXModelStreamProcessor {
   nonisolated static func modelStream(
     from stream: AsyncThrowingStream<Generation, Error>,
+    reasoningTraceFormat: ReasoningTraceFormat = .none,
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
@@ -23,6 +24,7 @@ nonisolated enum MLXModelStreamProcessor {
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     modelStreamPlan(
       from: stream,
+      reasoningTraceFormat: reasoningTraceFormat,
       traceID: traceID,
       traceMetadata: traceMetadata,
       cacheTrace: cacheTrace,
@@ -35,6 +37,7 @@ nonisolated enum MLXModelStreamProcessor {
 
   nonisolated static func modelStreamPlan(
     from stream: AsyncThrowingStream<Generation, Error>,
+    reasoningTraceFormat: ReasoningTraceFormat = .none,
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
@@ -58,7 +61,7 @@ nonisolated enum MLXModelStreamProcessor {
       }
       var output = ""
       var visibleOutput = ""
-      var thoughtParser = GemmaThoughtChannelParser()
+      var reasoningParser = ReasoningTraceParser(format: reasoningTraceFormat)
       var completedMetrics: ChatGenerationMetrics?
       let iterationStartedAt = Date()
       var firstChunkAt: Date?
@@ -85,7 +88,7 @@ nonisolated enum MLXModelStreamProcessor {
             }
             output += chunk
             if yieldSegments(
-              thoughtParser.append(chunk),
+              reasoningParser.append(chunk),
               to: continuation,
               visibleOutput: &visibleOutput
             ) {
@@ -110,7 +113,7 @@ nonisolated enum MLXModelStreamProcessor {
 
           if let info = generation.info {
             if yieldSegments(
-              thoughtParser.finish(),
+              reasoningParser.finish(),
               to: continuation,
               visibleOutput: &visibleOutput
             ) {
@@ -277,7 +280,7 @@ nonisolated enum MLXModelStreamProcessor {
   }
 
   nonisolated private static func yieldSegments(
-    _ segments: [GemmaThoughtChannelSegment],
+    _ segments: [ReasoningTraceSegment],
     to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     visibleOutput: inout String
   ) -> Bool {
@@ -413,9 +416,75 @@ nonisolated enum MLXModelStreamProcessor {
 
 }
 
-nonisolated enum GemmaThoughtChannelSegment: Equatable {
+nonisolated enum ReasoningTraceSegment: Equatable {
   case visible(String)
   case thinking(String)
+}
+
+nonisolated struct ReasoningTraceParser {
+  private enum Storage {
+    case none(PassThroughReasoningTraceParser)
+    case gemma(GemmaThoughtChannelParser)
+    case qwen(QwenThinkTagParser)
+  }
+
+  private var storage: Storage
+
+  init(format: ReasoningTraceFormat) {
+    storage =
+      switch format {
+      case .none:
+        .none(PassThroughReasoningTraceParser())
+      case .gemmaChannel:
+        .gemma(GemmaThoughtChannelParser())
+      case .qwenThinkTags:
+        .qwen(QwenThinkTagParser())
+      }
+  }
+
+  mutating func append(_ chunk: String) -> [ReasoningTraceSegment] {
+    switch storage {
+    case .none(var parser):
+      let segments = parser.append(chunk)
+      storage = .none(parser)
+      return segments
+    case .gemma(var parser):
+      let segments = parser.append(chunk)
+      storage = .gemma(parser)
+      return segments
+    case .qwen(var parser):
+      let segments = parser.append(chunk)
+      storage = .qwen(parser)
+      return segments
+    }
+  }
+
+  mutating func finish() -> [ReasoningTraceSegment] {
+    switch storage {
+    case .none(var parser):
+      let segments = parser.finish()
+      storage = .none(parser)
+      return segments
+    case .gemma(var parser):
+      let segments = parser.finish()
+      storage = .gemma(parser)
+      return segments
+    case .qwen(var parser):
+      let segments = parser.finish()
+      storage = .qwen(parser)
+      return segments
+    }
+  }
+}
+
+nonisolated private struct PassThroughReasoningTraceParser {
+  mutating func append(_ chunk: String) -> [ReasoningTraceSegment] {
+    chunk.isEmpty ? [] : [.visible(chunk)]
+  }
+
+  mutating func finish() -> [ReasoningTraceSegment] {
+    []
+  }
 }
 
 nonisolated struct GemmaThoughtChannelParser {
@@ -428,9 +497,9 @@ nonisolated struct GemmaThoughtChannelParser {
   private var pending = ""
   private var isReadingThought = false
 
-  mutating func append(_ chunk: String) -> [GemmaThoughtChannelSegment] {
+  mutating func append(_ chunk: String) -> [ReasoningTraceSegment] {
     pending += chunk
-    var segments: [GemmaThoughtChannelSegment] = []
+    var segments: [ReasoningTraceSegment] = []
 
     while !pending.isEmpty {
       if isReadingThought {
@@ -464,7 +533,7 @@ nonisolated struct GemmaThoughtChannelParser {
     return segments
   }
 
-  mutating func finish() -> [GemmaThoughtChannelSegment] {
+  mutating func finish() -> [ReasoningTraceSegment] {
     defer {
       pending = ""
       isReadingThought = false
@@ -476,8 +545,8 @@ nonisolated struct GemmaThoughtChannelParser {
   }
 
   private func appendSegment(
-    _ segment: GemmaThoughtChannelSegment,
-    to segments: inout [GemmaThoughtChannelSegment]
+    _ segment: ReasoningTraceSegment,
+    to segments: inout [ReasoningTraceSegment]
   ) {
     switch segment {
     case .visible(let text), .thinking(let text):
@@ -500,6 +569,79 @@ nonisolated struct GemmaThoughtChannelParser {
         }
         return lhs.lowerBound < rhs.lowerBound
       }
+  }
+}
+
+nonisolated struct QwenThinkTagParser {
+  private static let openMarker = "<think>"
+  private static let closeMarker = "</think>"
+
+  private var pending = ""
+  private var isReadingThinking = true
+  private var mayStartWithOpenMarker = true
+
+  mutating func append(_ chunk: String) -> [ReasoningTraceSegment] {
+    pending += chunk
+    var segments: [ReasoningTraceSegment] = []
+
+    while !pending.isEmpty {
+      if isReadingThinking {
+        if mayStartWithOpenMarker {
+          if pending.hasPrefix(Self.openMarker) {
+            pending.removeFirst(Self.openMarker.count)
+            mayStartWithOpenMarker = false
+            continue
+          }
+          if pending.count < Self.openMarker.count, Self.openMarker.hasPrefix(pending) {
+            return segments
+          }
+          mayStartWithOpenMarker = false
+        }
+
+        guard let closeRange = pending.range(of: Self.closeMarker) else {
+          let retained = longestSuffixMatchingPrefix(in: pending, of: Self.closeMarker)
+          let emitEnd = pending.index(pending.endIndex, offsetBy: -retained.count)
+          appendSegment(.thinking(String(pending[..<emitEnd])), to: &segments)
+          pending = retained
+          return segments
+        }
+
+        appendSegment(.thinking(String(pending[..<closeRange.lowerBound])), to: &segments)
+        pending.removeSubrange(pending.startIndex..<closeRange.upperBound)
+        isReadingThinking = false
+        continue
+      }
+
+      appendSegment(.visible(pending), to: &segments)
+      pending = ""
+    }
+
+    return segments
+  }
+
+  mutating func finish() -> [ReasoningTraceSegment] {
+    defer {
+      pending = ""
+      isReadingThinking = true
+      mayStartWithOpenMarker = true
+    }
+    guard !pending.isEmpty else {
+      return []
+    }
+    return [isReadingThinking ? .thinking(pending) : .visible(pending)]
+  }
+
+  private func appendSegment(
+    _ segment: ReasoningTraceSegment,
+    to segments: inout [ReasoningTraceSegment]
+  ) {
+    switch segment {
+    case .visible(let text), .thinking(let text):
+      guard !text.isEmpty else {
+        return
+      }
+      segments.append(segment)
+    }
   }
 }
 

@@ -53,6 +53,7 @@ public struct ModelLifecycleCoordinator: Sendable {
     from directoryURL: URL,
     requestedContextTokenLimit: Int,
     supportsImageInput: Bool,
+    reasoningTraceFormat: ReasoningTraceFormat,
     operationID: UUID
   ) async throws {
     try validateModelDirectory(directoryURL)
@@ -64,7 +65,8 @@ public struct ModelLifecycleCoordinator: Sendable {
         for: directoryURL,
         requestedContextTokenLimit: requestedContextTokenLimit
       ),
-      supportsImageInput: supportsImageInput
+      supportsImageInput: supportsImageInput,
+      reasoningTraceFormat: reasoningTraceFormat
     )
     try await runtimeOperations.load(configuration: configuration, operationID: operationID)
   }

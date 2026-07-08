@@ -5,6 +5,12 @@ public enum ManagedModelStability: Equatable, Sendable {
   case experimental
 }
 
+public enum ReasoningTraceFormat: Equatable, Sendable {
+  case none
+  case gemmaChannel
+  case qwenThinkTags
+}
+
 public struct ToolCallingPolicy: Codable, Equatable, Sendable {
   public var isEnabled: Bool
   public var allowsMultipleToolCalls: Bool
@@ -39,9 +45,44 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
   public let stability: ManagedModelStability
   public let toolCallingPolicy: ToolCallingPolicy
   public let supportsImageInput: Bool
+  public let reasoningTraceFormat: ReasoningTraceFormat
   public let defaultModeSettings: ChatModeSettingsSet
   public let defaultContextTokenLimit: Int
   public let enabled: Bool
+
+  public init(
+    id: String,
+    displayName: String,
+    detail: String,
+    huggingFaceRepoID: String,
+    localDirectoryName: String,
+    estimatedDownloadSize: String,
+    isRecommended: Bool,
+    requiresLargeMemory: Bool,
+    stability: ManagedModelStability,
+    toolCallingPolicy: ToolCallingPolicy,
+    supportsImageInput: Bool,
+    reasoningTraceFormat: ReasoningTraceFormat = .none,
+    defaultModeSettings: ChatModeSettingsSet,
+    defaultContextTokenLimit: Int,
+    enabled: Bool
+  ) {
+    self.id = id
+    self.displayName = displayName
+    self.detail = detail
+    self.huggingFaceRepoID = huggingFaceRepoID
+    self.localDirectoryName = localDirectoryName
+    self.estimatedDownloadSize = estimatedDownloadSize
+    self.isRecommended = isRecommended
+    self.requiresLargeMemory = requiresLargeMemory
+    self.stability = stability
+    self.toolCallingPolicy = toolCallingPolicy
+    self.supportsImageInput = supportsImageInput
+    self.reasoningTraceFormat = reasoningTraceFormat
+    self.defaultModeSettings = defaultModeSettings
+    self.defaultContextTokenLimit = defaultContextTokenLimit
+    self.enabled = enabled
+  }
 
   public var defaultSystemPrompt: String {
     defaultModeSettings.agent.systemPrompt
@@ -82,6 +123,7 @@ public enum ManagedModelCatalog {
       stability: .stable,
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: false,
+      reasoningTraceFormat: .gemmaChannel,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       enabled: false
@@ -98,6 +140,7 @@ public enum ManagedModelCatalog {
       stability: .stable,
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: false,
+      reasoningTraceFormat: .gemmaChannel,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       enabled: true
@@ -114,6 +157,7 @@ public enum ManagedModelCatalog {
       stability: .stable,
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: false,
+      reasoningTraceFormat: .gemmaChannel,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       enabled: false
@@ -130,6 +174,7 @@ public enum ManagedModelCatalog {
       stability: .stable,
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: true,
+      reasoningTraceFormat: .gemmaChannel,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       enabled: true
@@ -146,6 +191,7 @@ public enum ManagedModelCatalog {
       stability: .stable,
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: true,
+      reasoningTraceFormat: .gemmaChannel,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       enabled: true
@@ -162,6 +208,42 @@ public enum ManagedModelCatalog {
       stability: .stable,
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: true,
+      reasoningTraceFormat: .gemmaChannel,
+      defaultModeSettings: .defaultSettings,
+      defaultContextTokenLimit: defaultContextTokenLimit,
+      enabled: true
+    ),
+
+    ManagedModel(
+      id: "qwen3.6-35b-a3b-4bit",
+      displayName: "Qwen 3.6 35B A3B 4bit",
+      detail: "Experimental Qwen3.6 MoE model with local vision support.",
+      huggingFaceRepoID: "mlx-community/Qwen3.6-35B-A3B-4bit",
+      localDirectoryName: "Qwen3.6-35B-A3B-4bit",
+      estimatedDownloadSize: "20.4 GB",
+      isRecommended: false,
+      requiresLargeMemory: true,
+      stability: .experimental,
+      toolCallingPolicy: .nativeMLX,
+      supportsImageInput: true,
+      reasoningTraceFormat: .qwenThinkTags,
+      defaultModeSettings: .defaultSettings,
+      defaultContextTokenLimit: defaultContextTokenLimit,
+      enabled: true
+    ),
+    ManagedModel(
+      id: "qwen3.6-27B-4bit",
+      displayName: "Qwen 3.6 27B 4bit",
+      detail: "Experimental Qwen3.6 model with local vision support.",
+      huggingFaceRepoID: "mlx-community/Qwen3.6-27B-4bit",
+      localDirectoryName: "Qwen3.6-27B-4bit",
+      estimatedDownloadSize: "16.1 GB",
+      isRecommended: false,
+      requiresLargeMemory: true,
+      stability: .experimental,
+      toolCallingPolicy: .nativeMLX,
+      supportsImageInput: true,
+      reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       enabled: true

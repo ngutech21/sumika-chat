@@ -44,6 +44,17 @@ struct ModelManagementTests {
   }
 
   @Test
+  func catalogDeclaresReasoningTraceFormats() throws {
+    #expect(ManagedModelCatalog.defaultModel.reasoningTraceFormat == .gemmaChannel)
+
+    let qwen27B = try #require(ManagedModelCatalog.model(id: "qwen3.6-27B-4bit"))
+    #expect(qwen27B.reasoningTraceFormat == .qwenThinkTags)
+
+    let qwen35B = try #require(ManagedModelCatalog.model(id: "qwen3.6-35b-a3b-4bit"))
+    #expect(qwen35B.reasoningTraceFormat == .qwenThinkTags)
+  }
+
+  @Test
   func settingsStorePersistsSelectedModelAndPerModelSettings() async throws {
     let userDefaultsSuiteName = makeUserDefaultsSuiteName()
     let settingsURL = temporarySettingsURL()

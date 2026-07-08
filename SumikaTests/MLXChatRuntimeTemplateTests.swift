@@ -82,6 +82,7 @@ struct MLXChatRuntimeTemplateTests {
   func mlxToolCallFormatInferenceDocumentsGemmaAndQwenCoverage() {
     #expect(ToolCallFormat.infer(from: "gemma4_unified") == .gemma4)
     #expect(ToolCallFormat.infer(from: "qwen3_5") == .xmlFunction)
+    #expect(ToolCallFormat.infer(from: "qwen3_5_moe") == .xmlFunction)
     #expect(ToolCallFormat.infer(from: "qwen3_next") == .xmlFunction)
     #expect(ToolCallFormat.infer(from: "qwen3") == nil)
     #expect(ToolCallFormat.infer(from: "qwen2") == nil)
@@ -1910,6 +1911,7 @@ struct MLXChatRuntimeTemplateTests {
     }
     let stream = MLXModelStreamProcessor.modelStream(
       from: source,
+      reasoningTraceFormat: .gemmaChannel,
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
@@ -1939,6 +1941,97 @@ struct MLXChatRuntimeTemplateTests {
     #expect(chunks.joined() == "Hello there.")
     #expect(thinkingChunks.joined() == " The user said hey.")
     #expect(await completionRecorder.firstOutput == "Hello there.")
+    #expect(await memoryClearRecorder.reasons.isEmpty)
+  }
+
+  @Test
+  func qwenThinkTagParserStartsInThinkingMode() {
+    var parser = QwenThinkTagParser()
+
+    let segments = [
+      parser.append("The user said hey."),
+      parser.append("</th"),
+      parser.append("ink>\n\nHello."),
+      parser.finish(),
+    ].flatMap { $0 }
+
+    #expect(
+      segments == [
+        .thinking("The user said hey."),
+        .visible("\n\nHello."),
+      ])
+  }
+
+  @Test
+  func qwenThinkTagParserStripsOptionalOpeningTag() {
+    var parser = QwenThinkTagParser()
+
+    let segments = [
+      parser.append("<th"),
+      parser.append("ink>Reasoning"),
+      parser.append("</think>Answer"),
+      parser.finish(),
+    ].flatMap { $0 }
+
+    #expect(
+      segments == [
+        .thinking("Reasoning"),
+        .visible("Answer"),
+      ])
+  }
+
+  @Test
+  func modelStreamSeparatesQwenThinkTagChunks() async throws {
+    let memoryClearRecorder = MLXMemoryClearRecorder()
+    let completionRecorder = MLXStreamCompletionRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("The user said hey."))
+      continuation.yield(.chunk("</th"))
+      continuation.yield(.chunk("ink>\n\nHello"))
+      continuation.yield(.chunk(" there."))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 8,
+            promptTime: 0.1,
+            generationTime: 0.1
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = MLXModelStreamProcessor.modelStream(
+      from: source,
+      reasoningTraceFormat: .qwenThinkTags,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { output in
+        await completionRecorder.record(output)
+      },
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    var chunks: [String] = []
+    var thinkingChunks: [String] = []
+    var iterator = stream.makeAsyncIterator()
+    while let event = try await iterator.next() {
+      switch event {
+      case .chunk(let chunk):
+        chunks.append(chunk)
+      case .thinkingChunk(let chunk):
+        thinkingChunks.append(chunk)
+      case .toolCall, .completed:
+        break
+      }
+    }
+
+    #expect(chunks.joined() == "\n\nHello there.")
+    #expect(thinkingChunks.joined() == "The user said hey.")
+    #expect(await completionRecorder.firstOutput == "\n\nHello there.")
     #expect(await memoryClearRecorder.reasons.isEmpty)
   }
 

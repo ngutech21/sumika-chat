@@ -9,6 +9,7 @@ import Tokenizers
 final actor MLXChatRuntime: ChatModelRuntime {
   private var modelContainer: ModelContainer?
   private var loadedModelSupportsImageInput = false
+  private var loadedReasoningTraceFormat: ReasoningTraceFormat = .none
   private var cachedSession: CachedMLXSession?
   private var pendingCacheInvalidationReason: MLXSessionInvalidationReason?
   private var lastRuntimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
@@ -52,6 +53,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
 
     modelContainer = container
     loadedModelSupportsImageInput = configuration.supportsImageInput
+    loadedReasoningTraceFormat = configuration.reasoningTraceFormat
     contextTokenLimit = configuration.contextTokenLimit
     lastRuntimeCacheDebugSnapshot = nil
     invalidateCachedSession(reason: .modelChanged)
@@ -64,6 +66,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     invalidateCachedSession(reason: .modelChanged)
     modelContainer = nil
     loadedModelSupportsImageInput = false
+    loadedReasoningTraceFormat = .none
     contextTokenLimit = nil
     lastRuntimeCacheDebugSnapshot = nil
     await MLXModelStreamProcessor.clearMemoryCache(
@@ -297,6 +300,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     )
     let streamPlan = MLXModelStreamProcessor.modelStreamPlan(
       from: stream,
+      reasoningTraceFormat: settings.reasoningEnabled ? loadedReasoningTraceFormat : .none,
       traceID: traceID,
       traceMetadata: traceMetadata,
       cacheTrace: cachePlan.trace,

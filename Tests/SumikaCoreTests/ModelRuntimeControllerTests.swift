@@ -226,6 +226,26 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func loadModelPassesSelectedModelReasoningTraceFormat() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = RuntimeControllerRecordingRuntime()
+    let store = RuntimeFakeModelSettingsStore()
+    store.selectedModelIDValue = "qwen3.6-27B-4bit"
+    let controller = await makeController(
+      modelSettingsStore: store,
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+
+    try await waitUntil { controller.modelState == .ready }
+
+    let configuration = await runtime.loadedConfiguration
+    #expect(configuration?.reasoningTraceFormat == .qwenThinkTags)
+  }
+
+  @Test
   func loadModelCapsContextLimitAtUserRequestedSetting() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"max_position_embeddings":131072}"#)
     let runtime = RuntimeControllerRecordingRuntime()

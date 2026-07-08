@@ -301,15 +301,20 @@ only whether native MLX tool calling is enabled and whether multiple tool calls
 are allowed; it does not select a model-family parser.
 
 The pinned MLX revision infers Gemma 4 `gemma4_unified` as `.gemma4` and
-`qwen3_5*`/`qwen3_next*` as `.xmlFunction`. Plain `qwen2` and `qwen3` currently
-infer `nil`, so Qwen text generation can be prepared separately, but native
-Qwen tool calling remains deferred until MLX supports or explicitly configures
-that format.
+`qwen3_5*`/`qwen3_next*` as `.xmlFunction`. This covers the experimental
+Qwen3.6 35B A3B MLX export, which reports the `qwen3_5_moe` architecture. Plain
+`qwen2` and `qwen3` currently infer `nil`, so broader Qwen text generation can
+be prepared separately, but native Qwen tool calling remains limited to the
+families MLX can infer or explicitly configure.
 
-Thought streaming is a separate model-family gap. Sumika still parses Gemma's
-thought channel through `GemmaThoughtChannelParser`; Qwen3-style
-`<think>...</think>` parsing needs a later family-aware parser. The
-`enable_thinking` additional-context key remains generic.
+Thought streaming is model-capability driven through `ManagedModel`'s
+`reasoningTraceFormat`. The MLX stream processor maps Gemma thought-channel
+markers and Qwen `<think>...</think>` traces into `thinkingChunk` events before
+the UI sees the response. Qwen parsing starts in the thinking state when
+reasoning is enabled because the Qwen chat template can place the opening
+`<think>` marker in the prompt instead of the generated stream. The
+`enable_thinking` additional-context key remains generic and parser selection
+stays outside SwiftUI.
 
 ## Persistence Rules
 
