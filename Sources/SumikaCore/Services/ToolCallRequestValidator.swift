@@ -36,9 +36,15 @@ public struct ToolCallRequestValidator: Sendable {
       return invalidRequest(rawRequest, reason: argumentError)
     }
 
+    let normalizedRequest = normalizedDynamicRequest(
+      rawRequest,
+      definition: definition,
+      isDynamic: dynamicCodec != nil
+    )
+
     do {
-      let payload = try codec.payload(from: rawRequest.arguments)
-      return ToolCallRequest.validated(raw: rawRequest, payload: payload)
+      let payload = try codec.payload(from: normalizedRequest.arguments)
+      return ToolCallRequest.validated(raw: normalizedRequest, payload: payload)
     } catch let error as InvalidToolCallReason {
       return invalidRequest(rawRequest, reason: error)
     } catch {
@@ -83,6 +89,22 @@ public struct ToolCallRequestValidator: Sendable {
     }
 
     return nil
+  }
+
+  private func normalizedDynamicRequest(
+    _ rawRequest: RawToolCallRequest,
+    definition: ToolDefinition,
+    isDynamic: Bool
+  ) -> RawToolCallRequest {
+    guard isDynamic, let rawSchema = definition.rawParametersSchema else {
+      return rawRequest
+    }
+    var request = rawRequest
+    request.arguments = ToolSchemaArgumentNormalizer.normalized(
+      rawRequest.arguments,
+      using: rawSchema
+    )
+    return request
   }
 
   private static func requiredParameterNames(

@@ -151,6 +151,100 @@ struct MCPToolRuntimeTests {
   }
 
   @Test
+  func validatorNormalizesMCPArgumentsUsingRawSchema() {
+    let schema = ToolArgumentValue.object([
+      "type": .string("object"),
+      "properties": .object([
+        "max_count": .object(["type": .string("integer")]),
+        "score": .object(["type": .string("number")]),
+        "include_merges": .object(["type": .string("boolean")]),
+        "filters": .object([
+          "type": .string("object"),
+          "properties": .object([
+            "limit": .object(["type": .string("integer")]),
+            "label": .object(["type": .string("string")]),
+          ]),
+        ]),
+        "flags": .object([
+          "type": .string("array"),
+          "items": .object(["type": .string("boolean")]),
+        ]),
+      ]),
+    ])
+    let executor = makeExecutor(result: nil, inputSchema: schema)
+    let registry = ToolExecutorRegistry.codingAgent.merging([AnyToolExecutor(dynamic: executor)])
+
+    let request = validator.validate(
+      rawRequest(
+        toolName: ToolName(rawValue: "mcp__github__create_issue"),
+        arguments: [
+          "max_count": .string("10"),
+          "score": .string("2.5"),
+          "include_merges": .string("false"),
+          "filters": .object([
+            "limit": .string("3"),
+            "label": .string("10"),
+          ]),
+          "flags": .array([.string("true"), .string("false"), .bool(true)]),
+          "unknown_count": .string("8"),
+        ]
+      ),
+      registry: registry.toolRegistry,
+      dynamicCodecs: registry.dynamicCodecs
+    )
+
+    guard case .mcp(let input) = request.payload else {
+      Issue.record("Expected mcp payload, got \(request.payload)")
+      return
+    }
+    let expected: ToolCallArguments = [
+      "max_count": .number(10),
+      "score": .number(2.5),
+      "include_merges": .bool(false),
+      "filters": .object([
+        "limit": .number(3),
+        "label": .string("10"),
+      ]),
+      "flags": .array([.bool(true), .bool(false), .bool(true)]),
+      "unknown_count": .string("8"),
+    ]
+    #expect(request.raw.arguments == expected)
+    #expect(input.arguments == expected)
+  }
+
+  @Test
+  func validatorLeavesNonLosslessMCPArgumentStringsForServerValidation() {
+    let schema = ToolArgumentValue.object([
+      "type": .string("object"),
+      "properties": .object([
+        "max_count": .object(["type": .string("integer")]),
+        "include_merges": .object(["type": .string("boolean")]),
+      ]),
+    ])
+    let executor = makeExecutor(result: nil, inputSchema: schema)
+    let registry = ToolExecutorRegistry.codingAgent.merging([AnyToolExecutor(dynamic: executor)])
+
+    let request = validator.validate(
+      rawRequest(
+        toolName: ToolName(rawValue: "mcp__github__create_issue"),
+        arguments: [
+          "max_count": .string("10.5"),
+          "include_merges": .string("yes"),
+        ]
+      ),
+      registry: registry.toolRegistry,
+      dynamicCodecs: registry.dynamicCodecs
+    )
+
+    guard case .mcp(let input) = request.payload else {
+      Issue.record("Expected mcp payload, got \(request.payload)")
+      return
+    }
+    #expect(input.arguments["max_count"] == .string("10.5"))
+    #expect(input.arguments["include_merges"] == .string("yes"))
+  }
+
+  @Test
   func validatorEnforcesRequiredParametersFromRawSchema() {
     let schema = ToolArgumentValue.object([
       "type": .string("object"),
