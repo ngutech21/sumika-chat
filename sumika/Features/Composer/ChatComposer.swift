@@ -805,7 +805,7 @@ private struct ComposerSpeechInputControl: View {
           .font(.caption2.monospacedDigit())
           .foregroundStyle(statusForeground)
           .lineLimit(1)
-          .frame(maxWidth: 120, alignment: .trailing)
+          .frame(maxWidth: 150, alignment: .trailing)
       }
 
       Button {

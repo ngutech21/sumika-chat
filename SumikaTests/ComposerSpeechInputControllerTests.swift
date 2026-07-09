@@ -37,11 +37,97 @@ struct ComposerSpeechInputControllerTests {
     )
 
     try await waitForComposerSpeechCondition {
-      controller.phase.isRecording
+      controller.phase.isRecording && service.prepareModelCount == 1
     }
 
     #expect(service.startCount == 1)
+    #expect(service.prepareModelCount == 1)
     controller.cancel()
+  }
+
+  @Test
+  func recordingStartsWhileSpeechModelIsStillLoading() async throws {
+    let service = FakeSpeechInputService(suspendsModelPreparation: true)
+    let controller = ComposerSpeechInputController(service: service)
+
+    controller.start(
+      onTranscript: { _ in },
+      onNeedsAudioModel: {}
+    )
+
+    try await waitForComposerSpeechCondition {
+      guard case .recording(_, .loading) = controller.phase else {
+        return false
+      }
+      return service.prepareModelCount == 1
+    }
+
+    #expect(controller.statusText?.hasPrefix("Loading model") == true)
+
+    service.finishModelPreparation()
+
+    try await waitForComposerSpeechCondition {
+      guard case .recording(_, .ready) = controller.phase else {
+        return false
+      }
+      return true
+    }
+
+    controller.cancel()
+  }
+
+  @Test
+  func stoppingWhileModelLoadsShowsWhatFinalizationIsWaitingFor() async throws {
+    let service = FakeSpeechInputService(
+      stopText: "dictated text",
+      suspendsModelPreparation: true,
+      stopWaitsForModelPreparation: true
+    )
+    let controller = ComposerSpeechInputController(service: service)
+    var transcript: String?
+
+    controller.start(
+      onTranscript: { transcript = $0 },
+      onNeedsAudioModel: {}
+    )
+
+    try await waitForComposerSpeechCondition {
+      guard case .recording(_, .loading) = controller.phase else {
+        return false
+      }
+      return true
+    }
+
+    controller.stop { transcript = $0 }
+
+    #expect(controller.phase == .finalizing(.waitingForModel))
+    #expect(controller.statusText == "Waiting for model")
+
+    service.finishModelPreparation()
+
+    try await waitForComposerSpeechCondition {
+      transcript == "dictated text" && controller.phase == .idle
+    }
+  }
+
+  @Test
+  func speechModelLoadFailureStopsCaptureAndShowsTheError() async throws {
+    let service = FakeSpeechInputService(
+      prepareModelError: TestComposerSpeechError.modelLoadFailed
+    )
+    let controller = ComposerSpeechInputController(service: service)
+
+    controller.start(
+      onTranscript: { _ in },
+      onNeedsAudioModel: {}
+    )
+
+    try await waitForComposerSpeechCondition {
+      controller.phase == .failed("Model load failed")
+    }
+
+    #expect(service.cancelCount == 1)
+    #expect(controller.statusText == "Model load failed")
   }
 
   @Test
@@ -55,7 +141,7 @@ struct ComposerSpeechInputControllerTests {
     )
 
     try await waitForComposerSpeechCondition {
-      service.startCount == 1 && controller.phase == .preparing
+      service.startCount == 1 && controller.phase == .startingMicrophone
     }
 
     controller.cancel()
@@ -157,17 +243,33 @@ struct ComposerAudioModelControllerTests {
 
 private final class FakeSpeechInputService: ComposerSpeechInputServicing {
   var startCount = 0
+  var prepareModelCount = 0
   var stopCount = 0
   var cancelCount = 0
   let startError: Error?
+  let prepareModelError: Error?
   let stopText: String
   let suspendsStart: Bool
+  let suspendsModelPreparation: Bool
+  let stopWaitsForModelPreparation: Bool
   private var startContinuation: CheckedContinuation<Void, Never>?
+  private var modelPreparationContinuations: [CheckedContinuation<Void, Never>] = []
+  private var isModelPreparationFinished = false
 
-  init(startError: Error? = nil, stopText: String = "", suspendsStart: Bool = false) {
+  init(
+    startError: Error? = nil,
+    prepareModelError: Error? = nil,
+    stopText: String = "",
+    suspendsStart: Bool = false,
+    suspendsModelPreparation: Bool = false,
+    stopWaitsForModelPreparation: Bool = false
+  ) {
     self.startError = startError
+    self.prepareModelError = prepareModelError
     self.stopText = stopText
     self.suspendsStart = suspendsStart
+    self.suspendsModelPreparation = suspendsModelPreparation
+    self.stopWaitsForModelPreparation = stopWaitsForModelPreparation
   }
 
   func start() async throws {
@@ -182,8 +284,23 @@ private final class FakeSpeechInputService: ComposerSpeechInputServicing {
     }
   }
 
+  func prepareModel() async throws {
+    prepareModelCount += 1
+    if suspendsModelPreparation && !isModelPreparationFinished {
+      await withCheckedContinuation { continuation in
+        modelPreparationContinuations.append(continuation)
+      }
+    }
+    if let prepareModelError {
+      throw prepareModelError
+    }
+  }
+
   func stop() async throws -> String {
     stopCount += 1
+    if stopWaitsForModelPreparation {
+      try await prepareModel()
+    }
     return stopText
   }
 
@@ -194,6 +311,15 @@ private final class FakeSpeechInputService: ComposerSpeechInputServicing {
   func finishStart() {
     startContinuation?.resume()
     startContinuation = nil
+  }
+
+  func finishModelPreparation() {
+    isModelPreparationFinished = true
+    let continuations = modelPreparationContinuations
+    modelPreparationContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
   }
 }
 
@@ -230,9 +356,15 @@ private actor FakeAudioModelService: ComposerAudioModelServicing {
 
 private enum TestComposerSpeechError: LocalizedError {
   case downloadFailed
+  case modelLoadFailed
 
   var errorDescription: String? {
-    "Download failed"
+    switch self {
+    case .downloadFailed:
+      "Download failed"
+    case .modelLoadFailed:
+      "Model load failed"
+    }
   }
 }
 
