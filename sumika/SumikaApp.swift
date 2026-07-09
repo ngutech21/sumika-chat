@@ -10,6 +10,7 @@ struct SumikaApp: App {
   #endif
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible =
     false
+  @NSApplicationDelegateAdaptor(SumikaAppDelegate.self) private var appDelegate
   @State private var appState: AppState
 
   @MainActor
@@ -21,6 +22,11 @@ struct SumikaApp: App {
   var body: some Scene {
     Window("Sumika", id: "main") {
       ContentView(appState: appState)
+        .onAppear {
+          appDelegate.prepareForTermination = {
+            await appState.prepareForTermination()
+          }
+        }
     }
     .commands {
       CommandGroup(replacing: .appInfo) {

@@ -296,6 +296,14 @@ final class AppState {
     return true
   }
 
+  /// Runs on the termination path: snapshots the live session and waits until
+  /// every queued library write has reached the store — the unstructured save
+  /// tasks would otherwise die with the process.
+  func prepareForTermination() async {
+    persistActiveSession()
+    await workspaceState.flushPendingSaves()
+  }
+
   private func loadRouteSession() {
     guard
       case .chat = route,

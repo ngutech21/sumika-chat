@@ -63,6 +63,85 @@ struct AppStateTests {
   }
 
   @Test
+  func prepareForTerminationPersistsUnsavedSessionStateBeforeReturning() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: sessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    appState.chatController.chatSession.title = "Unsaved title"
+
+    await appState.prepareForTermination()
+
+    let savedLibrary = await workspaceStore.latestSavedLibrary()
+    let savedSession = try #require(
+      savedLibrary?.workspaces.first?.sessions.first(where: { $0.id == sessionID })
+    )
+    #expect(savedSession.title == "Unsaved title")
+  }
+
+  @Test
+  func prepareForTerminationWaitsForInFlightSavesBeforeReturning() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let workspaceStore = SlowSaveWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: sessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    _ = appState.persistActiveSession()
+    appState.chatController.chatSession.title = "Final title"
+
+    await appState.prepareForTermination()
+
+    let savedLibrary = await workspaceStore.latestSavedLibrary()
+    let savedSession = try #require(
+      savedLibrary?.workspaces.first?.sessions.first(where: { $0.id == sessionID })
+    )
+    #expect(savedSession.title == "Final title")
+  }
+
+  @Test
   func sendMessagePersistsActiveSession() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()
@@ -1195,6 +1274,29 @@ private actor InMemoryWorkspaceStore: WorkspaceStoring {
   }
 
   func saveLibrary(_ library: WorkspaceLibrary) async throws {
+    self.library = library
+    savedLibraries.append(library)
+  }
+
+  func latestSavedLibrary() -> WorkspaceLibrary? {
+    savedLibraries.last
+  }
+}
+
+private actor SlowSaveWorkspaceStore: WorkspaceStoring {
+  private var library: WorkspaceLibrary
+  private var savedLibraries: [WorkspaceLibrary] = []
+
+  init(initialLibrary: WorkspaceLibrary) {
+    self.library = initialLibrary
+  }
+
+  func loadLibrary() async -> WorkspaceLibraryLoadResult {
+    WorkspaceLibraryLoadResult(library: library)
+  }
+
+  func saveLibrary(_ library: WorkspaceLibrary) async throws {
+    try await Task.sleep(for: .milliseconds(50))
     self.library = library
     savedLibraries.append(library)
   }

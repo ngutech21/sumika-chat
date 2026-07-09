@@ -291,6 +291,13 @@ final class WorkspaceFeatureState {
     }
   }
 
+  /// Waits until every queued library write has reached the store. Saves are
+  /// chained behind each other, so awaiting the newest task drains the whole
+  /// queue.
+  func flushPendingSaves() async {
+    await saveLibraryTask?.value
+  }
+
   private func openActiveWorkspace(destination: WorkspaceOpenDestination) {
     guard let workspace = activeWorkspace else {
       errorMessage = WorkspaceOpenError.noActiveWorkspace.localizedDescription
