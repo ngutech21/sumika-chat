@@ -51,6 +51,7 @@ public enum ToolCapability: String, Codable, Equatable, Hashable, Sendable {
   case writeWorkspace
   case runCommand
   case accessWeb
+  case externalService
 }
 
 public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
@@ -59,6 +60,12 @@ public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
   public var name: ToolName
   public var description: String
   public var parameters: [ToolParameterDefinition]
+  /// Verbatim JSON Schema for dynamic (MCP) tools whose parameter shapes the
+  /// structured `parameters` list cannot express. When set, provider adapters
+  /// must pass this schema through instead of deriving one from `parameters`,
+  /// and argument-name validation is skipped because the schema owner (the
+  /// external server) validates calls itself.
+  public var rawParametersSchema: ToolArgumentValue?
   public var capabilities: Set<ToolCapability>
   public var riskLevel: ToolRiskLevel
 
@@ -66,6 +73,7 @@ public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
     name: ToolName,
     description: String,
     parameters: [ToolParameterDefinition],
+    rawParametersSchema: ToolArgumentValue? = nil,
     capabilities: Set<ToolCapability> = [],
     riskLevel: ToolRiskLevel = .low
   ) {
@@ -76,6 +84,7 @@ public struct ToolDefinition: Codable, Identifiable, Equatable, Sendable {
     self.name = name
     self.description = description
     self.parameters = parameters
+    self.rawParametersSchema = rawParametersSchema
     self.capabilities = capabilities
     self.riskLevel = riskLevel
   }

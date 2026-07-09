@@ -38,6 +38,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -83,6 +84,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -122,6 +124,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -162,6 +165,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime(eventTurns: [[.chunk("Persisted reply.")]])
     )
 
@@ -217,6 +221,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -247,6 +252,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -292,6 +298,7 @@ struct AppStateTests {
       ),
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime(),
       workspaceOpener: opener
     )
@@ -332,6 +339,7 @@ struct AppStateTests {
       ),
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime(),
       workspaceOpener: opener
     )
@@ -370,6 +378,7 @@ struct AppStateTests {
       ),
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime(),
       workspaceOpener: FailingWorkspaceOpener(
         error: WorkspaceOpenError.applicationNotFound("Visual Studio Code")
@@ -430,6 +439,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -473,6 +483,7 @@ struct AppStateTests {
       ),
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -504,6 +515,7 @@ struct AppStateTests {
       ),
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -537,6 +549,7 @@ struct AppStateTests {
       ),
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -578,6 +591,7 @@ struct AppStateTests {
       ),
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime(),
       modelAvailability: { _ in false }
     )
@@ -621,6 +635,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -675,6 +690,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -720,6 +736,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -749,6 +766,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -790,6 +808,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime(eventTurns: [[.chunk("Persisted reply.")]])
     )
 
@@ -844,6 +863,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -893,6 +913,7 @@ struct AppStateTests {
       workspaceStore: workspaceStore,
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: AppStateTestRuntime()
     )
 
@@ -928,6 +949,7 @@ struct AppStateTests {
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
       appBehaviorSettingsStore: appBehaviorSettingsStore,
+      mcpServersStore: InMemoryMCPServersStore(),
       browserToolService: HTMLPreviewBrowserToolService(),
       chatController: controller
     )
@@ -952,6 +974,7 @@ struct AppStateTests {
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
       appBehaviorSettingsStore: appBehaviorSettingsStore,
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: runtime,
       modelAvailability: { _ in true }
     )
@@ -998,6 +1021,7 @@ struct AppStateTests {
       appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(
         settings: AppBehaviorSettings(autoloadLastModel: true)
       ),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: runtime,
       modelAvailability: { _ in true }
     )
@@ -1027,6 +1051,7 @@ struct AppStateTests {
       appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(
         settings: AppBehaviorSettings(autoloadLastModel: true)
       ),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: runtime,
       modelAvailability: { _ in false }
     )
@@ -1086,6 +1111,7 @@ struct AppStateTests {
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       browserToolService: browserToolService,
       chatController: controller
     )
@@ -1181,6 +1207,7 @@ struct AppStateTests {
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
       appBehaviorSettingsStore: InMemoryAppBehaviorSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: runtime
     )
 
@@ -1228,6 +1255,7 @@ struct AppStateTests {
       modelSettingsStore: InMemoryModelSettingsStore(),
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
       appBehaviorSettingsStore: appBehaviorSettingsStore,
+      mcpServersStore: InMemoryMCPServersStore(),
       runtime: runtime
     )
 
@@ -1346,6 +1374,22 @@ private actor InMemoryWebAccessSettingsStore: WebAccessSettingsStoring {
 
   func save(settings: WebAccessSettings) async throws {
     storedSettings = settings
+  }
+}
+
+private actor InMemoryMCPServersStore: MCPServersStoring {
+  private var storedServers: [MCPServerConfig]
+
+  init(servers: [MCPServerConfig] = []) {
+    self.storedServers = servers
+  }
+
+  func servers() async -> [MCPServerConfig] {
+    storedServers
+  }
+
+  func save(servers: [MCPServerConfig]) async throws {
+    storedServers = servers
   }
 }
 

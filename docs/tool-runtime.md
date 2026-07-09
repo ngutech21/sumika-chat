@@ -329,6 +329,66 @@ and tests.
 6. Add tests for argument decoding, permission, execution, registry visibility,
    and any security-sensitive failure mode.
 
+## MCP Tools
+
+External MCP servers contribute dynamic tools at runtime. They flow through
+the same validation, permission, approval, and projection pipeline as built-in
+tools; only their definitions and codecs are instance state instead of static
+declarations.
+
+- `MCPServerConfig` is the persisted server description (name, command,
+  arguments, environment, enabled flag), stored in `mcp-servers.json` through
+  `MCPServersStore`. Servers are configured globally in Settings; workspaces
+  and repositories cannot contribute server configurations.
+- `MCPServerConnection` owns one stdio server process. Sumika spawns
+  `/usr/bin/env <command> <args>` with the same PATH conventions as
+  `run_command`, speaks JSON-RPC 2.0 over newline-delimited JSON
+  (`initialize`, `notifications/initialized`, paginated `tools/list`,
+  `tools/call`), reads pipes through `readabilityHandler`-based line streams,
+  and terminates the whole process tree on shutdown. Result text is capped and
+  marked truncated; non-text content blocks become explicit unsupported
+  placeholders.
+- `MCPClientManager` reconciles connections with the configured server list,
+  reports per-server statuses for the settings UI, and projects every tool of
+  every connected server as an `AnyToolExecutor(dynamic:)`. It never
+  reconnects on its own; a crashed server surfaces as failed tool calls until
+  the user reconnects or reapplies the configuration.
+- `DynamicToolExecutor` is the instance-codec sibling of `TypedToolExecutor`.
+  Both run through one shared execution state machine in `AnyToolExecutor`;
+  dynamic executors additionally carry their codec so
+  `ToolCallRequestValidator` can decode raw arguments for tool names that have
+  no built-in codec catalog entry. Built-in codecs still resolve first, which
+  preserves the `unknown` versus `unavailable` distinction for built-in tools.
+- MCP tool names are namespaced as `mcp__<server-slug>__<tool>`; slugs are
+  deduplicated across servers. `ToolCallPayload.mcp` and
+  `ToolResultPayload.mcp` are the generic persisted cases; the payload's
+  `toolName` is the qualified name so request/payload cross-checks hold.
+- MCP definitions carry the server's JSON Schema in
+  `ToolDefinition.rawParametersSchema`, normalized by
+  `MCPToolSchemaNormalizer` into a model-agnostic canonical shape: every
+  property has a plain string `type`, pydantic-style optionals (`anyOf` with
+  a null variant, `type` arrays, untyped properties) collapse to that type
+  plus OpenAPI-style `nullable: true`, and composition keywords disappear.
+  This is the lowest common denominator across chat-template styles —
+  templates that dispatch structurally on the property type (Gemma) require
+  it, templates that dump the schema as JSON (Qwen) render it shorter and
+  cleaner. The normalization must not encode assumptions about one specific
+  model family. Provider adapters (`MLXToolMapper`) pass the normalized
+  schema through instead of deriving a flat one, dropping JSON `null` values
+  because the shared Jinja engine cannot represent them regardless of model.
+  Argument validation for dynamic tools enforces only the schema's explicit
+  `required` list; the server owns full argument validation.
+- Every MCP tool call requires approval before every execution, with a preview
+  of server, tool, and arguments. Tool availability is Agent-only: dynamic
+  executors are merged into the coding-agent registry through
+  `ToolExecutorRegistry.merging`, recomposed whenever servers connect,
+  disconnect, or the todo-write setting changes. Chat (web) sessions never
+  expose MCP tools.
+- Server-provided tool descriptions are untrusted prompt input and are capped
+  before entering definitions. MCP results are untrusted tool output: the
+  model observation is a capped summary block, and `is_error` results project
+  as failed observations.
+
 ## Security Rules
 
 - Tools must not parse XML, tagged text, JSON, or provider-native tool-call

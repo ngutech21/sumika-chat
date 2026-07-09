@@ -5,6 +5,8 @@ import SwiftUI
 struct AppSettingsView: View {
   let settingsState: SettingsFeatureState
   let onUpdateAppBehaviorSettings: (AppBehaviorSettings) -> Void
+  var onUpdateMCPServers: ([MCPServerConfig]) -> Void = { _ in }
+  var onReconnectMCPServer: (UUID) -> Void = { _ in }
   @State private var selectedTab = SettingsTab.general
 
   var body: some View {
@@ -13,10 +15,11 @@ struct AppSettingsView: View {
         Text("General").tag(SettingsTab.general)
         Text("Speech").tag(SettingsTab.speech)
         Text("Web").tag(SettingsTab.web)
+        Text("MCP").tag(SettingsTab.mcp)
       }
       .pickerStyle(.segmented)
       .labelsHidden()
-      .frame(width: 240)
+      .frame(width: 300)
       .padding(.top, 14)
       .padding(.bottom, 8)
 
@@ -28,6 +31,12 @@ struct AppSettingsView: View {
           speechTab
         case .web:
           webAccessTab
+        case .mcp:
+          MCPServersSettingsView(
+            settingsState: settingsState,
+            onUpdateServers: onUpdateMCPServers,
+            onReconnectServer: onReconnectMCPServer
+          )
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -336,6 +345,7 @@ private enum SettingsTab: Hashable {
   case general
   case speech
   case web
+  case mcp
 }
 
 private enum SystemSpeechSettingsLink {

@@ -20,9 +20,42 @@ nonisolated enum MLXToolMapper {
       "function": [
         "name": definition.name.rawValue,
         "description": definition.description,
-        "parameters": jsonSchemaObject(for: definition.parameters),
+        "parameters": parametersSchema(for: definition),
       ] as [String: any Sendable],
     ] as ToolSpec
+  }
+
+  /// Dynamic (MCP) definitions carry a verbatim server-provided JSON Schema
+  /// that the structured parameter list cannot express; pass it through
+  /// instead of deriving a flat schema. JSON `null` values (pydantic servers
+  /// emit `"default": null`) are dropped rather than mapped to `NSNull`,
+  /// which the Jinja chat-template engine cannot convert.
+  nonisolated private static func parametersSchema(
+    for definition: ToolDefinition
+  ) -> any Sendable {
+    guard let rawSchema = definition.rawParametersSchema else {
+      return jsonSchemaObject(for: definition.parameters)
+    }
+    return nullFreeSendableValue(from: rawSchema) ?? [String: any Sendable]()
+  }
+
+  nonisolated private static func nullFreeSendableValue(
+    from value: ToolArgumentValue
+  ) -> (any Sendable)? {
+    switch value {
+    case .string(let string):
+      return string
+    case .number(let number):
+      return number
+    case .bool(let bool):
+      return bool
+    case .array(let array):
+      return array.compactMap(nullFreeSendableValue(from:))
+    case .object(let object):
+      return object.compactMapValues(nullFreeSendableValue(from:))
+    case .null:
+      return nil
+    }
   }
 
   nonisolated private static func jsonSchemaObject(

@@ -2343,6 +2343,95 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func nativeMLXToolContextPassesRawParametersSchemaThroughVerbatim() throws {
+    let rawSchema = ToolArgumentValue.object([
+      "type": .string("object"),
+      "properties": .object([
+        "filter": .object([
+          "type": .string("object"),
+          "properties": .object([
+            "state": .object([
+              "type": .string("string"),
+              "enum": .array([.string("open"), .string("closed")]),
+            ])
+          ]),
+        ])
+      ]),
+      "required": .array([.string("filter")]),
+    ])
+    let definition = ToolDefinition(
+      name: ToolName(rawValue: "mcp__github__list_issues"),
+      description: "List issues.",
+      parameters: [],
+      rawParametersSchema: rawSchema,
+      capabilities: [.externalService],
+      riskLevel: .high
+    )
+    let toolContext = ChatRuntimeToolContext(registry: ToolRegistry(tools: [definition]))
+
+    let specs = try #require(MLXToolMapper.toolSpecs(from: toolContext))
+    let function = try #require(specs.first?["function"] as? [String: any Sendable])
+    let parameters = try #require(function["parameters"] as? [String: any Sendable])
+    let properties = try #require(parameters["properties"] as? [String: any Sendable])
+    let filter = try #require(properties["filter"] as? [String: any Sendable])
+    let filterProperties = try #require(filter["properties"] as? [String: any Sendable])
+    let state = try #require(filterProperties["state"] as? [String: any Sendable])
+
+    #expect(function["name"] as? String == "mcp__github__list_issues")
+    #expect(parameters["required"] as? [String] == ["filter"])
+    #expect(filter["type"] as? String == "object")
+    #expect(state["enum"] as? [String] == ["open", "closed"])
+  }
+
+  @Test
+  func nativeMLXToolContextDropsNullValuesFromRawSchema() throws {
+    // pydantic-based MCP servers (e.g. mcp-server-git) emit `"default": null`;
+    // the Jinja chat-template engine cannot convert NSNull, so nulls must not
+    // survive the ToolSpec mapping.
+    let rawSchema = ToolArgumentValue.object([
+      "type": .string("object"),
+      "properties": .object([
+        "start_timestamp": .object([
+          "type": .string("string"),
+          "default": .null,
+        ])
+      ]),
+    ])
+    let definition = ToolDefinition(
+      name: ToolName(rawValue: "mcp__git__git_log"),
+      description: "Show commit logs.",
+      parameters: [],
+      rawParametersSchema: rawSchema,
+      capabilities: [.externalService],
+      riskLevel: .high
+    )
+    let toolContext = ChatRuntimeToolContext(registry: ToolRegistry(tools: [definition]))
+
+    let specs = try #require(MLXToolMapper.toolSpecs(from: toolContext))
+    let function = try #require(specs.first?["function"] as? [String: any Sendable])
+    let parameters = try #require(function["parameters"] as? [String: any Sendable])
+    let properties = try #require(parameters["properties"] as? [String: any Sendable])
+    let startTimestamp = try #require(properties["start_timestamp"] as? [String: any Sendable])
+
+    #expect(startTimestamp["type"] as? String == "string")
+    #expect(startTimestamp.keys.contains("default") == false)
+    #expect(containsNSNull(parameters) == false)
+  }
+
+  private func containsNSNull(_ value: Any) -> Bool {
+    if value is NSNull {
+      return true
+    }
+    if let dict = value as? [String: Any] {
+      return dict.values.contains(where: containsNSNull(_:))
+    }
+    if let array = value as? [Any] {
+      return array.contains(where: containsNSNull(_:))
+    }
+    return false
+  }
+
+  @Test
   func nativeMLXToolContextDefinesSimpleParametersAsStrings() throws {
     let toolContext = ChatRuntimeToolContext(
       registry: ToolExecutorRegistry.codingAgent.toolRegistry

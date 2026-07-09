@@ -23,7 +23,8 @@ struct SettingsFeatureStateTests {
     )
     let state = SettingsFeatureState(
       webAccessSettingsStore: InMemorySettingsWebAccessStore(settings: webSettings),
-      appBehaviorSettingsStore: InMemorySettingsAppBehaviorStore(settings: appBehaviorSettings)
+      appBehaviorSettingsStore: InMemorySettingsAppBehaviorStore(settings: appBehaviorSettings),
+      mcpServersStore: InMemorySettingsMCPServersStore()
     )
 
     await state.load()
@@ -37,7 +38,8 @@ struct SettingsFeatureStateTests {
     let store = InMemorySettingsWebAccessStore()
     let state = SettingsFeatureState(
       webAccessSettingsStore: store,
-      appBehaviorSettingsStore: InMemorySettingsAppBehaviorStore()
+      appBehaviorSettingsStore: InMemorySettingsAppBehaviorStore(),
+      mcpServersStore: InMemorySettingsMCPServersStore()
     )
     let updated = WebAccessSettings(
       policy: .allow,
@@ -59,7 +61,8 @@ struct SettingsFeatureStateTests {
     let store = InMemorySettingsAppBehaviorStore()
     let state = SettingsFeatureState(
       webAccessSettingsStore: InMemorySettingsWebAccessStore(),
-      appBehaviorSettingsStore: store
+      appBehaviorSettingsStore: store,
+      mcpServersStore: InMemorySettingsMCPServersStore()
     )
     let updated = AppBehaviorSettings(
       autoloadLastModel: true,
@@ -84,7 +87,8 @@ struct SettingsFeatureStateTests {
     let store = SlowFirstSettingsWebAccessStore()
     let state = SettingsFeatureState(
       webAccessSettingsStore: store,
-      appBehaviorSettingsStore: InMemorySettingsAppBehaviorStore()
+      appBehaviorSettingsStore: InMemorySettingsAppBehaviorStore(),
+      mcpServersStore: InMemorySettingsMCPServersStore()
     )
     let first = WebAccessSettings(policy: .allow, provider: .duckDuckGo)
     let second = WebAccessSettings(
@@ -108,7 +112,8 @@ struct SettingsFeatureStateTests {
     let store = SlowFirstSettingsAppBehaviorStore()
     let state = SettingsFeatureState(
       webAccessSettingsStore: InMemorySettingsWebAccessStore(),
-      appBehaviorSettingsStore: store
+      appBehaviorSettingsStore: store,
+      mcpServersStore: InMemorySettingsMCPServersStore()
     )
     let first = AppBehaviorSettings(autoloadLastModel: true)
     let second = AppBehaviorSettings(
@@ -133,7 +138,8 @@ struct SettingsFeatureStateTests {
   func saveFailureSetsErrorMessage() async throws {
     let state = SettingsFeatureState(
       webAccessSettingsStore: FailingSettingsWebAccessStore(),
-      appBehaviorSettingsStore: InMemorySettingsAppBehaviorStore()
+      appBehaviorSettingsStore: InMemorySettingsAppBehaviorStore(),
+      mcpServersStore: InMemorySettingsMCPServersStore()
     )
     let updated = WebAccessSettings(policy: .allow, provider: .duckDuckGo)
 
@@ -143,6 +149,45 @@ struct SettingsFeatureStateTests {
       state.errorMessage == TestSettingsError.saveFailed.localizedDescription
     }
     #expect(state.webAccessSettings == updated)
+  }
+
+  @Test
+  func loadReadsMCPServersAndUpdatePersistsThem() async throws {
+    let stored = MCPServerConfig(name: "GitHub", command: "npx", arguments: ["-y", "server"])
+    let store = InMemorySettingsMCPServersStore(servers: [stored])
+    let state = SettingsFeatureState(
+      webAccessSettingsStore: InMemorySettingsWebAccessStore(),
+      appBehaviorSettingsStore: InMemorySettingsAppBehaviorStore(),
+      mcpServersStore: store
+    )
+
+    await state.load()
+    #expect(state.mcpServers == [stored])
+
+    let replacement = MCPServerConfig(name: "Local", command: "/usr/local/bin/mcp")
+    state.updateMCPServers([replacement])
+
+    try await waitUntil {
+      await store.servers() == [replacement]
+    }
+    #expect(state.mcpServers == [replacement])
+    #expect(state.errorMessage == nil)
+  }
+}
+
+private actor InMemorySettingsMCPServersStore: MCPServersStoring {
+  private var storedServers: [MCPServerConfig]
+
+  init(servers: [MCPServerConfig] = []) {
+    self.storedServers = servers
+  }
+
+  func servers() async -> [MCPServerConfig] {
+    storedServers
+  }
+
+  func save(servers: [MCPServerConfig]) async throws {
+    storedServers = servers
   }
 }
 

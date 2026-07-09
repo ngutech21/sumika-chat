@@ -66,7 +66,9 @@ struct SumikaApp: App {
     Settings {
       AppSettingsView(
         settingsState: appState.settingsState,
-        onUpdateAppBehaviorSettings: appState.updateAppBehaviorSettings
+        onUpdateAppBehaviorSettings: appState.updateAppBehaviorSettings,
+        onUpdateMCPServers: appState.updateMCPServers,
+        onReconnectMCPServer: appState.reconnectMCPServer
       )
     }
   }

@@ -354,6 +354,8 @@ public enum ToolResultProjector {
       return projectWebSearch(result, request: request, policy: policy)
     case .webFetch(let result):
       return projectWebFetch(result, request: request)
+    case .mcp(let result):
+      return projectMCP(result, request: request, policy: policy)
     case .duplicateToolCall(let result):
       return duplicateProjection(result, request: request)
     case .invalidTool(let result):
@@ -1234,6 +1236,50 @@ private func projectWebFetch(
       affectedPaths: []
     )
   }
+}
+
+private func projectMCP(
+  _ result: MCPToolResult,
+  request: ToolCallRequest,
+  policy: ToolResultProjectionPolicy
+) -> ToolResultProjection {
+  let status: ToolResultStatus = result.isError ? .failed : .success
+  let displayText =
+    "Server: \(result.serverName)\nTool: \(result.remoteToolName)\n\n\(result.renderedText)"
+  let limited = ProjectionLimiter.limit(
+    result.renderedText,
+    limit: policy.modelObservationLimit
+  )
+
+  let observation: ToolModelObservation
+  if result.isError {
+    observation = ToolModelObservation.failed(
+      toolName: request.toolName,
+      affectedPaths: [],
+      text: "The MCP tool reported an error.\n\(limited.text)"
+    )
+  } else {
+    observation = ToolModelObservation.success(
+      toolName: request.toolName,
+      affectedPaths: [],
+      blocks: [.summary(limited.text)]
+    )
+  }
+
+  return toolResultProjection(
+    display: .summary(status: status, text: displayText, affectedPaths: []),
+    observation: observation,
+    kind: "mcp_result",
+    metadataFields: [
+      ToolResultModelMetadataField(name: "server", value: .string(result.serverName)),
+      ToolResultModelMetadataField(name: "tool", value: .string(result.remoteToolName)),
+      ToolResultModelMetadataField(name: "is_error", value: .bool(result.isError)),
+      ToolResultModelMetadataField(
+        name: "truncated",
+        value: .bool(result.truncated || limited.wasLimited)
+      ),
+    ]
+  )
 }
 
 private func renderedDiagnosticsText(_ result: WorkspaceDiagnosticsResult) -> String {
