@@ -32,6 +32,7 @@ public actor MCPClientManager: MCPToolCalling {
   private struct ActiveServer {
     var config: MCPServerConfig
     var slug: String
+    var connectionToken: UUID
     var connection: MCPServerConnection?
     var tools: [MCPRemoteTool]
     var state: MCPServerStatus.State
@@ -80,6 +81,7 @@ public actor MCPClientManager: MCPToolCalling {
       servers[config.id] = ActiveServer(
         config: config,
         slug: slug,
+        connectionToken: UUID(),
         connection: nil,
         tools: [],
         state: config.isEnabled ? .connecting : .disconnected
@@ -97,6 +99,7 @@ public actor MCPClientManager: MCPToolCalling {
     await server.connection?.shutdown()
     servers[serverID]?.connection = nil
     servers[serverID]?.tools = []
+    servers[serverID]?.connectionToken = UUID()
     servers[serverID]?.state = .connecting
     await connect(serverID: serverID)
   }
@@ -162,11 +165,15 @@ public actor MCPClientManager: MCPToolCalling {
     guard let server = servers[serverID] else {
       return
     }
+    let connectionToken = server.connectionToken
     servers[serverID]?.state = .connecting
     let connection = makeConnection(server.config)
     do {
       let tools = try await connection.start()
-      guard servers[serverID] != nil else {
+      guard let current = servers[serverID],
+        current.connectionToken == connectionToken,
+        current.config.isEnabled
+      else {
         await connection.shutdown()
         return
       }
@@ -175,7 +182,9 @@ public actor MCPClientManager: MCPToolCalling {
       servers[serverID]?.state = .connected(toolCount: tools.count)
     } catch {
       await connection.shutdown()
-      guard servers[serverID] != nil else {
+      guard let current = servers[serverID],
+        current.connectionToken == connectionToken
+      else {
         return
       }
       servers[serverID]?.connection = nil

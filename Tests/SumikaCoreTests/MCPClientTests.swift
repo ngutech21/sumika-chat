@@ -206,6 +206,61 @@ struct MCPClientTests {
   }
 
   @Test
+  func managerIgnoresStaleConnectionAfterServerIsDisabledDuringStart() async throws {
+    let marker = FileManager.default.temporaryDirectory
+      .appending(path: "sumika-mcp-start-marker-\(UUID().uuidString)", directoryHint: .notDirectory)
+    defer { try? FileManager.default.removeItem(at: marker) }
+    defer { try? Data().write(to: marker) }
+    let script = try writeScript(
+      """
+      #!/bin/sh
+      marker="$1"
+      while [ ! -f "$marker" ]; do
+        sleep 0.02
+      done
+      read -r line
+      printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"slow","version":"1.0"}}}'
+      read -r line
+      read -r line
+      printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Echo text back.","inputSchema":{"type":"object"}}]}}'
+      """
+    )
+    defer { removeScript(script) }
+    let config = MCPServerConfig(
+      name: "Slow",
+      command: script.path(percentEncoded: false),
+      arguments: [marker.path(percentEncoded: false)]
+    )
+    let disabled = MCPServerConfig(
+      id: config.id,
+      name: config.name,
+      command: config.command,
+      arguments: config.arguments,
+      environment: config.environment,
+      isEnabled: false
+    )
+    let manager = MCPClientManager()
+
+    let startTask = Task {
+      await manager.applyConfiguration([config])
+    }
+    try await waitUntil {
+      let statuses = await manager.statuses()
+      return statuses.first?.state == .connecting
+    }
+    await manager.applyConfiguration([disabled])
+    try Data().write(to: marker)
+    await startTask.value
+    let statuses = await manager.statuses()
+    let executors = await manager.agentToolExecutors()
+    await manager.shutdownAll()
+
+    #expect(statuses.count == 1)
+    #expect(statuses.first?.state == .disconnected)
+    #expect(executors.isEmpty)
+  }
+
+  @Test
   func managerReportsFailureForBrokenServer() async throws {
     let script = try writeScript(
       """
@@ -269,3 +324,19 @@ struct MCPClientTests {
     #expect(executors.isEmpty)
   }
 }
+
+private func waitUntil(
+  timeout: Duration = .seconds(1),
+  condition: @escaping @Sendable () async -> Bool
+) async throws {
+  let start = ContinuousClock.now
+  while !(await condition()) {
+    if ContinuousClock.now - start > timeout {
+      Issue.record("Timed out waiting for condition")
+      throw MCPClientTestWaitTimeoutError()
+    }
+    try await Task.sleep(for: .milliseconds(10))
+  }
+}
+
+private struct MCPClientTestWaitTimeoutError: Error {}
