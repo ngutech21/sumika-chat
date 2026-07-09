@@ -207,9 +207,9 @@ private struct FluidAudioModelService: ComposerAudioModelServicing {
 
 enum ComposerSpeechInputPhase: Equatable, Sendable {
   case idle
-  case preparing
-  case recording(elapsedSeconds: Int)
-  case finalizing
+  case startingMicrophone
+  case recording(elapsedSeconds: Int, modelState: ComposerSpeechModelState)
+  case finalizing(ComposerSpeechFinalizationStage)
   case failed(String)
 
   var isRecording: Bool {
@@ -221,7 +221,7 @@ enum ComposerSpeechInputPhase: Equatable, Sendable {
 
   var isBusy: Bool {
     switch self {
-    case .preparing, .recording, .finalizing:
+    case .startingMicrophone, .recording, .finalizing:
       true
     case .idle, .failed:
       false
@@ -229,8 +229,19 @@ enum ComposerSpeechInputPhase: Equatable, Sendable {
   }
 }
 
+enum ComposerSpeechModelState: Equatable, Sendable {
+  case loading
+  case ready
+}
+
+enum ComposerSpeechFinalizationStage: Equatable, Sendable {
+  case waitingForModel
+  case transcribing
+}
+
 protocol ComposerSpeechInputServicing: AnyObject {
   func start() async throws
+  func prepareModel() async throws
   func stop() async throws -> String
   func cancel() async
 }
@@ -243,6 +254,7 @@ final class ComposerSpeechInputController {
   private let service: any ComposerSpeechInputServicing
   private let maxRecordingDurationSeconds: Int
   private var operationTask: Task<Void, Never>?
+  private var modelPreparationTask: Task<Void, Never>?
   private var timerTask: Task<Void, Never>?
   private var autoStopTask: Task<Void, Never>?
 
@@ -268,15 +280,27 @@ final class ComposerSpeechInputController {
   var statusText: String? {
     switch phase {
     case .idle:
-      nil
-    case .preparing:
-      "Preparing"
-    case .recording(let elapsedSeconds):
-      Self.durationFormatter.string(from: TimeInterval(elapsedSeconds)) ?? "Recording"
-    case .finalizing:
-      "Finalizing"
+      return nil
+    case .startingMicrophone:
+      return "Starting microphone"
+    case .recording(let elapsedSeconds, let modelState):
+      let duration =
+        Self.durationFormatter.string(from: TimeInterval(elapsedSeconds)) ?? "Recording"
+      switch modelState {
+      case .loading:
+        return "Loading model (\(duration))"
+      case .ready:
+        return duration
+      }
+    case .finalizing(let stage):
+      switch stage {
+      case .waitingForModel:
+        return "Waiting for model"
+      case .transcribing:
+        return "Transcribing"
+      }
     case .failed(let message):
-      message
+      return message
     }
   }
 
@@ -300,7 +324,7 @@ final class ComposerSpeechInputController {
       return
     }
 
-    phase = .preparing
+    phase = .startingMicrophone
     operationTask = Task { [weak self] in
       guard let self else {
         return
@@ -312,9 +336,10 @@ final class ComposerSpeechInputController {
       do {
         try await service.start()
         try Task.checkCancellation()
+        phase = .recording(elapsedSeconds: 0, modelState: .loading)
         startTimer()
         startAutoStop(onTranscript: onTranscript)
-        phase = .recording(elapsedSeconds: 0)
+        startModelPreparation()
       } catch is CancellationError {
         await service.cancel()
         phase = .idle
@@ -334,13 +359,13 @@ final class ComposerSpeechInputController {
   }
 
   func stop(onTranscript: @escaping (String) -> Void) {
-    guard isRecording else {
+    guard case .recording(_, let modelState) = phase else {
       return
     }
 
     timerTask?.cancel()
     autoStopTask?.cancel()
-    phase = .finalizing
+    phase = .finalizing(modelState == .ready ? .transcribing : .waitingForModel)
 
     operationTask = Task { [weak self] in
       guard let self else {
@@ -375,6 +400,8 @@ final class ComposerSpeechInputController {
 
   func cancel() {
     operationTask?.cancel()
+    modelPreparationTask?.cancel()
+    modelPreparationTask = nil
     timerTask?.cancel()
     autoStopTask?.cancel()
     Task {
@@ -394,11 +421,45 @@ final class ComposerSpeechInputController {
         }
         elapsedSeconds += 1
         await MainActor.run {
-          guard let self, self.phase.isRecording else {
+          guard let self,
+            case .recording(_, let modelState) = self.phase
+          else {
             return
           }
-          self.phase = .recording(elapsedSeconds: elapsedSeconds)
+          self.phase = .recording(elapsedSeconds: elapsedSeconds, modelState: modelState)
         }
+      }
+    }
+  }
+
+  private func startModelPreparation() {
+    modelPreparationTask?.cancel()
+    modelPreparationTask = Task { [weak self] in
+      guard let self else {
+        return
+      }
+
+      do {
+        try await service.prepareModel()
+        try Task.checkCancellation()
+        switch phase {
+        case .recording(let elapsedSeconds, .loading):
+          phase = .recording(elapsedSeconds: elapsedSeconds, modelState: .ready)
+        case .finalizing(.waitingForModel):
+          phase = .finalizing(.transcribing)
+        case .idle, .startingMicrophone, .recording, .finalizing, .failed:
+          break
+        }
+      } catch is CancellationError {
+        return
+      } catch {
+        guard phase.isRecording else {
+          return
+        }
+        timerTask?.cancel()
+        autoStopTask?.cancel()
+        await service.cancel()
+        phase = .failed(Self.errorMessage(for: error))
       }
     }
   }
@@ -437,6 +498,8 @@ final class ComposerSpeechInputController {
 final class ComposerSpeechInputService: ComposerSpeechInputServicing {
   private let audioModelController: ComposerAudioModelController
   private var recordingSession: ComposerSpeechRecordingSession?
+  private var activeModelID: ComposerAudioModelID?
+  private var modelPreparationTask: Task<AsrManager, Error>?
   private var loadedModelID: ComposerAudioModelID?
   private var asrManager: AsrManager?
 
@@ -454,12 +517,43 @@ final class ComposerSpeechInputService: ComposerSpeechInputServicing {
     }
 
     try await Self.requestMicrophonePermission()
+    try Task.checkCancellation()
 
     let modelID = audioModelController.selectedModelID
-    let manager = try await loadManager(for: modelID)
-    let session = ComposerSpeechRecordingSession(asrManager: manager)
+    let session = ComposerSpeechRecordingSession()
     try session.start()
+    activeModelID = modelID
     recordingSession = session
+  }
+
+  func prepareModel() async throws {
+    guard let activeModelID else {
+      throw ComposerSpeechInputError.notRecording
+    }
+    if loadedModelID == activeModelID, asrManager != nil {
+      return
+    }
+
+    let task: Task<AsrManager, Error>
+    if let modelPreparationTask {
+      task = modelPreparationTask
+    } else {
+      task = Task { [weak self] in
+        guard let self else {
+          throw CancellationError()
+        }
+        return try await self.loadManager(for: activeModelID)
+      }
+      modelPreparationTask = task
+    }
+
+    do {
+      _ = try await task.value
+      modelPreparationTask = nil
+    } catch {
+      modelPreparationTask = nil
+      throw error
+    }
   }
 
   func stop() async throws -> String {
@@ -468,16 +562,29 @@ final class ComposerSpeechInputService: ComposerSpeechInputServicing {
     }
 
     self.recordingSession = nil
-    return try await recordingSession.stop()
+    guard let buffer = try recordingSession.stop() else {
+      activeModelID = nil
+      return ""
+    }
+
+    try await prepareModel()
+    guard let asrManager else {
+      throw ComposerSpeechInputError.audioModelNotReady
+    }
+
+    var decoderState = TdtDecoderState.make(decoderLayers: await asrManager.decoderLayerCount)
+    let result = try await asrManager.transcribe(buffer, decoderState: &decoderState)
+    activeModelID = nil
+    return result.text
   }
 
   func cancel() async {
-    guard let recordingSession else {
-      return
-    }
-
+    let recordingSession = recordingSession
+    modelPreparationTask?.cancel()
+    modelPreparationTask = nil
+    activeModelID = nil
     self.recordingSession = nil
-    recordingSession.cancel()
+    recordingSession?.cancel()
   }
 
   private func loadManager(for modelID: ComposerAudioModelID) async throws -> AsrManager {
@@ -488,6 +595,7 @@ final class ComposerSpeechInputService: ComposerSpeechInputServicing {
     let models = try await AsrModels.loadFromCache(version: modelID.asrModelVersion)
     let manager = AsrManager(config: .default)
     try await manager.loadModels(models)
+    try Task.checkCancellation()
     loadedModelID = modelID
     asrManager = manager
     return manager
@@ -512,12 +620,7 @@ final class ComposerSpeechInputService: ComposerSpeechInputServicing {
 
 nonisolated private final class ComposerSpeechRecordingSession {
   private let engine = AVAudioEngine()
-  private let asrManager: AsrManager
   private var accumulator: ComposerSpeechSampleAccumulator?
-
-  nonisolated init(asrManager: AsrManager) {
-    self.asrManager = asrManager
-  }
 
   nonisolated func start() throws {
     let inputNode = engine.inputNode
@@ -546,25 +649,18 @@ nonisolated private final class ComposerSpeechRecordingSession {
     }
   }
 
-  nonisolated func stop() async throws -> String {
+  nonisolated func stop() throws -> AVAudioPCMBuffer? {
     engine.inputNode.removeTap(onBus: 0)
     engine.stop()
     guard let accumulator else {
-      return ""
+      return nil
     }
     self.accumulator = nil
     if let captureError = accumulator.captureError() {
       throw captureError
     }
 
-    guard let buffer = ComposerSpeechAudioTap.combinedBuffer(from: accumulator.takeRecording())
-    else {
-      return ""
-    }
-
-    var decoderState = TdtDecoderState.make(decoderLayers: await asrManager.decoderLayerCount)
-    let result = try await asrManager.transcribe(buffer, decoderState: &decoderState)
-    return result.text
+    return ComposerSpeechAudioTap.combinedBuffer(from: accumulator.takeRecording())
   }
 
   nonisolated func cancel() {
@@ -780,6 +876,7 @@ nonisolated private enum ComposerSpeechAudioTap {
 
 nonisolated enum ComposerSpeechInputError: LocalizedError, Equatable {
   case alreadyRecording
+  case notRecording
   case audioModelNotReady
   case microphonePermissionDenied
   case audioInputUnavailable
@@ -788,6 +885,8 @@ nonisolated enum ComposerSpeechInputError: LocalizedError, Equatable {
     switch self {
     case .alreadyRecording:
       "Speech recording is already active."
+    case .notRecording:
+      "Start recording before preparing speech recognition."
     case .audioModelNotReady:
       "Install an audio model before dictating."
     case .microphonePermissionDenied:

@@ -249,6 +249,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
   case browserInspect(BrowserInspectInput)
   case webSearch(WebSearchInput)
   case webFetch(WebFetchInput)
+  case mcp(MCPToolInput)
   case invalid(InvalidToolInput)
 
   private enum CodingKeys: String, CodingKey {
@@ -273,6 +274,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
     case browserInspect
     case webSearch
     case webFetch
+    case mcp
     case invalid
   }
 
@@ -313,6 +315,8 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
       self = .webSearch(try container.decode(WebSearchInput.self, forKey: .payload))
     case .webFetch:
       self = .webFetch(try container.decode(WebFetchInput.self, forKey: .payload))
+    case .mcp:
+      self = .mcp(try container.decode(MCPToolInput.self, forKey: .payload))
     case .invalid:
       self = .invalid(try container.decode(InvalidToolInput.self, forKey: .payload))
     }
@@ -354,6 +358,8 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
       try container.encode(input, forKey: .payload)
     case .webFetch(let input):
       try container.encode(input, forKey: .payload)
+    case .mcp(let input):
+      try container.encode(input, forKey: .payload)
     case .invalid(let input):
       try container.encode(input, forKey: .payload)
     }
@@ -377,6 +383,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
     case .browserInspect: .browserInspect
     case .webSearch: .webSearch
     case .webFetch: .webFetch
+    case .mcp: .mcp
     case .invalid: .invalid
     }
   }
@@ -417,6 +424,8 @@ nonisolated extension ToolCallPayload {
       .webSearch
     case .webFetch:
       .webFetch
+    case .mcp(let input):
+      input.qualifiedName
     case .invalid:
       .invalid
     }
@@ -875,6 +884,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case browserInspect(BrowserInspectResult)
   case webSearch(WebSearchToolResult)
   case webFetch(WebFetchToolResult)
+  case mcp(MCPToolResult)
   case duplicateToolCall(DuplicateToolCallResult)
   case invalidTool(InvalidToolResult)
   case failure(ToolFailure)
@@ -900,6 +910,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
     case browserInspect
     case webSearch
     case webFetch
+    case mcp
     case duplicateToolCall
     case invalidTool
     case failure
@@ -940,6 +951,8 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
       self = .webSearch(try container.decode(WebSearchToolResult.self, forKey: .payload))
     case .webFetch:
       self = .webFetch(try container.decode(WebFetchToolResult.self, forKey: .payload))
+    case .mcp:
+      self = .mcp(try container.decode(MCPToolResult.self, forKey: .payload))
     case .duplicateToolCall:
       self = .duplicateToolCall(
         try container.decode(DuplicateToolCallResult.self, forKey: .payload)
@@ -985,6 +998,8 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
       try container.encode(result, forKey: .payload)
     case .webFetch(let result):
       try container.encode(result, forKey: .payload)
+    case .mcp(let result):
+      try container.encode(result, forKey: .payload)
     case .duplicateToolCall(let result):
       try container.encode(result, forKey: .payload)
     case .invalidTool(let result):
@@ -1011,6 +1026,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
     case .browserInspect: .browserInspect
     case .webSearch: .webSearch
     case .webFetch: .webFetch
+    case .mcp: .mcp
     case .duplicateToolCall: .duplicateToolCall
     case .invalidTool: .invalidTool
     case .failure: .failure
@@ -1304,6 +1320,8 @@ nonisolated extension ToolResultPayload {
     case .webSearch(let result):
       return result.preview
     case .webFetch(let result):
+      return result.preview
+    case .mcp(let result):
       return result.preview
     case .duplicateToolCall(let result):
       return ToolResultPreview(

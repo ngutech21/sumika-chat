@@ -143,19 +143,71 @@ extension TypedToolExecutor {
   }
 }
 
+/// Executor whose codec (and thus definition) is instance state instead of a
+/// static requirement. Dynamic tools such as MCP server tools are only known
+/// at runtime, so their definitions cannot be compile-time constants. They run
+/// through the same permission/approval/result state machine as typed tools.
+public protocol DynamicToolExecutor: Sendable {
+  associatedtype Input: Decodable & Sendable
+
+  var codec: ToolCodec<Input> { get }
+
+  func evaluatePermission(_ input: Input, context: ToolContext) -> ToolPermissionEvaluation
+  func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview?
+  func run(_ input: Input, context: ToolContext) async -> ToolResultPayload
+}
+
+extension DynamicToolExecutor {
+  public func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview? {
+    nil
+  }
+}
+
+/// Bridges the static-codec `TypedToolExecutor` shape onto the instance-codec
+/// execution path so both executor kinds share one state machine.
+private struct TypedExecutorAdapter<T: TypedToolExecutor>: DynamicToolExecutor {
+  let tool: T
+
+  var codec: ToolCodec<T.Input> { T.codec }
+
+  func evaluatePermission(_ input: T.Input, context: ToolContext) -> ToolPermissionEvaluation {
+    tool.evaluatePermission(input, context: context)
+  }
+
+  func previewApproval(_ input: T.Input, context: ToolContext) async -> ToolResultPreview? {
+    await tool.previewApproval(input, context: context)
+  }
+
+  func run(_ input: T.Input, context: ToolContext) async -> ToolResultPayload {
+    await tool.run(input, context: context)
+  }
+}
+
 public struct AnyToolExecutor: Sendable {
   public let definition: ToolDefinition
+  /// Present only for dynamic executors: lets the request validator decode
+  /// raw arguments for tools without a built-in codec catalog entry.
+  let dynamicCodec: AnyToolCodec?
   private let runHandler: @Sendable (ToolCallRequest, ToolContext) async -> ToolCallRecord
   private let approvedRunHandler: @Sendable (ToolCallRequest, ToolContext) async -> ToolCallRecord
 
   public init<T: TypedToolExecutor>(_ tool: T) {
-    definition = T.definition
+    self.init(executor: TypedExecutorAdapter(tool: tool), dynamicCodec: nil)
+  }
+
+  public init<T: DynamicToolExecutor>(dynamic tool: T) {
+    self.init(executor: tool, dynamicCodec: AnyToolCodec(tool.codec))
+  }
+
+  private init<T: DynamicToolExecutor>(executor tool: T, dynamicCodec: AnyToolCodec?) {
+    definition = tool.codec.definition
+    self.dynamicCodec = dynamicCodec
     runHandler = { request, context in
-      await Self.runTool(tool, request: request, context: context)
+      await Self.evaluateAndRun(tool, request: request, context: context, isApproved: false)
     }
 
     approvedRunHandler = { request, context in
-      await Self.runApprovedTool(tool, request: request, context: context)
+      await Self.evaluateAndRun(tool, request: request, context: context, isApproved: true)
     }
   }
 
@@ -168,42 +220,27 @@ public struct AnyToolExecutor: Sendable {
     await approvedRunHandler(request, context)
   }
 
-  private static func runTool<T: TypedToolExecutor>(
-    _ tool: T,
-    request: ToolCallRequest,
-    context: ToolContext
-  ) async -> ToolCallRecord {
-    await evaluateAndRun(tool, request: request, context: context, isApproved: false)
-  }
-
-  private static func runApprovedTool<T: TypedToolExecutor>(
-    _ tool: T,
-    request: ToolCallRequest,
-    context: ToolContext
-  ) async -> ToolCallRecord {
-    await evaluateAndRun(tool, request: request, context: context, isApproved: true)
-  }
-
-  private static func evaluateAndRun<T: TypedToolExecutor>(
+  private static func evaluateAndRun<T: DynamicToolExecutor>(
     _ tool: T,
     request: ToolCallRequest,
     context: ToolContext,
     isApproved: Bool
   ) async -> ToolCallRecord {
     var record = makePendingRecord(request: request)
+    let definition = tool.codec.definition
 
     do {
-      guard request.payload.toolName == T.definition.name else {
+      guard request.payload.toolName == definition.name else {
         throw ToolInputDecodingError.payloadMismatch(
-          expected: T.definition.name.rawValue,
+          expected: definition.name.rawValue,
           actual: request.payload.toolName.rawValue
         )
       }
-      let input = try T.input(from: request.payload)
+      let input = try tool.codec.input(from: request.payload)
       let evaluation = tool.evaluatePermission(input, context: context)
       record.evaluation = evaluation
 
-      if T.definition.name == .askUser && !isApproved {
+      if definition.name == .askUser && !isApproved {
         guard shouldRun(evaluation: evaluation, isApproved: isApproved, record: &record) else {
           return record
         }
@@ -232,11 +269,11 @@ public struct AnyToolExecutor: Sendable {
       return await runEvaluatedTool(
         tool, input: input, record: record, context: context)
     } catch {
-      return failedRecord(request: request, definition: T.definition, error: error)
+      return failedRecord(request: request, definition: definition, error: error)
     }
   }
 
-  private static func prepareApprovalPreview<T: TypedToolExecutor>(
+  private static func prepareApprovalPreview<T: DynamicToolExecutor>(
     _ tool: T,
     input: T.Input,
     evaluation: ToolPermissionEvaluation,
@@ -314,7 +351,7 @@ public struct AnyToolExecutor: Sendable {
     preview.affectedPaths.first.map { WorkspaceRelativePath(rawValue: $0) }
   }
 
-  private static func runEvaluatedTool<T: TypedToolExecutor>(
+  private static func runEvaluatedTool<T: DynamicToolExecutor>(
     _ tool: T,
     input: T.Input,
     record: ToolCallRecord,
@@ -460,6 +497,33 @@ public struct ToolExecutorRegistry: Sendable {
   public func executor(for toolName: ToolName) -> AnyToolExecutor? {
     executorsByName[toolName]
   }
+
+  /// Codecs of dynamic executors in this registry, keyed by tool name. The
+  /// request validator uses these to decode tools that have no entry in the
+  /// built-in codec catalog.
+  public var dynamicCodecs: [ToolName: AnyToolCodec] {
+    var codecs: [ToolName: AnyToolCodec] = [:]
+    for executor in orderedExecutors {
+      if let codec = executor.dynamicCodec {
+        codecs[executor.definition.name] = codec
+      }
+    }
+    return codecs
+  }
+
+  /// Returns a registry with `additional` executors appended. Existing tool
+  /// names win over additions, and duplicate names within `additional` keep
+  /// their first occurrence, so composed registries never crash the
+  /// unique-name index.
+  public func merging(_ additional: [AnyToolExecutor]) -> ToolExecutorRegistry {
+    var executors = orderedExecutors
+    var seenNames = Set(executors.map(\.definition.name))
+    for executor in additional where !seenNames.contains(executor.definition.name) {
+      executors.append(executor)
+      seenNames.insert(executor.definition.name)
+    }
+    return ToolExecutorRegistry(executors)
+  }
 }
 
 public enum ToolInputDecodingError: LocalizedError, Equatable {
@@ -543,21 +607,33 @@ public struct ToolOrchestrator: Sendable {
   public func execute(request rawRequest: RawToolCallRequest, workspace: Workspace) async
     -> ToolCallRecord
   {
-    let request = validator.validate(rawRequest, registry: executorRegistry.toolRegistry)
+    let request = validator.validate(
+      rawRequest,
+      registry: executorRegistry.toolRegistry,
+      dynamicCodecs: executorRegistry.dynamicCodecs
+    )
     return await executeValidated(request: request, workspace: workspace, isApproved: false)
   }
 
   public func executeApproved(request: ToolCallRequest, workspace: Workspace) async
     -> ToolCallRecord
   {
-    let request = validator.validate(request.raw, registry: executorRegistry.toolRegistry)
+    let request = validator.validate(
+      request.raw,
+      registry: executorRegistry.toolRegistry,
+      dynamicCodecs: executorRegistry.dynamicCodecs
+    )
     return await executeValidated(request: request, workspace: workspace, isApproved: true)
   }
 
   public func executeApproved(request rawRequest: RawToolCallRequest, workspace: Workspace) async
     -> ToolCallRecord
   {
-    let request = validator.validate(rawRequest, registry: executorRegistry.toolRegistry)
+    let request = validator.validate(
+      rawRequest,
+      registry: executorRegistry.toolRegistry,
+      dynamicCodecs: executorRegistry.dynamicCodecs
+    )
     return await executeValidated(request: request, workspace: workspace, isApproved: true)
   }
 

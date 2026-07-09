@@ -329,7 +329,9 @@ private func waitUntilProcessExits(
   }
 }
 
-private func terminateProcessTree(_ process: Process) {
+// Shared with the MCP server connection, which owns long-lived child
+// processes that may spawn their own subprocesses (npx, uv, ...).
+func terminateProcessTree(_ process: Process) {
   let rootPID = process.processIdentifier
   let descendantPIDs = processDescendantIDs(of: rootPID)
   terminateProcesses(descendantPIDs.reversed() + [rootPID])

@@ -13,6 +13,7 @@ final class AppState {
   private(set) var route: AppRoute?
   @ObservationIgnored let chatController: ChatSessionController
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
+  @ObservationIgnored let mcpClientManager: MCPClientManager
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
   @ObservationIgnored private var defaultSessionModeSettings =
@@ -25,6 +26,7 @@ final class AppState {
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
     webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
+    mcpServersStore: any MCPServersStoring = MCPServersStore(),
     modelDownloader: any ModelDownloading = HuggingFaceModelDownloader(),
     runtime: any ChatModelRuntime = MLXChatRuntime(),
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
@@ -40,6 +42,7 @@ final class AppState {
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
+      mcpServersStore: mcpServersStore,
       workspaceOpener: workspaceOpener,
       assistantSpeechService: assistantSpeechService,
       audioModelController: audioModelController,
@@ -64,6 +67,8 @@ final class AppState {
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
     webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
+    mcpServersStore: any MCPServersStoring = MCPServersStore(),
+    mcpClientManager: MCPClientManager = MCPClientManager(),
     workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService(),
     assistantSpeechService: AssistantSpeechService = AssistantSpeechService(),
     audioModelController: ComposerAudioModelController = ComposerAudioModelController(),
@@ -74,6 +79,7 @@ final class AppState {
     self.modelSettingsStore = modelSettingsStore
     self.browserToolService = browserToolService
     self.chatController = chatController
+    self.mcpClientManager = mcpClientManager
     self.assistantSpeechService = assistantSpeechService
     self.audioModelController = audioModelController
     self.composerSpeechInputController =
@@ -81,7 +87,8 @@ final class AppState {
       ?? ComposerSpeechInputController(audioModelController: audioModelController)
     self.settingsState = SettingsFeatureState(
       webAccessSettingsStore: webAccessSettingsStore,
-      appBehaviorSettingsStore: appBehaviorSettingsStore
+      appBehaviorSettingsStore: appBehaviorSettingsStore,
+      mcpServersStore: mcpServersStore
     )
     self.workspaceState = WorkspaceFeatureState(
       workspaceStore: workspaceStore,
@@ -273,6 +280,43 @@ final class AppState {
     applyAppBehaviorSettings(settings)
   }
 
+  func updateMCPServers(_ servers: [MCPServerConfig]) {
+    settingsState.updateMCPServers(servers)
+    Task {
+      await self.applyMCPConfiguration(servers)
+    }
+  }
+
+  func reconnectMCPServer(_ serverID: UUID) {
+    Task {
+      await self.mcpClientManager.reconnect(serverID: serverID)
+      await self.refreshAfterMCPChange()
+    }
+  }
+
+  private func applyMCPConfiguration(_ servers: [MCPServerConfig]) async {
+    await mcpClientManager.applyConfiguration(servers)
+    await refreshAfterMCPChange()
+  }
+
+  private func refreshAfterMCPChange() async {
+    settingsState.mcpServerStatuses = await mcpClientManager.statuses()
+    await refreshAgentToolRegistry()
+  }
+
+  /// The agent registry is always recomposed as a whole: built-in coding
+  /// tools (honoring the todo_write setting) plus the dynamic executors of
+  /// every connected MCP server.
+  private func refreshAgentToolRegistry() async {
+    let mcpExecutors = await mcpClientManager.agentToolExecutors()
+    chatController.setAgentToolExecutorRegistry(
+      ToolExecutorRegistry.codingAgentRegistry(
+        todoWriteEnabled: settingsState.appBehaviorSettings.todoWriteToolEnabled
+      )
+      .merging(mcpExecutors)
+    )
+  }
+
   func startModelRuntimeServices() {
     chatController.modelRuntime.prepareDefaultModelDirectory()
     chatController.modelRuntime.startResourceMonitoring()
@@ -296,12 +340,14 @@ final class AppState {
     return true
   }
 
-  /// Runs on the termination path: snapshots the live session and waits until
+  /// Runs on the termination path: snapshots the live session, waits until
   /// every queued library write has reached the store — the unstructured save
-  /// tasks would otherwise die with the process.
+  /// tasks would otherwise die with the process — and terminates spawned MCP
+  /// server processes so they do not outlive the app.
   func prepareForTermination() async {
     persistActiveSession()
     await workspaceState.flushPendingSaves()
+    await mcpClientManager.shutdownAll()
   }
 
   private func loadRouteSession() {
@@ -317,7 +363,9 @@ final class AppState {
   }
 
   private func applyAppBehaviorSettings(_ settings: AppBehaviorSettings) {
-    chatController.configureAgentTools(todoWriteEnabled: settings.todoWriteToolEnabled)
+    Task {
+      await self.refreshAgentToolRegistry()
+    }
     audioModelController.applyPersistedSelection(settings.speechInputAudioModelID)
     if !settings.assistantSpeechEnabled {
       assistantSpeechService.stop()
@@ -374,6 +422,7 @@ final class AppState {
       await settingsState.load()
 
       applyAppBehaviorSettings(settingsState.appBehaviorSettings)
+      await applyMCPConfiguration(settingsState.mcpServers)
       defaultSessionModelID = selectedModel.id
       defaultSessionModeSettings = settings.modeSettings
       let defaultSessionFactory = self.makeDefaultSessionFactory()
