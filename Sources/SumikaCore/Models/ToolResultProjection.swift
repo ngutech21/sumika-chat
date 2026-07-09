@@ -344,6 +344,8 @@ public enum ToolResultProjector {
       return projectRunCommand(result, request: request)
     case .todoWrite(let result):
       return projectTodoWrite(result, request: request)
+    case .finishTask(let result):
+      return projectFinishTask(result, request: request)
     case .askUser(let result):
       return projectAskUser(result, request: request)
     case .browserRefresh(let result):
@@ -563,23 +565,23 @@ private func defaultNextAllowedActions(
 ) -> [String] {
   switch toolName {
   case .listFiles, .globFiles, .searchFiles:
-    return ["read_file", "final_answer"]
+    return ["read_file"]
   case .readFile:
-    return ["edit_file", "final_answer"]
+    return ["edit_file"]
   case .runCommand:
     if case .commandResult(let result) = block, result.outputRef != nil {
-      return ["workspace_diagnostics", "final_answer"]
+      return ["workspace_diagnostics"]
     }
-    return ["final_answer"]
+    return []
   case .webSearch:
-    return ["web_fetch", "final_answer"]
+    return ["web_fetch"]
   case .workspaceDiagnostics:
-    return ["read_file", "edit_file", "final_answer"]
+    return ["read_file", "edit_file"]
   case .workspaceDiff, .webFetch, .showFile, .editFile, .writeFile, .askUser, .browserRefresh,
-    .browserInspect, .todoWrite, .invalid:
-    return ["final_answer"]
+    .browserInspect, .todoWrite, .finishTask, .invalid:
+    return []
   default:
-    return ["final_answer"]
+    return []
   }
 }
 
@@ -1073,6 +1075,64 @@ private func projectTodoWrite(
       status: reason.projectedStatus,
       text: reason.message,
       affectedPaths: []
+    )
+  }
+}
+
+private func projectFinishTask(
+  _ result: FinishTaskResult,
+  request: ToolCallRequest
+) -> ToolResultProjection {
+  let metadataFields: [ToolResultModelMetadataField] =
+    if case .finishTask(let input) = request.payload {
+      [.init(name: "task_status", value: .string(input.status.rawValue))]
+    } else {
+      []
+    }
+  switch result {
+  case .success:
+    let text = "Task completion accepted."
+    return toolResultProjection(
+      display: .summary(status: .success, text: text, affectedPaths: []),
+      observation: .success(
+        toolName: request.toolName,
+        affectedPaths: [],
+        blocks: [.summary(text)]
+      ),
+      kind: "task_completion",
+      metadataFields: metadataFields,
+      nextAllowedActions: []
+    )
+  case .failed(let reason):
+    let status = reason.projectedStatus
+    let text = reason.message
+    let observation =
+      switch status {
+      case .success:
+        ToolModelObservation.success(
+          toolName: request.toolName,
+          affectedPaths: [],
+          blocks: [.summary(text)]
+        )
+      case .failed:
+        ToolModelObservation.failed(
+          toolName: request.toolName,
+          affectedPaths: [],
+          text: text
+        )
+      case .denied:
+        ToolModelObservation.denied(
+          toolName: request.toolName,
+          affectedPaths: [],
+          text: text
+        )
+      }
+    return toolResultProjection(
+      display: .summary(status: status, text: text, affectedPaths: []),
+      observation: observation,
+      kind: "task_completion",
+      metadataFields: metadataFields,
+      nextAllowedActions: []
     )
   }
 }

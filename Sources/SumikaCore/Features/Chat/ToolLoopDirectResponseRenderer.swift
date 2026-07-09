@@ -14,6 +14,16 @@ enum ToolLoopDirectResponseRenderer {
     }
 
     switch record.resultPayload {
+    case .finishTask(.success) where request.toolProfile == .agent:
+      guard case .finishTask(let input) = record.request.payload else {
+        return nil
+      }
+      return DirectToolResultResponse(
+        content: input.summary,
+        modelProjectionPolicy: .override(
+          "Delivered finish_task summary directly to the user."
+        )
+      )
     case .readFile(.success(let path, _)) where record.request.toolName == .showFile:
       let projection = ToolResultProjector.project(
         payload: toolResult.payload, request: record.request)

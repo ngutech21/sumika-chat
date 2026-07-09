@@ -124,6 +124,12 @@ flowchart TD
    explicitly asked to display them in chat. The model must not say files
    changed unless a successful `write_file` or `edit_file` result exists in the
    turn; failed or invalid write/edit results mean no workspace change happened.
+   A successful Agent-only `finish_task` takes a separate direct-response path:
+   its validated `summary` is appended as the final visible assistant message,
+   the workflow returns `.stopTurn`, and no placeholder or follow-up model
+   generation is created. The call must be the only tool call in its native
+   batch; mixed batches are rejected before any sibling executes and receive one
+   compact invalid observation for repair.
 6. If the tool call requires approval, workflow events record the call and mark
    the turn `.awaitingApproval`; active generation ends until the user approves
    or denies the call.
@@ -157,6 +163,9 @@ flowchart TD
 8. Answering `ask_user` delegates to
    `ChatTurnCoordinator.answerAskUserToolCall`, appends the compact answer
    receipt, and resumes generation plus the normal tool loop.
+   `finish_task(status:summary:)` is not a pause: all three valid statuses
+   (`done`, `blocked`, and `needs_user`) complete the current turn, while the
+   status remains available as structured completion metadata.
 9. Denial delegates to `ChatTurnCoordinator.denyToolCall`, appends a denied
    tool result, performs no local side effect, and streams one final no-tools
    assistant response so the model can acknowledge the denial.

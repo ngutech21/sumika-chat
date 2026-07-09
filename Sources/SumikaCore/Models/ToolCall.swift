@@ -21,6 +21,7 @@ public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable
   public static let runCommand = ToolName(rawValue: "run_command")
   public static let todoWrite = ToolName(rawValue: "todo_write")
   public static let askUser = ToolName(rawValue: "ask_user")
+  public static let finishTask = ToolName(rawValue: "finish_task")
   public static let browserRefresh = ToolName(rawValue: "browser_refresh")
   public static let browserInspect = ToolName(rawValue: "browser_inspect")
   public static let webSearch = ToolName(rawValue: "web_search")
@@ -245,6 +246,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
   case runCommand(RunCommandInput)
   case todoWrite(TodoWriteInput)
   case askUser(AskUserInput)
+  case finishTask(FinishTaskInput)
   case browserRefresh(BrowserRefreshInput)
   case browserInspect(BrowserInspectInput)
   case webSearch(WebSearchInput)
@@ -270,6 +272,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
     case runCommand
     case todoWrite
     case askUser
+    case finishTask
     case browserRefresh
     case browserInspect
     case webSearch
@@ -307,6 +310,8 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
       self = .todoWrite(try container.decode(TodoWriteInput.self, forKey: .payload))
     case .askUser:
       self = .askUser(try container.decode(AskUserInput.self, forKey: .payload))
+    case .finishTask:
+      self = .finishTask(try container.decode(FinishTaskInput.self, forKey: .payload))
     case .browserRefresh:
       self = .browserRefresh(try container.decode(BrowserRefreshInput.self, forKey: .payload))
     case .browserInspect:
@@ -350,6 +355,8 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
       try container.encode(input, forKey: .payload)
     case .askUser(let input):
       try container.encode(input, forKey: .payload)
+    case .finishTask(let input):
+      try container.encode(input, forKey: .payload)
     case .browserRefresh(let input):
       try container.encode(input, forKey: .payload)
     case .browserInspect(let input):
@@ -379,6 +386,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
     case .runCommand: .runCommand
     case .todoWrite: .todoWrite
     case .askUser: .askUser
+    case .finishTask: .finishTask
     case .browserRefresh: .browserRefresh
     case .browserInspect: .browserInspect
     case .webSearch: .webSearch
@@ -416,6 +424,8 @@ nonisolated extension ToolCallPayload {
       .todoWrite
     case .askUser:
       .askUser
+    case .finishTask:
+      .finishTask
     case .browserRefresh:
       .browserRefresh
     case .browserInspect:
@@ -880,6 +890,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   case runCommand(RunCommandResult)
   case todoWrite(TodoWriteResult)
   case askUser(AskUserResult)
+  case finishTask(FinishTaskResult)
   case browserRefresh(BrowserRefreshResult)
   case browserInspect(BrowserInspectResult)
   case webSearch(WebSearchToolResult)
@@ -906,6 +917,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
     case runCommand
     case todoWrite
     case askUser
+    case finishTask
     case browserRefresh
     case browserInspect
     case webSearch
@@ -943,6 +955,8 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
       self = .todoWrite(try container.decode(TodoWriteResult.self, forKey: .payload))
     case .askUser:
       self = .askUser(try container.decode(AskUserResult.self, forKey: .payload))
+    case .finishTask:
+      self = .finishTask(try container.decode(FinishTaskResult.self, forKey: .payload))
     case .browserRefresh:
       self = .browserRefresh(try container.decode(BrowserRefreshResult.self, forKey: .payload))
     case .browserInspect:
@@ -990,6 +1004,8 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
       try container.encode(result, forKey: .payload)
     case .askUser(let result):
       try container.encode(result, forKey: .payload)
+    case .finishTask(let result):
+      try container.encode(result, forKey: .payload)
     case .browserRefresh(let result):
       try container.encode(result, forKey: .payload)
     case .browserInspect(let result):
@@ -1022,6 +1038,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
     case .runCommand: .runCommand
     case .todoWrite: .todoWrite
     case .askUser: .askUser
+    case .finishTask: .finishTask
     case .browserRefresh: .browserRefresh
     case .browserInspect: .browserInspect
     case .webSearch: .webSearch
@@ -1312,6 +1329,8 @@ nonisolated extension ToolResultPayload {
     case .todoWrite(let result):
       return result.preview
     case .askUser(let result):
+      return result.preview
+    case .finishTask(let result):
       return result.preview
     case .browserRefresh(let result):
       return result.preview

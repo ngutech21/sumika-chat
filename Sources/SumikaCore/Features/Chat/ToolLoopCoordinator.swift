@@ -170,6 +170,13 @@ public struct ToolLoopCoordinator: Sendable {
       return ChatWorkflowStep(events: [], continuation: .none)
     }
 
+    if let invalidMixedFinishStep = await invalidMixedFinishTaskStep(
+      outputs,
+      request: request
+    ) {
+      return invalidMixedFinishStep
+    }
+
     let nextAssistantMessageID = UUID()
     var events: [ChatWorkflowEvent] = []
     var focusedFileState = request.focusedFileState
@@ -278,6 +285,71 @@ public struct ToolLoopCoordinator: Sendable {
       continuation: .resumeGeneration(
         assistantMessageID: nextAssistantMessageID,
         promptMode: nextFollowUpPromptMode
+      )
+    )
+  }
+
+  private func invalidMixedFinishTaskStep(
+    _ outputs: [ToolCallParseOutput],
+    request: ToolLoopRequest
+  ) async -> ChatWorkflowStep? {
+    guard outputs.count > 1,
+      let finishOutput = outputs.first(where: { $0.request.toolName == .finishTask })
+    else {
+      return nil
+    }
+
+    let message = "finish_task must be the only native tool call in a response."
+    let invalidReason = InvalidToolCallReason.parserError(message)
+    let invalidInput = InvalidToolInput(
+      originalName: finishOutput.request.originalToolName
+        ?? finishOutput.request.toolName.rawValue,
+      rawArguments: finishOutput.request.arguments,
+      reason: invalidReason
+    )
+    let invalidRequest = ToolCallRequest.invalid(
+      raw: finishOutput.request,
+      input: invalidInput
+    )
+    let record = ToolCallRecord(
+      request: invalidRequest,
+      evaluation: ToolPermissionEvaluation(
+        decision: .denied,
+        reason: message,
+        riskLevel: .high
+      ),
+      state: .failed(
+        .invalidTool(
+          InvalidToolResult(
+            originalName: invalidInput.originalName,
+            reason: invalidReason
+          )))
+    )
+    await traceToolExecution(
+      startedAt: Date(),
+      loopRequest: request,
+      rawRequest: finishOutput.request,
+      record: record
+    )
+
+    let toolResult = toolResultMessage(output: finishOutput, record: record)
+    let nextAssistantMessageID = UUID()
+    return ChatWorkflowStep(
+      events: [
+        .assistantAnnotatedAsNativeToolCall(
+          assistantMessageID: request.assistantMessageID,
+          toolCall: finishOutput.modelMessage
+        ),
+        .toolCallAppended(record, turnID: request.turnID),
+        .toolResultAppended(toolResult, turnID: request.turnID),
+        .assistantPlaceholderAppended(
+          messageID: nextAssistantMessageID,
+          turnID: request.turnID
+        ),
+      ],
+      continuation: .resumeGeneration(
+        assistantMessageID: nextAssistantMessageID,
+        promptMode: request.followUpPromptMode
       )
     )
   }

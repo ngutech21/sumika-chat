@@ -116,6 +116,120 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func completedSuccessfulFinishTaskIsHiddenAndAssistantSummaryRemainsVisible() {
+    let turnID = UUID()
+    let userID = UUID()
+    let ordinaryToolID = UUID()
+    let finishID = UUID()
+    let summaryID = UUID()
+    let parser = AssistantBlockParserSpy()
+    let renderer = ChatTranscriptRenderer(assistantBlocks: parser.blocks)
+
+    let items = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .completed,
+        items: [
+          .userMessage(UserTurnMessage(id: userID, content: "Finish the task")),
+          .tool(makeToolCallRecord(id: ordinaryToolID, status: .completed)),
+          .tool(makeFinishTaskRecord(id: finishID, state: .completed)),
+          .assistantMessage(
+            AssistantTurnMessage(id: summaryID, content: "Implemented and verified.")
+          ),
+        ]
+      )
+    ])
+
+    #expect(
+      items.map(\.id) == [
+        "\(turnID.uuidString):user:\(userID.uuidString)",
+        "\(turnID.uuidString):tool:\(ordinaryToolID.uuidString)",
+        "\(turnID.uuidString):assistant:\(summaryID.uuidString)",
+      ])
+    #expect(parser.parsedContents == ["Implemented and verified."])
+  }
+
+  @Test
+  func invalidAndFailedFinishTaskCallsRemainVisible() {
+    let turnID = UUID()
+    let invalidID = UUID()
+    let failedID = UUID()
+    let renderer = ChatTranscriptRenderer()
+
+    let items = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .failed,
+        items: [
+          .tool(makeInvalidFinishTaskRecord(id: invalidID)),
+          .tool(makeFinishTaskRecord(id: failedID, state: .failed)),
+        ]
+      )
+    ])
+
+    #expect(
+      items.map(\.id) == [
+        "\(turnID.uuidString):tool:\(invalidID.uuidString)",
+        "\(turnID.uuidString):tool:\(failedID.uuidString)",
+      ])
+    #expect(items.map { $0.toolCallRecord?.status } == [.failed, .failed])
+  }
+
+  @Test
+  func runningFinishTaskBecomesHiddenWithoutLosingItsOrderingBoundary() {
+    let turnID = UUID()
+    let firstAssistantID = UUID()
+    let finishID = UUID()
+    let thinkingID = UUID()
+    let summaryID = UUID()
+    let renderer = ChatTranscriptRenderer()
+
+    let runningItems = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .running,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(id: firstAssistantID, content: "Preparing the result.")
+          ),
+          .tool(makeFinishTaskRecord(id: finishID, state: .running)),
+        ]
+      )
+    ])
+    #expect(
+      runningItems.map(\.id) == [
+        "\(turnID.uuidString):assistant:\(firstAssistantID.uuidString)",
+        "\(turnID.uuidString):tool:\(finishID.uuidString)",
+      ])
+
+    let completedItems = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .completed,
+        items: [
+          .assistantMessage(
+            AssistantTurnMessage(id: firstAssistantID, content: "Preparing the result.")
+          ),
+          .tool(makeFinishTaskRecord(id: finishID, state: .completed)),
+          .assistantThinking(
+            AssistantThinkingMessage(id: thinkingID, content: "Finalizing the summary.")
+          ),
+          .assistantMessage(
+            AssistantTurnMessage(id: summaryID, content: "Implemented and verified.")
+          ),
+        ]
+      )
+    ])
+
+    #expect(
+      completedItems.map(\.id) == [
+        "\(turnID.uuidString):assistant:\(firstAssistantID.uuidString)",
+        "\(turnID.uuidString):thinking:\(thinkingID.uuidString)",
+        "\(turnID.uuidString):assistant:\(summaryID.uuidString)",
+      ])
+  }
+
+  @Test
   func appendingTurnParsesOnlyNewAssistantMessage() {
     let firstTurnID = UUID()
     let secondTurnID = UUID()
@@ -808,6 +922,91 @@ private func makeToolCallRecord(
       riskLevel: .low
     ),
     state: toolCallState(status: status, hard: hard, approvalPreview: approvalPreview)
+  )
+}
+
+private enum FinishTaskTestState {
+  case running
+  case completed
+  case failed
+}
+
+private func makeFinishTaskRecord(
+  id: UUID,
+  state: FinishTaskTestState
+) -> ToolCallRecord {
+  let request = ToolCallRequest.validated(
+    raw: RawToolCallRequest(
+      id: id,
+      workspaceID: UUID(),
+      sessionID: UUID(),
+      toolName: .finishTask,
+      arguments: [
+        "status": .string("done"),
+        "summary": .string("Implemented and verified."),
+      ]
+    ),
+    payload: .finishTask(
+      FinishTaskInput(status: .done, summary: "Implemented and verified.")
+    )
+  )
+  let toolState: ToolCallState =
+    switch state {
+    case .running:
+      .running
+    case .completed:
+      .completed(.finishTask(.success))
+    case .failed:
+      .failed(
+        .finishTask(.failed(reason: .executionError("Finish failed.")))
+      )
+    }
+  return ToolCallRecord(
+    request: request,
+    evaluation: ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Allowed for test.",
+      riskLevel: .low
+    ),
+    state: toolState
+  )
+}
+
+private func makeInvalidFinishTaskRecord(id: UUID) -> ToolCallRecord {
+  let reason = InvalidToolCallReason.invalidArgumentType(
+    name: "status",
+    expected: "done, blocked, or needs_user"
+  )
+  let rawArguments: ToolCallArguments = [
+    "status": .string("finished"),
+    "summary": .string("Implemented and verified."),
+  ]
+  let request = ToolCallRequest.invalid(
+    raw: RawToolCallRequest(
+      id: id,
+      workspaceID: UUID(),
+      sessionID: UUID(),
+      toolName: .finishTask,
+      arguments: rawArguments
+    ),
+    input: InvalidToolInput(
+      originalName: ToolName.finishTask.rawValue,
+      rawArguments: rawArguments,
+      reason: reason
+    )
+  )
+  return ToolCallRecord(
+    request: request,
+    evaluation: ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Allowed for test.",
+      riskLevel: .low
+    ),
+    state: .failed(
+      .invalidTool(
+        InvalidToolResult(originalName: ToolName.finishTask.rawValue, reason: reason)
+      )
+    )
   )
 }
 

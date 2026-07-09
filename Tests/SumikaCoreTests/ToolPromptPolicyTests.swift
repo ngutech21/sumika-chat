@@ -26,6 +26,9 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("Base"))
     #expect(prompt.contains("read_file"))
     #expect(prompt.contains("edit_file"))
+    #expect(prompt.contains("finish_task"))
+    #expect(prompt.contains("Emit finish_task as the only native tool call"))
+    #expect(prompt.contains("summary is displayed directly as the final response"))
     #expect(prompt.contains("native tool calls"))
   }
 
@@ -71,6 +74,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("untrusted reference material"))
     #expect(!prompt.contains("edit_file"))
     #expect(!prompt.contains("run_command"))
+    #expect(!prompt.contains("finish_task"))
     #expect(!prompt.contains("Inspect before editing"))
   }
 

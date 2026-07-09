@@ -32,8 +32,8 @@ while turn is running and iteration budget remains:
 The loop stops only on one of these conditions:
 
 - visible assistant text with no pending tool call
-- an explicit terminal tool, such as `complete` or `ask_user`, if such tools are
-  registered for the active agent profile
+- a successful Agent-only `finish_task` call, which appends its `summary` as
+  visible assistant text and stops without another model generation
 - a tool approval or user-answer pause
 - user cancellation
 - iteration budget exhaustion or runtime failure
@@ -50,6 +50,12 @@ reasoning-only output are not successful stop conditions.
   messages that match the original call IDs.
 - Invalid, unavailable, denied, and failed tools become observations. The model
   gets another iteration while budget remains.
+- `finish_task` must be the only native tool call in its model response. A mixed
+  batch is rejected before any sibling executes and becomes one compact invalid
+  observation so the model can repair the call.
+- `finish_task(status:summary:)` accepts `done`, `blocked`, or `needs_user` and
+  is terminal only after successful validation. `ask_user` is different: it
+  pauses the current turn for a structured answer and then resumes that turn.
 - A failed tool observation is a recovery boundary, not a successful stopping
   point. The next model generation must either use available tools to recover or
   visibly report the failure. It must not claim the requested task completed
@@ -84,6 +90,10 @@ reasoning-only output are not successful stop conditions.
 - The transcript shows user messages, visible assistant text, and tool records.
   It does not show empty assistant tool-call envelopes as normal assistant
   bubbles.
+- A successfully completed `finish_task` record remains persisted for audit and
+  model history but is hidden from the visible transcript; its direct assistant
+  summary is shown instead. Invalid and failed `finish_task` records remain
+  visible.
 - Reasoning/thinking output is diagnostic stream state attached to a generation.
   It must not satisfy the requirement for final visible assistant text.
 - If the final model event is reasoning-only with no tool call, show a clear

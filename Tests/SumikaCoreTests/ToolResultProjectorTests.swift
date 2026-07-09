@@ -458,6 +458,121 @@ struct ToolResultProjectorTests {
   }
 
   @Test
+  func finishTaskProjectionCarriesTaskStatusAndHasNoNextAction() {
+    for status in FinishTaskStatus.allCases {
+      let projection = ToolResultProjector.project(
+        payload: .finishTask(.success),
+        request: request(
+          toolName: .finishTask,
+          payload: .finishTask(
+            FinishTaskInput(status: status, summary: "Finished with \(status.rawValue).")
+          )
+        )
+      )
+
+      #expect(
+        projection.display
+          == .summary(
+            status: .success,
+            text: "Task completion accepted.",
+            affectedPaths: []
+          ))
+      #expect(projection.observation.status == .success)
+      #expect(projection.observation.blocks == [.summary("Task completion accepted.")])
+      #expect(projection.metadata.kind == "task_completion")
+      #expect(
+        projection.metadata.fields == [
+          .init(name: "task_status", value: .string(status.rawValue))
+        ])
+      #expect(projection.metadata.nextAllowedActions.isEmpty)
+    }
+  }
+
+  @Test
+  func projectionsRetainOnlyRealNextActions() {
+    let readProjection = ToolResultProjector.project(
+      payload: .readFile(
+        .success(
+          path: WorkspaceRelativePath(rawValue: "README.md"),
+          content: ToolTextOutput(text: "notes")
+        )),
+      request: request(
+        toolName: .readFile,
+        payload: .readFile(ReadFileInput(path: "README.md"))
+      )
+    )
+    let listProjection = ToolResultProjector.project(
+      payload: .listFiles(
+        ListFilesResult(root: WorkspaceRelativePath(rawValue: "."), entries: [])
+      ),
+      request: request(
+        toolName: .listFiles,
+        payload: .listFiles(ListFilesInput(path: "."))
+      )
+    )
+    let commandProjection = ToolResultProjector.project(
+      payload: .runCommand(
+        RunCommandResult(
+          command: "just test-core",
+          timeoutSeconds: 120,
+          exitCode: 0,
+          durationMs: 10,
+          stdout: ToolTextOutput(text: "ok"),
+          stderr: ToolTextOutput(text: ""),
+          outputRef: "cmd-output"
+        )),
+      request: request(
+        toolName: .runCommand,
+        payload: .runCommand(RunCommandInput(command: "just test-core", timeoutSeconds: 120))
+      )
+    )
+    let diagnosticsProjection = ToolResultProjector.project(
+      payload: .workspaceDiagnostics(
+        WorkspaceDiagnosticsResult(outputRef: "cmd-output", diagnostics: [])
+      ),
+      request: request(
+        toolName: .workspaceDiagnostics,
+        payload: .workspaceDiagnostics(WorkspaceDiagnosticsInput(outputRef: "cmd-output"))
+      )
+    )
+    let webSearchProjection = ToolResultProjector.project(
+      payload: .webSearch(
+        WebSearchToolResult(query: "Swift", provider: .duckDuckGo, results: [])
+      ),
+      request: request(
+        toolName: .webSearch,
+        payload: .webSearch(WebSearchInput(query: "Swift"))
+      )
+    )
+    let finishProjection = ToolResultProjector.project(
+      payload: .finishTask(.success),
+      request: request(
+        toolName: .finishTask,
+        payload: .finishTask(FinishTaskInput(status: .done, summary: "Done."))
+      )
+    )
+
+    #expect(readProjection.metadata.nextAllowedActions == ["edit_file"])
+    #expect(listProjection.metadata.nextAllowedActions == ["read_file"])
+    #expect(commandProjection.metadata.nextAllowedActions == ["workspace_diagnostics"])
+    #expect(diagnosticsProjection.metadata.nextAllowedActions == ["read_file", "edit_file"])
+    #expect(webSearchProjection.metadata.nextAllowedActions == ["web_fetch"])
+    #expect(finishProjection.metadata.nextAllowedActions.isEmpty)
+    let projections = [
+      readProjection,
+      listProjection,
+      commandProjection,
+      diagnosticsProjection,
+      webSearchProjection,
+      finishProjection,
+    ]
+    #expect(
+      projections.allSatisfy { projection in
+        !projection.metadata.nextAllowedActions.contains("final_answer")
+      })
+  }
+
+  @Test
   func runCommandProjectionReportsSuccessForZeroExit() {
     assertRunCommandProjection(
       runCommandResult(exitCode: 0),

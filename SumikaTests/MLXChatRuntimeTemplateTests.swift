@@ -2343,6 +2343,46 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func nativeMLXFinishTaskSchemaIsClosedRequiredAndAgentOnly() throws {
+    let agentContext = ChatRuntimeToolContext(
+      registry: ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: false).toolRegistry
+    )
+
+    let agentSpecs = try #require(MLXToolMapper.toolSpecs(from: agentContext))
+    let finishSpec = try #require(
+      agentSpecs.first { spec in
+        let function = spec["function"] as? [String: any Sendable]
+        return function?["name"] as? String == ToolName.finishTask.rawValue
+      })
+    let function = try #require(finishSpec["function"] as? [String: any Sendable])
+    let parameters = try #require(function["parameters"] as? [String: any Sendable])
+    let properties = try #require(parameters["properties"] as? [String: any Sendable])
+    let status = try #require(properties["status"] as? [String: any Sendable])
+    let summary = try #require(properties["summary"] as? [String: any Sendable])
+
+    #expect(parameters["additionalProperties"] as? Bool == false)
+    #expect(parameters["required"] as? [String] == ["status", "summary"])
+    #expect(status["type"] as? String == "string")
+    #expect(status["enum"] as? [String] == ["done", "blocked", "needs_user"])
+    #expect(summary["type"] as? String == "string")
+
+    let chatWebContext = ChatRuntimeToolContext(
+      registry: ToolExecutorRegistry.chatWeb.toolRegistry
+    )
+    let chatWebSpecs = try #require(MLXToolMapper.toolSpecs(from: chatWebContext))
+    #expect(
+      chatWebSpecs.contains { spec in
+        let function = spec["function"] as? [String: any Sendable]
+        return function?["name"] as? String == ToolName.finishTask.rawValue
+      } == false)
+  }
+
+  @Test
+  func nativeMLXNilToolContextProducesNoToolSpecs() {
+    #expect(MLXToolMapper.toolSpecs(from: nil) == nil)
+  }
+
+  @Test
   func nativeMLXToolContextPassesRawParametersSchemaThroughVerbatim() throws {
     let rawSchema = ToolArgumentValue.object([
       "type": .string("object"),

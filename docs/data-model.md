@@ -41,6 +41,7 @@ flowchart TD
   ToolCallRequest --> ToolCallPayload
   ToolCallState --> ToolResultPayload
   ToolCallState --> ToolResultPreview
+  ToolDefinition --> ToolArgumentValue
   ToolDefinition --> ToolCapability
   ToolDefinition --> ToolName
   ToolDefinition --> ToolParameterDefinition
@@ -245,6 +246,22 @@ Relations:
 
 - Kind: `enum`
 - Source: `Sources/SumikaCore/Models/ChatModelConfiguration.swift`
+
+### MCPServerConfig
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Models/MCPServerConfig.swift`
+- Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
+- Summary: User-configured external MCP server launched over stdio.  v1 scope: stdio transport only. The command is resolved through the same PATH conventions as `run_command`; environment values are stored as plain text next to the other JSON settings stores.
+
+Properties:
+
+- `arguments: [String]`
+- `command: String`
+- `environment: [String: String]`
+- `id: UUID`
+- `isEnabled: Bool`
+- `name: String`
 
 ### ManagedModel
 
@@ -606,9 +623,11 @@ Cases:
 - `browserInspect(BrowserInspectInput)`
 - `browserRefresh(BrowserRefreshInput)`
 - `editFile(EditFileInput)`
+- `finishTask(FinishTaskInput)`
 - `globFiles(GlobFilesInput)`
 - `invalid(InvalidToolInput)`
 - `listFiles(ListFilesInput)`
+- `mcp(MCPToolInput)`
 - `readFile(ReadFileInput)`
 - `runCommand(RunCommandInput)`
 - `searchFiles(SearchFilesInput)`
@@ -718,6 +737,7 @@ Properties:
 Cases:
 
 - `accessWeb`
+- `externalService`
 - `readWorkspace`
 - `runCommand`
 - `writeWorkspace`
@@ -734,10 +754,12 @@ Properties:
 - `description: String`
 - `name: ToolName`
 - `parameters: [ToolParameterDefinition]`
+- `rawParametersSchema: ToolArgumentValue?`
 - `riskLevel: ToolRiskLevel`
 
 Relations:
 
+- `ToolArgumentValue`
 - `ToolCapability`
 - `ToolName`
 - `ToolParameterDefinition`
@@ -1075,9 +1097,11 @@ Cases:
 - `duplicateToolCall(DuplicateToolCallResult)`
 - `editFile(EditFileResult)`
 - `failure(ToolFailure)`
+- `finishTask(FinishTaskResult)`
 - `globFiles(GlobFilesResult)`
 - `invalidTool(InvalidToolResult)`
 - `listFiles(ListFilesResult)`
+- `mcp(MCPToolResult)`
 - `readFile(ReadFileResult)`
 - `runCommand(RunCommandResult)`
 - `searchFiles(SearchFilesResult)`

@@ -452,6 +452,7 @@ public struct ToolExecutorRegistry: Sendable {
     }
     executors.append(contentsOf: [
       AnyToolExecutor(AskUserToolExecutor()),
+      AnyToolExecutor(FinishTaskToolExecutor()),
       AnyToolExecutor(WebSearchToolExecutor()),
       AnyToolExecutor(WebFetchToolExecutor()),
     ])

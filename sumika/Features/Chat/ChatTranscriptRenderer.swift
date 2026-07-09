@@ -66,7 +66,10 @@ final class ChatTranscriptRenderer {
             let input = RenderedItemCacheInput(item: item, generationMetrics: nil)
             renderedItems.append(renderedItem(for: key, input: input))
 
-          case .tool:
+          case .tool(let record):
+            guard !record.isSuccessfulFinishTask else {
+              continue
+            }
             activeItemKeys.insert(key)
             let input = RenderedItemCacheInput(item: item, generationMetrics: turnGenerationMetrics)
             renderedItems.append(renderedItem(for: key, input: input))
@@ -489,5 +492,18 @@ extension AssistantTurnMessage {
       return false
     }
     return shouldShowAssistantPlaceholder || !content.isEmpty
+  }
+}
+
+extension ToolCallRecord {
+  fileprivate var isSuccessfulFinishTask: Bool {
+    guard request.toolName == .finishTask,
+      case .finishTask = request.payload,
+      status == .completed,
+      case .finishTask(.success) = resultPayload
+    else {
+      return false
+    }
+    return true
   }
 }

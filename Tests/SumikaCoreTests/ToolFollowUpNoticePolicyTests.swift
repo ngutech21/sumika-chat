@@ -19,8 +19,23 @@ struct ToolFollowUpNoticePolicyTests {
     #expect(
       update.record.modelFollowUpNotice?.contains("Continue using the latest tool observation")
         == true)
+    #expect(update.record.modelFollowUpNotice?.contains("call finish_task") == true)
     #expect(first.modelFollowUpNotice == nil)
     #expect(latest.modelFollowUpNotice == nil)
+  }
+
+  @Test
+  func chatWebContinuationKeepsDirectFinalAnswerWording() throws {
+    let record = completedReadRecord(id: UUID(), path: "README.md", content: "Project overview")
+    let update = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: session(with: [record], interactionMode: .chat),
+        turnID: defaultTurnID,
+        promptMode: .afterChatWebToolResultCanContinue
+      ))
+
+    #expect(update.record.modelFollowUpNotice?.contains("provide the final answer") == true)
+    #expect(update.record.modelFollowUpNotice?.contains("finish_task") == false)
   }
 
   @Test

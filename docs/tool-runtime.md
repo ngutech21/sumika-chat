@@ -59,6 +59,10 @@ flowchart TD
 - Terminal follow-up prompts, such as approved write/edit follow-ups and denied
   tool follow-ups, do not expose tools to the runtime. If more work is needed,
   the model must ask the user for another turn rather than emitting more tools.
+- `finish_task` is an Agent-only terminal control tool. A valid call stores its
+  typed request/result like every other tool, then projects the request's
+  `summary` directly as visible assistant content and stops the turn without a
+  model follow-up. It is not registered in the chat-web or read-only profiles.
 - `RawToolCallRequest` is the runtime handoff model: stable call ID, tool name,
   workspace/session, raw argument values, and optional raw text for debugging.
 - `ToolCallRequest` is the validated execution-boundary model. It preserves the
@@ -221,6 +225,10 @@ central runtime files keep the exhaustive cross-tool boundaries.
 - `ToolExecutorRegistry`: controls availability. A tool can exist in the
   built-in codec catalog but still be unavailable in a given mode if its
   executor is not in the active registry.
+- Registry composition keeps built-ins before dynamic MCP additions. Existing
+  names win in `ToolExecutorRegistry.merging`, and built-in codecs win over
+  dynamic codecs during validation, so dynamic tools cannot replace
+  `finish_task`.
 - `ToolCallPayload` and `ToolResultPayload`: central exhaustive ADTs. A new
   built-in tool needs cases here so validated calls and executed results remain
   type-safe, codable, and persistable.
@@ -554,6 +562,11 @@ declarations.
   file is missing, `edit_file` fails before approval or during approved
   revalidation and may include bounded workspace-relative path suggestions.
 - `edit_file` is the only model-facing tool for changing existing files.
+- `finish_task` accepts exactly `status` and `summary`. `status` is one of
+  `done`, `blocked`, or `needs_user`; `summary` must be non-empty after trimming
+  and is the complete user-visible final response. A successful call must be
+  emitted alone and stops the tool loop directly. Invalid calls remain normal
+  failed observations and may use the remaining iteration budget for repair.
 - Successful `write_file` and `edit_file` results are terminal for additional
   tool execution in the current chat turn. `ChatTurnCoordinator` may request one
   final no-tools assistant follow-up so the model can briefly summarize the

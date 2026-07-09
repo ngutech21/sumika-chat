@@ -714,6 +714,7 @@ struct ToolExecutionTests {
         .writeFile,
         .runCommand,
         .askUser,
+        .finishTask,
         .webSearch,
         .webFetch,
       ])
@@ -1899,6 +1900,7 @@ struct ToolExecutionTests {
         .runCommand,
         .todoWrite,
         .askUser,
+        .finishTask,
         .webSearch,
         .webFetch,
       ])

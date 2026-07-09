@@ -1159,6 +1159,60 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func chatWebBudgetFinalizationPassesNoToolContext() async throws {
+    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let toolTurns: [[ChatModelStreamEvent]] = (0..<budget).map { index in
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "web_search",
+            arguments: ["query": .string("Swift concurrency \(index)")]
+          ))
+      ]
+    }
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: toolTurns + [[.chunk("Final answer from the collected web results.")]]
+    )
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgent,
+        webSearcher: ChatControllerFakeSearcher(),
+        webAccessSettingsProvider: {
+          WebAccessSettings(policy: .allow, provider: .duckDuckGo)
+        }
+      )
+    )
+    controller.loadSession(
+      ChatSession(
+        id: sessionID,
+        selectedModelID: "gemma4-12b-qat-4bit",
+        interactionMode: .chat
+      ))
+    controller.modelRuntime.modelState = .ready
+    controller.sendMessage(
+      prompt: "research Swift concurrency", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.turns.first?.status == .completed)
+    #expect(
+      controller.chatSession.testMessages.last?.content
+        == "Final answer from the collected web results.")
+    let capturedToolContexts = await runtime.capturedToolContexts
+    #expect(capturedToolContexts.count == budget + 1)
+    let firstToolContext = try #require(capturedToolContexts.first ?? nil)
+    #expect(firstToolContext.registry.tools.map(\.name) == [.webSearch, .webFetch])
+    #expect(firstToolContext.registry.definition(for: .finishTask) == nil)
+    #expect(capturedToolContexts[budget] == nil)
+    let capturedPromptPlans = await runtime.capturedPromptPlans
+    #expect(capturedPromptPlans[budget].toolContext == nil)
+  }
+
+  @Test
   func chatModeNativeWebFetchFollowUpIncludesToolObservation() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)

@@ -13,9 +13,14 @@ enum ToolLoopNativeToolParser {
     workspaceID: Workspace.ID,
     sessionID: ChatSession.ID
   ) -> ToolLoopParsedAction {
-    let acceptedToolCalls =
-      policy.allowsMultipleToolCalls ? toolCalls : Array(toolCalls.prefix(1))
     let resolver = ToolNameResolver()
+    let containsFinishTask = toolCalls.contains { toolCall in
+      resolver.resolve(toolCall.name, registry: registry).canonicalToolName == .finishTask
+    }
+    let acceptedToolCalls =
+      policy.allowsMultipleToolCalls || containsFinishTask
+      ? toolCalls
+      : Array(toolCalls.prefix(1))
     var usedRequestIDs = Set<UUID>()
 
     let outputs = acceptedToolCalls.map { toolCall in

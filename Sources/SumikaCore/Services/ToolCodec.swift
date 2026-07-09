@@ -86,6 +86,7 @@ public enum ToolCodecCatalog {
     AnyToolCodec(RunCommandToolExecutor.codec),
     AnyToolCodec(TodoWriteToolExecutor.codec),
     AnyToolCodec(AskUserToolExecutor.codec),
+    AnyToolCodec(FinishTaskToolExecutor.codec),
     AnyToolCodec(WebSearchToolExecutor.codec),
     AnyToolCodec(WebFetchToolExecutor.codec),
   ]

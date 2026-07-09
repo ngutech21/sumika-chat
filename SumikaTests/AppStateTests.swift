@@ -1188,7 +1188,7 @@ struct AppStateTests {
   }
 
   @Test
-  func todoWriteToolIsHiddenByDefaultInAppAgentPromptAndSchema() async throws {
+  func defaultAppAgentRegistryHidesTodoWriteAndKeepsFinishTaskAfterMCPComposition() async throws {
     let sessionID = UUID()
     let workspace = Workspace(
       name: "Project",
@@ -1229,9 +1229,11 @@ struct AppStateTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.first?.contains("todo_write") == false)
+    #expect(capturedSystemPrompts.first?.contains("finish_task") == true)
     let capturedToolContexts = await runtime.capturedToolContexts
     let toolContext = try #require(capturedToolContexts.first ?? nil)
     #expect(toolContext.registry.definition(for: .todoWrite) == nil)
+    #expect(toolContext.registry.definition(for: .finishTask) != nil)
   }
 
   @Test

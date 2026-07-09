@@ -186,6 +186,15 @@ public struct ToolPromptPolicy: Sendable {
       - Update todo_write only when the plan status actually changes.
       """
       : ""
+    let finishTaskWorkflowInstruction =
+      toolRegistry.definition(for: .finishTask) != nil
+      ? """
+      - When finish_task is available and the task should end, call it exactly once with status done, blocked, or needs_user and a complete user-visible summary.
+      - Emit finish_task as the only native tool call in that response. Never combine it with another tool call or separate visible final text.
+      - Use done only after the requested work is complete. Use blocked when recovery is exhausted. Use needs_user when continuing requires a new user message.
+      - The finish_task summary is displayed directly as the final response. If tools are unavailable in a tools-free final generation, write the visible final response directly instead.
+      """
+      : ""
     return [
       basePrompt,
       """
@@ -196,6 +205,7 @@ public struct ToolPromptPolicy: Sendable {
 
       Core workflow:
       \(todoWorkflowInstruction)
+      \(finishTaskWorkflowInstruction)
       - Inspect before editing. Never edit existing files from memory.
       - Use read_file when you need file contents in your context.
       - Do not call read_file again for the same path and range after a successful read_file result in this turn unless the file changed or you need a different range.

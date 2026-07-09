@@ -776,6 +776,114 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func finishTaskStatusesDisplaySummaryDirectlyAndStopTheTurn() async throws {
+    for status in FinishTaskStatus.allCases {
+      let sessionID = UUID()
+      let workspace = try makeWorkspace(sessionID: sessionID)
+      let summary = "Finished with status \(status.rawValue)."
+
+      let result = try await ToolLoopCoordinator().run(
+        request(
+          workspace: workspace,
+          sessionID: sessionID,
+          nativeToolCalls: [
+            ChatRuntimeToolCall(
+              name: "finish_task",
+              arguments: [
+                "status": .string(status.rawValue),
+                "summary": .string(summary),
+              ]
+            )
+          ]
+        )
+      )
+
+      #expect(result?.continuation == .stopTurn)
+      let record = try #require(toolCallRecord(from: result))
+      #expect(record.status == .completed)
+      #expect(record.request.toolName == .finishTask)
+      #expect(
+        record.request.payload
+          == .finishTask(FinishTaskInput(status: status, summary: summary)))
+      #expect(completedToolResult(from: result)?.payload == .finishTask(.success))
+      let assistant = try #require(directAssistantMessage(from: result))
+      #expect(assistant.content == summary)
+      #expect(
+        assistant.modelProjectionPolicy
+          == .override("Delivered finish_task summary directly to the user."))
+    }
+  }
+
+  @Test
+  func mixedFinishTaskBatchExecutesNothingAndRequestsRepair() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator(tools: [.readFile, .finishTask])
+    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        toolCallingPolicy: ToolCallingPolicy(
+          isEnabled: true,
+          allowsMultipleToolCalls: false
+        ),
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+          ChatRuntimeToolCall(
+            name: "finish_task",
+            arguments: [
+              "status": .string("done"),
+              "summary": .string("README inspected."),
+            ]
+          ),
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 0)
+    #expect(annotatedNativeToolCalls(from: result).map(\.toolName) == [.finishTask])
+    #expect(toolCallRecords(from: result).map(\.request.toolName) == [.finishTask])
+    #expect(toolResults(from: result).map(\.toolName) == [.finishTask])
+    let record = try #require(toolCallRecord(from: result))
+    #expect(record.status == .failed)
+    guard case .invalid(let invalidInput) = record.request.payload else {
+      Issue.record("Expected one invalid finish_task observation.")
+      return
+    }
+    #expect(
+      invalidInput.reason.message
+        == "finish_task must be the only native tool call in a response.")
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+    #expect(directAssistantMessage(from: result) == nil)
+  }
+
+  @Test
+  func singleCallPolicyStillTruncatesOrdinaryMultipleToolCalls() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        toolCallingPolicy: ToolCallingPolicy(
+          isEnabled: true,
+          allowsMultipleToolCalls: false
+        ),
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")]),
+        ]
+      )
+    )
+
+    #expect(toolCallRecords(from: result).map(\.request.toolName) == [.readFile])
+    #expect(toolResults(from: result).map(\.toolName) == [.readFile])
+  }
+
+  @Test
   func workspaceDiffDisplaysDirectlyWithoutModelFollowUp() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -869,6 +977,7 @@ struct ToolLoopCoordinatorTests {
     additionalItems: [ChatTurnItem] = [],
     interactionMode: WorkspaceInteractionMode = .agent,
     toolProfile: ToolExecutionProfile = .agent,
+    toolCallingPolicy: ToolCallingPolicy = .nativeMLX,
     nativeToolCalls: [ChatRuntimeToolCall]
   ) -> ToolLoopRequest {
     var items: [ChatTurnItem] = []
@@ -896,7 +1005,7 @@ struct ToolLoopCoordinatorTests {
       interactionMode: interactionMode,
       toolProfile: toolProfile,
       followUpPromptMode: followUpPromptMode,
-      toolCallingPolicy: .nativeMLX,
+      toolCallingPolicy: toolCallingPolicy,
       nativeToolCalls: nativeToolCalls
     )
   }
