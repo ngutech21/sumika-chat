@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.2.0-beta.0](https://github.com/ngutech21/sumika-chat/compare/v1.1.0-beta.0...v1.2.0-beta.0) (2026-07-09)
+
+
+### Features
+
+* add Qwen 3.6 35B A3B 8bit model to ManagedModelCatalog ([31ff205](https://github.com/ngutech21/sumika-chat/commit/31ff2056ab6651cfbcfccf16b9e13a559b02f04e))
+* add self hosted firecrawl as fetch provider ([345776b](https://github.com/ngutech21/sumika-chat/commit/345776b9d38ad3fa688ed7038bc48d4d5d8c1269))
+* add support for qwen 3 model family ([3cb8582](https://github.com/ngutech21/sumika-chat/commit/3cb8582e577c9de7d6eb2fa9cfa5ea5854626f2d))
+* make workspace library loading resilient and loss-visible ([a88b970](https://github.com/ngutech21/sumika-chat/commit/a88b9705a9620c1d2c192a7bd5cedf5c51613f0b))
+* redesign chat composer as a floating glass panel ([b6010bc](https://github.com/ngutech21/sumika-chat/commit/b6010bc4d1ef77f077f2ab6fdf9f2bd42fd52fad))
+
+
+### Bug Fixes
+
+* add error handling for missing files in release asset upload and package steps ([50b660d](https://github.com/ngutech21/sumika-chat/commit/50b660d51191d5ff5c5895c8a40176082ed8fd3c))
+* format ([5871697](https://github.com/ngutech21/sumika-chat/commit/58716970092afc93cbf35fc05085610e7e988adf))
+* harden tool follow-up handling ([2e9d5b6](https://github.com/ngutech21/sumika-chat/commit/2e9d5b602ed7c922c18c8980ccaf04bad7fcf800))
+* ship audio-input entitlement in signed release builds ([8bfc3fb](https://github.com/ngutech21/sumika-chat/commit/8bfc3fb82e3e04e290e68e78625a5634d7619588))
+* typos ([6d36726](https://github.com/ngutech21/sumika-chat/commit/6d36726195e9d33cd1695f60576a85f6ac498908))
+* ui tests ([c05ecf5](https://github.com/ngutech21/sumika-chat/commit/c05ecf55bf63c75d3db76ef799b212bb6335fed5))
+
 ## [1.1.0-beta.0](https://github.com/ngutech21/sumika-chat/compare/v1.0.0-beta.0...v1.1.0-beta.0) (2026-06-30)
 
 
