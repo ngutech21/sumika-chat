@@ -21,13 +21,23 @@ public struct MCPServerStatus: Equatable, Sendable, Identifiable {
   }
 }
 
+extension MCPClientError {
+  fileprivate var invalidatesConnection: Bool {
+    switch self {
+    case .notConnected, .serverExited:
+      return true
+    case .timedOut, .protocolError, .serverError:
+      return false
+    }
+  }
+}
+
 /// Owns the stdio connections to all configured MCP servers and projects
 /// their tools as dynamic executors for the agent registry.
 ///
 /// The manager never reconnects on its own: connections start when a
 /// configuration is applied (or a reconnect is requested) and a crashed
-/// server surfaces as failed tool calls plus a failed status after the next
-/// explicit reconcile.
+/// server is marked failed once the dead connection is observed.
 public actor MCPClientManager: MCPToolCalling {
   private struct ActiveServer {
     var config: MCPServerConfig
@@ -156,7 +166,21 @@ public actor MCPClientManager: MCPToolCalling {
     guard let connection = servers[serverID]?.connection else {
       throw MCPClientError.notConnected
     }
-    return try await connection.callTool(name: name, arguments: arguments)
+    do {
+      return try await connection.callTool(name: name, arguments: arguments)
+    } catch let error as MCPClientError {
+      if error.invalidatesConnection {
+        let clearedConnection = markConnectionUnavailable(
+          serverID: serverID,
+          connection: connection,
+          error: error
+        )
+        if clearedConnection {
+          await connection.shutdown()
+        }
+      }
+      throw error
+    }
   }
 
   // MARK: - Connection helpers
@@ -191,6 +215,24 @@ public actor MCPClientManager: MCPToolCalling {
       servers[serverID]?.tools = []
       servers[serverID]?.state = .failed(message: error.localizedDescription)
     }
+  }
+
+  private func markConnectionUnavailable(
+    serverID: UUID,
+    connection: MCPServerConnection,
+    error: MCPClientError
+  ) -> Bool {
+    guard let server = servers[serverID],
+      let currentConnection = server.connection,
+      currentConnection === connection
+    else {
+      return false
+    }
+
+    servers[serverID]?.connection = nil
+    servers[serverID]?.tools = []
+    servers[serverID]?.state = .failed(message: error.localizedDescription)
+    return true
   }
 
   private static func requiresRestart(

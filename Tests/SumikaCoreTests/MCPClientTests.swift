@@ -206,6 +206,53 @@ struct MCPClientTests {
   }
 
   @Test
+  func managerClearsAdvertisedToolsWhenConnectedServerExits() async throws {
+    let script = try writeScript(
+      """
+      #!/bin/sh
+      read -r line
+      printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1.0"}}}'
+      read -r line
+      read -r line
+      printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Echo text back.","inputSchema":{"type":"object"}}]}}'
+      echo "fatal: crashed after listing tools" >&2
+      exit 9
+      """
+    )
+    defer { removeScript(script) }
+    let config = MCPServerConfig(name: "Crashy", command: script.path(percentEncoded: false))
+    let manager = MCPClientManager()
+
+    await manager.applyConfiguration([config])
+    #expect(await manager.statuses().first?.state == .connected(toolCount: 1))
+    #expect(await manager.agentToolExecutors().count == 1)
+
+    do {
+      _ = try await manager.callTool(serverID: config.id, name: "echo", arguments: [:])
+      Issue.record("Expected callTool() to throw")
+    } catch let error as MCPClientError {
+      switch error {
+      case .notConnected, .serverExited:
+        break
+      case .timedOut, .protocolError, .serverError:
+        Issue.record("Expected connection lifecycle error, got \(error)")
+      }
+    } catch {
+      Issue.record("Expected MCPClientError, got \(error)")
+    }
+
+    let statuses = await manager.statuses()
+    let executors = await manager.agentToolExecutors()
+    await manager.shutdownAll()
+
+    guard case .failed? = statuses.first?.state else {
+      Issue.record("Expected failed state, got \(String(describing: statuses.first?.state))")
+      return
+    }
+    #expect(executors.isEmpty)
+  }
+
+  @Test
   func managerIgnoresStaleConnectionAfterServerIsDisabledDuringStart() async throws {
     let marker = FileManager.default.temporaryDirectory
       .appending(path: "sumika-mcp-start-marker-\(UUID().uuidString)", directoryHint: .notDirectory)
