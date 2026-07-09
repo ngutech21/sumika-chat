@@ -123,3 +123,4 @@ jobs:
         with:
           name: Sumika-macos-nightly
           path: build/artifacts/Sumika-macos-nightly.dmg
+          if-no-files-found: error

@@ -123,4 +123,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
           ASSET_PATH: build/artifacts/${{ steps.versions.outputs.asset_name }}
-        run: gh release upload "$TAG_NAME" "$ASSET_PATH" --clobber
+        run: |
+          set -euo pipefail
+          test -f "$ASSET_PATH"
+          gh release upload "$TAG_NAME" "$ASSET_PATH" --clobber

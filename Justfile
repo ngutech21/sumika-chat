@@ -52,7 +52,8 @@ release-signed:
     codesign --display --entitlements - "$app_bundle" | grep -F "com.apple.security.device.audio-input" >/dev/null || { echo "Signed app bundle is missing the audio-input entitlement."; exit 1; }
 
 release-package artifact_name="Sumika-macos-release.dmg": release-signed
-    @app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
+    @set -e; \
+    app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
     artifact_dir="{{artifact_dir}}"; \
     artifact="$artifact_dir/{{artifact_name}}"; \
     dmg_root="$artifact_dir/dmg-root"; \
@@ -60,6 +61,7 @@ release-package artifact_name="Sumika-macos-release.dmg": release-signed
     mkdir -p "$artifact_dir"; \
     codesign --verify --deep --strict --verbose=2 "$app_bundle"; \
     rm -rf "$dmg_root"; \
+    rm -f "$artifact"; \
     mkdir -p "$dmg_root"; \
     ditto "$app_bundle" "$dmg_root/{{app_name}}.app"; \
     create-dmg \
@@ -70,7 +72,6 @@ release-package artifact_name="Sumika-macos-release.dmg": release-signed
         --hide-extension "{{app_name}}.app" \
         --app-drop-link 460 170 \
         --format UDZO \
-        --overwrite \
         "$artifact" \
         "$dmg_root"; \
     codesign --force --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$artifact"; \
@@ -78,7 +79,8 @@ release-package artifact_name="Sumika-macos-release.dmg": release-signed
     echo "$artifact"
 
 release-notarize artifact_name="Sumika-macos-release.dmg":
-    @artifact="{{artifact_dir}}/{{artifact_name}}"; \
+    @set -e; \
+    artifact="{{artifact_dir}}/{{artifact_name}}"; \
     test -f "$artifact"; \
     test -n "${APP_STORE_CONNECT_API_KEY_ID:-}" || { echo "APP_STORE_CONNECT_API_KEY_ID is required."; exit 1; }; \
     test -n "${APP_STORE_CONNECT_API_KEY_P8_BASE64:-}" || { echo "APP_STORE_CONNECT_API_KEY_P8_BASE64 is required."; exit 1; }; \
