@@ -1052,9 +1052,9 @@ struct AppKitChatTranscriptDiffPlanTests {
     )
     let code = "let value = 1"
     let row = nativeAssistantCodeRow(id: "assistant", revision: 1, code: code)
-    var highlighted: HighlightedCode?
+    let highlightStore = HighlightedCodeTestStore()
     var actions = testNativeActions()
-    actions.highlightedCode = { _, _ in highlighted }
+    actions.highlightedCode = { _, _ in highlightStore.value }
 
     cell.configure(row: row, state: NativeTranscriptCellState(), actions: actions)
     let codeLabel = try #require(
@@ -1064,7 +1064,7 @@ struct AppKitChatTranscriptDiffPlanTests {
       codeLabel.attributedStringValue.attribute(.foregroundColor, at: 0, effectiveRange: nil)
       as? NSColor
 
-    highlighted = HighlightedCode(
+    highlightStore.value = HighlightedCode(
       code: code,
       language: CodeLanguage(fenceLanguage: "js"),
       spans: [
@@ -1917,6 +1917,11 @@ private final class HighlightRequestRecorder {
   func record(rowID: String, codeBlock: AssistantRenderBlock.CodeBlock) {
     requests.append(Request(rowID: rowID, codeBlock: codeBlock))
   }
+}
+
+@MainActor
+private final class HighlightedCodeTestStore {
+  var value: HighlightedCode?
 }
 
 @MainActor
