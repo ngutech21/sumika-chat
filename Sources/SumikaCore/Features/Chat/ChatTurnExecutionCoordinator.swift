@@ -143,8 +143,7 @@ struct ChatTurnExecutionCoordinator {
       stableInstructions: stableInstructions,
       toolPromptMode: toolPromptMode,
       toolCallingPolicy: toolCallingPolicy,
-      toolLoopCoordinator: runtime.toolLoopCoordinator,
-      turnID: turnID
+      toolLoopCoordinator: runtime.toolLoopCoordinator
     )
     traceTurnPhase(
       .renderSystemPrompt,
@@ -488,16 +487,13 @@ struct ChatTurnExecutionCoordinator {
     stableInstructions: String,
     toolPromptMode: ToolPromptMode,
     toolCallingPolicy: ToolCallingPolicy,
-    toolLoopCoordinator: ToolLoopCoordinator,
-    turnID: ChatTurn.ID
+    toolLoopCoordinator: ToolLoopCoordinator
   ) -> ChatRuntimePromptPlan {
     ChatRuntimePromptPlan(
       stableInstructions: stableInstructions,
       transientInstructions: transientInstructions(
         session: session,
-        toolPromptMode: toolPromptMode,
-        toolLoopCoordinator: toolLoopCoordinator,
-        turnID: turnID
+        toolLoopCoordinator: toolLoopCoordinator
       ),
       toolContext: runtimeToolContext(
         for: toolPromptMode,
@@ -533,9 +529,7 @@ struct ChatTurnExecutionCoordinator {
 
   private func transientInstructions(
     session: ChatSession,
-    toolPromptMode: ToolPromptMode,
-    toolLoopCoordinator: ToolLoopCoordinator,
-    turnID: ChatTurn.ID
+    toolLoopCoordinator: ToolLoopCoordinator
   ) -> [String] {
     var instructions: [String] = []
     if session.interactionMode == .agent,

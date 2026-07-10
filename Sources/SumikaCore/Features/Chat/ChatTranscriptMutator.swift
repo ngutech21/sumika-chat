@@ -170,11 +170,6 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func removeMessage(id _: UUID, from _: inout ChatSession) {
-    // Transcript items are append-only. Empty cancelled assistant placeholders
-    // are filtered by read models instead of being deleted from persisted turns.
-  }
-
   public func removeTransientAssistantPlaceholders(from state: inout ChatSession) {
     for turnID in state.turns.map(\.id) {
       updateTurn(turnID, in: &state) { turn in

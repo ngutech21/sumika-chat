@@ -81,7 +81,6 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private let codeHighlightStore = NativeTranscriptCodeHighlightStore()
   private let attachmentThumbnailStore = NativeTranscriptAttachmentThumbnailStore()
   private var attachmentPreviewPopover: NSPopover?
-  private var pinnedToBottom = true
   private var pendingHeightInvalidationRows = IndexSet()
   private var pendingHeightInvalidationReasons = Set<String>()
   private var pendingHeightInvalidationWorkItem: DispatchWorkItem?
@@ -131,15 +130,7 @@ extension NativeChatTranscriptCoordinator {
     // system-driven adjustment and drive `contentInsets` explicitly.
     scrollView.automaticallyAdjustsContentInsets = false
     scrollView.documentView = tableView
-    scrollView.postsBoundsChangedNotifications = true
     scrollView.setAccessibilityIdentifier("chat.transcript")
-
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(clipViewBoundsDidChange(_:)),
-      name: NSView.boundsDidChangeNotification,
-      object: scrollView.contentView
-    )
 
     self.tableView = tableView
     dataSource = NSTableViewDiffableDataSource(tableView: tableView) {
@@ -382,15 +373,6 @@ extension NativeChatTranscriptCoordinator: NSTableViewDelegate {
     false
   }
 
-  @objc private func clipViewBoundsDidChange(_ notification: Notification) {
-    guard
-      let clipView = notification.object as? NSClipView,
-      let scrollView = clipView.enclosingScrollView
-    else {
-      return
-    }
-    pinnedToBottom = isPinnedToBottom(scrollView)
-  }
 }
 
 extension NativeChatTranscriptCoordinator {
@@ -929,12 +911,10 @@ extension NativeChatTranscriptCoordinator {
     }
     let targetY = max(maxScrollOffsetY(scrollView), 0)
     guard abs(scrollView.contentView.bounds.origin.y - targetY) >= 0.5 else {
-      pinnedToBottom = true
       return
     }
     scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
     scrollView.reflectScrolledClipView(scrollView.contentView)
-    pinnedToBottom = true
   }
 
   private func pruneCoordinatorState(activeRows: [NativeTranscriptRow]) {

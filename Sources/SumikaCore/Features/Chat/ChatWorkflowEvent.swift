@@ -9,10 +9,6 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
     attachments: [ChatAttachment],
     promptContext: CurrentPromptContext
   )
-  case assistantMessageAnnotatedAsToolCall(
-    assistantMessageID: UUID,
-    toolCall: ToolCallModelMessage
-  )
   case assistantAnnotatedAsNativeToolCall(
     assistantMessageID: UUID,
     toolCall: ToolCallModelMessage
@@ -155,8 +151,6 @@ public struct ChatWorkflowEventApplier: Sendable {
         promptContext: promptContext,
         to: &state
       )
-    case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, let toolCall):
-      mutator.annotateToolCall(toolCall, for: assistantMessageID, in: &state)
     case .assistantAnnotatedAsNativeToolCall(let assistantMessageID, let toolCall):
       mutator.annotateToolCall(toolCall, for: assistantMessageID, in: &state)
     case .toolCallAppended(let record, let turnID):
@@ -219,8 +213,6 @@ public struct ChatWorkflowEventApplier: Sendable {
       return []
     case .userMessageAppended(_, _, let turnID, _, _):
       return missingTurnDiagnostics([turnID], event: event, in: state)
-    case .assistantMessageAnnotatedAsToolCall(let assistantMessageID, _):
-      return missingMessageDiagnostics([assistantMessageID], event: event, in: state)
     case .assistantAnnotatedAsNativeToolCall(let assistantMessageID, _):
       return missingMessageDiagnostics([assistantMessageID], event: event, in: state)
     case .toolCallAppended(_, let turnID):

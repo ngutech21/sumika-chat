@@ -90,7 +90,6 @@ struct ChatComposer: View {
         ComposerTextView(
           draftBridge: draftBridge,
           placeholder: "Ask, dictate, or type / for commands",
-          isDisabled: false,
           canAcceptAttachments: canAcceptAttachments,
           onTextStateChanged: updateDraftState(_:),
           onSubmit: sendMessage,
@@ -877,7 +876,6 @@ private struct ComposerSpeechInputControl: View {
 private struct ComposerTextView: NSViewRepresentable {
   let draftBridge: ComposerDraftBridge
   let placeholder: String
-  let isDisabled: Bool
   let canAcceptAttachments: Bool
   let onTextStateChanged: (ComposerDraftState) -> Void
   let onSubmit: () -> Void
@@ -960,9 +958,9 @@ private struct ComposerTextView: NSViewRepresentable {
     textView.onCommitSlashSelection = onCommitSlashSelection
     textView.onDismissSlashSuggestions = onDismissSlashSuggestions
     textView.onPasteboardAttachments = onPasteboardAttachments
-    textView.isEditable = !isDisabled
+    textView.isEditable = true
     textView.isSelectable = true
-    textView.textColor = isDisabled ? .disabledControlTextColor : .labelColor
+    textView.textColor = .labelColor
     textView.frame.size.width = max(scrollView.contentSize.width, 1)
   }
 
@@ -1270,7 +1268,6 @@ private struct AttachmentList: View {
           ForEach(attachments) { attachment in
             AttachmentPreview(
               attachment: attachment,
-              style: .pending,
               canRemove: canRemove,
               onRemove: onRemoveAttachment
             )

@@ -295,24 +295,6 @@ struct ChatTranscriptMutatorTests {
     #expect(state.generationSettings == settings)
   }
 
-  @Test
-  func removeMessageDoesNotDeletePersistedItems() {
-    let removedID = UUID()
-    let kept = AssistantTurnMessage(content: "Keep")
-    var state = makeState(items: [
-      .userMessage(UserTurnMessage(id: removedID, content: "Remove")),
-      .assistantMessage(kept),
-    ])
-    let mutator = ChatTranscriptMutator()
-
-    mutator.removeMessage(id: removedID, from: &state)
-
-    #expect(
-      state.transcriptItemsForTesting == [
-        .userMessage(UserTurnMessage(id: removedID, content: "Remove")),
-        .assistantMessage(kept),
-      ])
-  }
 }
 
 private func makeState(

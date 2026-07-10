@@ -5,33 +5,6 @@ import Testing
 
 struct ChatWorkflowEventApplierTests {
   @Test
-  func annotatesAssistantMessageAsToolCall() {
-    let assistantID = UUID()
-    let toolCall = ToolCallModelMessage(
-      callID: UUID(),
-      toolName: .readFile,
-      arguments: [ToolCallModelArgument(name: "path", value: "README.md")]
-    )
-    var state = makeState(items: [
-      .assistantMessage(AssistantTurnMessage(id: assistantID, content: "I will read README.md."))
-    ])
-
-    ChatWorkflowEventApplier().apply(
-      [
-        .assistantMessageAnnotatedAsToolCall(
-          assistantMessageID: assistantID,
-          toolCall: toolCall
-        )
-      ],
-      to: &state
-    )
-
-    let items = state.transcriptItemsForTesting
-    #expect(items.map(\.kindForTesting) == [.assistant, .toolCall])
-    #expect(items[1].toolCallForTesting(records: state.toolCalls) == toolCall)
-  }
-
-  @Test
   func nativeMultipleToolCallAnnotationsDoNotReportMissingMessageAfterFirstUpdate() {
     let assistantID = UUID()
     let readCall = ToolCallModelMessage(
@@ -397,7 +370,7 @@ struct ChatWorkflowEventApplierTests {
       toolName: .readFile,
       arguments: [ToolCallModelArgument(name: "path", value: "README.md")]
     )
-    let event = ChatWorkflowEvent.assistantMessageAnnotatedAsToolCall(
+    let event = ChatWorkflowEvent.assistantAnnotatedAsNativeToolCall(
       assistantMessageID: missingMessageID,
       toolCall: toolCall
     )

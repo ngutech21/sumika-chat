@@ -144,7 +144,6 @@ public struct MCPToolExecutor: DynamicToolExecutor {
   static let maxDescriptionLength = 600
 
   public let codec: ToolCodec<MCPToolInput>
-  private let serverName: String
   private let client: any MCPToolCalling
 
   public init(
@@ -190,7 +189,6 @@ public struct MCPToolExecutor: DynamicToolExecutor {
         return input
       }
     )
-    self.serverName = serverName
     self.client = client
   }
 

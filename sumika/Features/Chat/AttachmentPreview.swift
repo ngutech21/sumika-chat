@@ -4,31 +4,7 @@ import SumikaCore
 import SwiftUI
 
 struct AttachmentPreview: View {
-  enum Style {
-    case pending
-    case sent
-
-    var thumbnailSize: CGSize {
-      switch self {
-      case .pending:
-        CGSize(width: 34, height: 34)
-      case .sent:
-        CGSize(width: 96, height: 64)
-      }
-    }
-
-    var labelMaxWidth: CGFloat {
-      switch self {
-      case .pending:
-        180
-      case .sent:
-        160
-      }
-    }
-  }
-
   let attachment: ChatAttachment
-  let style: Style
   var canRemove = false
   var onRemove: ((ChatAttachment.ID) -> Void)?
   @State private var isImagePreviewPresented = false
@@ -37,44 +13,27 @@ struct AttachmentPreview: View {
   private let attachmentStore = ChatAttachmentStore()
 
   var body: some View {
-    Group {
-      if usesVerticalImageLayout {
-        VStack(alignment: .leading, spacing: 0) {
-          thumbnail
-          attachmentName
-            .padding(.horizontal, 5)
-            .padding(.vertical, 4)
-        }
-      } else {
-        HStack(spacing: 7) {
-          thumbnail
-          attachmentName
+    HStack(spacing: 7) {
+      thumbnail
+      attachmentName
 
-          if let onRemove {
-            Button {
-              onRemove(attachment.id)
-            } label: {
-              Image(systemName: "xmark")
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .disabled(!canRemove)
-            .help("Remove")
-            .accessibilityLabel("Remove \(attachment.displayName)")
-          }
+      if let onRemove {
+        Button {
+          onRemove(attachment.id)
+        } label: {
+          Image(systemName: "xmark")
         }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .disabled(!canRemove)
+        .help("Remove")
+        .accessibilityLabel("Remove \(attachment.displayName)")
       }
     }
     .padding(.horizontal, horizontalPadding)
     .padding(.vertical, verticalPadding)
     .background(Color.secondary.opacity(0.12))
     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    .overlay {
-      if usesVerticalImageLayout {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .strokeBorder(Color.secondary.opacity(0.18), lineWidth: 1)
-      }
-    }
     .help(attachment.displayPath)
     .accessibilityElement(children: .combine)
     .accessibilityLabel(accessibilityLabel)
@@ -84,15 +43,8 @@ struct AttachmentPreview: View {
   }
 
   private var attachmentName: some View {
-    Group {
-      if usesVerticalImageLayout {
-        attachmentNameText
-          .frame(width: style.thumbnailSize.width, alignment: .leading)
-      } else {
-        attachmentNameText
-          .frame(maxWidth: style.labelMaxWidth, alignment: .leading)
-      }
-    }
+    attachmentNameText
+      .frame(maxWidth: 180, alignment: .leading)
   }
 
   private var attachmentNameText: some View {
@@ -110,8 +62,7 @@ struct AttachmentPreview: View {
       } label: {
         AttachmentThumbnail(
           image: thumbnailImage,
-          size: style.thumbnailSize,
-          showsInnerBorder: !usesVerticalImageLayout
+          size: thumbnailSize
         )
       }
       .buttonStyle(.plain)
@@ -136,34 +87,23 @@ struct AttachmentPreview: View {
     }
   }
 
-  private var usesVerticalImageLayout: Bool {
-    switch style {
-    case .pending:
-      false
-    case .sent:
-      attachment.kind == .image
-    }
-  }
-
   private var horizontalPadding: CGFloat {
-    if usesVerticalImageLayout {
-      return 0
-    }
-    return attachment.kind == .image ? 5 : 8
+    attachment.kind == .image ? 5 : 8
   }
 
   private var verticalPadding: CGFloat {
-    if usesVerticalImageLayout {
-      return 0
-    }
-    return attachment.kind == .image ? 5 : 6
+    attachment.kind == .image ? 5 : 6
+  }
+
+  private var thumbnailSize: CGSize {
+    CGSize(width: 34, height: 34)
   }
 
   private var thumbnailLoadKey: AttachmentThumbnailLoadKey {
     AttachmentThumbnailLoadKey(
       attachmentID: attachment.id,
       kind: attachment.kind,
-      maxPixelSize: Int(max(style.thumbnailSize.width, style.thumbnailSize.height) * 2)
+      maxPixelSize: Int(max(thumbnailSize.width, thumbnailSize.height) * 2)
     )
   }
 

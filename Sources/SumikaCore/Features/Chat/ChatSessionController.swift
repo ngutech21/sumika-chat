@@ -997,7 +997,6 @@ extension ChatWorkflowEvent {
     case .turnStatusChanged(_, _, let modelContextPolicy):
       return modelContextPolicy != nil
     case .turnAppended,
-      .assistantMessageAnnotatedAsToolCall,
       .assistantAnnotatedAsNativeToolCall,
       .toolCallAppended,
       .toolCallUpdated,
