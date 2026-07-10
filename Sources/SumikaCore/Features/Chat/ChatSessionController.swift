@@ -623,6 +623,9 @@ extension ChatSessionController {
     updateRuntimeCacheDebugSnapshot(nil)
     let operationID = modelRuntime.currentOperationID()
     runtimeContextClearCoordinator.clear(operationID: operationID) { [weak self] error in
+      if error is CancellationError {
+        return
+      }
       if let error {
         self?.errorMessage = error.localizedDescription
       } else {

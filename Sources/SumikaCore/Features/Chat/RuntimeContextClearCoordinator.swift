@@ -18,8 +18,9 @@ public final class RuntimeContextClearCoordinator {
     let clearID = UUID()
     let clearTask = Task {
       if let previousTask {
-        try await previousTask.value
+        _ = try? await previousTask.value
       }
+      try Task.checkCancellation()
       try await modelLifecycleCoordinator.clearContext(operationID: operationID)
     }
     pendingClear = PendingRuntimeContextClear(id: clearID, task: clearTask)
@@ -28,8 +29,8 @@ public final class RuntimeContextClearCoordinator {
       do {
         try await clearTask.value
         self?.complete(id: clearID, error: nil, onCompletion: onCompletion)
-      } catch is CancellationError {
-        self?.complete(id: clearID, error: nil, onCompletion: onCompletion)
+      } catch let error as CancellationError {
+        self?.complete(id: clearID, error: error, onCompletion: onCompletion)
       } catch {
         self?.complete(id: clearID, error: error, onCompletion: onCompletion)
       }
