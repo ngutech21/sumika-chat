@@ -110,6 +110,12 @@ data-model:
 test-app:
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean test
 
+test-app-tsan:
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}}-tsan -enableThreadSanitizer YES -parallel-testing-enabled NO test
+
+test-app-asan:
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}}-asan -enableAddressSanitizer YES -parallel-testing-enabled NO test
+
 test-ui:
     @echo "Gemma trace directory: $HOME/Library/Application Support/Sumika/debug/traces"; \
     status=0; \

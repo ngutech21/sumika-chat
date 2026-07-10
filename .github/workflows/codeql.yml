@@ -2,7 +2,7 @@ name: "CodeQL Advanced"
 
 on:
   schedule:
-    - cron: '34 3 * * 3'
+    - cron: '34 3 * * *'
 
 jobs:
   analyze:

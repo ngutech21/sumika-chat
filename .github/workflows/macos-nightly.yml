@@ -75,6 +75,15 @@ jobs:
         timeout-minutes: 20
         run: just test
 
+      - name: Run tsan
+        timeout-minutes: 25
+        run: just test-app-tsan
+
+      - name: Run asan
+        timeout-minutes: 25
+        run: just test-app-asan
+ 
+
       - name: Analyze
         timeout-minutes: 15
         run: |
