@@ -104,7 +104,7 @@ jobs:
         xcodebuild build \
           -project Sumika.xcodeproj \
           -scheme Sumika \
-          -destination "platform=macOS,arch=arm64" \
+          -destination "generic/platform=macOS" \
           -clonedSourcePackagesDirPath .build/xcode-source-packages \
           CODE_SIGNING_ALLOWED=NO
 
