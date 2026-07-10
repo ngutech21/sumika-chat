@@ -24,6 +24,7 @@ jobs:
       DESTINATION: platform=macOS,arch=arm64
       CONFIGURATION: Release
       DERIVED_DATA_PATH: build/DerivedData/macos-nightly
+      CLONED_SOURCE_PACKAGES_DIR_PATH: .build/xcode-source-packages
       SUMIKA_GIT_COMMIT: ${{ github.sha }}
       DEVELOPER_ID_APPLICATION: Developer ID Application
 
@@ -37,21 +38,6 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
           xcrun swift --version
-
-      - name: Install lint tools
-        timeout-minutes: 10
-        run: | 
-            brew untap aws/tap || true
-            brew install just swiftlint periphery create-dmg
-
-      - name: Run SwiftLint
-        timeout-minutes: 10
-        run: just lint
-
-      - name: Run periphery
-        timeout-minutes: 20
-        run: just periphery
-
 
       - name: Cache Swift package checkouts
         uses: actions/cache@v6
@@ -69,26 +55,30 @@ jobs:
           xcodebuild -resolvePackageDependencies \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
-            -clonedSourcePackagesDirPath .build/xcode-source-packages
+            -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"
+
+      - name: Verify resolved packages are committed
+        run: |
+          git diff --exit-code -- \
+            Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+      - name: Install lint tools
+        timeout-minutes: 10
+        run: |
+          brew untap aws/tap || true
+          brew install just swiftlint periphery create-dmg
+
+      - name: Run SwiftLint
+        timeout-minutes: 10
+        run: just lint
 
       - name: Run SwiftLint analyzer rules
         timeout-minutes: 30
-        env:
-          CLONED_SOURCE_PACKAGES_DIR_PATH: .build/xcode-source-packages
         run: just lint-analyze
 
-      - name: Run SwiftPM core tests on macOS
+      - name: Run Periphery
         timeout-minutes: 20
-        run: just test
-
-      - name: Run tsan
-        timeout-minutes: 25
-        run: just test-app-tsan
-
-      - name: Run asan
-        timeout-minutes: 25
-        run: just test-app-asan
- 
+        run: just periphery
 
       - name: Analyze
         timeout-minutes: 15
@@ -99,9 +89,21 @@ jobs:
             -configuration "$CONFIGURATION" \
             -destination "$DESTINATION" \
             -derivedDataPath "$DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath .build/xcode-source-packages \
+            -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH" \
             SUMIKA_GIT_COMMIT="$SUMIKA_GIT_COMMIT" \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: Run core and app tests on macOS
+        timeout-minutes: 20
+        run: just test
+
+      - name: Run TSan
+        timeout-minutes: 25
+        run: just test-app-tsan
+
+      - name: Run ASan
+        timeout-minutes: 25
+        run: just test-app-asan
 
       - name: Import Developer ID certificate
         timeout-minutes: 5
