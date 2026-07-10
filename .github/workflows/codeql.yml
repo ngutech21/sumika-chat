@@ -106,6 +106,7 @@ jobs:
           -scheme Sumika \
           -destination "generic/platform=macOS" \
           -clonedSourcePackagesDirPath .build/xcode-source-packages \
+          ARCHS=arm64 \
           CODE_SIGNING_ALLOWED=NO
 
     - name: Perform CodeQL Analysis
