@@ -162,25 +162,6 @@ coverage-low threshold="80":
     xcrun swift script/coverage_low.swift "$json" --threshold "$threshold"; \
     rm -f "$json"
 
-check-warnings:
-    @log=$(mktemp); \
-    status=0; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} clean build >"$log" 2>&1 || status=$?; \
-    warnings=$(grep -E "/sumika-chat/(sumika|SumikaTests|Sources|Tests)/.*: warning:" "$log" || true); \
-    if [ -n "$warnings" ]; then \
-        echo "Local source warnings found:"; \
-        echo "$warnings"; \
-        rm -f "$log"; \
-        exit 1; \
-    fi; \
-    if [ "$status" -ne 0 ]; then \
-        cat "$log"; \
-        rm -f "$log"; \
-        exit "$status"; \
-    fi; \
-    rm -f "$log"; \
-    echo "No local source warnings found."
-
 lint:
     @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew install swiftlint"; exit 127; }
     @configs="$(find . \( -path ./.git -o -path ./.build -o -path ./build -o -path ./DerivedData \) -prune -o -name .swiftlint.yml -print | sort | sed 's#^\./##')"; \
@@ -200,7 +181,23 @@ lint:
     done; \
     exit "$status"
 
-final-check: typos format lint periphery test check-warnings
+lint-analyze:
+    @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew install swiftlint"; exit 127; }
+    @log=$(mktemp); \
+    trap 'rm -f "$log"' EXIT; \
+    set --; \
+    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then \
+        set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; \
+    fi; \
+    status=0; \
+    xcodebuild -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} "$@" CODE_SIGNING_ALLOWED=NO clean build >"$log" 2>&1 || status=$?; \
+    if [ "$status" -ne 0 ]; then \
+        cat "$log"; \
+        exit "$status"; \
+    fi; \
+    swiftlint analyze --quiet --strict --config .swiftlint.yml --compiler-log-path "$log"
+
+final-check: typos format lint periphery test
 
 format:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
