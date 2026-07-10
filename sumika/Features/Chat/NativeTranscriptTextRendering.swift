@@ -4,20 +4,12 @@ import Markdown
 import SumikaCore
 
 struct NativeTranscriptMarkdownCache {
-  private var attributedStringsByText: [String: NSAttributedString] = [:]
   private var blocksByText: [String: [NativeMarkdownBlock]] = [:]
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   var cachedEntryCount: Int {
-    Set(attributedStringsByText.keys).union(blocksByText.keys).count
-  }
-
-  mutating func attributedString(for markdown: String) -> NSAttributedString {
-    if let cached = attributedStringsByText[markdown] {
-      return cached
-    }
-    let attributedString = NativeTranscriptMarkdownRenderer.attributedString(for: markdown)
-    attributedStringsByText[markdown] = attributedString
-    return attributedString
+    blocksByText.count
   }
 
   mutating func blocks(for markdown: String) -> [NativeMarkdownBlock] {
@@ -30,7 +22,6 @@ struct NativeTranscriptMarkdownCache {
   }
 
   mutating func prune(activeTexts: Set<String>) {
-    attributedStringsByText = attributedStringsByText.filter { activeTexts.contains($0.key) }
     blocksByText = blocksByText.filter { activeTexts.contains($0.key) }
   }
 }
@@ -58,6 +49,8 @@ struct NativeMarkdownTableCell {
 }
 
 enum NativeTranscriptMarkdownRenderer {
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   static func attributedString(for markdown: String) -> NSAttributedString {
     flattenedAttributedString(for: blocks(for: markdown))
   }

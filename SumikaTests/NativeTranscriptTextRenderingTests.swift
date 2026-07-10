@@ -178,12 +178,12 @@ struct NativeTranscriptTextRenderingTests {
   }
 
   @Test
-  func markdownCacheReusesRenderedTextAndPrunesInactiveEntries() {
+  func markdownCacheReusesRenderedBlocksAndPrunesInactiveEntries() {
     var cache = NativeTranscriptMarkdownCache()
 
-    _ = cache.attributedString(for: "**one**")
-    _ = cache.attributedString(for: "**one**")
-    _ = cache.attributedString(for: "**two**")
+    _ = cache.blocks(for: "**one**")
+    _ = cache.blocks(for: "**one**")
+    _ = cache.blocks(for: "**two**")
 
     #expect(cache.cachedEntryCount == 2)
 

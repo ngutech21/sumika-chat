@@ -1,5 +1,3 @@
-import Foundation
-
 public struct ChatComposerSessionState: Equatable, Sendable {
   public var pendingAttachments: [ChatAttachment]
   public var activeAttachments: [ChatAttachment]

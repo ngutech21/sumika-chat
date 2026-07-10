@@ -201,7 +201,7 @@ lint-analyze:
         cat "$log"; \
         exit "$status"; \
     fi; \
-    swiftlint analyze --quiet --strict --config .swiftlint.yml --compiler-log-path "$log"
+    swiftlint analyze --quiet --strict --config .swiftlint-analyze.yml --compiler-log-path "$log"
 
 final-check: typos format lint periphery test
 

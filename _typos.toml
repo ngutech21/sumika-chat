@@ -12,4 +12,5 @@ inout = "inout"
 [files]
 extend-exclude = [
   "CHANGELOG.md",
+  "docs/codebase-audit-open-findings.md",
 ]

@@ -5,6 +5,8 @@ import SumikaCore
 enum NativeTranscriptAttachmentPreviewMetrics {
   static let imageSize = NSSize(width: 180, height: 120)
   static let maxImagePixelSize = Int(max(imageSize.width, imageSize.height) * 2)
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   static let imageHeight: CGFloat = imageSize.height + 18
 }
 

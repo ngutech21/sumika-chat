@@ -1,3 +1,5 @@
+// Foundation types are used directly; the analyzer compiler log does not attribute them reliably.
+// swiftlint:disable:next unused_import
 import Foundation
 import Synchronization
 

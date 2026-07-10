@@ -1,3 +1,5 @@
+// Foundation provides ceil; the analyzer compiler log does not attribute it reliably.
+// swiftlint:disable:next unused_import
 import Foundation
 
 public enum ChatContextUsageAccuracy: String, Equatable, Sendable {

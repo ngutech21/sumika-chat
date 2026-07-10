@@ -771,6 +771,8 @@ extension NativeChatTranscriptCoordinator {
 
   // Runs a pending debounced flush synchronously. Test-only: the 60ms
   // asyncAfter hop cannot be drained from inside a main-queue test body.
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func flushPendingHeightInvalidationForTesting() {
     guard let workItem = pendingHeightInvalidationWorkItem else {
       return
@@ -1025,6 +1027,8 @@ final class NativeChatMessageCellView: NSTableCellView {
   fileprivate var actions: NativeTranscriptCellActions?
   private var askUserPopUpButton: NSPopUpButton?
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   var hostedContentViewForTesting: NSView? {
     hostedContentView
   }

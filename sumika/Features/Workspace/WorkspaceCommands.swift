@@ -1,4 +1,3 @@
-import SumikaCore
 import SwiftUI
 
 struct WorkspaceErrorAlert: ViewModifier {

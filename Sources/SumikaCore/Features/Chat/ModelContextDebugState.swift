@@ -1,5 +1,3 @@
-import Foundation
-
 public struct ModelContextDebugState: Equatable, Sendable {
   public var runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
   public var documentRevision: Int

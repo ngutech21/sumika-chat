@@ -1,0 +1,8 @@
+parent_config: .swiftlint.yml
+
+# SourceKit attempts to load FoundationNetworking on macOS even when its import
+# is in an inactive conditional-compilation branch. Regular lint still covers
+# these files; only compiler-log analysis needs to skip them.
+excluded:
+  - Sources/SumikaCore/Services/WebAccess.swift
+  - Sources/SumikaCore/Services/WebContentExtraction.swift

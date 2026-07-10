@@ -2,7 +2,6 @@
 import FluidAudio
 import Foundation
 import Observation
-import os
 
 enum ComposerAudioModelID: String, Codable, CaseIterable, Identifiable, Sendable {
   case smallEnglish

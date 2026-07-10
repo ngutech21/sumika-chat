@@ -284,10 +284,14 @@ struct NativeTranscriptHeightCache {
   private var lastKnownKeyByRowID: [String: Key] = [:]
   private var measuringCell: NativeChatMessageCellView?
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   var cachedEntryCount: Int {
     heightsByKey.count
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   var measuringCellForTesting: NativeChatMessageCellView? {
     measuringCell
   }

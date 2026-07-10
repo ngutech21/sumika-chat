@@ -1,5 +1,3 @@
-import Foundation
-
 /// Normalizes server-provided JSON Schemas into a model-agnostic canonical
 /// shape: every property carries a plain string `type`, optionality is
 /// expressed as OpenAPI-style `nullable: true`, and composition keywords are

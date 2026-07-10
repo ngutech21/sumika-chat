@@ -7,10 +7,6 @@ nonisolated struct MLXGenerationInput {
   let historySnapshot: [MLXMessageSnapshot]
   let promptMessages: [Chat.Message]
   let promptSnapshot: [MLXMessageSnapshot]
-
-  var promptContent: String {
-    promptMessages.map(\.content).joined(separator: "\n\n")
-  }
 }
 
 nonisolated enum MLXHistoryRenderer {
@@ -20,6 +16,8 @@ nonisolated enum MLXHistoryRenderer {
   /// after every tool turn.
   nonisolated static let runtimeProjectionMode = ModelContextProjectionMode.fullHistory
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   nonisolated static func chatMessage(
     from entry: ProjectedModelContextEntry,
     images: [UserInput.Image] = []
@@ -55,6 +53,8 @@ nonisolated enum MLXHistoryRenderer {
     return byteCount == 0 ? nil : byteCount
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   nonisolated static func templateMessages(
     from transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
@@ -606,6 +606,8 @@ nonisolated enum MLXHistoryRenderer {
     try validatedTemplateMessages(chatMessages(from: snapshots))
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   nonisolated static func generationHistoryMessages(
     from entries: ArraySlice<ProjectedModelContextEntry>
   ) throws -> [Chat.Message] {
@@ -618,6 +620,8 @@ nonisolated enum MLXHistoryRenderer {
     normalizedSnapshots(from: entries, dropsTrailingUser: true)
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   nonisolated static func generationHistoryMessages(
     from transcript: ModelPromptProjection
   ) throws -> [Chat.Message] {

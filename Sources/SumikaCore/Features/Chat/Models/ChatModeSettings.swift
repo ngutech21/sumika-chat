@@ -1,5 +1,3 @@
-import Foundation
-
 public struct ChatModeSettings: Codable, Equatable, Sendable {
   public var systemPrompt: String
   public var generationSettings: ChatGenerationSettings

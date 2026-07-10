@@ -1,5 +1,3 @@
-import Foundation
-
 public enum ChatPromptDefaults {
   public static let chatSystemPrompt = [
     "You are Sumika, a concise local-first assistant on the user's Mac.",

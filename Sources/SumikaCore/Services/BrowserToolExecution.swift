@@ -1,5 +1,3 @@
-import Foundation
-
 public protocol BrowserToolServing: Sendable {
   func refresh(_ input: BrowserRefreshInput) async -> BrowserRefreshResult
   func inspect(_ input: BrowserInspectInput) async -> BrowserInspectResult

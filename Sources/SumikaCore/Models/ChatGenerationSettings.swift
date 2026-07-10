@@ -1,5 +1,3 @@
-import Foundation
-
 public struct ChatGenerationSettings: Codable, Equatable, Sendable {
   public var temperature: Double
   public var topP: Double

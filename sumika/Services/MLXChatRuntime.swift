@@ -4,7 +4,6 @@ import MLXLLM
 import MLXLMCommon
 import MLXVLM
 import SumikaCore
-import Tokenizers
 
 final actor MLXChatRuntime: ChatModelRuntime {
   private var modelContainer: ModelContainer?
@@ -688,6 +687,8 @@ extension MLXChatRuntime {
   }
 
   #if DEBUG
+    // Test-only; exercised through @testable import.
+    // swiftlint:disable:next unused_declaration
     func registerActiveGenerationForTesting(id: MLXGenerationID, task: Task<Void, Never>) {
       activeGenerationRegistry.register(id: id, task: task)
     }

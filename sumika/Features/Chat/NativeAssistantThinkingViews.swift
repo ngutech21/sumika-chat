@@ -74,6 +74,8 @@ final class NativeReasoningTickerView: NSView {
     textView.appendAttributedText(attributedString)
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   var textForTesting: String {
     textView.string
   }

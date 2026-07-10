@@ -1,5 +1,3 @@
-import Foundation
-
 public struct ChatGenerationMetrics: Codable, Equatable, Sendable {
   public let generatedTokenCount: Int
   public let tokensPerSecond: Double

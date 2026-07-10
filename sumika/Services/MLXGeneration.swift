@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated struct MLXGenerationID: Equatable, Hashable, Sendable {
   let rawValue: UInt64
 }
@@ -44,6 +42,8 @@ nonisolated struct ActiveMLXGeneration: Sendable {
 nonisolated struct MLXActiveGenerationRegistry: Sendable {
   private(set) var activeGeneration: ActiveMLXGeneration?
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   var activeGenerationID: MLXGenerationID? {
     activeGeneration?.id
   }

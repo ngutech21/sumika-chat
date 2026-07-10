@@ -1,5 +1,3 @@
-import Foundation
-
 public enum ToolParameterValueType: String, Codable, Equatable, Sendable {
   case string
   case integer

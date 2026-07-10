@@ -1,5 +1,3 @@
-import Foundation
-
 public struct WebSearchInput: Codable, Equatable, Sendable {
   public var query: String
   public var maxResults: Int?

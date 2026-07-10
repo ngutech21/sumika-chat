@@ -8,6 +8,8 @@ nonisolated struct MLXModelStreamPlan {
 }
 
 nonisolated enum MLXModelStreamProcessor {
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   nonisolated static func modelStream(
     from stream: AsyncThrowingStream<Generation, Error>,
     reasoningTraceFormat: ReasoningTraceFormat = .none,

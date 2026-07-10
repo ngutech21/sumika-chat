@@ -1,5 +1,3 @@
-import Foundation
-import MLXLMCommon
 import SumikaCore
 
 nonisolated struct MLXToolCallSnapshot: Equatable, Sendable {

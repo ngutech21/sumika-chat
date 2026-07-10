@@ -1,5 +1,3 @@
-import Foundation
-
 #if DEBUG && canImport(OSLog)
   import OSLog
 #endif

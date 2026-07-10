@@ -1,4 +1,3 @@
-import Foundation
 import SumikaCore
 
 enum AppRoute: Hashable {

@@ -518,6 +518,8 @@ final class NativeStreamingCodeBlockView: NSStackView {
     codeText = text
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   var codeTextForTesting: String {
     textView.string
   }

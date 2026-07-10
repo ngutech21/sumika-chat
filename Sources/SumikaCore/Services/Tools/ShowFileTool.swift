@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated extension ToolDefinition {
   public static let showFile = ToolDefinition(
     name: .showFile,
