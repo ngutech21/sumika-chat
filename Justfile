@@ -16,6 +16,9 @@ default:
 deps:
    brew install swiftlint swift-format periphery create-dmg
 
+resolve-packages:
+    xcodebuild -resolvePackageDependencies -project {{project}} -scheme {{scheme}}
+
 build:
     @set --; \
     if [ -n "${MARKETING_VERSION:-}" ]; then set -- "$@" "MARKETING_VERSION=$MARKETING_VERSION"; fi; \
