@@ -50,12 +50,14 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
 
-    - name: Install Metal toolchain component
+    - name: Select Xcode 26.6
       if: matrix.build-mode == 'manual'
-      timeout-minutes: 10
+      env:
+        DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       run: |
-        xcodebuild -downloadComponent MetalToolchain
-        xcodebuild -showComponent MetalToolchain
+        test -d "$DEVELOPER_DIR"
+        echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+        xcodebuild -version
         xcrun metal --version
 
     - name: Cache Swift package checkouts
@@ -104,19 +106,19 @@ jobs:
     # to build your code.
     # ℹ️ Command-line programs to run using the OS shell.
     # 📚 See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsrun
-    - name: Run manual build steps
+    - name: Build complete Sumika app for CodeQL
       if: matrix.build-mode == 'manual'
       timeout-minutes: 30
       shell: bash
       run: |
-        xcrun metal --version
-
         xcodebuild build \
           -project Sumika.xcodeproj \
           -scheme Sumika \
+          -configuration Debug \
           -destination "generic/platform=macOS" \
           -clonedSourcePackagesDirPath .build/xcode-source-packages \
           ARCHS=arm64 \
+          ONLY_ACTIVE_ARCH=YES \
           CODE_SIGNING_ALLOWED=NO
 
     - name: Perform CodeQL Analysis
