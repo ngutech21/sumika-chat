@@ -169,11 +169,6 @@ public struct ToolObservationContext: Equatable, Sendable {
   public let content: String
   public let toolReceipt: ToolReceipt?
   public let toolCall: ToolCallModelMessage?
-  /// True for a successful write/edit result (`TerminalToolResultPolicy`): the
-  /// turn ends with a tools-stripped final generation after this observation,
-  /// and the legacy unstructured history fallback replays it in the assistant
-  /// role instead of the user role.
-  public let isTerminal: Bool
 
   public init(
     callID: UUID,
@@ -181,8 +176,7 @@ public struct ToolObservationContext: Equatable, Sendable {
     status: ToolResultStatus,
     content: String,
     toolReceipt: ToolReceipt? = nil,
-    toolCall: ToolCallModelMessage? = nil,
-    isTerminal: Bool = false
+    toolCall: ToolCallModelMessage? = nil
   ) {
     self.callID = callID
     self.toolName = toolName
@@ -190,7 +184,6 @@ public struct ToolObservationContext: Equatable, Sendable {
     self.content = content
     self.toolReceipt = toolReceipt
     self.toolCall = toolCall
-    self.isTerminal = isTerminal
   }
 }
 

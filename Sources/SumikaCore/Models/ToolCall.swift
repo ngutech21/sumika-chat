@@ -566,7 +566,7 @@ public struct ToolCallParseOutput: Equatable, Sendable {
 nonisolated extension ToolCallModelMessage {
   public var modelContextContent: String {
     if isPayloadOmittedFromHistory {
-      return terminalWriteModelContextContent
+      return payloadOmittedModelContextContent
     }
 
     guard !arguments.isEmpty else {
@@ -596,7 +596,7 @@ nonisolated extension ToolCallModelMessage {
     toolName == .writeFile || toolName == .editFile || toolName == .todoWrite
   }
 
-  private var terminalWriteModelContextContent: String {
+  private var payloadOmittedModelContextContent: String {
     if toolName == .todoWrite {
       return """
         Tool call todo_write requested.

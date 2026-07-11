@@ -273,35 +273,42 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
   /// User and assistant messages delimit assistant responses. Assistant thinking
   /// items are transparent so presentation-only reasoning cannot split a batch.
   public func toolCallBatch(containing toolCallID: ToolCallRecord.ID) -> ToolCallBatch? {
-    guard let targetIndex = toolItemIndex(id: toolCallID) else {
-      return nil
+    toolCallBatches.first { batch in
+      batch.records.contains { $0.id == toolCallID }
+    }
+  }
+
+  /// Tool-call batches in canonical transcript order. This derived collection is
+  /// also the source of truth for the per-turn native tool budget: one response
+  /// containing multiple calls contributes exactly one batch.
+  public var toolCallBatches: [ToolCallBatch] {
+    var batches: [ToolCallBatch] = []
+    var records: [ToolCallRecord] = []
+
+    func appendPendingBatch() {
+      guard !records.isEmpty else {
+        return
+      }
+      batches.append(ToolCallBatch(records: records))
+      records.removeAll(keepingCapacity: true)
     }
 
-    var lowerBound = targetIndex
-    while lowerBound > items.startIndex {
-      let precedingIndex = items.index(before: lowerBound)
-      guard !items[precedingIndex].toolCallBatchRole.isBoundary else {
-        break
+    for item in items {
+      switch item.toolCallBatchRole {
+      case .boundary:
+        appendPendingBatch()
+      case .transparent:
+        continue
+      case .member(let record):
+        records.append(record)
       }
-      lowerBound = precedingIndex
     }
+    appendPendingBatch()
+    return batches
+  }
 
-    var upperBound = targetIndex
-    while upperBound < items.index(before: items.endIndex) {
-      let followingIndex = items.index(after: upperBound)
-      guard !items[followingIndex].toolCallBatchRole.isBoundary else {
-        break
-      }
-      upperBound = followingIndex
-    }
-
-    let records = items[lowerBound...upperBound].compactMap { item -> ToolCallRecord? in
-      guard case .member(let record) = item.toolCallBatchRole else {
-        return nil
-      }
-      return record
-    }
-    return ToolCallBatch(records: records)
+  public var toolCallBatchCount: Int {
+    toolCallBatches.count
   }
 
   private func assistantMessageIndex(id messageID: UUID) -> Int? {
@@ -419,13 +426,6 @@ private enum ToolCallBatchItemRole {
   case boundary
   case transparent
   case member(ToolCallRecord)
-
-  var isBoundary: Bool {
-    if case .boundary = self {
-      return true
-    }
-    return false
-  }
 }
 
 extension ChatTurnItem {

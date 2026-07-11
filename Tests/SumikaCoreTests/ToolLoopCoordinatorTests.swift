@@ -1179,6 +1179,88 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func successfulWriteResultUsesNormalAgentContinuation() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator(tools: [.writeFile])
+    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("notes.txt"),
+              "content": .string("new notes\n"),
+            ]
+          )
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 1)
+    #expect(toolCallRecord(from: result)?.resultPayload?.status == .success)
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
+  func successfulEditResultUsesNormalAgentContinuation() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator(tools: [.editFile])
+    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("notes.txt"),
+              "old_text": .string("old notes\n"),
+              "new_text": .string("new notes\n"),
+            ]
+          )
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 1)
+    #expect(toolCallRecord(from: result)?.resultPayload?.status == .success)
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
+  func deniedToolResultUsesTypedFinalFollowUp() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("../outside.txt"),
+              "content": .string("blocked\n"),
+            ]
+          )
+        ]
+      )
+    )
+
+    #expect(toolCallRecord(from: result)?.status == .denied)
+    #expect(resumePromptMode(from: result) == .afterToolResultFinal)
+  }
+
+  @Test
   func todoWriteUpdatesTodoStateAndKeepsObservationMinimal() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -1415,6 +1497,19 @@ private actor CountingToolOrchestrator: ToolOrchestrating {
           durationMs: 10,
           stdout: ToolTextOutput(text: "ok\n"),
           stderr: ToolTextOutput(text: "")
+        ))
+    case .writeFile(let input):
+      payload = .writeFile(
+        .success(
+          path: WorkspaceRelativePath(rawValue: input.path),
+          bytesWritten: input.content.utf8.count
+        ))
+    case .editFile(let input):
+      payload = .editFile(
+        .success(
+          path: WorkspaceRelativePath(rawValue: input.path),
+          diff: nil,
+          matchStrategy: .exact
         ))
     default:
       payload = .failure(

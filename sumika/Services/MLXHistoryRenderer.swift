@@ -309,14 +309,12 @@ nonisolated enum MLXHistoryRenderer {
     to items: inout [MLXMessageSnapshot]
   ) {
     switch entry.body {
-    case .toolObservation(let context):
-      // Terminal write results replay as assistant output in the legacy
-      // unstructured fallback; ordinary observations replay as user input.
+    case .toolObservation:
+      // Without a structured assistant boundary, replay the observation as
+      // ordinary model input rather than treating any tool as terminal output.
       appendNormalized(
         MLXMessageSnapshot(
-          role: context.isTerminal
-            ? Chat.Message.Role.assistant.rawValue
-            : Chat.Message.Role.user.rawValue,
+          role: Chat.Message.Role.user.rawValue,
           content: entry.frozenContent.content
         ),
         to: &items

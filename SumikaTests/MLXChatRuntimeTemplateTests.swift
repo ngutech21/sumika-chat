@@ -1103,7 +1103,7 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
-  func terminalFollowUpPromptIncludesEntireStructuredResultGroup() throws {
+  func writeResultFollowUpIncludesEntireStructuredResultGroup() throws {
     let readCallID = UUID()
     let writeCallID = UUID()
     let turnID = UUID()
@@ -1512,7 +1512,7 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
-  func cachePrefixSurvivesTerminalWriteFollowUpBoundary() throws {
+  func cachePrefixSurvivesWriteToolResultBoundary() throws {
     let readCallID = UUID()
     let writeCallID = UUID()
     let turnID = UUID()
@@ -1607,16 +1607,16 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
-  func terminalToolResultFollowUpUsesStructuredToolResultAsPrompt() throws {
+  func writeToolResultFollowUpUsesStructuredToolResultAsPrompt() throws {
     let callID = UUID()
     let turnID = UUID()
-    let terminalResult = ToolResultModelMessage(
+    let writeResult = ToolResultModelMessage(
       callID: callID,
       toolName: .writeFile,
       payload: .writeFile(
         .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 13))
     )
-    let terminalRequest = toolRequest(
+    let writeRequest = toolRequest(
       callID: callID,
       toolName: .writeFile,
       arguments: [
@@ -1641,8 +1641,8 @@ struct MLXChatRuntimeTemplateTests {
       ),
       try ModelFacingPromptRenderer.toolResultEntry(
         turnID: turnID,
-        toolResult: terminalResult,
-        request: terminalRequest,
+        toolResult: writeResult,
+        request: writeRequest,
         originalUserRequest: nil
       ),
     ]
@@ -1654,6 +1654,39 @@ struct MLXChatRuntimeTemplateTests {
     #expect(prompt.content.contains("Summary: Wrote 13 bytes to movies.html."))
     #expect(!prompt.content.contains("Do not include generated file contents"))
     #expect(!prompt.content.contains("No more tools may run in this response."))
+  }
+
+  @Test
+  func unstructuredWriteResultReplaysAsOrdinaryUserObservation() throws {
+    let callID = UUID()
+    let writeResult = try ModelFacingPromptRenderer.toolResultEntry(
+      toolResult: ToolResultModelMessage(
+        callID: callID,
+        toolName: .writeFile,
+        payload: .writeFile(
+          .success(path: WorkspaceRelativePath(rawValue: "movies.html"), bytesWritten: 13)
+        )
+      ),
+      request: toolRequest(
+        callID: callID,
+        toolName: .writeFile,
+        arguments: [
+          "path": .string("movies.html"),
+          "content": .string("<html></html>"),
+        ]
+      ),
+      originalUserRequest: nil
+    )
+
+    let rendered = try MLXHistoryRenderer.templateMessages(
+      from: ModelPromptProjection(entries: [writeResult]),
+      attachments: [],
+      systemPrompt: ""
+    )
+
+    #expect(rendered.map(\.role) == [.user])
+    #expect(rendered[0].content.contains("\"tool\": \"write_file\""))
+    #expect(rendered[0].content.contains("Summary: Wrote 13 bytes to movies.html."))
   }
 
   @Test

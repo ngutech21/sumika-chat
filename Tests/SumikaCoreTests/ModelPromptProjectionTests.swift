@@ -152,7 +152,7 @@ struct ModelPromptProjectionTests {
   }
 
   @Test
-  func finalToolResultFollowUpDoesNotAppendSyntheticUserPrompt() throws {
+  func writeToolResultFollowUpDoesNotAppendSyntheticUserPrompt() throws {
     let turnID = UUID()
     let callID = UUID()
     let request = ToolCallRequest.validated(
@@ -198,19 +198,19 @@ struct ModelPromptProjectionTests {
       projection.entries.map(\.frozenContent.role) == [
         .user, .assistant, .tool,
       ])
-    let terminalEntry = try #require(
+    let writeEntry = try #require(
       projection.entries.first { entry in
         if case .toolObservation(let context) = entry.body {
-          return context.isTerminal
+          return context.toolName == .writeFile && context.callID == callID
         }
         return false
       })
-    guard case .toolObservation(let terminalContext) = terminalEntry.body else {
-      Issue.record("Expected the terminal result to remain in model context history.")
+    guard case .toolObservation(let writeContext) = writeEntry.body else {
+      Issue.record("Expected the write result to remain in model context history.")
       return
     }
-    #expect(terminalContext.toolName == .writeFile)
-    #expect(terminalContext.content.contains("Summary: Wrote 18 bytes to movies.html."))
+    #expect(writeContext.toolName == .writeFile)
+    #expect(writeContext.content.contains("Summary: Wrote 18 bytes to movies.html."))
 
     #expect(projection.entries.count == 3)
     #expect(
@@ -532,9 +532,9 @@ struct ModelPromptProjectionTests {
   }
 
   @Test
-  func terminalToolResultPreservesToolReceiptMetadata() throws {
+  func writeToolResultPreservesToolReceiptMetadata() throws {
     let callID = UUID()
-    let terminalEntry = try ModelFacingPromptRenderer.toolResultEntry(
+    let writeEntry = try ModelFacingPromptRenderer.toolResultEntry(
       toolResult: ToolResultModelMessage(
         callID: callID,
         toolName: .writeFile,
@@ -546,13 +546,12 @@ struct ModelPromptProjectionTests {
       originalUserRequest: nil
     )
 
-    guard case .toolObservation(let terminalContext) = terminalEntry.body else {
-      Issue.record("Expected terminal tool result context.")
+    guard case .toolObservation(let writeContext) = writeEntry.body else {
+      Issue.record("Expected write tool result context.")
       return
     }
 
-    #expect(terminalContext.isTerminal)
-    let receipt = try #require(terminalContext.toolReceipt)
+    let receipt = try #require(writeContext.toolReceipt)
     #expect(receipt.callID == callID)
     #expect(receipt.toolName == .writeFile)
     #expect(receipt.summary.text == "Wrote 18 bytes to movies.html.")

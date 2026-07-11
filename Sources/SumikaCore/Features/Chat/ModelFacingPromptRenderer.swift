@@ -74,11 +74,7 @@ public enum ModelFacingPromptRenderer {
         toolName: toolResult.toolName,
         preview: toolResult.preview
       ),
-      toolCall: ToolCallModelMessage(request: request),
-      isTerminal: TerminalToolResultPolicy.isTerminalWriteResult(
-        toolName: toolResult.toolName,
-        resultStatus: projection.observation.status
-      )
+      toolCall: ToolCallModelMessage(request: request)
     )
     return try ModelContextEntry(
       id: id,

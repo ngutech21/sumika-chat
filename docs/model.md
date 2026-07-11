@@ -442,7 +442,6 @@ classDiagram
     content: String
     toolReceipt: ToolReceipt?
     toolCall: ToolCallModelMessage?
-    isTerminal: Bool
   }
 
   class ToolReceipt {

@@ -90,12 +90,15 @@ flowchart TD
 - `ask_user` and `finish_task` must each be the only call in a native response.
   A mixed batch is rejected in full and no sibling side effect runs. Other
   direct-result behavior is also limited to single-call responses. Invalid
-  batches receive a tool-capable correction generation; at the normal tool-loop
-  boundary the runtime grants one bounded repair iteration before falling back
-  to a final response.
-- Terminal follow-up prompts, such as approved write/edit follow-ups and denied
-  tool follow-ups, do not expose tools to the runtime. If more work is needed,
-  the model must ask the user for another turn rather than emitting more tools.
+  batches consume a normal loop iteration and receive a tool-capable correction
+  generation only when budget remains. At the hard budget boundary, the next
+  response is final and exposes no tools; no extra repair iteration is granted.
+- The turn-wide budget is derived from the ordered tool-call batches in
+  `ChatTurn.items`. A multi-call assistant response counts once, and approval,
+  `ask_user`, persistence, or reload pauses do not reset the consumed count.
+- Successful write/edit follow-ups use the normal tool loop and keep the active
+  tool schema while budget remains. Explicit denial and other force-final rules
+  may still select a no-tools follow-up.
 - `finish_task` is an Agent-only terminal control tool. A valid call stores its
   typed request/result like every other tool, then projects the request's
   `summary` directly as visible assistant content and stops the turn without a
@@ -604,19 +607,22 @@ declarations.
   and is the complete user-visible final response. A successful call must be
   emitted alone and stops the tool loop directly. Invalid calls remain normal
   failed observations and may use the remaining iteration budget for repair.
-- Successful `write_file` and `edit_file` results are terminal for additional
-  tool execution in the current chat turn. `ChatTurnCoordinator` may request one
-  final no-tools assistant follow-up so the model can briefly summarize the
-  completed write and mention useful run or verification steps. The follow-up
-  clears native tool specs through `session.tools` and stores final guidance as
-  `modelFollowUpNotice` on the tool record; it must not change the stable system
-  instructions or cache identity. It should not echo generated file contents,
-  code blocks, diffs, or tool arguments unless the user explicitly asked to
-  display them in chat. The follow-up must not say files changed unless a
-  successful `write_file` or `edit_file` result exists in the turn; failed or
-  invalid write/edit results mean no workspace change happened. Any emitted tool
-  attempt in that final response must be converted into a structured failure
-  observation and must not execute.
+- Successful `write_file` and `edit_file` results are ordinary structured tool
+  observations. They resume the normal tool loop with native tools available
+  while the iteration budget remains, so the model can verify the change or
+  request another independent mutation. Every later side effect is a new call
+  and must pass validation and approval again. Large write/edit arguments remain
+  omitted from the frozen textual boundary, while MLX preserves the structured
+  assistant call and matching tool-result message. Follow-ups should not echo
+  generated file contents, code blocks, diffs, or tool arguments unless the user
+  explicitly asked to display them in chat. They must not say files changed
+  unless a successful `write_file` or `edit_file` result exists in the turn;
+  failed or invalid write/edit results mean no workspace change happened.
+- Same-response write/edit calls are normalized and validated as one batch;
+  conflicting targets prevent the whole batch from mutating the workspace.
+  Cross-round semantic mutation deduplication is intentionally out of scope: the
+  runtime does not infer that a later generated edit overlaps an earlier one.
+  Revalidation and explicit approval protect each later mutation independently.
 - Denied approval-sensitive tools may also receive one final no-tools assistant
   follow-up. The denied tool result stays auditable, no side effect occurs, and
   further tool attempts in the final response are recorded as structured

@@ -288,7 +288,6 @@ struct ChatTurnExecutionCoordinator {
     isActive: ChatTurnActiveChecker,
     finishTurn: ChatTurnFinisher,
     stableInstructions: String,
-    remainingIterations initialRemainingIterations: Int? = nil,
     lastNativeToolCalls: [ChatRuntimeToolCall] = []
   ) async throws -> Bool {
     let toolProfile = activeToolProfile(
@@ -303,14 +302,20 @@ struct ChatTurnExecutionCoordinator {
 
     var currentAssistantMessageID = lastAssistantMessageID
     var currentNativeToolCalls = lastNativeToolCalls
-    var remainingIterations = initialRemainingIterations ?? maxToolLoopIterations
-    var didGrantCorrectionIteration = false
     let toolCallingPolicy = runtime.selectedModel.toolCallingPolicy
 
-    while remainingIterations > 0 {
-      let toolLoopIteration = (maxToolLoopIterations - remainingIterations) + 1
-      let followUpPromptMode: ToolPromptMode =
-        followUpPromptMode(for: toolProfile, remainingIterations: remainingIterations)
+    while !currentNativeToolCalls.isEmpty {
+      let consumedBatchCount = toolCallBatchCount(turnID: turnID, callbacks: callbacks)
+      guard consumedBatchCount < maxToolLoopIterations else {
+        throw ChatGenerationError.emptyModelResponse
+      }
+      let toolLoopIteration = consumedBatchCount + 1
+      let followUpPromptMode = ToolFollowUpPromptPolicy.promptMode(
+        for: toolProfile,
+        finalReason: toolLoopIteration == maxToolLoopIterations
+          ? .toolBatchBudgetExhausted
+          : nil
+      )
       guard
         let step = try await runtime.toolLoopCoordinator.run(
           ToolLoopRequest(
@@ -332,7 +337,6 @@ struct ChatTurnExecutionCoordinator {
         return true
       }
       currentNativeToolCalls = []
-      remainingIterations -= 1
       try Task.checkCancellation()
       guard isActive(turnID) else {
         return false
@@ -368,16 +372,14 @@ struct ChatTurnExecutionCoordinator {
         }
         currentAssistantMessageID = nextAssistantMessageID
       case .resumeCorrectionGeneration(let nextAssistantMessageID, let promptMode):
-        let effectivePromptMode: ToolPromptMode
-        if remainingIterations == 0, didGrantCorrectionIteration {
-          effectivePromptMode = ToolPromptMode.finalMode(for: toolProfile)
-        } else {
-          effectivePromptMode = promptMode
-          if remainingIterations == 0 {
-            remainingIterations += 1
-            didGrantCorrectionIteration = true
-          }
-        }
+        let effectivePromptMode = ToolFollowUpPromptPolicy.promptMode(
+          for: toolProfile,
+          default: promptMode,
+          finalReason:
+            toolCallBatchCount(turnID: turnID, callbacks: callbacks) >= maxToolLoopIterations
+            ? .toolBatchBudgetExhausted
+            : nil
+        )
         callbacks.setActiveToolPromptMode(effectivePromptMode)
         let generationResult = try await streamAssistantReply(
           to: nextAssistantMessageID,
@@ -402,7 +404,7 @@ struct ChatTurnExecutionCoordinator {
       }
     }
 
-    throw ChatGenerationError.emptyModelResponse
+    return true
   }
 
   func requireVisibleTextOrToolCall(_ generationResult: ChatGenerationResult) throws {
@@ -578,14 +580,11 @@ struct ChatTurnExecutionCoordinator {
     return instructions
   }
 
-  private func followUpPromptMode(
-    for toolProfile: ToolExecutionProfile,
-    remainingIterations: Int
-  ) -> ToolPromptMode {
-    guard remainingIterations > 1 else {
-      return ToolPromptMode.finalMode(for: toolProfile)
-    }
-    return ToolPromptMode.continuationMode(for: toolProfile)
+  private func toolCallBatchCount(
+    turnID: ChatTurn.ID,
+    callbacks: ChatTurnCallbacks
+  ) -> Int {
+    callbacks.session().turns.first(where: { $0.id == turnID })?.toolCallBatchCount ?? 0
   }
 
   private func toolRegistry(

@@ -123,6 +123,105 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
+  func reloadedApprovalUsesAlreadyConsumedTurnBatchBudget() async throws {
+    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createListFixtureDirectories(in: workspace, count: budget - 1)
+    let initialRuntime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget - 1)
+        + [[writeToolCall(path: "final.txt", content: "final")]]
+    )
+    let initialController = ChatSessionController(
+      runtime: initialRuntime,
+      modelPath: "/tmp/model"
+    )
+    initialController.modelRuntime.modelState = .ready
+    initialController.setInteractionMode(.agent)
+    initialController.sendMessage(
+      prompt: "inspect then write",
+      in: workspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { initialController.hasPendingApproval && !initialController.isGenerating }
+
+    #expect(initialController.chatSession.turns.first?.toolCallBatchCount == budget)
+    let reloadedSession = try JSONDecoder().decode(
+      ChatSession.self,
+      from: JSONEncoder().encode(initialController.chatSession)
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.chunk("Finished at the tool batch limit.")]
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.loadSession(reloadedSession)
+    let pendingRecord = try #require(
+      controller.chatSession.toolCalls.last(where: { $0.status == .awaitingApproval })
+    )
+
+    controller.approveToolCall(id: pendingRecord.id, in: workspace)
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.turns.first?.status == .completed)
+    #expect(controller.chatSession.turns.first?.toolCallBatchCount == budget)
+    #expect(
+      try String(
+        contentsOf: workspace.rootURL.appending(path: "final.txt"),
+        encoding: .utf8
+      ) == "final"
+    )
+    let toolContexts = await runtime.capturedToolContexts
+    #expect(toolContexts.count == 1)
+    #expect(toolContexts[0] == nil)
+  }
+
+  @Test
+  func askUserResumeUsesAlreadyConsumedTurnBatchBudget() async throws {
+    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createListFixtureDirectories(in: workspace, count: budget - 1)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget - 1)
+        + [
+          [
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "ask_user",
+                arguments: [
+                  "question": .string("Finish now?"),
+                  "option1": .string("Finish"),
+                  "option2": .string("Stop"),
+                ]
+              ))
+          ],
+          [.chunk("Finished after the answer at the tool batch limit.")],
+        ]
+    )
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(
+      prompt: "inspect and ask",
+      in: workspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { controller.hasPendingUserAnswer && !controller.isGenerating }
+    let askRecord = try #require(controller.chatSession.toolCalls.last)
+
+    #expect(controller.chatSession.turns.first?.toolCallBatchCount == budget)
+    controller.answerAskUserToolCall(id: askRecord.id, answer: "Finish", in: workspace)
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.turns.first?.status == .completed)
+    #expect(controller.chatSession.turns.first?.toolCallBatchCount == budget)
+    let toolContexts = await runtime.capturedToolContexts
+    #expect(toolContexts.count == budget + 1)
+    #expect(toolContexts[budget] == nil)
+  }
+
+  @Test
   func sendMessageRunsReadOnlyToolsUntilBudgetThenStreamsFinalAssistantResponse() async throws {
     let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
     let sessionID = UUID()
@@ -585,12 +684,12 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
-  func invalidBatchAtToolBudgetBoundaryGetsOneToolCapableRepairGeneration() async throws {
+  func invalidBatchAtToolBudgetBoundaryFinalizesWithoutToolCapableRepair() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let callsBeforeInvalidBatch = ChatToolLoopLimits.defaultMaxToolLoopIterations - 1
     try createListFixtureDirectories(in: workspace, count: callsBeforeInvalidBatch)
-    let repairedSummary = "Repaired the final mixed batch."
+    let finalSummary = "The final mixed batch was invalid, so I stopped."
     let runtime = ChatSessionFakeChatModelRuntime(
       eventTurns: listFileEventTurns(count: callsBeforeInvalidBatch)
         + [
@@ -609,16 +708,7 @@ struct ChatSessionControllerToolLoopTests {
                 ]
               )),
           ],
-          [
-            .toolCall(
-              ChatRuntimeToolCall(
-                name: "finish_task",
-                arguments: [
-                  "status": .string("done"),
-                  "summary": .string(repairedSummary),
-                ]
-              ))
-          ],
+          [.chunk(finalSummary)],
         ]
     )
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
@@ -629,14 +719,12 @@ struct ChatSessionControllerToolLoopTests {
     try await waitUntil { !controller.isGenerating }
 
     #expect(controller.chatSession.turns.first?.status == .completed)
-    #expect(controller.chatSession.testMessages.last?.content == repairedSummary)
-    #expect(
-      Array(controller.chatSession.toolCalls.suffix(3)).map(\.status) == [
-        .failed, .failed, .completed,
-      ])
+    #expect(controller.chatSession.testMessages.last?.content == finalSummary)
+    #expect(Array(controller.chatSession.toolCalls.suffix(2)).map(\.status) == [.failed, .failed])
+    #expect(controller.chatSession.turns.first?.toolCallBatchCount == callsBeforeInvalidBatch + 1)
     let toolContexts = await runtime.capturedToolContexts
-    let repairContext = try #require(toolContexts.last ?? nil)
-    #expect(repairContext.registry.definition(for: .finishTask) != nil)
+    #expect(toolContexts.count == ChatToolLoopLimits.defaultMaxToolLoopIterations + 1)
+    #expect(toolContexts[ChatToolLoopLimits.defaultMaxToolLoopIterations] == nil)
   }
 
   @Test

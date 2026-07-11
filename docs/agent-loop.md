@@ -7,7 +7,7 @@ transparent performance optimization, not part of the control flow.
 ## Core Loop
 
 ```text
-while turn is running and iteration budget remains:
+while turn is running and turn-wide tool-batch budget remains:
   build structured model messages from ChatSession.turns
   call the model with the active tool schema
 
@@ -36,7 +36,7 @@ The loop stops only on one of these conditions:
   visible assistant text and stops without another model generation
 - a tool approval or user-answer pause
 - user cancellation
-- iteration budget exhaustion or runtime failure
+- turn-wide tool-batch budget exhaustion or runtime failure
 
 Duplicate tool calls, cache rebuilds, empty assistant tool-call envelopes, and
 reasoning-only output are not successful stop conditions.
@@ -48,8 +48,9 @@ reasoning-only output are not successful stop conditions.
   assistant answer.
 - Tool observations are appended back to the model as structured `tool`
   messages that match the original call IDs.
-- Invalid, unavailable, denied, and failed tools become observations. The model
-  gets another iteration while budget remains.
+- Invalid, unavailable, denied, and failed tools become observations. Invalid,
+  unavailable, and failed results can continue with tools while budget remains;
+  denial selects the tools-free finalization path.
 - `finish_task` must be the only native tool call in its model response. A mixed
   batch is rejected before any sibling executes and becomes one compact invalid
   observation so the model can repair the call.
@@ -66,11 +67,26 @@ reasoning-only output are not successful stop conditions.
 - Failed `run_command` observations are generic command failures. The loop must
   not infer command-specific side effects, such as whether a repository changed,
   unless a later tool result verifies that state.
-- Duplicate read/list/search calls may be executed again or answered with a
-  compact duplicate observation. They must not force finalization.
+- The first identical read/list/search replay becomes a compact duplicate
+  observation and may continue. A second consecutive identical replay is
+  blocked and selects the tools-free finalization path.
 - Write, edit, command, and other side-effecting tools keep their approval flow.
-  Approval pauses the loop; after approval or denial the same loop resumes from
-  the updated turn history.
+  Approval pauses the loop; a successful approval resumes the normal loop from
+  the updated turn history. Explicit denial records an observation and follows
+  the configured force-final path.
+- A successful `write_file` or `edit_file` result is an ordinary structured tool
+  observation, not a terminal assistant answer. While budget remains, the model
+  may verify the mutation or request another independent mutation; every new
+  side effect goes through validation and approval again.
+- Same-response write/edit targets are normalized and checked before the batch
+  executes. Detecting semantically duplicate or overlapping mutations emitted
+  in later model generations is intentionally outside the loop's current scope;
+  the new call's revalidation and approval remain the safety boundary.
+- The budget counts native assistant tool-call batches, not individual calls;
+  one multi-call response consumes one batch. The count is derived from the
+  persisted turn items, so approval, `ask_user`, and reload pauses cannot reset
+  it. Invalid batches consume normal budget and receive no extra repair round at
+  the hard boundary.
 
 ## MLX Session Policy
 

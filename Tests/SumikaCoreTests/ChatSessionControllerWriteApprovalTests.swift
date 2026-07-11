@@ -173,18 +173,17 @@ struct ChatSessionControllerWriteApprovalTests {
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
-    #expect(capturedMessages.last?.last?.content.contains("No more tools are available") == true)
+    #expect(capturedMessages.last?.last?.content.contains("No more tools are available") == false)
     #expect(capturedMessages.last?.last?.role == .tool)
     #expect(capturedMessages.last?.last?.content.contains("Wrote") == true)
     #expect(
+      capturedMessages.last?.last?.content.contains(
+        "Continue using the latest tool observation"
+      )
+        == true)
+    #expect(
       capturedMessages.last?.last?.content.contains("Do not include generated file contents")
-        == true)
-    #expect(
-      capturedMessages.last?.last?.content.contains("Never say files were changed")
-        == true)
-    #expect(
-      capturedMessages.last?.last?.content.contains("no workspace change happened")
-        == true)
+        == false)
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.last?.contains("No more tools may run") == false)
     #expect(
@@ -194,6 +193,7 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(capturedSystemPrompts.last?.contains("no workspace change happened") == true)
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.last?.transientInstructions.isEmpty == true)
+    #expect(capturedPromptPlans.last?.toolContext != nil)
   }
 
   @Test

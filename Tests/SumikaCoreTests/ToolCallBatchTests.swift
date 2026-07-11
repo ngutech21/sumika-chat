@@ -32,6 +32,8 @@ struct ToolCallBatchTests {
     #expect(separateBatch.anchorID == separate.id)
     #expect(separateBatch.records.map(\.id) == [separate.id])
     #expect(separateBatch.hasPendingUserAnswer)
+    #expect(turn.toolCallBatches.map(\.anchorID) == [first.id, separate.id])
+    #expect(turn.toolCallBatchCount == 2)
     #expect(turn.toolCallBatch(containing: UUID()) == nil)
   }
 
@@ -93,6 +95,7 @@ struct ToolCallBatchTests {
     #expect(restored.pendingApprovalRecords.isEmpty)
     #expect(!restored.hasPendingUserAnswer)
     #expect(restored.isModelReady)
+    #expect(decoded.toolCallBatchCount == 1)
 
     decoded.updateStatus(.completed)
     let afterStatusChange = try #require(decoded.toolCallBatch(containing: denied.id))

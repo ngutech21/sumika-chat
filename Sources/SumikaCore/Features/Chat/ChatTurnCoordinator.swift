@@ -571,13 +571,29 @@ extension ChatTurnCoordinator {
       answer: answer,
       turnID: turnID
     )
-    guard let nextAssistantMessageID = resumeResult.nextAssistantMessageID,
-      let promptMode = resumeResult.followUpPromptMode
-    else {
+    guard let nextAssistantMessageID = resumeResult.nextAssistantMessageID else {
       return .stop
     }
 
     callbacks.emitEvents(resumeResult.events)
+    let toolProfile = executionCoordinator.activeToolProfile(
+      workspace: workspace,
+      sessionID: existingRecord.request.sessionID,
+      interactionMode: callbacks.session().interactionMode,
+      selectedModel: runtime.selectedModel
+    )
+    guard let turn = callbacks.session().turns.first(where: { $0.id == turnID }) else {
+      return .fail(cancelsStreaming: false)
+    }
+    let finalReason: ToolFollowUpFinalReason? =
+      turn.toolCallBatchCount >= maxToolLoopIterations
+      ? .toolBatchBudgetExhausted
+      : nil
+    let promptMode = ToolFollowUpPromptPolicy.promptMode(
+      for: toolProfile,
+      default: resumeResult.followUpPromptMode,
+      finalReason: finalReason
+    )
     executionCoordinator.applyToolFollowUpNoticeIfNeeded(
       toolPromptMode: promptMode,
       turnID: turnID,
@@ -586,12 +602,6 @@ extension ChatTurnCoordinator {
     callbacks.refreshContextUsage(promptMode)
     callbacks.notifySessionDidChange()
 
-    let toolProfile = executionCoordinator.activeToolProfile(
-      workspace: workspace,
-      sessionID: existingRecord.request.sessionID,
-      interactionMode: callbacks.session().interactionMode,
-      selectedModel: runtime.selectedModel
-    )
     let stableInstructions = stableInstructions(
       toolProfile: toolProfile,
       runtime: runtime,
@@ -606,8 +616,12 @@ extension ChatTurnCoordinator {
       toolPromptMode: promptMode,
       stableInstructions: stableInstructions,
       turnID: turnID,
-      toolLoopIteration: 1
+      toolLoopIteration: turn.toolCallBatchCount
     )
+    if promptMode.isFinal {
+      try executionCoordinator.requireVisibleFinalResponse(generationResult)
+      return .complete
+    }
     try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
     let shouldComplete = try await executionCoordinator.runToolLoop(
       workspace: workspace,
@@ -620,7 +634,6 @@ extension ChatTurnCoordinator {
       isActive: self.isActive,
       finishTurn: self.finishTurn,
       stableInstructions: stableInstructions,
-      remainingIterations: maxToolLoopIterations - 1,
       lastNativeToolCalls: generationResult.nativeToolCalls
     )
     return shouldComplete ? .complete : .stop
@@ -677,11 +690,10 @@ extension ChatTurnCoordinator {
       runtime: runtime,
       callbacks: callbacks
     )
-    let forceFinal = batchRequiresFinalFollowUp(batch, turnItems: turn.items)
-    let promptMode =
-      forceFinal
-      ? ToolPromptMode.finalMode(for: toolProfile)
-      : ToolPromptMode.continuationMode(for: toolProfile)
+    let promptMode = ToolFollowUpPromptPolicy.promptMode(
+      for: toolProfile,
+      finalReason: finalReason(batch, in: turn)
+    )
     let nextAssistantMessageID = UUID()
     callbacks.emitEvents([
       .assistantPlaceholderAppended(
@@ -716,7 +728,7 @@ extension ChatTurnCoordinator {
       toolPromptMode: promptMode,
       stableInstructions: stableInstructions,
       turnID: turnID,
-      toolLoopIteration: 1
+      toolLoopIteration: turn.toolCallBatchCount
     )
     if promptMode.isFinal {
       try executionCoordinator.requireVisibleFinalResponse(generationResult)
@@ -738,7 +750,6 @@ extension ChatTurnCoordinator {
       isActive: self.isActive,
       finishTurn: self.finishTurn,
       stableInstructions: stableInstructions,
-      remainingIterations: maxToolLoopIterations - 1,
       lastNativeToolCalls: generationResult.nativeToolCalls
     )
     return shouldComplete ? .complete : .stop
@@ -761,21 +772,20 @@ extension ChatTurnCoordinator {
     return callbacks.session().interactionMode == .chat ? .chatWeb : .agent
   }
 
-  private func batchRequiresFinalFollowUp(
+  private func finalReason(
     _ batch: ToolCallBatch,
-    turnItems: [ChatTurnItem]
-  ) -> Bool {
-    if batch.records.contains(where: { record in
-      record.status == .denied
-        || TerminalToolResultPolicy.isTerminalWriteResult(record)
-        || isBlockedDuplicate(record)
-    }) {
-      return true
+    in turn: ChatTurn
+  ) -> ToolFollowUpFinalReason? {
+    if batch.records.contains(where: { $0.status == .denied }) {
+      return .denial
+    }
+    if batch.records.contains(where: isBlockedDuplicate(_:)) {
+      return .blockedDuplicate
     }
 
     let batchIDs = Set(batch.records.map(\.id))
     var priorItems: [ChatTurnItem] = []
-    for item in turnItems {
+    for item in turn.items {
       guard case .tool(let record) = item, batchIDs.contains(record.id) else {
         priorItems.append(item)
         continue
@@ -784,11 +794,14 @@ extension ChatTurnCoordinator {
         record,
         priorItems: priorItems
       ) {
-        return true
+        return .repeatedRunCommandFailure
       }
       priorItems.append(item)
     }
-    return false
+    if turn.toolCallBatchCount >= maxToolLoopIterations {
+      return .toolBatchBudgetExhausted
+    }
+    return nil
   }
 
   private func isBlockedDuplicate(_ record: ToolCallRecord) -> Bool {

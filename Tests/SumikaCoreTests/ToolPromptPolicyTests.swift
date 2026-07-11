@@ -29,6 +29,9 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("finish_task"))
     #expect(prompt.contains("Emit finish_task as the only native tool call"))
     #expect(prompt.contains("summary is displayed directly as the final response"))
+    #expect(prompt.contains("After a successful write_file or edit_file result, continue"))
+    #expect(prompt.contains("When the requested work is complete, call finish_task"))
+    #expect(prompt.contains("Never print tool-call XML, JSON envelopes"))
     #expect(prompt.contains("native tool calls"))
   }
 
@@ -60,6 +63,19 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
+  func mutationContinuationDoesNotRequireUnavailableFinishTask() {
+    let prompt = ToolPromptPolicy().systemPrompt(
+      basePrompt: "Base",
+      mode: .afterToolResultCanContinue,
+      toolRegistry: ToolRegistry(tools: [.readFile, .writeFile])
+    )
+
+    #expect(prompt.contains("After a successful write_file or edit_file result, continue"))
+    #expect(prompt.contains("then provide the final answer"))
+    #expect(!prompt.contains("call finish_task"))
+  }
+
+  @Test
   func nativeChatWebPromptMentionsOnlyWebToolsAndPrivacyBoundary() {
     let prompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",
@@ -72,6 +88,7 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("web_fetch"))
     #expect(prompt.contains("Never send private code"))
     #expect(prompt.contains("untrusted reference material"))
+    #expect(prompt.contains("Never print tool-call XML, JSON envelopes"))
     #expect(!prompt.contains("edit_file"))
     #expect(!prompt.contains("run_command"))
     #expect(!prompt.contains("finish_task"))
@@ -158,101 +175,41 @@ struct ToolPromptPolicyTests {
   }
 }
 
-struct TerminalToolResultPolicyTests {
+struct ToolFollowUpPromptPolicyTests {
   @Test
-  func onlySuccessfulWriteAndEditResultsAreTerminal() {
+  func ordinaryToolResultsIncludingMutationsContinuePerProfile() {
     #expect(
-      TerminalToolResultPolicy.isTerminalWriteResult(toolName: .writeFile, resultStatus: .success))
+      ToolFollowUpPromptPolicy.promptMode(for: .agent) == .afterToolResultCanContinue)
     #expect(
-      TerminalToolResultPolicy.isTerminalWriteResult(toolName: .editFile, resultStatus: .success))
-    #expect(
-      !TerminalToolResultPolicy.isTerminalWriteResult(toolName: .writeFile, resultStatus: .failed))
-    #expect(
-      !TerminalToolResultPolicy.isTerminalWriteResult(toolName: .readFile, resultStatus: .success))
-  }
-
-  @Test
-  func followUpModeAfterTerminalWriteHonorsToolProfile() {
-    let record = completedWriteRecord()
-
-    #expect(TerminalToolResultPolicy.isTerminalWriteResult(record))
-    #expect(
-      TerminalToolResultPolicy.followUpPromptMode(after: record, toolProfile: .agent)
-        == .afterToolResultFinal)
-    #expect(
-      TerminalToolResultPolicy.followUpPromptMode(after: record, toolProfile: .chatWeb)
-        == .afterChatWebToolResultFinal)
-  }
-
-  @Test
-  func followUpModeAfterNonTerminalResultContinuesPerProfile() {
-    let record = completedReadRecord()
-
-    #expect(!TerminalToolResultPolicy.isTerminalWriteResult(record))
-    #expect(
-      TerminalToolResultPolicy.followUpPromptMode(after: record, toolProfile: .agent)
-        == .afterToolResultCanContinue)
-    #expect(
-      TerminalToolResultPolicy.followUpPromptMode(after: record, toolProfile: .chatWeb)
+      ToolFollowUpPromptPolicy.promptMode(for: .chatWeb)
         == .afterChatWebToolResultCanContinue)
     #expect(
-      TerminalToolResultPolicy.followUpPromptMode(
-        after: record,
-        toolProfile: .agent,
+      ToolFollowUpPromptPolicy.promptMode(
+        for: .agent,
         default: .disabled
       ) == .disabled)
   }
 
   @Test
-  func forceFinalOverridesNonTerminalResult() {
-    let record = completedReadRecord()
+  func everyTypedForceFinalReasonUsesProfileAppropriateFinalMode() {
+    let reasons: [ToolFollowUpFinalReason] = [
+      .denial,
+      .blockedDuplicate,
+      .repeatedRunCommandFailure,
+      .toolBatchBudgetExhausted,
+    ]
 
-    #expect(
-      TerminalToolResultPolicy.followUpPromptMode(
-        after: record,
-        toolProfile: .agent,
-        forceFinal: true
-      ) == .afterToolResultFinal)
-  }
-
-  private func completedWriteRecord() -> ToolCallRecord {
-    let path = WorkspaceRelativePath(rawValue: "index.html")
-    return makePolicyRecord(
-      toolName: .writeFile,
-      payload: .writeFile(WriteFileInput(path: path.rawValue, content: "<h1>Hello</h1>")),
-      state: .completed(.writeFile(.success(path: path, bytesWritten: 14)))
-    )
-  }
-
-  private func completedReadRecord() -> ToolCallRecord {
-    let path = WorkspaceRelativePath(rawValue: "README.md")
-    return makePolicyRecord(
-      toolName: .readFile,
-      payload: .readFile(ReadFileInput(path: path.rawValue)),
-      state: .completed(.readFile(.success(path: path, content: ToolTextOutput(text: "Notes"))))
-    )
-  }
-
-  private func makePolicyRecord(
-    toolName: ToolName,
-    payload: ToolCallPayload,
-    state: ToolCallState
-  ) -> ToolCallRecord {
-    ToolCallRecord(
-      request: ToolCallRequest.validated(
-        raw: RawToolCallRequest(
-          workspaceID: UUID(),
-          sessionID: UUID(),
-          toolName: toolName
-        ),
-        payload: payload
-      ),
-      evaluation: ToolPermissionEvaluation(
-        decision: .allowed,
-        reason: "Allowed for test.",
-        riskLevel: .low
-      ),
-      state: state
-    )
+    for reason in reasons {
+      #expect(
+        ToolFollowUpPromptPolicy.promptMode(
+          for: .agent,
+          finalReason: reason
+        ) == .afterToolResultFinal)
+      #expect(
+        ToolFollowUpPromptPolicy.promptMode(
+          for: .chatWeb,
+          finalReason: reason
+        ) == .afterChatWebToolResultFinal)
+    }
   }
 }

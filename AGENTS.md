@@ -155,8 +155,7 @@ Use the narrowest feedback loop while debugging:
   or Gemma trace behavior used by UI tests: `just test-ui`.
 - Cross-boundary or build/test wiring: `just test`.
 
-For final verification after implementation, prefer `just final-check`. It runs
-`typos`, `format`, `lint`, `test`, and `check-warnings`. If a focused test just
+For final verification after implementation, prefer `just final-check`. It runs `typos`, `format`, `lint`, `periphery`, `test`. If a focused test just
 passed during debugging, it is acceptable to run only the missing equivalent
 checks instead of repeating the same test suite immediately. For docs/comments
 only, explain why build/test suites were not run and use the narrowest relevant

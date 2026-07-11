@@ -257,16 +257,11 @@ public struct ToolLoopCoordinator: Sendable {
         focusedFileState = updatedFocusedFileState
       }
 
-      nextFollowUpPromptMode = TerminalToolResultPolicy.followUpPromptMode(
-        after: record,
-        toolProfile: request.toolProfile,
-        default: nextFollowUpPromptMode
+      nextFollowUpPromptMode = ToolFollowUpPromptPolicy.promptMode(
+        for: request.toolProfile,
+        default: nextFollowUpPromptMode,
+        finalReason: finalReason(after: record)
       )
-      if isBlockedDuplicate(record) {
-        // 2nd+ identical duplicate: stop exploring — force the tools-stripped final
-        // generation, using the profile-appropriate final mode (agent vs chat-web).
-        nextFollowUpPromptMode = ToolPromptMode.finalMode(for: request.toolProfile)
-      }
 
       if outputs.count == 1,
         let directResponse = ToolLoopDirectResponseRenderer.directResponse(
@@ -585,6 +580,18 @@ extension ToolLoopCoordinator {
       return false
     }
     return result.blocked
+  }
+
+  private func finalReason(
+    after record: ToolCallRecord
+  ) -> ToolFollowUpFinalReason? {
+    if record.status == .denied {
+      return .denial
+    }
+    if isBlockedDuplicate(record) {
+      return .blockedDuplicate
+    }
+    return nil
   }
 
   private func canReuseCompletedToolResult(

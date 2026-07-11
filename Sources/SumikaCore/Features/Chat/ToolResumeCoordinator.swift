@@ -88,18 +88,6 @@ public struct ToolResumeCoordinator: Sendable {
     )
   }
 
-  public func followUpPromptMode(
-    afterApprovedTool record: ToolCallRecord,
-    toolProfile: ToolExecutionProfile = .agent,
-    forceFinal: Bool = false
-  ) -> ToolPromptMode {
-    TerminalToolResultPolicy.followUpPromptMode(
-      after: record,
-      toolProfile: toolProfile,
-      forceFinal: forceFinal
-    )
-  }
-
   private func resumedToolEvents(
     record: ToolCallRecord,
     toolResult: ToolResultModelMessage,

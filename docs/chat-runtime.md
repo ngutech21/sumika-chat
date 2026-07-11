@@ -35,7 +35,8 @@ flowchart TD
   S -- "approve" --> T["ChatTurnCoordinator.approveToolCall(...)"]
   T --> Q
   S -- "deny" --> Z["ChatTurnCoordinator.denyToolCall(...)"]
-  Z --> Q
+  Z --> ZF["Stream one tools-free final follow-up"]
+  ZF --> I
   C --> M{"User cancels active turn?"}
   M -- "yes" --> N["Mark turn cancelled + context excluded"]
   N --> O["Keep audit messages visible"]
@@ -104,9 +105,10 @@ flowchart TD
 4. Initial generation streams into the assistant placeholder.
 5. If the assistant output is an allowed tool call, `ToolLoopCoordinator` returns
    a `ChatWorkflowStep`. The turn coordinator emits its events, then follows the
-   continuation. Read-style tools append a second assistant placeholder and
-   stream the direct follow-up response. Each follow-up is inspected for another
-   tool call until the configured turn budget is exhausted. Failed
+   continuation. Normal tool results, including successful `write_file` and
+   `edit_file` results, append a second assistant placeholder and stream the
+   direct follow-up response. Each follow-up is inspected for another tool call
+   until the configured turn budget is exhausted. Failed
    tools, unknown tools, and invalid tool-call observations also count against
    this budget and are returned to the model as observations so it can choose the
    next step. A failed tool observation must force recovery or an explicit
@@ -117,13 +119,14 @@ flowchart TD
    prompt or history projection runs. The last budgeted follow-up sends an empty
    native tool schema and final/no-tools guidance as that tool notice; the
    stable `ChatSession.instructions` prompt does not change. Successful
-   `write_file` and `edit_file` calls switch to a brief final no-tools follow-up
-   instead of continuing the normal tool loop; that follow-up should summarize
-   affected paths and useful run or verification steps without echoing generated
+   `write_file` and `edit_file` calls remain in the normal tool loop with the
+   active tool schema while budget remains. Their follow-up may verify the
+   change or request another independent mutation, but every later side effect
+   must pass validation and approval again. The model should not echo generated
    file contents, code blocks, diffs, or tool arguments unless the user
-   explicitly asked to display them in chat. The model must not say files
-   changed unless a successful `write_file` or `edit_file` result exists in the
-   turn; failed or invalid write/edit results mean no workspace change happened.
+   explicitly asked to display them in chat, and it must not say files changed
+   unless a successful `write_file` or `edit_file` result exists in the turn;
+   failed or invalid write/edit results mean no workspace change happened.
    A successful Agent-only `finish_task` takes a separate direct-response path:
    its validated `summary` is appended as the final visible assistant message,
    the workflow returns `.stopTurn`, and no placeholder or follow-up model
@@ -135,11 +138,10 @@ flowchart TD
    or denies the call.
 7. Approval delegates to `ChatTurnCoordinator.approveToolCall`, which executes
    the same validated tool request and appends a real tool
-   result. Successful `write_file` and `edit_file` approvals stream one final
-   no-tools assistant response that summarizes the completed write without
-   echoing generated file contents or diffs and only claims changed files from a
-   successful write/edit result; other successful tools resume the normal tool
-   loop with a direct follow-up response. If an approved `run_command` process
+   result. Successful `write_file` and `edit_file` approvals resume the normal
+   tool loop just like other successful tools. Another generated mutation is a
+   new approval-sensitive call; approval never carries across calls. If an
+   approved `run_command` process
    exits unsuccessfully, the direct follow-up receives a failed-command notice on
    the command's `ToolCallRecord` and must recover with tools when possible or
    report the command failure without inferring command-specific side effects.
@@ -198,8 +200,8 @@ flowchart TD
   tool record's `modelFollowUpNotice` (agent vs chat-web variant). If that final
   generation has no visible assistant text, the turn fails with an empty-response
   diagnostic.
-- Final no-tools follow-ups after approved write/edit tools or denied tools also
-  disable tools. If the model still emits a native tool attempt, the caller
+- Final no-tools follow-ups selected after denied tools or another force-final
+  rule disable tools. If the model still emits a native tool attempt, the caller
   treats the follow-up as final and does not execute another tool.
 - Cancel should schedule a normal context-usage refresh with the latest filtered
   projection. It must not block turn cancellation on synchronous token counting.

@@ -89,6 +89,9 @@ struct ChatTurnCoordinatorTests {
     #expect(try String(contentsOf: outputURL, encoding: .utf8) == htmlContent)
     #expect(harness.session.toolCalls.first?.status == .completed)
     #expect(harness.session.testMessages.last?.content == "Wrote index.html.")
+    let toolContexts = await runtime.capturedToolContexts
+    #expect(toolContexts.count == 2)
+    #expect(toolContexts[1] != nil)
   }
 
   @Test
