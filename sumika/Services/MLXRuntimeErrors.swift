@@ -8,6 +8,7 @@ nonisolated enum MLXChatRuntimeError: LocalizedError {
   case unsupportedArchitecture
   case unsupportedImageInput
   case interruptedStream
+  case generationTokenLimitReached
 
   var errorDescription: String? {
     switch self {
@@ -23,6 +24,8 @@ nonisolated enum MLXChatRuntimeError: LocalizedError {
       "The selected local model cannot analyze images. Select a vision-capable model or remove the image attachment."
     case .interruptedStream:
       "Local MLX generation ended before the model reported completion."
+    case .generationTokenLimitReached:
+      "Local MLX generation reached its token limit before the response was complete. Increase Max Tokens or ask the model to make a smaller change."
     }
   }
 }

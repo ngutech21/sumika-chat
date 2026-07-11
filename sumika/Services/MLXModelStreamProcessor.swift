@@ -68,6 +68,7 @@ nonisolated enum MLXModelStreamProcessor {
       let iterationStartedAt = Date()
       var firstChunkAt: Date?
       var didCompleteNaturally = false
+      var didReachTokenLimit = false
       var didTerminateDownstream = false
       var nativeToolCalls: [ChatRuntimeToolCall] = []
       var usedNativeToolCallIDs = Set<UUID>()
@@ -114,6 +115,9 @@ nonisolated enum MLXModelStreamProcessor {
           }
 
           if let info = generation.info {
+            if case .length = info.stopReason {
+              didReachTokenLimit = true
+            }
             if yieldSegments(
               reasoningParser.finish(),
               to: continuation,
@@ -159,6 +163,7 @@ nonisolated enum MLXModelStreamProcessor {
           completedMetrics: completedMetrics,
           didTerminateDownstream: didTerminateDownstream,
           didCompleteNaturally: didCompleteNaturally,
+          didReachTokenLimit: didReachTokenLimit,
           nativeToolCalls: nativeToolCalls,
           traceID: traceID,
           traceMetadata: traceMetadata,
@@ -309,6 +314,7 @@ nonisolated enum MLXModelStreamProcessor {
     completedMetrics: ChatGenerationMetrics?,
     didTerminateDownstream: Bool,
     didCompleteNaturally: Bool,
+    didReachTokenLimit: Bool,
     nativeToolCalls: [ChatRuntimeToolCall],
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
@@ -332,6 +338,28 @@ nonisolated enum MLXModelStreamProcessor {
         metrics: completedMetrics
       )
       continuation.finish()
+      return
+    }
+
+    if didReachTokenLimit {
+      let error = MLXChatRuntimeError.generationTokenLimitReached
+      await markCancelled(.interrupted)
+      if let memoryClearReason = memoryClearReason(for: .interruptedStream) {
+        await clearMemoryCache(
+          reason: memoryClearReason,
+          traceID: traceID,
+          traceMetadata: traceMetadata,
+          cacheTrace: cacheTrace,
+          memoryCacheClearer: memoryCacheClearer
+        )
+      }
+      await GemmaDebugTraceStore.shared.traceResponse(
+        id: traceID,
+        output: output,
+        metrics: completedMetrics,
+        error: error.localizedDescription
+      )
+      continuation.finish(throwing: error)
       return
     }
 

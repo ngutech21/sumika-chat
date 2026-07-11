@@ -1850,6 +1850,51 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func tokenLimitedModelStreamFailsInsteadOfCompletingTruncatedOutput() async throws {
+    let memoryClearRecorder = MLXMemoryClearRecorder()
+    let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("<tool_call><function=write_file>partial"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 2_048,
+            promptTime: 0.1,
+            generationTime: 1,
+            stopReason: .length
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = MLXModelStreamProcessor.modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { _ in
+        Issue.record("A token-limited response must not be marked complete.")
+      },
+      markCancelled: { reason in
+        await invalidationRecorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    do {
+      try await drainModelStream(stream)
+      Issue.record("Expected token-limit failure.")
+    } catch MLXChatRuntimeError.generationTokenLimitReached {
+      #expect(await invalidationRecorder.firstReason == .interrupted)
+      #expect(await memoryClearRecorder.reasons == [.interruptedStream])
+    } catch {
+      Issue.record("Expected token-limit error, got \(error).")
+    }
+  }
+
+  @Test
   func thoughtChannelParserSplitsThoughtBlocksAcrossChunks() {
     var parser = GemmaThoughtChannelParser()
 
