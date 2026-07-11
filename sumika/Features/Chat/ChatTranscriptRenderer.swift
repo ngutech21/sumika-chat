@@ -531,19 +531,6 @@ extension ChatTurn {
   }
 }
 
-extension RenderedChatTurnItem {
-  var isActiveTranscriptGenerationItem: Bool {
-    switch item {
-    case .assistantThinking(let message):
-      message.deliveryStatus == .streaming
-    case .assistantMessage(let message):
-      message.deliveryStatus == .streaming
-    case .userMessage, .tool:
-      false
-    }
-  }
-}
-
 extension AssistantThinkingMessage {
   fileprivate var shouldRenderInTranscript: Bool {
     deliveryStatus == .streaming || !content.isEmpty

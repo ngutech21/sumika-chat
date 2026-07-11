@@ -39,7 +39,7 @@ struct ChatTranscript: View {
         isGenerating: isGenerating,
         showsGenerationIndicator: ChatTranscriptGenerationIndicatorPolicy.shouldShow(
           isGenerating: isGenerating,
-          items: items
+          turns: turns
         ),
         accessibilityValue: modelState.accessibilityValue,
         isSpeechEnabled: appBehaviorSettings.assistantSpeechEnabled,
@@ -89,8 +89,24 @@ struct ChatTranscript: View {
 }
 
 enum ChatTranscriptGenerationIndicatorPolicy {
-  static func shouldShow(isGenerating: Bool, items: [RenderedChatTurnItem]) -> Bool {
-    isGenerating && !items.contains(where: \.isActiveTranscriptGenerationItem)
+  static func shouldShow(isGenerating: Bool, turns: [ChatTurn]) -> Bool {
+    guard isGenerating else {
+      return false
+    }
+    guard let activeTurn = turns.last(where: { $0.status == .running }) else {
+      return true
+    }
+
+    return !activeTurn.items.contains { item in
+      switch item {
+      case .assistantThinking(let message):
+        message.deliveryStatus == .streaming
+      case .assistantMessage(let message):
+        message.shouldShowAssistantPlaceholder
+      case .userMessage, .tool:
+        false
+      }
+    }
   }
 }
 

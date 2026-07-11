@@ -854,43 +854,118 @@ struct ChatTranscriptRendererTests {
 
   @Test
   func generationIndicatorIsHiddenWhenReasoningIsStreaming() {
-    let reasoningItem = renderedThinkingItem(
-      AssistantThinkingMessage(content: "Inspecting files", deliveryStatus: .streaming)
+    let turn = ChatTurn(
+      status: .running,
+      items: [
+        .assistantThinking(
+          AssistantThinkingMessage(content: "Inspecting files", deliveryStatus: .streaming)
+        )
+      ]
     )
 
     #expect(
       ChatTranscriptGenerationIndicatorPolicy.shouldShow(
         isGenerating: true,
-        items: [reasoningItem]
+        turns: [turn]
       ) == false)
   }
 
   @Test
-  func generationIndicatorIsHiddenWhenAssistantMessageIsStreaming() {
-    let assistantItem = renderedAssistantItem(
-      AssistantTurnMessage(content: "Streaming", deliveryStatus: .streaming),
-      blocks: []
+  func generationIndicatorIsHiddenWhenEmptyAssistantPlaceholderIsStreaming() {
+    let turn = ChatTurn(
+      status: .running,
+      items: [
+        .assistantMessage(
+          AssistantTurnMessage(content: "", deliveryStatus: .streaming)
+        )
+      ]
     )
 
     #expect(
       ChatTranscriptGenerationIndicatorPolicy.shouldShow(
         isGenerating: true,
-        items: [assistantItem]
+        turns: [turn]
       ) == false)
   }
 
   @Test
-  func generationIndicatorShowsWhenGenerationHasNoActiveTranscriptRow() {
-    let stableItem = renderedAssistantItem(
-      AssistantTurnMessage(content: "Done", deliveryStatus: .complete),
-      blocks: [parsedBlock(for: "Done")]
+  func generationIndicatorShowsWhenAssistantTextIsStreaming() {
+    let turn = ChatTurn(
+      status: .running,
+      items: [
+        .assistantMessage(
+          AssistantTurnMessage(content: "Streaming", deliveryStatus: .streaming)
+        )
+      ]
     )
 
     #expect(
       ChatTranscriptGenerationIndicatorPolicy.shouldShow(
         isGenerating: true,
-        items: [stableItem]
+        turns: [turn]
       ))
+  }
+
+  @Test
+  func generationIndicatorShowsWhenActiveTurnHasNoInlineActivity() {
+    let turn = ChatTurn(
+      status: .running,
+      items: [
+        .assistantMessage(
+          AssistantTurnMessage(content: "Done", deliveryStatus: .complete)
+        )
+      ]
+    )
+
+    #expect(
+      ChatTranscriptGenerationIndicatorPolicy.shouldShow(
+        isGenerating: true,
+        turns: [turn]
+      ))
+  }
+
+  @Test
+  func staleStreamingItemInCompletedTurnDoesNotHideGenerationIndicator() {
+    let staleTurn = ChatTurn(
+      status: .completed,
+      items: [
+        .assistantThinking(
+          AssistantThinkingMessage(content: "Stale", deliveryStatus: .streaming)
+        )
+      ]
+    )
+    let activeTurn = ChatTurn(
+      status: .running,
+      items: [
+        .assistantMessage(
+          AssistantTurnMessage(content: "Working", deliveryStatus: .streaming)
+        )
+      ]
+    )
+
+    #expect(
+      ChatTranscriptGenerationIndicatorPolicy.shouldShow(
+        isGenerating: true,
+        turns: [staleTurn, activeTurn]
+      ))
+  }
+
+  @Test
+  func generationIndicatorIsHiddenWhenGenerationIsIdle() {
+    let turn = ChatTurn(
+      status: .running,
+      items: [
+        .assistantMessage(
+          AssistantTurnMessage(content: "Streaming", deliveryStatus: .streaming)
+        )
+      ]
+    )
+
+    #expect(
+      ChatTranscriptGenerationIndicatorPolicy.shouldShow(
+        isGenerating: false,
+        turns: [turn]
+      ) == false)
   }
 
   @Test
@@ -955,16 +1030,6 @@ private func renderedAssistantItem(
     toolCallRecord: nil,
     generationMetrics: message.generationMetrics,
     assistantRenderBlocks: blocks
-  )
-}
-
-private func renderedThinkingItem(_ message: AssistantThinkingMessage) -> RenderedChatTurnItem {
-  RenderedChatTurnItem(
-    id: "turn:thinking:\(message.id.uuidString)",
-    item: .assistantThinking(message),
-    toolCallRecord: nil,
-    generationMetrics: nil,
-    assistantRenderBlocks: []
   )
 }
 
