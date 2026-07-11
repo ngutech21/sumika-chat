@@ -639,6 +639,104 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func multiApprovalPresentationUsesCanonicalBatchAnchorAndFirstOpenRecord() throws {
+    let anchorID = UUID()
+    let firstPendingID = UUID()
+    let secondPendingID = UUID()
+    let turn = ChatTurn(
+      status: .awaitingApproval,
+      items: [
+        .tool(makeToolCallRecord(id: anchorID, status: .completed)),
+        .assistantThinking(AssistantThinkingMessage(content: "Checking both changes.")),
+        .tool(makeToolCallRecord(id: firstPendingID, status: .awaitingApproval)),
+        .tool(makeToolCallRecord(id: secondPendingID, status: .awaitingApproval)),
+      ]
+    )
+
+    let renderedTools = ChatTranscriptRenderer().items(for: [turn]).compactMap {
+      item -> RenderedChatTurnItem? in
+      guard case .tool = item.item else {
+        return nil
+      }
+      return item
+    }
+
+    #expect(renderedTools.count == 3)
+    #expect(renderedTools.allSatisfy { $0.toolBatchPresentation?.anchorID == anchorID })
+    #expect(renderedTools.allSatisfy { $0.toolBatchPresentation?.pendingApprovalCount == 2 })
+    #expect(renderedTools[0].toolBatchPresentation?.showsApproveAll == false)
+    #expect(renderedTools[1].toolBatchPresentation?.showsApproveAll == true)
+    #expect(renderedTools[2].toolBatchPresentation?.showsApproveAll == false)
+
+    let decodedTurn = try JSONDecoder().decode(
+      ChatTurn.self,
+      from: JSONEncoder().encode(turn)
+    )
+    let decodedPresentations = ToolApprovalBatchPresentation.presentations(
+      for: decodedTurn
+    )
+    #expect(decodedPresentations[firstPendingID]?.anchorID == anchorID)
+    #expect(decodedPresentations[firstPendingID]?.showsApproveAll == true)
+  }
+
+  @Test
+  func hiddenAssistantMessageStillSeparatesCanonicalApprovalBatches() {
+    let firstID = UUID()
+    let secondID = UUID()
+    let items = ChatTranscriptRenderer().items(for: [
+      ChatTurn(
+        status: .awaitingApproval,
+        items: [
+          .tool(makeToolCallRecord(id: firstID, status: .awaitingApproval)),
+          .assistantMessage(
+            AssistantTurnMessage(content: "", deliveryStatus: .cancelled)
+          ),
+          .tool(makeToolCallRecord(id: secondID, status: .awaitingApproval)),
+        ]
+      )
+    ])
+
+    let renderedTools = items.filter { item in
+      if case .tool = item.item {
+        return true
+      }
+      return false
+    }
+    #expect(renderedTools.count == 2)
+    #expect(renderedTools.allSatisfy { $0.toolBatchPresentation == nil })
+  }
+
+  @Test
+  func siblingResolutionInvalidatesCachedApproveAllPresentation() {
+    let firstID = UUID()
+    let secondID = UUID()
+    let renderer = ChatTranscriptRenderer()
+    let awaitingTurn = ChatTurn(
+      status: .awaitingApproval,
+      items: [
+        .tool(makeToolCallRecord(id: firstID, status: .awaitingApproval)),
+        .tool(makeToolCallRecord(id: secondID, status: .awaitingApproval)),
+      ]
+    )
+    let firstRender = renderer.items(for: [awaitingTurn])
+    let initialFirstItem = firstRender[0]
+    #expect(initialFirstItem.toolBatchPresentation?.showsApproveAll == true)
+
+    let partiallyResolvedTurn = ChatTurn(
+      id: awaitingTurn.id,
+      status: .awaitingApproval,
+      items: [
+        .tool(makeToolCallRecord(id: firstID, status: .awaitingApproval)),
+        .tool(makeToolCallRecord(id: secondID, status: .completed)),
+      ]
+    )
+    let updatedFirstItem = renderer.items(for: [partiallyResolvedTurn])[0]
+
+    #expect(updatedFirstItem.toolBatchPresentation == nil)
+    #expect(updatedFirstItem.renderRevision != initialFirstItem.renderRevision)
+  }
+
+  @Test
   func assistantBlockCodeChangesAffectRenderRevision() {
     let message = AssistantTurnMessage(id: UUID(), content: "```swift\nprint(1)")
     let openCodeItem = renderedAssistantItem(

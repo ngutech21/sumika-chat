@@ -502,6 +502,135 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func approvalBatchButtonsUseFinalIDsCallbacksAndDisableWhileGenerating() throws {
+    let anchorID = UUID()
+    let siblingID = UUID()
+    var approvedIDs: [ToolCallRecord.ID] = []
+    var deniedIDs: [ToolCallRecord.ID] = []
+    var approvedBatchAnchors: [ToolCallRecord.ID] = []
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { approvedIDs.append($0) },
+      onDenyToolCall: { deniedIDs.append($0) },
+      onAnswerAskUser: { _, _ in },
+      onApproveToolCallBatch: { approvedBatchAnchors.append($0) }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 760, height: 520))
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    let rows = [
+      nativeToolRow(
+        id: "tool-anchor",
+        revision: 1,
+        record: nativeApprovalToolRecord(id: anchorID),
+        batchPresentation: ToolApprovalBatchPresentation(
+          anchorID: anchorID,
+          pendingApprovalCount: 2,
+          showsApproveAll: true
+        )
+      ),
+      nativeToolRow(
+        id: "tool-sibling",
+        revision: 1,
+        record: nativeApprovalToolRecord(id: siblingID),
+        batchPresentation: ToolApprovalBatchPresentation(
+          anchorID: anchorID,
+          pendingApprovalCount: 2,
+          showsApproveAll: false
+        )
+      ),
+    ]
+
+    coordinator.update(
+      rows: rows,
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      areToolActionsEnabled: true,
+      in: scrollView
+    )
+    tableView.layoutSubtreeIfNeeded()
+    let anchorCell = try #require(
+      tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        as? NativeChatMessageCellView
+    )
+    let siblingCell = try #require(
+      tableView.view(atColumn: 0, row: 1, makeIfNecessary: true)
+        as? NativeChatMessageCellView
+    )
+    let approveID = "chat.tool.approve.\(anchorID.uuidString)"
+    let denyID = "chat.tool.deny.\(anchorID.uuidString)"
+    let approveAllID = "chat.tool.approveAll.\(anchorID.uuidString)"
+    let approveButton = try #require(
+      anchorCell.descendantButtons(accessibilityIdentifier: approveID).first
+    )
+    let denyButton = try #require(
+      anchorCell.descendantButtons(accessibilityIdentifier: denyID).first
+    )
+    let approveAllButton = try #require(
+      anchorCell.descendantButtons(accessibilityIdentifier: approveAllID).first
+    )
+
+    #expect(approveAllButton.title == "Approve all (2)")
+    #expect(approveAllButton.accessibilityLabel() == "Approve all 2 tool calls")
+    #expect(
+      siblingCell.descendantButtons(accessibilityIdentifier: approveAllID).isEmpty
+    )
+    approveButton.performClick(nil)
+    denyButton.performClick(nil)
+    approveAllButton.performClick(nil)
+    #expect(approvedIDs == [anchorID])
+    #expect(deniedIDs == [anchorID])
+    #expect(approvedBatchAnchors == [anchorID])
+
+    coordinator.update(
+      rows: rows + [nativeAssistantRow(id: "assistant-appended", revision: 1)],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      areToolActionsEnabled: false,
+      in: scrollView
+    )
+    tableView.layoutSubtreeIfNeeded()
+    let disabledAnchorCell = try #require(
+      tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        as? NativeChatMessageCellView
+    )
+    #expect(
+      disabledAnchorCell.descendantButtons(accessibilityIdentifier: approveID).first?.isEnabled
+        == false
+    )
+    #expect(
+      disabledAnchorCell.descendantButtons(accessibilityIdentifier: denyID).first?.isEnabled
+        == false
+    )
+    #expect(
+      disabledAnchorCell.descendantButtons(accessibilityIdentifier: approveAllID).first?.isEnabled
+        == false
+    )
+  }
+
+  @Test
+  func askUserControlsDisableWhileGenerating() throws {
+    let row = nativeToolRow(
+      id: "ask-user",
+      revision: 1,
+      record: nativeAskUserToolRecord()
+    )
+    let cell = configuredNativeCell(
+      for: row,
+      state: NativeTranscriptCellState(isToolActionEnabled: false)
+    )
+    let popup = try #require(cell.descendants(of: NSPopUpButton.self).first)
+    let sendButton = try #require(
+      cell.descendants(of: NSButton.self).first(where: { $0.title == "Send" })
+    )
+
+    #expect(popup.isEnabled == false)
+    #expect(sendButton.isEnabled == false)
+  }
+
+  @Test
   func interactiveToolExpansionDoesNotForceScrollToBottom() throws {
     let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
       onToggleSpeech: { _, _ in },
@@ -1725,7 +1854,8 @@ private func nativeStreamingBlocksAssistantRow(
 private func nativeToolRow(
   id: String,
   revision: Int,
-  record: ToolCallRecord = nativeToolRecord()
+  record: ToolCallRecord = nativeToolRecord(),
+  batchPresentation: ToolApprovalBatchPresentation? = nil
 ) -> NativeTranscriptRow {
   return NativeTranscriptRow(
     id: id,
@@ -1736,7 +1866,8 @@ private func nativeToolRow(
         item: .tool(record),
         toolCallRecord: record,
         generationMetrics: nil,
-        assistantRenderBlocks: []
+        assistantRenderBlocks: [],
+        toolBatchPresentation: batchPresentation
       ))
   )
 }
@@ -1768,8 +1899,11 @@ private func nativeToolRecord() -> ToolCallRecord {
   )
 }
 
-private func nativeApprovalToolRecord(reason: String = "Needs permission.") -> ToolCallRecord {
-  let request = nativeRunCommandRequest(command: "uv test")
+private func nativeApprovalToolRecord(
+  id: UUID = UUID(),
+  reason: String = "Needs permission."
+) -> ToolCallRecord {
+  let request = nativeRunCommandRequest(id: id, command: "uv test")
   return ToolCallRecord(
     request: request,
     evaluation: ToolPermissionEvaluation(
@@ -1808,6 +1942,32 @@ private func nativeCompletedCommandToolRecord(stdout: String = "Tests passed.") 
   )
 }
 
+private func nativeAskUserToolRecord() -> ToolCallRecord {
+  let input = AskUserInput(question: "Which option?", options: ["One", "Two"])
+  let request = ToolCallRequest.validated(
+    raw: RawToolCallRequest(
+      workspaceID: UUID(),
+      sessionID: UUID(),
+      toolName: .askUser,
+      arguments: [
+        "question": .string(input.question),
+        "option1": .string(input.options[0]),
+        "option2": .string(input.options[1]),
+      ]
+    ),
+    payload: .askUser(input)
+  )
+  return ToolCallRecord(
+    request: request,
+    evaluation: ToolPermissionEvaluation(
+      decision: .allowed,
+      reason: "Allowed for test.",
+      riskLevel: .low
+    ),
+    state: .awaitingUserAnswer
+  )
+}
+
 private func nativeSearchLikeToolOutput() -> String {
   """
   Search provider: DuckDuckGo
@@ -1835,9 +1995,10 @@ private func nativeSearchLikeToolOutput() -> String {
   """
 }
 
-private func nativeRunCommandRequest(command: String) -> ToolCallRequest {
+private func nativeRunCommandRequest(id: UUID = UUID(), command: String) -> ToolCallRequest {
   ToolCallRequest.validated(
     raw: RawToolCallRequest(
+      id: id,
       workspaceID: UUID(),
       sessionID: UUID(),
       toolName: .runCommand,
@@ -1936,6 +2097,7 @@ private func testNativeActions() -> NativeTranscriptCellActions {
     copy: { _, _ in },
     toggleSpeech: { _, _ in },
     approve: { _ in },
+    approveAll: { _ in },
     deny: { _ in },
     answerAskUser: { _, _, _ in },
     toggleToolExpansion: { _ in },
@@ -1969,5 +2131,11 @@ extension NSView {
 
   fileprivate var descendantTextFields: [NSTextField] {
     descendants(of: NSTextField.self)
+  }
+
+  fileprivate func descendantButtons(accessibilityIdentifier: String) -> [NSButton] {
+    descendants(of: NSButton.self).filter {
+      $0.accessibilityIdentifier() == accessibilityIdentifier
+    }
   }
 }

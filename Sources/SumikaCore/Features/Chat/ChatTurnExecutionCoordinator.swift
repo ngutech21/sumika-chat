@@ -36,6 +36,7 @@ struct ChatTurnCallbacks {
 
 enum ChatTurnTaskOutcome {
   case complete
+  case pause(ChatTurnStatus)
   case stop
   case fail(cancelsStreaming: Bool)
 }
@@ -303,6 +304,7 @@ struct ChatTurnExecutionCoordinator {
     var currentAssistantMessageID = lastAssistantMessageID
     var currentNativeToolCalls = lastNativeToolCalls
     var remainingIterations = initialRemainingIterations ?? maxToolLoopIterations
+    var didGrantCorrectionIteration = false
     let toolCallingPolicy = runtime.selectedModel.toolCallingPolicy
 
     while remainingIterations > 0 {
@@ -361,6 +363,36 @@ struct ChatTurnExecutionCoordinator {
         currentNativeToolCalls = generationResult.nativeToolCalls
         try requireVisibleTextOrToolCall(generationResult)
         guard !promptMode.isFinal else {
+          try requireVisibleFinalResponse(generationResult)
+          return true
+        }
+        currentAssistantMessageID = nextAssistantMessageID
+      case .resumeCorrectionGeneration(let nextAssistantMessageID, let promptMode):
+        let effectivePromptMode: ToolPromptMode
+        if remainingIterations == 0, didGrantCorrectionIteration {
+          effectivePromptMode = ToolPromptMode.finalMode(for: toolProfile)
+        } else {
+          effectivePromptMode = promptMode
+          if remainingIterations == 0 {
+            remainingIterations += 1
+            didGrantCorrectionIteration = true
+          }
+        }
+        callbacks.setActiveToolPromptMode(effectivePromptMode)
+        let generationResult = try await streamAssistantReply(
+          to: nextAssistantMessageID,
+          runtime: runtime,
+          callbacks: callbacks,
+          isActive: isActive,
+          interactionMode: interactionMode,
+          toolPromptMode: effectivePromptMode,
+          stableInstructions: stableInstructions,
+          turnID: turnID,
+          toolLoopIteration: toolLoopIteration
+        )
+        currentNativeToolCalls = generationResult.nativeToolCalls
+        try requireVisibleTextOrToolCall(generationResult)
+        guard !effectivePromptMode.isFinal else {
           try requireVisibleFinalResponse(generationResult)
           return true
         }

@@ -508,6 +508,7 @@ enum NativeTranscriptRowMeasurer {
       copy: { _, _ in },
       toggleSpeech: { _, _ in },
       approve: { _ in },
+      approveAll: { _ in },
       deny: { _ in },
       answerAskUser: { _, _, _ in },
       toggleToolExpansion: { _ in },
@@ -524,6 +525,7 @@ struct NativeTranscriptCellState: Equatable {
   var isToolExpanded: Bool
   var isThinkingExpanded: Bool
   var askUserSelection: String?
+  var isToolActionEnabled: Bool
 
   init(
     isCopied: Bool = false,
@@ -531,7 +533,8 @@ struct NativeTranscriptCellState: Equatable {
     isSpeaking: Bool = false,
     isToolExpanded: Bool = false,
     isThinkingExpanded: Bool = false,
-    askUserSelection: String? = nil
+    askUserSelection: String? = nil,
+    isToolActionEnabled: Bool = true
   ) {
     self.isCopied = isCopied
     self.isSpeechEnabled = isSpeechEnabled
@@ -539,6 +542,7 @@ struct NativeTranscriptCellState: Equatable {
     self.isToolExpanded = isToolExpanded
     self.isThinkingExpanded = isThinkingExpanded
     self.askUserSelection = askUserSelection
+    self.isToolActionEnabled = isToolActionEnabled
   }
 }
 
@@ -551,7 +555,8 @@ struct NativeTranscriptCoordinatorState: Equatable {
   func state(
     for rowID: String,
     isSpeechEnabled: Bool = false,
-    activeSpeechRowID: String? = nil
+    activeSpeechRowID: String? = nil,
+    areToolActionsEnabled: Bool = true
   ) -> NativeTranscriptCellState {
     NativeTranscriptCellState(
       isCopied: copiedRowIDs.contains(rowID),
@@ -559,7 +564,8 @@ struct NativeTranscriptCoordinatorState: Equatable {
       isSpeaking: activeSpeechRowID == rowID,
       isToolExpanded: expandedToolRowIDs.contains(rowID),
       isThinkingExpanded: expandedThinkingRowIDs.contains(rowID),
-      askUserSelection: askUserSelections[rowID]
+      askUserSelection: askUserSelections[rowID],
+      isToolActionEnabled: areToolActionsEnabled
     )
   }
 
@@ -609,6 +615,7 @@ struct NativeTranscriptCellActions {
   var copy: @MainActor (String, String) -> Void
   var toggleSpeech: @MainActor (String, String) -> Void
   var approve: @MainActor (ToolCallRecord.ID) -> Void
+  var approveAll: @MainActor (ToolCallRecord.ID) -> Void
   var deny: @MainActor (ToolCallRecord.ID) -> Void
   var answerAskUser: @MainActor (String, ToolCallRecord.ID, String) -> Void
   var toggleToolExpansion: @MainActor (String) -> Void

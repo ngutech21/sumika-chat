@@ -28,6 +28,9 @@ final class ChatTranscriptRenderer {
       for turn in turns {
         let turnGenerationMetrics = turn.items.compactMap(\.generationMetrics).last
         let hidesAssistantPlaceholder = turn.hasStreamingAssistantThinking
+        let toolBatchPresentations = ToolApprovalBatchPresentation.presentations(
+          for: turn
+        )
 
         for item in displayItems(for: turn) {
           if case .assistantMessage(let message) = item {
@@ -45,7 +48,11 @@ final class ChatTranscriptRenderer {
               continue
             }
             activeItemKeys.insert(key)
-            let input = RenderedItemCacheInput(item: item, generationMetrics: nil)
+            let input = RenderedItemCacheInput(
+              item: item,
+              generationMetrics: nil,
+              toolBatchPresentation: nil
+            )
             renderedItems.append(renderedItem(for: key, input: input))
 
           case .assistantMessage(let message):
@@ -58,12 +65,19 @@ final class ChatTranscriptRenderer {
             }
             activeItemKeys.insert(key)
             let input = RenderedItemCacheInput(
-              item: item, generationMetrics: message.generationMetrics)
+              item: item,
+              generationMetrics: message.generationMetrics,
+              toolBatchPresentation: nil
+            )
             renderedItems.append(renderedItem(for: key, input: input))
 
           case .userMessage:
             activeItemKeys.insert(key)
-            let input = RenderedItemCacheInput(item: item, generationMetrics: nil)
+            let input = RenderedItemCacheInput(
+              item: item,
+              generationMetrics: nil,
+              toolBatchPresentation: nil
+            )
             renderedItems.append(renderedItem(for: key, input: input))
 
           case .tool(let record):
@@ -71,7 +85,11 @@ final class ChatTranscriptRenderer {
               continue
             }
             activeItemKeys.insert(key)
-            let input = RenderedItemCacheInput(item: item, generationMetrics: turnGenerationMetrics)
+            let input = RenderedItemCacheInput(
+              item: item,
+              generationMetrics: turnGenerationMetrics,
+              toolBatchPresentation: toolBatchPresentations[record.id]
+            )
             renderedItems.append(renderedItem(for: key, input: input))
           }
         }
@@ -138,7 +156,8 @@ final class ChatTranscriptRenderer {
         item: input.item,
         toolCallRecord: nil,
         generationMetrics: nil,
-        assistantRenderBlocks: []
+        assistantRenderBlocks: [],
+        toolBatchPresentation: nil
       )
 
     case .assistantThinking:
@@ -147,7 +166,8 @@ final class ChatTranscriptRenderer {
         item: input.item,
         toolCallRecord: nil,
         generationMetrics: nil,
-        assistantRenderBlocks: []
+        assistantRenderBlocks: [],
+        toolBatchPresentation: nil
       )
 
     case .assistantMessage(let message):
@@ -161,7 +181,8 @@ final class ChatTranscriptRenderer {
         toolCallRecord: nil,
         generationMetrics: input.generationMetrics,
         assistantRenderBlocks: blocks,
-        assistantSpokenText: Self.spokenText(for: message, blocks: blocks)
+        assistantSpokenText: Self.spokenText(for: message, blocks: blocks),
+        toolBatchPresentation: nil
       )
 
     case .tool(let record):
@@ -170,7 +191,8 @@ final class ChatTranscriptRenderer {
         item: input.item,
         toolCallRecord: record,
         generationMetrics: input.generationMetrics,
-        assistantRenderBlocks: []
+        assistantRenderBlocks: [],
+        toolBatchPresentation: input.toolBatchPresentation
       )
     }
   }
@@ -271,6 +293,41 @@ final class ChatTranscriptRenderer {
   }
 }
 
+struct ToolApprovalBatchPresentation: Equatable {
+  let anchorID: ToolCallRecord.ID
+  let pendingApprovalCount: Int
+  let showsApproveAll: Bool
+
+  static func presentations(
+    for turn: ChatTurn
+  ) -> [ToolCallRecord.ID: ToolApprovalBatchPresentation] {
+    var presentations: [ToolCallRecord.ID: ToolApprovalBatchPresentation] = [:]
+    var visitedAnchorIDs = Set<ToolCallRecord.ID>()
+
+    for item in turn.items {
+      guard case .tool(let record) = item,
+        let batch = turn.toolCallBatch(containing: record.id),
+        visitedAnchorIDs.insert(batch.anchorID).inserted
+      else {
+        continue
+      }
+      let pendingRecords = batch.pendingApprovalRecords
+      guard pendingRecords.count >= 2, let firstPendingID = pendingRecords.first?.id else {
+        continue
+      }
+
+      for batchRecord in batch.records {
+        presentations[batchRecord.id] = ToolApprovalBatchPresentation(
+          anchorID: batch.anchorID,
+          pendingApprovalCount: pendingRecords.count,
+          showsApproveAll: batchRecord.id == firstPendingID
+        )
+      }
+    }
+    return presentations
+  }
+}
+
 struct RenderedChatTurnItem: Identifiable, Equatable {
   let id: String
   let item: ChatTurnItem
@@ -278,6 +335,7 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
   let generationMetrics: ChatGenerationMetrics?
   let assistantRenderBlocks: [AssistantRenderBlock]
   let assistantSpokenText: String?
+  let toolBatchPresentation: ToolApprovalBatchPresentation?
   // Stored, not computed: rows() reads the revision for every item on every
   // updateNSView pass (~20x/s while streaming). All fields are immutable and
   // the renderer only creates new items when their content changed, so hashing
@@ -290,7 +348,8 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
     toolCallRecord: ToolCallRecord?,
     generationMetrics: ChatGenerationMetrics?,
     assistantRenderBlocks: [AssistantRenderBlock],
-    assistantSpokenText: String? = nil
+    assistantSpokenText: String? = nil,
+    toolBatchPresentation: ToolApprovalBatchPresentation? = nil
   ) {
     self.id = id
     self.item = item
@@ -298,11 +357,13 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
     self.generationMetrics = generationMetrics
     self.assistantRenderBlocks = assistantRenderBlocks
     self.assistantSpokenText = assistantSpokenText
+    self.toolBatchPresentation = toolBatchPresentation
     renderRevision = Self.computeRenderRevision(
       id: id,
       item: item,
       generationMetrics: generationMetrics,
-      assistantRenderBlocks: assistantRenderBlocks
+      assistantRenderBlocks: assistantRenderBlocks,
+      toolBatchPresentation: toolBatchPresentation
     )
   }
 
@@ -310,13 +371,17 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
     id: String,
     item: ChatTurnItem,
     generationMetrics: ChatGenerationMetrics?,
-    assistantRenderBlocks: [AssistantRenderBlock]
+    assistantRenderBlocks: [AssistantRenderBlock],
+    toolBatchPresentation: ToolApprovalBatchPresentation?
   ) -> Int {
     var hasher = Hasher()
     hasher.combine(id)
     hasher.combine(generationMetrics?.generatedTokenCount)
     hasher.combine(generationMetrics?.tokensPerSecond)
     hasher.combine(generationMetrics?.durationMs)
+    hasher.combine(toolBatchPresentation?.anchorID)
+    hasher.combine(toolBatchPresentation?.pendingApprovalCount)
+    hasher.combine(toolBatchPresentation?.showsApproveAll)
 
     switch item {
     case .userMessage(let message):
@@ -397,6 +462,7 @@ private struct RenderedItemCacheEntry {
 private struct RenderedItemCacheInput: Equatable {
   let item: ChatTurnItem
   let generationMetrics: ChatGenerationMetrics?
+  let toolBatchPresentation: ToolApprovalBatchPresentation?
 }
 
 private struct AssistantBlockCacheEntry {

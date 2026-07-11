@@ -86,6 +86,57 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func nativeRuntimeToolCallIDAlreadyUsedInSessionIsRewritten() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let usedCallID = UUID()
+    let previousRawRequest = RawToolCallRequest(
+      id: usedCallID,
+      workspaceID: workspace.id,
+      sessionID: sessionID,
+      toolName: .readFile,
+      arguments: ["path": .string("README.md")]
+    )
+    let previousRecord = ToolCallRecord(
+      request: .validated(
+        raw: previousRawRequest,
+        payload: .readFile(ReadFileInput(path: "README.md"))
+      ),
+      evaluation: ToolPermissionEvaluation(
+        decision: .allowed,
+        reason: "Allowed for test.",
+        riskLevel: .low
+      ),
+      state: .completed(
+        .readFile(
+          .success(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            content: ToolTextOutput(text: "1: project notes")
+          )))
+    )
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        additionalItems: [.tool(previousRecord)],
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            id: RuntimeToolCallID.string(for: usedCallID),
+            name: "list_files",
+            arguments: ["path": .string(".")]
+          )
+        ]
+      )
+    )
+
+    let record = try #require(toolCallRecord(from: result))
+    #expect(record.id != usedCallID)
+    #expect(annotatedNativeToolCalls(from: result).map(\.callID) == [record.id])
+    #expect(toolResults(from: result).map(\.callID) == [record.id])
+  }
+
+  @Test
   func duplicateReadFileInSameTurnAppendsDuplicateRecordWithoutExecutingAgain() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -711,6 +762,89 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func nativeMultipleApprovalCallsAreAllMaterializedBeforePausing() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("first.txt"),
+              "content": .string("first\n"),
+            ]
+          ),
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("second.txt"),
+              "content": .string("second\n"),
+            ]
+          ),
+        ]
+      )
+    )
+
+    #expect(annotatedNativeToolCalls(from: result).map(\.toolName) == [.writeFile, .writeFile])
+    #expect(toolCallRecords(from: result).map(\.status) == [.awaitingApproval, .awaitingApproval])
+    #expect(toolResults(from: result).isEmpty)
+    #expect(result?.continuation == .awaitingApproval)
+  }
+
+  @Test
+  func awaitingApprovalDoesNotHideLaterIndependentToolCall() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("notes.txt"),
+              "content": .string("new notes\n"),
+            ]
+          ),
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+        ]
+      )
+    )
+
+    #expect(toolCallRecords(from: result).map(\.request.toolName) == [.writeFile, .readFile])
+    #expect(toolCallRecords(from: result).map(\.status) == [.awaitingApproval, .completed])
+    #expect(toolResults(from: result).map(\.toolName) == [.readFile])
+    #expect(result?.continuation == .awaitingApproval)
+  }
+
+  @Test
+  func directResponseToolsInMultipleCallBatchRequestModelFollowUp() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "show_file", arguments: ["path": .string("README.md")]),
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+        ]
+      )
+    )
+
+    #expect(toolResults(from: result).map(\.toolName) == [.showFile, .readFile])
+    #expect(directAssistantMessage(from: result) == nil)
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
   func noNativeToolCallsDoesNothing() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -731,6 +865,10 @@ struct ToolLoopCoordinatorTests {
       request(
         workspace: workspace,
         sessionID: sessionID,
+        toolCallingPolicy: ToolCallingPolicy(
+          isEnabled: true,
+          allowsMultipleToolCalls: false
+        ),
         nativeToolCalls: [
           ChatRuntimeToolCall(
             name: "ask_user",
@@ -843,24 +981,124 @@ struct ToolLoopCoordinatorTests {
     )
 
     #expect(await orchestrator.executionCount == 0)
-    #expect(annotatedNativeToolCalls(from: result).map(\.toolName) == [.finishTask])
-    #expect(toolCallRecords(from: result).map(\.request.toolName) == [.finishTask])
-    #expect(toolResults(from: result).map(\.toolName) == [.finishTask])
-    let record = try #require(toolCallRecord(from: result))
-    #expect(record.status == .failed)
-    guard case .invalid(let invalidInput) = record.request.payload else {
-      Issue.record("Expected one invalid finish_task observation.")
-      return
+    #expect(annotatedNativeToolCalls(from: result).map(\.toolName) == [.readFile, .finishTask])
+    #expect(toolCallRecords(from: result).map(\.request.toolName) == [.readFile, .finishTask])
+    #expect(toolCallRecords(from: result).map(\.status) == [.failed, .failed])
+    #expect(toolResults(from: result).map(\.toolName) == [.readFile, .finishTask])
+    for record in toolCallRecords(from: result) {
+      guard case .invalid(let invalidInput) = record.request.payload else {
+        Issue.record("Expected every call in the batch to be invalid.")
+        continue
+      }
+      #expect(
+        invalidInput.reason.message
+          == "finish_task must be the only native tool call in a response.")
     }
     #expect(
-      invalidInput.reason.message
-        == "finish_task must be the only native tool call in a response.")
+      annotatedNativeToolCalls(from: result).map(\.callID)
+        == toolCallRecords(from: result).map(\.id))
+    #expect(toolResults(from: result).map(\.callID) == toolCallRecords(from: result).map(\.id))
     #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
     #expect(directAssistantMessage(from: result) == nil)
   }
 
   @Test
-  func singleCallPolicyStillTruncatesOrdinaryMultipleToolCalls() async throws {
+  func mixedAskUserBatchFailsEveryCallWithoutExecutingSibling() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator(tools: [.askUser, .writeFile])
+    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        toolCallingPolicy: ToolCallingPolicy(
+          isEnabled: true,
+          allowsMultipleToolCalls: false
+        ),
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "ask_user",
+            arguments: [
+              "question": .string("Which fix?"),
+              "option1": .string("Minimal"),
+              "option2": .string("Broad"),
+            ]
+          ),
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("notes.txt"),
+              "content": .string("new notes\n"),
+            ]
+          ),
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 0)
+    #expect(toolCallRecords(from: result).map(\.request.toolName) == [.askUser, .writeFile])
+    #expect(toolCallRecords(from: result).map(\.status) == [.failed, .failed])
+    #expect(toolResults(from: result).map(\.toolName) == [.askUser, .writeFile])
+    #expect(
+      toolCallRecords(from: result).allSatisfy { record in
+        guard case .invalid(let input) = record.request.payload else {
+          return false
+        }
+        return input.reason.message == "ask_user must be the only native tool call in a response."
+      })
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
+  func overlappingNormalizedMutationPathsFailWholeBatchBeforeExecution() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator(tools: [.writeFile, .editFile])
+    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("notes.txt"),
+              "content": .string("new notes\n"),
+            ]
+          ),
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("./notes.txt"),
+              "old_text": .string("old notes"),
+              "new_text": .string("new notes"),
+            ]
+          ),
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 0)
+    #expect(annotatedNativeToolCalls(from: result).map(\.toolName) == [.writeFile, .editFile])
+    #expect(toolCallRecords(from: result).map(\.status) == [.failed, .failed])
+    #expect(toolResults(from: result).map(\.toolName) == [.writeFile, .editFile])
+    #expect(
+      toolCallRecords(from: result).allSatisfy { record in
+        guard case .invalid(let input) = record.request.payload else {
+          return false
+        }
+        return input.reason.message
+          == "Multiple write_file/edit_file calls target the same normalized workspace path: notes.txt."
+      })
+    #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
+  func singleCallPolicyStillMaterializesOrdinaryMultipleToolCalls() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
@@ -879,8 +1117,8 @@ struct ToolLoopCoordinatorTests {
       )
     )
 
-    #expect(toolCallRecords(from: result).map(\.request.toolName) == [.readFile])
-    #expect(toolResults(from: result).map(\.toolName) == [.readFile])
+    #expect(toolCallRecords(from: result).map(\.request.toolName) == [.readFile, .listFiles])
+    #expect(toolResults(from: result).map(\.toolName) == [.readFile, .listFiles])
   }
 
   @Test
@@ -1094,10 +1332,15 @@ struct ToolLoopCoordinatorTests {
   }
 
   private func resumePromptMode(from step: ChatWorkflowStep?) -> ToolPromptMode? {
-    guard case .resumeGeneration(_, let promptMode) = step?.continuation else {
+    switch step?.continuation {
+    case .some(.resumeGeneration(_, let promptMode)),
+      .some(.resumeCorrectionGeneration(_, let promptMode)):
+      return promptMode
+    case .some(.none), .some(.awaitingApproval), .some(.awaitingUserAnswer), .some(.stopTurn):
+      return nil
+    case Optional.none:
       return nil
     }
-    return promptMode
   }
 
   private func directAssistantMessage(from step: ChatWorkflowStep?) -> (

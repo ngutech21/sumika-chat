@@ -1,5 +1,32 @@
 import Foundation
 
+/// A derived view over the tool calls emitted by one assistant response.
+///
+/// Batch membership is reconstructed from ``ChatTurn/items`` and is intentionally
+/// not persisted separately. Records remain in their canonical transcript order.
+public struct ToolCallBatch: Equatable, Sendable {
+  public let anchorID: ToolCallRecord.ID
+  public let records: [ToolCallRecord]
+
+  public var pendingApprovalRecords: [ToolCallRecord] {
+    records.filter { $0.status == .awaitingApproval }
+  }
+
+  public var hasPendingUserAnswer: Bool {
+    records.contains { $0.status == .awaitingUserAnswer }
+  }
+
+  public var isModelReady: Bool {
+    records.allSatisfy { $0.resultPayload != nil }
+  }
+
+  fileprivate init(records: [ToolCallRecord]) {
+    precondition(!records.isEmpty, "A tool-call batch must contain at least one record.")
+    self.anchorID = records[0].id
+    self.records = records
+  }
+}
+
 public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
   public let id: UUID
   public private(set) var status: ChatTurnStatus
@@ -241,6 +268,42 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     return record
   }
 
+  /// Returns the complete tool-call batch containing `toolCallID`.
+  ///
+  /// User and assistant messages delimit assistant responses. Assistant thinking
+  /// items are transparent so presentation-only reasoning cannot split a batch.
+  public func toolCallBatch(containing toolCallID: ToolCallRecord.ID) -> ToolCallBatch? {
+    guard let targetIndex = toolItemIndex(id: toolCallID) else {
+      return nil
+    }
+
+    var lowerBound = targetIndex
+    while lowerBound > items.startIndex {
+      let precedingIndex = items.index(before: lowerBound)
+      guard !items[precedingIndex].toolCallBatchRole.isBoundary else {
+        break
+      }
+      lowerBound = precedingIndex
+    }
+
+    var upperBound = targetIndex
+    while upperBound < items.index(before: items.endIndex) {
+      let followingIndex = items.index(after: upperBound)
+      guard !items[followingIndex].toolCallBatchRole.isBoundary else {
+        break
+      }
+      upperBound = followingIndex
+    }
+
+    let records = items[lowerBound...upperBound].compactMap { item -> ToolCallRecord? in
+      guard case .member(let record) = item.toolCallBatchRole else {
+        return nil
+      }
+      return record
+    }
+    return ToolCallBatch(records: records)
+  }
+
   private func assistantMessageIndex(id messageID: UUID) -> Int? {
     items.firstIndex { item in
       guard case .assistantMessage(let message) = item else {
@@ -348,6 +411,34 @@ public enum ChatTurnItem: Codable, Equatable, Sendable {
     case .tool(let record):
       try container.encode(Kind.tool, forKey: .kind)
       try container.encode(record, forKey: .payload)
+    }
+  }
+}
+
+private enum ToolCallBatchItemRole {
+  case boundary
+  case transparent
+  case member(ToolCallRecord)
+
+  var isBoundary: Bool {
+    if case .boundary = self {
+      return true
+    }
+    return false
+  }
+}
+
+extension ChatTurnItem {
+  /// Keep this switch exhaustive so every future persisted item kind must choose
+  /// whether it separates assistant responses or is transparent to a tool batch.
+  fileprivate var toolCallBatchRole: ToolCallBatchItemRole {
+    switch self {
+    case .userMessage, .assistantMessage:
+      .boundary
+    case .assistantThinking:
+      .transparent
+    case .tool(let record):
+      .member(record)
     }
   }
 }

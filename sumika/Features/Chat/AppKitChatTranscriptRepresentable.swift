@@ -6,6 +6,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
   typealias Coordinator = NativeChatTranscriptCoordinator
 
   let items: [RenderedChatTurnItem]
+  let isGenerating: Bool
   let showsGenerationIndicator: Bool
   let accessibilityValue: String
   let isSpeechEnabled: Bool
@@ -15,6 +16,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
   let bottomContentInset: CGFloat
   let onToggleSpeech: (String, String) -> Void
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
+  let onApproveToolCallBatch: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
   let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
 
@@ -23,7 +25,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       onToggleSpeech: onToggleSpeech,
       onApproveToolCall: onApproveToolCall,
       onDenyToolCall: onDenyToolCall,
-      onAnswerAskUser: onAnswerAskUser
+      onAnswerAskUser: onAnswerAskUser,
+      onApproveToolCallBatch: onApproveToolCallBatch
     )
   }
 
@@ -45,7 +48,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         onToggleSpeech: onToggleSpeech,
         onApproveToolCall: onApproveToolCall,
         onDenyToolCall: onDenyToolCall,
-        onAnswerAskUser: onAnswerAskUser
+        onAnswerAskUser: onAnswerAskUser,
+        onApproveToolCallBatch: onApproveToolCallBatch
       )
       context.coordinator.applyBottomContentInset(bottomContentInset, to: scrollView)
       context.coordinator.update(
@@ -53,6 +57,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         accessibilityValue: accessibilityValue,
         isSpeechEnabled: isSpeechEnabled,
         activeSpeechRowID: activeSpeechRowID,
+        areToolActionsEnabled: !isGenerating,
         in: scrollView
       )
     }
@@ -66,6 +71,7 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private let cellIdentifier = NSUserInterfaceItemIdentifier("NativeChatMessageCellView")
   private var onToggleSpeech: (String, String) -> Void
   private var onApproveToolCall: (ToolCallRecord.ID) -> Void
+  private var onApproveToolCallBatch: (ToolCallRecord.ID) -> Void
   private var onDenyToolCall: (ToolCallRecord.ID) -> Void
   private var onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
   private weak var tableView: NSTableView?
@@ -75,6 +81,7 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private var revisionsByID: [String: Int] = [:]
   private var isSpeechEnabled = false
   private var activeSpeechRowID: String?
+  private var areToolActionsEnabled = true
   private var cellStateStore = NativeTranscriptCoordinatorState()
   private var heightCache = NativeTranscriptHeightCache()
   private var markdownCache = NativeTranscriptMarkdownCache()
@@ -90,10 +97,12 @@ final class NativeChatTranscriptCoordinator: NSObject {
     onToggleSpeech: @escaping (String, String) -> Void,
     onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
     onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
-    onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void
+    onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void,
+    onApproveToolCallBatch: @escaping (ToolCallRecord.ID) -> Void = { _ in }
   ) {
     self.onToggleSpeech = onToggleSpeech
     self.onApproveToolCall = onApproveToolCall
+    self.onApproveToolCallBatch = onApproveToolCallBatch
     self.onDenyToolCall = onDenyToolCall
     self.onAnswerAskUser = onAnswerAskUser
   }
@@ -163,10 +172,12 @@ extension NativeChatTranscriptCoordinator {
     onToggleSpeech: @escaping (String, String) -> Void,
     onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
     onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
-    onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void
+    onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void,
+    onApproveToolCallBatch: @escaping (ToolCallRecord.ID) -> Void
   ) {
     self.onToggleSpeech = onToggleSpeech
     self.onApproveToolCall = onApproveToolCall
+    self.onApproveToolCallBatch = onApproveToolCallBatch
     self.onDenyToolCall = onDenyToolCall
     self.onAnswerAskUser = onAnswerAskUser
   }
@@ -184,6 +195,7 @@ extension NativeChatTranscriptCoordinator {
     accessibilityValue: String,
     isSpeechEnabled: Bool,
     activeSpeechRowID: String?,
+    areToolActionsEnabled: Bool = true,
     in scrollView: NSScrollView
   ) {
     ChatDiagnostics.measure("Transcript coordinator update", category: .transcript) {
@@ -209,6 +221,10 @@ extension NativeChatTranscriptCoordinator {
         isSpeechEnabled: isSpeechEnabled,
         activeSpeechRowID: activeSpeechRowID
       )
+      let toolActionStateChangedIDs = changedToolActionRowIDs(
+        currentRows: rows,
+        areToolActionsEnabled: areToolActionsEnabled
+      )
       let shouldScrollAfterAppend =
         NativeTranscriptScrollDecision.shouldScrollToBottomAfterAppend(
           previousIDs: rowIDs,
@@ -220,6 +236,7 @@ extension NativeChatTranscriptCoordinator {
       revisionsByID = newRevisionsByID
       self.isSpeechEnabled = isSpeechEnabled
       self.activeSpeechRowID = activeSpeechRowID
+      self.areToolActionsEnabled = areToolActionsEnabled
       pruneCoordinatorState(activeRows: rows)
       ChatDiagnostics.measure("Transcript accessibility update", category: .transcript) {
         scrollView.setAccessibilityValue(accessibilityValue)
@@ -228,25 +245,30 @@ extension NativeChatTranscriptCoordinator {
 
       switch plan.action {
       case .snapshot:
+        let snapshotChangedIDs = plan.changedIDs.union(toolActionStateChangedIDs)
         applySnapshot(
           previousIDs: previousRowIDs,
           previousRowsByID: previousRowsByID,
           rowIDs: newRowIDs,
           currentRowsByID: newRowsByID,
-          changedIDs: plan.changedIDs,
+          changedIDs: snapshotChangedIDs,
           animatingDifferences: false
         )
+        reconfigureVisibleRows(changedIDs: toolActionStateChangedIDs)
         scheduleHeightInvalidation(
           for: NativeTranscriptSnapshotInvalidation.rowIndexes(
             previousIDs: previousRowIDs,
             currentIDs: newRowIDs,
-            changedIDs: plan.changedIDs
+            changedIDs: snapshotChangedIDs
           ),
           reason: "snapshot",
           scrollToBottomAfterFlush: wasPinnedToBottom || shouldScrollAfterAppend
         )
       case .reconfigureRows:
-        let reconfiguredIDs = plan.changedIDs.union(speechStateChangedIDs)
+        let reconfiguredIDs =
+          plan.changedIDs
+          .union(speechStateChangedIDs)
+          .union(toolActionStateChangedIDs)
         let streamingMessageChangedIDs = streamingAssistantMessageRowIDs(in: plan.changedIDs)
         let streamingThinkingChangedIDs = streamingAssistantThinkingRowIDs(in: plan.changedIDs)
         let streamingChangedIDs = streamingMessageChangedIDs.union(streamingThinkingChangedIDs)
@@ -255,6 +277,7 @@ extension NativeChatTranscriptCoordinator {
           && !streamingChangedIDs.isEmpty
           && streamingChangedIDs == plan.changedIDs
           && speechStateChangedIDs.isEmpty
+          && toolActionStateChangedIDs.isEmpty
           && !didChangeColumnWidth
 
         reconfigureVisibleRows(changedIDs: reconfiguredIDs)
@@ -340,6 +363,16 @@ extension NativeChatTranscriptCoordinator {
     }
 
     return Set([self.activeSpeechRowID, activeSpeechRowID].compactMap(\.self))
+  }
+
+  private func changedToolActionRowIDs(
+    currentRows: [NativeTranscriptRow],
+    areToolActionsEnabled: Bool
+  ) -> Set<String> {
+    guard self.areToolActionsEnabled != areToolActionsEnabled else {
+      return []
+    }
+    return Set(currentRows.filter { $0.cellKind == .tool }.map(\.id))
   }
 }
 
@@ -521,7 +554,8 @@ extension NativeChatTranscriptCoordinator {
         state: cellStateStore.state(
           for: row.id,
           isSpeechEnabled: isSpeechEnabled,
-          activeSpeechRowID: activeSpeechRowID
+          activeSpeechRowID: activeSpeechRowID,
+          areToolActionsEnabled: areToolActionsEnabled
         ),
         actions: NativeTranscriptCellActions(
           markdownBlocks: { [weak self] markdown in
@@ -570,6 +604,9 @@ extension NativeChatTranscriptCoordinator {
           },
           approve: { [weak self] toolCallID in
             self?.onApproveToolCall(toolCallID)
+          },
+          approveAll: { [weak self] anchorID in
+            self?.onApproveToolCallBatch(anchorID)
           },
           deny: { [weak self] toolCallID in
             self?.onDenyToolCall(toolCallID)
@@ -1211,6 +1248,7 @@ final class NativeChatMessageCellView: NSTableCellView {
       return makeToolView(
         record: record,
         generationMetrics: item.generationMetrics,
+        batchPresentation: item.toolBatchPresentation,
         rowID: rowID,
         state: state
       )
@@ -1352,6 +1390,7 @@ final class NativeChatMessageCellView: NSTableCellView {
   private func makeToolView(
     record: ToolCallRecord,
     generationMetrics: ChatGenerationMetrics?,
+    batchPresentation: ToolApprovalBatchPresentation?,
     rowID: String,
     state: NativeTranscriptCellState
   ) -> NSView {
@@ -1391,13 +1430,35 @@ final class NativeChatMessageCellView: NSTableCellView {
 
     if record.status == .awaitingApproval {
       let actionsRow = horizontalStack(spacing: 8)
+      if let batch = batchPresentation, batch.showsApproveAll {
+        actionsRow.addArrangedSubview(
+          makeSmallButton(
+            title: "Approve all (\(batch.pendingApprovalCount))",
+            accessibilityIdentifier: "chat.tool.approveAll.\(batch.anchorID.uuidString)",
+            accessibilityLabel: "Approve all \(batch.pendingApprovalCount) tool calls",
+            isEnabled: state.isToolActionEnabled
+          ) { [weak self] in
+            self?.actions?.approveAll(batch.anchorID)
+          }
+        )
+      }
       actionsRow.addArrangedSubview(
-        makeSmallButton(title: "Approve") { [weak self] in
+        makeSmallButton(
+          title: "Approve",
+          accessibilityIdentifier: "chat.tool.approve.\(record.id.uuidString)",
+          accessibilityLabel: "Approve \(toolCall.toolName.rawValue) tool call",
+          isEnabled: state.isToolActionEnabled
+        ) { [weak self] in
           self?.actions?.approve(record.id)
         }
       )
       actionsRow.addArrangedSubview(
-        makeSmallButton(title: "Deny") { [weak self] in
+        makeSmallButton(
+          title: "Deny",
+          accessibilityIdentifier: "chat.tool.deny.\(record.id.uuidString)",
+          accessibilityLabel: "Deny \(toolCall.toolName.rawValue) tool call",
+          isEnabled: state.isToolActionEnabled
+        ) { [weak self] in
           self?.actions?.deny(record.id)
         }
       )
@@ -1410,6 +1471,7 @@ final class NativeChatMessageCellView: NSTableCellView {
         makeAskUserView(
           input: input,
           selectedAnswer: state.askUserSelection,
+          isEnabled: state.isToolActionEnabled,
           rowID: rowID,
           toolCallID: record.id
         )
@@ -1464,6 +1526,7 @@ final class NativeChatMessageCellView: NSTableCellView {
   private func makeAskUserView(
     input: AskUserInput,
     selectedAnswer: String?,
+    isEnabled: Bool,
     rowID: String,
     toolCallID: ToolCallRecord.ID
   ) -> NSView {
@@ -1484,10 +1547,11 @@ final class NativeChatMessageCellView: NSTableCellView {
     popup.target = self
     popup.action = #selector(askUserSelectionChanged(_:))
     popup.identifier = NSUserInterfaceItemIdentifier(rowID)
+    popup.isEnabled = isEnabled
     askUserPopUpButton = popup
     row.addArrangedSubview(popup)
     row.addArrangedSubview(
-      makeSmallButton(title: "Send") { [weak self] in
+      makeSmallButton(title: "Send", isEnabled: isEnabled) { [weak self] in
         let answer = self?.askUserPopUpButton?.selectedItem?.title ?? selectedOption
         self?.actions?.answerAskUser(rowID, toolCallID, answer)
       }
@@ -1667,11 +1731,24 @@ extension NativeChatMessageCellView {
     return button
   }
 
-  fileprivate func makeSmallButton(title: String, action: @escaping () -> Void) -> NSButton {
+  fileprivate func makeSmallButton(
+    title: String,
+    accessibilityIdentifier: String? = nil,
+    accessibilityLabel: String? = nil,
+    isEnabled: Bool = true,
+    action: @escaping () -> Void
+  ) -> NSButton {
     let button = NativeActionButton(title: title)
     button.controlSize = .small
     button.bezelStyle = .rounded
     button.setButtonType(.momentaryPushIn)
+    button.isEnabled = isEnabled
+    if let accessibilityIdentifier {
+      button.setAccessibilityIdentifier(accessibilityIdentifier)
+    }
+    if let accessibilityLabel {
+      button.setAccessibilityLabel(accessibilityLabel)
+    }
     button.actionHandler = action
     return button
   }

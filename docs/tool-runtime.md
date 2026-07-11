@@ -39,10 +39,23 @@ flowchart TD
   `ToolCallingPolicy.isEnabled` is true. MLX owns model-family tool-call format
   inference; `ToolLoopCoordinator` converts native events into the same neutral
   `RawToolCallRequest` execution boundary used by the rest of Core.
+- When a native response contains multiple calls, `ToolLoopCoordinator` first
+  validates and materializes the complete ordered batch. Approval or `ask_user`
+  pauses only after every call has a canonical `ToolCallRecord`; no later call is
+  dropped merely because an earlier call needs user interaction.
+- `ToolCallingPolicy.allowsMultipleToolCalls` controls the instruction sent to
+  the model, not runtime truncation. If a model emits siblings despite a
+  single-call instruction, the runtime still materializes and validates every
+  emitted call so unsafe or exclusive siblings cannot disappear silently.
+- A `ToolCallBatch` is a transient projection derived from the canonical
+  `ChatTurn.items` order. It is never persisted as a second queue or batch ID.
+  User and assistant messages delimit batches, while assistant-thinking items
+  are transparent. The batch anchor is the first record's final reserved call
+  ID after native ID normalization, never the raw provider ID.
 - Native tool-call IDs are normalized as `call_<uuid-without-dashes-lowercase>`
   at the MLX boundary. Parseable native IDs seed `RawToolCallRequest.id`; missing,
-  malformed, or duplicate IDs fall back to fresh UUIDs so execution records stay
-  unique.
+  malformed, duplicate, or already-used session IDs fall back to fresh UUIDs so
+  execution records stay unique.
 - Native tool-call boundaries are committed to the Core model ledger as canonical
   boundary text generated from the tool name and sorted arguments, with
   the typed raw arguments preserved next to that text. MLX replay renders those
@@ -53,9 +66,33 @@ flowchart TD
   invokes `ToolLoopCoordinator`, applies `ChatWorkflowStep` continuations via
   emitted workflow events, pauses on approval or `ask_user`, and resumes through
   approved, denied, or answered tool flows.
+- Approval and denial update one existing batch record in place. The turn stays
+  paused while any sibling call is unresolved and starts exactly one model
+  follow-up only after the whole batch has model-facing results. `Approve all`
+  executes the remaining approved records sequentially in original model order;
+  individual decisions may arrive in any order without changing result order.
+- Immediately before approved execution, the tool input and permission scope are
+  evaluated again. If the normalized target paths or risk level changed since
+  the preview (for example after a symlink change), the record returns to
+  `awaitingApproval` with the fresh scope and no side effect runs.
+- `ChatModelContextBuilder` suppresses every result in a partially resolved
+  batch. Only a model-ready batch is projected as one assistant tool-call group
+  followed by one ordered tool message per call. Persisted partial records remain
+  available to the transcript and can be resumed after reload.
 - `ToolResumeCoordinator` builds the workflow events for approved tool results,
   denied tool results, and answered `ask_user` receipts. It does not own async
   execution; the active turn task stays in `ChatTurnCoordinator`.
+- An explicit user denial is stored as a normal result payload with
+  `ToolFailureReason.userDenied`. Its stable model projection is non-success,
+  `status: "denied"`, `kind: "user_denied"`, and the content
+  `Tool call denied by user.`. MLX therefore receives one matching `tool`
+  message for the denied call ID rather than a status-only transcript marker.
+- `ask_user` and `finish_task` must each be the only call in a native response.
+  A mixed batch is rejected in full and no sibling side effect runs. Other
+  direct-result behavior is also limited to single-call responses. Invalid
+  batches receive a tool-capable correction generation; at the normal tool-loop
+  boundary the runtime grants one bounded repair iteration before falling back
+  to a final response.
 - Terminal follow-up prompts, such as approved write/edit follow-ups and denied
   tool follow-ups, do not expose tools to the runtime. If more work is needed,
   the model must ask the user for another turn rather than emitting more tools.

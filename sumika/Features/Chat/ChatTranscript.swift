@@ -9,6 +9,7 @@ struct ChatTranscript: View {
   let assistantSpeechService: AssistantSpeechService
   var bottomContentInset: CGFloat = 0
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
+  let onApproveToolCallBatch: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
   let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
   @State private var renderer = ChatTranscriptRenderer()
@@ -35,6 +36,7 @@ struct ChatTranscript: View {
     } else {
       AppKitChatTranscriptRepresentable(
         items: items,
+        isGenerating: isGenerating,
         showsGenerationIndicator: ChatTranscriptGenerationIndicatorPolicy.shouldShow(
           isGenerating: isGenerating,
           items: items
@@ -51,6 +53,7 @@ struct ChatTranscript: View {
           )
         },
         onApproveToolCall: onApproveToolCall,
+        onApproveToolCallBatch: onApproveToolCallBatch,
         onDenyToolCall: onDenyToolCall,
         onAnswerAskUser: onAnswerAskUser
       )

@@ -247,7 +247,54 @@ struct ChatModelContextBuilderTests {
     #expect(after.entries.last?.sourceMessageID == toolRecord.id)
   }
 
+  @Test
+  func partiallyResolvedToolBatchIsSuppressedUntilEveryResultExists() throws {
+    let first = makeCompletedReadFileRecord()
+    var second = makeReadFileRecord(state: .awaitingApproval(preview: nil))
+    let turnID = UUID()
+    var state = ChatSession(
+      turns: [
+        ChatTurn(
+          id: turnID,
+          status: .awaitingApproval,
+          items: [
+            .userMessage(UserTurnMessage(content: "Inspect both files.")),
+            .tool(first),
+            .assistantThinking(AssistantThinkingMessage(content: "Same model response.")),
+            .tool(second),
+          ]
+        )
+      ]
+    )
+
+    let partial = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
+    #expect(partial.entries.map(\.frozenContent.role) == [.user])
+
+    second.state = .completed(
+      .readFile(
+        .success(
+          path: WorkspaceRelativePath(rawValue: "README.md"),
+          content: ToolTextOutput(text: "second result")
+        )))
+    ChatTranscriptMutator().updateToolCallRecord(second, in: &state)
+
+    let resolved = ChatModelContextBuilder().transcript(from: state, includingTurnID: turnID)
+    #expect(resolved.entries.map(\.frozenContent.role) == [.user, .assistant, .tool, .tool])
+    #expect(Array(resolved.entries.suffix(2)).map(\.sourceMessageID) == [first.id, second.id])
+  }
+
   private func makeCompletedReadFileRecord() -> ToolCallRecord {
+    makeReadFileRecord(
+      state: .completed(
+        .readFile(
+          .success(
+            path: WorkspaceRelativePath(rawValue: "README.md"),
+            content: ToolTextOutput(text: "contents", truncated: false, redacted: false)
+          )))
+    )
+  }
+
+  private func makeReadFileRecord(state: ToolCallState) -> ToolCallRecord {
     let path = WorkspaceRelativePath(rawValue: "README.md")
     let rawRequest = RawToolCallRequest(
       workspaceID: UUID(),
@@ -266,12 +313,7 @@ struct ChatModelContextBuilderTests {
         reason: "Allowed in test.",
         riskLevel: .low
       ),
-      state: .completed(
-        .readFile(
-          .success(
-            path: path,
-            content: ToolTextOutput(text: "contents", truncated: false, redacted: false)
-          )))
+      state: state
     )
   }
 }

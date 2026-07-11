@@ -189,7 +189,8 @@ public struct AnyToolExecutor: Sendable {
   /// raw arguments for tools without a built-in codec catalog entry.
   let dynamicCodec: AnyToolCodec?
   private let runHandler: @Sendable (ToolCallRequest, ToolContext) async -> ToolCallRecord
-  private let approvedRunHandler: @Sendable (ToolCallRequest, ToolContext) async -> ToolCallRecord
+  private let approvedRunHandler:
+    @Sendable (ToolCallRequest, ToolPermissionEvaluation?, ToolContext) async -> ToolCallRecord
 
   public init<T: TypedToolExecutor>(_ tool: T) {
     self.init(executor: TypedExecutorAdapter(tool: tool), dynamicCodec: nil)
@@ -206,8 +207,14 @@ public struct AnyToolExecutor: Sendable {
       await Self.evaluateAndRun(tool, request: request, context: context, isApproved: false)
     }
 
-    approvedRunHandler = { request, context in
-      await Self.evaluateAndRun(tool, request: request, context: context, isApproved: true)
+    approvedRunHandler = { request, approvedEvaluation, context in
+      await Self.evaluateAndRun(
+        tool,
+        request: request,
+        context: context,
+        isApproved: true,
+        approvedEvaluation: approvedEvaluation
+      )
     }
   }
 
@@ -215,16 +222,20 @@ public struct AnyToolExecutor: Sendable {
     await runHandler(request, context)
   }
 
-  public func runApproved(_ request: ToolCallRequest, context: ToolContext) async -> ToolCallRecord
-  {
-    await approvedRunHandler(request, context)
+  public func runApproved(
+    _ request: ToolCallRequest,
+    approvedEvaluation: ToolPermissionEvaluation? = nil,
+    context: ToolContext
+  ) async -> ToolCallRecord {
+    await approvedRunHandler(request, approvedEvaluation, context)
   }
 
   private static func evaluateAndRun<T: DynamicToolExecutor>(
     _ tool: T,
     request: ToolCallRequest,
     context: ToolContext,
-    isApproved: Bool
+    isApproved: Bool,
+    approvedEvaluation: ToolPermissionEvaluation? = nil
   ) async -> ToolCallRecord {
     var record = makePendingRecord(request: request)
     let definition = tool.codec.definition
@@ -239,6 +250,24 @@ public struct AnyToolExecutor: Sendable {
       let input = try tool.codec.input(from: request.payload)
       let evaluation = tool.evaluatePermission(input, context: context)
       record.evaluation = evaluation
+
+      if isApproved,
+        let approvedEvaluation,
+        evaluation.decision != .denied,
+        approvalScopeChanged(from: approvedEvaluation, to: evaluation)
+      {
+        let previewIsValid = await prepareApprovalPreview(
+          tool,
+          input: input,
+          evaluation: evaluation,
+          record: &record,
+          context: context
+        )
+        if previewIsValid, record.status == .pending {
+          record.state = .awaitingApproval(preview: nil)
+        }
+        return record
+      }
 
       if definition.name == .askUser && !isApproved {
         guard shouldRun(evaluation: evaluation, isApproved: isApproved, record: &record) else {
@@ -271,6 +300,19 @@ public struct AnyToolExecutor: Sendable {
     } catch {
       return failedRecord(request: request, definition: definition, error: error)
     }
+  }
+
+  private static func approvalScopeChanged(
+    from approved: ToolPermissionEvaluation,
+    to current: ToolPermissionEvaluation
+  ) -> Bool {
+    let approvedNormalizedPaths = Set(approved.normalizedPaths)
+    let currentNormalizedPaths = Set(current.normalizedPaths)
+    let approvedRelativePaths = Set(approved.workspaceRelativePaths.map(\.rawValue))
+    let currentRelativePaths = Set(current.workspaceRelativePaths.map(\.rawValue))
+    return approvedNormalizedPaths != currentNormalizedPaths
+      || approvedRelativePaths != currentRelativePaths
+      || approved.riskLevel != current.riskLevel
   }
 
   private static func prepareApprovalPreview<T: DynamicToolExecutor>(
@@ -624,7 +666,30 @@ public struct ToolOrchestrator: Sendable {
       registry: executorRegistry.toolRegistry,
       dynamicCodecs: executorRegistry.dynamicCodecs
     )
-    return await executeValidated(request: request, workspace: workspace, isApproved: true)
+    return await executeValidated(
+      request: request,
+      workspace: workspace,
+      isApproved: true,
+      approvedEvaluation: nil
+    )
+  }
+
+  public func executeApproved(
+    request: ToolCallRequest,
+    approvedEvaluation: ToolPermissionEvaluation,
+    workspace: Workspace
+  ) async -> ToolCallRecord {
+    let request = validator.validate(
+      request.raw,
+      registry: executorRegistry.toolRegistry,
+      dynamicCodecs: executorRegistry.dynamicCodecs
+    )
+    return await executeValidated(
+      request: request,
+      workspace: workspace,
+      isApproved: true,
+      approvedEvaluation: approvedEvaluation
+    )
   }
 
   public func executeApproved(request rawRequest: RawToolCallRequest, workspace: Workspace) async
@@ -635,13 +700,19 @@ public struct ToolOrchestrator: Sendable {
       registry: executorRegistry.toolRegistry,
       dynamicCodecs: executorRegistry.dynamicCodecs
     )
-    return await executeValidated(request: request, workspace: workspace, isApproved: true)
+    return await executeValidated(
+      request: request,
+      workspace: workspace,
+      isApproved: true,
+      approvedEvaluation: nil
+    )
   }
 
   private func executeValidated(
     request: ToolCallRequest,
     workspace: Workspace,
-    isApproved: Bool
+    isApproved: Bool,
+    approvedEvaluation: ToolPermissionEvaluation? = nil
   ) async -> ToolCallRecord {
     guard request.workspaceID == workspace.id else {
       let message = "Tool call workspace does not match the active workspace."
@@ -662,6 +733,7 @@ public struct ToolOrchestrator: Sendable {
     if isApproved {
       return await executor.runApproved(
         request,
+        approvedEvaluation: approvedEvaluation,
         context: ToolContext(
           workspace: workspace,
           sessionID: request.sessionID,

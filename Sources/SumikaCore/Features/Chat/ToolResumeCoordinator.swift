@@ -26,9 +26,7 @@ public struct ToolResumeCoordinator: Sendable {
   public func approvedToolResult(
     record: ToolCallRecord,
     focusedFileState: FocusedFileState,
-    turnID: ChatTurn.ID,
-    toolProfile: ToolExecutionProfile = .agent,
-    forceFinal: Bool = false
+    turnID: ChatTurn.ID
   ) -> ToolResumeResult {
     var events: [ChatWorkflowEvent] = [
       .toolCallUpdated(record),
@@ -39,30 +37,10 @@ public struct ToolResumeCoordinator: Sendable {
     ]
     events.append(contentsOf: focusEvents(for: record, from: focusedFileState))
 
-    guard record.status == .completed else {
-      return ToolResumeResult(
-        events: events,
-        followUpPromptMode: nil,
-        nextAssistantMessageID: nil
-      )
-    }
-
-    let nextAssistantMessageID = UUID()
-    let promptMode = followUpPromptMode(
-      afterApprovedTool: record,
-      toolProfile: toolProfile,
-      forceFinal: forceFinal
-    )
-    events.append(
-      .assistantPlaceholderAppended(
-        messageID: nextAssistantMessageID,
-        turnID: turnID
-      ))
-
     return ToolResumeResult(
       events: events,
-      followUpPromptMode: promptMode,
-      nextAssistantMessageID: nextAssistantMessageID
+      followUpPromptMode: nil,
+      nextAssistantMessageID: nil
     )
   }
 
@@ -89,7 +67,6 @@ public struct ToolResumeCoordinator: Sendable {
 
   public func deniedTool(
     record: ToolCallRecord,
-    message: String,
     turnID: ChatTurn.ID
   ) -> ToolResumeResult {
     var deniedRecord = record
@@ -98,24 +75,16 @@ public struct ToolResumeCoordinator: Sendable {
         ToolFailure(
           toolName: deniedRecord.request.toolName,
           path: deniedRecord.evaluation.firstModelFacingPath,
-          reason: .permissionDenied,
-          recovery: .askUser(message: message)
+          reason: .userDenied
         ))
     )
-    let nextAssistantMessageID = UUID()
-    let promptMode = ToolPromptMode.afterToolResultFinal
     return ToolResumeResult(
-      events: resumedToolEvents(
-        record: deniedRecord,
-        toolResult: toolResultMessage(
-          for: deniedRecord,
-          fallback: .permissionDenied(message: message)
-        ),
-        nextAssistantMessageID: nextAssistantMessageID,
-        turnID: turnID
-      ),
-      followUpPromptMode: promptMode,
-      nextAssistantMessageID: nextAssistantMessageID
+      events: [
+        .toolCallUpdated(deniedRecord),
+        .toolResultAppended(toolResultMessage(for: deniedRecord), turnID: turnID),
+      ],
+      followUpPromptMode: nil,
+      nextAssistantMessageID: nil
     )
   }
 
@@ -181,7 +150,6 @@ public struct ToolResumeCoordinator: Sendable {
 
   private enum ToolResultFallback {
     case unavailable
-    case permissionDenied(message: String)
 
     func payload(for record: ToolCallRecord) -> ToolResultPayload {
       switch self {
@@ -193,14 +161,6 @@ public struct ToolResumeCoordinator: Sendable {
             reason: .executionError(
               "Tool result unavailable for \(record.request.toolName.rawValue)."
             )
-          ))
-      case .permissionDenied(let message):
-        return .failure(
-          ToolFailure(
-            toolName: record.request.toolName,
-            path: record.evaluation.firstModelFacingPath,
-            reason: .permissionDenied,
-            recovery: .askUser(message: message)
           ))
       }
     }

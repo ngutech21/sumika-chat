@@ -1146,6 +1146,7 @@ public enum ToolFailureReason: Codable, Equatable, Sendable {
   case emptyPath
   case unsupportedURLScheme(String)
   case permissionDenied
+  case userDenied
   case finalModeToolAttempt(requestedTool: ToolName?)
   case toolBudgetExceeded(requestedTool: ToolName?, iterationLimit: Int)
   case unsupportedFileType(String)
@@ -1396,7 +1397,7 @@ nonisolated extension String {
 nonisolated extension ToolFailureReason {
   var previewStatus: ToolResultStatus {
     switch self {
-    case .permissionDenied, .pathOutsideWorkspace:
+    case .permissionDenied, .userDenied, .pathOutsideWorkspace:
       .denied
     case .fileNotFound, .emptyPath, .unsupportedURLScheme, .finalModeToolAttempt,
       .toolBudgetExceeded, .unsupportedFileType,
@@ -1426,6 +1427,8 @@ nonisolated extension ToolFailureReason {
       return "Unsupported URL scheme: \(scheme)."
     case .permissionDenied:
       return "Permission denied."
+    case .userDenied:
+      return "Tool call denied by user."
     case .finalModeToolAttempt(let requestedTool):
       let toolText = requestedTool.map { " for \($0.rawValue)" } ?? ""
       return

@@ -808,11 +808,47 @@ struct ToolResultProjectorTests {
     }
     #expect(status == .denied)
     #expect(projection.observation.status == .denied)
+    #expect(projection.metadata.kind == "failure")
     #expect(text.contains("Permission denied. Tool call denied by user."))
     #expect(
       projection.observation.blocks == [
         .failure("write_file failed for README.md: Permission denied. Tool call denied by user.")
       ])
+  }
+
+  @Test
+  func userDeniedFailureUsesStableModelContract() {
+    let request = request(
+      toolName: .writeFile,
+      payload: .writeFile(WriteFileInput(path: "README.md", content: "hello"))
+    )
+    let projection = ToolResultProjector.project(
+      payload: .failure(
+        ToolFailure(
+          toolName: .writeFile,
+          path: WorkspaceRelativePath(rawValue: "README.md"),
+          reason: .userDenied
+        )),
+      request: request
+    )
+    let rendered = ToolModelObservationRenderer.render(
+      projection,
+      callID: request.id
+    )
+
+    guard case .summary(let status, let text, _) = projection.display else {
+      Issue.record("Expected denied display summary.")
+      return
+    }
+    #expect(status == .denied)
+    #expect(text == "Tool call denied by user.")
+    #expect(projection.observation.status == .denied)
+    #expect(projection.observation.blocks == [.failure("Tool call denied by user.")])
+    #expect(projection.metadata.kind == "user_denied")
+    #expect(rendered.contains("\"ok\": false"))
+    #expect(rendered.contains("\"status\": \"denied\""))
+    #expect(rendered.contains("\"kind\": \"user_denied\""))
+    #expect(rendered.contains("Failure: Tool call denied by user."))
   }
 
   @Test

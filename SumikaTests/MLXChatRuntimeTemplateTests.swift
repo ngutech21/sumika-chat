@@ -1174,6 +1174,97 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func mixedDeniedAndSuccessfulBatchKeepsCallAndResultOrder() throws {
+    let deniedCallID = UUID()
+    let successfulCallID = UUID()
+    let turnID = UUID()
+    let deniedArguments: ToolCallArguments = [
+      "path": .string("denied.txt"),
+      "content": .string("denied"),
+    ]
+    let successfulArguments: ToolCallArguments = [
+      "path": .string("accepted.txt"),
+      "content": .string("accepted"),
+    ]
+    let deniedRequest = toolRequest(
+      callID: deniedCallID,
+      toolName: .writeFile,
+      arguments: deniedArguments
+    )
+    let successfulRequest = toolRequest(
+      callID: successfulCallID,
+      toolName: .writeFile,
+      arguments: successfulArguments
+    )
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(
+        turnID: turnID,
+        prompt: "write both files"
+      ),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: [
+          ToolCallModelMessage(request: deniedRequest).modelContextContent,
+          ToolCallModelMessage(request: successfulRequest).modelContextContent,
+        ].joined(separator: "\n")
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: deniedCallID,
+          toolName: .writeFile,
+          payload: .failure(
+            ToolFailure(
+              toolName: .writeFile,
+              path: WorkspaceRelativePath(rawValue: "denied.txt"),
+              reason: .userDenied
+            ))
+        ),
+        request: deniedRequest,
+        originalUserRequest: "write both files"
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: successfulCallID,
+          toolName: .writeFile,
+          payload: .writeFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "accepted.txt"),
+              bytesWritten: 8
+            ))
+        ),
+        request: successfulRequest,
+        originalUserRequest: "write both files"
+      ),
+    ]
+
+    let input = try generationInput(from: entries)
+    let rawMessages = DefaultMessageGenerator().generate(
+      messages: input.history + input.promptMessages
+    )
+    let rawAssistantToolCalls = try #require(
+      rawMessages[1]["tool_calls"] as? [[String: any Sendable]]
+    )
+
+    #expect(
+      rawAssistantToolCalls.compactMap { $0["id"] as? String } == [
+        RuntimeToolCallID.string(for: deniedCallID),
+        RuntimeToolCallID.string(for: successfulCallID),
+      ])
+    #expect(
+      rawMessages[2]["tool_call_id"] as? String
+        == RuntimeToolCallID.string(for: deniedCallID))
+    #expect(
+      rawMessages[3]["tool_call_id"] as? String
+        == RuntimeToolCallID.string(for: successfulCallID))
+    #expect(input.promptMessages[0].content.contains("\"status\": \"denied\""))
+    #expect(input.promptMessages[0].content.contains("\"kind\": \"user_denied\""))
+    #expect(input.promptMessages[0].content.contains("Tool call denied by user."))
+    #expect(input.promptMessages[1].content.contains("Wrote 8 bytes to accepted.txt."))
+  }
+
+  @Test
   func laterUserTurnHistoryKeepsStructuredToolResult() throws {
     let callID = UUID()
     let turnID = UUID()

@@ -1030,6 +1030,42 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func approvedWriteFileRequiresFreshApprovalWhenResolvedTargetChanges() async throws {
+    let workspace = try makeWorkspace()
+    let firstTarget = workspace.rootURL.appending(path: "first", directoryHint: .isDirectory)
+    let secondTarget = workspace.rootURL.appending(path: "second", directoryHint: .isDirectory)
+    let link = workspace.rootURL.appending(path: "current")
+    try FileManager.default.createDirectory(at: firstTarget, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: secondTarget, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: firstTarget)
+    let orchestrator = ToolOrchestrator(executorRegistry: .codingAgent)
+    let pending = await orchestrator.execute(
+      request: request(
+        .writeFile,
+        workspace: workspace,
+        arguments: [
+          "path": .string("current/value.txt"),
+          "content": .string("new"),
+        ]
+      ),
+      workspace: workspace
+    )
+    #expect(pending.status == .awaitingApproval)
+
+    try FileManager.default.removeItem(at: link)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: secondTarget)
+    let revalidated = await orchestrator.executeApproved(
+      request: pending.request,
+      approvedEvaluation: pending.evaluation,
+      workspace: workspace
+    )
+
+    #expect(revalidated.status == .awaitingApproval)
+    #expect(revalidated.evaluation.normalizedPaths != pending.evaluation.normalizedPaths)
+    #expect(!FileManager.default.fileExists(atPath: secondTarget.appending(path: "value.txt").path))
+  }
+
+  @Test
   func approvedWriteFileStillDeniesWorkspaceEscapes() async throws {
     let workspace = try makeWorkspace()
     let registry = ToolExecutorRegistry.codingAgent

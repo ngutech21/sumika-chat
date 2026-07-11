@@ -30,6 +30,7 @@ public struct ChatModelContextBuilder: Sendable {
     for turn: ChatTurn,
     to entries: inout [ModelContextEntry]
   ) {
+    let suppressedToolCallIDs = unresolvedToolCallIDs(in: turn)
     var previousProjectedItemWasTool = false
     var previousProjectedItemWasAssistantOutput = false
 
@@ -54,7 +55,9 @@ public struct ChatModelContextBuilder: Sendable {
         previousProjectedItemWasTool = false
         previousProjectedItemWasAssistantOutput = true
       case .tool(let record):
-        guard record.resultPayload != nil else {
+        guard record.resultPayload != nil,
+          !suppressedToolCallIDs.contains(record.id)
+        else {
           previousProjectedItemWasTool = false
           previousProjectedItemWasAssistantOutput = false
           continue
@@ -67,6 +70,30 @@ public struct ChatModelContextBuilder: Sendable {
         previousProjectedItemWasAssistantOutput = false
       }
     }
+  }
+
+  /// A provider requires the complete assistant tool-call group followed by one
+  /// result for every call. Suppress the whole derived batch until that barrier
+  /// is satisfied; projecting only the resolved prefix would create an invalid
+  /// MLX history even though the canonical records themselves are already saved.
+  private func unresolvedToolCallIDs(in turn: ChatTurn) -> Set<ToolCallRecord.ID> {
+    var visited = Set<ToolCallRecord.ID>()
+    var suppressed = Set<ToolCallRecord.ID>()
+
+    for item in turn.items {
+      guard case .tool(let record) = item,
+        !visited.contains(record.id),
+        let batch = turn.toolCallBatch(containing: record.id)
+      else {
+        continue
+      }
+      let batchIDs = Set(batch.records.map(\.id))
+      visited.formUnion(batchIDs)
+      if !batch.isModelReady {
+        suppressed.formUnion(batchIDs)
+      }
+    }
+    return suppressed
   }
 
   private func appendUserEntry(

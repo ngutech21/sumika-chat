@@ -826,6 +826,7 @@ Cases:
 - `toolBudgetExceeded(requestedTool: ToolName?, iterationLimit: Int)`
 - `unsupportedFileType(String)`
 - `unsupportedURLScheme(String)`
+- `userDenied`
 
 Relations:
 

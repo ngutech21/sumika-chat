@@ -25,6 +25,9 @@ struct ChatTranscriptHost: View {
       onApproveToolCall: { toolCallID in
         controller.approveToolCall(id: toolCallID, in: toolWorkspace)
       },
+      onApproveToolCallBatch: { anchorID in
+        controller.approveToolCallBatch(containing: anchorID, in: toolWorkspace)
+      },
       onDenyToolCall: { toolCallID in
         controller.denyToolCall(id: toolCallID)
       },

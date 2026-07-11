@@ -8,20 +8,18 @@ nonisolated enum ToolLoopParsedAction: Equatable, Sendable {
 enum ToolLoopNativeToolParser {
   static func parse(
     _ toolCalls: [ChatRuntimeToolCall],
-    policy: ToolCallingPolicy,
+    policy _: ToolCallingPolicy,
     registry: ToolRegistry,
     workspaceID: Workspace.ID,
-    sessionID: ChatSession.ID
+    sessionID: ChatSession.ID,
+    reservedIDs: Set<UUID> = []
   ) -> ToolLoopParsedAction {
     let resolver = ToolNameResolver()
-    let containsFinishTask = toolCalls.contains { toolCall in
-      resolver.resolve(toolCall.name, registry: registry).canonicalToolName == .finishTask
-    }
-    let acceptedToolCalls =
-      policy.allowsMultipleToolCalls || containsFinishTask
-      ? toolCalls
-      : Array(toolCalls.prefix(1))
-    var usedRequestIDs = Set<UUID>()
+    // The policy controls what the prompt asks the model to emit. Once the
+    // runtime has emitted calls, never discard siblings: the complete response
+    // must be materialized so exclusivity and mutation conflicts can be checked.
+    let acceptedToolCalls = toolCalls
+    var usedRequestIDs = reservedIDs
 
     let outputs = acceptedToolCalls.map { toolCall in
       let resolution = resolver.resolve(toolCall.name, registry: registry)

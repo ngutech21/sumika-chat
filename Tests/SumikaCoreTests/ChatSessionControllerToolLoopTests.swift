@@ -7,6 +7,122 @@ import Testing
 @MainActor
 struct ChatSessionControllerToolLoopTests {
   @Test
+  func approveAllIgnoresConcurrentAndStaleInvocations() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        writeToolCall(path: "one.txt", content: "one"),
+        writeToolCall(path: "two.txt", content: "two"),
+      ],
+      [.chunk("Wrote both files.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "write both files", in: workspace, sessionID: sessionID)
+
+    try await waitUntil {
+      controller.chatSession.toolCalls.count == 2
+        && controller.chatSession.toolCalls.allSatisfy { $0.status == .awaitingApproval }
+    }
+    let anchorID = try #require(controller.chatSession.toolCalls.first?.id)
+
+    controller.approveToolCallBatch(containing: anchorID, in: workspace)
+    controller.approveToolCallBatch(containing: anchorID, in: workspace)
+    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
+
+    controller.approveToolCallBatch(containing: anchorID, in: workspace)
+    #expect(!controller.isGenerating)
+    #expect(controller.chatSession.toolCalls.map(\.status) == [.completed, .completed])
+    #expect(await runtime.capturedMessages.count == 2)
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "one.txt"), encoding: .utf8)
+        == "one")
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "two.txt"), encoding: .utf8)
+        == "two")
+  }
+
+  @Test
+  func reloadedPartialBatchApprovesOnlyWaitingRecords() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try "already written".write(
+      to: workspace.rootURL.appending(path: "first.txt"),
+      atomically: true,
+      encoding: .utf8
+    )
+    let first = try makeWriteRecord(
+      path: "first.txt",
+      content: "must not run again",
+      sessionID: sessionID,
+      workspace: workspace,
+      state: .completed(
+        .writeFile(
+          .success(
+            path: WorkspaceRelativePath(rawValue: "first.txt"),
+            bytesWritten: 15
+          )))
+    )
+    let second = try makeWriteRecord(
+      path: "second.txt",
+      content: "second",
+      sessionID: sessionID,
+      workspace: workspace,
+      state: .awaitingApproval(preview: nil)
+    )
+    let third = try makeWriteRecord(
+      path: "third.txt",
+      content: "third",
+      sessionID: sessionID,
+      workspace: workspace,
+      state: .awaitingApproval(preview: nil)
+    )
+    let persisted = ChatSession(
+      id: sessionID,
+      turns: [
+        ChatTurn(
+          status: .awaitingApproval,
+          items: [
+            .userMessage(UserTurnMessage(content: "Write three files.")),
+            .tool(first),
+            .assistantThinking(AssistantThinkingMessage(content: "Same response.")),
+            .tool(second),
+            .tool(third),
+          ]
+        )
+      ],
+      interactionMode: .agent
+    )
+    let decoded = try JSONDecoder().decode(
+      ChatSession.self,
+      from: JSONEncoder().encode(persisted)
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.chunk("Finished the remaining writes.")]
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.loadSession(decoded)
+
+    controller.approveToolCallBatch(containing: first.id, in: workspace)
+    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
+
+    #expect(controller.chatSession.toolCalls.map(\.status) == [.completed, .completed, .completed])
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "first.txt"), encoding: .utf8)
+        == "already written")
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "second.txt"), encoding: .utf8)
+        == "second")
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "third.txt"), encoding: .utf8)
+        == "third")
+    #expect(await runtime.capturedMessages.count == 1)
+  }
+
+  @Test
   func sendMessageRunsReadOnlyToolsUntilBudgetThenStreamsFinalAssistantResponse() async throws {
     let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
     let sessionID = UUID()
@@ -411,7 +527,7 @@ struct ChatSessionControllerToolLoopTests {
   }
 
   @Test
-  func mixedFinishTaskBatchRepairsWithoutPersistingSiblingCalls() async throws {
+  func mixedFinishTaskBatchPersistsEveryFailedCallBeforeRepair() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
@@ -447,21 +563,80 @@ struct ChatSessionControllerToolLoopTests {
     try await waitUntil { !controller.isGenerating }
 
     #expect(controller.chatSession.turns.first?.status == .completed)
-    #expect(controller.chatSession.toolCalls.map(\.request.toolName) == [.finishTask, .finishTask])
-    #expect(controller.chatSession.toolCalls.map(\.status) == [.failed, .completed])
+    #expect(
+      controller.chatSession.toolCalls.map(\.request.toolName) == [
+        .readFile, .finishTask, .finishTask,
+      ])
+    #expect(controller.chatSession.toolCalls.map(\.status) == [.failed, .failed, .completed])
     #expect(
       controller.chatSession.testMessages.last?.content
         == "Finished after repairing the mixed batch.")
-    let firstRecord = try #require(controller.chatSession.toolCalls.first)
-    guard case .invalid(let invalidInput) = firstRecord.request.payload else {
-      Issue.record("Expected mixed batch to persist one invalid finish_task record.")
-      return
+    for record in controller.chatSession.toolCalls.prefix(2) {
+      guard case .invalid(let invalidInput) = record.request.payload else {
+        Issue.record("Expected every call in the mixed batch to be persisted as invalid.")
+        return
+      }
+      #expect(
+        invalidInput.reason.message
+          == "finish_task must be the only native tool call in a response.")
     }
-    #expect(
-      invalidInput.reason.message
-        == "finish_task must be the only native tool call in a response.")
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.count == 2)
+  }
+
+  @Test
+  func invalidBatchAtToolBudgetBoundaryGetsOneToolCapableRepairGeneration() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let callsBeforeInvalidBatch = ChatToolLoopLimits.defaultMaxToolLoopIterations - 1
+    try createListFixtureDirectories(in: workspace, count: callsBeforeInvalidBatch)
+    let repairedSummary = "Repaired the final mixed batch."
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: callsBeforeInvalidBatch)
+        + [
+          [
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "read_file",
+                arguments: ["path": .string("README.md")]
+              )),
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "finish_task",
+                arguments: [
+                  "status": .string("done"),
+                  "summary": .string("Invalid mixed batch."),
+                ]
+              )),
+          ],
+          [
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "finish_task",
+                arguments: [
+                  "status": .string("done"),
+                  "summary": .string(repairedSummary),
+                ]
+              ))
+          ],
+        ]
+    )
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(prompt: "inspect and finish", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { !controller.isGenerating }
+
+    #expect(controller.chatSession.turns.first?.status == .completed)
+    #expect(controller.chatSession.testMessages.last?.content == repairedSummary)
+    #expect(
+      Array(controller.chatSession.toolCalls.suffix(3)).map(\.status) == [
+        .failed, .failed, .completed,
+      ])
+    let toolContexts = await runtime.capturedToolContexts
+    let repairContext = try #require(toolContexts.last ?? nil)
+    #expect(repairContext.registry.definition(for: .finishTask) != nil)
   }
 
   @Test
@@ -1759,6 +1934,50 @@ struct ChatSessionControllerToolLoopTests {
         name: "run_command",
         arguments: arguments
       ))
+  }
+
+  private func writeToolCall(path: String, content: String) -> ChatModelStreamEvent {
+    .toolCall(
+      ChatRuntimeToolCall(
+        name: ToolName.writeFile.rawValue,
+        arguments: [
+          "path": .string(path),
+          "content": .string(content),
+        ]
+      ))
+  }
+
+  private func makeWriteRecord(
+    path: String,
+    content: String,
+    sessionID: ChatSession.ID,
+    workspace: Workspace,
+    state: ToolCallState
+  ) throws -> ToolCallRecord {
+    let resolvedPath = try workspace.resolveAllowedPath(path)
+    let raw = RawToolCallRequest(
+      workspaceID: workspace.id,
+      sessionID: sessionID,
+      toolName: .writeFile,
+      arguments: [
+        "path": .string(path),
+        "content": .string(content),
+      ]
+    )
+    return ToolCallRecord(
+      request: .validated(
+        raw: raw,
+        payload: .writeFile(WriteFileInput(path: path, content: content))
+      ),
+      evaluation: ToolPermissionEvaluation(
+        decision: .requiresApproval,
+        reason: "Writing requires approval.",
+        riskLevel: .high,
+        normalizedPaths: [Workspace.normalizedPath(for: resolvedPath)],
+        workspaceRelativePaths: [WorkspaceRelativePath(rawValue: path)]
+      ),
+      state: state
+    )
   }
 
   private func allowedRunCommandOrchestrator(exitCode: Int32) -> ToolOrchestrator {

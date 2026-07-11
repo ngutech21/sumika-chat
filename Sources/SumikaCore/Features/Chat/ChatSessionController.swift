@@ -784,6 +784,38 @@ extension ChatSessionController {
     )
   }
 
+  public func approveToolCallBatch(
+    containing batchAnchorID: ToolCallRecord.ID,
+    in workspace: Workspace
+  ) {
+    guard !isGenerating else {
+      return
+    }
+    guard let turnID = chatSession.turnID(containingToolCall: batchAnchorID),
+      let turn = chatSession.turns.first(where: { $0.id == turnID }),
+      let batch = turn.toolCallBatch(containing: batchAnchorID),
+      batch.anchorID == batchAnchorID
+    else {
+      return
+    }
+    let pendingRecords = batch.pendingApprovalRecords
+    guard pendingRecords.count >= 2, let firstRecord = pendingRecords.first else {
+      return
+    }
+
+    isGenerating = true
+    errorMessage = nil
+    chatTurnCoordinator.approveToolCallBatch(
+      pendingRecords,
+      batchAnchorID: batch.anchorID,
+      in: workspace,
+      turnID: turnID,
+      toolOrchestrator: toolOrchestrator(for: firstRecord),
+      runtime: turnRuntimeContext(),
+      callbacks: turnCallbacks()
+    )
+  }
+
   private func toolOrchestrator(for record: ToolCallRecord) -> ToolOrchestrator {
     guard chatSession.interactionMode == .chat else {
       return toolOrchestrator
@@ -853,12 +885,10 @@ extension ChatSessionController {
       return
     }
 
-    let message = "Tool call denied by user."
     isGenerating = true
     errorMessage = nil
     chatTurnCoordinator.denyToolCall(
       existingRecord,
-      message: message,
       turnID: turnID,
       runtime: turnRuntimeContext(),
       callbacks: turnCallbacks()

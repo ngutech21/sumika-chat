@@ -373,7 +373,8 @@ public enum ToolResultProjector {
         toolName: request.toolName,
         status: failure.reason.projectedStatus,
         text: failure.projectedText,
-        affectedPaths: failure.path.map { [$0] } ?? []
+        affectedPaths: failure.path.map { [$0] } ?? [],
+        kind: failure.reason == .userDenied ? "user_denied" : nil
       )
     }
   }
@@ -1444,14 +1445,14 @@ private func lineCount(_ text: String) -> Int {
 
 nonisolated extension ToolFailure {
   var projectedText: String {
-    message
+    reason == .userDenied ? reason.message : message
   }
 }
 
 nonisolated extension ToolFailureReason {
   var projectedStatus: ToolResultStatus {
     switch self {
-    case .permissionDenied, .pathOutsideWorkspace:
+    case .permissionDenied, .userDenied, .pathOutsideWorkspace:
       .denied
     case .fileNotFound, .emptyPath, .unsupportedURLScheme, .finalModeToolAttempt,
       .toolBudgetExceeded, .unsupportedFileType, .invalidArguments, .executionError, .cancelled:

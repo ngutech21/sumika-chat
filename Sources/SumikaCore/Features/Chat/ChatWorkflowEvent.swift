@@ -70,6 +70,10 @@ public enum ChatWorkflowContinuation: Equatable, Sendable {
     assistantMessageID: UUID,
     promptMode: ToolPromptMode
   )
+  case resumeCorrectionGeneration(
+    assistantMessageID: UUID,
+    promptMode: ToolPromptMode
+  )
   case stopTurn
 }
 

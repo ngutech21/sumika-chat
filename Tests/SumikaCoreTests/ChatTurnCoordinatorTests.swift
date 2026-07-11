@@ -168,6 +168,277 @@ struct ChatTurnCoordinatorTests {
   }
 
   @Test
+  func multipleApprovalsWaitForEveryDecisionAndKeepModelOrder() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("first.txt"),
+              "content": .string("first"),
+            ]
+          )),
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("second.txt"),
+              "content": .string("second"),
+            ]
+          )),
+      ],
+      [.chunk("Applied the approved change and left the denied file untouched.")],
+    ])
+    let harness = ChatTurnCoordinatorHarness(
+      session: ChatSession(id: sessionID, interactionMode: .agent),
+      runtime: runtime
+    )
+
+    harness.startUserTurn(prompt: "write both files", workspace: workspace, sessionID: sessionID)
+    try await waitUntil {
+      harness.session.toolCalls.count == 2
+        && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
+    }
+    let second = harness.session.toolCalls[1]
+
+    harness.approve(second, in: workspace)
+    try await waitUntil {
+      harness.session.turns.first?.status == .awaitingApproval
+        && harness.session.toolCalls.map(\.status) == [.awaitingApproval, .completed]
+    }
+
+    #expect(await runtime.capturedMessages.count == 1)
+    #expect(
+      try String(
+        contentsOf: workspace.rootURL.appending(path: "second.txt"),
+        encoding: .utf8
+      ) == "second")
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: workspace.rootURL.appending(path: "first.txt").path))
+
+    let first = harness.session.toolCalls[0]
+    harness.deny(first)
+    try await waitUntil { harness.session.turns.first?.status == .completed }
+
+    #expect(harness.session.toolCalls.map(\.id) == [first.id, second.id])
+    #expect(harness.session.toolCalls.map(\.status) == [.denied, .completed])
+    guard case .failure(let denial)? = harness.session.toolCalls[0].resultPayload else {
+      Issue.record("Expected a user-denied result for the first call.")
+      return
+    }
+    #expect(denial.reason == .userDenied)
+    let followUpMessages = await runtime.capturedMessages
+    #expect(followUpMessages.count == 2)
+    let toolMessages = followUpMessages[1].filter { $0.role == .tool }
+    #expect(toolMessages.count == 2)
+    #expect(toolMessages[0].content.contains("Tool call denied by user."))
+    #expect(toolMessages[1].content.contains("Wrote 6 bytes to second.txt."))
+  }
+
+  @Test
+  func approveAllExecutesInModelOrderAndGeneratesOnce() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("one.txt"),
+              "content": .string("one"),
+            ]
+          )),
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("two.txt"),
+              "content": .string("two"),
+            ]
+          )),
+      ],
+      [.chunk("Wrote both files.")],
+    ])
+    let harness = ChatTurnCoordinatorHarness(
+      session: ChatSession(id: sessionID, interactionMode: .agent),
+      runtime: runtime
+    )
+
+    harness.startUserTurn(prompt: "write both files", workspace: workspace, sessionID: sessionID)
+    try await waitUntil {
+      harness.session.toolCalls.count == 2
+        && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
+    }
+
+    harness.approveBatch(containing: harness.session.toolCalls[0], in: workspace)
+    try await waitUntil { harness.session.turns.first?.status == .completed }
+
+    #expect(harness.session.toolCalls.map(\.status) == [.completed, .completed])
+    #expect(await runtime.capturedMessages.count == 2)
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "one.txt"), encoding: .utf8)
+        == "one")
+    #expect(
+      try String(contentsOf: workspace.rootURL.appending(path: "two.txt"), encoding: .utf8)
+        == "two")
+  }
+
+  @Test
+  func approveAllContinuesAfterFailureAndGeneratesOnce() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "run_command",
+            arguments: [
+              "command": .string("false"),
+              "timeoutSeconds": .number(1),
+              "reason": .string("Verify failure handling."),
+            ]
+          )),
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "run_command",
+            arguments: [
+              "command": .string("true"),
+              "timeoutSeconds": .number(1),
+              "reason": .string("Verify sibling continuation."),
+            ]
+          )),
+      ],
+      [.chunk("Ran both approved commands and reported the failure.")],
+    ])
+    let harness = ChatTurnCoordinatorHarness(
+      session: ChatSession(id: sessionID, interactionMode: .agent),
+      runtime: runtime
+    )
+
+    harness.startUserTurn(prompt: "run both checks", workspace: workspace, sessionID: sessionID)
+    try await waitUntil {
+      harness.session.toolCalls.count == 2
+        && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
+    }
+    harness.approveBatch(containing: harness.session.toolCalls[0], in: workspace)
+    try await waitUntil { harness.session.turns.first?.status == .completed }
+
+    #expect(harness.session.toolCalls.map(\.status) == [.failed, .completed])
+    #expect(await runtime.capturedMessages.count == 2)
+    let followUp = await runtime.capturedMessages[1]
+    #expect(followUp.filter { $0.role == .tool }.count == 2)
+  }
+
+  @Test
+  func approvalBatchWithBlockedDuplicateForcesFinalFollowUp() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let listCall = ChatModelStreamEvent.toolCall(
+      ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")])
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [listCall],
+      [listCall],
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "run_command",
+            arguments: [
+              "command": .string("true"),
+              "timeoutSeconds": .number(1),
+              "reason": .string("Verify the workspace state."),
+            ]
+          )),
+        listCall,
+        listCall,
+      ],
+      [.chunk("Stopped after the blocked duplicate observation.")],
+    ])
+    let harness = ChatTurnCoordinatorHarness(
+      session: ChatSession(id: sessionID, interactionMode: .agent),
+      runtime: runtime
+    )
+
+    harness.startUserTurn(
+      prompt: "inspect the workspace",
+      workspace: workspace,
+      sessionID: sessionID
+    )
+    try await waitUntil {
+      harness.session.turns.first?.status == .awaitingApproval
+        && harness.session.toolCalls.count == 5
+    }
+    let command = harness.session.toolCalls[2]
+    guard
+      case .duplicateToolCall(let duplicate)? = harness.session.toolCalls.last?.resultPayload
+    else {
+      Issue.record("Expected the final batch record to be a duplicate observation.")
+      return
+    }
+    #expect(duplicate.blocked)
+
+    harness.approve(command, in: workspace)
+    try await waitUntil { harness.session.turns.first?.status == .completed }
+
+    let toolContexts = await runtime.capturedToolContexts
+    #expect(toolContexts.count == 4)
+    #expect(toolContexts[3] == nil)
+    #expect(
+      harness.session.testMessages.last?.content
+        == "Stopped after the blocked duplicate observation.")
+  }
+
+  @Test
+  func denialBeforeSiblingApprovalStillWaitsAndKeepsModelOrder() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: ["path": .string("first.txt"), "content": .string("first")]
+          )),
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: ["path": .string("second.txt"), "content": .string("second")]
+          )),
+      ],
+      [.chunk("Wrote only the approved file.")],
+    ])
+    let harness = ChatTurnCoordinatorHarness(
+      session: ChatSession(id: sessionID, interactionMode: .agent),
+      runtime: runtime
+    )
+
+    harness.startUserTurn(prompt: "write both files", workspace: workspace, sessionID: sessionID)
+    try await waitUntil {
+      harness.session.toolCalls.count == 2
+        && harness.session.toolCalls.allSatisfy { $0.status == .awaitingApproval }
+    }
+    harness.deny(harness.session.toolCalls[0])
+    try await waitUntil {
+      harness.session.toolCalls.map(\.status) == [.denied, .awaitingApproval]
+        && harness.session.turns.first?.status == .awaitingApproval
+    }
+    #expect(await runtime.capturedMessages.count == 1)
+
+    harness.approve(harness.session.toolCalls[1], in: workspace)
+    try await waitUntil { harness.session.turns.first?.status == .completed }
+
+    #expect(harness.session.toolCalls.map(\.status) == [.denied, .completed])
+    let followUp = await runtime.capturedMessages[1]
+    #expect(followUp.filter { $0.role == .tool }.count == 2)
+    #expect(followUp.first { $0.role == .tool }?.content.contains("user_denied") == true)
+  }
+
+  @Test
   func thinkingCompletesWhenFirstVisibleChunkArrives() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
       [
@@ -304,6 +575,24 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
     )
   }
 
+  func approveBatch(containing record: ToolCallRecord, in workspace: Workspace) {
+    guard let turnID = session.turnID(containingToolCall: record.id),
+      let turn = session.turns.first(where: { $0.id == turnID }),
+      let batch = turn.toolCallBatch(containing: record.id)
+    else {
+      return
+    }
+    coordinator.approveToolCallBatch(
+      batch.pendingApprovalRecords,
+      batchAnchorID: batch.anchorID,
+      in: workspace,
+      turnID: turnID,
+      toolOrchestrator: toolOrchestrator,
+      runtime: runtimeContext(),
+      callbacks: callbacks()
+    )
+  }
+
   func answer(_ record: ToolCallRecord, answer: String, in workspace: Workspace) {
     guard let turnID = session.turnID(containingToolCall: record.id) else {
       return
@@ -324,7 +613,6 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
     }
     coordinator.denyToolCall(
       record,
-      message: "Tool call denied by user.",
       turnID: turnID,
       runtime: runtimeContext(),
       callbacks: callbacks()

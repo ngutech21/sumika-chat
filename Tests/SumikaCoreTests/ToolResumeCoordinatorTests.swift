@@ -5,7 +5,7 @@ import Testing
 
 struct ToolResumeCoordinatorTests {
   @Test
-  func approvedWriteFileResultRequestsFinalFollowUpAndUpdatesFocusedFile() throws {
+  func approvedWriteFileResultOnlyEmitsResultAndUpdatesFocusedFile() throws {
     let turnID = UUID()
     let path = WorkspaceRelativePath(rawValue: "index.html")
     let record = makeRecord(
@@ -20,11 +20,11 @@ struct ToolResumeCoordinatorTests {
       turnID: turnID
     )
 
-    #expect(result.followUpPromptMode == .afterToolResultFinal)
-    #expect(result.nextAssistantMessageID != nil)
+    #expect(result.followUpPromptMode == nil)
+    #expect(result.nextAssistantMessageID == nil)
     #expect(updatedToolCall(from: result.events)?.id == record.id)
     #expect(toolResultEvent(from: result.events)?.payload.status == .success)
-    #expect(assistantPlaceholderID(from: result.events) == result.nextAssistantMessageID)
+    #expect(assistantPlaceholderID(from: result.events) == nil)
     #expect(focusedFileState(from: result.events)?.activePath == path)
   }
 
@@ -52,9 +52,8 @@ struct ToolResumeCoordinatorTests {
   }
 
   @Test
-  func deniedToolCreatesPermissionDeniedResultAndFinalFollowUp() throws {
+  func deniedToolCreatesStableUserDeniedResultWithoutStartingFollowUp() throws {
     let turnID = UUID()
-    let message = "Tool call denied by user."
     let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
     let record = makeRecord(
       toolName: .editFile,
@@ -70,57 +69,60 @@ struct ToolResumeCoordinatorTests {
 
     let result = ToolResumeCoordinator().deniedTool(
       record: record,
-      message: message,
       turnID: turnID
     )
 
     let updatedRecord = try #require(updatedToolCall(from: result.events))
     let resultMessage = try #require(toolResultEvent(from: result.events))
-    #expect(result.followUpPromptMode == .afterToolResultFinal)
-    #expect(result.nextAssistantMessageID != nil)
+    #expect(result.followUpPromptMode == nil)
+    #expect(result.nextAssistantMessageID == nil)
     #expect(updatedRecord.status == .denied)
+    guard case .failure(let failure) = resultMessage.payload else {
+      Issue.record("Expected a typed user-denied failure payload.")
+      return
+    }
+    #expect(failure.reason == .userDenied)
     #expect(resultMessage.payload.preview.status == .denied)
+    let projection = ToolResultProjector.project(
+      payload: resultMessage.payload,
+      request: updatedRecord.request
+    )
+    #expect(projection.metadata.kind == "user_denied")
+    #expect(projection.observation.blocks == [.failure("Tool call denied by user.")])
     #expect(resultMessage.payload.preview.affectedPaths == [path.rawValue])
-    #expect(turnStatus(from: result.events) == .running)
+    #expect(turnStatus(from: result.events) == nil)
   }
 
   @Test
   func forceFinalRequestsAgentFinalFollowUp() throws {
-    let result = ToolResumeCoordinator().approvedToolResult(
-      record: failedRunCommandRecord(command: "git add."),
-      focusedFileState: .empty,
-      turnID: UUID(),
+    let result = ToolResumeCoordinator().followUpPromptMode(
+      afterApprovedTool: failedRunCommandRecord(command: "git add."),
       toolProfile: .agent,
       forceFinal: true
     )
 
-    #expect(result.followUpPromptMode == .afterToolResultFinal)
-    #expect(result.nextAssistantMessageID != nil)
+    #expect(result == .afterToolResultFinal)
   }
 
   @Test
   func forceFinalRequestsChatWebFinalFollowUpForChatWebProfile() throws {
-    let result = ToolResumeCoordinator().approvedToolResult(
-      record: failedRunCommandRecord(command: "git add."),
-      focusedFileState: .empty,
-      turnID: UUID(),
+    let result = ToolResumeCoordinator().followUpPromptMode(
+      afterApprovedTool: failedRunCommandRecord(command: "git add."),
       toolProfile: .chatWeb,
       forceFinal: true
     )
 
-    #expect(result.followUpPromptMode == .afterChatWebToolResultFinal)
+    #expect(result == .afterChatWebToolResultFinal)
   }
 
   @Test
   func failedRunCommandWithoutForceFinalCanContinue() throws {
-    let result = ToolResumeCoordinator().approvedToolResult(
-      record: failedRunCommandRecord(command: "git add."),
-      focusedFileState: .empty,
-      turnID: UUID(),
+    let result = ToolResumeCoordinator().followUpPromptMode(
+      afterApprovedTool: failedRunCommandRecord(command: "git add."),
       toolProfile: .agent
     )
 
-    #expect(result.followUpPromptMode == .afterToolResultCanContinue)
+    #expect(result == .afterToolResultCanContinue)
   }
 }
 

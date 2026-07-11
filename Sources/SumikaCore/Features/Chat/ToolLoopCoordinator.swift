@@ -110,7 +110,14 @@ public struct ToolLoopCoordinator: Sendable {
           policy: request.toolCallingPolicy,
           registry: toolOrchestrator.toolRegistry,
           workspaceID: request.workspace.id,
-          sessionID: request.sessionID
+          sessionID: request.sessionID,
+          reservedIDs: Set(
+            request.items.compactMap { item in
+              guard case .tool(let record) = item else {
+                return nil
+              }
+              return record.id
+            })
         )
       }
     await traceToolPhase(
@@ -170,11 +177,16 @@ public struct ToolLoopCoordinator: Sendable {
       return ChatWorkflowStep(events: [], continuation: .none)
     }
 
-    if let invalidMixedFinishStep = await invalidMixedFinishTaskStep(
+    if let invalidReason = invalidBatchReason(
       outputs,
-      request: request
+      request: request,
+      registry: toolOrchestrator(for: request.toolProfile)?.toolRegistry
     ) {
-      return invalidMixedFinishStep
+      return await invalidBatchStep(
+        outputs,
+        request: request,
+        message: invalidReason
+      )
     }
 
     let nextAssistantMessageID = UUID()
@@ -182,6 +194,8 @@ public struct ToolLoopCoordinator: Sendable {
     var focusedFileState = request.focusedFileState
     var nextFollowUpPromptMode = request.followUpPromptMode
     var seenItems = request.items
+    var isAwaitingApproval = false
+    var isAwaitingUserAnswer = false
 
     for output in outputs {
       guard let toolOrchestrator = toolOrchestrator(for: request.toolProfile) else {
@@ -216,24 +230,14 @@ public struct ToolLoopCoordinator: Sendable {
         ))
       events.append(.toolCallAppended(record, turnID: request.turnID))
 
-      guard record.status != .awaitingApproval else {
-        events.append(
-          .turnStatusChanged(
-            turnID: request.turnID,
-            status: .awaitingApproval,
-            modelContextPolicy: nil
-          ))
-        return ChatWorkflowStep(events: events, continuation: .awaitingApproval)
+      if record.status == .awaitingApproval {
+        isAwaitingApproval = true
+        continue
       }
 
-      guard record.status != .awaitingUserAnswer else {
-        events.append(
-          .turnStatusChanged(
-            turnID: request.turnID,
-            status: .awaitingUserAnswer,
-            modelContextPolicy: nil
-          ))
-        return ChatWorkflowStep(events: events, continuation: .awaitingUserAnswer)
+      if record.status == .awaitingUserAnswer {
+        isAwaitingUserAnswer = true
+        continue
       }
 
       if let todoState = todoState(from: record) {
@@ -264,8 +268,9 @@ public struct ToolLoopCoordinator: Sendable {
         nextFollowUpPromptMode = ToolPromptMode.finalMode(for: request.toolProfile)
       }
 
-      if let directResponse = ToolLoopDirectResponseRenderer.directResponse(
-        after: record, toolResult: toolResult, request: request)
+      if outputs.count == 1,
+        let directResponse = ToolLoopDirectResponseRenderer.directResponse(
+          after: record, toolResult: toolResult, request: request)
       {
         events.append(
           .assistantMessageAppended(
@@ -278,6 +283,26 @@ public struct ToolLoopCoordinator: Sendable {
       }
     }
 
+    if isAwaitingUserAnswer {
+      events.append(
+        .turnStatusChanged(
+          turnID: request.turnID,
+          status: .awaitingUserAnswer,
+          modelContextPolicy: nil
+        ))
+      return ChatWorkflowStep(events: events, continuation: .awaitingUserAnswer)
+    }
+
+    if isAwaitingApproval {
+      events.append(
+        .turnStatusChanged(
+          turnID: request.turnID,
+          status: .awaitingApproval,
+          modelContextPolicy: nil
+        ))
+      return ChatWorkflowStep(events: events, continuation: .awaitingApproval)
+    }
+
     events.append(
       .assistantPlaceholderAppended(messageID: nextAssistantMessageID, turnID: request.turnID))
     return ChatWorkflowStep(
@@ -288,68 +313,121 @@ public struct ToolLoopCoordinator: Sendable {
       )
     )
   }
+}
 
-  private func invalidMixedFinishTaskStep(
+extension ToolLoopCoordinator {
+  private func invalidBatchReason(
     _ outputs: [ToolCallParseOutput],
-    request: ToolLoopRequest
-  ) async -> ChatWorkflowStep? {
-    guard outputs.count > 1,
-      let finishOutput = outputs.first(where: { $0.request.toolName == .finishTask })
-    else {
+    request: ToolLoopRequest,
+    registry: ToolRegistry?
+  ) -> String? {
+    guard outputs.count > 1 else {
       return nil
     }
 
-    let message = "finish_task must be the only native tool call in a response."
-    let invalidReason = InvalidToolCallReason.parserError(message)
-    let invalidInput = InvalidToolInput(
-      originalName: finishOutput.request.originalToolName
-        ?? finishOutput.request.toolName.rawValue,
-      rawArguments: finishOutput.request.arguments,
-      reason: invalidReason
-    )
-    let invalidRequest = ToolCallRequest.invalid(
-      raw: finishOutput.request,
-      input: invalidInput
-    )
-    let record = ToolCallRecord(
-      request: invalidRequest,
-      evaluation: ToolPermissionEvaluation(
-        decision: .denied,
-        reason: message,
-        riskLevel: .high
-      ),
-      state: .failed(
-        .invalidTool(
-          InvalidToolResult(
-            originalName: invalidInput.originalName,
-            reason: invalidReason
-          )))
-    )
-    await traceToolExecution(
-      startedAt: Date(),
-      loopRequest: request,
-      rawRequest: finishOutput.request,
-      record: record
-    )
+    if outputs.contains(where: { $0.request.toolName == .finishTask }) {
+      return "finish_task must be the only native tool call in a response."
+    }
+    if outputs.contains(where: { $0.request.toolName == .askUser }) {
+      return "ask_user must be the only native tool call in a response."
+    }
 
-    let toolResult = toolResultMessage(output: finishOutput, record: record)
-    let nextAssistantMessageID = UUID()
-    return ChatWorkflowStep(
-      events: [
+    guard let registry else {
+      return nil
+    }
+
+    var mutationPaths = Set<String>()
+    for output in outputs {
+      let validatedRequest = ToolCallRequestValidator().validate(
+        output.request,
+        registry: registry
+      )
+      let inputPath: String
+      switch validatedRequest.payload {
+      case .writeFile(let input):
+        inputPath = input.path
+      case .editFile(let input):
+        inputPath = input.path
+      default:
+        continue
+      }
+
+      guard let resolvedPath = try? request.workspace.resolveAllowedPath(inputPath) else {
+        continue
+      }
+      let normalizedPath = Workspace.normalizedPath(for: resolvedPath)
+      if !mutationPaths.insert(normalizedPath).inserted {
+        let relativePath = request.workspace.relativePath(for: resolvedPath).rawValue
+        return
+          "Multiple write_file/edit_file calls target the same normalized workspace path: \(relativePath)."
+      }
+    }
+
+    return nil
+  }
+
+  private func invalidBatchStep(
+    _ outputs: [ToolCallParseOutput],
+    request: ToolLoopRequest,
+    message: String
+  ) async -> ChatWorkflowStep {
+    var events: [ChatWorkflowEvent] = []
+    for output in outputs {
+      let invalidReason = InvalidToolCallReason.parserError(message)
+      let invalidInput = InvalidToolInput(
+        originalName: output.request.originalToolName ?? output.request.toolName.rawValue,
+        rawArguments: output.request.arguments,
+        reason: invalidReason
+      )
+      let invalidRequest = ToolCallRequest.invalid(
+        raw: output.request,
+        input: invalidInput
+      )
+      let record = ToolCallRecord(
+        request: invalidRequest,
+        evaluation: ToolPermissionEvaluation(
+          decision: .denied,
+          reason: message,
+          riskLevel: .high
+        ),
+        state: .failed(
+          .invalidTool(
+            InvalidToolResult(
+              originalName: invalidInput.originalName,
+              reason: invalidReason
+            )))
+      )
+      await traceToolExecution(
+        startedAt: Date(),
+        loopRequest: request,
+        rawRequest: output.request,
+        record: record
+      )
+
+      events.append(
         .assistantAnnotatedAsNativeToolCall(
           assistantMessageID: request.assistantMessageID,
-          toolCall: finishOutput.modelMessage
-        ),
-        .toolCallAppended(record, turnID: request.turnID),
-        .toolResultAppended(toolResult, turnID: request.turnID),
-        .assistantPlaceholderAppended(
-          messageID: nextAssistantMessageID,
+          toolCall: output.modelMessage
+        ))
+      events.append(.toolCallAppended(record, turnID: request.turnID))
+      events.append(
+        .toolResultAppended(
+          toolResultMessage(output: output, record: record),
           turnID: request.turnID
-        ),
-      ],
-      continuation: .resumeGeneration(
+        ))
+    }
+
+    let nextAssistantMessageID = UUID()
+    events.append(
+      .assistantPlaceholderAppended(
+        messageID: nextAssistantMessageID,
+        turnID: request.turnID
+      ))
+    return ChatWorkflowStep(
+      events: events,
+      continuation: .resumeCorrectionGeneration(
         assistantMessageID: nextAssistantMessageID,
-        promptMode: request.followUpPromptMode
+        promptMode: ToolPromptMode.continuationMode(for: request.toolProfile)
       )
     )
   }
@@ -700,5 +778,4 @@ public struct ToolLoopCoordinator: Sendable {
       )
     )
   }
-
 }
