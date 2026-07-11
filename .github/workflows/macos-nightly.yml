@@ -93,9 +93,39 @@ jobs:
             SUMIKA_GIT_COMMIT="$SUMIKA_GIT_COMMIT" \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Run core and app tests on macOS
+      - name: Print core test environment
+        run: |
+          date
+          uptime
+          df -h
+          vm_stat
+          ulimit -a
+          sysctl kern.maxfiles kern.maxfilesperproc
+          launchctl limit maxfiles
+          ps -axo pid,ppid,state,etime,%cpu,%mem,command
+
+      - name: Run core tests on macOS
+        id: core_tests
         timeout-minutes: 20
-        run: just test
+        env:
+          SWIFT_BACKTRACE: enable
+        run: swift test --no-parallel -Xswiftc -warnings-as-errors
+
+      - name: Print core test failure diagnostics
+        if: failure() && steps.core_tests.outcome == 'failure'
+        run: |
+          ps -axo pid,ppid,state,etime,%cpu,%mem,command
+          if [ -d "$HOME/Library/Logs/DiagnosticReports" ]; then
+            find "$HOME/Library/Logs/DiagnosticReports" \
+              -type f \
+              -mmin -30 \
+              -print \
+              -exec sed -n '1,240p' {} \;
+          fi
+
+      - name: Run app tests on macOS
+        timeout-minutes: 20
+        run: just test-app
 
       - name: Run TSan
         timeout-minutes: 25
