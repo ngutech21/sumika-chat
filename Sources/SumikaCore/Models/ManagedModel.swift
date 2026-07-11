@@ -283,8 +283,6 @@ public enum ManagedModelCatalog {
       enabled: true
     ),
 
-  
-
   ].filter(\.enabled)
 
   public static var defaultModel: ManagedModel {
