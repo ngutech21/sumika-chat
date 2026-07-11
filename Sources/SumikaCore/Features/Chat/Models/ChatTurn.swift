@@ -294,12 +294,14 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     }
 
     for item in items {
-      switch item.toolCallBatchRole {
-      case .boundary:
+      // Keep this switch exhaustive so every future persisted item kind must choose
+      // whether it separates assistant responses or is transparent to a tool batch.
+      switch item {
+      case .userMessage, .assistantMessage:
         appendPendingBatch()
-      case .transparent:
+      case .assistantThinking:
         continue
-      case .member(let record):
+      case .tool(let record):
         records.append(record)
       }
     }
@@ -418,27 +420,6 @@ public enum ChatTurnItem: Codable, Equatable, Sendable {
     case .tool(let record):
       try container.encode(Kind.tool, forKey: .kind)
       try container.encode(record, forKey: .payload)
-    }
-  }
-}
-
-private enum ToolCallBatchItemRole {
-  case boundary
-  case transparent
-  case member(ToolCallRecord)
-}
-
-extension ChatTurnItem {
-  /// Keep this switch exhaustive so every future persisted item kind must choose
-  /// whether it separates assistant responses or is transparent to a tool batch.
-  fileprivate var toolCallBatchRole: ToolCallBatchItemRole {
-    switch self {
-    case .userMessage, .assistantMessage:
-      .boundary
-    case .assistantThinking:
-      .transparent
-    case .tool(let record):
-      .member(record)
     }
   }
 }
