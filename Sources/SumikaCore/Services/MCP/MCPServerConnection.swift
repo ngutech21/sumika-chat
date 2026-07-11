@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Darwin)
+  import Darwin
+#endif
 
 public enum MCPClientError: LocalizedError, Equatable {
   case notConnected
@@ -258,6 +261,11 @@ public actor MCPServerConnection {
     let stdinPipe = Pipe()
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()
+    let stdinHandle = stdinPipe.fileHandleForWriting
+
+    // The child may exit between a lifecycle check and a write. Make that
+    // race return EPIPE instead of terminating the client process with SIGPIPE.
+    try disableSIGPIPE(on: stdinHandle)
 
     process.executableURL = URL(filePath: "/usr/bin/env")
     process.arguments = [config.command] + config.arguments
@@ -276,7 +284,7 @@ public actor MCPServerConnection {
     try process.run()
 
     self.process = process
-    stdinHandle = stdinPipe.fileHandleForWriting
+    self.stdinHandle = stdinHandle
     stdoutTask = Task { [weak self] in
       for await line in PipeLineStream.lines(from: stdoutPipe.fileHandleForReading) {
         guard let self else {
@@ -294,6 +302,14 @@ public actor MCPServerConnection {
         await self.recordStderrLine(line)
       }
     }
+  }
+
+  private func disableSIGPIPE(on fileHandle: FileHandle) throws {
+    #if canImport(Darwin)
+      guard fcntl(fileHandle.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+      }
+    #endif
   }
 
   private func resolvedEnvironment() -> [String: String] {
