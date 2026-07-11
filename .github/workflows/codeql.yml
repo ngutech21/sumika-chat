@@ -50,6 +50,13 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
 
+    - name: Install Metal toolchain component
+      if: matrix.build-mode == 'manual'
+      timeout-minutes: 10
+      run: |
+        sudo xcodebuild -downloadComponent MetalToolchain
+        xcrun --find metal
+
     - name: Cache Swift package checkouts
       if: matrix.build-mode == 'manual'
       uses: actions/cache@v6
