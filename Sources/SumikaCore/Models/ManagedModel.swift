@@ -265,6 +265,26 @@ public enum ManagedModelCatalog {
       defaultContextTokenLimit: defaultContextTokenLimit,
       enabled: true
     ),
+    ManagedModel(
+      id: "qwen3.6-27B-8bit",
+      displayName: "Qwen 3.6 27B 8bit",
+      detail: "Experimental Qwen3.6 model with local vision support.",
+      huggingFaceRepoID: "mlx-community/Qwen3.6-27B-8bit",
+      localDirectoryName: "Qwen3.6-27B-8bit",
+      estimatedDownloadSize: "29.5 GB",
+      isRecommended: false,
+      requiresLargeMemory: true,
+      stability: .experimental,
+      toolCallingPolicy: .nativeMLX,
+      supportsImageInput: true,
+      reasoningTraceFormat: .qwenThinkTags,
+      defaultModeSettings: .defaultSettings,
+      defaultContextTokenLimit: defaultContextTokenLimit,
+      enabled: true
+    ),
+
+  
+
   ].filter(\.enabled)
 
   public static var defaultModel: ManagedModel {
