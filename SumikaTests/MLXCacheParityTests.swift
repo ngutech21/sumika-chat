@@ -1,6 +1,7 @@
 import Foundation
 import MLX
 import MLXLMCommon
+import SumikaCore
 import Testing
 
 @Suite
@@ -158,20 +159,48 @@ struct MLXCacheParitySupportTests {
     }
 
     @Test(.enabled(if: MLXCacheParityEnvironment.enabled))
+    func gemma12BColdAndWarmCacheParity() async throws {
+      try await run(
+        family: .gemma,
+        modelID: "gemma4-12b-qat-4bit",
+        reportFileStem: "gemma-12b",
+        requiresImageInput: true
+      )
+    }
+
+    @Test(.enabled(if: MLXCacheParityEnvironment.enabled))
     func qwenColdAndWarmCacheParity() async throws {
       try await run(family: .qwen)
     }
 
-    private func run(family: MLXCacheParityFamily) async throws {
-      guard let model = MLXCacheParityEnvironment.selectedModel(for: family),
+    private func run(
+      family: MLXCacheParityFamily,
+      modelID: String? = nil,
+      reportFileStem: String? = nil,
+      requiresImageInput: Bool = false
+    ) async throws {
+      let selectedModel: ManagedModel?
+      if let modelID {
+        selectedModel = ManagedModelCatalog.model(id: modelID)
+      } else {
+        selectedModel = MLXCacheParityEnvironment.selectedModel(for: family)
+      }
+      guard let model = selectedModel,
         MLXCacheParityEnvironment.isInstalled(model)
       else {
         let report = MLXCacheParityHarness.skippedReport(
           family: family,
-          reason: "No configured local \(family.rawValue) model is installed."
+          reason: modelID.map { "Configured local model \($0) is not installed." }
+            ?? "No configured local \(family.rawValue) model is installed."
         )
-        try MLXCacheParityEnvironment.write(report)
+        try MLXCacheParityEnvironment.write(report, reportFileStem: reportFileStem)
         return
+      }
+      if requiresImageInput {
+        #expect(
+          model.supportsImageInput,
+          "The exact-model parity test must exercise the VLM loader path."
+        )
       }
 
       Memory.clearCache()
@@ -182,8 +211,11 @@ struct MLXCacheParitySupportTests {
 
       do {
         let report = try await MLXCacheParityHarness.run(family: family, model: model)
-        try MLXCacheParityEnvironment.write(report)
+        try MLXCacheParityEnvironment.write(report, reportFileStem: reportFileStem)
         #expect(report.status == .passed)
+        if let modelID {
+          #expect(report.modelID == modelID)
+        }
         switch family {
         case .gemma:
           #expect(
@@ -285,7 +317,9 @@ struct MLXCacheParitySupportTests {
         }
       } catch {
         try? MLXCacheParityEnvironment.write(
-          MLXCacheParityHarness.failedReport(family: family, model: model, error: error))
+          MLXCacheParityHarness.failedReport(family: family, model: model, error: error),
+          reportFileStem: reportFileStem
+        )
         throw error
       }
     }

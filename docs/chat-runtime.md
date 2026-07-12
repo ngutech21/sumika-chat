@@ -331,6 +331,14 @@ combining them with MLX `generateTime` totals.
 `just test-cache-parity` is an opt-in Release test that never downloads models.
 It writes content-free Gemma and Qwen reports under `.perf/cache-parity`, comparing
 a cold structured tool follow-up with a copied prompt KV cache plus token suffix.
+`just test-cache-parity gemma12b` targets the catalog's Gemma 12B model explicitly,
+exercising the VLM loader used when image input is enabled instead of silently
+falling back to the preferred small Gemma model. This compatibility check may
+exit nonzero while still writing its model-specific report; it is not part of
+normal app or CI tests.
+
+The 12B scenario remains text-only: it validates tool-follow-up prefix reuse
+through the VLM loader, not prefix reuse for prompts containing images.
 An independently recomputed P1-plus-suffix control uses the same forward-call
 partition as the copied-cache path. The harness compares that control strictly
 with the copy and reports full-prompt versus split-prompt numerical drift

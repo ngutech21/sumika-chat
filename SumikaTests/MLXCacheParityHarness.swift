@@ -323,15 +323,19 @@ nonisolated enum MLXCacheParityEnvironment {
     )
   }
 
-  static func write(_ report: MLXCacheParityModelReport) throws {
+  static func write(
+    _ report: MLXCacheParityModelReport,
+    reportFileStem: String? = nil
+  ) throws {
     let directory = reportDirectory
     try FileManager.default.createDirectory(
       at: directory, withIntermediateDirectories: true)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     let data = try encoder.encode(report)
+    let fileStem = reportFileStem ?? report.family.rawValue
     let fileURL = directory.appending(
-      path: "\(report.family.rawValue)-cache-parity.json", directoryHint: .notDirectory)
+      path: "\(fileStem)-cache-parity.json", directoryHint: .notDirectory)
     try data.write(to: fileURL, options: .atomic)
     print("MLX cache parity report: \(fileURL.path(percentEncoded: false))")
   }
