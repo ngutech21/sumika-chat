@@ -39,6 +39,16 @@ struct GemmaDebugTraceStoreTests {
         durationMs: 123.5,
         messageCount: 2,
         ttftMs: 123.5,
+        generatedTokenCount: 17,
+        mlxActiveMemoryBytesBeforePrefill: 101,
+        mlxCacheMemoryBytesBeforePrefill: 102,
+        mlxPeakMemoryBytesBeforePrefill: 103,
+        mlxActiveMemoryBytesAfterPrefill: 201,
+        mlxCacheMemoryBytesAfterPrefill: 202,
+        mlxPeakMemoryBytesAfterPrefill: 203,
+        mlxActiveMemoryBytesAfterGeneration: 301,
+        mlxCacheMemoryBytesAfterGeneration: 302,
+        mlxPeakMemoryBytesAfterGeneration: 303,
         cacheMode: "reused_session",
         cacheReason: "reused_session",
         memoryClearReason: "runtime_error",
@@ -80,6 +90,16 @@ struct GemmaDebugTraceStoreTests {
     #expect(object["durationMs"] as? Double == 123.5)
     #expect(object["messageCount"] as? Int == 2)
     #expect(object["ttftMs"] as? Double == 123.5)
+    #expect(object["generatedTokenCount"] as? Int == 17)
+    #expect(object["mlxActiveMemoryBytesBeforePrefill"] as? Int == 101)
+    #expect(object["mlxCacheMemoryBytesBeforePrefill"] as? Int == 102)
+    #expect(object["mlxPeakMemoryBytesBeforePrefill"] as? Int == 103)
+    #expect(object["mlxActiveMemoryBytesAfterPrefill"] as? Int == 201)
+    #expect(object["mlxCacheMemoryBytesAfterPrefill"] as? Int == 202)
+    #expect(object["mlxPeakMemoryBytesAfterPrefill"] as? Int == 203)
+    #expect(object["mlxActiveMemoryBytesAfterGeneration"] as? Int == 301)
+    #expect(object["mlxCacheMemoryBytesAfterGeneration"] as? Int == 302)
+    #expect(object["mlxPeakMemoryBytesAfterGeneration"] as? Int == 303)
     #expect(object["cacheMode"] as? String == "reused_session")
     #expect(object["cacheReason"] as? String == "reused_session")
     #expect(object["memoryClearReason"] as? String == "runtime_error")

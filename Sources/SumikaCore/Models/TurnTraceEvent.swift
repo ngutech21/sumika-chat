@@ -5,6 +5,7 @@ public enum TurnTracePhase: String, Codable, CaseIterable, Equatable, Sendable {
   case tokenizeContextUsage = "tokenize_context_usage"
   case renderSystemPrompt = "render_system_prompt"
   case runtimeStreamStart = "runtime_stream_start"
+  case runtimePrefill = "runtime_prefill"
   case runtimeTTFT = "runtime_ttft"
   case runtimeDecode = "runtime_decode"
   case runtimePartialDecode = "runtime_partial_decode"
@@ -27,6 +28,16 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
   public let toolName: String?
   public let ttftMs: Double?
   public let tokensPerSecond: Double?
+  public let generatedTokenCount: Int?
+  public let mlxActiveMemoryBytesBeforePrefill: Int?
+  public let mlxCacheMemoryBytesBeforePrefill: Int?
+  public let mlxPeakMemoryBytesBeforePrefill: Int?
+  public let mlxActiveMemoryBytesAfterPrefill: Int?
+  public let mlxCacheMemoryBytesAfterPrefill: Int?
+  public let mlxPeakMemoryBytesAfterPrefill: Int?
+  public let mlxActiveMemoryBytesAfterGeneration: Int?
+  public let mlxCacheMemoryBytesAfterGeneration: Int?
+  public let mlxPeakMemoryBytesAfterGeneration: Int?
   public let cacheMode: String?
   public let cacheReason: String?
   public let memoryClearReason: String?
@@ -62,6 +73,16 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     toolName: String? = nil,
     ttftMs: Double? = nil,
     tokensPerSecond: Double? = nil,
+    generatedTokenCount: Int? = nil,
+    mlxActiveMemoryBytesBeforePrefill: Int? = nil,
+    mlxCacheMemoryBytesBeforePrefill: Int? = nil,
+    mlxPeakMemoryBytesBeforePrefill: Int? = nil,
+    mlxActiveMemoryBytesAfterPrefill: Int? = nil,
+    mlxCacheMemoryBytesAfterPrefill: Int? = nil,
+    mlxPeakMemoryBytesAfterPrefill: Int? = nil,
+    mlxActiveMemoryBytesAfterGeneration: Int? = nil,
+    mlxCacheMemoryBytesAfterGeneration: Int? = nil,
+    mlxPeakMemoryBytesAfterGeneration: Int? = nil,
     cacheMode: String? = nil,
     cacheReason: String? = nil,
     memoryClearReason: String? = nil,
@@ -96,6 +117,16 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.toolName = toolName
     self.ttftMs = ttftMs
     self.tokensPerSecond = tokensPerSecond
+    self.generatedTokenCount = generatedTokenCount
+    self.mlxActiveMemoryBytesBeforePrefill = mlxActiveMemoryBytesBeforePrefill
+    self.mlxCacheMemoryBytesBeforePrefill = mlxCacheMemoryBytesBeforePrefill
+    self.mlxPeakMemoryBytesBeforePrefill = mlxPeakMemoryBytesBeforePrefill
+    self.mlxActiveMemoryBytesAfterPrefill = mlxActiveMemoryBytesAfterPrefill
+    self.mlxCacheMemoryBytesAfterPrefill = mlxCacheMemoryBytesAfterPrefill
+    self.mlxPeakMemoryBytesAfterPrefill = mlxPeakMemoryBytesAfterPrefill
+    self.mlxActiveMemoryBytesAfterGeneration = mlxActiveMemoryBytesAfterGeneration
+    self.mlxCacheMemoryBytesAfterGeneration = mlxCacheMemoryBytesAfterGeneration
+    self.mlxPeakMemoryBytesAfterGeneration = mlxPeakMemoryBytesAfterGeneration
     self.cacheMode = cacheMode
     self.cacheReason = cacheReason
     self.memoryClearReason = memoryClearReason

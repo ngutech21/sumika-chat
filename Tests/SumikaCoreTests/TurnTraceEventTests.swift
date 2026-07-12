@@ -10,6 +10,7 @@ struct TurnTraceEventTests {
     #expect(TurnTracePhase.tokenizeContextUsage.rawValue == "tokenize_context_usage")
     #expect(TurnTracePhase.renderSystemPrompt.rawValue == "render_system_prompt")
     #expect(TurnTracePhase.runtimeStreamStart.rawValue == "runtime_stream_start")
+    #expect(TurnTracePhase.runtimePrefill.rawValue == "runtime_prefill")
     #expect(TurnTracePhase.runtimeTTFT.rawValue == "runtime_ttft")
     #expect(TurnTracePhase.runtimeDecode.rawValue == "runtime_decode")
     #expect(TurnTracePhase.runtimePartialDecode.rawValue == "runtime_partial_decode")
@@ -36,6 +37,16 @@ struct TurnTraceEventTests {
       toolName: "read_file",
       ttftMs: 1234.5,
       tokensPerSecond: 21.5,
+      generatedTokenCount: 17,
+      mlxActiveMemoryBytesBeforePrefill: 101,
+      mlxCacheMemoryBytesBeforePrefill: 102,
+      mlxPeakMemoryBytesBeforePrefill: 103,
+      mlxActiveMemoryBytesAfterPrefill: 201,
+      mlxCacheMemoryBytesAfterPrefill: 202,
+      mlxPeakMemoryBytesAfterPrefill: 203,
+      mlxActiveMemoryBytesAfterGeneration: 301,
+      mlxCacheMemoryBytesAfterGeneration: 302,
+      mlxPeakMemoryBytesAfterGeneration: 303,
       cacheMode: "mlx_default",
       cacheReason: "invalidated_history_prefix_mismatch",
       memoryClearReason: "runtime_error",
@@ -83,6 +94,16 @@ struct TurnTraceEventTests {
     #expect(object["toolName"] as? String == "read_file")
     #expect(object["ttftMs"] as? Double == 1234.5)
     #expect(object["tokensPerSecond"] as? Double == 21.5)
+    #expect(object["generatedTokenCount"] as? Int == 17)
+    #expect(object["mlxActiveMemoryBytesBeforePrefill"] as? Int == 101)
+    #expect(object["mlxCacheMemoryBytesBeforePrefill"] as? Int == 102)
+    #expect(object["mlxPeakMemoryBytesBeforePrefill"] as? Int == 103)
+    #expect(object["mlxActiveMemoryBytesAfterPrefill"] as? Int == 201)
+    #expect(object["mlxCacheMemoryBytesAfterPrefill"] as? Int == 202)
+    #expect(object["mlxPeakMemoryBytesAfterPrefill"] as? Int == 203)
+    #expect(object["mlxActiveMemoryBytesAfterGeneration"] as? Int == 301)
+    #expect(object["mlxCacheMemoryBytesAfterGeneration"] as? Int == 302)
+    #expect(object["mlxPeakMemoryBytesAfterGeneration"] as? Int == 303)
     #expect(object["cacheMode"] as? String == "mlx_default")
     #expect(object["cacheReason"] as? String == "invalidated_history_prefix_mismatch")
     #expect(object["memoryClearReason"] as? String == "runtime_error")

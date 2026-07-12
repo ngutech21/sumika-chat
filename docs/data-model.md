@@ -1245,6 +1245,7 @@ Properties:
 - `currentPromptContextChanged: Bool?`
 - `durationMs: Double`
 - `firstMismatchIndex: Int?`
+- `generatedTokenCount: Int?`
 - `generationID: UUID?`
 - `imageByteCount: Int?`
 - `imageCount: Int?`
@@ -1253,6 +1254,15 @@ Properties:
 - `memoryClearReason: String?`
 - `messageCount: Int?`
 - `mismatchReason: String?`
+- `mlxActiveMemoryBytesAfterGeneration: Int?`
+- `mlxActiveMemoryBytesAfterPrefill: Int?`
+- `mlxActiveMemoryBytesBeforePrefill: Int?`
+- `mlxCacheMemoryBytesAfterGeneration: Int?`
+- `mlxCacheMemoryBytesAfterPrefill: Int?`
+- `mlxCacheMemoryBytesBeforePrefill: Int?`
+- `mlxPeakMemoryBytesAfterGeneration: Int?`
+- `mlxPeakMemoryBytesAfterPrefill: Int?`
+- `mlxPeakMemoryBytesBeforePrefill: Int?`
 - `phase: TurnTracePhase`
 - `previousContextSignature: String?`
 - `promptBytes: Int?`
@@ -1308,6 +1318,7 @@ Cases:
 - `renderSystemPrompt`
 - `runtimeDecode`
 - `runtimePartialDecode`
+- `runtimePrefill`
 - `runtimeStreamStart`
 - `runtimeTTFT`
 - `tokenizeContextUsage`

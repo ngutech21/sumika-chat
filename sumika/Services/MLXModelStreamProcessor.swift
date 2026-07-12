@@ -1,10 +1,79 @@
 import Foundation
+import MLX
 import MLXLMCommon
 import SumikaCore
 
 nonisolated struct MLXModelStreamPlan {
   let stream: AsyncThrowingStream<ChatModelStreamEvent, Error>
   let task: Task<Void, Never>
+}
+
+nonisolated struct MLXMemorySnapshot: Equatable, Sendable {
+  let activeMemoryBytes: Int
+  let cacheMemoryBytes: Int
+  let peakMemoryBytes: Int
+
+  init(activeMemoryBytes: Int, cacheMemoryBytes: Int, peakMemoryBytes: Int) {
+    self.activeMemoryBytes = activeMemoryBytes
+    self.cacheMemoryBytes = cacheMemoryBytes
+    self.peakMemoryBytes = peakMemoryBytes
+  }
+
+  init(_ snapshot: Memory.Snapshot) {
+    self.init(
+      activeMemoryBytes: snapshot.activeMemory,
+      cacheMemoryBytes: snapshot.cacheMemory,
+      peakMemoryBytes: snapshot.peakMemory
+    )
+  }
+}
+
+nonisolated struct MLXMemorySnapshotter: Sendable {
+  static let live = MLXMemorySnapshotter(
+    snapshot: {
+      guard GemmaDebugTraceStore.isEnabled else {
+        return nil
+      }
+      return MLXMemorySnapshot(Memory.snapshot())
+    },
+    snapshotAfterGeneration: {
+      guard GemmaDebugTraceStore.isEnabled else {
+        return nil
+      }
+      // MLX yields completion info before its producer performs the final stream synchronize.
+      Stream().synchronize()
+      return MLXMemorySnapshot(Memory.snapshot())
+    }
+  )
+
+  let snapshot: @Sendable () -> MLXMemorySnapshot?
+  let snapshotAfterGeneration: @Sendable () -> MLXMemorySnapshot?
+
+  init(_ snapshot: @escaping @Sendable () -> MLXMemorySnapshot?) {
+    self.snapshot = snapshot
+    snapshotAfterGeneration = snapshot
+  }
+
+  private init(
+    snapshot: @escaping @Sendable () -> MLXMemorySnapshot?,
+    snapshotAfterGeneration: @escaping @Sendable () -> MLXMemorySnapshot?
+  ) {
+    self.snapshot = snapshot
+    self.snapshotAfterGeneration = snapshotAfterGeneration
+  }
+}
+
+nonisolated private struct MLXPrefillMemoryCapture {
+  private(set) var snapshot: MLXMemorySnapshot?
+  private var didAttempt = false
+
+  mutating func capture(using snapshotter: MLXMemorySnapshotter) {
+    guard !didAttempt else {
+      return
+    }
+    didAttempt = true
+    snapshot = snapshotter.snapshot()
+  }
 }
 
 nonisolated enum MLXModelStreamProcessor {
@@ -22,7 +91,10 @@ nonisolated enum MLXModelStreamProcessor {
         _, _ in
       },
     markCancelled: @escaping @Sendable (MLXSessionInvalidationReason) async -> Void,
-    memoryCacheClearer: MLXMemoryCacheClearer = .live
+    memoryCacheClearer: MLXMemoryCacheClearer = .live,
+    generationStartedAt: Date? = nil,
+    memoryBeforePrefill: MLXMemorySnapshot? = nil,
+    memorySnapshotter: MLXMemorySnapshotter = .live
   ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     modelStreamPlan(
       from: stream,
@@ -33,7 +105,10 @@ nonisolated enum MLXModelStreamProcessor {
       markCompleted: markCompleted,
       markNativeToolCallBoundary: markNativeToolCallBoundary,
       markCancelled: markCancelled,
-      memoryCacheClearer: memoryCacheClearer
+      memoryCacheClearer: memoryCacheClearer,
+      generationStartedAt: generationStartedAt,
+      memoryBeforePrefill: memoryBeforePrefill,
+      memorySnapshotter: memorySnapshotter
     ).stream
   }
 
@@ -49,8 +124,12 @@ nonisolated enum MLXModelStreamProcessor {
         _, _ in
       },
     markCancelled: @escaping @Sendable (MLXSessionInvalidationReason) async -> Void,
-    memoryCacheClearer: MLXMemoryCacheClearer = .live
+    memoryCacheClearer: MLXMemoryCacheClearer = .live,
+    generationStartedAt: Date? = nil,
+    memoryBeforePrefill: MLXMemorySnapshot? = nil,
+    memorySnapshotter: MLXMemorySnapshotter = .live
   ) -> MLXModelStreamPlan {
+    let generationStartedAt = generationStartedAt ?? Date()
     let (outputStream, continuation) = AsyncThrowingStream<ChatModelStreamEvent, Error>
       .makeStream(bufferingPolicy: .unbounded)
     let task = Task {
@@ -65,28 +144,32 @@ nonisolated enum MLXModelStreamProcessor {
       var visibleOutput = ""
       var reasoningParser = ReasoningTraceParser(format: reasoningTraceFormat)
       var completedMetrics: ChatGenerationMetrics?
-      let iterationStartedAt = Date()
-      var firstChunkAt: Date?
+      var didRecordRuntimeTTFT = false
       var didCompleteNaturally = false
       var didReachTokenLimit = false
       var didTerminateDownstream = false
       var nativeToolCalls: [ChatRuntimeToolCall] = []
       var usedNativeToolCallIDs = Set<UUID>()
+      var prefillMemoryCapture = MLXPrefillMemoryCapture()
 
       do {
         generationLoop: for try await generation in stream {
           try Task.checkCancellation()
 
+          // ChatSession exposes no exact post-prefill callback. Its first emitted event is the
+          // closest public-API proxy and may already include decode work, especially for tool calls.
+          prefillMemoryCapture.capture(using: memorySnapshotter)
+
           if let chunk = generation.chunk {
-            if firstChunkAt == nil {
+            if !didRecordRuntimeTTFT {
+              didRecordRuntimeTTFT = true
               let now = Date()
-              firstChunkAt = now
               await recordRuntimeTTFT(
                 traceID: traceID,
                 traceMetadata: traceMetadata,
                 cacheTrace: cacheTrace,
-                iterationStartedAt: iterationStartedAt,
-                firstChunkAt: now
+                generationStartedAt: generationStartedAt,
+                firstOutputAt: now
               )
             }
             output += chunk
@@ -101,6 +184,17 @@ nonisolated enum MLXModelStreamProcessor {
           }
 
           if let toolCall = generation.toolCall {
+            if !didRecordRuntimeTTFT {
+              didRecordRuntimeTTFT = true
+              let now = Date()
+              await recordRuntimeTTFT(
+                traceID: traceID,
+                traceMetadata: traceMetadata,
+                cacheTrace: cacheTrace,
+                generationStartedAt: generationStartedAt,
+                firstOutputAt: now
+              )
+            }
             let runtimeToolCall = MLXToolMapper.chatRuntimeToolCall(
               from: toolCall,
               usedIDs: &usedNativeToolCallIDs
@@ -115,6 +209,7 @@ nonisolated enum MLXModelStreamProcessor {
           }
 
           if let info = generation.info {
+            let memoryAfterGeneration = memorySnapshotter.snapshotAfterGeneration()
             if case .length = info.stopReason {
               didReachTokenLimit = true
             }
@@ -126,20 +221,26 @@ nonisolated enum MLXModelStreamProcessor {
               didTerminateDownstream = true
               break generationLoop
             }
-            let decodeStartedAt = firstChunkAt ?? iterationStartedAt
-            let durationMs = Date().timeIntervalSince(decodeStartedAt) * 1000
             let metrics = ChatGenerationMetrics(
               generatedTokenCount: info.generationTokenCount,
               tokensPerSecond: info.tokensPerSecond,
-              durationMs: durationMs
+              durationMs: info.generateTime * 1000
             )
             completedMetrics = metrics
+            await recordRuntimePrefill(
+              traceID: traceID,
+              traceMetadata: traceMetadata,
+              cacheTrace: cacheTrace,
+              info: info,
+              memoryBeforePrefill: memoryBeforePrefill,
+              memoryAfterPrefill: prefillMemoryCapture.snapshot ?? memoryAfterGeneration
+            )
             await recordRuntimeDecode(
               traceID: traceID,
               traceMetadata: traceMetadata,
               cacheTrace: cacheTrace,
-              decodeStartedAt: decodeStartedAt,
-              tokensPerSecond: info.tokensPerSecond
+              info: info,
+              memoryAfterGeneration: memoryAfterGeneration
             )
             didCompleteNaturally = true
             if case .terminated = continuation.yield(.completed(metrics)) {
@@ -217,17 +318,59 @@ nonisolated enum MLXModelStreamProcessor {
     return MLXModelStreamPlan(stream: outputStream, task: task)
   }
 
-  nonisolated private static func recordRuntimeTTFT(
+  nonisolated private static func recordRuntimePrefill(
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
-    iterationStartedAt: Date,
-    firstChunkAt: Date
+    info: GenerateCompletionInfo,
+    memoryBeforePrefill: MLXMemorySnapshot?,
+    memoryAfterPrefill: MLXMemorySnapshot?
   ) async {
     guard let traceMetadata else {
       return
     }
-    let ttftMs = firstChunkAt.timeIntervalSince(iterationStartedAt) * 1000
+    await traceMetadata.tracer.recordTurnTraceEvent(
+      TurnTraceEvent(
+        turnID: traceMetadata.turnID,
+        generationID: traceID,
+        phase: .runtimePrefill,
+        durationMs: info.promptTime * 1000,
+        promptTokens: info.promptTokenCount,
+        toolLoopIteration: traceMetadata.toolLoopIteration,
+        tokensPerSecond: info.promptTokensPerSecond,
+        mlxActiveMemoryBytesBeforePrefill: memoryBeforePrefill?.activeMemoryBytes,
+        mlxCacheMemoryBytesBeforePrefill: memoryBeforePrefill?.cacheMemoryBytes,
+        mlxPeakMemoryBytesBeforePrefill: memoryBeforePrefill?.peakMemoryBytes,
+        mlxActiveMemoryBytesAfterPrefill: memoryAfterPrefill?.activeMemoryBytes,
+        mlxCacheMemoryBytesAfterPrefill: memoryAfterPrefill?.cacheMemoryBytes,
+        mlxPeakMemoryBytesAfterPrefill: memoryAfterPrefill?.peakMemoryBytes,
+        cacheMode: cacheTrace.cacheMode.rawValue,
+        cacheReason: cacheTrace.cacheReason.rawValue,
+        interactionMode: traceMetadata.interactionMode,
+        contextSignature: cacheTrace.contextSignature,
+        previousContextSignature: cacheTrace.previousContextSignature,
+        appendOnly: cacheTrace.appendOnly,
+        reusedMessageCount: cacheTrace.reusedMessageCount,
+        appendedMessageCount: cacheTrace.appendedMessageCount,
+        mismatchReason: cacheTrace.mismatchReason,
+        firstMismatchIndex: cacheTrace.firstMismatchIndex,
+        systemPromptChanged: cacheTrace.systemPromptChanged,
+        currentPromptContextChanged: cacheTrace.currentPromptContextChanged
+      )
+    )
+  }
+
+  nonisolated private static func recordRuntimeTTFT(
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: MLXSessionCacheTrace,
+    generationStartedAt: Date,
+    firstOutputAt: Date
+  ) async {
+    guard let traceMetadata else {
+      return
+    }
+    let ttftMs = firstOutputAt.timeIntervalSince(generationStartedAt) * 1000
     await traceMetadata.tracer.recordTurnTraceEvent(
       TurnTraceEvent(
         turnID: traceMetadata.turnID,
@@ -256,8 +399,8 @@ nonisolated enum MLXModelStreamProcessor {
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
-    decodeStartedAt: Date,
-    tokensPerSecond: Double
+    info: GenerateCompletionInfo,
+    memoryAfterGeneration: MLXMemorySnapshot?
   ) async {
     guard let traceMetadata else {
       return
@@ -267,9 +410,13 @@ nonisolated enum MLXModelStreamProcessor {
         turnID: traceMetadata.turnID,
         generationID: traceID,
         phase: .runtimeDecode,
-        durationMs: Date().timeIntervalSince(decodeStartedAt) * 1000,
+        durationMs: info.generateTime * 1000,
         toolLoopIteration: traceMetadata.toolLoopIteration,
-        tokensPerSecond: tokensPerSecond,
+        tokensPerSecond: info.tokensPerSecond,
+        generatedTokenCount: info.generationTokenCount,
+        mlxActiveMemoryBytesAfterGeneration: memoryAfterGeneration?.activeMemoryBytes,
+        mlxCacheMemoryBytesAfterGeneration: memoryAfterGeneration?.cacheMemoryBytes,
+        mlxPeakMemoryBytesAfterGeneration: memoryAfterGeneration?.peakMemoryBytes,
         cacheMode: cacheTrace.cacheMode.rawValue,
         cacheReason: cacheTrace.cacheReason.rawValue,
         interactionMode: traceMetadata.interactionMode,

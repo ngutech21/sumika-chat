@@ -5,13 +5,24 @@ MODE="${1:-run}"
 APP_NAME="Sumika"
 PROJECT_NAME="Sumika.xcodeproj"
 SCHEME_NAME="Sumika"
+CONFIGURATION="Debug"
+
+if [[ "$MODE" == "--release-trace" || "$MODE" == "release-trace" ]]; then
+  CONFIGURATION="Release"
+fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DERIVED_DATA_DIR="$ROOT_DIR/build/DerivedData"
-APP_BUNDLE="$DERIVED_DATA_DIR/Build/Products/Debug/$APP_NAME.app"
+APP_BUNDLE="$DERIVED_DATA_DIR/Build/Products/$CONFIGURATION/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
-TRACE_FILE="$HOME/Library/Application Support/Sumika/debug/gemma-trace.jsonl"
+TRACE_DIRECTORY="$HOME/Library/Application Support/Sumika/debug"
+TRACE_FILE="$TRACE_DIRECTORY/gemma-trace.jsonl"
 GIT_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+
+if [[ "$CONFIGURATION" == "Release" ]]; then
+  TRACE_RUN_ID="$(date -u +"%Y-%m-%dT%H%M%SZ")-$$"
+  TRACE_FILE="$TRACE_DIRECTORY/traces/$TRACE_RUN_ID-release-trace.jsonl"
+fi
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 pkill -f "$APP_NAME.app/Contents/MacOS/$APP_NAME" >/dev/null 2>&1 || true
@@ -19,6 +30,7 @@ pkill -f "$APP_NAME.app/Contents/MacOS/$APP_NAME" >/dev/null 2>&1 || true
 xcodebuild \
   -project "$ROOT_DIR/$PROJECT_NAME" \
   -scheme "$SCHEME_NAME" \
+  -configuration "$CONFIGURATION" \
   -destination "platform=macOS,arch=arm64" \
   -derivedDataPath "$DERIVED_DATA_DIR" \
   SUMIKA_GIT_COMMIT="$GIT_COMMIT" \
@@ -47,13 +59,17 @@ case "$MODE" in
     echo "Gemma trace: $TRACE_FILE"
     SUMIKA_DEBUG_TRACE=1 "$APP_BINARY"
     ;;
+  --release-trace|release-trace)
+    echo "Release Gemma trace: $TRACE_FILE"
+    SUMIKA_DEBUG_TRACE=1 SUMIKA_DEBUG_TRACE_FILE="$TRACE_FILE" "$APP_BINARY"
+    ;;
   --verify|verify)
     open_app
     sleep 1
     pgrep -x "$APP_NAME" >/dev/null
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--trace|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--trace|--release-trace|--verify]" >&2
     exit 2
     ;;
 esac

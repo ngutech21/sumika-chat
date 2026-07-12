@@ -305,6 +305,48 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
 The native MLX tool path preserves the assistant tool-call boundary as a derived
 projection while replaying it to MLX as native structured tool-call metadata.
 
+### Prefill Diagnostics
+
+The debug trace separates model prompt work from user-visible latency. A
+`runtime_prefill` row records MLX's `promptTokenCount`, `promptTime`, and prompt
+tokens per second from `GenerateCompletionInfo`. The matching `runtime_decode`
+row uses MLX's generation time and generated-token count; `runtime_ttft` remains
+the wall-clock delay until the first streamed text or native tool-call event.
+
+MLX memory is sampled immediately before `ChatSession.streamDetails`, when the
+first generated event reaches Sumika, and when generation completes. The
+first-event value is only an after-prefill proxy: the public `ChatSession` API
+does not expose a prefill-completed callback, its stream is buffered, and the
+sample can therefore include decode work. `Memory.peakMemory` is a
+process-lifetime MLX peak and can be dominated by model loading or an earlier
+generation; active and cache memory are the useful point-in-time comparisons.
+Use `./script/build_and_run.sh --release-trace` for performance comparisons.
+Each invocation writes a separate timestamped `release-trace.jsonl` under the
+debug `traces` directory; Debug traces are diagnostic only. Pass the printed
+path to `xcrun swift script/trace_performance_report.swift <trace-path> --limit all`
+to create the JSON and Markdown report. The performance report keeps older
+wall-clock `runtime_decode` rows in a separate legacy section instead of
+combining them with MLX `generateTime` totals.
+
+`just test-cache-parity` is an opt-in Release test that never downloads models.
+It writes content-free Gemma and Qwen reports under `.perf/cache-parity`, comparing
+a cold structured tool follow-up with a copied prompt KV cache plus token suffix.
+An independently recomputed P1-plus-suffix control uses the same forward-call
+partition as the copied-cache path. The harness compares that control strictly
+with the copy and reports full-prompt versus split-prompt numerical drift
+separately; shape-dependent BF16 or quantized-kernel drift therefore cannot be
+misclassified as a broken `KVCache.copy()`.
+Gemma also runs a prompt beyond its 512-token sliding window. When P1 produces
+`LMOutput.State`, the harness separately measures cache-only reuse and reuse with
+that continuation state, so the report can distinguish the required strategy.
+The report also records cache types, layer offsets, state shapes, copy count,
+copy isolation, and signed MLX-memory deltas after materializing the copies.
+The currently resolved MLX `ChatSession` retains only KV caches, while Qwen 3.5's
+public low-level model API returns position information in opaque
+`LMOutput.State`; the test-only harness keeps that state explicitly instead of
+assuming the high-level session already provides a complete Qwen checkpoint.
+This harness does not change production cache ownership or invalidation rules.
+
 ## MLX Tool Format Coverage
 
 Sumika enables native tools by passing the active registry through

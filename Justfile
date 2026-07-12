@@ -115,6 +115,21 @@ test-app:
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} "$@" -parallel-testing-enabled NO clean test
 
+# The local Release test host is ad-hoc signed, so Hardened Runtime is disabled for this test only.
+test-cache-parity:
+    @mkdir -p .perf/cache-parity; \
+    rm -f .perf/cache-parity/gemma-cache-parity.json .perf/cache-parity/qwen-cache-parity.json; \
+    set --; \
+    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
+    status=0; \
+    SUMIKA_RUN_MLX_CACHE_PARITY=1 xcodebuild -quiet -project {{project}} -scheme SumikaCacheParityTests -configuration Release -destination "{{destination}}" -derivedDataPath {{derived_data}} ENABLE_TESTABILITY=YES ENABLE_HARDENED_RUNTIME=NO CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" "$@" -parallel-testing-enabled NO test -only-testing:SumikaCacheParityTests/MLXCacheParityIntegrationTests || status=$?; \
+    for report in .perf/cache-parity/gemma-cache-parity.json .perf/cache-parity/qwen-cache-parity.json; do \
+      if [ ! -f "$report" ]; then echo "Missing cache parity report: $report" >&2; status=1; fi; \
+    done; \
+    echo "Cache parity reports:"; \
+    find .perf/cache-parity -maxdepth 1 -name '*-cache-parity.json' -print | sort; \
+    exit "$status"
+
 test-app-tsan:
     @set --; \
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \

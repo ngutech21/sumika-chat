@@ -1974,6 +1974,97 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func completedModelStreamRecordsMLXCompletionAndMemoryTelemetry() async throws {
+    let traceID = UUID()
+    let turnID = UUID()
+    let traceRecorder = MLXTurnTraceRecorder()
+    let memoryBeforePrefill = MLXMemorySnapshot(
+      activeMemoryBytes: 101,
+      cacheMemoryBytes: 102,
+      peakMemoryBytes: 103
+    )
+    let memoryAfterPrefill = MLXMemorySnapshot(
+      activeMemoryBytes: 201,
+      cacheMemoryBytes: 202,
+      peakMemoryBytes: 203
+    )
+    let memoryAfterGeneration = MLXMemorySnapshot(
+      activeMemoryBytes: 301,
+      cacheMemoryBytes: 302,
+      peakMemoryBytes: 303
+    )
+    let memorySnapshots = MLXMemorySnapshotSequence([
+      memoryAfterPrefill,
+      memoryAfterGeneration,
+    ])
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("done"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 4,
+            promptTime: 0.25,
+            generationTime: 0.5
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = MLXModelStreamProcessor.modelStream(
+      from: source,
+      traceID: traceID,
+      traceMetadata: TurnTraceMetadata(
+        turnID: turnID,
+        generationID: traceID,
+        tracer: traceRecorder,
+        toolLoopIteration: 2,
+        interactionMode: .agent
+      ),
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryBeforePrefill: memoryBeforePrefill,
+      memorySnapshotter: MLXMemorySnapshotter { memorySnapshots.next() }
+    )
+
+    var completedMetrics: ChatGenerationMetrics?
+    for try await event in stream {
+      if case .completed(let metrics) = event {
+        completedMetrics = metrics
+      }
+    }
+
+    #expect(completedMetrics?.generatedTokenCount == 4)
+    #expect(completedMetrics?.tokensPerSecond == 8)
+    #expect(completedMetrics?.durationMs == 500)
+
+    let events = await traceRecorder.events
+    let ttft = try #require(events.first { $0.phase == .runtimeTTFT })
+    let prefill = try #require(events.first { $0.phase == .runtimePrefill })
+    let decode = try #require(events.first { $0.phase == .runtimeDecode })
+
+    #expect(ttft.ttftMs == ttft.durationMs)
+    #expect(prefill.turnID == turnID)
+    #expect(prefill.generationID == traceID)
+    #expect(prefill.durationMs == 250)
+    #expect(prefill.promptTokens == 8)
+    #expect(prefill.tokensPerSecond == 32)
+    #expect(prefill.mlxActiveMemoryBytesBeforePrefill == 101)
+    #expect(prefill.mlxCacheMemoryBytesBeforePrefill == 102)
+    #expect(prefill.mlxPeakMemoryBytesBeforePrefill == 103)
+    #expect(prefill.mlxActiveMemoryBytesAfterPrefill == 201)
+    #expect(prefill.mlxCacheMemoryBytesAfterPrefill == 202)
+    #expect(prefill.mlxPeakMemoryBytesAfterPrefill == 203)
+    #expect(decode.durationMs == 500)
+    #expect(decode.generatedTokenCount == 4)
+    #expect(decode.tokensPerSecond == 8)
+    #expect(decode.mlxActiveMemoryBytesAfterGeneration == 301)
+    #expect(decode.mlxCacheMemoryBytesAfterGeneration == 302)
+    #expect(decode.mlxPeakMemoryBytesAfterGeneration == 303)
+    #expect(memorySnapshots.remainingCount == 0)
+  }
+
+  @Test
   func tokenLimitedModelStreamFailsInsteadOfCompletingTruncatedOutput() async throws {
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let invalidationRecorder = MLXStreamInvalidationRecorder()
@@ -2313,6 +2404,55 @@ struct MLXChatRuntimeTemplateTests {
     try await assertLifecycleOperationDrainsBeforeMemoryClear(reason: .clearContext) { runtime in
       await runtime.clearContext()
     }
+  }
+
+  @Test
+  func modelStreamRecordsTTFTForNativeToolCallWithoutTextChunk() async throws {
+    let traceID = UUID()
+    let traceRecorder = MLXTurnTraceRecorder()
+    let generationStartedAt = Date().addingTimeInterval(-1)
+    let memorySnapshot = MLXMemorySnapshot(
+      activeMemoryBytes: 101,
+      cacheMemoryBytes: 102,
+      peakMemoryBytes: 103
+    )
+    let toolCall = MLXLMCommon.ToolCall(
+      function: .init(
+        name: "read_file",
+        arguments: ["path": "README.md"]
+      )
+    )
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.toolCall(toolCall))
+      continuation.finish()
+    }
+    let stream = MLXModelStreamProcessor.modelStream(
+      from: source,
+      traceID: traceID,
+      traceMetadata: TurnTraceMetadata(
+        turnID: UUID(),
+        generationID: traceID,
+        tracer: traceRecorder
+      ),
+      cacheTrace: defaultCacheTrace(),
+      markCompleted: { _ in
+        Issue.record("A native tool call must complete at the tool boundary.")
+      },
+      markCancelled: { _ in },
+      generationStartedAt: generationStartedAt,
+      memoryBeforePrefill: memorySnapshot,
+      memorySnapshotter: MLXMemorySnapshotter { memorySnapshot }
+    )
+
+    try await drainModelStream(stream)
+
+    let events = await traceRecorder.events
+    let ttftEvents = events.filter { $0.phase == .runtimeTTFT }
+    let ttft = try #require(ttftEvents.first)
+    #expect(ttftEvents.count == 1)
+    #expect(ttft.generationID == traceID)
+    #expect(ttft.ttftMs == ttft.durationMs)
+    #expect(ttft.durationMs >= 900)
   }
 
   @Test
@@ -3028,6 +3168,42 @@ private actor MLXMemoryClearRecorder {
 
   func record(_ reason: MLXMemoryClearReason) {
     recordedReasons.append(reason)
+  }
+}
+
+private actor MLXTurnTraceRecorder: TurnTracing {
+  private var recordedEvents: [TurnTraceEvent] = []
+
+  var events: [TurnTraceEvent] {
+    recordedEvents
+  }
+
+  func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+    recordedEvents.append(event)
+  }
+}
+
+private final class MLXMemorySnapshotSequence: @unchecked Sendable {
+  private let lock = NSLock()
+  nonisolated(unsafe) private var snapshots: [MLXMemorySnapshot]
+
+  init(_ snapshots: [MLXMemorySnapshot]) {
+    self.snapshots = snapshots
+  }
+
+  nonisolated func next() -> MLXMemorySnapshot {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !snapshots.isEmpty else {
+      preconditionFailure("No MLX memory snapshot remains in the test sequence.")
+    }
+    return snapshots.removeFirst()
+  }
+
+  nonisolated var remainingCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return snapshots.count
   }
 }
 

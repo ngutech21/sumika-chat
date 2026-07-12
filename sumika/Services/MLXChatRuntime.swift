@@ -287,6 +287,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
       "MLX create stream",
       category: .generation
     )
+    let memorySnapshotter = MLXMemorySnapshotter.live
+    let memoryBeforePrefill = memorySnapshotter.snapshot()
+    let generationStartedAt = Date()
     let stream = cachePlan.session.streamDetails(to: cachePlan.streamMessages)
     ChatDiagnostics.endInterval(createStreamInterval)
     await recordRuntimeStreamStart(
@@ -322,7 +325,10 @@ final actor MLXChatRuntime: ChatModelRuntime {
       },
       markCancelled: { [weak self] reason in
         await self?.markCachedSessionInvalid(generationID: generationID, reason: reason)
-      }
+      },
+      generationStartedAt: generationStartedAt,
+      memoryBeforePrefill: memoryBeforePrefill,
+      memorySnapshotter: memorySnapshotter
     )
     activeGenerationRegistry.register(id: generationID, task: streamPlan.task)
     if generationOwnership.activeGenerationID != generationID {
