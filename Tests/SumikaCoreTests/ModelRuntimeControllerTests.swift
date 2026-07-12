@@ -203,6 +203,7 @@ struct ModelRuntimeControllerTests {
     #expect(configuration?.localModelDirectory == modelDirectory)
     #expect(configuration?.contextTokenLimit == 2048)
     #expect(configuration?.supportsImageInput == true)
+    #expect(configuration?.prefixReusePolicy == .disabled)
   }
 
   @Test
@@ -243,6 +244,41 @@ struct ModelRuntimeControllerTests {
 
     let configuration = await runtime.loadedConfiguration
     #expect(configuration?.reasoningTraceFormat == .qwenThinkTags)
+    #expect(configuration?.prefixReusePolicy == .disabled)
+  }
+
+  @Test
+  func loadModelDisablesSelectedModelPrefixReusePolicyForCustomDirectory() async throws {
+    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
+    let runtime = RuntimeControllerRecordingRuntime()
+    let store = RuntimeFakeModelSettingsStore()
+    store.selectedModelIDValue = "gemma4-e4b-qat-4bit"
+    let controller = await makeController(
+      modelSettingsStore: store,
+      runtime: runtime,
+      modelPath: modelDirectory.path(percentEncoded: false)
+    )
+
+    controller.loadModel()
+
+    try await waitUntil { controller.modelState == .ready }
+
+    let configuration = await runtime.loadedConfiguration
+    #expect(configuration?.prefixReusePolicy == .disabled)
+  }
+
+  @Test
+  func matchingCatalogDirectoryPreservesSelectedModelPrefixReusePolicy() throws {
+    let model = try #require(
+      ManagedModelCatalog.model(id: "gemma4-e4b-qat-4bit")
+    )
+
+    let policy = ModelRuntimeController.effectivePrefixReusePolicy(
+      for: model,
+      modelDirectory: model.localDirectoryURL
+    )
+
+    #expect(policy == .cacheOnly)
   }
 
   @Test

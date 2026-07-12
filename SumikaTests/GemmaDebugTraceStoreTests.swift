@@ -37,6 +37,9 @@ struct GemmaDebugTraceStoreTests {
         generationID: generationID,
         phase: .runtimeTTFT,
         durationMs: 123.5,
+        fullPromptTokens: 101,
+        reusedPrefixTokens: 90,
+        suffixTokens: 11,
         messageCount: 2,
         ttftMs: 123.5,
         generatedTokenCount: 17,
@@ -88,6 +91,9 @@ struct GemmaDebugTraceStoreTests {
     #expect(object["generationID"] as? String == generationID.uuidString)
     #expect(object["phase"] as? String == "runtime_ttft")
     #expect(object["durationMs"] as? Double == 123.5)
+    #expect(object["fullPromptTokens"] as? Int == 101)
+    #expect(object["reusedPrefixTokens"] as? Int == 90)
+    #expect(object["suffixTokens"] as? Int == 11)
     #expect(object["messageCount"] as? Int == 2)
     #expect(object["ttftMs"] as? Double == 123.5)
     #expect(object["generatedTokenCount"] as? Int == 17)

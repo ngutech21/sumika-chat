@@ -11,6 +11,11 @@ public enum ReasoningTraceFormat: Equatable, Sendable {
   case qwenThinkTags
 }
 
+public enum ModelPrefixReusePolicy: Equatable, Sendable {
+  case disabled
+  case cacheOnly
+}
+
 public struct ToolCallingPolicy: Codable, Equatable, Sendable {
   public var isEnabled: Bool
   public var allowsMultipleToolCalls: Bool
@@ -46,6 +51,7 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
   public let toolCallingPolicy: ToolCallingPolicy
   public let supportsImageInput: Bool
   public let reasoningTraceFormat: ReasoningTraceFormat
+  public let prefixReusePolicy: ModelPrefixReusePolicy
   public let defaultModeSettings: ChatModeSettingsSet
   public let defaultContextTokenLimit: Int
   public let enabled: Bool
@@ -63,6 +69,7 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
     toolCallingPolicy: ToolCallingPolicy,
     supportsImageInput: Bool,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
+    prefixReusePolicy: ModelPrefixReusePolicy = .disabled,
     defaultModeSettings: ChatModeSettingsSet,
     defaultContextTokenLimit: Int,
     enabled: Bool
@@ -79,6 +86,7 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
     self.toolCallingPolicy = toolCallingPolicy
     self.supportsImageInput = supportsImageInput
     self.reasoningTraceFormat = reasoningTraceFormat
+    self.prefixReusePolicy = prefixReusePolicy
     self.defaultModeSettings = defaultModeSettings
     self.defaultContextTokenLimit = defaultContextTokenLimit
     self.enabled = enabled
@@ -141,6 +149,7 @@ public enum ManagedModelCatalog {
       toolCallingPolicy: .nativeMLX,
       supportsImageInput: false,
       reasoningTraceFormat: .gemmaChannel,
+      prefixReusePolicy: .cacheOnly,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
       enabled: true

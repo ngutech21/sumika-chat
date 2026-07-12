@@ -55,6 +55,38 @@ struct ModelManagementTests {
   }
 
   @Test
+  func catalogEnablesCacheOnlyPrefixReuseExclusivelyForValidatedE4BModel() throws {
+    let validatedModel = try #require(
+      ManagedModelCatalog.model(id: "gemma4-e4b-qat-4bit")
+    )
+
+    #expect(validatedModel.prefixReusePolicy == .cacheOnly)
+    #expect(
+      ManagedModelCatalog.models
+        .filter { $0.id != validatedModel.id }
+        .allSatisfy { $0.prefixReusePolicy == .disabled }
+    )
+
+    let unspecifiedModel = ManagedModel(
+      id: "unspecified-prefix-reuse",
+      displayName: "Unspecified prefix reuse",
+      detail: "Fixture model",
+      huggingFaceRepoID: "example/unspecified-prefix-reuse",
+      localDirectoryName: "unspecified-prefix-reuse",
+      estimatedDownloadSize: "1 MB",
+      isRecommended: false,
+      requiresLargeMemory: false,
+      stability: .experimental,
+      toolCallingPolicy: .nativeMLX,
+      supportsImageInput: false,
+      defaultModeSettings: .defaultSettings,
+      defaultContextTokenLimit: 1024,
+      enabled: true
+    )
+    #expect(unspecifiedModel.prefixReusePolicy == .disabled)
+  }
+
+  @Test
   func settingsStorePersistsSelectedModelAndPerModelSettings() async throws {
     let userDefaultsSuiteName = makeUserDefaultsSuiteName()
     let settingsURL = temporarySettingsURL()

@@ -23,6 +23,9 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
   public let durationMs: Double
   public let promptBytes: Int?
   public let promptTokens: Int?
+  public let fullPromptTokens: Int?
+  public let reusedPrefixTokens: Int?
+  public let suffixTokens: Int?
   public let messageCount: Int?
   public let toolLoopIteration: Int?
   public let toolName: String?
@@ -68,6 +71,9 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     durationMs: Double,
     promptBytes: Int? = nil,
     promptTokens: Int? = nil,
+    fullPromptTokens: Int? = nil,
+    reusedPrefixTokens: Int? = nil,
+    suffixTokens: Int? = nil,
     messageCount: Int? = nil,
     toolLoopIteration: Int? = nil,
     toolName: String? = nil,
@@ -112,6 +118,9 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.durationMs = durationMs
     self.promptBytes = promptBytes
     self.promptTokens = promptTokens
+    self.fullPromptTokens = fullPromptTokens
+    self.reusedPrefixTokens = reusedPrefixTokens
+    self.suffixTokens = suffixTokens
     self.messageCount = messageCount
     self.toolLoopIteration = toolLoopIteration
     self.toolName = toolName

@@ -33,9 +33,9 @@ nonisolated enum MLXSessionCachePolicy {
     systemPrompt: String
   ) -> String? {
     switch mode {
-    case .newSession, .dirtyRebuild:
+    case .newSession, .prefixCheckpointCold, .dirtyRebuild:
       MLXHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt)
-    case .reusedSession, .appendDelta:
+    case .reusedSession, .appendDelta, .prefixCheckpointSuffix:
       nil
     }
   }
@@ -73,6 +73,10 @@ nonisolated enum MLXSessionCachePolicy {
       "reused_session"
     case .appendDelta:
       "append_delta"
+    case .prefixCheckpointCold:
+      "prefix_checkpoint_cold"
+    case .prefixCheckpointSuffix:
+      "prefix_checkpoint_suffix"
     }
   }
 
@@ -85,7 +89,10 @@ nonisolated enum MLXSessionCachePolicy {
     cachedIdentity: MLXSessionCacheIdentity?,
     appendOnly: Bool,
     mismatchReason: String?,
-    firstMismatchIndex: Int?
+    firstMismatchIndex: Int?,
+    fullPromptTokens: Int? = nil,
+    reusedPrefixTokens: Int? = nil,
+    suffixTokens: Int? = nil
   ) -> MLXSessionCacheTrace {
     let reusedMessageCount = appendOnly ? (cachedPrefix?.count ?? 0) : 0
     let appendedMessageCount =
@@ -93,6 +100,9 @@ nonisolated enum MLXSessionCachePolicy {
     return MLXSessionCacheTrace(
       cacheMode: mode,
       cacheReason: reason,
+      fullPromptTokens: fullPromptTokens,
+      reusedPrefixTokens: reusedPrefixTokens,
+      suffixTokens: suffixTokens,
       contextSignature: contextSignature(for: currentHistory, identity: currentIdentity),
       previousContextSignature: cachedPrefix.flatMap { prefix in
         cachedIdentity.map { identity in

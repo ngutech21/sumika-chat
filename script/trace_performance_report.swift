@@ -27,6 +27,9 @@ struct GenerationReport: Codable {
   var ttftMs: Double?
   var prefillMs: Double?
   var promptTokens: Int?
+  var fullPromptTokens: Int?
+  var reusedPrefixTokens: Int?
+  var suffixTokens: Int?
   var promptTokensPerSecond: Double?
   var decodeMs: Double?
   var decodeSemantics: DecodeSemantics?
@@ -59,6 +62,11 @@ struct WorkSummary: Codable {
   var prefillGenerationCount: Int
   var decodeGenerationCount: Int
   var promptTokens: Int?
+  var prefixTokenGenerationCount: Int
+  var fullPromptTokens: Int?
+  var reusedPrefixTokens: Int?
+  var suffixTokens: Int?
+  var reusedPrefixPercent: Double?
   var prefillMs: Double?
   var promptTokensPerSecond: Double?
   var generatedTokenCount: Int?
@@ -237,6 +245,10 @@ func mergeTraceFields(_ object: [String: Any], into report: inout GenerationRepo
   report.focusedContextChanged =
     report.focusedContextChanged ?? boolValue(object, "focusedContextChanged")
   report.promptBytes = report.promptBytes ?? intValue(object, "promptBytes")
+  report.fullPromptTokens = report.fullPromptTokens ?? intValue(object, "fullPromptTokens")
+  report.reusedPrefixTokens =
+    report.reusedPrefixTokens ?? intValue(object, "reusedPrefixTokens")
+  report.suffixTokens = report.suffixTokens ?? intValue(object, "suffixTokens")
   report.messageCount = report.messageCount ?? intValue(object, "messageCount")
 }
 
@@ -248,6 +260,12 @@ func summary(for generations: [GenerationReport]) -> WorkSummary {
     $0.decodeSemantics == .legacyWallAfterFirstChunk
   }
   let promptTokens = sum(generations.map(\.promptTokens))
+  let prefixTokenGenerations = generations.filter {
+    $0.fullPromptTokens != nil && $0.reusedPrefixTokens != nil && $0.suffixTokens != nil
+  }
+  let fullPromptTokens = sum(prefixTokenGenerations.map(\.fullPromptTokens))
+  let reusedPrefixTokens = sum(prefixTokenGenerations.map(\.reusedPrefixTokens))
+  let suffixTokens = sum(prefixTokenGenerations.map(\.suffixTokens))
   let prefillMs = sum(generations.map(\.prefillMs))
   let generatedTokens = sum(completionInfoGenerations.map(\.generatedTokenCount))
   let decodeMs = sum(completionInfoGenerations.map(\.decodeMs))
@@ -257,6 +275,11 @@ func summary(for generations: [GenerationReport]) -> WorkSummary {
     prefillGenerationCount: generations.count(where: { $0.prefillMs != nil }),
     decodeGenerationCount: completionInfoGenerations.count,
     promptTokens: promptTokens,
+    prefixTokenGenerationCount: prefixTokenGenerations.count,
+    fullPromptTokens: fullPromptTokens,
+    reusedPrefixTokens: reusedPrefixTokens,
+    suffixTokens: suffixTokens,
+    reusedPrefixPercent: percentage(reusedPrefixTokens, of: fullPromptTokens),
     prefillMs: prefillMs,
     promptTokensPerSecond: weightedThroughput(
       generations.map { ($0.promptTokens, $0.prefillMs) }
@@ -334,6 +357,13 @@ func maximum(_ values: [Int?]) -> Int? {
   values.compactMap { $0 }.max()
 }
 
+func percentage(_ numerator: Int?, of denominator: Int?) -> Double? {
+  guard let numerator, let denominator, denominator > 0 else {
+    return nil
+  }
+  return Double(numerator) / Double(denominator) * 100
+}
+
 func weightedThroughput(_ samples: [(tokens: Int?, durationMs: Double?)]) -> Double? {
   let completeSamples = samples.compactMap { sample -> (Int, Double)? in
     guard let tokens = sample.tokens, let durationMs = sample.durationMs, durationMs > 0 else {
@@ -401,14 +431,15 @@ func markdown(_ report: PerformanceReport) -> String {
     appendSummaryRow(scope: "Turn \(turn.turnID)", summary: turn.summary, to: &lines)
   }
 
+  appendPrefixTokenSummary(to: &lines, report: report)
   appendLegacyDecodeSummary(to: &lines, report: report)
 
   lines.append(contentsOf: [
     "",
     "## Generations",
     "",
-    "| # | Mode | Iter | Cache | Reason | Memory clear | TTFT ms | Prompt tokens | Prefill ms | Prompt tok/s | Generated | Decode semantics | Decode ms | Decode tok/s | Prompt bytes | Error |",
-    "|---:|---|---:|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---|",
+    "| # | Mode | Iter | Cache | Reason | Memory clear | TTFT ms | Prompt tokens | Full prompt | Reused prefix | Suffix | Prefill ms | Prompt tok/s | Generated | Decode semantics | Decode ms | Decode tok/s | Prompt bytes | Error |",
+    "|---:|---|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---|",
   ])
 
   for (index, generation) in report.generations.enumerated() {
@@ -421,6 +452,9 @@ func markdown(_ report: PerformanceReport) -> String {
       generation.memoryClearReason ?? "-",
       formatted(generation.ttftMs),
       generation.promptTokens.map(String.init) ?? "-",
+      generation.fullPromptTokens.map(String.init) ?? "-",
+      generation.reusedPrefixTokens.map(String.init) ?? "-",
+      generation.suffixTokens.map(String.init) ?? "-",
       formatted(generation.prefillMs),
       formatted(generation.promptTokensPerSecond),
       generation.generatedTokenCount.map(String.init) ?? "-",
@@ -438,6 +472,44 @@ func markdown(_ report: PerformanceReport) -> String {
 
   lines.append("")
   return lines.joined(separator: "\n")
+}
+
+func appendPrefixTokenSummary(to lines: inout [String], report: PerformanceReport) {
+  guard report.totals.prefixTokenGenerationCount > 0 else {
+    return
+  }
+
+  lines.append(contentsOf: [
+    "",
+    "## Prefix Reuse Tokens",
+    "",
+    "Full prompt tokens are the cold-path token count. Reused prefix tokens are avoided prefill work; suffix tokens are the tokens actually evaluated and therefore equal the full prompt on a cold run.",
+    "",
+    "| Scope | Token rows | Full prompt tokens | Reused prefix tokens | Suffix tokens | Reused prefix % |",
+    "|---|---:|---:|---:|---:|---:|",
+  ])
+  appendPrefixTokenSummaryRow(scope: "Overall", summary: report.totals, to: &lines)
+  for turn in report.turns where turn.summary.prefixTokenGenerationCount > 0 {
+    appendPrefixTokenSummaryRow(
+      scope: "Turn \(turn.turnID)", summary: turn.summary, to: &lines)
+  }
+}
+
+func appendPrefixTokenSummaryRow(
+  scope: String,
+  summary: WorkSummary,
+  to lines: inout [String]
+) {
+  lines.append(
+    [
+      scope,
+      String(summary.prefixTokenGenerationCount),
+      summary.fullPromptTokens.map(String.init) ?? "-",
+      summary.reusedPrefixTokens.map(String.init) ?? "-",
+      summary.suffixTokens.map(String.init) ?? "-",
+      formatted(summary.reusedPrefixPercent),
+    ].joined(separator: " | ").wrappedTableRow()
+  )
 }
 
 func appendLegacyDecodeSummary(to lines: inout [String], report: PerformanceReport) {

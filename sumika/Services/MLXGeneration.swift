@@ -52,6 +52,24 @@ nonisolated struct MLXActiveGenerationRegistry: Sendable {
     activeGeneration = ActiveMLXGeneration(id: id, task: task)
   }
 
+  /// Registers throwing setup work through a cancellable drain task so lifecycle
+  /// transitions can cancel and await prefill before touching model memory.
+  @discardableResult
+  mutating func registerCancellableSetup<Output: Sendable>(
+    id: MLXGenerationID,
+    task setupTask: Task<Output, Error>
+  ) -> Task<Void, Never> {
+    let drainTask = Task {
+      await withTaskCancellationHandler {
+        _ = await setupTask.result
+      } onCancel: {
+        setupTask.cancel()
+      }
+    }
+    register(id: id, task: drainTask)
+    return drainTask
+  }
+
   mutating func supersedeActiveGeneration() -> ActiveMLXGeneration? {
     guard let activeGeneration else {
       return nil

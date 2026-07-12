@@ -32,6 +32,9 @@ struct TurnTraceEventTests {
       durationMs: 1234.5,
       promptBytes: 42,
       promptTokens: 11,
+      fullPromptTokens: 101,
+      reusedPrefixTokens: 90,
+      suffixTokens: 11,
       messageCount: 3,
       toolLoopIteration: 2,
       toolName: "read_file",
@@ -89,6 +92,9 @@ struct TurnTraceEventTests {
     #expect(object["durationMs"] as? Double == 1234.5)
     #expect(object["promptBytes"] as? Int == 42)
     #expect(object["promptTokens"] as? Int == 11)
+    #expect(object["fullPromptTokens"] as? Int == 101)
+    #expect(object["reusedPrefixTokens"] as? Int == 90)
+    #expect(object["suffixTokens"] as? Int == 11)
     #expect(object["messageCount"] as? Int == 3)
     #expect(object["toolLoopIteration"] as? Int == 2)
     #expect(object["toolName"] as? String == "read_file")

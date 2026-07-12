@@ -13,43 +13,6 @@ nonisolated enum MLXCacheParityFamily: String, Codable, Sendable {
   case qwen
 }
 
-nonisolated struct MLXTokenPrefixAnalysis: Equatable, Sendable {
-  let commonPrefixCount: Int
-  let suffix: [Int]
-  let isExactPrefix: Bool
-
-  nonisolated init(prefix: [Int], full: [Int]) {
-    commonPrefixCount = zip(prefix, full).prefix { $0 == $1 }.count
-    isExactPrefix = commonPrefixCount == prefix.count
-    suffix = isExactPrefix ? Array(full.dropFirst(prefix.count)) : []
-  }
-}
-
-/// Makes the prompt seen by penalties independent of the smaller token suffix
-/// passed to the model during a warm-cache parity run.
-nonisolated struct MLXFullPromptLogitProcessor: LogitProcessor {
-  private var base: (any LogitProcessor)?
-  private let fullPrompt: MLXArray
-
-  init(base: (any LogitProcessor)?, fullPrompt: MLXArray) {
-    self.base = base
-    self.fullPrompt = fullPrompt
-  }
-
-  mutating func prompt(_ prompt: MLXArray) {
-    let fullPrompt = self.fullPrompt
-    base?.prompt(fullPrompt)
-  }
-
-  func process(logits: MLXArray) -> MLXArray {
-    base?.process(logits: logits) ?? logits
-  }
-
-  mutating func didSample(token: MLXArray) {
-    base?.didSample(token: token)
-  }
-}
-
 nonisolated struct MLXCacheParityMemorySnapshot: Codable, Sendable {
   let activeMemory: Int
   let cacheMemory: Int
@@ -86,6 +49,118 @@ nonisolated struct MLXCacheParityMemoryDelta: Codable, Equatable, Sendable {
     activeAndCacheMemoryBytes =
       current.activeAndCacheMemory - baseline.activeAndCacheMemory
     peakMemoryBytes = current.peakMemory - baseline.peakMemory
+  }
+
+  init(
+    baseline: MLXCacheParityMemoryDelta,
+    current: MLXCacheParityMemoryDelta
+  ) {
+    activeMemoryBytes = current.activeMemoryBytes - baseline.activeMemoryBytes
+    cacheMemoryBytes = current.cacheMemoryBytes - baseline.cacheMemoryBytes
+    activeAndCacheMemoryBytes =
+      current.activeAndCacheMemoryBytes - baseline.activeAndCacheMemoryBytes
+    peakMemoryBytes = current.peakMemoryBytes - baseline.peakMemoryBytes
+  }
+}
+
+nonisolated struct MLXCheckpointDecodeMemoryPath: Codable, Sendable {
+  let retainsCheckpointCopy: Bool
+  let generatedTokenCount: Int
+  let memoryBeforePrefill: MLXCacheParityMemorySnapshot
+  let memoryAfterPrefill: MLXCacheParityMemorySnapshot
+  let memoryAfterCheckpointCopy: MLXCacheParityMemorySnapshot
+  let memoryAfterDecode: MLXCacheParityMemorySnapshot
+}
+
+nonisolated struct MLXCheckpointDecodeMemoryGrowth: Codable, Equatable, Sendable {
+  let afterPrefill: MLXCacheParityMemoryDelta
+  let afterCheckpointCopy: MLXCacheParityMemoryDelta
+  let afterDecode: MLXCacheParityMemoryDelta
+
+  init(path: MLXCheckpointDecodeMemoryPath) {
+    afterPrefill = MLXCacheParityMemoryDelta(
+      baseline: path.memoryBeforePrefill,
+      current: path.memoryAfterPrefill
+    )
+    afterCheckpointCopy = MLXCacheParityMemoryDelta(
+      baseline: path.memoryBeforePrefill,
+      current: path.memoryAfterCheckpointCopy
+    )
+    afterDecode = MLXCacheParityMemoryDelta(
+      baseline: path.memoryBeforePrefill,
+      current: path.memoryAfterDecode
+    )
+  }
+
+  init(
+    baseline: MLXCheckpointDecodeMemoryGrowth,
+    current: MLXCheckpointDecodeMemoryGrowth
+  ) {
+    afterPrefill = MLXCacheParityMemoryDelta(
+      baseline: baseline.afterPrefill,
+      current: current.afterPrefill
+    )
+    afterCheckpointCopy = MLXCacheParityMemoryDelta(
+      baseline: baseline.afterCheckpointCopy,
+      current: current.afterCheckpointCopy
+    )
+    afterDecode = MLXCacheParityMemoryDelta(
+      baseline: baseline.afterDecode,
+      current: current.afterDecode
+    )
+  }
+}
+
+nonisolated struct MLXCheckpointDecodeMemoryReport: Codable, Sendable {
+  let expectedGeneratedTokenCount: Int
+  let warmupGeneratedTokenCount: Int
+  let baseline: MLXCheckpointDecodeMemoryPath
+  let withHeldCheckpointCopy: MLXCheckpointDecodeMemoryPath
+  let startingMemoryDifference: MLXCacheParityMemoryDelta
+  let baselineGrowth: MLXCheckpointDecodeMemoryGrowth
+  let withHeldCheckpointCopyGrowth: MLXCheckpointDecodeMemoryGrowth
+  let withCopyMinusBaselineGrowth: MLXCheckpointDecodeMemoryGrowth
+
+  init(
+    expectedGeneratedTokenCount: Int,
+    warmupGeneratedTokenCount: Int,
+    baseline: MLXCheckpointDecodeMemoryPath,
+    withHeldCheckpointCopy: MLXCheckpointDecodeMemoryPath
+  ) {
+    self.expectedGeneratedTokenCount = expectedGeneratedTokenCount
+    self.warmupGeneratedTokenCount = warmupGeneratedTokenCount
+    self.baseline = baseline
+    self.withHeldCheckpointCopy = withHeldCheckpointCopy
+    startingMemoryDifference = MLXCacheParityMemoryDelta(
+      baseline: baseline.memoryBeforePrefill,
+      current: withHeldCheckpointCopy.memoryBeforePrefill
+    )
+    baselineGrowth = MLXCheckpointDecodeMemoryGrowth(path: baseline)
+    withHeldCheckpointCopyGrowth = MLXCheckpointDecodeMemoryGrowth(
+      path: withHeldCheckpointCopy
+    )
+    withCopyMinusBaselineGrowth = MLXCheckpointDecodeMemoryGrowth(
+      baseline: baselineGrowth,
+      current: withHeldCheckpointCopyGrowth
+    )
+  }
+
+  var passed: Bool {
+    warmupGeneratedTokenCount == expectedGeneratedTokenCount
+      && baseline.generatedTokenCount == expectedGeneratedTokenCount
+      && withHeldCheckpointCopy.generatedTokenCount == expectedGeneratedTokenCount
+      && !baseline.retainsCheckpointCopy
+      && withHeldCheckpointCopy.retainsCheckpointCopy
+      && Self.hasMonotonicPeakMemory(baseline)
+      && Self.hasMonotonicPeakMemory(withHeldCheckpointCopy)
+  }
+
+  private static func hasMonotonicPeakMemory(
+    _ path: MLXCheckpointDecodeMemoryPath
+  ) -> Bool {
+    path.memoryBeforePrefill.peakMemory <= path.memoryAfterPrefill.peakMemory
+      && path.memoryAfterPrefill.peakMemory <= path.memoryAfterCheckpointCopy.peakMemory
+      && path.memoryAfterCheckpointCopy.peakMemory <= path.memoryAfterDecode.peakMemory
   }
 }
 
@@ -201,13 +276,56 @@ nonisolated struct MLXCacheParityReuseModeReport: Codable, Sendable {
   let reuseParityPassed: Bool
 }
 
+nonisolated struct MLXCacheParityProductionOutputReport: Codable, Sendable {
+  let promptTokenCount: Int
+  let generatedTokenCount: Int
+  let stopReason: String
+  let toolCallCount: Int
+  let textSHA256: String
+  let toolCallsSHA256: String
+}
+
+nonisolated struct MLXCacheParityProductionPathReport: Codable, Sendable {
+  let validationScope: String
+  let coldP1Mode: String
+  let coldP1FullPromptTokenCount: Int
+  let coldP1ProducerDrained: Bool
+  let coldP1Output: MLXCacheParityProductionOutputReport
+  let checkpointSurvivedProducerLifecycle: Bool
+  let coldP2Mode: String
+  let warmP2Mode: String
+  let fullPromptTokenCount: Int
+  let reusedPrefixTokenCount: Int
+  let suffixTokenCount: Int
+  let coldP2ProducerDrained: Bool
+  let warmP2ProducerDrained: Bool
+  let coldP2Output: MLXCacheParityProductionOutputReport
+  let warmP2Output: MLXCacheParityProductionOutputReport
+  let toolCallParity: Bool
+  let outputParity: Bool
+  let passed: Bool
+}
+
+nonisolated struct MLXCacheParityProvenance: Codable, Sendable {
+  let generatedAt: String
+  let gitCommit: String?
+  let sourceDirty: Bool?
+  let packageResolvedSHA256: String?
+  let mlxSwiftRevision: String?
+  let mlxSwiftVersion: String?
+  let mlxSwiftLMRevision: String?
+  let mlxSwiftLMVersion: String?
+}
+
 nonisolated struct MLXCacheParityScenarioReport: Codable, Sendable {
   let name: String
+  let reasoningEnabled: Bool
   let p1TokenCount: Int
   let p2TokenCount: Int
   let commonPrefixTokenCount: Int
   let suffixTokenCount: Int
   let p1IsExactPrefixOfP2: Bool
+  let expectedSlidingWindow: Int?
   let exceedsExpectedSlidingWindow: Bool
   let continuationStateProducedByP1: Bool
   let checkpointDurationSeconds: Double
@@ -224,10 +342,13 @@ nonisolated struct MLXCacheParityScenarioReport: Codable, Sendable {
   let fullCold: MLXCacheParityMeasuredPath
   let cacheOnly: MLXCacheParityReuseModeReport
   let cacheAndContinuationState: MLXCacheParityReuseModeReport?
+  let checkpointedDecodeMemory: MLXCheckpointDecodeMemoryReport?
 
   var passed: Bool {
     p1IsExactPrefixOfP2 && copyIsolation.passed
       && reuseRequirement != .noPassingReusePath
+      && (expectedSlidingWindow == nil || exceedsExpectedSlidingWindow)
+      && (checkpointedDecodeMemory?.passed ?? true)
   }
 }
 
@@ -246,12 +367,15 @@ nonisolated struct MLXCacheParityModelReport: Codable, Sendable {
   let status: Status
   let statusReason: String?
   let scenarios: [MLXCacheParityScenarioReport]
+  let prefixGeneratorPath: MLXCacheParityProductionPathReport?
+  let provenance: MLXCacheParityProvenance
 }
 
 nonisolated enum MLXCacheParityHarnessError: Error, CustomStringConvertible {
   case promptIsNotExactPrefix(common: Int, p1Count: Int, p2Count: Int)
   case emptySuffix
   case continuationStateWasNotReproducible
+  case missingProductionCompletionInfo
 
   var description: String {
     switch self {
@@ -261,6 +385,8 @@ nonisolated enum MLXCacheParityHarnessError: Error, CustomStringConvertible {
       "P2 did not add any tokens after P1."
     case .continuationStateWasNotReproducible:
       "P1 produced continuation state once but not during the independent recomputation."
+    case .missingProductionCompletionInfo:
+      "The production prefix generator finished without completion info."
     }
   }
 }
@@ -270,9 +396,6 @@ nonisolated enum MLXCacheParityEnvironment {
     ProcessInfo.processInfo.environment["SUMIKA_RUN_MLX_CACHE_PARITY"] == "1"
 
   static var reportDirectory: URL {
-    let repositoryURL = URL(filePath: #filePath)
-      .deletingLastPathComponent()
-      .deletingLastPathComponent()
     guard
       let configuredPath = ProcessInfo.processInfo.environment[
         "SUMIKA_CACHE_PARITY_REPORT_DIR"
@@ -286,6 +409,25 @@ nonisolated enum MLXCacheParityEnvironment {
       return URL(filePath: configuredPath, directoryHint: .isDirectory)
     }
     return repositoryURL.appending(path: configuredPath, directoryHint: .isDirectory)
+  }
+
+  static var provenance: MLXCacheParityProvenance {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let packageResolved = packageResolvedMetadata()
+    return MLXCacheParityProvenance(
+      generatedAt: formatter.string(from: Date()),
+      gitCommit: nonemptyEnvironmentValue("SUMIKA_CACHE_PARITY_GIT_COMMIT")
+        ?? gitOutput(["rev-parse", "HEAD"]),
+      sourceDirty: environmentBoolean("SUMIKA_CACHE_PARITY_SOURCE_DIRTY")
+        ?? gitOutput(["status", "--porcelain=v1", "--untracked-files=normal"])
+        .map { !$0.isEmpty },
+      packageResolvedSHA256: packageResolved?.sha256,
+      mlxSwiftRevision: packageResolved?.pins["mlx-swift"]?.revision,
+      mlxSwiftVersion: packageResolved?.pins["mlx-swift"]?.version,
+      mlxSwiftLMRevision: packageResolved?.pins["mlx-swift-lm"]?.revision,
+      mlxSwiftLMVersion: packageResolved?.pins["mlx-swift-lm"]?.version
+    )
   }
 
   static func selectedModel(for family: MLXCacheParityFamily) -> ManagedModel? {
@@ -345,6 +487,158 @@ nonisolated enum MLXCacheParityEnvironment {
   #else
     static let buildConfiguration = "Release"
   #endif
+
+  private struct PackagePin {
+    let revision: String?
+    let version: String?
+  }
+
+  private struct PackageResolvedMetadata {
+    let sha256: String
+    let pins: [String: PackagePin]
+  }
+
+  private static var repositoryURL: URL {
+    URL(filePath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+  }
+
+  private static func nonemptyEnvironmentValue(_ key: String) -> String? {
+    guard let value = ProcessInfo.processInfo.environment[key], !value.isEmpty else {
+      return nil
+    }
+    return value
+  }
+
+  private static func environmentBoolean(_ key: String) -> Bool? {
+    switch nonemptyEnvironmentValue(key)?.lowercased() {
+    case "1", "true", "yes": true
+    case "0", "false", "no": false
+    default: nil
+    }
+  }
+
+  private static func packageResolvedMetadata() -> PackageResolvedMetadata? {
+    let url = repositoryURL.appending(
+      path: "Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+    )
+    guard
+      let data = try? Data(contentsOf: url),
+      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let rawPins = root["pins"] as? [[String: Any]]
+    else {
+      return nil
+    }
+
+    let pins = rawPins.reduce(into: [String: PackagePin]()) { result, rawPin in
+      guard
+        let identity = rawPin["identity"] as? String,
+        let state = rawPin["state"] as? [String: Any]
+      else {
+        return
+      }
+      result[identity] = PackagePin(
+        revision: state["revision"] as? String,
+        version: state["version"] as? String
+      )
+    }
+    let sha256 = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    return PackageResolvedMetadata(sha256: sha256, pins: pins)
+  }
+
+  private static func gitOutput(_ arguments: [String]) -> String? {
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = URL(filePath: "/usr/bin/git")
+    process.arguments = ["-C", repositoryURL.path(percentEncoded: false)] + arguments
+    process.standardOutput = output
+    process.standardError = FileHandle.nullDevice
+    do {
+      try process.run()
+    } catch {
+      return nil
+    }
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else {
+      return nil
+    }
+    guard let value = String(bytes: data, encoding: .utf8) else {
+      return nil
+    }
+    return value.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+}
+
+private actor MLXCacheParityProductionRunner {
+  func prepare(
+    modelContainer: ModelContainer,
+    followUp: Bool,
+    previousCheckpoint: MLXPrefixGenerationCheckpoint?,
+    identity: MLXSessionCacheIdentity,
+    messageSnapshot: [MLXMessageSnapshot],
+    parameters: GenerateParameters
+  ) async throws -> MLXPrefixGenerationPlan {
+    let toolSpec: ToolSpec = [
+      "type": "function",
+      "function": [
+        "name": "read_file",
+        "description": "Read a UTF-8 text file from the local workspace.",
+        "parameters": [
+          "type": "object",
+          "properties": [
+            "path": ["type": "string", "description": "Workspace-relative path"]
+              as [String: any Sendable]
+          ] as [String: any Sendable],
+          "required": ["path"],
+          "additionalProperties": false,
+        ] as [String: any Sendable],
+      ] as [String: any Sendable],
+    ]
+    let tools = [toolSpec]
+    let systemPrompt = "You are a local coding assistant. Use tools when needed."
+    let userPrompt = "Inspect the local cache behavior for the requested file."
+    let toolCallID = "cache-parity-production-call-1"
+    let p1Messages: [Chat.Message] = [
+      .system(systemPrompt),
+      .user(userPrompt),
+    ]
+    let messages =
+      if followUp {
+        p1Messages + [
+          .assistant(
+            "",
+            toolCalls: [
+              MLXLMCommon.ToolCall(
+                function: .init(
+                  name: "read_file",
+                  arguments: ["path": "Sources/App.swift"]
+                ),
+                id: toolCallID
+              )
+            ]
+          ),
+          .tool("The requested file contains a small Swift application.", id: toolCallID),
+        ]
+      } else {
+        p1Messages
+      }
+    return try await MLXPrefixGenerator.prepare(
+      isolation: self,
+      modelContainer: modelContainer,
+      userInput: UserInput(
+        chat: messages,
+        tools: tools,
+        additionalContext: ["enable_thinking": false]
+      ),
+      previousCheckpoint: previousCheckpoint,
+      identity: identity,
+      messageSnapshot: messageSnapshot,
+      parameters: parameters,
+      tools: tools
+    )
+  }
 }
 
 nonisolated enum MLXCacheParityHarness {
@@ -353,7 +647,7 @@ nonisolated enum MLXCacheParityHarness {
   private static let strictCopyAbsoluteTolerance = 0.00001
   private static let bfloat16RelativeTolerance = 0.001
   private static let bfloat16AbsoluteTolerance = 0.001
-  private static let schemaVersion = 4
+  private static let schemaVersion = 9
 
   static func skippedReport(
     family: MLXCacheParityFamily,
@@ -367,7 +661,9 @@ nonisolated enum MLXCacheParityHarness {
       buildConfiguration: MLXCacheParityEnvironment.buildConfiguration,
       status: .skipped,
       statusReason: reason,
-      scenarios: []
+      scenarios: [],
+      prefixGeneratorPath: nil,
+      provenance: MLXCacheParityEnvironment.provenance
     )
   }
 
@@ -384,7 +680,9 @@ nonisolated enum MLXCacheParityHarness {
       buildConfiguration: MLXCacheParityEnvironment.buildConfiguration,
       status: .failed,
       statusReason: String(describing: error),
-      scenarios: []
+      scenarios: [],
+      prefixGeneratorPath: nil,
+      provenance: MLXCacheParityEnvironment.provenance
     )
   }
 
@@ -408,7 +706,7 @@ nonisolated enum MLXCacheParityHarness {
         )
       }
 
-    let descriptors = scenarioDescriptors(for: family)
+    let descriptors = scenarioDescriptors(for: family, modelID: model.id)
     let scenarios = try await container.perform(values: descriptors) { context, descriptors in
       var reports: [MLXCacheParityScenarioReport] = []
       reports.reserveCapacity(descriptors.count)
@@ -417,7 +715,17 @@ nonisolated enum MLXCacheParityHarness {
       }
       return reports
     }
-    let passed = scenarios.allSatisfy(\.passed)
+    let requiresProductionPath = model.id == "gemma4-e4b-qat-4bit"
+    let productionPath: MLXCacheParityProductionPathReport? =
+      if requiresProductionPath {
+        try await runProductionPath(container: container)
+      } else {
+        nil
+      }
+
+    let passed =
+      scenarios.allSatisfy(\.passed)
+      && (!requiresProductionPath || productionPath?.passed == true)
     return MLXCacheParityModelReport(
       schemaVersion: schemaVersion,
       family: family,
@@ -426,7 +734,9 @@ nonisolated enum MLXCacheParityHarness {
       buildConfiguration: MLXCacheParityEnvironment.buildConfiguration,
       status: passed ? .passed : .failed,
       statusReason: passed ? nil : "One or more cold/warm parity checks failed.",
-      scenarios: scenarios
+      scenarios: scenarios,
+      prefixGeneratorPath: productionPath,
+      provenance: MLXCacheParityEnvironment.provenance
     )
   }
 
@@ -434,6 +744,8 @@ nonisolated enum MLXCacheParityHarness {
     let name: String
     let userPrompt: String
     let expectedSlidingWindow: Int?
+    let reasoningEnabled: Bool
+    let measuresCheckpointedDecodeMemory: Bool
   }
 
   private struct RawPathResult {
@@ -477,26 +789,254 @@ nonisolated enum MLXCacheParityHarness {
     let durationSeconds: Double
   }
 
+  private struct ProductionPathOutput: Sendable {
+    let text: String
+    let toolCalls: [MLXLMCommon.ToolCall]
+    let promptTokenCount: Int
+    let generatedTokenCount: Int
+    let stopReason: String
+
+    func report() throws -> MLXCacheParityProductionOutputReport {
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+      return MLXCacheParityProductionOutputReport(
+        promptTokenCount: promptTokenCount,
+        generatedTokenCount: generatedTokenCount,
+        stopReason: stopReason,
+        toolCallCount: toolCalls.count,
+        textSHA256: MLXCacheParityHarness.stableHash(data: Data(text.utf8)),
+        toolCallsSHA256: MLXCacheParityHarness.stableHash(
+          data: try encoder.encode(toolCalls)
+        )
+      )
+    }
+  }
+
+  private static func runProductionPath(
+    container: ModelContainer
+  ) async throws -> MLXCacheParityProductionPathReport {
+    let systemPrompt = "You are a local coding assistant. Use tools when needed."
+    let userPrompt = "Inspect the local cache behavior for the requested file."
+    let toolCallID = "cache-parity-production-call-1"
+    let p1Snapshot = [
+      MLXMessageSnapshot(role: Chat.Message.Role.system.rawValue, content: systemPrompt),
+      MLXMessageSnapshot(role: Chat.Message.Role.user.rawValue, content: userPrompt),
+    ]
+    let p2Snapshot =
+      p1Snapshot + [
+        MLXMessageSnapshot(
+          role: Chat.Message.Role.assistant.rawValue,
+          content: "",
+          toolCalls: [
+            MLXToolCallSnapshot(
+              id: toolCallID,
+              name: "read_file",
+              arguments: ["path": .string("Sources/App.swift")]
+            )
+          ]
+        ),
+        MLXMessageSnapshot(
+          role: Chat.Message.Role.tool.rawValue,
+          content: "The requested file contains a small Swift application.",
+          toolCallID: toolCallID
+        ),
+      ]
+    let identity = MLXSessionCacheIdentity(
+      systemPrompt: systemPrompt,
+      projectionMode: .fullHistory,
+      maxKVSize: nil,
+      reasoningEnabled: false
+    )
+    let parameters = GenerateParameters(
+      maxTokens: generatedTokenCount,
+      temperature: 0,
+      repetitionPenalty: 1.05,
+      repetitionContextSize: 64,
+      presencePenalty: 0.1,
+      presenceContextSize: 64,
+      prefillStepSize: 512
+    )
+    let runner = MLXCacheParityProductionRunner()
+
+    let p1Plan = try await runner.prepare(
+      modelContainer: container,
+      followUp: false,
+      previousCheckpoint: nil,
+      identity: identity,
+      messageSnapshot: p1Snapshot,
+      parameters: parameters
+    )
+    let p1Output = try await drainProductionPlan(p1Plan)
+    let coldP1ProducerDrained = true
+
+    let coldP2Plan = try await runner.prepare(
+      modelContainer: container,
+      followUp: true,
+      previousCheckpoint: nil,
+      identity: identity,
+      messageSnapshot: p2Snapshot,
+      parameters: parameters
+    )
+    let coldP2Output = try await drainProductionPlan(coldP2Plan)
+    let coldP2ProducerDrained = true
+
+    let warmP2Plan = try await runner.prepare(
+      modelContainer: container,
+      followUp: true,
+      previousCheckpoint: p1Plan.checkpoint,
+      identity: identity,
+      messageSnapshot: p2Snapshot,
+      parameters: parameters
+    )
+    let warmP2Output = try await drainProductionPlan(warmP2Plan)
+    let warmP2ProducerDrained = true
+
+    let coldP1Mode = productionModeName(p1Plan.mode)
+    let coldP2Mode = productionModeName(coldP2Plan.mode)
+    let warmP2Mode = productionModeName(warmP2Plan.mode)
+    let warmTelemetry = warmP2Plan.tokenTelemetry
+    let checkpointSurvivedProducerLifecycle =
+      if case .suffix = warmP2Plan.mode { true } else { false }
+    let toolCallParity = coldP2Output.toolCalls == warmP2Output.toolCalls
+    let outputParity =
+      coldP2Output.text == warmP2Output.text
+      && toolCallParity
+      && coldP2Output.generatedTokenCount == warmP2Output.generatedTokenCount
+      && coldP2Output.stopReason == warmP2Output.stopReason
+    let passed =
+      coldP1Mode == "cold:prefix_checkpoint_missing"
+      && coldP2Mode == "cold:prefix_checkpoint_missing"
+      && warmP2Mode == "suffix"
+      && coldP1ProducerDrained
+      && coldP2ProducerDrained
+      && warmP2ProducerDrained
+      && checkpointSurvivedProducerLifecycle
+      && p1Plan.checkpoint.tokenIDs.count == p1Plan.fullPromptTokenCount
+      && p1Output.promptTokenCount == p1Plan.fullPromptTokenCount
+      && coldP2Output.promptTokenCount == coldP2Plan.fullPromptTokenCount
+      && warmP2Output.promptTokenCount == warmTelemetry.suffixTokens
+      && warmTelemetry.fullPromptTokens == coldP2Plan.fullPromptTokenCount
+      && warmTelemetry.reusedPrefixTokens == p1Plan.fullPromptTokenCount
+      && warmTelemetry.suffixTokens
+        == coldP2Plan.fullPromptTokenCount - p1Plan.fullPromptTokenCount
+      && outputParity
+
+    return try MLXCacheParityProductionPathReport(
+      validationScope: "prefix_generator_only",
+      coldP1Mode: coldP1Mode,
+      coldP1FullPromptTokenCount: p1Plan.fullPromptTokenCount,
+      coldP1ProducerDrained: coldP1ProducerDrained,
+      coldP1Output: p1Output.report(),
+      checkpointSurvivedProducerLifecycle: checkpointSurvivedProducerLifecycle,
+      coldP2Mode: coldP2Mode,
+      warmP2Mode: warmP2Mode,
+      fullPromptTokenCount: warmTelemetry.fullPromptTokens,
+      reusedPrefixTokenCount: warmTelemetry.reusedPrefixTokens,
+      suffixTokenCount: warmTelemetry.suffixTokens,
+      coldP2ProducerDrained: coldP2ProducerDrained,
+      warmP2ProducerDrained: warmP2ProducerDrained,
+      coldP2Output: coldP2Output.report(),
+      warmP2Output: warmP2Output.report(),
+      toolCallParity: toolCallParity,
+      outputParity: outputParity,
+      passed: passed
+    )
+  }
+
+  private static func drainProductionPlan(
+    _ plan: MLXPrefixGenerationPlan
+  ) async throws -> ProductionPathOutput {
+    var text = ""
+    var toolCalls: [MLXLMCommon.ToolCall] = []
+    var completionInfo: GenerateCompletionInfo?
+    do {
+      for try await generation in plan.stream {
+        if let chunk = generation.chunk {
+          text += chunk
+        }
+        if let toolCall = generation.toolCall {
+          toolCalls.append(toolCall)
+        }
+        if let info = generation.info {
+          completionInfo = info
+        }
+      }
+    } catch {
+      plan.producerTask.cancel()
+      await plan.producerTask.value
+      throw error
+    }
+    await plan.producerTask.value
+    guard let completionInfo else {
+      throw MLXCacheParityHarnessError.missingProductionCompletionInfo
+    }
+    return ProductionPathOutput(
+      text: text,
+      toolCalls: toolCalls,
+      promptTokenCount: completionInfo.promptTokenCount,
+      generatedTokenCount: completionInfo.generationTokenCount,
+      stopReason: productionStopReasonName(completionInfo.stopReason)
+    )
+  }
+
+  private static func productionModeName(_ mode: MLXPrefixGenerationMode) -> String {
+    switch mode {
+    case .cold(let reason):
+      "cold:\(reason.rawValue)"
+    case .suffix:
+      "suffix"
+    }
+  }
+
+  private static func productionStopReasonName(_ reason: GenerateStopReason) -> String {
+    switch reason {
+    case .stop:
+      "stop"
+    case .length:
+      "length"
+    case .cancelled:
+      "cancelled"
+    }
+  }
+
   private static func scenarioDescriptors(
-    for family: MLXCacheParityFamily
+    for family: MLXCacheParityFamily,
+    modelID: ManagedModel.ID
   ) -> [ScenarioDescriptor] {
+    let measuresCheckpointedDecodeMemory = modelID == "gemma4-e4b-qat-4bit"
     let canonical = ScenarioDescriptor(
       name: "structured-tool-follow-up",
       userPrompt: "Inspect the local cache behavior for the requested file.",
-      expectedSlidingWindow: nil
+      expectedSlidingWindow: nil,
+      reasoningEnabled: false,
+      measuresCheckpointedDecodeMemory: measuresCheckpointedDecodeMemory
     )
     switch family {
     case .gemma:
       let longContext = Array(repeating: "prefix-window-token", count: 620)
         .joined(separator: " ")
-      return [
-        canonical,
+      var descriptors = [canonical]
+      if modelID == "gemma4-e4b-qat-4bit" {
+        descriptors.append(
+          ScenarioDescriptor(
+            name: "structured-tool-follow-up-reasoning-on",
+            userPrompt: "Inspect the local cache behavior for the requested file.",
+            expectedSlidingWindow: nil,
+            reasoningEnabled: true,
+            measuresCheckpointedDecodeMemory: true
+          )
+        )
+      }
+      descriptors.append(
         ScenarioDescriptor(
           name: "structured-tool-follow-up-beyond-sliding-window",
           userPrompt: "Inspect the local cache behavior. \(longContext)",
-          expectedSlidingWindow: 512
-        ),
-      ]
+          expectedSlidingWindow: 512,
+          reasoningEnabled: false,
+          measuresCheckpointedDecodeMemory: measuresCheckpointedDecodeMemory
+        )
+      )
+      return descriptors
     case .qwen:
       return [canonical]
     }
@@ -536,7 +1076,9 @@ nonisolated enum MLXCacheParityHarness {
         .assistant("", toolCalls: [toolCall]),
         .tool("The requested file contains a small Swift application.", id: toolCallID),
       ]
-    let additionalContext: [String: any Sendable] = ["enable_thinking": false]
+    let additionalContext: [String: any Sendable] = [
+      "enable_thinking": descriptor.reasoningEnabled
+    ]
     let p1Input = try await context.processor.prepare(
       input: UserInput(
         chat: p1Messages, tools: [toolSpec], additionalContext: additionalContext))
@@ -548,7 +1090,10 @@ nonisolated enum MLXCacheParityHarness {
     p2Input.text.tokens.eval()
     let p1Tokens = p1Input.text.tokens.asArray(Int.self)
     let p2Tokens = p2Input.text.tokens.asArray(Int.self)
-    let prefix = MLXTokenPrefixAnalysis(prefix: p1Tokens, full: p2Tokens)
+    let prefix = MLXCheckpointTokenPrefixAnalysis(
+      checkpointTokens: p1Tokens,
+      promptTokens: p2Tokens
+    )
     guard prefix.isExactPrefix else {
       throw MLXCacheParityHarnessError.promptIsNotExactPrefix(
         common: prefix.commonPrefixCount,
@@ -556,7 +1101,7 @@ nonisolated enum MLXCacheParityHarness {
         p2Count: p2Tokens.count
       )
     }
-    guard !prefix.suffix.isEmpty else {
+    guard !prefix.suffixTokens.isEmpty else {
       throw MLXCacheParityHarnessError.emptySuffix
     }
 
@@ -569,6 +1114,16 @@ nonisolated enum MLXCacheParityHarness {
       presenceContextSize: 64,
       prefillStepSize: 512
     )
+    let checkpointedDecodeMemory: MLXCheckpointDecodeMemoryReport? =
+      if descriptor.measuresCheckpointedDecodeMemory {
+        try checkpointedDecodeMemoryReport(
+          input: p1Input,
+          model: context.model,
+          parameters: parameters
+        )
+      } else {
+        nil
+      }
     Memory.peakMemory = 0
     let checkpointMemoryBefore = MLXCacheParityMemorySnapshot(Memory.snapshot())
     let checkpoint = try makeCheckpoint(
@@ -613,7 +1168,7 @@ nonisolated enum MLXCacheParityHarness {
       cache: context.model.newCache(parameters: parameters),
       parameters: parameters
     )
-    let suffixInput = LMInput.Text(tokens: MLXArray(prefix.suffix))
+    let suffixInput = LMInput.Text(tokens: MLXArray(prefix.suffixTokens))
 
     let freshCacheOnlyCheckpoint = try makeCheckpoint(
       input: p1Input,
@@ -728,11 +1283,13 @@ nonisolated enum MLXCacheParityHarness {
 
     return MLXCacheParityScenarioReport(
       name: descriptor.name,
+      reasoningEnabled: descriptor.reasoningEnabled,
       p1TokenCount: p1Tokens.count,
       p2TokenCount: p2Tokens.count,
       commonPrefixTokenCount: prefix.commonPrefixCount,
-      suffixTokenCount: prefix.suffix.count,
+      suffixTokenCount: prefix.suffixTokens.count,
       p1IsExactPrefixOfP2: prefix.isExactPrefix,
+      expectedSlidingWindow: descriptor.expectedSlidingWindow,
       exceedsExpectedSlidingWindow: descriptor.expectedSlidingWindow.map {
         p1Tokens.count > $0
       } ?? false,
@@ -750,7 +1307,90 @@ nonisolated enum MLXCacheParityHarness {
       reuseRequirement: reuseRequirement,
       fullCold: fullCold.report,
       cacheOnly: cacheOnly,
-      cacheAndContinuationState: cacheAndContinuationState
+      cacheAndContinuationState: cacheAndContinuationState,
+      checkpointedDecodeMemory: checkpointedDecodeMemory
+    )
+  }
+
+  nonisolated private static func checkpointedDecodeMemoryReport(
+    input: LMInput,
+    model: any LanguageModel,
+    parameters: GenerateParameters
+  ) throws -> MLXCheckpointDecodeMemoryReport {
+    Memory.clearCache()
+    let warmup = try measureCheckpointedDecodeMemoryPath(
+      input: input,
+      model: model,
+      parameters: parameters,
+      retainsCheckpointCopy: false
+    )
+    Memory.clearCache()
+    let baseline = try measureCheckpointedDecodeMemoryPath(
+      input: input,
+      model: model,
+      parameters: parameters,
+      retainsCheckpointCopy: false
+    )
+    Memory.clearCache()
+    let withHeldCheckpointCopy = try measureCheckpointedDecodeMemoryPath(
+      input: input,
+      model: model,
+      parameters: parameters,
+      retainsCheckpointCopy: true
+    )
+    Memory.clearCache()
+    return MLXCheckpointDecodeMemoryReport(
+      expectedGeneratedTokenCount: generatedTokenCount,
+      warmupGeneratedTokenCount: warmup.generatedTokenCount,
+      baseline: baseline,
+      withHeldCheckpointCopy: withHeldCheckpointCopy
+    )
+  }
+
+  nonisolated private static func measureCheckpointedDecodeMemoryPath(
+    input: LMInput,
+    model: any LanguageModel,
+    parameters: GenerateParameters,
+    retainsCheckpointCopy: Bool
+  ) throws -> MLXCheckpointDecodeMemoryPath {
+    Memory.peakMemory = 0
+    let memoryBeforePrefill = MLXCacheParityMemorySnapshot(Memory.snapshot())
+    let cache = model.newCache(parameters: parameters)
+    var iterator = try TokenIterator(
+      input: input,
+      model: model,
+      cache: cache,
+      parameters: parameters
+    )
+    eval(cache.flatMap(\.state))
+    Stream().synchronize()
+    let memoryAfterPrefill = MLXCacheParityMemorySnapshot(Memory.snapshot())
+
+    let heldCheckpointCopy: [any KVCache]? =
+      retainsCheckpointCopy ? cache.map { $0.copy() } : nil
+    if let heldCheckpointCopy {
+      eval(heldCheckpointCopy.flatMap(\.state))
+    }
+    Stream().synchronize()
+    let memoryAfterCheckpointCopy = MLXCacheParityMemorySnapshot(Memory.snapshot())
+
+    var decodedTokenCount = 0
+    let memoryAfterDecode = withExtendedLifetime(heldCheckpointCopy) {
+      while decodedTokenCount < generatedTokenCount, iterator.next() != nil {
+        decodedTokenCount += 1
+      }
+      eval(cache.flatMap(\.state))
+      Stream().synchronize()
+      return MLXCacheParityMemorySnapshot(Memory.snapshot())
+    }
+
+    return MLXCheckpointDecodeMemoryPath(
+      retainsCheckpointCopy: retainsCheckpointCopy,
+      generatedTokenCount: decodedTokenCount,
+      memoryBeforePrefill: memoryBeforePrefill,
+      memoryAfterPrefill: memoryAfterPrefill,
+      memoryAfterCheckpointCopy: memoryAfterCheckpointCopy,
+      memoryAfterDecode: memoryAfterDecode
     )
   }
 
@@ -786,6 +1426,7 @@ nonisolated enum MLXCacheParityHarness {
     try measuredPath(
       executionKind: .fullPrompt,
       fullPromptTokens: fullPromptTokens,
+      processorInputTokens: fullPromptTokens,
       model: model,
       tokenizer: tokenizer,
       cache: cache,
@@ -818,6 +1459,7 @@ nonisolated enum MLXCacheParityHarness {
     measuredPath(
       executionKind: .directSuffix,
       fullPromptTokens: fullPromptTokens,
+      processorInputTokens: suffix.tokens.asArray(Int.self),
       model: model,
       tokenizer: tokenizer,
       cache: cache,
@@ -837,6 +1479,7 @@ nonisolated enum MLXCacheParityHarness {
   nonisolated private static func measuredPath(
     executionKind: MLXCacheParityExecutionKind,
     fullPromptTokens: [Int],
+    processorInputTokens: [Int],
     model: any LanguageModel,
     tokenizer: any Tokenizer,
     cache: [any KVCache],
@@ -848,11 +1491,11 @@ nonisolated enum MLXCacheParityHarness {
     Memory.peakMemory = 0
     let memoryBefore = MLXCacheParityMemorySnapshot(Memory.snapshot())
     let startedAt = Date.timeIntervalSinceReferenceDate
-    var processor: any LogitProcessor = MLXFullPromptLogitProcessor(
+    var processor: any LogitProcessor = MLXPrefixFullPromptLogitProcessor(
       base: parameters.processor(),
       fullPrompt: MLXArray(fullPromptTokens)
     )
-    processor.prompt(MLXArray(fullPromptTokens))
+    processor.prompt(MLXArray(processorInputTokens))
     var output = try initialOutput()
     var state = output.state
     let rawFirstLogits = output.logits[0..., -1, 0...].asType(DType.float32)
@@ -924,6 +1567,7 @@ nonisolated enum MLXCacheParityHarness {
     let finalCacheParity = freshSplit.cacheAfter == copiedWarm.cacheAfter
     let strictCopyParityPassed =
       freshSplitVsCopiedWarm.rawFirstLogits.allClose
+      && freshSplitVsCopiedWarm.processedFirstLogits.allClose
       && freshSplitVsCopiedWarm.behavior.passed
       && finalCacheParity
     let fullColdBehavioralParityPassed =

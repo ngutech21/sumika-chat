@@ -5,17 +5,20 @@ public struct ChatModelConfiguration: Equatable, Sendable {
   public let contextTokenLimit: Int?
   public let supportsImageInput: Bool
   public let reasoningTraceFormat: ReasoningTraceFormat
+  public let prefixReusePolicy: ModelPrefixReusePolicy
 
   public init(
     localModelDirectory: URL,
     contextTokenLimit: Int? = nil,
     supportsImageInput: Bool = false,
-    reasoningTraceFormat: ReasoningTraceFormat = .none
+    reasoningTraceFormat: ReasoningTraceFormat = .none,
+    prefixReusePolicy: ModelPrefixReusePolicy = .disabled
   ) {
     self.localModelDirectory = localModelDirectory
     self.contextTokenLimit = contextTokenLimit
     self.supportsImageInput = supportsImageInput
     self.reasoningTraceFormat = reasoningTraceFormat
+    self.prefixReusePolicy = prefixReusePolicy
   }
 
   public var displayPath: String {

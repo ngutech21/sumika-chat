@@ -4,24 +4,32 @@ import MLXLMCommon
 import SumikaCore
 import Testing
 
+@testable import Sumika
+
 @Suite
 struct MLXCacheParitySupportTests {
   @Test
   func exactTokenPrefixReturnsOnlyUnprocessedSuffix() {
-    let analysis = MLXTokenPrefixAnalysis(prefix: [1, 2, 3], full: [1, 2, 3, 4, 5])
+    let analysis = MLXCheckpointTokenPrefixAnalysis(
+      checkpointTokens: [1, 2, 3],
+      promptTokens: [1, 2, 3, 4, 5]
+    )
 
     #expect(analysis.commonPrefixCount == 3)
     #expect(analysis.isExactPrefix)
-    #expect(analysis.suffix == [4, 5])
+    #expect(analysis.suffixTokens == [4, 5])
   }
 
   @Test
   func divergingTokenSequenceIsNotReusable() {
-    let analysis = MLXTokenPrefixAnalysis(prefix: [1, 2, 9], full: [1, 2, 3, 4])
+    let analysis = MLXCheckpointTokenPrefixAnalysis(
+      checkpointTokens: [1, 2, 9],
+      promptTokens: [1, 2, 3, 4]
+    )
 
     #expect(analysis.commonPrefixCount == 2)
     #expect(!analysis.isExactPrefix)
-    #expect(analysis.suffix.isEmpty)
+    #expect(analysis.suffixTokens.isEmpty)
   }
 
   @Test
@@ -46,9 +54,109 @@ struct MLXCacheParitySupportTests {
   }
 
   @Test
+  func checkpointedDecodeMemoryReportEncodesSignedWithCopyDeltas() throws {
+    let baseline = MLXCheckpointDecodeMemoryPath(
+      retainsCheckpointCopy: false,
+      generatedTokenCount: 16,
+      memoryBeforePrefill: memorySnapshot(active: 1_000, cache: 500, peak: 0),
+      memoryAfterPrefill: memorySnapshot(active: 1_200, cache: 550, peak: 1_300),
+      memoryAfterCheckpointCopy: memorySnapshot(active: 1_200, cache: 550, peak: 1_300),
+      memoryAfterDecode: memorySnapshot(active: 1_400, cache: 600, peak: 1_700)
+    )
+    let withHeldCheckpointCopy = MLXCheckpointDecodeMemoryPath(
+      retainsCheckpointCopy: true,
+      generatedTokenCount: 16,
+      memoryBeforePrefill: memorySnapshot(active: 990, cache: 510, peak: 0),
+      memoryAfterPrefill: memorySnapshot(active: 1_210, cache: 540, peak: 1_310),
+      memoryAfterCheckpointCopy: memorySnapshot(active: 1_250, cache: 525, peak: 1_350),
+      memoryAfterDecode: memorySnapshot(active: 1_850, cache: 500, peak: 2_250)
+    )
+
+    let report = MLXCheckpointDecodeMemoryReport(
+      expectedGeneratedTokenCount: 16,
+      warmupGeneratedTokenCount: 16,
+      baseline: baseline,
+      withHeldCheckpointCopy: withHeldCheckpointCopy
+    )
+
+    #expect(report.passed)
+    #expect(report.expectedGeneratedTokenCount == 16)
+    #expect(report.warmupGeneratedTokenCount == 16)
+    #expect(!report.baseline.retainsCheckpointCopy)
+    #expect(report.withHeldCheckpointCopy.retainsCheckpointCopy)
+    #expect(report.baseline.generatedTokenCount == 16)
+    #expect(report.withHeldCheckpointCopy.generatedTokenCount == 16)
+    #expect(report.startingMemoryDifference.activeMemoryBytes == -10)
+    #expect(report.withCopyMinusBaselineGrowth.afterPrefill.cacheMemoryBytes == -20)
+    #expect(
+      report.withCopyMinusBaselineGrowth.afterCheckpointCopy.activeAndCacheMemoryBytes == 25)
+    #expect(report.withCopyMinusBaselineGrowth.afterDecode.activeMemoryBytes == 460)
+    #expect(report.withCopyMinusBaselineGrowth.afterDecode.cacheMemoryBytes == -110)
+    #expect(report.withCopyMinusBaselineGrowth.afterDecode.activeAndCacheMemoryBytes == 350)
+    #expect(report.withCopyMinusBaselineGrowth.afterDecode.peakMemoryBytes == 550)
+
+    let encoded = try JSONEncoder().encode(report)
+    let json = try #require(
+      JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+    #expect(json["baseline"] != nil)
+    #expect(json["withHeldCheckpointCopy"] != nil)
+    #expect(json["startingMemoryDifference"] != nil)
+    #expect(json["baselineGrowth"] != nil)
+    #expect(json["withHeldCheckpointCopyGrowth"] != nil)
+    #expect(json["withCopyMinusBaselineGrowth"] != nil)
+  }
+
+  @Test
+  func checkpointedDecodeMemoryIntegrityParticipatesInPassStatus() {
+    let snapshot = memorySnapshot(active: 1_000, cache: 500, peak: 1_500)
+    let baseline = MLXCheckpointDecodeMemoryPath(
+      retainsCheckpointCopy: false,
+      generatedTokenCount: 16,
+      memoryBeforePrefill: snapshot,
+      memoryAfterPrefill: snapshot,
+      memoryAfterCheckpointCopy: snapshot,
+      memoryAfterDecode: snapshot
+    )
+    let incompleteHeldCopy = MLXCheckpointDecodeMemoryPath(
+      retainsCheckpointCopy: true,
+      generatedTokenCount: 15,
+      memoryBeforePrefill: snapshot,
+      memoryAfterPrefill: snapshot,
+      memoryAfterCheckpointCopy: snapshot,
+      memoryAfterDecode: snapshot
+    )
+
+    let report = MLXCheckpointDecodeMemoryReport(
+      expectedGeneratedTokenCount: 16,
+      warmupGeneratedTokenCount: 16,
+      baseline: baseline,
+      withHeldCheckpointCopy: incompleteHeldCopy
+    )
+
+    #expect(!report.passed)
+  }
+
+  @Test
+  func cacheParityReportSchemaIncludesCheckpointedDecodeMemory() {
+    let report = MLXCacheParityHarness.skippedReport(
+      family: .gemma,
+      reason: "model-free schema assertion"
+    )
+
+    #expect(report.schemaVersion == 9)
+    #expect(!report.provenance.generatedAt.isEmpty)
+    #expect(report.provenance.gitCommit?.count == 40)
+    #expect(report.provenance.sourceDirty != nil)
+    #expect(report.provenance.packageResolvedSHA256?.count == 64)
+    #expect(report.provenance.mlxSwiftRevision?.count == 40)
+    #expect(report.provenance.mlxSwiftLMRevision?.count == 40)
+  }
+
+  @Test
   func fullPromptProcessorDoesNotPrimePenaltyStateWithSuffix() {
     let recorder = PromptRecordingState()
-    var processor = MLXFullPromptLogitProcessor(
+    var processor = MLXPrefixFullPromptLogitProcessor(
       base: PromptRecordingProcessor(state: recorder),
       fullPrompt: MLXArray([10, 20, 30, 40])
     )
@@ -148,6 +256,18 @@ struct MLXCacheParitySupportTests {
     #expect(cache.state.map { $0.asArray(Float.self) } == originalStateBeforeCopyMutation)
     #expect(typedCopy.state[0].asArray(Float.self) != copiedStateBeforeMutation)
   }
+
+  private func memorySnapshot(
+    active: Int,
+    cache: Int,
+    peak: Int
+  ) -> MLXCacheParityMemorySnapshot {
+    MLXCacheParityMemorySnapshot(
+      activeMemory: active,
+      cacheMemory: cache,
+      peakMemory: peak
+    )
+  }
 }
 
 #if SUMIKA_CACHE_PARITY_TARGET
@@ -156,6 +276,15 @@ struct MLXCacheParitySupportTests {
     @Test(.enabled(if: MLXCacheParityEnvironment.enabled))
     func gemmaColdAndWarmCacheParity() async throws {
       try await run(family: .gemma)
+    }
+
+    @Test(.enabled(if: MLXCacheParityEnvironment.enabled))
+    func gemmaE4BColdAndWarmCacheParity() async throws {
+      try await run(
+        family: .gemma,
+        modelID: "gemma4-e4b-qat-4bit",
+        reportFileStem: "gemma-e4b"
+      )
     }
 
     @Test(.enabled(if: MLXCacheParityEnvironment.enabled))
@@ -218,18 +347,124 @@ struct MLXCacheParitySupportTests {
         }
         switch family {
         case .gemma:
-          #expect(
-            report.scenarios.map(\.name) == [
-              "structured-tool-follow-up",
-              "structured-tool-follow-up-beyond-sliding-window",
-            ]
-          )
+          if model.id == "gemma4-e4b-qat-4bit" {
+            #expect(model.prefixReusePolicy == .cacheOnly)
+            #expect(
+              report.scenarios.map(\.name) == [
+                "structured-tool-follow-up",
+                "structured-tool-follow-up-reasoning-on",
+                "structured-tool-follow-up-beyond-sliding-window",
+              ]
+            )
+            #expect(report.scenarios.map(\.reasoningEnabled) == [false, true, false])
+            let productionPath = try #require(report.prefixGeneratorPath)
+            #expect(productionPath.validationScope == "prefix_generator_only")
+            #expect(productionPath.coldP1Mode == "cold:prefix_checkpoint_missing")
+            #expect(productionPath.coldP2Mode == "cold:prefix_checkpoint_missing")
+            #expect(productionPath.warmP2Mode == "suffix")
+            #expect(productionPath.coldP1ProducerDrained)
+            #expect(productionPath.coldP2ProducerDrained)
+            #expect(productionPath.warmP2ProducerDrained)
+            #expect(productionPath.checkpointSurvivedProducerLifecycle)
+            #expect(
+              productionPath.coldP1Output.promptTokenCount
+                == productionPath.coldP1FullPromptTokenCount
+            )
+            #expect(
+              productionPath.reusedPrefixTokenCount
+                == productionPath.coldP1FullPromptTokenCount
+            )
+            #expect(
+              productionPath.fullPromptTokenCount
+                == productionPath.reusedPrefixTokenCount + productionPath.suffixTokenCount
+            )
+            #expect(
+              productionPath.coldP2Output.promptTokenCount
+                == productionPath.fullPromptTokenCount
+            )
+            #expect(
+              productionPath.warmP2Output.promptTokenCount
+                == productionPath.suffixTokenCount
+            )
+            #expect(
+              productionPath.coldP2Output.generatedTokenCount
+                == productionPath.warmP2Output.generatedTokenCount
+            )
+            #expect(
+              productionPath.coldP2Output.stopReason
+                == productionPath.warmP2Output.stopReason
+            )
+            #expect(
+              productionPath.coldP2Output.textSHA256
+                == productionPath.warmP2Output.textSHA256
+            )
+            #expect(
+              productionPath.coldP2Output.toolCallsSHA256
+                == productionPath.warmP2Output.toolCallsSHA256
+            )
+            #expect(productionPath.toolCallParity)
+            #expect(productionPath.outputParity)
+            #expect(productionPath.passed)
+          } else {
+            #expect(
+              report.scenarios.map(\.name) == [
+                "structured-tool-follow-up",
+                "structured-tool-follow-up-beyond-sliding-window",
+              ]
+            )
+            #expect(report.scenarios.allSatisfy { !$0.reasoningEnabled })
+            #expect(report.prefixGeneratorPath.map { _ in true } == nil)
+          }
           #expect(report.scenarios.last?.exceedsExpectedSlidingWindow == true)
           #expect((report.scenarios.last?.p1TokenCount ?? 0) > 512)
         case .qwen:
           #expect(report.scenarios.map(\.name) == ["structured-tool-follow-up"])
+          #expect(report.prefixGeneratorPath.map { _ in true } == nil)
         }
         for scenario in report.scenarios {
+          if model.id == "gemma4-e4b-qat-4bit" {
+            let memory = try #require(scenario.checkpointedDecodeMemory)
+            #expect(!memory.baseline.retainsCheckpointCopy)
+            #expect(memory.withHeldCheckpointCopy.retainsCheckpointCopy)
+            #expect(memory.passed)
+            #expect(memory.expectedGeneratedTokenCount == 16)
+            #expect(memory.warmupGeneratedTokenCount == 16)
+            #expect(memory.baseline.generatedTokenCount == 16)
+            #expect(memory.withHeldCheckpointCopy.generatedTokenCount == 16)
+            #expect(
+              memory.baselineGrowth
+                == MLXCheckpointDecodeMemoryGrowth(path: memory.baseline)
+            )
+            #expect(
+              memory.withHeldCheckpointCopyGrowth
+                == MLXCheckpointDecodeMemoryGrowth(
+                  path: memory.withHeldCheckpointCopy
+                )
+            )
+            #expect(
+              memory.withCopyMinusBaselineGrowth
+                == MLXCheckpointDecodeMemoryGrowth(
+                  baseline: memory.baselineGrowth,
+                  current: memory.withHeldCheckpointCopyGrowth
+                )
+            )
+            for path in [memory.baseline, memory.withHeldCheckpointCopy] {
+              #expect(
+                path.memoryBeforePrefill.peakMemory
+                  <= path.memoryAfterPrefill.peakMemory
+              )
+              #expect(
+                path.memoryAfterPrefill.peakMemory
+                  <= path.memoryAfterCheckpointCopy.peakMemory
+              )
+              #expect(
+                path.memoryAfterCheckpointCopy.peakMemory
+                  <= path.memoryAfterDecode.peakMemory
+              )
+            }
+          } else {
+            #expect(scenario.checkpointedDecodeMemory.map { _ in true } == nil)
+          }
           #expect(scenario.p1IsExactPrefixOfP2)
           #expect(scenario.copyIsolation.passed)
           #expect(scenario.copyIsolation.originalOffsetsUnchanged)

@@ -5,6 +5,8 @@ nonisolated enum MLXSessionCacheMode: String, Equatable, Sendable {
   case newSession = "new_session"
   case reusedSession = "reused_session"
   case appendDelta = "append_delta"
+  case prefixCheckpointCold = "prefix_checkpoint_cold"
+  case prefixCheckpointSuffix = "prefix_checkpoint_suffix"
   case dirtyRebuild = "dirty_rebuild"
 }
 
@@ -25,6 +27,11 @@ nonisolated enum MLXSessionCacheReason: String, Equatable, Sendable {
   case identityChanged = "identity_changed"
   case historyChanged = "history_changed"
   case toolFollowUpRebuild = "tool_follow_up_rebuild"
+  case prefixCheckpointMissing = "prefix_checkpoint_missing"
+  case prefixCheckpointIdentityChanged = "prefix_checkpoint_identity_changed"
+  case tokenPrefixMismatch = "token_prefix_mismatch"
+  case tokenPrefixEmptySuffix = "token_prefix_empty_suffix"
+  case tokenPrefixSuffixReuse = "token_prefix_suffix_reuse"
   case maxKVSizeChanged = "max_kv_size_changed"
   case reasoningChanged = "reasoning_changed"
   case invalidatedGenCancelled = "invalidated_generation_cancelled"
@@ -110,6 +117,9 @@ nonisolated enum MLXCachedSessionState: Equatable, Sendable {
 nonisolated struct MLXSessionCacheTrace: Equatable, Sendable {
   let cacheMode: MLXSessionCacheMode
   let cacheReason: MLXSessionCacheReason
+  let fullPromptTokens: Int?
+  let reusedPrefixTokens: Int?
+  let suffixTokens: Int?
   let contextSignature: String
   let previousContextSignature: String?
   let appendOnly: Bool
@@ -119,6 +129,38 @@ nonisolated struct MLXSessionCacheTrace: Equatable, Sendable {
   let firstMismatchIndex: Int?
   let systemPromptChanged: Bool?
   let currentPromptContextChanged: Bool?
+
+  init(
+    cacheMode: MLXSessionCacheMode,
+    cacheReason: MLXSessionCacheReason,
+    fullPromptTokens: Int? = nil,
+    reusedPrefixTokens: Int? = nil,
+    suffixTokens: Int? = nil,
+    contextSignature: String,
+    previousContextSignature: String?,
+    appendOnly: Bool,
+    reusedMessageCount: Int,
+    appendedMessageCount: Int,
+    mismatchReason: String?,
+    firstMismatchIndex: Int?,
+    systemPromptChanged: Bool?,
+    currentPromptContextChanged: Bool?
+  ) {
+    self.cacheMode = cacheMode
+    self.cacheReason = cacheReason
+    self.fullPromptTokens = fullPromptTokens
+    self.reusedPrefixTokens = reusedPrefixTokens
+    self.suffixTokens = suffixTokens
+    self.contextSignature = contextSignature
+    self.previousContextSignature = previousContextSignature
+    self.appendOnly = appendOnly
+    self.reusedMessageCount = reusedMessageCount
+    self.appendedMessageCount = appendedMessageCount
+    self.mismatchReason = mismatchReason
+    self.firstMismatchIndex = firstMismatchIndex
+    self.systemPromptChanged = systemPromptChanged
+    self.currentPromptContextChanged = currentPromptContextChanged
+  }
 }
 
 nonisolated struct CachedMLXSession {

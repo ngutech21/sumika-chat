@@ -9,7 +9,9 @@ final actor MLXChatRuntime: ChatModelRuntime {
   private var modelContainer: ModelContainer?
   private var loadedModelSupportsImageInput = false
   private var loadedReasoningTraceFormat: ReasoningTraceFormat = .none
+  private var loadedPrefixReusePolicy: ModelPrefixReusePolicy = .disabled
   private var cachedSession: CachedMLXSession?
+  private var cachedPrefixCheckpoint: CachedMLXPrefixCheckpoint?
   private var pendingCacheInvalidationReason: MLXSessionInvalidationReason?
   private var lastRuntimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
   private let attachmentStore = ChatAttachmentStore()
@@ -18,9 +20,14 @@ final actor MLXChatRuntime: ChatModelRuntime {
   private var activeGenerationRegistry = MLXActiveGenerationRegistry()
   private var lifecycleTransitionInProgress = false
   private let memoryCacheClearer: MLXMemoryCacheClearer
+  private let prefixReuseExperimentEnabled: Bool
 
-  init(memoryCacheClearer: MLXMemoryCacheClearer = .live) {
+  init(
+    memoryCacheClearer: MLXMemoryCacheClearer = .live,
+    prefixReuseExperimentEnabled: Bool = MLXChatRuntime.prefixReuseEnabled()
+  ) {
     self.memoryCacheClearer = memoryCacheClearer
+    self.prefixReuseExperimentEnabled = prefixReuseExperimentEnabled
   }
 
   func load(configuration: ChatModelConfiguration) async throws {
@@ -53,6 +60,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     modelContainer = container
     loadedModelSupportsImageInput = configuration.supportsImageInput
     loadedReasoningTraceFormat = configuration.reasoningTraceFormat
+    loadedPrefixReusePolicy = configuration.prefixReusePolicy
     contextTokenLimit = configuration.contextTokenLimit
     lastRuntimeCacheDebugSnapshot = nil
     invalidateCachedSession(reason: .modelChanged)
@@ -66,6 +74,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     modelContainer = nil
     loadedModelSupportsImageInput = false
     loadedReasoningTraceFormat = .none
+    loadedPrefixReusePolicy = .disabled
     contextTokenLimit = nil
     lastRuntimeCacheDebugSnapshot = nil
     await MLXModelStreamProcessor.clearMemoryCache(
@@ -118,6 +127,54 @@ final actor MLXChatRuntime: ChatModelRuntime {
     settings.presencePenalty == 0 ? nil : Float(settings.presencePenalty)
   }
 
+  nonisolated static func generateParameters(
+    from settings: ChatGenerationSettings
+  ) -> GenerateParameters {
+    GenerateParameters(
+      maxTokens: settings.maxTokens,
+      maxKVSize: settings.maxKVSize,
+      temperature: Float(settings.temperature),
+      topP: Float(settings.topP),
+      topK: settings.topK,
+      repetitionPenalty: mlxRepetitionPenalty(from: settings),
+      repetitionContextSize: settings.repetitionContextSize,
+      presencePenalty: mlxPresencePenalty(from: settings),
+      presenceContextSize: settings.repetitionContextSize
+    )
+  }
+
+  nonisolated static func prefixReuseEnabled(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> Bool {
+    environment["SUMIKA_MLX_PREFIX_REUSE"] == "1"
+  }
+
+  nonisolated static func shouldUsePrefixCheckpoint(
+    experimentEnabled: Bool,
+    policy: ModelPrefixReusePolicy,
+    hasTools: Bool,
+    hasImages: Bool,
+    maxKVSize: Int?
+  ) -> Bool {
+    experimentEnabled
+      && policy == .cacheOnly
+      && hasTools
+      && !hasImages
+      && maxKVSize == nil
+  }
+
+  nonisolated static func shouldFallbackAfterPrefixSetupError(
+    _ error: any Error,
+    ownsCurrentGeneration: Bool = true,
+    taskCancelled: Bool = false,
+    lifecycleTransitionInProgress: Bool = false
+  ) -> Bool {
+    ownsCurrentGeneration
+      && !taskCancelled
+      && !lifecycleTransitionInProgress
+      && !(error is CancellationError)
+  }
+
   nonisolated static func appendTransientInstructions(
     _ instructions: [String],
     toPromptSnapshot promptSnapshot: [MLXMessageSnapshot],
@@ -154,6 +211,16 @@ final actor MLXChatRuntime: ChatModelRuntime {
       }
     }
     return (updatedSnapshot, updatedMessages)
+  }
+
+  nonisolated static func prefixSystemPrompt(
+    stableInstructions: String,
+    transientInstructions: [String]
+  ) -> String {
+    ([stableInstructions] + transientInstructions)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n\n")
   }
 
   func streamReply(
@@ -219,17 +286,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       from: transcript,
       images: imageInputs
     )
-    let generateParameters = GenerateParameters(
-      maxTokens: settings.maxTokens,
-      maxKVSize: settings.maxKVSize,
-      temperature: Float(settings.temperature),
-      topP: Float(settings.topP),
-      topK: settings.topK,
-      repetitionPenalty: Self.mlxRepetitionPenalty(from: settings),
-      repetitionContextSize: settings.repetitionContextSize,
-      presencePenalty: Self.mlxPresencePenalty(from: settings),
-      presenceContextSize: settings.repetitionContextSize
-    )
+    let generateParameters = Self.generateParameters(from: settings)
     let additionalContext = Self.chatTemplateAdditionalContext(
       reasoningEnabled: settings.reasoningEnabled)
     let systemPrompt = promptPlan.stableInstructions
@@ -246,6 +303,56 @@ final actor MLXChatRuntime: ChatModelRuntime {
     let promptMessages = promptWithTransientInstructions.promptMessages
     let finalPrompt = promptMessages.map(\.content).joined(separator: "\n\n")
     await supersedeActiveGenerationBeforeStartingNew()
+    let usePrefixCheckpoint = Self.shouldUsePrefixCheckpoint(
+      experimentEnabled: prefixReuseExperimentEnabled,
+      policy: loadedPrefixReusePolicy,
+      hasTools: !(toolSpecs?.isEmpty ?? true),
+      hasImages: !imageAttachments.isEmpty,
+      maxKVSize: settings.maxKVSize
+    )
+    if usePrefixCheckpoint {
+      cachedSession = nil
+      pendingCacheInvalidationReason = nil
+      let prefixSystemPrompt = Self.prefixSystemPrompt(
+        stableInstructions: systemPrompt,
+        transientInstructions: promptPlan.transientInstructions
+      )
+      let prefixFinalPrompt = generationInput.promptMessages.map(\.content)
+        .joined(separator: "\n\n")
+      do {
+        return try await streamPrefixReply(
+          modelContainer: modelContainer,
+          history: history,
+          historySnapshot: historySnapshot,
+          promptMessages: generationInput.promptMessages,
+          promptSnapshot: generationInput.promptSnapshot,
+          systemPrompt: prefixSystemPrompt,
+          cacheSystemPrompt: prefixSystemPrompt,
+          finalPrompt: prefixFinalPrompt,
+          settings: settings,
+          generateParameters: generateParameters,
+          additionalContext: additionalContext,
+          toolSpecs: toolSpecs ?? [],
+          projectionMode: projectionMode,
+          messageCount: transcript.entries.count,
+          imageAttachments: imageAttachments,
+          streamStartStartedAt: streamStartStartedAt
+        )
+      } catch {
+        guard
+          Self.shouldFallbackAfterPrefixSetupError(
+            error,
+            taskCancelled: Task.isCancelled,
+            lifecycleTransitionInProgress: lifecycleTransitionInProgress
+          )
+        else {
+          throw CancellationError()
+        }
+        pendingCacheInvalidationReason = .runtimeError
+      }
+    } else {
+      cachedPrefixCheckpoint = nil
+    }
     let traceMetadata = TurnTraceContext.current
     let traceID = traceMetadata?.generationID ?? UUID()
     let generationID = generationOwnership.beginGeneration()
@@ -338,7 +445,308 @@ final actor MLXChatRuntime: ChatModelRuntime {
   }
 }
 
+nonisolated private struct CachedMLXPrefixCheckpoint: Sendable {
+  let checkpoint: MLXPrefixGenerationCheckpoint
+  let state: MLXCachedSessionState
+}
+
+nonisolated private struct MLXPrefixRuntimeSetup: Sendable {
+  let plan: MLXPrefixGenerationPlan
+  let generationStartedAt: Date
+  let memoryBeforePrefill: MLXMemorySnapshot?
+}
+
 extension MLXChatRuntime {
+  private func streamPrefixReply(
+    modelContainer: ModelContainer,
+    history: [Chat.Message],
+    historySnapshot: [MLXMessageSnapshot],
+    promptMessages: [Chat.Message],
+    promptSnapshot: [MLXMessageSnapshot],
+    systemPrompt: String,
+    cacheSystemPrompt: String,
+    finalPrompt: String,
+    settings: ChatGenerationSettings,
+    generateParameters: GenerateParameters,
+    additionalContext: [String: any Sendable],
+    toolSpecs: [ToolSpec],
+    projectionMode: ModelContextProjectionMode,
+    messageCount: Int,
+    imageAttachments: [ChatAttachment],
+    streamStartStartedAt: Date
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    let traceMetadata = TurnTraceContext.current
+    let traceID = traceMetadata?.generationID ?? UUID()
+    let generationID = generationOwnership.beginGeneration()
+    let currentIdentity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: cacheSystemPrompt,
+      settings: settings,
+      projectionMode: projectionMode
+    )
+    let messageSnapshot = historySnapshot + promptSnapshot
+    let fullMessages = try MLXHistoryRenderer.runtimeHistoryMessages(
+      systemPrompt: systemPrompt,
+      history: history + promptMessages
+    )
+    let promptBytes = MLXSessionCachePolicy.contentByteCount(for: fullMessages)
+
+    let previousCheckpoint = takeReusablePrefixCheckpoint()
+    let previousSnapshot = previousCheckpoint?.messageSnapshot
+    let previousIdentity = previousCheckpoint?.identity
+    let memorySnapshotter = MLXMemorySnapshotter.live
+    let setupTask = Task {
+      try Task.checkCancellation()
+      try await traceDebugRequest(
+        id: traceID,
+        systemPrompt: systemPrompt,
+        history: history,
+        prompt: finalPrompt,
+        settings: settings,
+        imageAttachments: imageAttachments
+      )
+      try Task.checkCancellation()
+      let memoryBeforePrefill = memorySnapshotter.snapshot()
+      let generationStartedAt = Date()
+      let plan = try await MLXPrefixGenerator.prepare(
+        isolation: self,
+        modelContainer: modelContainer,
+        userInput: UserInput(
+          chat: fullMessages,
+          tools: toolSpecs,
+          additionalContext: additionalContext
+        ),
+        previousCheckpoint: previousCheckpoint,
+        identity: currentIdentity,
+        messageSnapshot: messageSnapshot,
+        parameters: generateParameters,
+        tools: toolSpecs
+      )
+      guard !Task.isCancelled, generationOwnership.activeGenerationID == generationID else {
+        plan.producerTask.cancel()
+        await plan.producerTask.value
+        throw CancellationError()
+      }
+      cachedPrefixCheckpoint = CachedMLXPrefixCheckpoint(
+        checkpoint: plan.checkpoint,
+        state: .inFlight(generationID: generationID)
+      )
+      activeGenerationRegistry.register(id: generationID, task: plan.producerTask)
+      return MLXPrefixRuntimeSetup(
+        plan: plan,
+        generationStartedAt: generationStartedAt,
+        memoryBeforePrefill: memoryBeforePrefill
+      )
+    }
+    let setupDrainTask = activeGenerationRegistry.registerCancellableSetup(
+      id: generationID,
+      task: setupTask
+    )
+
+    let runtimeSetup: MLXPrefixRuntimeSetup
+    do {
+      runtimeSetup = try await withTaskCancellationHandler {
+        try await setupTask.value
+      } onCancel: {
+        setupTask.cancel()
+        setupDrainTask.cancel()
+      }
+    } catch {
+      let ownedCurrentGeneration = generationOwnership.invalidateIfCurrent(generationID)
+      let shouldFallback = Self.shouldFallbackAfterPrefixSetupError(
+        error,
+        ownsCurrentGeneration: ownedCurrentGeneration,
+        taskCancelled: Task.isCancelled,
+        lifecycleTransitionInProgress: lifecycleTransitionInProgress
+      )
+      if ownedCurrentGeneration {
+        cachedPrefixCheckpoint = nil
+        activeGenerationRegistry.clearIfCurrent(generationID)
+        if shouldFallback {
+          pendingCacheInvalidationReason = .runtimeError
+        }
+      }
+      guard shouldFallback else {
+        throw CancellationError()
+      }
+      throw error
+    }
+    let prefixPlan = runtimeSetup.plan
+
+    guard generationOwnership.activeGenerationID == generationID, !Task.isCancelled else {
+      prefixPlan.producerTask.cancel()
+      await prefixPlan.producerTask.value
+      if generationOwnership.invalidateIfCurrent(generationID) {
+        activeGenerationRegistry.clearIfCurrent(generationID)
+      }
+      throw CancellationError()
+    }
+
+    let cacheTrace = prefixCacheTrace(
+      plan: prefixPlan,
+      currentSnapshot: messageSnapshot,
+      currentIdentity: currentIdentity,
+      previousSnapshot: previousSnapshot,
+      previousIdentity: previousIdentity
+    )
+    let producerTask = prefixPlan.producerTask
+    lastRuntimeCacheDebugSnapshot = MLXSessionCachePolicy.runtimeCacheDebugSnapshot(
+      from: cacheTrace,
+      appendDeltaStartIndex: nil,
+      generationID: traceID
+    )
+
+    await recordRuntimeStreamStart(
+      traceID: traceID,
+      traceMetadata: traceMetadata,
+      cacheTrace: cacheTrace,
+      streamStartStartedAt: streamStartStartedAt,
+      promptBytes: promptBytes,
+      messageCount: messageCount,
+      imageAttachments: imageAttachments
+    )
+
+    guard generationOwnership.activeGenerationID == generationID, !Task.isCancelled else {
+      producerTask.cancel()
+      await producerTask.value
+      if generationOwnership.activeGenerationID == generationID {
+        markPrefixSessionInvalid(generationID: generationID, reason: .cancelled)
+      }
+      throw CancellationError()
+    }
+
+    let streamPlan = MLXModelStreamProcessor.modelStreamPlan(
+      from: prefixPlan.stream,
+      reasoningTraceFormat: settings.reasoningEnabled ? loadedReasoningTraceFormat : .none,
+      traceID: traceID,
+      traceMetadata: traceMetadata,
+      cacheTrace: cacheTrace,
+      markCompleted: { [weak self] _ in
+        await self?.markPrefixSessionCompleted(generationID: generationID)
+      },
+      markNativeToolCallBoundary: { [weak self] _, _ in
+        await self?.markPrefixNativeToolCallBoundary(generationID: generationID)
+      },
+      markCancelled: { [weak self] reason in
+        producerTask.cancel()
+        await producerTask.value
+        await self?.markPrefixSessionInvalid(
+          generationID: generationID,
+          reason: reason
+        )
+      },
+      generationStartedAt: runtimeSetup.generationStartedAt,
+      memoryBeforePrefill: runtimeSetup.memoryBeforePrefill,
+      memorySnapshotter: memorySnapshotter
+    )
+    activeGenerationRegistry.register(id: generationID, task: streamPlan.task)
+    return streamPlan.stream
+  }
+
+  private func prefixCacheTrace(
+    plan: MLXPrefixGenerationPlan,
+    currentSnapshot: [MLXMessageSnapshot],
+    currentIdentity: MLXSessionCacheIdentity,
+    previousSnapshot: [MLXMessageSnapshot]?,
+    previousIdentity: MLXSessionCacheIdentity?
+  ) -> MLXSessionCacheTrace {
+    let mode: MLXSessionCacheMode
+    let reason: MLXSessionCacheReason
+    let mismatchReason: String?
+    let firstMismatchIndex: Int?
+    switch plan.mode {
+    case .cold(let coldReason):
+      mode = .prefixCheckpointCold
+      reason = Self.cacheReason(for: coldReason)
+      mismatchReason = coldReason.rawValue
+      firstMismatchIndex =
+        coldReason == .tokenPrefixMismatch ? plan.commonPrefixTokenCount : nil
+    case .suffix:
+      mode = .prefixCheckpointSuffix
+      reason = .tokenPrefixSuffixReuse
+      mismatchReason = nil
+      firstMismatchIndex = nil
+    }
+
+    let appendOnly =
+      previousSnapshot.map {
+        MLXSessionCachePolicy.isPrefix($0, of: currentSnapshot)
+      } ?? false
+    let tokenTelemetry = plan.tokenTelemetry
+    return MLXSessionCachePolicy.trace(
+      mode: mode,
+      reason: reason,
+      currentHistory: currentSnapshot,
+      currentIdentity: currentIdentity,
+      cachedPrefix: previousSnapshot,
+      cachedIdentity: previousIdentity,
+      appendOnly: appendOnly,
+      mismatchReason: mismatchReason,
+      firstMismatchIndex: firstMismatchIndex,
+      fullPromptTokens: tokenTelemetry.fullPromptTokens,
+      reusedPrefixTokens: tokenTelemetry.reusedPrefixTokens,
+      suffixTokens: tokenTelemetry.suffixTokens
+    )
+  }
+
+  private func takeReusablePrefixCheckpoint() -> MLXPrefixGenerationCheckpoint? {
+    guard let cached = cachedPrefixCheckpoint, cached.state.isReusable else {
+      cachedPrefixCheckpoint = nil
+      return nil
+    }
+    cachedPrefixCheckpoint = nil
+    return cached.checkpoint
+  }
+
+  nonisolated private static func cacheReason(
+    for reason: MLXPrefixColdReason
+  ) -> MLXSessionCacheReason {
+    switch reason {
+    case .noCheckpoint:
+      .prefixCheckpointMissing
+    case .identityChanged:
+      .prefixCheckpointIdentityChanged
+    case .tokenPrefixMismatch:
+      .tokenPrefixMismatch
+    case .emptySuffix:
+      .tokenPrefixEmptySuffix
+    }
+  }
+
+  private func markPrefixSessionCompleted(generationID: MLXGenerationID) {
+    guard generationOwnership.completeIfCurrent(generationID) else {
+      return
+    }
+    cachedPrefixCheckpoint = nil
+    activeGenerationRegistry.clearIfCurrent(generationID)
+  }
+
+  private func markPrefixNativeToolCallBoundary(generationID: MLXGenerationID) {
+    guard generationOwnership.completeIfCurrent(generationID),
+      let cached = cachedPrefixCheckpoint,
+      let completedState = cached.state.completing(generationID: generationID)
+    else {
+      activeGenerationRegistry.clearIfCurrent(generationID)
+      return
+    }
+    cachedPrefixCheckpoint = CachedMLXPrefixCheckpoint(
+      checkpoint: cached.checkpoint,
+      state: completedState
+    )
+    activeGenerationRegistry.clearIfCurrent(generationID)
+  }
+
+  private func markPrefixSessionInvalid(
+    generationID: MLXGenerationID,
+    reason: MLXSessionInvalidationReason
+  ) {
+    guard generationOwnership.invalidateIfCurrent(generationID) else {
+      return
+    }
+    cachedPrefixCheckpoint = nil
+    activeGenerationRegistry.clearIfCurrent(generationID)
+    pendingCacheInvalidationReason = reason
+  }
+
   private func traceDebugRequest(
     id: UUID,
     systemPrompt: String,
@@ -379,6 +787,26 @@ extension MLXChatRuntime {
     messageCount: Int,
     imageAttachments: [ChatAttachment]
   ) async {
+    await recordRuntimeStreamStart(
+      traceID: traceID,
+      traceMetadata: traceMetadata,
+      cacheTrace: cachePlan.trace,
+      streamStartStartedAt: streamStartStartedAt,
+      promptBytes: MLXSessionCachePolicy.contentByteCount(for: cachePlan.streamMessages),
+      messageCount: messageCount,
+      imageAttachments: imageAttachments
+    )
+  }
+
+  private func recordRuntimeStreamStart(
+    traceID: UUID,
+    traceMetadata: TurnTraceMetadata?,
+    cacheTrace: MLXSessionCacheTrace,
+    streamStartStartedAt: Date,
+    promptBytes: Int,
+    messageCount: Int,
+    imageAttachments: [ChatAttachment]
+  ) async {
     guard let traceMetadata else {
       return
     }
@@ -388,21 +816,24 @@ extension MLXChatRuntime {
         generationID: traceID,
         phase: .runtimeStreamStart,
         durationMs: Date().timeIntervalSince(streamStartStartedAt) * 1000,
-        promptBytes: MLXSessionCachePolicy.contentByteCount(for: cachePlan.streamMessages),
+        promptBytes: promptBytes,
+        fullPromptTokens: cacheTrace.fullPromptTokens,
+        reusedPrefixTokens: cacheTrace.reusedPrefixTokens,
+        suffixTokens: cacheTrace.suffixTokens,
         messageCount: messageCount,
         toolLoopIteration: traceMetadata.toolLoopIteration,
-        cacheMode: cachePlan.trace.cacheMode.rawValue,
-        cacheReason: cachePlan.trace.cacheReason.rawValue,
+        cacheMode: cacheTrace.cacheMode.rawValue,
+        cacheReason: cacheTrace.cacheReason.rawValue,
         interactionMode: traceMetadata.interactionMode,
-        contextSignature: cachePlan.trace.contextSignature,
-        previousContextSignature: cachePlan.trace.previousContextSignature,
-        appendOnly: cachePlan.trace.appendOnly,
-        reusedMessageCount: cachePlan.trace.reusedMessageCount,
-        appendedMessageCount: cachePlan.trace.appendedMessageCount,
-        mismatchReason: cachePlan.trace.mismatchReason,
-        firstMismatchIndex: cachePlan.trace.firstMismatchIndex,
-        systemPromptChanged: cachePlan.trace.systemPromptChanged,
-        currentPromptContextChanged: cachePlan.trace.currentPromptContextChanged,
+        contextSignature: cacheTrace.contextSignature,
+        previousContextSignature: cacheTrace.previousContextSignature,
+        appendOnly: cacheTrace.appendOnly,
+        reusedMessageCount: cacheTrace.reusedMessageCount,
+        appendedMessageCount: cacheTrace.appendedMessageCount,
+        mismatchReason: cacheTrace.mismatchReason,
+        firstMismatchIndex: cacheTrace.firstMismatchIndex,
+        systemPromptChanged: cacheTrace.systemPromptChanged,
+        currentPromptContextChanged: cacheTrace.currentPromptContextChanged,
         imageCount: imageAttachments.isEmpty ? nil : imageAttachments.count,
         imageTypes: MLXHistoryRenderer.imageTypes(from: imageAttachments),
         imageByteCount: MLXHistoryRenderer.imageByteCount(from: imageAttachments)
@@ -419,7 +850,11 @@ extension MLXChatRuntime {
       return
     }
 
-    markCachedSessionInvalid(generationID: superseded.id, reason: reason)
+    if cachedPrefixCheckpoint?.state == .inFlight(generationID: superseded.id) {
+      markPrefixSessionInvalid(generationID: superseded.id, reason: reason)
+    } else {
+      markCachedSessionInvalid(generationID: superseded.id, reason: reason)
+    }
     await superseded.task.value
   }
 
@@ -689,6 +1124,7 @@ extension MLXChatRuntime {
   private func invalidateCachedSession(reason: MLXSessionInvalidationReason) {
     generationOwnership.invalidateActiveGeneration()
     cachedSession = nil
+    cachedPrefixCheckpoint = nil
     pendingCacheInvalidationReason = reason
   }
 

@@ -49,6 +49,11 @@ struct TracePerformanceReportTests {
     #expect(integer(totals, "generationCount") == 5)
     #expect(integer(totals, "prefillGenerationCount") == 2)
     #expect(integer(totals, "promptTokens") == 1_500)
+    #expect(integer(totals, "prefixTokenGenerationCount") == 2)
+    #expect(integer(totals, "fullPromptTokens") == 2_500)
+    #expect(integer(totals, "reusedPrefixTokens") == 1_000)
+    #expect(integer(totals, "suffixTokens") == 1_500)
+    #expect(double(totals, "reusedPrefixPercent") == 40)
     #expect(double(totals, "prefillMs") == 3_000)
     #expect(double(totals, "promptTokensPerSecond") == 500)
     #expect(integer(totals, "decodeGenerationCount") == 2)
@@ -68,6 +73,10 @@ struct TracePerformanceReportTests {
     let turnOneSummary = try #require(turnOne["summary"] as? [String: Any])
     #expect(integer(turnOneSummary, "generationCount") == 3)
     #expect(integer(turnOneSummary, "decodeGenerationCount") == 2)
+    #expect(integer(turnOneSummary, "prefixTokenGenerationCount") == 2)
+    #expect(integer(turnOneSummary, "fullPromptTokens") == 2_500)
+    #expect(integer(turnOneSummary, "reusedPrefixTokens") == 1_000)
+    #expect(integer(turnOneSummary, "suffixTokens") == 1_500)
     #expect(integer(turnOneSummary, "legacyDecodeGenerationCount") == 1)
     #expect(double(turnOneSummary, "legacyDecodeWallMs") == 4_000)
     #expect(double(turnOneSummary, "legacyReportedTokensPerSecond") == 50)
@@ -76,6 +85,7 @@ struct TracePerformanceReportTests {
     let turnTwoSummary = try #require(turnTwo["summary"] as? [String: Any])
     #expect(integer(turnTwoSummary, "generationCount") == 2)
     #expect(integer(turnTwoSummary, "decodeGenerationCount") == 0)
+    #expect(integer(turnTwoSummary, "prefixTokenGenerationCount") == 0)
     #expect(integer(turnTwoSummary, "legacyDecodeGenerationCount") == 1)
     #expect(integer(turnTwoSummary, "legacyGeneratedTokenCount") == 50)
 
@@ -83,6 +93,14 @@ struct TracePerformanceReportTests {
     let newGeneration = try #require(
       generations.first { $0["generationID"] as? String == "new-1" })
     #expect(newGeneration["decodeSemantics"] as? String == "mlx_generate_time")
+    #expect(integer(newGeneration, "fullPromptTokens") == 1_000)
+    #expect(integer(newGeneration, "reusedPrefixTokens") == 0)
+    #expect(integer(newGeneration, "suffixTokens") == 1_000)
+    let reusedGeneration = try #require(
+      generations.first { $0["generationID"] as? String == "new-2" })
+    #expect(integer(reusedGeneration, "fullPromptTokens") == 1_500)
+    #expect(integer(reusedGeneration, "reusedPrefixTokens") == 1_000)
+    #expect(integer(reusedGeneration, "suffixTokens") == 500)
     let legacyGeneration = try #require(
       generations.first { $0["generationID"] as? String == "legacy-1" })
     #expect(
@@ -97,6 +115,7 @@ struct TracePerformanceReportTests {
       encoding: .utf8
     )
     #expect(markdown.contains("## Completion-info Totals"))
+    #expect(markdown.contains("## Prefix Reuse Tokens"))
     #expect(markdown.contains("## Legacy Decode Timings"))
     #expect(markdown.contains("wall time after the first streamed chunk"))
     #expect(markdown.contains("process-global counter"))
@@ -106,6 +125,7 @@ struct TracePerformanceReportTests {
       )
     )
     #expect(markdown.contains("| Overall | 2 | 150 | 6000.0 | 37.5 |"))
+    #expect(markdown.contains("| Overall | 2 | 2500 | 1000 | 1500 | 40.0 |"))
     #expect(markdown.contains("MLX generateTime"))
     #expect(markdown.contains("legacy wall after first chunk"))
   }
@@ -208,10 +228,10 @@ private let traceFixture =
   """
   {"kind":"gemma_request","id":"new-1"}
   {"kind":"turn_trace","phase":"runtime_stream_start","generationID":"new-1","turnID":"turn-1","interactionMode":"agent","durationMs":3,"promptBytes":1200}
-  {"kind":"turn_trace","phase":"runtime_prefill","generationID":"new-1","turnID":"turn-1","durationMs":2000,"promptTokens":1000,"tokensPerSecond":500,"mlxActiveMemoryBytesBeforePrefill":1048576,"mlxCacheMemoryBytesBeforePrefill":2097152,"mlxPeakMemoryBytesBeforePrefill":3145728,"mlxActiveMemoryBytesAfterPrefill":4194304,"mlxCacheMemoryBytesAfterPrefill":5242880,"mlxPeakMemoryBytesAfterPrefill":6291456}
+  {"kind":"turn_trace","phase":"runtime_prefill","generationID":"new-1","turnID":"turn-1","durationMs":2000,"promptTokens":1000,"fullPromptTokens":1000,"reusedPrefixTokens":0,"suffixTokens":1000,"tokensPerSecond":500,"mlxActiveMemoryBytesBeforePrefill":1048576,"mlxCacheMemoryBytesBeforePrefill":2097152,"mlxPeakMemoryBytesBeforePrefill":3145728,"mlxActiveMemoryBytesAfterPrefill":4194304,"mlxCacheMemoryBytesAfterPrefill":5242880,"mlxPeakMemoryBytesAfterPrefill":6291456}
   {"kind":"turn_trace","phase":"runtime_decode","generationID":"new-1","turnID":"turn-1","durationMs":1000,"generatedTokenCount":100,"tokensPerSecond":100,"mlxActiveMemoryBytesAfterGeneration":7340032,"mlxCacheMemoryBytesAfterGeneration":8388608,"mlxPeakMemoryBytesAfterGeneration":9437184}
   {"kind":"gemma_response","id":"new-1","metrics":{"generatedTokenCount":100,"tokensPerSecond":100}}
-  {"kind":"turn_trace","phase":"runtime_prefill","generationID":"new-2","turnID":"turn-1","durationMs":1000,"promptTokens":500,"tokensPerSecond":500,"mlxActiveMemoryBytesBeforePrefill":2097152,"mlxCacheMemoryBytesBeforePrefill":3145728,"mlxPeakMemoryBytesBeforePrefill":4194304,"mlxActiveMemoryBytesAfterPrefill":8388608,"mlxCacheMemoryBytesAfterPrefill":9437184,"mlxPeakMemoryBytesAfterPrefill":10485760}
+  {"kind":"turn_trace","phase":"runtime_prefill","generationID":"new-2","turnID":"turn-1","durationMs":1000,"promptTokens":500,"fullPromptTokens":1500,"reusedPrefixTokens":1000,"suffixTokens":500,"tokensPerSecond":500,"mlxActiveMemoryBytesBeforePrefill":2097152,"mlxCacheMemoryBytesBeforePrefill":3145728,"mlxPeakMemoryBytesBeforePrefill":4194304,"mlxActiveMemoryBytesAfterPrefill":8388608,"mlxCacheMemoryBytesAfterPrefill":9437184,"mlxPeakMemoryBytesAfterPrefill":10485760}
   {"kind":"turn_trace","phase":"runtime_decode","generationID":"new-2","turnID":"turn-1","durationMs":500,"generatedTokenCount":100,"tokensPerSecond":200,"mlxActiveMemoryBytesAfterGeneration":10485760,"mlxCacheMemoryBytesAfterGeneration":11534336,"mlxPeakMemoryBytesAfterGeneration":12582912}
   {"kind":"gemma_response","id":"new-2","metrics":{"generatedTokenCount":100,"tokensPerSecond":200}}
   {"kind":"turn_trace","phase":"runtime_stream_start","generationID":"legacy-1","turnID":"turn-1","durationMs":2}

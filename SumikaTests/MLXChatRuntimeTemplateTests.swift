@@ -29,6 +29,150 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func prefixReuseEnvironmentRequiresExactOptInValue() {
+    #expect(
+      MLXChatRuntime.prefixReuseEnabled(
+        environment: ["SUMIKA_MLX_PREFIX_REUSE": "1"]
+      ))
+    #expect(!MLXChatRuntime.prefixReuseEnabled(environment: [:]))
+    #expect(
+      !MLXChatRuntime.prefixReuseEnabled(
+        environment: ["SUMIKA_MLX_PREFIX_REUSE": "true"]
+      ))
+    #expect(
+      !MLXChatRuntime.prefixReuseEnabled(
+        environment: ["SUMIKA_MLX_PREFIX_REUSE": "0"]
+      ))
+  }
+
+  @Test
+  func prefixCheckpointGateAdmitsOptedInCacheOnlyToolPrompt() {
+    #expect(
+      MLXChatRuntime.shouldUsePrefixCheckpoint(
+        experimentEnabled: true,
+        policy: .cacheOnly,
+        hasTools: true,
+        hasImages: false,
+        maxKVSize: nil
+      ))
+  }
+
+  @Test
+  func prefixCheckpointGateRejectsDisabledExperiment() {
+    #expect(
+      !MLXChatRuntime.shouldUsePrefixCheckpoint(
+        experimentEnabled: false,
+        policy: .cacheOnly,
+        hasTools: true,
+        hasImages: false,
+        maxKVSize: nil
+      ))
+  }
+
+  @Test
+  func prefixCheckpointGateRejectsDisabledModelPolicy() {
+    #expect(
+      !MLXChatRuntime.shouldUsePrefixCheckpoint(
+        experimentEnabled: true,
+        policy: .disabled,
+        hasTools: true,
+        hasImages: false,
+        maxKVSize: nil
+      ))
+  }
+
+  @Test
+  func prefixCheckpointGateRejectsToolFreePrompt() {
+    #expect(
+      !MLXChatRuntime.shouldUsePrefixCheckpoint(
+        experimentEnabled: true,
+        policy: .cacheOnly,
+        hasTools: false,
+        hasImages: false,
+        maxKVSize: nil
+      ))
+  }
+
+  @Test
+  func prefixCheckpointGateRejectsImagePrompt() {
+    #expect(
+      !MLXChatRuntime.shouldUsePrefixCheckpoint(
+        experimentEnabled: true,
+        policy: .cacheOnly,
+        hasTools: true,
+        hasImages: true,
+        maxKVSize: nil
+      ))
+  }
+
+  @Test
+  func prefixCheckpointGateRejectsExplicitMaxKVSize() {
+    #expect(
+      !MLXChatRuntime.shouldUsePrefixCheckpoint(
+        experimentEnabled: true,
+        policy: .cacheOnly,
+        hasTools: true,
+        hasImages: false,
+        maxKVSize: 4_096
+      ))
+  }
+
+  @Test
+  func prefixSetupCancellationNeverFallsBackToAFullGeneration() {
+    #expect(!MLXChatRuntime.shouldFallbackAfterPrefixSetupError(CancellationError()))
+    #expect(MLXChatRuntime.shouldFallbackAfterPrefixSetupError(MLXTestStreamError()))
+    #expect(
+      !MLXChatRuntime.shouldFallbackAfterPrefixSetupError(
+        MLXTestStreamError(),
+        ownsCurrentGeneration: false
+      ))
+    #expect(
+      !MLXChatRuntime.shouldFallbackAfterPrefixSetupError(
+        MLXTestStreamError(),
+        taskCancelled: true
+      ))
+    #expect(
+      !MLXChatRuntime.shouldFallbackAfterPrefixSetupError(
+        MLXTestStreamError(),
+        lifecycleTransitionInProgress: true
+      ))
+  }
+
+  @Test
+  func prefixTransientInstructionsUseAStableSystemPosition() {
+    let runtimeContext = """
+      [Runtime Context]
+      1. [in_progress] Inspect cache reuse
+      """
+
+    let systemPrompt = MLXChatRuntime.prefixSystemPrompt(
+      stableInstructions: "You are a coding assistant.",
+      transientInstructions: [runtimeContext]
+    )
+
+    #expect(
+      systemPrompt == """
+        You are a coding assistant.
+
+        [Runtime Context]
+        1. [in_progress] Inspect cache reuse
+        """
+    )
+    #expect(
+      MLXChatRuntime.prefixSystemPrompt(
+        stableInstructions: "You are a coding assistant.",
+        transientInstructions: [runtimeContext]
+      ) == systemPrompt
+    )
+    #expect(
+      MLXChatRuntime.prefixSystemPrompt(
+        stableInstructions: "You are a coding assistant.",
+        transientInstructions: [runtimeContext.replacing("in_progress", with: "completed")]
+      ) != systemPrompt
+    )
+  }
+
+  @Test
   func gemma4GenerationConfigFixtureCarriesEOTTokenID() throws {
     let data = Data(
       """
@@ -676,6 +820,81 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func prefixCheckpointCacheModesAndReasonsHaveStableTraceNames() {
+    let coldTrace = MLXSessionCacheTrace(
+      cacheMode: .prefixCheckpointCold,
+      cacheReason: .prefixCheckpointMissing,
+      contextSignature: "cold",
+      previousContextSignature: nil,
+      appendOnly: false,
+      reusedMessageCount: 0,
+      appendedMessageCount: 2,
+      mismatchReason: nil,
+      firstMismatchIndex: nil,
+      systemPromptChanged: nil,
+      currentPromptContextChanged: nil
+    )
+    let suffixTrace = MLXSessionCacheTrace(
+      cacheMode: .prefixCheckpointSuffix,
+      cacheReason: .tokenPrefixSuffixReuse,
+      fullPromptTokens: 108,
+      reusedPrefixTokens: 100,
+      suffixTokens: 8,
+      contextSignature: "suffix",
+      previousContextSignature: "cold",
+      appendOnly: true,
+      reusedMessageCount: 2,
+      appendedMessageCount: 1,
+      mismatchReason: nil,
+      firstMismatchIndex: nil,
+      systemPromptChanged: false,
+      currentPromptContextChanged: false
+    )
+
+    let coldSnapshot = MLXSessionCachePolicy.runtimeCacheDebugSnapshot(
+      from: coldTrace,
+      appendDeltaStartIndex: nil,
+      generationID: UUID()
+    )
+    let suffixSnapshot = MLXSessionCachePolicy.runtimeCacheDebugSnapshot(
+      from: suffixTrace,
+      appendDeltaStartIndex: nil,
+      generationID: UUID()
+    )
+
+    #expect(coldSnapshot.cacheMode == "prefix_checkpoint_cold")
+    #expect(coldSnapshot.cacheReason == "prefix_checkpoint_missing")
+    #expect(coldSnapshot.reuseStrategy == "prefix_checkpoint_cold")
+    #expect(suffixSnapshot.cacheMode == "prefix_checkpoint_suffix")
+    #expect(suffixSnapshot.cacheReason == "token_prefix_suffix_reuse")
+    #expect(suffixSnapshot.reuseStrategy == "prefix_checkpoint_suffix")
+    #expect(
+      MLXSessionCacheReason.prefixCheckpointIdentityChanged.rawValue
+        == "prefix_checkpoint_identity_changed")
+    #expect(MLXSessionCacheReason.tokenPrefixMismatch.rawValue == "token_prefix_mismatch")
+    #expect(MLXSessionCacheReason.tokenPrefixEmptySuffix.rawValue == "token_prefix_empty_suffix")
+  }
+
+  @Test
+  func prefixTokenTelemetryCountsColdWorkAndWarmReuse() {
+    let cold = MLXPrefixTokenTelemetry(
+      fullPromptTokens: 108,
+      mode: .cold(reason: .noCheckpoint)
+    )
+    let warm = MLXPrefixTokenTelemetry(
+      fullPromptTokens: 108,
+      mode: .suffix(reusedTokenCount: 100, suffixTokenCount: 8)
+    )
+
+    #expect(cold.fullPromptTokens == 108)
+    #expect(cold.reusedPrefixTokens == 0)
+    #expect(cold.suffixTokens == 108)
+    #expect(warm.fullPromptTokens == 108)
+    #expect(warm.reusedPrefixTokens == 100)
+    #expect(warm.suffixTokens == 8)
+  }
+
+  @Test
   func generationOwnershipBeginsMonotonicGenerations() {
     var ownership = MLXGenerationOwnership()
 
@@ -757,6 +976,39 @@ struct MLXChatRuntimeTemplateTests {
     try await withTestTimeout(.seconds(5)) {
       await superseded.task.value
     }
+  }
+
+  @Test
+  func activeGenerationRegistryCancelsAndDrainsThrowingSetupTask() async throws {
+    let recorder = MLXLifecycleDrainRecorder()
+    let generationID = MLXGenerationID(rawValue: 1)
+    let setupTask = Task<Int, Error> {
+      do {
+        try await Task.sleep(for: .seconds(5))
+        return 1
+      } catch is CancellationError {
+        await recorder.record(.taskCancelled)
+        await recorder.waitUntilAllowedToFinish()
+        await recorder.record(.taskFinished)
+        throw CancellationError()
+      }
+    }
+    var registry = MLXActiveGenerationRegistry()
+    registry.registerCancellableSetup(id: generationID, task: setupTask)
+
+    let supersededGeneration = registry.supersedeActiveGeneration()
+    let superseded = try #require(supersededGeneration)
+    try await waitUntilAsync {
+      await recorder.events == [.taskCancelled]
+    }
+    #expect(registry.activeGenerationID == nil)
+
+    await recorder.allowTaskToFinish()
+    try await withTestTimeout(.seconds(5)) {
+      await superseded.task.value
+    }
+
+    #expect(await recorder.events == [.taskCancelled, .taskFinished])
   }
 
   @Test
@@ -1941,6 +2193,38 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func memoryClearEventCarriesPrefixTokenTelemetry() async throws {
+    let traceID = UUID()
+    let traceRecorder = MLXTurnTraceRecorder()
+    let memoryClearRecorder = MLXMemoryClearRecorder()
+
+    await MLXModelStreamProcessor.clearMemoryCache(
+      reason: .runtimeError,
+      traceID: traceID,
+      traceMetadata: TurnTraceMetadata(
+        turnID: UUID(),
+        generationID: traceID,
+        tracer: traceRecorder
+      ),
+      cacheTrace: defaultCacheTrace(
+        fullPromptTokens: 108,
+        reusedPrefixTokens: 100,
+        suffixTokens: 8
+      ),
+      memoryCacheClearer: MLXMemoryCacheClearer { reason in
+        await memoryClearRecorder.record(reason)
+      }
+    )
+
+    #expect(await memoryClearRecorder.reasons == [.runtimeError])
+    let event = try #require(await traceRecorder.events.first)
+    #expect(event.phase == .memoryClear)
+    #expect(event.fullPromptTokens == 108)
+    #expect(event.reusedPrefixTokens == 100)
+    #expect(event.suffixTokens == 8)
+  }
+
+  @Test
   func completedModelStreamDoesNotClearMemoryCache() async throws {
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
@@ -2020,7 +2304,11 @@ struct MLXChatRuntimeTemplateTests {
         toolLoopIteration: 2,
         interactionMode: .agent
       ),
-      cacheTrace: defaultCacheTrace(),
+      cacheTrace: defaultCacheTrace(
+        fullPromptTokens: 108,
+        reusedPrefixTokens: 100,
+        suffixTokens: 8
+      ),
       markCompleted: { _ in },
       markCancelled: { _ in },
       memoryBeforePrefill: memoryBeforePrefill,
@@ -2044,10 +2332,16 @@ struct MLXChatRuntimeTemplateTests {
     let decode = try #require(events.first { $0.phase == .runtimeDecode })
 
     #expect(ttft.ttftMs == ttft.durationMs)
+    #expect(ttft.fullPromptTokens == 108)
+    #expect(ttft.reusedPrefixTokens == 100)
+    #expect(ttft.suffixTokens == 8)
     #expect(prefill.turnID == turnID)
     #expect(prefill.generationID == traceID)
     #expect(prefill.durationMs == 250)
     #expect(prefill.promptTokens == 8)
+    #expect(prefill.fullPromptTokens == 108)
+    #expect(prefill.reusedPrefixTokens == 100)
+    #expect(prefill.suffixTokens == 8)
     #expect(prefill.tokensPerSecond == 32)
     #expect(prefill.mlxActiveMemoryBytesBeforePrefill == 101)
     #expect(prefill.mlxCacheMemoryBytesBeforePrefill == 102)
@@ -2057,6 +2351,9 @@ struct MLXChatRuntimeTemplateTests {
     #expect(prefill.mlxPeakMemoryBytesAfterPrefill == 203)
     #expect(decode.durationMs == 500)
     #expect(decode.generatedTokenCount == 4)
+    #expect(decode.fullPromptTokens == 108)
+    #expect(decode.reusedPrefixTokens == 100)
+    #expect(decode.suffixTokens == 8)
     #expect(decode.tokensPerSecond == 8)
     #expect(decode.mlxActiveMemoryBytesAfterGeneration == 301)
     #expect(decode.mlxCacheMemoryBytesAfterGeneration == 302)
@@ -3022,10 +3319,17 @@ struct MLXChatRuntimeTemplateTests {
     )
   }
 
-  private func defaultCacheTrace() -> MLXSessionCacheTrace {
+  private func defaultCacheTrace(
+    fullPromptTokens: Int? = nil,
+    reusedPrefixTokens: Int? = nil,
+    suffixTokens: Int? = nil
+  ) -> MLXSessionCacheTrace {
     MLXSessionCacheTrace(
       cacheMode: .newSession,
       cacheReason: .newSessionNoCache,
+      fullPromptTokens: fullPromptTokens,
+      reusedPrefixTokens: reusedPrefixTokens,
+      suffixTokens: suffixTokens,
       contextSignature: "context",
       previousContextSignature: nil,
       appendOnly: false,

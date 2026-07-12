@@ -325,8 +325,13 @@ public final class ModelRuntimeController {
     let lifecycleCoordinator = modelLifecycleCoordinator
     let runtimeOperations = runtimeOperations
     let requestedContextTokenLimit = modelContextTokenLimit
+    let selectedModel = selectedModel
     let supportsImageInput = selectedModel.supportsImageInput
     let reasoningTraceFormat = selectedModel.reasoningTraceFormat
+    let prefixReusePolicy = Self.effectivePrefixReusePolicy(
+      for: selectedModel,
+      modelDirectory: directoryURL
+    )
 
     loadTask = Task {
       await runtimeOperations.setCurrentOperation(operationID)
@@ -338,6 +343,7 @@ public final class ModelRuntimeController {
           requestedContextTokenLimit: requestedContextTokenLimit,
           supportsImageInput: supportsImageInput,
           reasoningTraceFormat: reasoningTraceFormat,
+          prefixReusePolicy: prefixReusePolicy,
           operationID: operationID
         )
         try Task.checkCancellation()
@@ -420,6 +426,19 @@ public final class ModelRuntimeController {
     }
 
     return min(max(fraction, 0), 1)
+  }
+
+  nonisolated static func effectivePrefixReusePolicy(
+    for model: ManagedModel,
+    modelDirectory: URL
+  ) -> ModelPrefixReusePolicy {
+    let configuredPath = modelDirectory.standardizedFileURL
+      .resolvingSymlinksInPath()
+      .path(percentEncoded: false)
+    let catalogPath = model.localDirectoryURL.standardizedFileURL
+      .resolvingSymlinksInPath()
+      .path(percentEncoded: false)
+    return configuredPath == catalogPath ? model.prefixReusePolicy : .disabled
   }
 
   private func shouldPublishResourceUsage(_ usage: ProcessResourceUsage?) -> Bool {

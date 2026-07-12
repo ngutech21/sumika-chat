@@ -248,9 +248,11 @@ flowchart TD
 
 ## MLX Cache Rules
 
-`MLXChatRuntime` treats `MLXLMCommon.ChatSession` as the KV-cache owner. Sumika
-keeps only a minimal shadow ledger: the last accepted `MLXMessageSnapshot`
-prefix, a small prefill identity, and a conservative clean/in-flight/dirty state.
+By default, `MLXChatRuntime` treats `MLXLMCommon.ChatSession` as the KV-cache
+owner. Sumika keeps only a minimal shadow ledger: the last accepted
+`MLXMessageSnapshot` prefix, a small prefill identity, and a conservative
+clean/in-flight/dirty state. The opt-in e4b experiment described below instead
+uses an app-owned, in-memory prompt checkpoint for its narrowly gated requests.
 
 - Reuse is safe when the cached session is clean, the prefill identity matches,
   and the cached prefix is a prefix of the current model-facing history.
@@ -305,6 +307,83 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
 The native MLX tool path preserves the assistant tool-call boundary as a derived
 projection while replaying it to MLX as native structured tool-call metadata.
 
+### Opt-in e4b Prefix Checkpoint
+
+`SUMIKA_MLX_PREFIX_REUSE=1` enables the first production prefix-reuse step. The
+environment flag is necessary but not sufficient: the loaded `ManagedModel`
+must also declare `prefixReusePolicy == .cacheOnly`. The catalog currently grants
+that policy only to the parity-tested `gemma4-e4b-qat-4bit` entry. Model names,
+architectures, and reasoning formats do not implicitly enable reuse.
+
+The experimental path is further limited to requests with a non-empty native
+tool schema, no image attachments, and `maxKVSize == nil`. This applies equally
+to explicit Agent tools and public web tools in Chat mode; interaction mode is
+not a cache-identity input. A request that does not satisfy every condition
+continues through the existing `ChatSession` path. In particular, the experiment
+does not cover ordinary tool-free chat, vision prompts, rotating caches requested
+through `maxKVSize`, other Gemma variants, or Qwen continuation state.
+
+For this experimental path only, transient todo runtime context is appended to
+the system instructions at a stable position instead of being injected as a
+new trailing user message on every follow-up. An unchanged plan therefore keeps
+P2 as a prefix of P3; a changed plan changes the prefix identity and deliberately
+causes one cold rebuild. The established `ChatSession` path keeps its existing
+prompt placement.
+
+For an admitted request, Sumika renders and tokenizes the complete canonical
+provider prompt before generation. The checkpoint contains those token IDs, the
+prefill identity and an independent `KVCache.copy()` materialized immediately
+after prompt prefill and before decode starts. It remains in-flight during
+decode. A normal assistant completion discards it; only a successfully completed
+native tool-call boundary publishes it as the clean checkpoint for the following
+tool result. Cancellation, interruption, downstream termination, runtime errors,
+model changes, context clearing, and stale generation callbacks never publish a
+checkpoint.
+
+On the next eligible tool follow-up, the previous checkpoint token IDs must be
+an exact, strict prefix of the newly rendered full prompt. Identity equality is
+also required. If both checks pass, MLX receives only the new token suffix while
+the repetition- and presence-penalty processor is initialized with the complete
+new prompt. This distinction is required for output parity: the KV cache avoids
+recomputing the prefix, but decode-time processors must still observe all prompt
+tokens.
+
+The path is fail-closed. A missing checkpoint, changed identity, token mismatch,
+or empty suffix never performs warm reuse and instead evaluates the full prompt
+as a cold prefix checkpoint. If preparing the experimental path itself fails,
+Sumika abandons that checkpoint and falls back to the established `ChatSession`
+full-rebuild path. Cancellation is propagated instead of starting fallback
+generation. The existing `tool_follow_up_rebuild` behavior therefore remains the
+compatibility fallback rather than being removed globally.
+
+Trace rows distinguish the two experimental outcomes:
+
+- `prefix_checkpoint_cold` with reasons `prefix_checkpoint_missing`,
+  `prefix_checkpoint_identity_changed`, `token_prefix_mismatch`, or
+  `token_prefix_empty_suffix`;
+- `prefix_checkpoint_suffix` with reason `token_prefix_suffix_reuse`.
+
+`runtime_prefill`, `runtime_ttft`, `runtime_decode`, and related memory-clear rows
+may carry `fullPromptTokens`, `reusedPrefixTokens`, and `suffixTokens`.
+`runtime_prefill.promptTokens` remains MLX's actual evaluated token count, so it
+equals the suffix size on a warm run rather than the hypothetical full prompt.
+For a cold prefix run, reused tokens are zero and suffix tokens equal the full
+prompt size.
+The performance report aggregates the three prefix fields per generation and per
+turn and reports the reused-prefix percentage separately from decode throughput.
+
+Run the model-specific Release parity check before evaluating the experiment:
+
+```sh
+just test-cache-parity e4b
+```
+
+It loads only the locally installed catalog model, never downloads one, and
+writes `.perf/cache-parity/gemma-e4b-cache-parity.json`. Runtime performance must
+also be evaluated in Release, for example with
+`SUMIKA_MLX_PREFIX_REUSE=1 ./script/build_and_run.sh --release-trace`, followed by
+the printed trace path in `script/trace_performance_report.swift`.
+
 ### Prefill Diagnostics
 
 The debug trace separates model prompt work from user-visible latency. A
@@ -349,11 +428,39 @@ Gemma also runs a prompt beyond its 512-token sliding window. When P1 produces
 that continuation state, so the report can distinguish the required strategy.
 The report also records cache types, layer offsets, state shapes, copy count,
 copy isolation, and signed MLX-memory deltas after materializing the copies.
+Those immediate copy deltas describe eager allocation only: MLX may retain lazy
+array views and allocate later while the original decode advances. They are not
+a production peak-memory estimate; use the Release runtime trace's before-prefill,
+after-prefill, and after-generation snapshots for that decision.
+For the exact e4b target, the harness first performs a discarded warm-up and
+then compares a 16-token decode without a retained checkpoint against the same
+decode while a materialized checkpoint copy stays alive. It records
+before-prefill, after-prefill, after-copy, and after-decode snapshots. Each path
+is normalized to its own before-prefill value; `startingMemoryDifference` makes
+remaining allocator drift visible and `withCopyMinusBaselineGrowth` reports the
+signed difference between the two growth curves. Active-plus-cache memory is
+the useful retained-memory comparison; a zero peak delta only means that both
+paths reached the same larger transient MLX peak.
+The e4b run additionally exercises `MLXPrefixGenerator` itself as cold P1, cold
+P2, and warm P2. The report calls this `prefixGeneratorPath` and explicitly
+labels its scope `prefix_generator_only`: it verifies producer draining,
+checkpoint lifetime, evaluated suffix size, stop reason, and streamed-output
+parity, but it does not claim that the model emitted a nonempty tool call or
+that `MLXChatRuntime` published the checkpoint at that boundary. Model-free
+stream-processor and cache-state tests cover that boundary transition.
+Every JSON report includes its UTC creation time, Git commit and dirty status,
+the Xcode `Package.resolved` hash, and the resolved `mlx-swift` and
+`mlx-swift-lm` revisions. These identify the tested checkout and dependencies;
+a dirty checkout still needs its diff, and the catalog model ID is not a hash of
+the local model files, so the JSON alone is not a standalone reproducibility
+artifact.
 The currently resolved MLX `ChatSession` retains only KV caches, while Qwen 3.5's
 public low-level model API returns position information in opaque
 `LMOutput.State`; the test-only harness keeps that state explicitly instead of
 assuming the high-level session already provides a complete Qwen checkpoint.
-This harness does not change production cache ownership or invalidation rules.
+The parity harness remains test-only. The production e4b path above consumes its
+cache-only result behind the separate model policy and environment gate; Qwen
+and unlisted Gemma models remain on the established cache behavior.
 
 ## MLX Tool Format Coverage
 
