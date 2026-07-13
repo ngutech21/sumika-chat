@@ -105,6 +105,9 @@ test: test-core test-app
 test-core:
     {{swift}} test --no-parallel -q -Xswiftc -warnings-as-errors
 
+prompt-cost:
+    SUMIKA_PRINT_PROMPT_COST=1 {{swift}} test --no-parallel --filter PromptCostRegressionTests
+
 
 data-model:
     mkdir -p .build/data-model-build .build/swiftpm-cache .build/clang-module-cache .build/swiftpm-home

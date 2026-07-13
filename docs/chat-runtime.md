@@ -307,6 +307,23 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
 The native MLX tool path preserves the assistant tool-call boundary as a derived
 projection while replaying it to MLX as native structured tool-call metadata.
 
+## Prompt Cost Regression
+
+`just prompt-cost` runs four model-free Core fixtures that cover
+`list_files -> read_file`, `read_file -> edit_file -> run_command`, a failed
+command followed by `workspace_diagnostics`, and a longer nine-tool loop. The
+fixtures use the production prompt projection, agent system prompt, coding-agent
+tool schemas, native tool-call arguments, and frozen tool-result observations.
+
+The report pins exact UTF-8 byte counts for the system prompt, tool schemas,
+conversation content, native tool-call payloads, and tool-result content. It also
+reports the same stable `ceil(bytes / 4)` estimate used for model-free context
+usage, including cumulative checkpoints after each tool. This is a deterministic
+CI regression metric, not tokenizer-exact model accounting: provider chat-template
+syntax and model-specific tokenization require a separate opt-in local-model
+measurement. Intentional prompt changes update the baseline in the same patch so
+the byte and estimated-token delta remains reviewable.
+
 ## MLX Tool Format Coverage
 
 Sumika enables native tools by passing the active registry through
