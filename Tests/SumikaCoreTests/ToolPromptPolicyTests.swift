@@ -16,7 +16,7 @@ struct ToolPromptPolicyTests {
   }
 
   @Test
-  func nativeAgentPromptMentionsAvailableTools() {
+  func nativeAgentPromptKeepsCompactWorkflowRules() {
     let prompt = ToolPromptPolicy().systemPrompt(
       basePrompt: "Base",
       mode: .enabled(true),
@@ -27,12 +27,12 @@ struct ToolPromptPolicyTests {
     #expect(prompt.contains("read_file"))
     #expect(prompt.contains("edit_file"))
     #expect(prompt.contains("finish_task"))
-    #expect(prompt.contains("Emit finish_task as the only native tool call"))
-    #expect(prompt.contains("summary is displayed directly as the final response"))
-    #expect(prompt.contains("After a successful write_file or edit_file result, continue"))
-    #expect(prompt.contains("When the requested work is complete, call finish_task"))
-    #expect(prompt.contains("Never print tool-call XML, JSON envelopes"))
+    #expect(prompt.contains("call it exactly once and alone"))
+    #expect(prompt.contains("complete user-visible final response in summary"))
+    #expect(prompt.contains("After a successful edit/write, inspect or verify as needed"))
+    #expect(prompt.contains("Never print tool-call XML, JSON"))
     #expect(prompt.contains("native tool calls"))
+    #expect(!prompt.contains("Available tools:"))
   }
 
   @Test
@@ -70,8 +70,8 @@ struct ToolPromptPolicyTests {
       toolRegistry: ToolRegistry(tools: [.readFile, .writeFile])
     )
 
-    #expect(prompt.contains("After a successful write_file or edit_file result, continue"))
-    #expect(prompt.contains("then provide the final answer"))
+    #expect(prompt.contains("After a successful edit/write, inspect or verify as needed"))
+    #expect(prompt.contains("provide the final answer directly"))
     #expect(!prompt.contains("call finish_task"))
   }
 
@@ -103,20 +103,16 @@ struct ToolPromptPolicyTests {
       toolRegistry: ToolExecutorRegistry.codingAgent.toolRegistry
     )
 
-    #expect(prompt.contains("Workspace tools are available"))
+    #expect(prompt.contains("Use available workspace tools"))
     #expect(prompt.contains("read_file"))
     #expect(prompt.contains("edit_file"))
     #expect(!prompt.contains("No more tools may run"))
     #expect(!prompt.contains("Do not call another tool"))
     #expect(!prompt.contains("Do not include generated file contents"))
     #expect(
-      prompt.contains(
-        "Never say files were changed unless a successful write_file or edit_file result exists in this turn."
-      ))
+      prompt.contains("Never claim a change without a successful result"))
     #expect(
-      prompt.contains(
-        "Failed or invalid write/edit tool results mean no workspace change happened."
-      ))
+      prompt.contains("a failed or invalid result means no change"))
   }
 
   @Test
@@ -162,14 +158,10 @@ struct ToolPromptPolicyTests {
 
     #expect(enabledPrompt.contains("todo_write"))
     #expect(
-      enabledPrompt.contains(
-        "Never say files were changed unless a successful write_file or edit_file result exists in this turn."
-      ))
+      enabledPrompt.contains("Never claim a change without a successful result"))
     #expect(
-      enabledPrompt.contains(
-        "Failed or invalid write/edit tool results mean no workspace change happened."
-      ))
-    #expect(disabledPrompt.contains("Available tools:"))
+      enabledPrompt.contains("a failed or invalid result means no change"))
+    #expect(!disabledPrompt.contains("Available tools:"))
     #expect(!disabledPrompt.contains("todo_write"))
     #expect(!disabledPrompt.contains("planned todo"))
   }

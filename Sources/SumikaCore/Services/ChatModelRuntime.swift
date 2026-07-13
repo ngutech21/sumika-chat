@@ -56,7 +56,8 @@ public struct ChatRuntimePromptPlan: Equatable, Sendable {
   public init(
     stableInstructions: String,
     transientInstructions: [String] = [],
-    toolContext: ChatRuntimeToolContext? = nil
+    toolContext: ChatRuntimeToolContext? = nil,
+    cacheIdentityInstructions: String? = nil
   ) {
     self.stableInstructions = stableInstructions
     self.transientInstructions =
@@ -64,7 +65,7 @@ public struct ChatRuntimePromptPlan: Equatable, Sendable {
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
     self.toolContext = toolContext
-    self.cacheIdentityInstructions = stableInstructions
+    self.cacheIdentityInstructions = cacheIdentityInstructions ?? stableInstructions
   }
 }
 

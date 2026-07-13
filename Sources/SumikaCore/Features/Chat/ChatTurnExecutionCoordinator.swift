@@ -139,7 +139,7 @@ struct ChatTurnExecutionCoordinator {
       callbacks: callbacks
     )
     let systemPromptStartedAt = Date()
-    let promptPlan = runtimePromptPlan(
+    let promptPlan = try runtimePromptPlan(
       session: callbacks.session(),
       stableInstructions: stableInstructions,
       toolPromptMode: toolPromptMode,
@@ -522,8 +522,13 @@ struct ChatTurnExecutionCoordinator {
     toolPromptMode: ToolPromptMode,
     toolCallingPolicy: ToolCallingPolicy,
     toolLoopCoordinator: ToolLoopCoordinator
-  ) -> ChatRuntimePromptPlan {
-    ChatRuntimePromptPlan(
+  ) throws -> ChatRuntimePromptPlan {
+    let registry = toolRegistry(for: toolPromptMode, toolLoopCoordinator: toolLoopCoordinator)
+    let cacheIdentityInstructions = try ToolSchemaCacheIdentity.instructions(
+      stableInstructions: stableInstructions,
+      registry: registry
+    )
+    return ChatRuntimePromptPlan(
       stableInstructions: stableInstructions,
       transientInstructions: transientInstructions(
         session: session,
@@ -532,17 +537,18 @@ struct ChatTurnExecutionCoordinator {
       toolContext: runtimeToolContext(
         for: toolPromptMode,
         policy: toolCallingPolicy,
-        stableInstructions: stableInstructions,
-        toolLoopCoordinator: toolLoopCoordinator
-      )
+        registry: registry,
+        cacheIdentityInstructions: cacheIdentityInstructions
+      ),
+      cacheIdentityInstructions: cacheIdentityInstructions
     )
   }
 
   private func runtimeToolContext(
     for toolPromptMode: ToolPromptMode,
     policy: ToolCallingPolicy,
-    stableInstructions: String,
-    toolLoopCoordinator: ToolLoopCoordinator
+    registry: ToolRegistry,
+    cacheIdentityInstructions: String
   ) -> ChatRuntimeToolContext? {
     guard policy.isEnabled else {
       return nil
@@ -554,10 +560,9 @@ struct ChatTurnExecutionCoordinator {
       .enabled(true):
       break
     }
-    let registry = toolRegistry(for: toolPromptMode, toolLoopCoordinator: toolLoopCoordinator)
     return ChatRuntimeToolContext(
       registry: registry,
-      cacheSystemPrompt: stableInstructions
+      cacheSystemPrompt: cacheIdentityInstructions
     )
   }
 

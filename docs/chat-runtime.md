@@ -257,12 +257,14 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
 - Reuse is safe when the cached session is clean, the prefill identity matches,
   and the cached prefix is a prefix of the current model-facing history.
 - The prefill identity contains only values that affect bytes already consumed by
-  MLX: normalized stable runtime instructions, projection mode, `maxKVSize`, and
-  reasoning/template context. Sampling settings, `maxTokens`, and the active
-  native tool schema are decode-time inputs and do not rebuild the session.
+  MLX: normalized cache identity instructions, projection mode, `maxKVSize`, and
+  reasoning/template context. The cache identity instructions extend the visible
+  stable runtime instructions with a cache-only fingerprint of the native tool
+  schema. Sampling settings and `maxTokens` remain decode-time inputs and do not
+  rebuild the session.
 - Each user turn freezes one stable `ChatRuntimePromptPlan.stableInstructions`
-  value. The same text is used for `ChatSession.instructions` and
-  `cacheIdentityInstructions`; final/no-tools guidance and tool-loop nudges are
+  value for `ChatSession.instructions`; `cacheIdentityInstructions` adds only the
+  tool-schema fingerprint. Final/no-tools guidance and tool-loop nudges are
   rendered as tool-record follow-up notices instead of system instructions. Todo
   state remains transient runtime context and is not part of the stable system
   prompt.
@@ -299,10 +301,12 @@ prefix, a small prefill identity, and a conservative clean/in-flight/dirty state
   result call IDs. A plain UUID alone is not enough because the cache must prove
   that the entire provider-facing message shape still matches the session state.
 - The active native tool schema is applied through `session.tools` immediately
-  before decode. It is not part of prefix comparison because MLX owns the active
-  model's chat template and native tool rendering. Final no-tools follow-ups
-  clear `session.tools` without changing `ChatSession.instructions` or the cache
-  identity.
+  before decode. A deterministic SHA-256 fingerprint of the ordered,
+  model-facing schemas is included in the cache identity but not in the visible
+  system prompt. Schema changes therefore invalidate stale MLX prefixes without
+  spending model tokens on a repeated tool-name list. Final no-tools follow-ups
+  use the same registry fingerprint while clearing `session.tools`, preserving
+  the established cache identity across terminal generation.
 
 The native MLX tool path preserves the assistant tool-call boundary as a derived
 projection while replaying it to MLX as native structured tool-call metadata.
@@ -312,8 +316,9 @@ projection while replaying it to MLX as native structured tool-call metadata.
 `just prompt-cost` runs four model-free Core fixtures that cover
 `list_files -> read_file`, `read_file -> edit_file -> run_command`, a failed
 command followed by `workspace_diagnostics`, and a longer nine-tool loop. The
-fixtures use the production prompt projection, agent system prompt, coding-agent
-tool schemas, native tool-call arguments, and frozen tool-result observations.
+fixtures use the production prompt projection, agent system prompt, default
+coding-agent tool schemas with optional `todo_write` disabled, native tool-call
+arguments, and frozen tool-result observations.
 
 The report pins exact UTF-8 byte counts for the system prompt, tool schemas,
 conversation content, native tool-call payloads, and tool-result content. It also

@@ -247,9 +247,9 @@ struct ChatSessionControllerToolLoopTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == budget + 1)
-    #expect(capturedSystemPrompts[1].contains("Available tools:"))
-    #expect(capturedSystemPrompts[budget - 1].contains("Available tools:"))
-    #expect(capturedSystemPrompts[budget].contains("Available tools:"))
+    #expect(!capturedSystemPrompts[1].contains("Available tools:"))
+    #expect(!capturedSystemPrompts[budget - 1].contains("Available tools:"))
+    #expect(!capturedSystemPrompts[budget].contains("Available tools:"))
     #expect(!capturedSystemPrompts[budget].contains("No more tools are available"))
     #expect(!capturedSystemPrompts[budget].contains("tool budget"))
     #expect(Set(capturedSystemPrompts).count == 1)
@@ -257,7 +257,13 @@ struct ChatSessionControllerToolLoopTests {
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.count == budget + 1)
     #expect(capturedPromptPlans[budget].stableInstructions == capturedSystemPrompts[0])
-    #expect(capturedPromptPlans[budget].cacheIdentityInstructions == capturedSystemPrompts[0])
+    #expect(
+      capturedPromptPlans[budget].cacheIdentityInstructions.contains("[tool-schema-sha256:"))
+    #expect(
+      capturedPromptPlans[budget].cacheIdentityInstructions
+        == capturedPromptPlans[0].cacheIdentityInstructions)
+    #expect(
+      capturedPromptPlans[budget].cacheIdentityInstructions != capturedSystemPrompts[0])
     #expect(capturedPromptPlans[budget].transientInstructions.isEmpty)
 
     let capturedMessages = await runtime.capturedMessages
@@ -267,8 +273,12 @@ struct ChatSessionControllerToolLoopTests {
 
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 1)
-    #expect(capturedToolContexts[0]?.cacheSystemPrompt == capturedSystemPrompts[0])
-    #expect(capturedToolContexts[1]?.cacheSystemPrompt == capturedSystemPrompts[1])
+    #expect(
+      capturedToolContexts[0]?.cacheSystemPrompt
+        == capturedPromptPlans[0].cacheIdentityInstructions)
+    #expect(
+      capturedToolContexts[1]?.cacheSystemPrompt
+        == capturedPromptPlans[1].cacheIdentityInstructions)
     #expect(capturedSystemPrompts[0] == capturedSystemPrompts[1])
     #expect(
       capturedToolContexts[0]?.cacheSystemPrompt

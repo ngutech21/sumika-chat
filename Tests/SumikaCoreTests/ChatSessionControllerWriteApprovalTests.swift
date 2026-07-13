@@ -187,8 +187,11 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(
       capturedSystemPrompts.last?.contains("Do not include generated file contents")
         == false)
-    #expect(capturedSystemPrompts.last?.contains("Never say files were changed") == true)
-    #expect(capturedSystemPrompts.last?.contains("no workspace change happened") == true)
+    #expect(
+      capturedSystemPrompts.last?.contains("Never claim a change without a successful result")
+        == true)
+    #expect(
+      capturedSystemPrompts.last?.contains("a failed or invalid result means no change") == true)
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.last?.transientInstructions.isEmpty == true)
     #expect(capturedPromptPlans.last?.toolContext != nil)

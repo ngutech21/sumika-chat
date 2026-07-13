@@ -370,8 +370,8 @@ struct ChatSessionControllerTests {
       sessionID: controller.chatSession.id
     )
 
-    #expect(!unavailableDocument.systemPrompt.content.contains("Workspace tools are available"))
-    #expect(availableDocument.systemPrompt.content.contains("Workspace tools are available"))
+    #expect(!unavailableDocument.systemPrompt.content.contains("Use available workspace tools"))
+    #expect(availableDocument.systemPrompt.content.contains("Use available workspace tools"))
   }
 
   @Test
@@ -851,10 +851,13 @@ struct ChatSessionControllerTests {
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 1)
-    #expect(capturedSystemPrompts[0].contains("Available tools:"))
-    #expect(capturedSystemPrompts[0].contains("read_file"))
-    #expect(capturedSystemPrompts[0].contains("edit_file"))
-    #expect(capturedSystemPrompts[0].contains("write_file"))
+    #expect(capturedSystemPrompts[0].contains("their schemas define exact arguments"))
+    #expect(!capturedSystemPrompts[0].contains("Available tools:"))
+    let capturedToolContexts = await runtime.capturedToolContexts
+    let toolContext = try #require(capturedToolContexts.first ?? nil)
+    #expect(toolContext.registry.definition(for: .readFile) != nil)
+    #expect(toolContext.registry.definition(for: .editFile) != nil)
+    #expect(toolContext.registry.definition(for: .writeFile) != nil)
   }
 
   @Test
@@ -998,9 +1001,12 @@ struct ChatSessionControllerTests {
     #expect(capturedSystemPrompts[0].contains("edit_file"))
     #expect(capturedSystemPrompts[0] == capturedSystemPrompts[1])
     #expect(!capturedSystemPrompts[1].contains("You received a tool result."))
-    #expect(capturedSystemPrompts[1].contains("Available tools: read_file"))
-    #expect(capturedSystemPrompts[1].contains("edit_file"))
+    #expect(!capturedSystemPrompts[1].contains("Available tools:"))
     #expect(!capturedSystemPrompts[1].contains("Tool calling:"))
+    let capturedToolContexts = await runtime.capturedToolContexts
+    let followUpToolContext = try #require(capturedToolContexts.last ?? nil)
+    #expect(followUpToolContext.registry.definition(for: .readFile) != nil)
+    #expect(followUpToolContext.registry.definition(for: .editFile) != nil)
   }
 
   @Test
