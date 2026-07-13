@@ -635,12 +635,10 @@ extension MLXChatRuntime {
       return
     }
 
-    let assistantOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
     let assistantSnapshots = [
-      MLXMessageSnapshot(
-        role: Chat.Message.Role.assistant.rawValue,
-        content: assistantOutput,
-        toolCalls: nativeToolCalls.map(Self.toolCallSnapshot(from:))
+      Self.nativeToolCallBoundarySnapshot(
+        output: output,
+        nativeToolCalls: nativeToolCalls
       )
     ]
     let completedPrefix =
@@ -716,6 +714,17 @@ extension MLXChatRuntime {
         ?? toolCall.id,
       name: toolCall.name,
       arguments: toolCall.arguments
+    )
+  }
+
+  nonisolated static func nativeToolCallBoundarySnapshot(
+    output: String,
+    nativeToolCalls: [ChatRuntimeToolCall]
+  ) -> MLXMessageSnapshot {
+    MLXMessageSnapshot(
+      role: Chat.Message.Role.assistant.rawValue,
+      content: output,
+      toolCalls: nativeToolCalls.map(Self.toolCallSnapshot(from:))
     )
   }
 }

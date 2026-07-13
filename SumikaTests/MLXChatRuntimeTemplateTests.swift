@@ -1521,6 +1521,74 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func nativeToolCallBoundaryPreservesAssistantWhitespaceForPrefixParity() throws {
+    let callID = UUID()
+    let turnID = UUID()
+    let visibleOutput = "\n\nThe issue is that buffer is unavailable.\n\n"
+    let arguments: ToolCallArguments = [
+      "path": .string("main.py"),
+      "old_text": .string("buffer(bytes(samples))"),
+      "new_text": .string("bytes(samples)"),
+    ]
+    let userEntry = try ModelFacingPromptRenderer.userPromptEntry(
+      turnID: turnID,
+      prompt: "fix main.py"
+    )
+    let initialInput = try generationInput(from: [userEntry])
+    let cachedPrefix =
+      initialInput.historySnapshot
+      + initialInput.promptSnapshot
+      + [
+        MLXChatRuntime.nativeToolCallBoundarySnapshot(
+          output: visibleOutput,
+          nativeToolCalls: [
+            ChatRuntimeToolCall(
+              id: RuntimeToolCallID.string(for: callID),
+              name: ToolName.editFile.rawValue,
+              arguments: arguments
+            )
+          ]
+        )
+      ]
+
+    let currentInput = try generationInput(from: [
+      userEntry,
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        turnID: turnID,
+        content: visibleOutput
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        turnID: turnID,
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .editFile,
+          payload: .editFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "main.py"),
+              diff: nil,
+              matchStrategy: .exact
+            ))
+        ),
+        request: toolRequest(
+          callID: callID,
+          toolName: .editFile,
+          arguments: arguments
+        ),
+        originalUserRequest: "fix main.py"
+      ),
+    ])
+
+    #expect(cachedPrefix[1].content == visibleOutput)
+    #expect(cachedPrefix == currentInput.historySnapshot)
+    #expect(MLXSessionCachePolicy.isPrefix(cachedPrefix, of: currentInput.historySnapshot))
+    #expect(
+      MLXSessionCachePolicy.firstMismatchIndex(
+        cachedPrefix: cachedPrefix,
+        currentHistory: currentInput.historySnapshot
+      ) == nil)
+  }
+
+  @Test
   func cachePrefixSurvivesToolNoticeBeforeNextToolResult() throws {
     let readCallID = UUID()
     let writeCallID = UUID()
