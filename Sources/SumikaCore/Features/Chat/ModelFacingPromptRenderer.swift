@@ -7,10 +7,15 @@ public enum ModelFacingPromptRenderer {
     sourceMessageID: UUID? = nil,
     prompt: String,
     attachments: [ChatAttachment] = [],
+    workspaceInstructions: [String] = [],
     systemContext: [String] = [],
     currentPromptContext: CurrentPromptContext? = nil
   ) throws -> ModelContextEntry {
-    let content = userContent(prompt, systemContext: systemContext)
+    let content = userContent(
+      prompt,
+      workspaceInstructions: workspaceInstructions,
+      systemContext: systemContext
+    )
     return try ModelContextEntry(
       id: id,
       turnID: turnID,
@@ -20,6 +25,7 @@ public enum ModelFacingPromptRenderer {
           prompt: prompt,
           attachmentNames: attachments.map(\.displayName),
           imageSignatures: attachments.filter { $0.kind == .image }.map(\.contentSignature),
+          workspaceInstructions: normalizedSystemContext(workspaceInstructions),
           systemContext: normalizedSystemContext(systemContext),
           currentPromptContext: currentPromptContext
         )
@@ -90,20 +96,31 @@ public enum ModelFacingPromptRenderer {
 
   public static func userContent(
     _ content: String,
+    workspaceInstructions: [String] = [],
     systemContext: [String]
   ) -> String {
+    let workspaceInstructions = normalizedSystemContext(workspaceInstructions)
+      .joined(separator: "\n\n")
     let systemContext = normalizedSystemContext(systemContext).joined(separator: "\n\n")
 
-    guard !systemContext.isEmpty else {
+    guard !workspaceInstructions.isEmpty || !systemContext.isEmpty else {
       return content
     }
 
-    return """
-      \(systemInstructionContent(systemContext))
-
+    var sections: [String] = []
+    if !workspaceInstructions.isEmpty {
+      sections.append(workspaceInstructions)
+    }
+    if !systemContext.isEmpty {
+      sections.append(systemInstructionContent(systemContext))
+    }
+    sections.append(
+      """
       User request:
       \(content)
       """
+    )
+    return sections.joined(separator: "\n\n")
   }
 
   public static func systemInstructionContent(_ systemContext: String) -> String {

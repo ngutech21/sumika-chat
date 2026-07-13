@@ -100,6 +100,26 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     }
   }
 
+  mutating func updateUserMessagePromptContext(
+    _ promptContext: CurrentPromptContext,
+    for messageID: UUID,
+    at timestamp: Date = Date()
+  ) {
+    guard
+      let index = items.firstIndex(where: { item in
+        guard case .userMessage(let message) = item else {
+          return false
+        }
+        return message.id == messageID
+      }), case .userMessage(var message) = items[index]
+    else {
+      return
+    }
+    message.promptContext = promptContext
+    items[index] = .userMessage(message)
+    updatedAt = timestamp
+  }
+
   mutating func appendAssistantThinkingChunk(
     _ chunk: String,
     to messageID: UUID,

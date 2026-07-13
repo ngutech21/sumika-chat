@@ -328,6 +328,107 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func workspaceInstructionChangeForcesOneHistoryRebuildThenReturnsAppendOnly() {
+    let firstTurn = workspaceInstructionsTurn(
+      prompt: "First",
+      response: "First complete",
+      state: .makeSnapshot(
+        path: WorkspaceRelativePath(rawValue: "AGENTS.md"),
+        contentHash: String(repeating: "a", count: 64),
+        content: "Rule A"
+      )
+    )
+    let changedTurn = workspaceInstructionsTurn(
+      prompt: "Second",
+      response: "Second complete",
+      state: .makeSnapshot(
+        path: WorkspaceRelativePath(rawValue: "AGENTS.md"),
+        contentHash: String(repeating: "b", count: 64),
+        content: "Rule B"
+      )
+    )
+    let unchangedTurn = workspaceInstructionsTurn(
+      prompt: "Third",
+      response: "Third complete"
+    )
+    let firstHistory = workspaceInstructionsProviderMessages(turns: [firstTurn])
+    let changedHistory = workspaceInstructionsProviderMessages(turns: [firstTurn, changedTurn])
+    let unchangedHistory = workspaceInstructionsProviderMessages(
+      turns: [firstTurn, changedTurn, unchangedTurn]
+    )
+    let identity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory
+    )
+    let changedTrace = MLXSessionCachePolicy.trace(
+      mode: .dirtyRebuild,
+      reason: .historyChanged,
+      currentHistory: changedHistory,
+      currentIdentity: identity,
+      cachedPrefix: firstHistory,
+      cachedIdentity: identity,
+      appendOnly: MLXSessionCachePolicy.isPrefix(firstHistory, of: changedHistory),
+      mismatchReason: "history_changed",
+      firstMismatchIndex: MLXSessionCachePolicy.firstMismatchIndex(
+        cachedPrefix: firstHistory,
+        currentHistory: changedHistory
+      )
+    )
+    let stableTrace = MLXSessionCachePolicy.trace(
+      mode: .appendDelta,
+      reason: .appendOnlyDelta,
+      currentHistory: unchangedHistory,
+      currentIdentity: identity,
+      cachedPrefix: changedHistory,
+      cachedIdentity: identity,
+      appendOnly: MLXSessionCachePolicy.isPrefix(changedHistory, of: unchangedHistory),
+      mismatchReason: nil,
+      firstMismatchIndex: nil
+    )
+
+    #expect(!changedTrace.appendOnly)
+    #expect(changedTrace.cacheMode == .dirtyRebuild)
+    #expect(changedTrace.cacheReason == .historyChanged)
+    #expect(changedTrace.mismatchReason == "history_changed")
+    #expect(changedHistory.map(\.content).joined().contains("Rule A") == false)
+    #expect(stableTrace.appendOnly)
+    #expect(stableTrace.cacheMode == .appendDelta)
+    #expect(stableTrace.reusedMessageCount == changedHistory.count)
+  }
+
+  @Test
+  func workspaceInstructionRemovalForcesOneHistoryRebuildThenReturnsAppendOnly() {
+    let firstTurn = workspaceInstructionsTurn(
+      prompt: "First",
+      response: "First complete",
+      state: .makeSnapshot(
+        path: WorkspaceRelativePath(rawValue: "AGENTS.md"),
+        contentHash: String(repeating: "a", count: 64),
+        content: "Rule A"
+      )
+    )
+    let removalTurn = workspaceInstructionsTurn(
+      prompt: "Second",
+      response: "Second complete",
+      state: .makeRemoval(path: WorkspaceRelativePath(rawValue: "AGENTS.md"))
+    )
+    let unchangedTurn = workspaceInstructionsTurn(
+      prompt: "Third",
+      response: "Third complete"
+    )
+    let firstHistory = workspaceInstructionsProviderMessages(turns: [firstTurn])
+    let removedHistory = workspaceInstructionsProviderMessages(turns: [firstTurn, removalTurn])
+    let unchangedHistory = workspaceInstructionsProviderMessages(
+      turns: [firstTurn, removalTurn, unchangedTurn]
+    )
+
+    #expect(!MLXSessionCachePolicy.isPrefix(firstHistory, of: removedHistory))
+    #expect(removedHistory.map(\.content).joined().contains("Workspace instructions:") == false)
+    #expect(MLXSessionCachePolicy.isPrefix(removedHistory, of: unchangedHistory))
+  }
+
+  @Test
   func cachePrefixComparisonIncludesImageSignatures() {
     let cachedPrefix = [
       MLXMessageSnapshot(
@@ -3011,6 +3112,32 @@ struct MLXChatRuntimeTemplateTests {
   ) -> [ProjectedModelContextEntry] {
     ModelPromptProjection(entries: entries)
       .projectedEntries(mode: MLXHistoryRenderer.runtimeProjectionMode)
+  }
+
+  private func workspaceInstructionsTurn(
+    prompt: String,
+    response: String,
+    state: WorkspaceInstructionsPromptContext? = nil
+  ) -> ChatTurn {
+    let baseContext = CurrentPromptContext.empty(.focusedFileDefault)
+    let promptContext = state.map(baseContext.appendingWorkspaceInstructions) ?? baseContext
+    return ChatTurn(
+      status: .completed,
+      items: [
+        .userMessage(UserTurnMessage(content: prompt, promptContext: promptContext)),
+        .assistantMessage(AssistantTurnMessage(content: response)),
+      ]
+    )
+  }
+
+  private func workspaceInstructionsProviderMessages(
+    turns: [ChatTurn]
+  ) -> [ProviderPromptMessage] {
+    ProviderPromptProjection.normalized(
+      from: ChatModelContextBuilder().transcript(
+        from: ChatSession(turns: turns, interactionMode: .agent)
+      )
+    ).messages
   }
 
   private func generationInput(

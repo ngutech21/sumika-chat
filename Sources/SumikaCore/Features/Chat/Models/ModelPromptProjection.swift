@@ -136,6 +136,7 @@ public struct UserPromptContext: Equatable, Sendable {
   /// Carried through the projection so later history renderings reproduce the
   /// exact identity of what was prefilled into the runtime KV cache.
   public let imageSignatures: [String]
+  public let workspaceInstructions: [String]
   public let systemContext: [String]
   public let currentPromptContext: CurrentPromptContext?
 
@@ -143,12 +144,14 @@ public struct UserPromptContext: Equatable, Sendable {
     prompt: String,
     attachmentNames: [String] = [],
     imageSignatures: [String] = [],
+    workspaceInstructions: [String] = [],
     systemContext: [String] = [],
     currentPromptContext: CurrentPromptContext? = nil
   ) {
     self.prompt = prompt
     self.attachmentNames = attachmentNames
     self.imageSignatures = imageSignatures
+    self.workspaceInstructions = workspaceInstructions
     self.systemContext = systemContext
     self.currentPromptContext = currentPromptContext
   }

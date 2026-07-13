@@ -26,6 +26,7 @@ public struct ChatModelContextBuilder: Sendable {
     var entries: [ModelContextEntry] = []
     var anchorResetBeforeEntryIDs: Set<ModelContextEntry.ID> = []
     var resetsAnchorBeforeNextProjectedEntry = false
+    let workspaceInstructionsProjection = latestWorkspaceInstructionsProjection(in: state)
 
     for turn in state.turns {
       guard turn.modelContextPolicy != .excluded || turn.id == includingTurnID else {
@@ -34,7 +35,11 @@ public struct ChatModelContextBuilder: Sendable {
       }
 
       let firstNewEntryIndex = entries.endIndex
-      appendEntries(for: turn, to: &entries)
+      appendEntries(
+        for: turn,
+        workspaceInstructionsProjection: workspaceInstructionsProjection,
+        to: &entries
+      )
       if resetsAnchorBeforeNextProjectedEntry, firstNewEntryIndex < entries.endIndex {
         anchorResetBeforeEntryIDs.insert(entries[firstNewEntryIndex].id)
         resetsAnchorBeforeNextProjectedEntry = false
@@ -50,6 +55,7 @@ public struct ChatModelContextBuilder: Sendable {
 
   private func appendEntries(
     for turn: ChatTurn,
+    workspaceInstructionsProjection: WorkspaceInstructionsProjection?,
     to entries: inout [ModelContextEntry]
   ) {
     let suppressedToolCallIDs = unresolvedToolCallIDs(in: turn)
@@ -59,7 +65,12 @@ public struct ChatModelContextBuilder: Sendable {
     for item in turn.items {
       switch item {
       case .userMessage(let message):
-        appendUserEntry(message, turnID: turn.id, to: &entries)
+        appendUserEntry(
+          message,
+          turnID: turn.id,
+          workspaceInstructionsProjection: workspaceInstructionsProjection,
+          to: &entries
+        )
         previousProjectedItemWasTool = false
         previousProjectedItemWasAssistantOutput = false
       case .assistantThinking:
@@ -121,21 +132,67 @@ public struct ChatModelContextBuilder: Sendable {
   private func appendUserEntry(
     _ message: UserTurnMessage,
     turnID: ChatTurn.ID,
+    workspaceInstructionsProjection: WorkspaceInstructionsProjection?,
     to entries: inout [ModelContextEntry]
   ) {
+    let promptContext = effectivePromptContext(
+      for: message,
+      workspaceInstructionsProjection: workspaceInstructionsProjection
+    )
     guard
       let entry = try? ModelFacingPromptRenderer.userPromptEntry(
         turnID: turnID,
         sourceMessageID: message.id,
         prompt: message.content,
         attachments: message.attachments,
-        systemContext: CurrentPromptContextRenderer.render(message.promptContext),
-        currentPromptContext: message.promptContext
+        workspaceInstructions: CurrentPromptContextRenderer.renderWorkspaceInstructions(
+          promptContext
+        ),
+        systemContext: CurrentPromptContextRenderer.renderSupportingContext(promptContext),
+        currentPromptContext: promptContext
       )
     else {
       return
     }
     entries.append(entry)
+  }
+
+  private func effectivePromptContext(
+    for message: UserTurnMessage,
+    workspaceInstructionsProjection: WorkspaceInstructionsProjection?
+  ) -> CurrentPromptContext {
+    guard workspaceInstructionsProjection?.messageID == message.id,
+      workspaceInstructionsProjection?.rendersSnapshot == true
+    else {
+      return message.promptContext.removingWorkspaceInstructions()
+    }
+    return message.promptContext
+  }
+
+  private func latestWorkspaceInstructionsProjection(
+    in state: ChatSession
+  ) -> WorkspaceInstructionsProjection? {
+    guard state.interactionMode == .agent else {
+      return nil
+    }
+    var projection: WorkspaceInstructionsProjection?
+    for turn in state.turns {
+      guard turn.modelContextPolicy != .excluded else {
+        continue
+      }
+      for item in turn.items {
+        guard case .userMessage(let message) = item else {
+          continue
+        }
+        for workspaceInstructions in message.promptContext.workspaceInstructions {
+          projection = WorkspaceInstructionsProjection(
+            messageID: message.id,
+            rendersSnapshot: workspaceInstructions.snapshot != nil
+          )
+        }
+      }
+    }
+    return projection
   }
 
   private func appendAssistantEntry(
@@ -213,4 +270,9 @@ public struct ChatModelContextBuilder: Sendable {
     )
     return CurrentPromptContextRenderer.renderedContext(context)
   }
+}
+
+private struct WorkspaceInstructionsProjection: Sendable {
+  let messageID: UUID
+  let rendersSnapshot: Bool
 }

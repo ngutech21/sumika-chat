@@ -35,6 +35,89 @@ struct PromptCostRegressionTests {
     #expect(measured == FocusedFilePromptCostBaseline.current)
     #expect(measured.presentations == [.full, .compact, .full, .compact])
   }
+
+  @Test
+  func workspaceInstructionsAddOneBoundedPayloadAndNoSecondCopy() throws {
+    let instructions = String(repeating: "x", count: 8_000)
+    let instructionsSnapshot = try #require(
+      WorkspaceInstructionsPromptContext.makeSnapshot(
+        path: WorkspaceRelativePath(rawValue: "AGENTS.md"),
+        contentHash: String(repeating: "a", count: 64),
+        content: instructions
+      )
+    )
+    let instructionsContext = CurrentPromptContext.empty(.focusedFileDefault)
+      .appendingWorkspaceInstructions(instructionsSnapshot)
+    let firstTurn = ChatTurn(
+      status: .completed,
+      items: [
+        .userMessage(
+          UserTurnMessage(content: "First request", promptContext: instructionsContext)
+        ),
+        .assistantMessage(AssistantTurnMessage(content: "First response")),
+      ]
+    )
+    let firstTurnWithoutInstructions = ChatTurn(
+      status: .completed,
+      items: [
+        .userMessage(UserTurnMessage(content: "First request")),
+        .assistantMessage(AssistantTurnMessage(content: "First response")),
+      ]
+    )
+    let secondTurn = ChatTurn(
+      status: .completed,
+      items: [
+        .userMessage(UserTurnMessage(content: "Second request")),
+        .assistantMessage(AssistantTurnMessage(content: "Second response")),
+      ]
+    )
+    let builder = ChatModelContextBuilder(focusedFileReusePolicy: .disabled)
+    let firstProjection = ProviderPromptProjection.normalized(
+      from: builder.transcript(
+        from: ChatSession(turns: [firstTurn], interactionMode: .agent)
+      )
+    )
+    let baselineProjection = ProviderPromptProjection.normalized(
+      from: builder.transcript(
+        from: ChatSession(turns: [firstTurnWithoutInstructions], interactionMode: .agent)
+      )
+    )
+    let secondProjection = ProviderPromptProjection.normalized(
+      from: builder.transcript(
+        from: ChatSession(turns: [firstTurn, secondTurn], interactionMode: .agent)
+      )
+    )
+    let secondTurnOnlyProjection = ProviderPromptProjection.normalized(
+      from: builder.transcript(
+        from: ChatSession(turns: [secondTurn], interactionMode: .agent)
+      )
+    )
+    let oneTimeInstructionBytes =
+      firstProjection.byteLedger.totalByteCount - baselineProjection.byteLedger.totalByteCount
+    let projectedText = secondProjection.messages.map(\.content).joined()
+
+    #expect(oneTimeInstructionBytes >= 8_000)
+    #expect(
+      secondProjection.byteLedger.totalByteCount - firstProjection.byteLedger.totalByteCount
+        == secondTurnOnlyProjection.byteLedger.totalByteCount
+    )
+    #expect(projectedText.components(separatedBy: "Workspace instructions:").count == 2)
+    #expect(
+      ProviderPrefixCheck.isPrefix(
+        firstProjection.messages,
+        of: secondProjection.messages
+      )
+    )
+  }
+}
+
+private enum ProviderPrefixCheck {
+  static func isPrefix(
+    _ prefix: [ProviderPromptMessage],
+    of messages: [ProviderPromptMessage]
+  ) -> Bool {
+    prefix.count <= messages.count && zip(prefix, messages).allSatisfy(==)
+  }
 }
 
 private enum FocusedFilePromptPresentationSnapshot: String, Equatable {
@@ -691,50 +774,50 @@ private enum PromptCostBaseline {
     PromptCostSnapshot(
       name: "list_files_read_file",
       toolCount: 2,
-      systemPromptBytes: 2_223,
+      systemPromptBytes: 2_539,
       toolSchemaBytes: 8_506,
       conversationBytes: 798,
       toolCallBytes: 197,
       toolResultBytes: 745,
-      totalBytes: 11_724,
-      estimatedTokens: 2_931,
-      checkpointEstimatedTokens: [2_814, 2_931]
+      totalBytes: 12_040,
+      estimatedTokens: 3_010,
+      checkpointEstimatedTokens: [2_893, 3_010]
     ),
     PromptCostSnapshot(
       name: "read_file_edit_file_test",
       toolCount: 3,
-      systemPromptBytes: 2_223,
+      systemPromptBytes: 2_539,
       toolSchemaBytes: 8_506,
       conversationBytes: 1_292,
       toolCallBytes: 480,
       toolResultBytes: 1_217,
-      totalBytes: 12_501,
-      estimatedTokens: 3_126,
-      checkpointEstimatedTokens: [2_819, 2_965, 3_126]
+      totalBytes: 12_817,
+      estimatedTokens: 3_205,
+      checkpointEstimatedTokens: [2_898, 3_044, 3_205]
     ),
     PromptCostSnapshot(
       name: "failed_command_diagnostics",
       toolCount: 2,
-      systemPromptBytes: 2_223,
+      systemPromptBytes: 2_539,
       toolSchemaBytes: 8_506,
       conversationBytes: 1_484,
       toolCallBytes: 279,
       toolResultBytes: 1_437,
-      totalBytes: 12_492,
-      estimatedTokens: 3_123,
-      checkpointEstimatedTokens: [2_997, 3_123]
+      totalBytes: 12_808,
+      estimatedTokens: 3_202,
+      checkpointEstimatedTokens: [3_076, 3_202]
     ),
     PromptCostSnapshot(
       name: "long_tool_loop",
       toolCount: 9,
-      systemPromptBytes: 2_223,
+      systemPromptBytes: 2_539,
       toolSchemaBytes: 8_506,
       conversationBytes: 4_434,
       toolCallBytes: 1_326,
       toolResultBytes: 4_344,
-      totalBytes: 16_489,
-      estimatedTokens: 4_123,
-      checkpointEstimatedTokens: [2_823, 2_967, 3_085, 3_231, 3_534, 3_660, 3_796, 3_962, 4_123]
+      totalBytes: 16_805,
+      estimatedTokens: 4_202,
+      checkpointEstimatedTokens: [2_902, 3_046, 3_164, 3_310, 3_613, 3_739, 3_875, 4_041, 4_202]
     ),
   ]
 }

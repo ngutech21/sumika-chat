@@ -38,6 +38,16 @@ public struct ChatTranscriptMutator: Sendable {
     )
   }
 
+  public func updateUserMessagePromptContext(
+    _ promptContext: CurrentPromptContext,
+    for messageID: UUID,
+    in state: inout ChatSession
+  ) {
+    updateTurn(containingMessageID: messageID, in: &state) { turn in
+      turn.updateUserMessagePromptContext(promptContext, for: messageID)
+    }
+  }
+
   public func appendAssistantMessage(
     _ content: String,
     id: UUID = UUID(),

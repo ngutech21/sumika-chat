@@ -1023,6 +1023,7 @@ extension ChatWorkflowEvent {
   fileprivate var affectsModelContextDebugDocument: Bool {
     switch self {
     case .userMessageAppended,
+      .userMessagePromptContextUpdated,
       .toolResultAppended,
       .assistantMessageAppended,
       .todoStateChanged:

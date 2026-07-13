@@ -107,9 +107,17 @@ enum FocusedFilePromptReusePlanner {
   private static func focusedFileCandidate(
     in context: CurrentPromptContext
   ) -> FocusedFileCandidate? {
-    guard case .selected(let selection) = context,
-      selection.blocks.values.count == 1,
-      case .focusedFile(let focusedFile) = selection.blocks.values[0]
+    guard case .selected(let selection) = context else {
+      return nil
+    }
+    let supportingBlocks = selection.blocks.values.filter { block in
+      if case .workspaceInstructions = block {
+        return false
+      }
+      return true
+    }
+    guard supportingBlocks.count == 1,
+      case .focusedFile(let focusedFile) = supportingBlocks[0]
     else {
       return nil
     }
@@ -124,7 +132,10 @@ enum FocusedFilePromptReusePlanner {
     userPrompt: UserPromptContext,
     currentPromptContext: CurrentPromptContext
   ) -> ModelContextEntry {
-    let systemContext = CurrentPromptContextRenderer.render(
+    let workspaceInstructions = CurrentPromptContextRenderer.renderWorkspaceInstructions(
+      currentPromptContext
+    )
+    let systemContext = CurrentPromptContextRenderer.renderSupportingContext(
       currentPromptContext,
       focusedFilePresentation: .compactReuse
     )
@@ -132,6 +143,7 @@ enum FocusedFilePromptReusePlanner {
       prompt: userPrompt.prompt,
       attachmentNames: userPrompt.attachmentNames,
       imageSignatures: userPrompt.imageSignatures,
+      workspaceInstructions: workspaceInstructions,
       systemContext: systemContext,
       currentPromptContext: currentPromptContext
     )
@@ -145,6 +157,7 @@ enum FocusedFilePromptReusePlanner {
           role: .user,
           content: ModelFacingPromptRenderer.userContent(
             userPrompt.prompt,
+            workspaceInstructions: workspaceInstructions,
             systemContext: systemContext
           )
         )

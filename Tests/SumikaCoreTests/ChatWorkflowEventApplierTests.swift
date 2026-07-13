@@ -5,6 +5,39 @@ import Testing
 
 struct ChatWorkflowEventApplierTests {
   @Test
+  func updatesPromptContextOnAlreadyAppendedUserMessage() throws {
+    let messageID = UUID()
+    let snapshot = try #require(
+      WorkspaceInstructionsPromptContext.makeSnapshot(
+        path: WorkspaceRelativePath(rawValue: "AGENTS.md"),
+        contentHash: String(repeating: "a", count: 64),
+        content: "Use just test-core."
+      )
+    )
+    let promptContext = CurrentPromptContext.empty(.focusedFileDefault)
+      .appendingWorkspaceInstructions(snapshot)
+    var state = makeState(items: [
+      .userMessage(UserTurnMessage(id: messageID, content: "Implement"))
+    ])
+
+    let diagnostics = ChatWorkflowEventApplier().apply(
+      .userMessagePromptContextUpdated(
+        messageID: messageID,
+        promptContext: promptContext
+      ),
+      to: &state
+    )
+
+    #expect(diagnostics.isEmpty)
+    guard case .userMessage(let message) = state.turns[0].items[0] else {
+      Issue.record("Expected the user message to remain in place.")
+      return
+    }
+    #expect(message.id == messageID)
+    #expect(message.promptContext == promptContext)
+  }
+
+  @Test
   func nativeMultipleToolCallAnnotationsDoNotReportMissingMessageAfterFirstUpdate() {
     let assistantID = UUID()
     let readCall = ToolCallModelMessage(

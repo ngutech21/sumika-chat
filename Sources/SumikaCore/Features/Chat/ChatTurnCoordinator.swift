@@ -9,6 +9,7 @@ public final class ChatTurnCoordinator {
   private(set) var activeTurnID: ChatTurn.ID?
   private var activeTask: Task<Void, Never>?
   private let executionCoordinator: ChatTurnExecutionCoordinator
+  private let workspaceInstructionsLoader: any WorkspaceInstructionsLoading
   private let toolResumeCoordinator = ToolResumeCoordinator()
   private let maxToolLoopIterations: Int
 
@@ -16,6 +17,7 @@ public final class ChatTurnCoordinator {
     focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer(),
     modelContextBuilder: ChatModelContextBuilder = ChatModelContextBuilder(),
     toolPromptPolicy: ToolPromptPolicy = ToolPromptPolicy(),
+    workspaceInstructionsLoader: any WorkspaceInstructionsLoading = WorkspaceInstructionsLoader(),
     turnTracer: any TurnTracing = NoopTurnTracer(),
     maxToolLoopIterations: Int = ChatToolLoopLimits.defaultMaxToolLoopIterations
   ) {
@@ -26,6 +28,7 @@ public final class ChatTurnCoordinator {
       turnTracer: turnTracer,
       maxToolLoopIterations: maxToolLoopIterations
     )
+    self.workspaceInstructionsLoader = workspaceInstructionsLoader
     self.maxToolLoopIterations = maxToolLoopIterations
   }
 
@@ -118,6 +121,29 @@ public final class ChatTurnCoordinator {
       }
 
       try await runtimeContextClearCoordinator.awaitPendingClear()
+      if toolProfile == .agent, let workspace {
+        let loadResult = try await workspaceInstructionsLoader.loadInstructions(from: workspace)
+        guard self.isActive(turnID) else {
+          return .stop
+        }
+        if let update = WorkspaceInstructionsPromptPolicy.update(
+          for: loadResult,
+          in: callbacks.session()
+        ),
+          let currentPromptContext = self.promptContext(
+            for: userMessageID,
+            in: callbacks.session()
+          )
+        {
+          callbacks.emitEvents([
+            .userMessagePromptContextUpdated(
+              messageID: userMessageID,
+              promptContext: currentPromptContext.appendingWorkspaceInstructions(update)
+            )
+          ])
+          callbacks.notifySessionDidChange()
+        }
+      }
       callbacks.refreshContextUsage(initialToolPromptMode)
       let generationResult = try await executionCoordinator.streamAssistantReply(
         to: assistantMessageID,
@@ -158,6 +184,21 @@ public final class ChatTurnCoordinator {
     }
 
     return turnID
+  }
+
+  private func promptContext(
+    for messageID: UUID,
+    in session: ChatSession
+  ) -> CurrentPromptContext? {
+    for turn in session.turns {
+      for item in turn.items {
+        guard case .userMessage(let message) = item, message.id == messageID else {
+          continue
+        }
+        return message.promptContext
+      }
+    }
+    return nil
   }
 
   func approveToolCall(

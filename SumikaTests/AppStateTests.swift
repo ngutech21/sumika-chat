@@ -1190,9 +1190,12 @@ struct AppStateTests {
   @Test
   func defaultAppAgentRegistryHidesTodoWriteAndKeepsFinishTaskAfterMCPComposition() async throws {
     let sessionID = UUID()
+    let rootURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
     let workspace = Workspace(
       name: "Project",
-      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      rootURL: rootURL,
       sessions: [ChatSession(id: sessionID)]
     )
     let runtime = AppStateTestRuntime(eventTurns: [[.chunk("Done.")]])
@@ -1239,9 +1242,12 @@ struct AppStateTests {
   @Test
   func enablingTodoWriteToolExposesItInAppAgentPromptAndSchema() async throws {
     let sessionID = UUID()
+    let rootURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
     let workspace = Workspace(
       name: "Project",
-      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      rootURL: rootURL,
       sessions: [ChatSession(id: sessionID)]
     )
     let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()

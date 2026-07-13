@@ -509,6 +509,172 @@ struct ChatTurnCoordinatorTests {
     #expect(harness.session.turns.first?.status == .cancelled)
     #expect(harness.session.testMessages.map(\.kind) == [.user])
   }
+
+  @Test
+  func agentTurnsLoadWorkspaceInstructionsBeforeTheModelRequestWithoutDuplicatingThem() async throws
+  {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let loader = WorkspaceInstructionsLoaderStub(
+      result: .found(
+        WorkspaceInstructionsDocument(
+          path: WorkspaceRelativePath(rawValue: "AGENTS.md"),
+          contentHash: "rules-hash",
+          content: "Use just test-core."
+        )
+      )
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [.chunk("First response.")],
+      [.chunk("Second response.")],
+    ])
+    let harness = ChatTurnCoordinatorHarness(
+      session: ChatSession(id: sessionID, interactionMode: .agent),
+      runtime: runtime,
+      workspaceInstructionsLoader: loader
+    )
+
+    harness.startUserTurn(prompt: "First", workspace: workspace, sessionID: sessionID)
+    try await waitUntil { harness.finishCount == 1 }
+    harness.startUserTurn(prompt: "Second", workspace: workspace, sessionID: sessionID)
+    try await waitUntil { harness.finishCount == 2 }
+
+    let userMessages: [UserTurnMessage] = harness.session.turns.flatMap(\.items).compactMap {
+      item in
+      guard case .userMessage(let message) = item else {
+        return nil
+      }
+      return message
+    }
+    let requests = await runtime.capturedMessages
+
+    #expect(await loader.loadCount == 2)
+    #expect(userMessages.count == 2)
+    #expect(userMessages[0].promptContext.workspaceInstructions.count == 1)
+    #expect(userMessages[1].promptContext.workspaceInstructions.isEmpty)
+    #expect(requests.count == 2)
+    #expect(requests[0].map(\.content).joined().contains("Use just test-core."))
+    #expect(
+      requests[1].map(\.content).joined()
+        .components(separatedBy: "Workspace instructions:").count == 2
+    )
+  }
+
+  @Test
+  func chatModeNeverLoadsWorkspaceInstructions() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let loader = WorkspaceInstructionsLoaderStub(result: .missing)
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Reply."])
+    let harness = ChatTurnCoordinatorHarness(
+      session: ChatSession(id: sessionID, interactionMode: .chat),
+      runtime: runtime,
+      workspaceInstructionsLoader: loader
+    )
+
+    harness.startUserTurn(prompt: "Chat", workspace: workspace, sessionID: sessionID)
+    try await waitUntil { harness.finishCount == 1 }
+
+    #expect(await loader.loadCount == 0)
+    #expect(await runtime.capturedMessages.count == 1)
+  }
+
+  @Test
+  func invalidWorkspaceSessionAssociationNeverLoadsWorkspaceInstructions() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let loader = WorkspaceInstructionsLoaderStub(result: .missing)
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Reply."])
+    let harness = ChatTurnCoordinatorHarness(
+      session: ChatSession(id: sessionID, interactionMode: .agent),
+      runtime: runtime,
+      workspaceInstructionsLoader: loader
+    )
+
+    harness.startUserTurn(
+      prompt: "Agent",
+      workspace: workspace,
+      sessionID: UUID()
+    )
+    try await waitUntil { harness.finishCount == 1 }
+
+    #expect(await loader.loadCount == 0)
+    #expect(await runtime.capturedMessages.count == 1)
+  }
+
+  @Test
+  func workspaceInstructionsLoadFailureExcludesTurnWithoutModelRequest() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let loader = WorkspaceInstructionsLoaderStub(
+      result: .missing,
+      error: .invalidUTF8("AGENTS.md")
+    )
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Must not be requested."])
+    let harness = ChatTurnCoordinatorHarness(
+      session: ChatSession(id: sessionID, interactionMode: .agent),
+      runtime: runtime,
+      workspaceInstructionsLoader: loader
+    )
+
+    harness.startUserTurn(prompt: "Implement", workspace: workspace, sessionID: sessionID)
+    try await waitUntil { harness.finishCount == 1 }
+
+    #expect(await loader.loadCount == 1)
+    #expect(await runtime.capturedMessages.isEmpty)
+    #expect(harness.session.turns.first?.status == .failed)
+    #expect(harness.session.turns.first?.modelContextPolicy == .excluded)
+    #expect(harness.errorMessages == ["Workspace instructions are not valid UTF-8: AGENTS.md."])
+  }
+
+  @Test
+  func cancelledSnapshotTurnDoesNotPreventReinjectionOnNextTurn() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let loader = WorkspaceInstructionsLoaderStub(
+      result: .found(
+        WorkspaceInstructionsDocument(
+          path: WorkspaceRelativePath(rawValue: "AGENTS.md"),
+          contentHash: String(repeating: "a", count: 64),
+          content: "Stable rules"
+        )
+      )
+    )
+    let runtime = ControlledStreamingRuntime(
+      turns: [["Cancelled"], ["Completed"]],
+      blockedCallIndexes: [0]
+    )
+    let harness = ChatTurnCoordinatorHarness(
+      session: ChatSession(id: sessionID, interactionMode: .agent),
+      runtime: runtime,
+      workspaceInstructionsLoader: loader
+    )
+
+    harness.startUserTurn(prompt: "First", workspace: workspace, sessionID: sessionID)
+    try await waitUntilAsync { await runtime.startedStreamCount == 1 }
+    harness.cancel()
+    try await waitUntil { harness.finishCount == 1 }
+    harness.startUserTurn(prompt: "Second", workspace: workspace, sessionID: sessionID)
+    try await waitUntil { harness.finishCount == 2 }
+
+    let userMessages: [UserTurnMessage] = harness.session.turns.flatMap(\.items).compactMap {
+      item in
+      guard case .userMessage(let message) = item else {
+        return nil
+      }
+      return message
+    }
+    let requests = await runtime.capturedMessages
+
+    #expect(harness.session.turns[0].modelContextPolicy == .excluded)
+    #expect(userMessages.map { $0.promptContext.workspaceInstructions.count } == [1, 1])
+    #expect(await loader.loadCount == 2)
+    #expect(requests.count == 2)
+    #expect(
+      requests[1].map(\.content).joined()
+        .components(separatedBy: "Workspace instructions:").count == 2
+    )
+  }
 }
 
 @MainActor
@@ -519,15 +685,22 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
   var emittedEvents: [ChatWorkflowEvent] = []
 
   private let applier = ChatWorkflowEventApplier()
-  private let coordinator = ChatTurnCoordinator()
+  private let coordinator: ChatTurnCoordinator
   private let operationID = UUID()
   private let runtimeContextClearCoordinator: RuntimeContextClearCoordinator
   private let chatGenerationCoordinator: ChatGenerationCoordinator
   private var toolLoopCoordinator: ToolLoopCoordinator
   private var toolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent)
 
-  init(session: ChatSession, runtime: any ChatModelRuntime) {
+  init(
+    session: ChatSession,
+    runtime: any ChatModelRuntime,
+    workspaceInstructionsLoader: any WorkspaceInstructionsLoading = WorkspaceInstructionsLoader()
+  ) {
     self.session = session
+    self.coordinator = ChatTurnCoordinator(
+      workspaceInstructionsLoader: workspaceInstructionsLoader
+    )
     let runtimeOperations = RuntimeOperationCoordinator(
       runtime: runtime,
       initialOperationID: operationID
@@ -655,6 +828,31 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
       turnDidFinish: { [weak self] _, _ in self?.finishCount += 1 },
       notifySessionDidChange: {}
     )
+  }
+}
+
+private actor WorkspaceInstructionsLoaderStub: WorkspaceInstructionsLoading {
+  let result: WorkspaceInstructionsLoadResult
+  let error: WorkspaceInstructionsLoadingError?
+  private(set) var loadCount = 0
+
+  init(
+    result: WorkspaceInstructionsLoadResult,
+    error: WorkspaceInstructionsLoadingError? = nil
+  ) {
+    self.result = result
+    self.error = error
+  }
+
+  func loadInstructions(
+    from workspace: Workspace
+  ) async throws -> WorkspaceInstructionsLoadResult {
+    _ = workspace
+    loadCount += 1
+    if let error {
+      throw error
+    }
+    return result
   }
 }
 

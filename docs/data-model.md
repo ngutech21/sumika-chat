@@ -100,6 +100,13 @@ flowchart TD
   WorkspaceDiagnostic --> WorkspaceRelativePath
   WorkspaceFileEntry --> WorkspaceFileKind
   WorkspaceFileEntry --> WorkspaceRelativePath
+  WorkspaceInstructionsPromptContext --> WorkspaceInstructionsRemoval
+  WorkspaceInstructionsPromptContext --> WorkspaceInstructionsSnapshot
+  WorkspaceInstructionsRemoval --> WorkspaceRelativePath
+  WorkspaceInstructionsSnapshot --> ContextBudget
+  WorkspaceInstructionsSnapshot --> PromptContextExcerpt
+  WorkspaceInstructionsSnapshot --> PromptContextTruncation
+  WorkspaceInstructionsSnapshot --> WorkspaceRelativePath
   WorkspaceLibrary --> Workspace
 ```
 
@@ -152,6 +159,16 @@ Properties:
 Relations:
 
 - `ReasoningTraceFormat`
+
+### ContextBudget
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `maxCharacters: Int`
 
 ### DuplicateToolCallResult
 
@@ -438,6 +455,28 @@ Cases:
 
 - Kind: `enum`
 - Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+
+### PromptContextExcerpt
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `text: String`
+- `truncated: Bool`
+
+### PromptContextTruncation
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
+
+Cases:
+
+- `byCharacterBudget`
+- `none`
 
 ### RawToolCallRequest
 
@@ -1406,6 +1445,57 @@ Cases:
 
 - `directory`
 - `file`
+
+### WorkspaceInstructionsPromptContext
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Cases:
+
+- `removed(WorkspaceInstructionsRemoval)`
+- `snapshot(WorkspaceInstructionsSnapshot)`
+
+Relations:
+
+- `WorkspaceInstructionsRemoval`
+- `WorkspaceInstructionsSnapshot`
+
+### WorkspaceInstructionsRemoval
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `path: WorkspaceRelativePath`
+
+Relations:
+
+- `WorkspaceRelativePath`
+
+### WorkspaceInstructionsSnapshot
+
+- Kind: `struct`
+- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Properties:
+
+- `budget: ContextBudget`
+- `contentHash: String`
+- `excerpt: PromptContextExcerpt`
+- `path: WorkspaceRelativePath`
+- `truncation: PromptContextTruncation`
+
+Relations:
+
+- `ContextBudget`
+- `PromptContextExcerpt`
+- `PromptContextTruncation`
+- `WorkspaceRelativePath`
 
 ### WorkspaceLibrary
 

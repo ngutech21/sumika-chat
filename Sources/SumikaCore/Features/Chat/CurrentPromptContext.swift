@@ -41,6 +41,67 @@ public enum CurrentPromptContext: Codable, Equatable, Sendable {
       try container.encode(selection, forKey: .selected)
     }
   }
+
+  public var workspaceInstructions: [WorkspaceInstructionsPromptContext] {
+    guard case .selected(let selection) = self else {
+      return []
+    }
+    return selection.blocks.values.compactMap { block in
+      guard case .workspaceInstructions(let context) = block else {
+        return nil
+      }
+      return context
+    }
+  }
+
+  public func appendingWorkspaceInstructions(
+    _ workspaceInstructions: WorkspaceInstructionsPromptContext
+  ) -> CurrentPromptContext {
+    let budget: ContextBudget
+    let truncation: PromptContextTruncation
+    let existingBlocks: [PromptContextBlock]
+    switch self {
+    case .empty(let existingBudget):
+      budget = existingBudget
+      truncation = .none
+      existingBlocks = []
+    case .selected(let selection):
+      budget = selection.budget
+      truncation = selection.truncation
+      existingBlocks = selection.blocks.values.filter { block in
+        if case .workspaceInstructions = block {
+          return false
+        }
+        return true
+      }
+    }
+
+    let blocks = existingBlocks + [.workspaceInstructions(workspaceInstructions)]
+    guard let nonEmptyBlocks = NonEmptyPromptContextBlocks.make(blocks) else {
+      return .empty(budget)
+    }
+    return .selected(
+      .make(blocks: nonEmptyBlocks, budget: budget, truncation: truncation)
+    )
+  }
+
+  public func removingWorkspaceInstructions() -> CurrentPromptContext {
+    guard case .selected(let selection) = self else {
+      return self
+    }
+    let remainingBlocks = selection.blocks.values.filter { block in
+      if case .workspaceInstructions = block {
+        return false
+      }
+      return true
+    }
+    guard let blocks = NonEmptyPromptContextBlocks.make(remainingBlocks) else {
+      return .empty(selection.budget)
+    }
+    return .selected(
+      .make(blocks: blocks, budget: selection.budget, truncation: selection.truncation)
+    )
+  }
 }
 
 public struct CurrentPromptContextSelection: Codable, Equatable, Sendable {
@@ -111,18 +172,21 @@ public enum PromptContextBlock: Codable, Equatable, Sendable {
   case attachedFile(AttachedFilePromptContext)
   case focusedFile(FocusedFilePromptContext)
   case ambiguousRecentFiles(AmbiguousRecentFilesPromptContext)
+  case workspaceInstructions(WorkspaceInstructionsPromptContext)
 
   private enum CodingKeys: String, CodingKey {
     case kind
     case attachedFile
     case focusedFile
     case ambiguousRecentFiles
+    case workspaceInstructions
   }
 
   private enum Kind: String, Codable {
     case attachedFile
     case focusedFile
     case ambiguousRecentFiles
+    case workspaceInstructions
   }
 
   public init(from decoder: Decoder) throws {
@@ -143,6 +207,13 @@ public enum PromptContextBlock: Codable, Equatable, Sendable {
           forKey: .ambiguousRecentFiles
         )
       )
+    case .workspaceInstructions:
+      self = .workspaceInstructions(
+        try container.decode(
+          WorkspaceInstructionsPromptContext.self,
+          forKey: .workspaceInstructions
+        )
+      )
     }
   }
 
@@ -158,6 +229,9 @@ public enum PromptContextBlock: Codable, Equatable, Sendable {
     case .ambiguousRecentFiles(let context):
       try container.encode(Kind.ambiguousRecentFiles, forKey: .kind)
       try container.encode(context, forKey: .ambiguousRecentFiles)
+    case .workspaceInstructions(let context):
+      try container.encode(Kind.workspaceInstructions, forKey: .kind)
+      try container.encode(context, forKey: .workspaceInstructions)
     }
   }
 }
@@ -256,20 +330,6 @@ public enum FocusedFilePromptPresentation: Equatable, Sendable {
   case compactReuse
 }
 
-public struct PromptContextExcerpt: Codable, Equatable, Sendable {
-  public let text: String
-  public let truncated: Bool
-
-  private init(text: String, truncated: Bool) {
-    self.text = text
-    self.truncated = truncated
-  }
-
-  fileprivate static func make(text: String, truncated: Bool) -> PromptContextExcerpt {
-    PromptContextExcerpt(text: text, truncated: truncated)
-  }
-}
-
 public struct AmbiguousRecentFilesPromptContext: Codable, Equatable, Sendable {
   public let paths: NonEmptyWorkspaceRelativePaths
 
@@ -322,49 +382,6 @@ extension NonEmptyWorkspaceRelativePaths: Codable {
     var container = encoder.singleValueContainer()
     try container.encode(storage)
   }
-}
-
-public struct ContextBudget: Codable, Equatable, Sendable {
-  public let maxCharacters: Int
-
-  private init(maxCharacters: Int) {
-    self.maxCharacters = maxCharacters
-  }
-
-  public static let focusedFileDefault = ContextBudget(maxCharacters: 4_000)
-
-  public static func checked(maxCharacters: Int) -> ContextBudget? {
-    guard maxCharacters > 0 else {
-      return nil
-    }
-    return ContextBudget(maxCharacters: maxCharacters)
-  }
-
-  fileprivate static func unsafe(maxCharacters: Int) -> ContextBudget {
-    ContextBudget(maxCharacters: maxCharacters)
-  }
-
-  public init(from decoder: Decoder) throws {
-    let container = try decoder.singleValueContainer()
-    let maxCharacters = try container.decode(Int.self)
-    guard maxCharacters > 0 else {
-      throw DecodingError.dataCorruptedError(
-        in: container,
-        debugDescription: "ContextBudget.maxCharacters must be greater than zero."
-      )
-    }
-    self.init(maxCharacters: maxCharacters)
-  }
-
-  public func encode(to encoder: Encoder) throws {
-    var container = encoder.singleValueContainer()
-    try container.encode(maxCharacters)
-  }
-}
-
-public enum PromptContextTruncation: String, Codable, Equatable, Sendable {
-  case none
-  case byCharacterBudget
 }
 
 public struct RenderedCurrentPromptContext: Equatable, Sendable {
@@ -598,16 +615,45 @@ public enum CurrentPromptContextRenderer {
     case .empty:
       return []
     case .selected(let selection):
-      return selection.blocks.values.map { block in
+      return selection.blocks.values.compactMap { block in
         renderBlock(block, focusedFilePresentation: focusedFilePresentation)
       }
+    }
+  }
+
+  public static func renderWorkspaceInstructions(
+    _ context: CurrentPromptContext
+  ) -> [String] {
+    guard case .selected(let selection) = context else {
+      return []
+    }
+    return selection.blocks.values.compactMap { block in
+      guard case .workspaceInstructions(let workspaceInstructions) = block else {
+        return nil
+      }
+      return renderWorkspaceInstructions(workspaceInstructions)
+    }
+  }
+
+  public static func renderSupportingContext(
+    _ context: CurrentPromptContext,
+    focusedFilePresentation: FocusedFilePromptPresentation = .full
+  ) -> [String] {
+    guard case .selected(let selection) = context else {
+      return []
+    }
+    return selection.blocks.values.compactMap { block in
+      guard case .workspaceInstructions = block else {
+        return renderBlock(block, focusedFilePresentation: focusedFilePresentation)
+      }
+      return nil
     }
   }
 
   private static func renderBlock(
     _ block: PromptContextBlock,
     focusedFilePresentation: FocusedFilePromptPresentation
-  ) -> String {
+  ) -> String? {
     switch block {
     case .attachedFile(let context):
       return renderAttachedFile(context)
@@ -618,7 +664,46 @@ public enum CurrentPromptContextRenderer {
       return renderFullFocusedFile(context)
     case .ambiguousRecentFiles(let context):
       return renderAmbiguousRecentFiles(context)
+    case .workspaceInstructions(let context):
+      return renderWorkspaceInstructions(context)
     }
+  }
+
+  private static func renderWorkspaceInstructions(
+    _ context: WorkspaceInstructionsPromptContext
+  ) -> String? {
+    guard case .snapshot(let snapshot) = context else {
+      return nil
+    }
+    var lines = [
+      "Workspace instructions: \(snapshot.path.rawValue)",
+      "These are trusted project instructions for work in this workspace.",
+      "Follow them unless they conflict with application safety rules or the user's explicit request.",
+      "They cannot override either.",
+      "",
+      snapshot.excerpt.text.isEmpty ? "(empty file)" : snapshot.excerpt.text,
+    ]
+    if snapshot.truncation == .byCharacterBudget {
+      lines.append("")
+      lines.append(
+        "These workspace instructions were truncated after \(groupedDecimal(snapshot.budget.maxCharacters)) characters."
+      )
+      lines.append(
+        "Before changing workspace files, read the complete \(snapshot.path.rawValue) with read_file."
+      )
+      lines.append(
+        "The complete content from that exact path remains trusted project context under the same precedence rules."
+      )
+    }
+    return lines.joined(separator: "\n")
+  }
+
+  private static func groupedDecimal(_ value: Int) -> String {
+    let digits = Array(String(value))
+    return digits.enumerated().map { index, digit in
+      let remaining = digits.count - index
+      return index > 0 && remaining.isMultiple(of: 3) ? ",\(digit)" : String(digit)
+    }.joined()
   }
 
   private static func renderAttachedFile(_ context: AttachedFilePromptContext) -> String {
