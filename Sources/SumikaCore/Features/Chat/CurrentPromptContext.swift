@@ -205,32 +205,55 @@ public struct FocusedFilePromptContext: Codable, Equatable, Sendable {
   public let source: FocusedPathSource?
   public let contentHash: String?
   public let excerpt: PromptContextExcerpt?
+  public let fullContentAvailable: Bool
+
+  public var isReuseEligible: Bool {
+    guard source == .readFile,
+      fullContentAvailable,
+      let contentHash,
+      !contentHash.isEmpty,
+      let excerpt,
+      !excerpt.truncated
+    else {
+      return false
+    }
+    return true
+  }
 
   private init(
     path: WorkspaceRelativePath,
     source: FocusedPathSource?,
     contentHash: String?,
-    excerpt: PromptContextExcerpt?
+    excerpt: PromptContextExcerpt?,
+    fullContentAvailable: Bool
   ) {
     self.path = path
     self.source = source
     self.contentHash = contentHash
     self.excerpt = excerpt
+    self.fullContentAvailable = fullContentAvailable
   }
 
   fileprivate static func make(
     path: WorkspaceRelativePath,
     source: FocusedPathSource?,
     contentHash: String?,
-    excerpt: PromptContextExcerpt?
+    excerpt: PromptContextExcerpt?,
+    fullContentAvailable: Bool
   ) -> FocusedFilePromptContext {
     FocusedFilePromptContext(
       path: path,
       source: source,
       contentHash: contentHash,
-      excerpt: excerpt
+      excerpt: excerpt,
+      fullContentAvailable: fullContentAvailable
     )
   }
+}
+
+public enum FocusedFilePromptPresentation: Equatable, Sendable {
+  case full
+  case compactReuse
 }
 
 public struct PromptContextExcerpt: Codable, Equatable, Sendable {
@@ -465,8 +488,14 @@ public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
   ) -> CurrentPromptContext {
     let focusedPath = focusedFileState.recentPaths.first { $0.path == activePath }
     let snapshot = focusedFileState.snapshots[activePath]
-    let excerpt = snapshot?.excerpt.map { excerpt in
-      truncatedExcerpt(excerpt, budget: budget)
+    let excerpt = snapshot.flatMap { snapshot -> PromptContextExcerpt? in
+      if let excerpt = snapshot.excerpt {
+        return truncatedExcerpt(excerpt, budget: budget)
+      }
+      if snapshot.fullContentAvailable {
+        return .make(text: "", truncated: false)
+      }
+      return nil
     }
     let truncation =
       excerpt?.truncated == true
@@ -479,7 +508,8 @@ public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
             path: activePath,
             source: focusedPath?.source,
             contentHash: snapshot?.contentHash,
-            excerpt: excerpt
+            excerpt: excerpt,
+            fullContentAvailable: snapshot?.fullContentAvailable ?? false
           ))
       ])
     else {
@@ -545,30 +575,47 @@ public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
 }
 
 public enum CurrentPromptContextRenderer {
-  public static func renderedContext(_ context: CurrentPromptContext)
+  public static func renderedContext(
+    _ context: CurrentPromptContext,
+    focusedFilePresentation: FocusedFilePromptPresentation = .full
+  )
     -> RenderedCurrentPromptContext
   {
     RenderedCurrentPromptContext(
-      renderedBlocks: render(context),
+      renderedBlocks: render(
+        context,
+        focusedFilePresentation: focusedFilePresentation
+      ),
       consumedContext: context
     )
   }
 
-  public static func render(_ context: CurrentPromptContext) -> [String] {
+  public static func render(
+    _ context: CurrentPromptContext,
+    focusedFilePresentation: FocusedFilePromptPresentation = .full
+  ) -> [String] {
     switch context {
     case .empty:
       return []
     case .selected(let selection):
-      return selection.blocks.values.map(renderBlock)
+      return selection.blocks.values.map { block in
+        renderBlock(block, focusedFilePresentation: focusedFilePresentation)
+      }
     }
   }
 
-  private static func renderBlock(_ block: PromptContextBlock) -> String {
+  private static func renderBlock(
+    _ block: PromptContextBlock,
+    focusedFilePresentation: FocusedFilePromptPresentation
+  ) -> String {
     switch block {
     case .attachedFile(let context):
       return renderAttachedFile(context)
     case .focusedFile(let context):
-      return renderFocusedFile(context)
+      if focusedFilePresentation == .compactReuse, context.isReuseEligible {
+        return renderCompactFocusedFile(context)
+      }
+      return renderFullFocusedFile(context)
     case .ambiguousRecentFiles(let context):
       return renderAmbiguousRecentFiles(context)
     }
@@ -595,25 +642,31 @@ public enum CurrentPromptContextRenderer {
     return lines.joined(separator: "\n")
   }
 
-  private static func renderFocusedFile(_ context: FocusedFilePromptContext) -> String {
+  private static func renderFullFocusedFile(_ context: FocusedFilePromptContext) -> String {
     var lines = [
       "Current focused file: \(context.path.rawValue)"
     ]
     if let source = context.source {
       lines.append("Source: \(source.modelContextDescription)")
     }
-    if let contentHash = context.contentHash {
-      lines.append("Content hash: \(contentHash)")
-    }
     if let excerpt = context.excerpt {
       lines.append("Known content excerpt:")
-      lines.append(excerpt.text)
+      lines.append(excerpt.text.isEmpty ? "(empty file)" : excerpt.text)
       if excerpt.truncated {
         lines.append("Known content excerpt was truncated to the current context budget.")
       }
     }
     lines.append("Explicit file paths in the user request or tool call take precedence.")
     return lines.joined(separator: "\n")
+  }
+
+  private static func renderCompactFocusedFile(_ context: FocusedFilePromptContext) -> String {
+    """
+    Current focused file: \(context.path.rawValue)
+    Source: previous read_file
+    Same known complete snapshot as in the recent context; content is not repeated.
+    Call read_file before editing if the file may have changed.
+    """
   }
 
   private static func renderAmbiguousRecentFiles(

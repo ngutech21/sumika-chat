@@ -62,6 +62,40 @@ struct ModelPromptProjectionTests {
     #expect(focusedFile.source == .readFile)
     #expect(focusedFile.contentHash == "hash")
     #expect(focusedFile.excerpt?.text == "let value = 1")
+    #expect(focusedFile.fullContentAvailable == true)
+    #expect(focusedFile.isReuseEligible == true)
+  }
+
+  @Test
+  func focusedFilePromptContextDecodeRequiresCompletenessMetadata() {
+    let data = Data(
+      """
+      {
+        "kind": "selected",
+        "selected": {
+          "blocks": [
+            {
+              "kind": "focusedFile",
+              "focusedFile": {
+                "path": "Sources/Foo.swift",
+                "source": "readFile",
+                "contentHash": "hash",
+                "excerpt": {
+                  "text": "let value = 1",
+                  "truncated": false
+                }
+              }
+            }
+          ],
+          "budget": 4000,
+          "truncation": "none"
+        }
+      }
+      """.utf8)
+
+    #expect(throws: DecodingError.self) {
+      _ = try JSONDecoder().decode(CurrentPromptContext.self, from: data)
+    }
   }
 
   @Test

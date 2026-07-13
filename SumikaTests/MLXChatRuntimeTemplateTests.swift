@@ -197,6 +197,137 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func mlxGenerationInputConsumesCoreProviderProjectionWithoutDrift() throws {
+    let callID = try #require(
+      UUID(uuidString: "00000000-0000-0000-0000-000000000041")
+    )
+    let arguments: ToolCallArguments = ["path": .string("README.md")]
+    let entries = [
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "read README.md"),
+      try ModelFacingPromptRenderer.assistantOutputEntry(
+        content: toolCallContent(
+          callID: callID,
+          toolName: .readFile,
+          arguments: arguments
+        )
+      ),
+      try ModelFacingPromptRenderer.toolResultEntry(
+        toolResult: ToolResultModelMessage(
+          callID: callID,
+          toolName: .readFile,
+          payload: .readFile(
+            .success(
+              path: WorkspaceRelativePath(rawValue: "README.md"),
+              content: ToolTextOutput(text: "Project overview")
+            )
+          )
+        ),
+        request: toolRequest(
+          callID: callID,
+          toolName: .readFile,
+          arguments: arguments
+        ),
+        originalUserRequest: nil
+      ),
+      try ModelFacingPromptRenderer.userPromptEntry(prompt: "summarize it"),
+    ]
+    let transcript = ModelPromptProjection(entries: entries)
+    let coreSegments = try #require(
+      ProviderPromptProjection.generationSegments(from: transcript)
+    )
+
+    let input = try MLXHistoryRenderer.generationInput(from: transcript)
+
+    #expect(input.historySnapshot == coreSegments.history.messages)
+    #expect(input.promptSnapshot == coreSegments.prompt.messages)
+    #expect(input.history.map(\.role) == [.user, .assistant])
+    #expect(input.promptMessages.map(\.role) == [.tool, .user])
+    let rawMessages = DefaultMessageGenerator().generate(
+      messages: input.history + input.promptMessages
+    )
+    let rawToolCalls = try #require(
+      rawMessages[1]["tool_calls"] as? [[String: any Sendable]]
+    )
+    let rawFunction = try #require(
+      rawToolCalls.first?["function"] as? [String: any Sendable]
+    )
+    #expect(rawFunction["name"] as? String == ToolName.readFile.rawValue)
+    #expect(
+      rawMessages[2]["tool_call_id"] as? String == RuntimeToolCallID.string(for: callID)
+    )
+  }
+
+  @Test
+  func focusedFileReuseRemainsAppendOnlyForMLXCachePolicy() {
+    let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
+    let focusedFileState = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(path: path, source: .readFile, confidence: .active)
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          contentHash: "stable-complete-read",
+          excerpt: "struct App { let value = 1 }",
+          fullContentAvailable: true
+        )
+      ]
+    )
+    let promptContext = CurrentPromptContextSelector().selectContext(
+      userInput: "Continue",
+      mode: .agent,
+      focusedFileState: focusedFileState,
+      budget: .focusedFileDefault
+    )
+    let firstTurn = ChatTurn(
+      status: .completed,
+      items: [
+        .userMessage(UserTurnMessage(content: "First", promptContext: promptContext)),
+        .assistantMessage(AssistantTurnMessage(content: "First complete")),
+      ]
+    )
+    let secondTurn = ChatTurn(
+      status: .completed,
+      items: [
+        .userMessage(UserTurnMessage(content: "Second", promptContext: promptContext)),
+        .assistantMessage(AssistantTurnMessage(content: "Second complete")),
+      ]
+    )
+    let cachedPrefix = ProviderPromptProjection.normalized(
+      from: ChatModelContextBuilder().transcript(from: ChatSession(turns: [firstTurn]))
+    ).messages
+    let appendedHistory = ProviderPromptProjection.normalized(
+      from: ChatModelContextBuilder().transcript(
+        from: ChatSession(turns: [firstTurn, secondTurn])
+      )
+    ).messages
+    let identity = MLXSessionCachePolicy.cacheIdentity(
+      systemPrompt: "Stable",
+      settings: .agentDefault,
+      projectionMode: .fullHistory
+    )
+    let appendOnly = MLXSessionCachePolicy.isPrefix(cachedPrefix, of: appendedHistory)
+    let trace = MLXSessionCachePolicy.trace(
+      mode: .appendDelta,
+      reason: .appendOnlyDelta,
+      currentHistory: appendedHistory,
+      currentIdentity: identity,
+      cachedPrefix: cachedPrefix,
+      cachedIdentity: identity,
+      appendOnly: appendOnly,
+      mismatchReason: nil,
+      firstMismatchIndex: nil
+    )
+
+    #expect(appendedHistory[2].content.contains("content is not repeated"))
+    #expect(appendOnly)
+    #expect(trace.cacheMode == .appendDelta)
+    #expect(trace.appendOnly)
+    #expect(trace.reusedMessageCount == cachedPrefix.count)
+    #expect(trace.appendedMessageCount == 2)
+  }
+
+  @Test
   func cachePrefixComparisonIncludesImageSignatures() {
     let cachedPrefix = [
       MLXMessageSnapshot(

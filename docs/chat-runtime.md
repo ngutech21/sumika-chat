@@ -220,6 +220,26 @@ flowchart TD
 - `ModelPromptProjection` renders typed `ModelContextEntry` values from turns at
   generation time. Each entry stores typed intent in `body` and the byte-stable
   rendered role/content in `frozenContent` for that request.
+- `ProviderPromptProjection` is the Core-owned normalization boundary consumed
+  by MLX. It performs final role merging, structured assistant tool-call
+  grouping, and tool-result projection once. Its byte ledger counts each final
+  provider field exactly once: role, content, `tool_call_id`, and canonical
+  sorted JSON for structured tool calls. Image signatures and source-entry IDs
+  remain cache/provenance metadata and do not count as provider text.
+- Focused-file prompt reuse is a derived projection only. The complete typed
+  `UserTurnMessage.promptContext` remains persisted. A snapshot is eligible only
+  when it came from an unpaginated, untruncated, unredacted `read_file` result
+  whose complete content fits the 4,000-character snapshot budget. The first
+  eligible occurrence is full; one identical occurrence may use the compact
+  reminder while no more than 8,000 normalized provider bytes intervene; the
+  next occurrence is full again. Focused-file hashes stay internal and are not
+  rendered to the model.
+- `write_file`, `edit_file`, partial reads, attachments, and unknown snapshot
+  sources are never compacted. Workspace mutations, commands, MCP and invalid
+  tools, excluded turns, incomplete reads, and a different focused snapshot
+  conservatively reset the reuse anchor. This policy does not revalidate files
+  in the workspace; "same known snapshot" means the most recent complete
+  `read_file` state known to Sumika, not a guarantee against external changes.
 - Tool follow-ups are rendered as provider-native role sequences, not synthetic
   user continuations. A completed native tool call projects as assistant
   `tool_calls` metadata with a stable call ID followed by one or more `tool`
@@ -313,12 +333,18 @@ projection while replaying it to MLX as native structured tool-call metadata.
 
 ## Prompt Cost Regression
 
-`just prompt-cost` runs four model-free Core fixtures that cover
+`just prompt-cost` runs four model-free Core tool-loop fixtures that cover
 `list_files -> read_file`, `read_file -> edit_file -> run_command`, a failed
 command followed by `workspace_diagnostics`, and a longer nine-tool loop. The
 fixtures use the production prompt projection, agent system prompt, default
 coding-agent tool schemas with optional `todo_write` disabled, native tool-call
 arguments, and frozen tool-result observations.
+
+The same command also runs a paired focused-file fixture with four turns and a
+complete 4,000-character `read_file` snapshot. It compares disabled and
+production reuse policies, pins the expected `full -> compact -> full -> compact`
+sequence, and records exact provider-byte and `/4` token-estimate checkpoints
+after every turn.
 
 The report pins exact UTF-8 byte counts for the system prompt, tool schemas,
 conversation content, native tool-call payloads, and tool-result content. It also

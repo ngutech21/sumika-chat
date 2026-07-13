@@ -31,7 +31,10 @@ public struct FocusedFileStateReducer: Sendable {
         path,
         source: .readFile,
         content: content.text,
-        fullContentAvailable: !content.truncated && !content.redacted,
+        fullContentAvailable: completeReadFileContentIsAvailable(
+          content,
+          request: request
+        ),
         in: state,
         updatedAt: updatedAt
       )
@@ -197,6 +200,20 @@ public struct FocusedFileStateReducer: Sendable {
     }
 
     return content.replacingOccurrences(of: input.oldText, with: input.newText)
+  }
+
+  private func completeReadFileContentIsAvailable(
+    _ content: ToolTextOutput,
+    request: ToolCallRequest
+  ) -> Bool {
+    guard case .readFile(let input) = request.payload else {
+      return false
+    }
+
+    return input.offset == nil
+      && input.limit == nil
+      && !content.truncated
+      && !content.redacted
   }
 
   private func attachmentPath(

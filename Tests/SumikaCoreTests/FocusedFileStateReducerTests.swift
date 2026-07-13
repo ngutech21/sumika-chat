@@ -65,6 +65,50 @@ struct FocusedFileStateReducerTests {
     #expect(state.recentPaths.first?.path == path)
     #expect(state.recentPaths.first?.source == .readFile)
     #expect(state.snapshots[path]?.excerpt == "Project notes")
+    #expect(state.snapshots[path]?.fullContentAvailable == true)
+  }
+
+  @Test
+  func paginatedReadFileSnapshotsAreNotMarkedAsFullContent() {
+    let reducer = FocusedFileStateReducer()
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+
+    for input in [
+      ReadFileInput(path: path.rawValue, offset: 1),
+      ReadFileInput(path: path.rawValue, limit: 20),
+    ] {
+      let state = reducer.applyingToolResult(
+        .readFile(.success(path: path, content: ToolTextOutput(text: "Project notes"))),
+        request: makeRequest(toolName: .readFile, payload: .readFile(input)),
+        to: .empty,
+        updatedAt: Date(timeIntervalSinceReferenceDate: 1)
+      )
+
+      #expect(state.snapshots[path]?.fullContentAvailable == false)
+    }
+  }
+
+  @Test
+  func truncatedOrRedactedReadFileSnapshotsAreNotMarkedAsFullContent() {
+    let reducer = FocusedFileStateReducer()
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+
+    for content in [
+      ToolTextOutput(text: "Project notes", truncated: true),
+      ToolTextOutput(text: "Project notes", redacted: true),
+    ] {
+      let state = reducer.applyingToolResult(
+        .readFile(.success(path: path, content: content)),
+        request: makeRequest(
+          toolName: .readFile,
+          payload: .readFile(ReadFileInput(path: path.rawValue))
+        ),
+        to: .empty,
+        updatedAt: Date(timeIntervalSinceReferenceDate: 1)
+      )
+
+      #expect(state.snapshots[path]?.fullContentAvailable == false)
+    }
   }
 
   @Test
@@ -310,6 +354,25 @@ struct FocusedFileStateReducerTests {
         payload: .writeFile(
           WriteFileInput(path: "index.html", content: "01234567890123456789")
         )
+      ),
+      to: .empty,
+      updatedAt: Date(timeIntervalSinceReferenceDate: 1)
+    )
+
+    #expect(state.snapshots[path]?.excerpt == "0123456789")
+    #expect(state.snapshots[path]?.fullContentAvailable == false)
+  }
+
+  @Test
+  func readFileContentBeyondSnapshotBudgetIsNotMarkedAsFullContent() {
+    let reducer = FocusedFileStateReducer(maxSnapshotCharacters: 10)
+    let path = WorkspaceRelativePath(rawValue: "README.md")
+
+    let state = reducer.applyingToolResult(
+      .readFile(.success(path: path, content: ToolTextOutput(text: "01234567890"))),
+      request: makeRequest(
+        toolName: .readFile,
+        payload: .readFile(ReadFileInput(path: path.rawValue))
       ),
       to: .empty,
       updatedAt: Date(timeIntervalSinceReferenceDate: 1)

@@ -237,6 +237,77 @@ struct CurrentPromptContextSelectorTests {
     #expect(focusedFile.contentHash == "hash")
     #expect(focusedFile.excerpt?.text == "<h1>Hello</h1>")
     #expect(focusedFile.excerpt?.truncated == false)
+    #expect(focusedFile.fullContentAvailable == true)
+    #expect(focusedFile.isReuseEligible == false)
+  }
+
+  @Test
+  func onlyCompleteReadFileContextIsReuseEligible() throws {
+    let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
+    let state = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(path: path, source: .readFile, confidence: .active)
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          contentHash: "hash",
+          excerpt: "let value = 1",
+          fullContentAvailable: true
+        )
+      ]
+    )
+
+    let context = CurrentPromptContextSelector().selectContext(
+      userInput: "continue",
+      mode: .agent,
+      focusedFileState: state,
+      budget: .focusedFileDefault
+    )
+
+    guard case .selected(let selection) = context,
+      case .focusedFile(let focusedFile) = selection.blocks.values[0]
+    else {
+      Issue.record("Expected focused file context block.")
+      return
+    }
+    #expect(focusedFile.fullContentAvailable == true)
+    #expect(focusedFile.isReuseEligible == true)
+  }
+
+  @Test
+  func completeEmptyReadFileContextIsReuseEligibleAndExplicitlyRendered() throws {
+    let path = WorkspaceRelativePath(rawValue: "Sources/Empty.swift")
+    let state = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(path: path, source: .readFile, confidence: .active)
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          contentHash: "empty-hash",
+          excerpt: nil,
+          fullContentAvailable: true
+        )
+      ]
+    )
+
+    let context = CurrentPromptContextSelector().selectContext(
+      userInput: "continue",
+      mode: .agent,
+      focusedFileState: state,
+      budget: .focusedFileDefault
+    )
+    guard case .selected(let selection) = context,
+      case .focusedFile(let focusedFile) = selection.blocks.values[0]
+    else {
+      Issue.record("Expected focused file context block.")
+      return
+    }
+
+    #expect(focusedFile.excerpt?.text == "")
+    #expect(focusedFile.isReuseEligible)
+    #expect(CurrentPromptContextRenderer.render(context)[0].contains("(empty file)"))
   }
 
   @Test
@@ -252,7 +323,7 @@ struct CurrentPromptContextSelectorTests {
         path: FocusedFileSnapshot(
           contentHash: "hash",
           excerpt: "0123456789",
-          fullContentAvailable: false
+          fullContentAvailable: true
         )
       ]
     )
@@ -273,6 +344,8 @@ struct CurrentPromptContextSelectorTests {
     #expect(selection.truncation == .byCharacterBudget)
     #expect(focusedFile.excerpt?.text == "01234")
     #expect(focusedFile.excerpt?.truncated == true)
+    #expect(focusedFile.fullContentAvailable == true)
+    #expect(focusedFile.isReuseEligible == false)
   }
 
   @Test
@@ -349,6 +422,15 @@ struct CurrentPromptContextRendererTests {
     #expect(rendered[0].contains("let value = 1"))
     #expect(rendered[0].contains("Attached context:") == false)
     #expect(rendered[0].contains("File: Foo.swift") == false)
+    #expect(
+      rendered[0]
+        == """
+        Attached file: Foo.swift
+        Content hash: 5eefe8717fb3aae43f2029837446312dd248d2d3564cd48adebc866067bf03e7
+        Attached content excerpt:
+        let value = 1
+        Explicit file paths in the user request or tool call take precedence.
+        """)
   }
 
   @Test
@@ -444,11 +526,85 @@ struct CurrentPromptContextRendererTests {
     #expect(rendered.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
     #expect(rendered[0].contains("Current focused file: index.html"))
     #expect(rendered[0].contains("Source: previous write_file"))
-    #expect(rendered[0].contains("Content hash: hash"))
+    #expect(rendered[0].contains("Content hash:") == false)
     #expect(rendered[0].contains("Known content excerpt:"))
     #expect(rendered[0].contains("<h1>Hello</h1>"))
     #expect(
       rendered[0].contains("Explicit file paths in the user request or tool call take precedence."))
+  }
+
+  @Test
+  func rendersEligibleFocusedFileAsCompactReuseWhenRequested() throws {
+    let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
+    let state = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(path: path, source: .readFile, confidence: .active)
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          contentHash: "hash",
+          excerpt: "let value = 1",
+          fullContentAvailable: true
+        )
+      ]
+    )
+    let context = CurrentPromptContextSelector().selectContext(
+      userInput: "continue",
+      mode: .agent,
+      focusedFileState: state,
+      budget: .focusedFileDefault
+    )
+
+    let rendered = CurrentPromptContextRenderer.render(
+      context,
+      focusedFilePresentation: .compactReuse
+    )
+
+    #expect(
+      rendered
+        == [
+          """
+          Current focused file: Sources/App.swift
+          Source: previous read_file
+          Same known complete snapshot as in the recent context; content is not repeated.
+          Call read_file before editing if the file may have changed.
+          """
+        ])
+  }
+
+  @Test
+  func compactReuseRequestFallsBackToFullRenderingForNonReadFileSources() throws {
+    let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
+    for source in [FocusedPathSource.writeFile, .editFile, .attachment] {
+      let state = FocusedFileState(
+        activePath: path,
+        recentPaths: [
+          FocusedPath(path: path, source: source, confidence: .active)
+        ],
+        snapshots: [
+          path: FocusedFileSnapshot(
+            contentHash: "hash",
+            excerpt: "let value = 1",
+            fullContentAvailable: true
+          )
+        ]
+      )
+      let context = CurrentPromptContextSelector().selectContext(
+        userInput: "continue",
+        mode: .agent,
+        focusedFileState: state,
+        budget: .focusedFileDefault
+      )
+
+      let rendered = CurrentPromptContextRenderer.render(
+        context,
+        focusedFilePresentation: .compactReuse
+      )
+
+      #expect(rendered[0].contains("Known content excerpt:"))
+      #expect(rendered[0].contains("Same known complete snapshot") == false)
+    }
   }
 
   @Test

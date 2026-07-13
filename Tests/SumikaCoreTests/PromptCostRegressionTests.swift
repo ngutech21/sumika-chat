@@ -23,6 +23,176 @@ struct PromptCostRegressionTests {
       #expect(measurement == expected)
     }
   }
+
+  @Test
+  func focusedFileReuseMatchesProviderByteBaseline() {
+    let measured = FocusedFilePromptCostMeasurement.measure()
+
+    if ProcessInfo.processInfo.environment["SUMIKA_PRINT_PROMPT_COST"] == "1" {
+      print(FocusedFilePromptCostMeasurement.report(measured))
+    }
+
+    #expect(measured == FocusedFilePromptCostBaseline.current)
+    #expect(measured.presentations == [.full, .compact, .full, .compact])
+  }
+}
+
+private enum FocusedFilePromptPresentationSnapshot: String, Equatable {
+  case full
+  case compact
+}
+
+private struct FocusedFilePromptCostSnapshot: Equatable {
+  let fullProviderBytes: Int
+  let optimizedProviderBytes: Int
+  let savedProviderBytes: Int
+  let fullEstimatedTokens: Int
+  let optimizedEstimatedTokens: Int
+  let savedEstimatedTokens: Int
+  let fullProviderByteCheckpoints: [Int]
+  let optimizedProviderByteCheckpoints: [Int]
+  let fullEstimatedTokenCheckpoints: [Int]
+  let optimizedEstimatedTokenCheckpoints: [Int]
+  let presentations: [FocusedFilePromptPresentationSnapshot]
+}
+
+private enum FocusedFilePromptCostMeasurement {
+  private static let compactMarker = "content is not repeated"
+
+  static func measure() -> FocusedFilePromptCostSnapshot {
+    let session = sessionWithFourFocusedFileTurns()
+    let disabledBuilder = ChatModelContextBuilder(focusedFileReusePolicy: .disabled)
+    let optimizedBuilder = ChatModelContextBuilder()
+    var fullTurnCheckpoints: [Int] = []
+    var optimizedTurnCheckpoints: [Int] = []
+
+    for turnCount in 1...session.turns.count {
+      let prefixSession = ChatSession(turns: Array(session.turns.prefix(turnCount)))
+      fullTurnCheckpoints.append(
+        providerBytes(for: disabledBuilder.transcript(from: prefixSession))
+      )
+      optimizedTurnCheckpoints.append(
+        providerBytes(for: optimizedBuilder.transcript(from: prefixSession))
+      )
+    }
+
+    let fullProviderBytes = fullTurnCheckpoints.last ?? 0
+    let optimizedProviderBytes = optimizedTurnCheckpoints.last ?? 0
+    let presentations: [FocusedFilePromptPresentationSnapshot] =
+      optimizedBuilder
+      .transcript(from: session).entries.compactMap { entry in
+        guard case .userPrompt = entry.body else {
+          return nil
+        }
+        return entry.frozenContent.content.contains(compactMarker)
+          ? .compact
+          : .full
+      }
+
+    return FocusedFilePromptCostSnapshot(
+      fullProviderBytes: fullProviderBytes,
+      optimizedProviderBytes: optimizedProviderBytes,
+      savedProviderBytes: fullProviderBytes - optimizedProviderBytes,
+      fullEstimatedTokens: estimatedTokens(forBytes: fullProviderBytes),
+      optimizedEstimatedTokens: estimatedTokens(forBytes: optimizedProviderBytes),
+      savedEstimatedTokens: estimatedTokens(forBytes: fullProviderBytes)
+        - estimatedTokens(forBytes: optimizedProviderBytes),
+      fullProviderByteCheckpoints: fullTurnCheckpoints,
+      optimizedProviderByteCheckpoints: optimizedTurnCheckpoints,
+      fullEstimatedTokenCheckpoints: fullTurnCheckpoints.map(estimatedTokens(forBytes:)),
+      optimizedEstimatedTokenCheckpoints: optimizedTurnCheckpoints.map(
+        estimatedTokens(forBytes:)
+      ),
+      presentations: presentations
+    )
+  }
+
+  static func report(_ measurement: FocusedFilePromptCostSnapshot) -> String {
+    """
+    Focused-file provider prompt cost
+    full=\(measurement.fullProviderBytes)B (~\(measurement.fullEstimatedTokens) tokens) \
+    optimized=\(measurement.optimizedProviderBytes)B \
+    (~\(measurement.optimizedEstimatedTokens) tokens) \
+    saved=\(measurement.savedProviderBytes)B (~\(measurement.savedEstimatedTokens) tokens) \
+    full_byte_checkpoints=\(measurement.fullProviderByteCheckpoints) \
+    optimized_byte_checkpoints=\(measurement.optimizedProviderByteCheckpoints) \
+    full_token_checkpoints=\(measurement.fullEstimatedTokenCheckpoints) \
+    optimized_token_checkpoints=\(measurement.optimizedEstimatedTokenCheckpoints) \
+    presentations=\(measurement.presentations.map(\.rawValue))
+    """
+  }
+
+  private static func sessionWithFourFocusedFileTurns() -> ChatSession {
+    let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
+    let state = FocusedFileState(
+      activePath: path,
+      recentPaths: [
+        FocusedPath(
+          path: path,
+          source: .readFile,
+          confidence: .active,
+          updatedAt: Date(timeIntervalSince1970: 0)
+        )
+      ],
+      snapshots: [
+        path: FocusedFileSnapshot(
+          contentHash: "complete-read-file-snapshot",
+          excerpt: String(repeating: "x", count: 4_000),
+          fullContentAvailable: true,
+          updatedAt: Date(timeIntervalSince1970: 0)
+        )
+      ]
+    )
+    let promptContext = ChatModelContextBuilder().currentPromptContext(
+      userInput: "Continue",
+      mode: .agent,
+      focusedFileState: state
+    ).consumedContext
+
+    return ChatSession(
+      turns: (1...4).map { ordinal in
+        ChatTurn(
+          status: .completed,
+          items: [
+            .userMessage(
+              UserTurnMessage(
+                content: "Continue focused-file task \(ordinal).",
+                promptContext: promptContext
+              )),
+            .assistantMessage(
+              AssistantTurnMessage(content: "Completed focused-file step \(ordinal).")
+            ),
+          ],
+          createdAt: Date(timeIntervalSince1970: TimeInterval(ordinal)),
+          updatedAt: Date(timeIntervalSince1970: TimeInterval(ordinal))
+        )
+      }
+    )
+  }
+
+  private static func providerBytes(for projection: ModelPromptProjection) -> Int {
+    ProviderPromptProjection.normalized(from: projection).byteLedger.totalByteCount
+  }
+
+  private static func estimatedTokens(forBytes bytes: Int) -> Int {
+    Int(ceil(Double(bytes) / 4.0))
+  }
+}
+
+private enum FocusedFilePromptCostBaseline {
+  static let current = FocusedFilePromptCostSnapshot(
+    fullProviderBytes: 17_076,
+    optimizedProviderBytes: 9_168,
+    savedProviderBytes: 7_908,
+    fullEstimatedTokens: 4_269,
+    optimizedEstimatedTokens: 2_292,
+    savedEstimatedTokens: 1_977,
+    fullProviderByteCheckpoints: [4_269, 8_538, 12_807, 17_076],
+    optimizedProviderByteCheckpoints: [4_269, 4_584, 8_853, 9_168],
+    fullEstimatedTokenCheckpoints: [1_068, 2_135, 3_202, 4_269],
+    optimizedEstimatedTokenCheckpoints: [1_068, 1_146, 2_214, 2_292],
+    presentations: [.full, .compact, .full, .compact]
+  )
 }
 
 private struct PromptCostScenario {

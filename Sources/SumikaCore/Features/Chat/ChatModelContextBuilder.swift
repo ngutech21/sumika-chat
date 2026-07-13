@@ -2,11 +2,21 @@ import Foundation
 
 public struct ChatModelContextBuilder: Sendable {
   private let promptContextSelector: any CurrentPromptContextSelecting
+  private let focusedFileReusePolicy: FocusedFilePromptReusePolicy
 
   public init(
     promptContextSelector: any CurrentPromptContextSelecting = CurrentPromptContextSelector()
   ) {
     self.promptContextSelector = promptContextSelector
+    focusedFileReusePolicy = .conservative
+  }
+
+  init(
+    promptContextSelector: any CurrentPromptContextSelecting = CurrentPromptContextSelector(),
+    focusedFileReusePolicy: FocusedFilePromptReusePolicy
+  ) {
+    self.promptContextSelector = promptContextSelector
+    self.focusedFileReusePolicy = focusedFileReusePolicy
   }
 
   public func transcript(
@@ -14,16 +24,28 @@ public struct ChatModelContextBuilder: Sendable {
     includingTurnID: ChatTurn.ID? = nil
   ) -> ModelPromptProjection {
     var entries: [ModelContextEntry] = []
+    var anchorResetBeforeEntryIDs: Set<ModelContextEntry.ID> = []
+    var resetsAnchorBeforeNextProjectedEntry = false
 
     for turn in state.turns {
       guard turn.modelContextPolicy != .excluded || turn.id == includingTurnID else {
+        resetsAnchorBeforeNextProjectedEntry = true
         continue
       }
 
+      let firstNewEntryIndex = entries.endIndex
       appendEntries(for: turn, to: &entries)
+      if resetsAnchorBeforeNextProjectedEntry, firstNewEntryIndex < entries.endIndex {
+        anchorResetBeforeEntryIDs.insert(entries[firstNewEntryIndex].id)
+        resetsAnchorBeforeNextProjectedEntry = false
+      }
     }
 
-    return ModelPromptProjection(entries: entries)
+    return FocusedFilePromptReusePlanner.apply(
+      to: ModelPromptProjection(entries: entries),
+      policy: focusedFileReusePolicy,
+      anchorResetBeforeEntryIDs: anchorResetBeforeEntryIDs
+    )
   }
 
   private func appendEntries(
