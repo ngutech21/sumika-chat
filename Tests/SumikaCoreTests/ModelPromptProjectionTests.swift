@@ -251,7 +251,7 @@ struct ModelPromptProjectionTests {
     #expect(context.callID == duplicateCallID)
     #expect(context.toolReceipt?.callID == duplicateCallID)
     #expect(context.content.contains(previousCallIDString) == false)
-    #expect(context.content.contains("\"kind\": \"duplicate_replay\""))
+    #expect(context.content.contains("\"kind\":\"duplicate_replay\""))
     #expect(context.toolReceipt?.summary.text.contains(previousCallIDString) == true)
   }
 
@@ -452,7 +452,7 @@ struct ModelPromptProjectionTests {
     #expect(projected.last?.role == .tool)
     #expect(projected.last?.content.contains("Original user request:") == false)
     #expect(projected.last?.content.contains("Assistant tool call:") == false)
-    #expect(projected.last?.content.contains("\"tool\": \"run_command\"") == true)
+    #expect(projected.last?.content.contains("\"tool\":\"run_command\"") == true)
     #expect(projected.last?.content.contains("Tool observation:") == false)
     #expect(projected.last?.content.contains("passed") == true)
   }
@@ -511,12 +511,12 @@ struct ModelPromptProjectionTests {
     let firstObservation = try #require(projected[1].content as String?)
     #expect(projected[1].role == .tool)
     #expect(firstObservation.contains("Original user request:") == false)
-    #expect(firstObservation.contains("\"tool\": \"read_file\""))
+    #expect(firstObservation.contains("\"tool\":\"read_file\""))
     #expect(firstObservation.contains("Project overview"))
     let secondObservation = try #require(projected[2].content as String?)
     #expect(projected[2].role == .tool)
     #expect(secondObservation.contains("Original user request:") == false)
-    #expect(secondObservation.contains("\"tool\": \"run_command\""))
+    #expect(secondObservation.contains("\"tool\":\"run_command\""))
     #expect(secondObservation.contains("passed"))
     #expect(secondObservation.contains("Project overview") == false)
   }

@@ -229,13 +229,14 @@ public enum ToolModelObservationRenderer {
     nextStep: String?
   ) -> [(String, ToolResultJSONValue)] {
     var fields: [(String, ToolResultJSONValue)] = [
-      ("ok", .bool(observation.status == .success)),
       ("tool", .string(observation.toolName.rawValue)),
       ("status", .string(observation.status.rawValue)),
       ("kind", .string(metadata.kind)),
-      ("duplicate", .bool(metadata.duplicate)),
     ]
 
+    if metadata.duplicate {
+      fields.append(("duplicate", .bool(true)))
+    }
     if metadata.notReexecuted {
       fields.append(("not_reexecuted", .bool(true)))
     }
@@ -243,15 +244,18 @@ public enum ToolModelObservationRenderer {
       fields.append(("replayed_result_kind", .string(replayedResultKind)))
     }
 
-    fields.append(
-      (
-        "affected_paths",
-        .array(observation.affectedPaths.map { .string($0.rawValue) })
-      ))
+    if !observation.affectedPaths.isEmpty {
+      fields.append(
+        (
+          "affected_paths",
+          .array(observation.affectedPaths.map { .string($0.rawValue) })
+        ))
+    }
 
     fields.append(
-      contentsOf: metadata.fields.map { field in
-        (field.name, jsonValue(field.value))
+      contentsOf: metadata.fields.compactMap { field in
+        let value = jsonValue(field.value)
+        return value.isDefaultOrEmpty ? nil : (field.name, value)
       }
     )
     if !metadata.nextAllowedActions.isEmpty {
@@ -305,8 +309,8 @@ public enum ToolModelObservationRenderer {
         range.map { "Range: \($0)" },
         lineCount.map { "Displayed lines: \($0)" },
         byteCount.map { "Displayed bytes: \($0)" },
-        "Truncated: \(truncated)",
-        "Redacted: \(redacted)",
+        truncated ? "Truncated: true" : nil,
+        redacted ? "Redacted: true" : nil,
         "Content: omitted from model history.",
       ].compactMap(\.self).joined(separator: "\n")
     case .fileContent(let path, let content):
@@ -326,27 +330,29 @@ public enum ToolModelObservationRenderer {
         : entries.map { entry in
           entry.kind == .directory ? entry.path.rawValue + "/" : entry.path.rawValue
         }.joined(separator: "\n")
-      return """
-        Listed files under: \(root.rawValue)
-        Total entries: \(totalCount)
-        Truncated: \(truncated)
-        Entries:
-        \(body)
-        """
+      let lines: [String?] = [
+        "Listed files under: \(root.rawValue)",
+        "Total entries: \(totalCount)",
+        truncated ? "Truncated: true" : nil,
+        "Entries:",
+        body,
+      ]
+      return lines.compactMap(\.self).joined(separator: "\n")
     case .searchSnippets(let root, let pattern, let matches, let totalCount, let truncated):
       let body =
         matches.isEmpty
         ? "(no matches)"
         : matches.map { "\($0.path.rawValue):\($0.line): \($0.snippet)" }
           .joined(separator: "\n")
-      return """
-        Search root: \(root.rawValue)
-        Pattern: \(pattern)
-        Total matches: \(totalCount)
-        Truncated: \(truncated)
-        Matches:
-        \(body)
-        """
+      let lines: [String?] = [
+        "Search root: \(root.rawValue)",
+        "Pattern: \(pattern)",
+        "Total matches: \(totalCount)",
+        truncated ? "Truncated: true" : nil,
+        "Matches:",
+        body,
+      ]
+      return lines.compactMap(\.self).joined(separator: "\n")
     case .editReceipt(let path, let diffSummary, let matchStrategy):
       return [
         "Edited file: \(path.rawValue)",
@@ -358,13 +364,13 @@ public enum ToolModelObservationRenderer {
         "Command: \(result.command)",
         "Exit code: \(result.exitCode.map(String.init) ?? "none")",
         "Duration ms: \(result.durationMs)",
-        "Timed out: \(result.timedOut)",
-        "Cancelled: \(result.cancelled)",
+        result.timedOut ? "Timed out: true" : nil,
+        result.cancelled ? "Cancelled: true" : nil,
         result.outputRef.map { "Output ref: \($0)" },
-        "Stdout truncated: \(result.stdout.truncated)",
+        result.stdout.truncated ? "Stdout truncated: true" : nil,
         result.stdoutOmittedChars > 0 ? "Stdout omitted chars: \(result.stdoutOmittedChars)" : nil,
         result.stdout.text.isEmpty ? nil : "Stdout preview:\n\(result.stdout.text)",
-        "Stderr truncated: \(result.stderr.truncated)",
+        result.stderr.truncated ? "Stderr truncated: true" : nil,
         result.stderrOmittedChars > 0 ? "Stderr omitted chars: \(result.stderrOmittedChars)" : nil,
         result.stderr.text.isEmpty ? nil : "Stderr preview:\n\(result.stderr.text)",
       ].compactMap(\.self)
@@ -393,13 +399,14 @@ public enum ToolModelObservationRenderer {
             result.snippet,
           ].compactMap(\.self).joined(separator: "\n")
         }.joined(separator: "\n\n")
-      return """
-        Web search provider: \(provider.displayName)
-        Query: \(query)
-        Truncated: \(truncated)
-        Results:
-        \(body)
-        """
+      let lines: [String?] = [
+        "Web search provider: \(provider.displayName)",
+        "Query: \(query)",
+        truncated ? "Truncated: true" : nil,
+        "Results:",
+        body,
+      ]
+      return lines.compactMap(\.self).joined(separator: "\n")
     case .webFetch(
       let url, let provider, let finalURL, let statusCode, let contentType, let content,
       let byteCount):
@@ -448,32 +455,15 @@ private indirect enum ToolResultJSONValue {
   case bool(Bool)
   case null
 
-  func rendered(indentation: Int = 0) -> String {
+  func rendered() -> String {
     switch self {
     case .object(let fields):
-      guard !fields.isEmpty else {
-        return "{}"
-      }
-      let indent = String(repeating: " ", count: indentation)
-      let childIndent = String(repeating: " ", count: indentation + 2)
       let body = fields.map { key, value in
-        "\(childIndent)\"\(Self.escaped(key))\": \(value.rendered(indentation: indentation + 2))"
-      }.joined(separator: ",\n")
-      return "{\n\(body)\n\(indent)}"
+        "\"\(Self.escaped(key))\":\(value.rendered())"
+      }.joined(separator: ",")
+      return "{\(body)}"
     case .array(let values):
-      guard !values.isEmpty else {
-        return "[]"
-      }
-      if values.allSatisfy(\.isScalar) {
-        return "[" + values.map { $0.rendered(indentation: indentation) }.joined(separator: ", ")
-          + "]"
-      }
-      let indent = String(repeating: " ", count: indentation)
-      let childIndent = String(repeating: " ", count: indentation + 2)
-      let body = values.map {
-        "\(childIndent)\($0.rendered(indentation: indentation + 2))"
-      }.joined(separator: ",\n")
-      return "[\n\(body)\n\(indent)]"
+      return "[" + values.map { $0.rendered() }.joined(separator: ",") + "]"
     case .string(let value):
       return "\"\(Self.escaped(value))\""
     case .int(let value):
@@ -485,11 +475,19 @@ private indirect enum ToolResultJSONValue {
     }
   }
 
-  private var isScalar: Bool {
+  fileprivate var isDefaultOrEmpty: Bool {
     switch self {
-    case .string, .int, .bool, .null:
+    case .string(let value):
+      return value.isEmpty
+    case .bool(let value):
+      return !value
+    case .null:
       return true
-    case .object, .array:
+    case .array(let values):
+      return values.isEmpty
+    case .object(let fields):
+      return fields.isEmpty
+    case .int:
       return false
     }
   }

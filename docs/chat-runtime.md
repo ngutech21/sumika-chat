@@ -224,12 +224,14 @@ flowchart TD
   user continuations. A completed native tool call projects as assistant
   `tool_calls` metadata with a stable call ID followed by one or more `tool`
   result messages with the matching `tool_call_id`. The tool message content is
-  a byte-stable hybrid body: one valid `TOOL_RESULT_JSON` object followed by one
-  readable `CONTENT` section. The JSON object carries compact control metadata
-  such as `ok`, `tool`, `status`, `kind`, `duplicate`, affected paths,
-  tool-specific counts/flags, and short `next_allowed_actions`. Long file
-  contents, command stdout/stderr, HTML, Markdown, diffs, logs, fetched pages,
-  and other raw bodies stay outside JSON in `CONTENT`. Duplicate replay metadata
+  a byte-stable hybrid body: one valid, single-line `TOOL_RESULT_JSON` object
+  followed by one readable `CONTENT` section. The sparse JSON object always
+  carries `tool`, `status`, and `kind`; default and empty metadata is omitted,
+  non-empty `next_allowed_actions` provide local routing, and positive control
+  signals such as truncation, redaction, duplicate replay, and forbidden
+  repetition stay explicit. Long file contents, command stdout/stderr, HTML,
+  Markdown, diffs, logs, fetched pages, and other raw bodies stay outside JSON in
+  `CONTENT`. Duplicate replay metadata
   is derived structurally from `DuplicateToolCallResult`; duplicate headers use
   `kind: "duplicate_replay"`, `duplicate: true`, `not_reexecuted: true`, and
   `forbidden_repeat: true`, with `replayed_result_kind` present only when a

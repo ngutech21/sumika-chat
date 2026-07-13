@@ -131,7 +131,7 @@ struct ToolResultProjectorTests {
   }
 
   @Test
-  func listFilesRendersHybridToolResultWithEntriesAndNoCallID() {
+  func listFilesRendersSparseHybridToolResultWithEntriesAndNoCallID() throws {
     let callID = UUID()
     let projection = ToolResultProjector.project(
       payload: .listFiles(
@@ -154,15 +154,95 @@ struct ToolResultProjectorTests {
     )
 
     let rendered = ToolModelObservationRenderer.render(projection, callID: callID)
+    let hybrid = try hybridToolResult(rendered)
 
     #expect(rendered.contains("TOOL_RESULT_JSON:"))
-    #expect(rendered.contains("\"tool\": \"list_files\""))
-    #expect(rendered.contains("\"kind\": \"listing\""))
-    #expect(rendered.contains("\"entry_count\": 3"))
+    #expect(rendered.contains("\"tool\":\"list_files\""))
+    #expect(rendered.contains("\"kind\":\"listing\""))
+    #expect(rendered.contains("\"entry_count\":3"))
     #expect(rendered.contains("CONTENT:"))
     #expect(rendered.contains("Entries:\n.gitignore\nsnake_game/\nsnake_game/main.py"))
+    #expect(hybrid.jsonText.contains("\n") == false)
+    #expect(hybrid.json["ok"] == nil)
+    #expect(hybrid.json["duplicate"] == nil)
+    #expect(hybrid.json["next_allowed_actions"] as? [String] == ["read_file"])
+    #expect(hybrid.json["truncated"] as? Bool == true)
     #expect(rendered.contains(callID.uuidString) == false)
     #expect(rendered.contains(RuntimeToolCallID.string(for: callID)) == false)
+  }
+
+  @Test
+  func ordinarySuccessOmitsEmptyAndDefaultEnvelopeFields() throws {
+    let projection = ToolResultProjector.project(
+      payload: .todoWrite(.success),
+      request: request(
+        toolName: .todoWrite,
+        payload: .todoWrite(TodoWriteInput(items: []))
+      )
+    )
+
+    let rendered = ToolModelObservationRenderer.render(
+      projection,
+      callID: UUID(),
+      modelFollowUpNotice:
+        "Use this tool result. Call another necessary tool, or finish_task if done."
+    )
+    let hybrid = try hybridToolResult(rendered)
+
+    #expect(hybrid.json["tool"] as? String == "todo_write")
+    #expect(hybrid.json["status"] as? String == "success")
+    #expect(hybrid.json["kind"] as? String == "plan_update")
+    #expect(
+      hybrid.json["next_step"] as? String
+        == "Use this tool result. Call another necessary tool, or finish_task if done.")
+    #expect(hybrid.json["ok"] == nil)
+    #expect(hybrid.json["duplicate"] == nil)
+    #expect(hybrid.json["affected_paths"] == nil)
+    #expect(hybrid.json["next_allowed_actions"] == nil)
+    #expect(hybrid.jsonText.contains("\n") == false)
+  }
+
+  @Test
+  func defaultFlagsAndNullMetadataAreOmittedButPositiveWarningsRemain() throws {
+    let normalProjection = ToolResultProjector.project(
+      payload: .readFile(
+        .success(
+          path: WorkspaceRelativePath(rawValue: "README.md"),
+          content: ToolTextOutput(text: "notes")
+        )),
+      request: request(
+        toolName: .showFile,
+        payload: .showFile(ReadFileInput(path: "README.md"))
+      )
+    )
+    let normal = try hybridToolResult(
+      ToolModelObservationRenderer.render(normalProjection, callID: UUID())
+    )
+
+    #expect(normal.json["range"] == nil)
+    #expect(normal.json["truncated"] == nil)
+    #expect(normal.json["redacted"] == nil)
+    #expect(normal.content.contains("Truncated: false") == false)
+    #expect(normal.content.contains("Redacted: false") == false)
+
+    let truncatedProjection = ToolResultProjector.project(
+      payload: .listFiles(
+        ListFilesResult(
+          root: WorkspaceRelativePath(rawValue: "."),
+          entries: [],
+          truncated: true
+        )),
+      request: request(
+        toolName: .listFiles,
+        payload: .listFiles(ListFilesInput(path: "."))
+      )
+    )
+    let truncated = try hybridToolResult(
+      ToolModelObservationRenderer.render(truncatedProjection, callID: UUID())
+    )
+
+    #expect(truncated.json["truncated"] as? Bool == true)
+    #expect(truncated.content.contains("Truncated: true"))
   }
 
   @Test
@@ -292,11 +372,11 @@ struct ToolResultProjectorTests {
 
     let rendered = ToolModelObservationRenderer.render(duplicateProjection, callID: duplicateCallID)
 
-    #expect(rendered.contains("\"kind\": \"duplicate_replay\""))
-    #expect(rendered.contains("\"duplicate\": true"))
-    #expect(rendered.contains("\"not_reexecuted\": true"))
-    #expect(rendered.contains("\"replayed_result_kind\": \"listing\""))
-    #expect(rendered.contains("\"forbidden_repeat\": true"))
+    #expect(rendered.contains("\"kind\":\"duplicate_replay\""))
+    #expect(rendered.contains("\"duplicate\":true"))
+    #expect(rendered.contains("\"not_reexecuted\":true"))
+    #expect(rendered.contains("\"replayed_result_kind\":\"listing\""))
+    #expect(rendered.contains("\"forbidden_repeat\":true"))
     #expect(rendered.contains("Duplicate replay: identical list_files already completed"))
     #expect(rendered.contains("Entries:\n.gitignore\nsnake_game/"))
     #expect(rendered.contains(RuntimeToolCallID.string(for: previousCallID)) == false)
@@ -326,10 +406,10 @@ struct ToolResultProjectorTests {
     // Model-facing observation is framed non-success to break the loop...
     #expect(duplicateProjection.observation.status == .denied)
     let rendered = ToolModelObservationRenderer.render(duplicateProjection, callID: duplicateCallID)
-    #expect(rendered.contains("\"ok\": false"))
-    #expect(rendered.contains("\"status\": \"denied\""))
-    #expect(rendered.contains("\"forbidden_repeat\": true"))
-    #expect(rendered.contains("\"duplicate\": true"))
+    #expect(rendered.contains("\"ok\"") == false)
+    #expect(rendered.contains("\"status\":\"denied\""))
+    #expect(rendered.contains("\"forbidden_repeat\":true"))
+    #expect(rendered.contains("\"duplicate\":true"))
     // ...with the replayed listing content withheld.
     #expect(rendered.contains("Entries:") == false)
     #expect(rendered.contains(".gitignore") == false)
@@ -451,8 +531,8 @@ struct ToolResultProjectorTests {
     #expect(
       projection.display == .summary(status: .success, text: "Plan updated.", affectedPaths: []))
     #expect(rendered.contains("TOOL_RESULT_JSON:"))
-    #expect(rendered.contains("\"tool\": \"todo_write\""))
-    #expect(rendered.contains("\"kind\": \"plan_update\""))
+    #expect(rendered.contains("\"tool\":\"todo_write\""))
+    #expect(rendered.contains("\"kind\":\"plan_update\""))
     #expect(rendered.contains("CONTENT:\nPlan updated."))
     #expect(!rendered.contains("Inspect files"))
   }
@@ -845,9 +925,9 @@ struct ToolResultProjectorTests {
     #expect(projection.observation.status == .denied)
     #expect(projection.observation.blocks == [.failure("Tool call denied by user.")])
     #expect(projection.metadata.kind == "user_denied")
-    #expect(rendered.contains("\"ok\": false"))
-    #expect(rendered.contains("\"status\": \"denied\""))
-    #expect(rendered.contains("\"kind\": \"user_denied\""))
+    #expect(rendered.contains("\"ok\"") == false)
+    #expect(rendered.contains("\"status\":\"denied\""))
+    #expect(rendered.contains("\"kind\":\"user_denied\""))
     #expect(rendered.contains("Failure: Tool call denied by user."))
   }
 
@@ -1105,9 +1185,9 @@ struct ToolResultProjectorTests {
 
     let rendered = ToolModelObservationRenderer.render(projection, callID: UUID())
     #expect(rendered.contains("TOOL_RESULT_JSON:"))
-    #expect(rendered.contains("\"tool\": \"run_command\""))
-    #expect(rendered.contains("\"status\": \"\(expectedStatus.rawValue)\""))
-    #expect(rendered.contains("\"kind\": \"command_result\""))
+    #expect(rendered.contains("\"tool\":\"run_command\""))
+    #expect(rendered.contains("\"status\":\"\(expectedStatus.rawValue)\""))
+    #expect(rendered.contains("\"kind\":\"command_result\""))
     #expect(rendered.contains("CONTENT:\nCommand: \(result.command)"))
     return rendered
   }

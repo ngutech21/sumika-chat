@@ -177,9 +177,7 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(capturedMessages.last?.last?.role == .tool)
     #expect(capturedMessages.last?.last?.content.contains("Wrote") == true)
     #expect(
-      capturedMessages.last?.last?.content.contains(
-        "Continue using the latest tool observation"
-      )
+      capturedMessages.last?.last?.content.contains("Use this tool result")
         == true)
     #expect(
       capturedMessages.last?.last?.content.contains("Do not include generated file contents")

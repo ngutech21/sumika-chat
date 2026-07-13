@@ -290,7 +290,7 @@ struct MLXChatRuntimeTemplateTests {
     #expect(rendered[2].content.isEmpty)
     #expect(rawAssistantFunction["name"] as? String == ToolName.writeFile.rawValue)
     #expect(rendered[3].content.contains("TOOL_RESULT_JSON:"))
-    #expect(rendered[3].content.contains("\"tool\": \"write_file\""))
+    #expect(rendered[3].content.contains("\"tool\":\"write_file\""))
     #expect(rendered[3].content.contains("Summary:"))
     #expect(rendered[3].content.contains("Wrote 13 bytes to index.htm."))
     #expect(rendered[3].content.contains("Tool receipt:") == false)
@@ -860,7 +860,7 @@ struct MLXChatRuntimeTemplateTests {
     #expect(rawAssistantFunction["name"] as? String == ToolName.readFile.rawValue)
     #expect(rawMessages[2]["tool_call_id"] as? String == runtimeCallID)
     #expect(input.promptMessages[0].content.contains("TOOL_RESULT_JSON:"))
-    #expect(input.promptMessages[0].content.contains("\"tool\": \"read_file\""))
+    #expect(input.promptMessages[0].content.contains("\"tool\":\"read_file\""))
     #expect(input.promptMessages[0].content.contains("Project overview"))
     #expect(input.promptMessages[0].content.contains(runtimeCallID) == false)
     #expect(input.promptMessages[0].content.contains(callID.uuidString) == false)
@@ -928,7 +928,7 @@ struct MLXChatRuntimeTemplateTests {
     #expect(input.history[1].content.contains("[Follow-up]") == false)
     #expect(input.promptMessages[0].content.contains("TOOL_RESULT_JSON:"))
     #expect(input.promptMessages[0].content.contains("Project overview"))
-    #expect(input.promptMessages[0].content.contains("\"next_step\": \"\(notice)\""))
+    #expect(input.promptMessages[0].content.contains("\"next_step\":\"\(notice)\""))
     #expect(input.promptMessages[0].content.contains("Original user request:") == false)
     #expect(input.promptSnapshot[0].content == input.promptMessages[0].content)
   }
@@ -1258,8 +1258,8 @@ struct MLXChatRuntimeTemplateTests {
     #expect(
       rawMessages[3]["tool_call_id"] as? String
         == RuntimeToolCallID.string(for: successfulCallID))
-    #expect(input.promptMessages[0].content.contains("\"status\": \"denied\""))
-    #expect(input.promptMessages[0].content.contains("\"kind\": \"user_denied\""))
+    #expect(input.promptMessages[0].content.contains("\"status\":\"denied\""))
+    #expect(input.promptMessages[0].content.contains("\"kind\":\"user_denied\""))
     #expect(input.promptMessages[0].content.contains("Tool call denied by user."))
     #expect(input.promptMessages[1].content.contains("Wrote 8 bytes to accepted.txt."))
   }
@@ -1492,7 +1492,7 @@ struct MLXChatRuntimeTemplateTests {
     #expect(currentHistory[2].toolCallID == RuntimeToolCallID.string(for: readCallID))
     #expect(
       cachedPrefix[2].content.contains(
-        "\"next_step\": \"Continue using the latest tool observation"))
+        "\"next_step\":\"Continue using the latest tool observation"))
     #expect(cachedPrefix[2] == currentHistory[2])
     #expect(MLXSessionCachePolicy.isPrefix(cachedPrefix, of: currentHistory))
     #expect(
@@ -1685,7 +1685,7 @@ struct MLXChatRuntimeTemplateTests {
     )
 
     #expect(rendered.map(\.role) == [.user])
-    #expect(rendered[0].content.contains("\"tool\": \"write_file\""))
+    #expect(rendered[0].content.contains("\"tool\":\"write_file\""))
     #expect(rendered[0].content.contains("Summary: Wrote 13 bytes to movies.html."))
   }
 

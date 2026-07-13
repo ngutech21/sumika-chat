@@ -17,9 +17,8 @@ struct ToolFollowUpNoticePolicyTests {
 
     #expect(update.record.id == latest.id)
     #expect(
-      update.record.modelFollowUpNotice?.contains("Continue using the latest tool observation")
-        == true)
-    #expect(update.record.modelFollowUpNotice?.contains("call finish_task") == true)
+      update.record.modelFollowUpNotice
+        == "Use this tool result. Call another necessary tool, or finish_task if done.")
     #expect(first.modelFollowUpNotice == nil)
     #expect(latest.modelFollowUpNotice == nil)
   }
@@ -34,7 +33,7 @@ struct ToolFollowUpNoticePolicyTests {
         promptMode: .afterChatWebToolResultCanContinue
       ))
 
-    #expect(update.record.modelFollowUpNotice?.contains("provide the final answer") == true)
+    #expect(update.record.modelFollowUpNotice?.contains("answer if done") == true)
     #expect(update.record.modelFollowUpNotice?.contains("finish_task") == false)
   }
 

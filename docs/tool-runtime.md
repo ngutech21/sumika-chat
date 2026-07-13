@@ -142,13 +142,16 @@ flowchart TD
   written to the model-facing ledger.
 - `ToolModelObservation` is compact, capped, and purpose-specific. The prompt
   renderer renders it once into `FrozenModelContent` as a stable hybrid tool
-  result: exactly one valid `TOOL_RESULT_JSON` control object followed by exactly
-  one readable `CONTENT` section. JSON includes compact metadata such as `ok`,
-  `tool`, `status`, `kind`, `duplicate`, short counts/flags, and
-  `next_allowed_actions`. Long file contents, command stdout/stderr, HTML,
-  Markdown, diffs, logs, fetched pages, and other raw bodies must stay in
-  `CONTENT`, not escaped inside JSON. That frozen content is the stable
-  model-facing ledger artifact.
+  result: exactly one valid, single-line `TOOL_RESULT_JSON` control object
+  followed by exactly one readable `CONTENT` section. The sparse JSON header
+  always carries `tool`, `status`, and `kind`; it omits default or empty metadata
+  such as `false`, `null`, empty arrays, and ordinary `duplicate: false` values.
+  Non-empty `next_allowed_actions` remain as a short local routing signal for
+  small models. Positive control signals such as truncation, redaction, duplicate
+  replay, and forbidden repetition remain explicit. Long file contents, command
+  stdout/stderr, HTML, Markdown, diffs, logs, fetched pages, and other raw bodies
+  must stay in `CONTENT`, not escaped inside JSON. That frozen content is the
+  stable model-facing ledger artifact.
 - Duplicate safe read-like tool calls reuse the previous completed
   `ToolResultPayload` instead of invoking the executor again. The first duplicate
   carries a replayed `ToolModelObservation` so the prompt tail contains the prior
@@ -182,9 +185,12 @@ flowchart TD
   follow-up are mutually exclusive within this slot.
 - `ModelFacingPromptRenderer` renders a tool follow-up notice only in the
   model-facing `tool` message, inside the `TOOL_RESULT_JSON.next_step` field.
-  The notice must not appear in UI previews, receipts, transient user prompts, or
-  `ToolResultPayload.content`, and rebuilds must derive it from
-  `ChatTurn.items -> ToolCallRecord` instead of mutating rendered tool output.
+  Ordinary tools-enabled continuations use one short local instruction; detailed
+  notices are reserved for failures, final no-tools generations, duplicate
+  replays, and loop brakes. The notice must not appear in UI previews, receipts,
+  transient user prompts, or `ToolResultPayload.content`, and rebuilds must derive
+  it from `ChatTurn.items -> ToolCallRecord` instead of mutating rendered tool
+  output.
 - `ChatTurn.items` is the canonical source for tool turn membership. One
   `.tool(ToolCallRecord)` item carries the call, permission state, and eventual
   result payload. Code that needs reverse lookup derives `toolCallID -> turnID`
