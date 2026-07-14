@@ -1,5 +1,3 @@
-import Foundation
-
 public struct ContextBudget: Codable, Equatable, Sendable {
   public let maxCharacters: Int
 
