@@ -18,6 +18,7 @@ final class AppState {
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
   @ObservationIgnored private var defaultSessionModeSettings =
     ManagedModelCatalog.defaultModel.defaultModeSettings
+  @ObservationIgnored private var mcpAgentToolExecutorGroups: [MCPAgentToolExecutorGroup] = []
   @ObservationIgnored private var didAttemptAutoloadLastModel = false
   @ObservationIgnored private var routeWasAutomaticMissingModelRedirect = false
 
@@ -294,6 +295,14 @@ final class AppState {
     }
   }
 
+  func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
+    let selection = normalizedMCPServerSelection(serverIDs)
+    chatController.setSelectedMCPServerIDs(
+      selection,
+      agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
+    )
+  }
+
   private func applyMCPConfiguration(_ servers: [MCPServerConfig]) async {
     await mcpClientManager.applyConfiguration(servers)
     await refreshAfterMCPChange()
@@ -301,20 +310,39 @@ final class AppState {
 
   private func refreshAfterMCPChange() async {
     settingsState.mcpServerStatuses = await mcpClientManager.statuses()
-    await refreshAgentToolRegistry()
+    mcpAgentToolExecutorGroups = await mcpClientManager.agentToolExecutorGroups()
+    let selection = normalizedMCPServerSelection(chatController.chatSession.selectedMCPServerIDs)
+    chatController.reconcileSelectedMCPServerIDs(
+      selection,
+      agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
+    )
   }
 
   /// The agent registry is always recomposed as a whole: built-in coding
-  /// tools (honoring the todo_write setting) plus the dynamic executors of
-  /// every connected MCP server.
-  private func refreshAgentToolRegistry() async {
-    let mcpExecutors = await mcpClientManager.agentToolExecutors()
+  /// tools (honoring the todo_write setting) plus dynamic executors from the
+  /// connected MCP servers selected by the active session.
+  private func refreshAgentToolRegistry() {
+    let selection = chatController.chatSession.selectedMCPServerIDs
     chatController.setAgentToolExecutorRegistry(
-      ToolExecutorRegistry.codingAgentRegistry(
-        todoWriteEnabled: settingsState.appBehaviorSettings.todoWriteToolEnabled
-      )
-      .merging(mcpExecutors)
+      agentToolExecutorRegistry(selectedServerIDs: selection)
     )
+  }
+
+  private func agentToolExecutorRegistry(selectedServerIDs: [UUID]) -> ToolExecutorRegistry {
+    let selectedIDs = Set(selectedServerIDs)
+    let mcpExecutors =
+      mcpAgentToolExecutorGroups
+      .filter { selectedIDs.contains($0.serverID) }
+      .flatMap(\.executors)
+    return ToolExecutorRegistry.codingAgentRegistry(
+      todoWriteEnabled: settingsState.appBehaviorSettings.todoWriteToolEnabled
+    )
+    .merging(mcpExecutors)
+  }
+
+  private func normalizedMCPServerSelection(_ serverIDs: [UUID]) -> [UUID] {
+    let requestedIDs = Set(serverIDs)
+    return settingsState.mcpServers.map(\.id).filter { requestedIDs.contains($0) }
   }
 
   func startModelRuntimeServices() {
@@ -351,21 +379,22 @@ final class AppState {
   }
 
   private func loadRouteSession() {
-    guard
-      case .chat = route,
-      let activeSession = workspaceState.activeSession
-    else {
-      chatController.loadSession(emptySessionForNoActiveWorkspace())
-      return
+    let session: ChatSession
+    if case .chat = route, let activeSession = workspaceState.activeSession {
+      session = activeSession
+    } else {
+      session = emptySessionForNoActiveWorkspace()
     }
-
-    chatController.loadSession(activeSession)
+    chatController.loadSession(session)
+    let selection = normalizedMCPServerSelection(session.selectedMCPServerIDs)
+    chatController.reconcileSelectedMCPServerIDs(
+      selection,
+      agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
+    )
   }
 
   private func applyAppBehaviorSettings(_ settings: AppBehaviorSettings) {
-    Task {
-      await self.refreshAgentToolRegistry()
-    }
+    refreshAgentToolRegistry()
     audioModelController.applyPersistedSelection(settings.speechInputAudioModelID)
     if !settings.assistantSpeechEnabled {
       assistantSpeechService.stop()

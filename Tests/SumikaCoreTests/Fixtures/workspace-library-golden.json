@@ -57,6 +57,9 @@
               "systemPrompt" : "Chat prompt"
             }
           },
+          "selectedMCPServerIDs" : [
+
+          ],
           "selectedModelID" : "gemma4-12b-qat-4bit",
           "title" : "Chat Session",
           "todoState" : null,
@@ -190,6 +193,9 @@
               "systemPrompt" : "Chat prompt"
             }
           },
+          "selectedMCPServerIDs" : [
+
+          ],
           "selectedModelID" : "gemma4-12b-qat-4bit",
           "title" : "Agent Session",
           "todoState" : {

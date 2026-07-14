@@ -154,7 +154,11 @@ struct ChatTurnExecutionCoordinator {
       promptBytes: promptPlan.stableInstructions.utf8.count,
       messageCount: callbacks.session().turns.flatMap(\.items).count,
       toolLoopIteration: toolLoopIteration,
-      interactionMode: interactionMode
+      interactionMode: interactionMode,
+      selectedMCPServerIDs: callbacks.session().selectedMCPServerIDs,
+      activeMCPToolCount: promptPlan.toolContext?.registry.tools.count {
+        $0.capabilities.contains(.externalService)
+      } ?? 0
     )
     let contextBuildStartedAt = Date()
     let modelPromptProjection = modelContextBuilder.transcript(
@@ -635,7 +639,9 @@ struct ChatTurnExecutionCoordinator {
     ttftMs: Double? = nil,
     tokensPerSecond: Double? = nil,
     cacheMode: String? = nil,
-    interactionMode: WorkspaceInteractionMode? = nil
+    interactionMode: WorkspaceInteractionMode? = nil,
+    selectedMCPServerIDs: [UUID]? = nil,
+    activeMCPToolCount: Int? = nil
   ) {
     let durationMs = Date().timeIntervalSince(startedAt) * 1000
     Task {
@@ -653,7 +659,9 @@ struct ChatTurnExecutionCoordinator {
           ttftMs: ttftMs,
           tokensPerSecond: tokensPerSecond,
           cacheMode: cacheMode,
-          interactionMode: interactionMode
+          interactionMode: interactionMode,
+          selectedMCPServerIDs: selectedMCPServerIDs,
+          activeMCPToolCount: activeMCPToolCount
         )
       )
     }

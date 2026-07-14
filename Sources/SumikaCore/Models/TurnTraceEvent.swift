@@ -31,6 +31,8 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
   public let cacheReason: String?
   public let memoryClearReason: String?
   public let interactionMode: WorkspaceInteractionMode?
+  public let selectedMCPServerIDs: [UUID]?
+  public let activeMCPToolCount: Int?
   public let contextSignature: String?
   public let previousContextSignature: String?
   public let appendOnly: Bool?
@@ -66,6 +68,8 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     cacheReason: String? = nil,
     memoryClearReason: String? = nil,
     interactionMode: WorkspaceInteractionMode? = nil,
+    selectedMCPServerIDs: [UUID]? = nil,
+    activeMCPToolCount: Int? = nil,
     contextSignature: String? = nil,
     previousContextSignature: String? = nil,
     appendOnly: Bool? = nil,
@@ -100,6 +104,8 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.cacheReason = cacheReason
     self.memoryClearReason = memoryClearReason
     self.interactionMode = interactionMode
+    self.selectedMCPServerIDs = selectedMCPServerIDs
+    self.activeMCPToolCount = activeMCPToolCount
     self.contextSignature = contextSignature
     self.previousContextSignature = previousContextSignature
     self.appendOnly = appendOnly

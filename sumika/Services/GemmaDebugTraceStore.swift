@@ -119,6 +119,8 @@ actor GemmaDebugTraceStore: TurnTracing {
       ("cacheReason", event.cacheReason),
       ("memoryClearReason", event.memoryClearReason),
       ("interactionMode", event.interactionMode?.rawValue),
+      ("selectedMCPServerIDs", event.selectedMCPServerIDs?.map(\.uuidString)),
+      ("activeMCPToolCount", event.activeMCPToolCount),
       ("contextSignature", event.contextSignature),
       ("previousContextSignature", event.previousContextSignature),
       ("appendOnly", event.appendOnly),

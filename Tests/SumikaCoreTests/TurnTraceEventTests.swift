@@ -24,6 +24,7 @@ struct TurnTraceEventTests {
   func eventEncodesStableFieldNamesAndPhaseValue() throws {
     let turnID = UUID()
     let generationID = UUID()
+    let mcpServerID = UUID()
     let event = TurnTraceEvent(
       turnID: turnID,
       generationID: generationID,
@@ -40,6 +41,8 @@ struct TurnTraceEventTests {
       cacheReason: "invalidated_history_prefix_mismatch",
       memoryClearReason: "runtime_error",
       interactionMode: .agent,
+      selectedMCPServerIDs: [mcpServerID],
+      activeMCPToolCount: 3,
       contextSignature: "ctx-new",
       previousContextSignature: "ctx-old",
       appendOnly: true,
@@ -87,6 +90,8 @@ struct TurnTraceEventTests {
     #expect(object["cacheReason"] as? String == "invalidated_history_prefix_mismatch")
     #expect(object["memoryClearReason"] as? String == "runtime_error")
     #expect(object["interactionMode"] as? String == "agent")
+    #expect(object["selectedMCPServerIDs"] as? [String] == [mcpServerID.uuidString])
+    #expect(object["activeMCPToolCount"] as? Int == 3)
     #expect(object["contextSignature"] as? String == "ctx-new")
     #expect(object["previousContextSignature"] as? String == "ctx-old")
     #expect(object["appendOnly"] as? Bool == true)

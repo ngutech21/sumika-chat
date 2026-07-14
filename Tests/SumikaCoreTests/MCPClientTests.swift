@@ -196,6 +196,7 @@ struct MCPClientTests {
     await manager.applyConfiguration([config])
     let statuses = await manager.statuses()
     let executors = await manager.agentToolExecutors()
+    let groups = await manager.agentToolExecutorGroups()
     await manager.shutdownAll()
 
     #expect(statuses.count == 1)
@@ -203,6 +204,8 @@ struct MCPClientTests {
     #expect(executors.count == 1)
     #expect(executors.first?.definition.name.rawValue == "mcp__fake__echo")
     #expect(executors.first?.definition.rawParametersSchema != nil)
+    #expect(groups.map(\.serverID) == [config.id])
+    #expect(groups.first?.executors.map(\.definition.name.rawValue) == ["mcp__fake__echo"])
   }
 
   @Test

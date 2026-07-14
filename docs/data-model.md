@@ -1276,6 +1276,7 @@ Relations:
 
 Properties:
 
+- `activeMCPToolCount: Int?`
 - `appendOnly: Bool?`
 - `appendedMessageCount: Int?`
 - `cacheMode: String?`
@@ -1297,6 +1298,7 @@ Properties:
 - `promptBytes: Int?`
 - `promptTokens: Int?`
 - `reusedMessageCount: Int?`
+- `selectedMCPServerIDs: [UUID]?`
 - `systemPromptChanged: Bool?`
 - `tokensPerSecond: Double?`
 - `toolArgumentKeys: [String]?`

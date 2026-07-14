@@ -54,6 +54,34 @@ struct ChatSessionTests {
   }
 
   @Test
+  func selectedMCPServerIDsPreserveOrderAndRemoveDuplicates() throws {
+    let first = UUID()
+    let second = UUID()
+    let session = ChatSession(selectedMCPServerIDs: [second, first, second])
+
+    let decoded = try JSONDecoder().decode(
+      ChatSession.self,
+      from: JSONEncoder().encode(session)
+    )
+
+    #expect(session.selectedMCPServerIDs == [second, first])
+    #expect(decoded.selectedMCPServerIDs == [second, first])
+  }
+
+  @Test
+  func decodingRequiresSelectedMCPServerIDs() throws {
+    var object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(ChatSession())) as? [String: Any]
+    )
+    object.removeValue(forKey: "selectedMCPServerIDs")
+    let data = try JSONSerialization.data(withJSONObject: object)
+
+    #expect(throws: DecodingError.self) {
+      try JSONDecoder().decode(ChatSession.self, from: data)
+    }
+  }
+
+  @Test
   func decodingMissingModeSettingsUsesDefaults() throws {
     let legacyGenerationSettings = ChatGenerationSettings(
       temperature: 1.7,

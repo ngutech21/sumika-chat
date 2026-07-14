@@ -407,9 +407,10 @@ declarations.
   placeholders.
 - `MCPClientManager` reconciles connections with the configured server list,
   reports per-server statuses for the settings UI, and projects every tool of
-  every connected server as an `AnyToolExecutor(dynamic:)`. It never
-  reconnects on its own; a crashed server surfaces as failed tool calls until
-  the user reconnects or reapplies the configuration.
+  every connected server as an `AnyToolExecutor(dynamic:)`, grouped by the
+  stable `MCPServerConfig.id`. It never reconnects on its own; a crashed server
+  surfaces as failed tool calls until the user reconnects or reapplies the
+  configuration.
 - `DynamicToolExecutor` is the instance-codec sibling of `TypedToolExecutor`.
   Both run through one shared execution state machine in `AnyToolExecutor`;
   dynamic executors additionally carry their codec so
@@ -436,11 +437,23 @@ declarations.
   Argument validation for dynamic tools enforces only the schema's explicit
   `required` list; the server owns full argument validation.
 - Every MCP tool call requires approval before every execution, with a preview
-  of server, tool, and arguments. Tool availability is Agent-only: dynamic
-  executors are merged into the coding-agent registry through
-  `ToolExecutorRegistry.merging`, recomposed whenever servers connect,
-  disconnect, or the todo-write setting changes. Chat (web) sessions never
-  expose MCP tools.
+  of server, tool, and arguments. `ChatSession.selectedMCPServerIDs` is the
+  ordered, deduplicated per-session selection; new sessions select no MCP
+  servers. The composer exposes configured servers in Agent mode, including
+  disabled or disconnected servers, so a selection survives until that server
+  reconnects. IDs removed from global configuration are pruned when the session
+  becomes active.
+- Tool availability is Agent-only: only executor groups selected by the active
+  session are merged into the coding-agent registry through
+  `ToolExecutorRegistry.merging`. The registry is recomposed on session or
+  selection changes, server connect/disconnect/reconnect, and todo-write setting
+  changes. Chat (web) sessions never expose MCP tools, and selection changes are
+  blocked during generation or unresolved approval/user-input interactions.
+- All globally enabled MCP servers still start and list their tools. Session
+  selection controls model-facing schema visibility and execution registry
+  membership, not process lifetime. Changing the selection changes the existing
+  tool-schema cache identity and clears reusable runtime context. `turn_trace`
+  records the selected server IDs and active MCP tool count on prompt rendering.
 - Server-provided tool descriptions are untrusted prompt input and are capped
   before entering definitions. MCP results are untrusted tool output: the
   model observation is a capped summary block, and `is_error` results project

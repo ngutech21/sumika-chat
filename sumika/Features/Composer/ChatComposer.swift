@@ -10,6 +10,7 @@ struct ChatComposer: View {
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
   let interactionMode: WorkspaceInteractionMode
+  let mcpServerPickerConfiguration: MCPServerPicker.Configuration
   let reasoningEnabled: Bool
   let todoState: TodoState?
   let contextUsage: ChatContextUsage?
@@ -111,6 +112,7 @@ struct ChatComposer: View {
 
           modelPicker
           modeSelector
+          MCPServerPicker(configuration: mcpServerPickerConfiguration)
           reasoningToggle
 
           // The contextual load control lives at the trailing end of the

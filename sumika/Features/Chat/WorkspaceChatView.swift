@@ -8,6 +8,8 @@ struct WorkspaceChatView: View, Equatable {
   let sessionID: ChatSession.ID?
   let browserToolService: HTMLPreviewBrowserToolService
   let appBehaviorSettings: AppBehaviorSettings
+  let mcpServers: [MCPServerConfig]
+  let mcpServerStatuses: [MCPServerStatus]
   let assistantSpeechService: AssistantSpeechService
   let speechInputController: ComposerSpeechInputController
   let workspaceChatActions: WorkspaceChatActions
@@ -15,6 +17,7 @@ struct WorkspaceChatView: View, Equatable {
   @Binding var isWorkspaceTerminalVisible: Bool
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
   let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
+  let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
   @State private var previewState = WorkspacePreviewFeatureState()
 
@@ -24,6 +27,8 @@ struct WorkspaceChatView: View, Equatable {
       && lhs.sessionID == rhs.sessionID
       && ObjectIdentifier(lhs.browserToolService) == ObjectIdentifier(rhs.browserToolService)
       && lhs.appBehaviorSettings == rhs.appBehaviorSettings
+      && lhs.mcpServers == rhs.mcpServers
+      && lhs.mcpServerStatuses == rhs.mcpServerStatuses
       && ObjectIdentifier(lhs.assistantSpeechService)
         == ObjectIdentifier(rhs.assistantSpeechService)
       && ObjectIdentifier(lhs.speechInputController)
@@ -45,11 +50,14 @@ struct WorkspaceChatView: View, Equatable {
         context: context,
         sessionID: sessionID,
         appBehaviorSettings: appBehaviorSettings,
+        mcpServers: mcpServers,
+        mcpServerStatuses: mcpServerStatuses,
         assistantSpeechService: assistantSpeechService,
         speechInputController: speechInputController,
         previewState: previewState,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
         onSendMessage: onSendMessage,
+        onSelectMCPServerIDs: onSelectMCPServerIDs,
         onOpenAudioModels: onOpenAudioModels
       )
       .equatable()
@@ -93,11 +101,14 @@ private struct WorkspaceChatMainColumn: View, Equatable {
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let appBehaviorSettings: AppBehaviorSettings
+  let mcpServers: [MCPServerConfig]
+  let mcpServerStatuses: [MCPServerStatus]
   let assistantSpeechService: AssistantSpeechService
   let speechInputController: ComposerSpeechInputController
   let previewState: WorkspacePreviewFeatureState
   @Binding var isWorkspaceTerminalVisible: Bool
   let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
+  let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
   @State private var composerHeight: CGFloat = 0
 
@@ -106,6 +117,8 @@ private struct WorkspaceChatMainColumn: View, Equatable {
       && lhs.context == rhs.context
       && lhs.sessionID == rhs.sessionID
       && lhs.appBehaviorSettings == rhs.appBehaviorSettings
+      && lhs.mcpServers == rhs.mcpServers
+      && lhs.mcpServerStatuses == rhs.mcpServerStatuses
       && ObjectIdentifier(lhs.assistantSpeechService)
         == ObjectIdentifier(rhs.assistantSpeechService)
       && ObjectIdentifier(lhs.speechInputController)
@@ -138,9 +151,12 @@ private struct WorkspaceChatMainColumn: View, Equatable {
           controller: controller,
           context: context,
           sessionID: sessionID,
+          mcpServers: mcpServers,
+          mcpServerStatuses: mcpServerStatuses,
           previewState: previewState,
           speechInputController: speechInputController,
           onSendMessage: onSendMessage,
+          onSelectMCPServerIDs: onSelectMCPServerIDs,
           onOpenAudioModels: onOpenAudioModels
         )
         .background {

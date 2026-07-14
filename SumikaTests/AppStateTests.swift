@@ -1295,6 +1295,157 @@ struct AppStateTests {
     let toolContext = try #require(capturedToolContexts.first ?? nil)
     #expect(toolContext.registry.definition(for: .todoWrite) != nil)
   }
+
+  @Test
+  func selectedMCPServersFilterAgentToolSchemaPerSession() async throws {
+    let script = try makeMCPServerScript()
+    defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent()) }
+    let firstServer = MCPServerConfig(
+      name: "First",
+      command: script.path(percentEncoded: false)
+    )
+    let secondServer = MCPServerConfig(
+      name: "Second",
+      command: script.path(percentEncoded: false)
+    )
+    let sessionID = UUID()
+    let rootURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+    let session = ChatSession(
+      id: sessionID,
+      interactionMode: .agent,
+      selectedMCPServerIDs: [firstServer.id]
+    )
+    let workspace = Workspace(name: "Project", rootURL: rootURL, sessions: [session])
+    let runtime = AppStateTestRuntime(eventTurns: [
+      [.chunk("First response.")],
+      [.chunk("Second response.")],
+    ])
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspace.id,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(servers: [firstServer, secondServer]),
+      runtime: runtime
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+        && appState.settingsState.mcpServerStatuses.allSatisfy {
+          $0.state == .connected(toolCount: 1)
+        }
+    }
+    let activeWorkspace = try #require(appState.workspaceState.activeWorkspace)
+    appState.chatController.modelRuntime.modelState = .ready
+    appState.chatController.sendMessage(
+      prompt: "Use the first server",
+      in: activeWorkspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { !appState.chatController.isGenerating }
+
+    appState.setSelectedMCPServerIDs([secondServer.id])
+    appState.chatController.sendMessage(
+      prompt: "Use the second server",
+      in: activeWorkspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { !appState.chatController.isGenerating }
+
+    let capturedToolContexts = await runtime.capturedToolContexts
+    let contexts = capturedToolContexts.compactMap { $0 }
+    let firstContext = try #require(contexts.first)
+    let secondContext = try #require(contexts.dropFirst().first)
+    #expect(mcpToolNames(in: firstContext) == ["mcp__first__echo"])
+    #expect(mcpToolNames(in: secondContext) == ["mcp__second__echo"])
+    #expect(appState.chatController.chatSession.selectedMCPServerIDs == [secondServer.id])
+    await appState.prepareForTermination()
+  }
+
+  @Test
+  func disabledMCPSelectionPersistsAndDeletedConfigurationIsPruned() async throws {
+    let configuredServer = MCPServerConfig(
+      name: "Offline",
+      command: "/usr/bin/false",
+      isEnabled: false
+    )
+    let deletedServerID = UUID()
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        ChatSession(
+          id: sessionID,
+          interactionMode: .agent,
+          selectedMCPServerIDs: [configuredServer.id, deletedServerID]
+        )
+      ]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspace.id,
+        activeSessionID: sessionID
+      )
+    )
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(servers: [configuredServer]),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil { !appState.workspaceState.isLoading }
+    #expect(appState.chatController.chatSession.selectedMCPServerIDs == [configuredServer.id])
+
+    appState.updateMCPServers([])
+    try await waitUntil {
+      appState.settingsState.mcpServers.isEmpty
+        && appState.chatController.chatSession.selectedMCPServerIDs.isEmpty
+    }
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      library.workspaces.first?.sessions.first?.selectedMCPServerIDs.isEmpty == true
+    }
+    #expect(savedLibrary.workspaces.first?.sessions.first?.selectedMCPServerIDs == [])
+  }
+}
+
+private func makeMCPServerScript() throws -> URL {
+  let directory = FileManager.default.temporaryDirectory.appending(
+    path: "sumika-app-mcp-tests-\(UUID().uuidString)",
+    directoryHint: .isDirectory
+  )
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  let script = directory.appending(path: "server.sh", directoryHint: .notDirectory)
+  try """
+  #!/bin/sh
+  read -r line
+  printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1.0"}}}'
+  read -r line
+  read -r line
+  printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Echo text.","inputSchema":{"type":"object"}}]}}'
+  while read -r line; do :; done
+  """.write(to: script, atomically: true, encoding: .utf8)
+  try FileManager.default.setAttributes(
+    [.posixPermissions: 0o755],
+    ofItemAtPath: script.path(percentEncoded: false)
+  )
+  return script
+}
+
+private func mcpToolNames(in context: ChatRuntimeToolContext) -> [String] {
+  context.registry.tools
+    .filter { $0.capabilities.contains(.externalService) }
+    .map(\.name.rawValue)
 }
 
 private actor InMemoryWorkspaceStore: WorkspaceStoring {

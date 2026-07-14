@@ -30,6 +30,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     set { activeModeSettings.generationSettings = newValue }
   }
   public var interactionMode: WorkspaceInteractionMode
+  public private(set) var selectedMCPServerIDs: [UUID]
   public var todoState: TodoState?
   public var pendingAttachments: [ChatAttachment]
   public var activeAttachmentContext: ActiveAttachmentContext
@@ -45,6 +46,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     focusedFileState: FocusedFileState = .empty,
     modeSettings: ChatModeSettingsSet = .defaultSettings,
     interactionMode: WorkspaceInteractionMode = .chat,
+    selectedMCPServerIDs: [UUID] = [],
     todoState: TodoState? = nil,
     activeAttachmentContext: ActiveAttachmentContext = .empty,
     createdAt: Date = Date(),
@@ -56,6 +58,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.turns = turns
     self.focusedFileState = focusedFileState
     self.interactionMode = interactionMode
+    self.selectedMCPServerIDs = Self.uniqueIDsPreservingOrder(selectedMCPServerIDs)
     self.modeSettings = modeSettings
     self.todoState = todoState
     self.pendingAttachments = pendingAttachments
@@ -74,6 +77,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       && lhs.focusedFileState == rhs.focusedFileState
       && lhs.modeSettings == rhs.modeSettings
       && lhs.interactionMode == rhs.interactionMode
+      && lhs.selectedMCPServerIDs == rhs.selectedMCPServerIDs
       && lhs.todoState == rhs.todoState
       && lhs.activeAttachmentContext == rhs.activeAttachmentContext
       && lhs.createdAt == rhs.createdAt
@@ -88,6 +92,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     case focusedFileState
     case modeSettings
     case interactionMode
+    case selectedMCPServerIDs
     case todoState
     case activeAttachmentContext
     case createdAt
@@ -116,6 +121,9 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       forKey: .interactionMode,
       default: .chat
     )
+    selectedMCPServerIDs = Self.uniqueIDsPreservingOrder(
+      try container.decode([UUID].self, forKey: .selectedMCPServerIDs)
+    )
     modeSettings = try container.decodeIfPresent(
       ChatModeSettingsSet.self,
       forKey: .modeSettings,
@@ -141,6 +149,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     try container.encode(focusedFileState, forKey: .focusedFileState)
     try container.encode(modeSettings, forKey: .modeSettings)
     try container.encode(interactionMode, forKey: .interactionMode)
+    try container.encode(selectedMCPServerIDs, forKey: .selectedMCPServerIDs)
     try container.encode(todoState, forKey: .todoState)
     try container.encode(activeAttachmentContext, forKey: .activeAttachmentContext)
     try container.encode(createdAt, forKey: .createdAt)
@@ -167,5 +176,14 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
 
   public func toolCallRecord(id: ToolCallRecord.ID) -> ToolCallRecord? {
     turns.lazy.compactMap { $0.toolCallRecord(id: id) }.first
+  }
+
+  public mutating func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
+    selectedMCPServerIDs = Self.uniqueIDsPreservingOrder(serverIDs)
+  }
+
+  private static func uniqueIDsPreservingOrder(_ serverIDs: [UUID]) -> [UUID] {
+    var seen = Set<UUID>()
+    return serverIDs.filter { seen.insert($0).inserted }
   }
 }

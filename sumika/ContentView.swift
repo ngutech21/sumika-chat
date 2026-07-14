@@ -77,6 +77,8 @@ struct ContentView: View {
           controller: appState.chatController,
           browserToolService: appState.browserToolService,
           appBehaviorSettings: appState.settingsState.appBehaviorSettings,
+          mcpServers: appState.settingsState.mcpServers,
+          mcpServerStatuses: appState.settingsState.mcpServerStatuses,
           assistantSpeechService: appState.assistantSpeechService,
           speechInputController: appState.composerSpeechInputController,
           workspaceChatActions: workspaceChatActions,
@@ -85,6 +87,7 @@ struct ContentView: View {
           onAddWorkspace: chooseWorkspace,
           onCreateSession: createSession,
           onSendMessage: appState.sendMessage,
+          onSelectMCPServerIDs: appState.setSelectedMCPServerIDs,
           onOpenAudioModels: openAudioModels
         )
       case .chat(_, let sessionID):
@@ -94,6 +97,8 @@ struct ContentView: View {
           controller: appState.chatController,
           browserToolService: appState.browserToolService,
           appBehaviorSettings: appState.settingsState.appBehaviorSettings,
+          mcpServers: appState.settingsState.mcpServers,
+          mcpServerStatuses: appState.settingsState.mcpServerStatuses,
           assistantSpeechService: appState.assistantSpeechService,
           speechInputController: appState.composerSpeechInputController,
           workspaceChatActions: workspaceChatActions,
@@ -102,6 +107,7 @@ struct ContentView: View {
           onAddWorkspace: chooseWorkspace,
           onCreateSession: createSession,
           onSendMessage: appState.sendMessage,
+          onSelectMCPServerIDs: appState.setSelectedMCPServerIDs,
           onOpenAudioModels: openAudioModels
         )
       }
@@ -218,6 +224,8 @@ private struct WorkspaceRouteHost: View {
   let controller: ChatSessionController
   let browserToolService: HTMLPreviewBrowserToolService
   let appBehaviorSettings: AppBehaviorSettings
+  let mcpServers: [MCPServerConfig]
+  let mcpServerStatuses: [MCPServerStatus]
   let assistantSpeechService: AssistantSpeechService
   let speechInputController: ComposerSpeechInputController
   let workspaceChatActions: WorkspaceChatActions
@@ -226,6 +234,7 @@ private struct WorkspaceRouteHost: View {
   let onAddWorkspace: () -> Void
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
   let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
+  let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
 
   var body: some View {
@@ -236,6 +245,8 @@ private struct WorkspaceRouteHost: View {
         sessionID: activeSessionID,
         browserToolService: browserToolService,
         appBehaviorSettings: appBehaviorSettings,
+        mcpServers: mcpServers,
+        mcpServerStatuses: mcpServerStatuses,
         assistantSpeechService: assistantSpeechService,
         speechInputController: speechInputController,
         workspaceChatActions: workspaceChatActions,
@@ -243,6 +254,7 @@ private struct WorkspaceRouteHost: View {
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
         onCreateSession: onCreateSession,
         onSendMessage: onSendMessage,
+        onSelectMCPServerIDs: onSelectMCPServerIDs,
         onOpenAudioModels: onOpenAudioModels
       )
       .equatable()

@@ -34,6 +34,7 @@ public final class ChatSessionController {
   @ObservationIgnored private let workflowEventApplier = ChatWorkflowEventApplier()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
   @ObservationIgnored private var pendingAgentToolExecutorRegistry: ToolExecutorRegistry?
+  @ObservationIgnored private var pendingSelectedMCPServerIDs: [UUID]?
   @ObservationIgnored private var activeModelContextDebugToolPromptMode: ToolPromptMode?
   @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
   @ObservationIgnored private let streamingFlushCharacterLimit = 240
@@ -65,6 +66,10 @@ public final class ChatSessionController {
 
   public var canChangeInteractionMode: Bool {
     !isGenerating && !isInputBlocked
+  }
+
+  public var canChangeMCPServerSelection: Bool {
+    chatSession.interactionMode == .agent && canChangeInteractionMode
   }
 
   public convenience init() {
@@ -241,6 +246,7 @@ extension ChatSessionController {
       pendingAttachments: session.pendingAttachments,
       activeAttachments: activeAttachments(in: session),
       interactionMode: session.interactionMode,
+      selectedMCPServerIDs: session.selectedMCPServerIDs,
       reasoningEnabled: session.generationSettings.reasoningEnabled,
       todoState: visibleTodoState(in: session)
     )
@@ -301,6 +307,7 @@ extension ChatSessionController {
     snapshot.focusedFileState = chatSession.focusedFileState
     snapshot.modeSettings = chatSession.modeSettings
     snapshot.interactionMode = chatSession.interactionMode
+    snapshot.setSelectedMCPServerIDs(chatSession.selectedMCPServerIDs)
     snapshot.todoState = chatSession.todoState
     snapshot.pendingAttachments = []
     snapshot.updatedAt = Date()
@@ -346,11 +353,37 @@ extension ChatSessionController {
   }
 
   public func setAgentToolExecutorRegistry(_ executorRegistry: ToolExecutorRegistry) {
-    guard !isGenerating else {
+    guard !isGenerating, !isInputBlocked else {
       pendingAgentToolExecutorRegistry = executorRegistry
       return
     }
     applyAgentToolExecutorRegistry(executorRegistry, shouldRefreshContext: true)
+  }
+
+  public func setSelectedMCPServerIDs(
+    _ serverIDs: [UUID],
+    agentToolExecutorRegistry: ToolExecutorRegistry
+  ) {
+    guard canChangeMCPServerSelection else {
+      return
+    }
+    applySelectedMCPServerIDs(serverIDs, agentToolExecutorRegistry: agentToolExecutorRegistry)
+  }
+
+  /// Reconciles persisted selection with global MCP configuration. Unlike a
+  /// user action this may run in Chat mode, but it is deferred across an
+  /// active generation or unresolved interaction so validated calls keep the
+  /// registry that created them.
+  public func reconcileSelectedMCPServerIDs(
+    _ serverIDs: [UUID],
+    agentToolExecutorRegistry: ToolExecutorRegistry
+  ) {
+    guard !isGenerating, !isInputBlocked else {
+      pendingSelectedMCPServerIDs = serverIDs
+      pendingAgentToolExecutorRegistry = agentToolExecutorRegistry
+      return
+    }
+    applySelectedMCPServerIDs(serverIDs, agentToolExecutorRegistry: agentToolExecutorRegistry)
   }
 
   public func prepareForModelRuntimeAction(
@@ -381,6 +414,18 @@ extension ChatSessionController {
     if shouldRefreshContext {
       clearRuntimeContextForReuse()
       refreshContextUsage()
+    }
+  }
+
+  private func applySelectedMCPServerIDs(
+    _ serverIDs: [UUID],
+    agentToolExecutorRegistry: ToolExecutorRegistry
+  ) {
+    let selectionChanged = chatSession.selectedMCPServerIDs != serverIDs
+    chatSession.setSelectedMCPServerIDs(serverIDs)
+    applyAgentToolExecutorRegistry(agentToolExecutorRegistry, shouldRefreshContext: true)
+    if selectionChanged {
+      notifySessionDidChange()
     }
   }
 
@@ -429,6 +474,7 @@ extension ChatSessionController {
     let sentAttachments = attachmentsForTurn
     updateDefaultSessionTitleIfNeeded(fromFirstPrompt: prompt)
     interruptPendingToolInteractionsForNewUserMessage()
+    applyPendingAgentToolExecutorRegistry(shouldRefreshContext: false)
     errorMessage = nil
     chatSession.pendingAttachments.removeAll()
     chatSession.activeAttachmentContext = .empty
@@ -639,14 +685,24 @@ extension ChatSessionController {
       activeModelContextDebugToolPromptMode = nil
       invalidateModelContextDebugDocument()
     }
-    if let pendingAgentToolExecutorRegistry {
-      self.pendingAgentToolExecutorRegistry = nil
-      applyAgentToolExecutorRegistry(
-        pendingAgentToolExecutorRegistry,
-        shouldRefreshContext: false
-      )
-    }
+    applyPendingAgentToolExecutorRegistry(shouldRefreshContext: false)
     refreshContextUsage(toolPromptMode: defaultMode)
+  }
+
+  private func applyPendingAgentToolExecutorRegistry(shouldRefreshContext: Bool) {
+    guard let pendingAgentToolExecutorRegistry else {
+      return
+    }
+    self.pendingAgentToolExecutorRegistry = nil
+    if let pendingSelectedMCPServerIDs {
+      self.pendingSelectedMCPServerIDs = nil
+      chatSession.setSelectedMCPServerIDs(pendingSelectedMCPServerIDs)
+      notifySessionDidChange()
+    }
+    applyAgentToolExecutorRegistry(
+      pendingAgentToolExecutorRegistry,
+      shouldRefreshContext: shouldRefreshContext
+    )
   }
 
   private func contextUsageSnapshot(toolPromptMode: ToolPromptMode = .disabled)

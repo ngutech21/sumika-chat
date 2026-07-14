@@ -43,6 +43,42 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func interruptingPendingInteractionAppliesQueuedAgentToolRegistry() async throws {
+    let runtime = ChatSessionFakeChatModelRuntime(chunks: ["new answer"])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let selectedServerID = UUID()
+    let approvalRecord = makeToolCallRecord(status: .awaitingApproval)
+    let sessionID = controller.chatSession.id
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.chatSession.turns = [
+      ChatTurn(status: .awaitingApproval, items: [.tool(approvalRecord)])
+    ]
+
+    controller.reconcileSelectedMCPServerIDs(
+      [selectedServerID],
+      agentToolExecutorRegistry: .readOnly
+    )
+
+    #expect(controller.chatSession.selectedMCPServerIDs.isEmpty)
+    #expect(
+      controller.sendMessage(
+        prompt: "continue with the updated tools",
+        in: workspace,
+        sessionID: sessionID
+      )
+    )
+    try await waitUntil { !controller.isGenerating }
+
+    let capturedToolContexts = await runtime.capturedToolContexts
+    let toolContext = try #require(capturedToolContexts.first ?? nil)
+    #expect(toolContext.registry.definition(for: .readFile) != nil)
+    #expect(toolContext.registry.definition(for: .editFile) == nil)
+    #expect(controller.chatSession.selectedMCPServerIDs == [selectedServerID])
+  }
+
+  @Test
   func composerSessionStateIgnoresTranscriptOnlyChanges() {
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
@@ -72,22 +108,58 @@ struct ChatSessionControllerTests {
       TodoItem(id: "1", content: "Inspect files", status: .completed),
       TodoItem(id: "2", content: "Run tests", status: .pending),
     ])
+    let mcpServerID = UUID()
 
     controller.chatSession.pendingAttachments = [attachment]
     controller.chatSession.activeAttachmentContext = ActiveAttachmentContext(
       attachmentIDs: [attachment.id]
     )
     controller.chatSession.todoState = todoState
+    controller.chatSession.setSelectedMCPServerIDs([mcpServerID])
 
     #expect(controller.composerSessionState.pendingAttachments == [attachment])
     #expect(controller.composerSessionState.activeAttachments == [attachment])
     #expect(controller.composerSessionState.interactionMode == .chat)
+    #expect(controller.composerSessionState.selectedMCPServerIDs == [mcpServerID])
     #expect(controller.composerSessionState.todoState == nil)
 
     controller.chatSession.interactionMode = .agent
 
     #expect(controller.composerSessionState.interactionMode == .agent)
     #expect(controller.composerSessionState.todoState == todoState)
+  }
+
+  @Test
+  func mcpServerSelectionIsAgentOnlyAndBlockedDuringGeneration() {
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+    let first = UUID()
+    let second = UUID()
+
+    #expect(!controller.canChangeMCPServerSelection)
+    controller.setSelectedMCPServerIDs(
+      [first],
+      agentToolExecutorRegistry: .codingAgent
+    )
+    #expect(controller.chatSession.selectedMCPServerIDs.isEmpty)
+
+    controller.setInteractionMode(.agent)
+    #expect(controller.canChangeMCPServerSelection)
+    controller.setSelectedMCPServerIDs(
+      [first],
+      agentToolExecutorRegistry: .codingAgent
+    )
+    #expect(controller.chatSession.selectedMCPServerIDs == [first])
+    #expect(controller.composerSessionState.selectedMCPServerIDs == [first])
+
+    controller.isGenerating = true
+    controller.setSelectedMCPServerIDs(
+      [second],
+      agentToolExecutorRegistry: .codingAgent
+    )
+    #expect(controller.chatSession.selectedMCPServerIDs == [first])
   }
 
   @Test
@@ -99,6 +171,7 @@ struct ChatSessionControllerTests {
         FocusedPath(path: path, source: .readFile, confidence: .active)
       ]
     )
+    let mcpServerID = UUID()
     let session = ChatSession(
       selectedModelID: ManagedModelCatalog.defaultModelID,
       focusedFileState: focusedFileState,
@@ -107,7 +180,8 @@ struct ChatSessionControllerTests {
         systemPrompt: "System",
         generationSettings: .agentDefault
       ),
-      interactionMode: .agent
+      interactionMode: .agent,
+      selectedMCPServerIDs: [mcpServerID]
     )
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
@@ -121,6 +195,7 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.interactionMode == .agent)
     #expect(snapshot.focusedFileState == focusedFileState)
     #expect(snapshot.interactionMode == .agent)
+    #expect(snapshot.selectedMCPServerIDs == [mcpServerID])
   }
 
   @Test

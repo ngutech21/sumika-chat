@@ -6,9 +6,12 @@ struct WorkspaceChatComposerHost: View {
   let controller: ChatSessionController
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
+  let mcpServers: [MCPServerConfig]
+  let mcpServerStatuses: [MCPServerStatus]
   let previewState: WorkspacePreviewFeatureState
   let speechInputController: ComposerSpeechInputController
   let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
+  let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
 
   private static let slashCommandParser = SlashCommandParser()
@@ -43,6 +46,14 @@ struct WorkspaceChatComposerHost: View {
       selectedModel: composerSelectedModel(from: localDownloadedModels),
       modelState: controller.modelRuntime.modelState,
       interactionMode: composerState.interactionMode,
+      mcpServerPickerConfiguration: MCPServerPicker.Configuration(
+        servers: mcpServers,
+        statuses: mcpServerStatuses,
+        selectedServerIDs: composerState.selectedMCPServerIDs,
+        interactionMode: composerState.interactionMode,
+        canChangeSelection: controller.canChangeMCPServerSelection,
+        onSelectServerIDs: onSelectMCPServerIDs
+      ),
       reasoningEnabled: composerState.reasoningEnabled,
       todoState: composerState.todoState,
       contextUsage: controller.contextUsage,

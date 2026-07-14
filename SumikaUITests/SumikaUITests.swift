@@ -68,6 +68,56 @@ final class SumikaUITests: XCTestCase {
   }
 
   @MainActor
+  func testMCPServerPickerIsAgentOnlyAndPersistsSelection() throws {
+    let server = MCPServerConfig(
+      name: "Offline Test Server",
+      command: "/usr/bin/false",
+      isEnabled: false
+    )
+    let fixture = try launchFixture(mcpServers: [server])
+    let application = try launchApp(fixture: fixture)
+    defer { application.terminate() }
+
+    let picker = application.buttons["chat.mcpServerPicker"]
+    XCTAssertTrue(picker.waitForExistence(timeout: 10))
+    XCTAssertFalse(picker.isEnabled)
+    XCTAssertEqual(picker.value as? String, "Unavailable in Chat mode")
+
+    try selectAgentMode(in: application)
+    XCTAssertTrue(waitUntil(timeout: 10) { picker.isEnabled })
+    picker.click()
+
+    let serverRow = application.descendants(matching: .any)[
+      "chat.mcpServer.\(server.id.uuidString)"
+    ]
+    XCTAssertTrue(serverRow.waitForExistence(timeout: 5))
+    XCTAssertTrue((serverRow.value as? String)?.contains("Disabled") == true)
+    serverRow.click()
+
+    XCTAssertTrue(
+      waitUntil(timeout: 10) {
+        picker.value as? String == "1 server selected"
+      }
+    )
+    let libraryURL = fixture.storageRoot.appending(
+      path: "workspaces.json",
+      directoryHint: .notDirectory
+    )
+    XCTAssertTrue(
+      waitUntil(timeout: 10) {
+        guard
+          let data = try? Data(contentsOf: libraryURL),
+          let library = try? JSONDecoder().decode(WorkspaceLibrary.self, from: data)
+        else {
+          return false
+        }
+        return library.workspaces.first?.sessions.first?.selectedMCPServerIDs == [server.id]
+      },
+      "The selected MCP server should persist on the active session."
+    )
+  }
+
+  @MainActor
   func testSmokeLoadsSelectedModelAndCompletesFirstChatPrompt() throws {
     let fixture = try launchFixture(readme: "Smoke test workspace\n")
     let application = try launchApp(fixture: fixture)
@@ -396,7 +446,8 @@ final class SumikaUITests: XCTestCase {
 
   private func launchFixture(
     readme: String? = nil,
-    files: [String: String] = [:]
+    files: [String: String] = [:],
+    mcpServers: [MCPServerConfig] = []
   ) throws -> LaunchFixture {
     let model = try XCTUnwrap(
       ManagedModelCatalog.model(id: modelID),
@@ -416,6 +467,12 @@ final class SumikaUITests: XCTestCase {
     )
     let workspaceURL = storageRoot.appending(path: "workspace", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+    if !mcpServers.isEmpty {
+      try JSONEncoder().encode(mcpServers).write(
+        to: storageRoot.appending(path: "mcp-servers.json", directoryHint: .notDirectory),
+        options: .atomic
+      )
+    }
     if let readme {
       try readme.write(
         to: workspaceURL.appending(path: "README.md", directoryHint: .notDirectory),
