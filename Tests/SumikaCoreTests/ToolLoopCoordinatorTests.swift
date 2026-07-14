@@ -285,7 +285,7 @@ struct ToolLoopCoordinatorTests {
         userContent: "inspect README",
         nativeToolCalls: [
           ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
-          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("./README.md")]),
         ]
       )
     )
@@ -304,8 +304,42 @@ struct ToolLoopCoordinatorTests {
       return
     }
     #expect(duplicate.previousCallID == records.first?.id)
+    #expect(duplicate.affectedPaths == [WorkspaceRelativePath(rawValue: "README.md")])
+    #expect(duplicate.replayedObservation != nil)
     #expect(toolResults(from: result).map(\.callID) == records.map(\.id))
     #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
+  func readFileDefaultOffsetSharesCanonicalSignatureWithExplicitOne() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let orchestrator = CountingToolOrchestrator()
+    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
+
+    let result = try await coordinator.run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("./README.md"), "offset": .number(1)]
+          ),
+        ]
+      )
+    )
+
+    #expect(await orchestrator.executionCount == 1)
+    let records = toolCallRecords(from: result)
+    #expect(records.count == 2)
+    #expect(records.last?.request.id != records.first?.request.id)
+    guard case .duplicateToolCall(let duplicate)? = records.last?.resultPayload else {
+      Issue.record("Expected explicit offset 1 to reuse the default read range.")
+      return
+    }
+    #expect(duplicate.previousCallID == records.first?.id)
   }
 
   @Test
@@ -479,9 +513,9 @@ struct ToolLoopCoordinatorTests {
         sessionID: sessionID,
         userContent: "inspect project",
         nativeToolCalls: [
+          ChatRuntimeToolCall(name: "list_files", arguments: [:]),
           ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")]),
-          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")]),
-          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string(".")]),
+          ChatRuntimeToolCall(name: "list_files", arguments: ["path": .string("./")]),
         ]
       )
     )
@@ -545,6 +579,223 @@ struct ToolLoopCoordinatorTests {
         WorkspaceRelativePath(rawValue: "Sources"),
       ])
     #expect(resumePromptMode(from: result) == .afterToolResultCanContinue)
+  }
+
+  @Test
+  func canonicalRootPathVariantsSuppressDuplicateReadLikeTools() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let globOrchestrator = CountingToolOrchestrator(tools: [.globFiles])
+    let globResult = try await ToolLoopCoordinator(agentToolOrchestrator: globOrchestrator).run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "glob_files", arguments: ["pattern": .string("*.swift")]),
+          ChatRuntimeToolCall(
+            name: "glob_files",
+            arguments: ["pattern": .string("*.swift"), "path": .string("./")]
+          ),
+        ]
+      )
+    )
+    #expect(await globOrchestrator.executionCount == 1)
+    #expect(isDuplicate(toolCallRecords(from: globResult).last))
+
+    let searchOrchestrator = CountingToolOrchestrator(tools: [.searchFiles])
+    let searchResult = try await ToolLoopCoordinator(agentToolOrchestrator: searchOrchestrator).run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "search_files", arguments: ["pattern": .string("TODO")]),
+          ChatRuntimeToolCall(
+            name: "search_files",
+            arguments: ["pattern": .string("TODO"), "path": .string(".")]
+          ),
+        ]
+      )
+    )
+    #expect(await searchOrchestrator.executionCount == 1)
+    #expect(isDuplicate(toolCallRecords(from: searchResult).last))
+
+    let diffOrchestrator = CountingToolOrchestrator(tools: [.workspaceDiff])
+    let diffResult = try await ToolLoopCoordinator(agentToolOrchestrator: diffOrchestrator).run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "workspace_diff", arguments: [:]),
+          ChatRuntimeToolCall(name: "workspace_diff", arguments: ["path": .string("./")]),
+        ]
+      )
+    )
+    #expect(await diffOrchestrator.executionCount == 1)
+    #expect(isDuplicate(toolCallRecords(from: diffResult).last))
+  }
+
+  @Test
+  func readLikeSignaturesPreserveNonPathArguments() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let globOrchestrator = CountingToolOrchestrator(tools: [.globFiles])
+    let globResult = try await ToolLoopCoordinator(agentToolOrchestrator: globOrchestrator).run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "glob_files", arguments: ["pattern": .string("*.swift")]),
+          ChatRuntimeToolCall(
+            name: "glob_files",
+            arguments: ["pattern": .string("*.md"), "path": .string("./")]
+          ),
+        ]
+      )
+    )
+    #expect(await globOrchestrator.executionCount == 2)
+    #expect(!isDuplicate(toolCallRecords(from: globResult).last))
+
+    let searchOrchestrator = CountingToolOrchestrator(tools: [.searchFiles])
+    let searchResult = try await ToolLoopCoordinator(agentToolOrchestrator: searchOrchestrator).run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "search_files",
+            arguments: ["pattern": .string("TODO"), "include": .string("*.swift")]
+          ),
+          ChatRuntimeToolCall(
+            name: "search_files",
+            arguments: [
+              "pattern": .string("TODO"),
+              "path": .string("."),
+              "include": .string("*.md"),
+            ]
+          ),
+        ]
+      )
+    )
+    #expect(await searchOrchestrator.executionCount == 2)
+    #expect(!isDuplicate(toolCallRecords(from: searchResult).last))
+  }
+
+  @Test
+  func rejectedParentPathsAreNotReusedAsDuplicates() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("Sources/../README.md")]
+          ),
+          ChatRuntimeToolCall(
+            name: "read_file",
+            arguments: ["path": .string("Sources/../README.md")]
+          ),
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("../README.md")]),
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("../README.md")]),
+        ]
+      )
+    )
+
+    let records = toolCallRecords(from: result)
+    #expect(records.count == 4)
+    #expect(records.allSatisfy { $0.status == .denied })
+    #expect(records.allSatisfy { !isDuplicate($0) })
+  }
+
+  @Test
+  func mutationsInvalidateCanonicalReadReuseConservatively() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let writeOrchestrator = CountingToolOrchestrator(tools: [.readFile, .writeFile])
+    let writeResult = try await ToolLoopCoordinator(agentToolOrchestrator: writeOrchestrator).run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: ["path": .string("./README.md"), "content": .string("updated")]
+          ),
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+        ]
+      )
+    )
+    #expect(await writeOrchestrator.executionCount == 3)
+    #expect(!isDuplicate(toolCallRecords(from: writeResult).last))
+
+    let editOrchestrator = CountingToolOrchestrator(tools: [.readFile, .editFile])
+    let editResult = try await ToolLoopCoordinator(agentToolOrchestrator: editOrchestrator).run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+          ChatRuntimeToolCall(
+            name: "edit_file",
+            arguments: [
+              "path": .string("./README.md"),
+              "old_text": .string("project notes"),
+              "new_text": .string("updated notes"),
+            ]
+          ),
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+        ]
+      )
+    )
+    #expect(await editOrchestrator.executionCount == 3)
+    #expect(!isDuplicate(toolCallRecords(from: editResult).last))
+
+    let commandOrchestrator = CountingToolOrchestrator(tools: [.readFile, .runCommand])
+    let commandResult = try await ToolLoopCoordinator(
+      agentToolOrchestrator: commandOrchestrator
+    ).run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+          ChatRuntimeToolCall(
+            name: "run_command",
+            arguments: ["command": .string("touch README.md")]
+          ),
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+        ]
+      )
+    )
+    #expect(await commandOrchestrator.executionCount == 3)
+    #expect(!isDuplicate(toolCallRecords(from: commandResult).last))
+
+    let otherWriteOrchestrator = CountingToolOrchestrator(tools: [.readFile, .writeFile])
+    let otherWriteResult = try await ToolLoopCoordinator(
+      agentToolOrchestrator: otherWriteOrchestrator
+    ).run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("README.md")]),
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: ["path": .string("notes.txt"), "content": .string("notes")]
+          ),
+          ChatRuntimeToolCall(name: "read_file", arguments: ["path": .string("./README.md")]),
+        ]
+      )
+    )
+    #expect(await otherWriteOrchestrator.executionCount == 2)
+    #expect(isDuplicate(toolCallRecords(from: otherWriteResult).last))
   }
 
   @Test
@@ -1400,6 +1651,13 @@ struct ToolLoopCoordinatorTests {
     }
   }
 
+  private func isDuplicate(_ record: ToolCallRecord?) -> Bool {
+    guard case .duplicateToolCall = record?.resultPayload else {
+      return false
+    }
+    return true
+  }
+
   private func completedToolResult(from step: ChatWorkflowStep?) -> ToolResultModelMessage? {
     toolResults(from: step).first
   }
@@ -1470,23 +1728,44 @@ private actor CountingToolOrchestrator: ToolOrchestrating {
     let payload: ToolResultPayload
     switch request.payload {
     case .readFile(let input):
+      let path = Self.canonicalPath(input.path, workspace: workspace)
       payload = .readFile(
         .success(
-          path: WorkspaceRelativePath(rawValue: input.path),
+          path: path,
           content: ToolTextOutput(text: "1: project notes")
         ))
     case .listFiles(let input):
-      let root = input.path ?? "."
+      let root = Self.canonicalPath(input.path ?? ".", workspace: workspace)
       payload = .listFiles(
         ListFilesResult(
-          root: WorkspaceRelativePath(rawValue: root),
+          root: root,
           entries: [
             WorkspaceFileEntry(
               path: WorkspaceRelativePath(
-                rawValue: root == "." ? "README.md" : "\(root)/README.md"),
+                rawValue: root.rawValue == "." ? "README.md" : "\(root.rawValue)/README.md"),
               kind: .file
             )
           ]
+        ))
+    case .globFiles(let input):
+      payload = .globFiles(
+        GlobFilesResult(
+          root: Self.canonicalPath(input.path ?? ".", workspace: workspace),
+          pattern: input.pattern,
+          matches: []
+        ))
+    case .searchFiles(let input):
+      payload = .searchFiles(
+        SearchFilesResult(
+          root: Self.canonicalPath(input.path ?? ".", workspace: workspace),
+          pattern: input.pattern,
+          matches: []
+        ))
+    case .workspaceDiff(let input):
+      payload = .workspaceDiff(
+        .success(
+          path: input.path.map { Self.canonicalPath($0, workspace: workspace) },
+          content: ToolTextOutput(text: "clean")
         ))
     case .runCommand(let input):
       payload = .runCommand(
@@ -1501,13 +1780,13 @@ private actor CountingToolOrchestrator: ToolOrchestrating {
     case .writeFile(let input):
       payload = .writeFile(
         .success(
-          path: WorkspaceRelativePath(rawValue: input.path),
+          path: Self.canonicalPath(input.path, workspace: workspace),
           bytesWritten: input.content.utf8.count
         ))
     case .editFile(let input):
       payload = .editFile(
         .success(
-          path: WorkspaceRelativePath(rawValue: input.path),
+          path: Self.canonicalPath(input.path, workspace: workspace),
           diff: nil,
           matchStrategy: .exact
         ))
@@ -1528,6 +1807,16 @@ private actor CountingToolOrchestrator: ToolOrchestrating {
       ),
       state: .completed(payload)
     )
+  }
+
+  private static func canonicalPath(
+    _ input: String,
+    workspace: Workspace
+  ) -> WorkspaceRelativePath {
+    guard let resolvedPath = try? workspace.resolveAllowedPath(input) else {
+      return WorkspaceRelativePath(rawValue: input)
+    }
+    return workspace.relativePath(for: resolvedPath)
   }
 }
 

@@ -132,12 +132,13 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
       return try await context.workspace.withAsyncSecurityScopedAccess {
         let rootURL = try context.workspace.resolveAllowedPath(".")
         let gitCommand = makeGitCommand()
-        if let path = input.path {
-          let resolvedURL = try context.workspace.resolveAllowedPath(path)
-          scopedPath = context.workspace.relativePath(for: resolvedURL)
+        let resolvedURL = try context.workspace.resolveAllowedPath(input.path ?? ".")
+        let gitScopedPath = context.workspace.relativePath(for: resolvedURL)
+        if input.path != nil {
+          scopedPath = gitScopedPath
         }
 
-        let pathArguments = scopedPath.map { [$0.rawValue] } ?? []
+        let pathArguments = [gitScopedPath.rawValue]
         let status = try await runGit(
           command: gitCommand,
           arguments: configuredGitArguments(

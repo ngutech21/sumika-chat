@@ -152,10 +152,13 @@ flowchart TD
   stdout/stderr, HTML, Markdown, diffs, logs, fetched pages, and other raw bodies
   must stay in `CONTENT`, not escaped inside JSON. That frozen content is the
   stable model-facing ledger artifact.
-- Duplicate safe read-like tool calls reuse the previous completed
-  `ToolResultPayload` instead of invoking the executor again. The first duplicate
-  carries a replayed `ToolModelObservation` so the prompt tail contains the prior
-  result blocks again. From the second consecutive identical duplicate the payload
+- Duplicate safe read-like tool calls compare transient canonical signatures and
+  reuse the previous completed `ToolResultPayload` instead of invoking the executor
+  again. Workspace paths are resolved through the same workspace boundary as tool
+  execution; root defaults and `read_file`'s default offset are normalized, while
+  invalid or rejected paths are never reusable. The first duplicate carries a
+  replayed `ToolModelObservation` so the prompt tail contains the prior result blocks
+  again. From the second consecutive identical duplicate the payload
   is `blocked` (`DuplicateToolCallResult.blocked == true`): the replayed observation
   is withheld and the model-facing observation is framed non-success
   (`ok: false`, `status: "denied"`) to break the loop, while the persisted/UI

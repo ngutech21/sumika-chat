@@ -881,6 +881,41 @@ struct ToolExecutionTests {
   }
 
   @Test
+  func workspaceDiffDefaultsToNestedWorkspaceRoot() async throws {
+    let repository = try makeWorkspace()
+    try write("old app\n", to: "Sources/App.swift", in: repository)
+    try write("old guide\n", to: "docs/Guide.md", in: repository)
+    try initializeGitRepository(
+      in: repository,
+      trackedPaths: ["Sources/App.swift", "docs/Guide.md"]
+    )
+    try write("new app\n", to: "Sources/App.swift", in: repository)
+    try write("new guide\n", to: "docs/Guide.md", in: repository)
+    let workspace = Workspace(
+      name: "Sources",
+      rootURL: repository.rootURL.appending(path: "Sources", directoryHint: .isDirectory)
+    )
+    let executor = WorkspaceDiffToolExecutor()
+
+    let defaultResult = await executor.run(
+      WorkspaceDiffInput(),
+      context: ToolContext(workspace: workspace)
+    )
+    let explicitRootResult = await executor.run(
+      WorkspaceDiffInput(path: "."),
+      context: ToolContext(workspace: workspace)
+    )
+
+    #expect(defaultResult.text == explicitRootResult.text)
+    #expect(defaultResult.status == .success)
+    #expect(defaultResult.text.contains("Sources/App.swift"))
+    #expect(defaultResult.text.contains("+new app"))
+    #expect(!defaultResult.text.contains("docs/Guide.md"))
+    #expect(!defaultResult.text.contains("+new guide"))
+    #expect(defaultResult.affectedPaths == ["."])
+  }
+
+  @Test
   func workspaceDiffShowsUntrackedStatusWithoutContents() async throws {
     let workspace = try makeWorkspace()
     try initializeGitRepository(in: workspace)

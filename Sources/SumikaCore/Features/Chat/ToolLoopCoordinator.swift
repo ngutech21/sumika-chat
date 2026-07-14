@@ -205,6 +205,7 @@ public struct ToolLoopCoordinator: Sendable {
       if let duplicateRecord = duplicateToolCallRecord(
         for: output,
         registry: toolOrchestrator.toolRegistry,
+        workspace: request.workspace,
         items: seenItems
       ) {
         record = duplicateRecord
@@ -449,6 +450,7 @@ extension ToolLoopCoordinator {
   private func duplicateToolCallRecord(
     for output: ToolCallParseOutput,
     registry: ToolRegistry,
+    workspace: Workspace,
     items: [ChatTurnItem]
   ) -> ToolCallRecord? {
     let validatedRequest = ToolCallRequestValidator().validate(
@@ -458,14 +460,19 @@ extension ToolLoopCoordinator {
     if case .invalid = validatedRequest.payload {
       return nil
     }
-    return duplicateValidatedToolCallRecord(for: validatedRequest, items: items)
+    return duplicateValidatedToolCallRecord(
+      for: validatedRequest,
+      workspace: workspace,
+      items: items
+    )
   }
 
   private func duplicateValidatedToolCallRecord(
     for validatedRequest: ToolCallRequest,
+    workspace: Workspace,
     items: [ChatTurnItem]
   ) -> ToolCallRecord? {
-    guard supportsDuplicateObservation(validatedRequest.toolName) else {
+    guard let signature = toolCallSignature(for: validatedRequest, workspace: workspace) else {
       return nil
     }
 
@@ -473,31 +480,43 @@ extension ToolLoopCoordinator {
     for index in currentItems.indices.reversed() {
       guard case .tool(let previousRecord) = currentItems[index],
         previousRecord.status == .completed,
-        previousRecord.request.toolName == validatedRequest.toolName,
-        previousRecord.request.payload == validatedRequest.payload
+        toolCallSignature(for: previousRecord.request, workspace: workspace) == signature
       else {
         continue
       }
 
       guard
         let source = duplicateObservationSource(
-          matching: validatedRequest,
+          matching: signature,
           candidate: previousRecord,
           candidateIndex: index,
+          workspace: workspace,
           items: currentItems
         )
       else {
         return nil
       }
 
-      guard canReuseCompletedToolResult(source.record, after: source.index, in: currentItems) else {
+      guard
+        canReuseCompletedToolResult(
+          source.record,
+          after: source.index,
+          workspace: workspace,
+          in: currentItems
+        )
+      else {
         return nil
       }
 
       let affectedPaths = duplicateAffectedPaths(from: source.record)
       // Off-by-one: this new record is the 2nd (or later) consecutive identical
       // duplicate exactly when at least one matching duplicate already trails the turn.
-      let blocked = priorDuplicateStreak(for: validatedRequest, in: currentItems) >= 1
+      let blocked =
+        priorDuplicateStreak(
+          for: signature,
+          workspace: workspace,
+          in: currentItems
+        ) >= 1
       let replayedObservation =
         blocked
         ? nil
@@ -532,20 +551,11 @@ extension ToolLoopCoordinator {
     return nil
   }
 
-  private func supportsDuplicateObservation(_ toolName: ToolName) -> Bool {
-    switch toolName {
-    case .readFile, .listFiles, .globFiles, .searchFiles, .workspaceDiff, .workspaceDiagnostics,
-      .webSearch, .webFetch:
-      return true
-    default:
-      return false
-    }
-  }
-
   private func duplicateObservationSource(
-    matching request: ToolCallRequest,
+    matching signature: ToolCallSignature,
     candidate: ToolCallRecord,
     candidateIndex: ArraySlice<ChatTurnItem>.Index,
+    workspace: Workspace,
     items: ArraySlice<ChatTurnItem>
   ) -> (record: ToolCallRecord, index: ArraySlice<ChatTurnItem>.Index)? {
     guard isDuplicateToolCall(candidate.resultPayload) else {
@@ -555,8 +565,7 @@ extension ToolLoopCoordinator {
     for index in items[..<candidateIndex].indices.reversed() {
       guard case .tool(let previousRecord) = items[index],
         previousRecord.status == .completed,
-        previousRecord.request.toolName == request.toolName,
-        previousRecord.request.payload == request.payload,
+        toolCallSignature(for: previousRecord.request, workspace: workspace) == signature,
         !isDuplicateToolCall(previousRecord.resultPayload)
       else {
         continue
@@ -597,14 +606,25 @@ extension ToolLoopCoordinator {
   private func canReuseCompletedToolResult(
     _ previousRecord: ToolCallRecord,
     after index: ArraySlice<ChatTurnItem>.Index,
+    workspace: Workspace,
     in items: ArraySlice<ChatTurnItem>
   ) -> Bool {
     switch previousRecord.request.toolName {
     case .readFile:
-      guard let previousPath = successfulReadPath(from: previousRecord.resultPayload) else {
+      guard let previousPath = successfulReadPath(from: previousRecord.resultPayload),
+        let canonicalPreviousPath = canonicalWorkspacePath(
+          previousPath.rawValue,
+          workspace: workspace
+        )
+      else {
         return false
       }
-      return !hasCompletedWrite(to: previousPath, after: index, in: items)
+      return !hasCompletedMutation(
+        affectingReadAt: canonicalPreviousPath,
+        after: index,
+        workspace: workspace,
+        in: items
+      )
     default:
       return !hasCompletedWorkspaceMutation(after: index, in: items)
     }
@@ -638,10 +658,11 @@ extension ToolLoopCoordinator {
   }
 
   /// Number of identical duplicate records already trailing the current turn for this
-  /// request (same tool name and payload). Non-tool items are skipped; the first
+  /// canonical signature. Non-tool items are skipped; the first
   /// non-matching tool record ends the streak — mirrors `readReplayStreak`.
   private func priorDuplicateStreak(
-    for request: ToolCallRequest,
+    for signature: ToolCallSignature,
+    workspace: Workspace,
     in items: ArraySlice<ChatTurnItem>
   ) -> Int {
     var count = 0
@@ -650,8 +671,7 @@ extension ToolLoopCoordinator {
         continue
       }
       guard isDuplicateToolCall(record.resultPayload),
-        record.request.toolName == request.toolName,
-        record.request.payload == request.payload
+        toolCallSignature(for: record.request, workspace: workspace) == signature
       else {
         break
       }
@@ -687,9 +707,10 @@ extension ToolLoopCoordinator {
     }
   }
 
-  private func hasCompletedWrite(
-    to path: WorkspaceRelativePath,
+  private func hasCompletedMutation(
+    affectingReadAt path: WorkspaceRelativePath,
     after index: ArraySlice<ChatTurnItem>.Index,
+    workspace: Workspace,
     in items: ArraySlice<ChatTurnItem>
   ) -> Bool {
     let nextIndex = items.index(after: index)
@@ -706,13 +727,68 @@ extension ToolLoopCoordinator {
 
       switch record.request.payload {
       case .writeFile(let input):
-        return input.path == path.rawValue
+        return canonicalWorkspacePath(input.path, workspace: workspace) == path
       case .editFile(let input):
-        return input.path == path.rawValue
+        return canonicalWorkspacePath(input.path, workspace: workspace) == path
+      case .runCommand:
+        return true
       default:
         return false
       }
     }
+  }
+
+  private func toolCallSignature(
+    for request: ToolCallRequest,
+    workspace: Workspace
+  ) -> ToolCallSignature? {
+    let arguments: ToolCallSignature.Arguments
+    switch request.payload {
+    case .readFile(let input):
+      guard let path = canonicalWorkspacePath(input.path, workspace: workspace) else {
+        return nil
+      }
+      arguments = .readFile(path: path, offset: input.offset ?? 1, limit: input.limit)
+    case .listFiles(let input):
+      guard let path = canonicalWorkspacePath(input.path ?? ".", workspace: workspace) else {
+        return nil
+      }
+      arguments = .listFiles(path: path)
+    case .globFiles(let input):
+      guard let path = canonicalWorkspacePath(input.path ?? ".", workspace: workspace) else {
+        return nil
+      }
+      arguments = .globFiles(pattern: input.pattern, path: path)
+    case .searchFiles(let input):
+      guard let path = canonicalWorkspacePath(input.path ?? ".", workspace: workspace) else {
+        return nil
+      }
+      arguments = .searchFiles(pattern: input.pattern, path: path, include: input.include)
+    case .workspaceDiff(let input):
+      guard let path = canonicalWorkspacePath(input.path ?? ".", workspace: workspace) else {
+        return nil
+      }
+      arguments = .workspaceDiff(path: path)
+    case .workspaceDiagnostics(let input):
+      arguments = .workspaceDiagnostics(outputRef: input.outputRef)
+    case .webSearch(let input):
+      arguments = .webSearch(query: input.query, maxResults: input.maxResults)
+    case .webFetch(let input):
+      arguments = .webFetch(url: input.url, maxBytes: input.maxBytes)
+    default:
+      return nil
+    }
+    return ToolCallSignature(toolName: request.toolName, arguments: arguments)
+  }
+
+  private func canonicalWorkspacePath(
+    _ input: String,
+    workspace: Workspace
+  ) -> WorkspaceRelativePath? {
+    guard let resolvedPath = try? workspace.resolveAllowedPath(input) else {
+      return nil
+    }
+    return workspace.relativePath(for: resolvedPath)
   }
 
   private func hasCompletedWorkspaceMutation(
@@ -784,5 +860,30 @@ extension ToolLoopCoordinator {
         )
       )
     )
+  }
+}
+
+private struct ToolCallSignature: Hashable, Sendable {
+  var toolName: ToolName
+  var arguments: Arguments
+
+  static func == (lhs: ToolCallSignature, rhs: ToolCallSignature) -> Bool {
+    lhs.toolName == rhs.toolName && lhs.arguments == rhs.arguments
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine(toolName)
+    hasher.combine(arguments)
+  }
+
+  enum Arguments: Hashable, Sendable {
+    case readFile(path: WorkspaceRelativePath, offset: Int, limit: Int?)
+    case listFiles(path: WorkspaceRelativePath)
+    case globFiles(pattern: String, path: WorkspaceRelativePath)
+    case searchFiles(pattern: String, path: WorkspaceRelativePath, include: String?)
+    case workspaceDiff(path: WorkspaceRelativePath)
+    case workspaceDiagnostics(outputRef: String)
+    case webSearch(query: String, maxResults: Int?)
+    case webFetch(url: String, maxBytes: Int?)
   }
 }
