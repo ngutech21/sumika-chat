@@ -68,7 +68,8 @@ struct SumikaApp: App {
         settingsState: appState.settingsState,
         onUpdateAppBehaviorSettings: appState.updateAppBehaviorSettings,
         onUpdateMCPServers: appState.updateMCPServers,
-        onReconnectMCPServer: appState.reconnectMCPServer
+        canTestMCPServers: appState.workspaceState.activeWorkspace != nil,
+        onTestMCPServer: appState.testMCPServer
       )
     }
   }

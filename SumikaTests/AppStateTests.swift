@@ -1297,6 +1297,82 @@ struct AppStateTests {
   }
 
   @Test
+  func storedChatSessionDoesNotStartSelectedMCPServer() async throws {
+    let server = MCPServerConfig(name: "Unused", command: "/usr/bin/false")
+    let sessionID = UUID()
+    let rootURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+    let session = ChatSession(
+      id: sessionID,
+      interactionMode: .chat,
+      selectedMCPServerIDs: [server.id]
+    )
+    let workspace = Workspace(name: "Project", rootURL: rootURL, sessions: [session])
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspace.id,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(servers: [server]),
+      runtime: AppStateTestRuntime(eventTurns: [])
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+        && appState.settingsState.mcpServerStatuses.first?.state == .disconnected
+    }
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(appState.settingsState.mcpServerStatuses.count == 1)
+    #expect(appState.settingsState.mcpServerStatuses.first?.state == .disconnected)
+    await appState.prepareForTermination()
+  }
+
+  @Test
+  func prepareForTerminationWaitsForMCPServerTest() async throws {
+    let script = try makeMCPServerScript(initializationDelay: 0.2)
+    defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent()) }
+    let server = MCPServerConfig(
+      name: "Probe",
+      command: script.path(percentEncoded: false)
+    )
+    let sessionID = UUID()
+    let rootURL = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+    let session = ChatSession(id: sessionID, interactionMode: .chat)
+    let workspace = Workspace(name: "Project", rootURL: rootURL, sessions: [session])
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspace.id,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(servers: [server]),
+      runtime: AppStateTestRuntime(eventTurns: [])
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+        && appState.settingsState.mcpServerStatuses.first?.state == .disconnected
+    }
+
+    appState.testMCPServer(server.id)
+    await appState.prepareForTermination()
+
+    #expect(appState.settingsState.mcpServerTestFeedback?.message.contains("1 tool") == true)
+  }
+
+  @Test
   func selectedMCPServersFilterAgentToolSchemaPerSession() async throws {
     let script = try makeMCPServerScript()
     defer { try? FileManager.default.removeItem(at: script.deletingLastPathComponent()) }
@@ -1337,11 +1413,33 @@ struct AppStateTests {
     )
 
     try await waitUntil {
-      !appState.workspaceState.isLoading
-        && appState.settingsState.mcpServerStatuses.allSatisfy {
-          $0.state == .connected(toolCount: 1)
-        }
+      let statuses = appState.settingsState.mcpServerStatuses
+      return !appState.workspaceState.isLoading
+        && statuses.first(where: { $0.serverID == firstServer.id })?.state
+          == .connected(toolCount: 1)
+        && statuses.first(where: { $0.serverID == secondServer.id })?.state
+          == .disconnected
     }
+
+    appState.testMCPServer(secondServer.id)
+    try await waitUntil {
+      appState.settingsState.mcpServerTestFeedback?.message.contains("1 tool") == true
+    }
+    #expect(
+      appState.settingsState.mcpServerStatuses.first {
+        $0.serverID == secondServer.id
+      }?.state == .disconnected)
+
+    appState.settingsState.mcpServerTestFeedback = nil
+    appState.testMCPServer(firstServer.id)
+    try await waitUntil {
+      appState.settingsState.mcpServerTestFeedback?.message.contains("1 tool") == true
+    }
+    #expect(
+      appState.settingsState.mcpServerStatuses.first {
+        $0.serverID == firstServer.id
+      }?.state == .connected(toolCount: 1))
+
     let activeWorkspace = try #require(appState.workspaceState.activeWorkspace)
     appState.chatController.modelRuntime.modelState = .ready
     appState.chatController.sendMessage(
@@ -1352,6 +1450,13 @@ struct AppStateTests {
     try await waitUntil { !appState.chatController.isGenerating }
 
     appState.setSelectedMCPServerIDs([secondServer.id])
+    try await waitUntil {
+      let statuses = appState.settingsState.mcpServerStatuses
+      return statuses.first(where: { $0.serverID == firstServer.id })?.state
+        == .disconnected
+        && statuses.first(where: { $0.serverID == secondServer.id })?.state
+          == .connected(toolCount: 1)
+    }
     appState.chatController.sendMessage(
       prompt: "Use the second server",
       in: activeWorkspace,
@@ -1419,7 +1524,7 @@ struct AppStateTests {
   }
 }
 
-private func makeMCPServerScript() throws -> URL {
+private func makeMCPServerScript(initializationDelay: Double = 0) throws -> URL {
   let directory = FileManager.default.temporaryDirectory.appending(
     path: "sumika-app-mcp-tests-\(UUID().uuidString)",
     directoryHint: .isDirectory
@@ -1428,11 +1533,17 @@ private func makeMCPServerScript() throws -> URL {
   let script = directory.appending(path: "server.sh", directoryHint: .notDirectory)
   try """
   #!/bin/sh
+  request_id() {
+    printf '%s\\n' "$1" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\\1/'
+  }
+  sleep \(initializationDelay)
   read -r line
-  printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1.0"}}}'
+  id=$(request_id "$line")
+  printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1.0"}}}\\n' "$id"
   read -r line
   read -r line
-  printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Echo text.","inputSchema":{"type":"object"}}]}}'
+  id=$(request_id "$line")
+  printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo text.","inputSchema":{"type":"object"}}]}}\\n' "$id"
   while read -r line; do :; done
   """.write(to: script, atomically: true, encoding: .utf8)
   try FileManager.default.setAttributes(

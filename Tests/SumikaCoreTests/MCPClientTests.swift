@@ -1,22 +1,28 @@
 import Foundation
+import MCP
 import Testing
 
 @testable import SumikaCore
 
 /// End-to-end tests speak real JSON-RPC over stdio against a `/bin/sh` fake
-/// server. The client assigns request IDs sequentially starting at 1
-/// (initialize = 1, tools/list = 2, first tools/call = 3), which the scripted
-/// responses rely on.
+/// server. The SDK uses opaque request IDs, so scripted responses echo each
+/// request's ID instead of assuming a sequence.
 struct MCPClientTests {
   private static let fakeServerScript = """
     #!/bin/sh
+    request_id() {
+      printf '%s\\n' "$1" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\\1/'
+    }
     read -r line
-    printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1.0"}}}'
+    id=$(request_id "$line")
+    printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1.0"}}}\\n' "$id"
     read -r line
     read -r line
-    printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Echo text back.","inputSchema":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}}]}}'
+    id=$(request_id "$line")
+    printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo text back.","inputSchema":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}}]}}\\n' "$id"
     read -r line
-    printf '%s\\n' '{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"echoed"}],"isError":false}}'
+    id=$(request_id "$line")
+    printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"echoed"}],"isError":false}}\\n' "$id"
     read -r line
     """
 
@@ -47,7 +53,10 @@ struct MCPClientTests {
       name: "Fake",
       command: script.path(percentEncoded: false)
     )
-    let connection = MCPServerConnection(config: config)
+    let connection = MCPServerConnection(
+      config: config,
+      workspaceRootURL: script.deletingLastPathComponent()
+    )
 
     let tools = try await connection.start()
     let result = try await connection.callTool(
@@ -69,6 +78,71 @@ struct MCPClientTests {
   }
 
   @Test
+  func connectionUsesWorkspaceDirectoryAndAnswersRootsList() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory.appending(
+      path: "sumika-mcp-workspace-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: workspaceRootURL, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+    let resolvedWorkspaceRootURL = workspaceRootURL.resolvingSymlinksInPath()
+    try Data().write(to: workspaceRootURL.appending(path: ".workspace-root-marker"))
+    let markerURL = workspaceRootURL.appending(path: "roots-response.json")
+    let script = try writeScript(
+      """
+      #!/bin/sh
+      request_id() {
+        printf '%s\\n' "$1" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\\1/'
+      }
+      marker="$1"
+      [ -f .workspace-root-marker ] || { echo "wrong cwd: $PWD" >&2; exit 8; }
+      read -r line
+      id=$(request_id "$line")
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"roots","version":"1.0"}}}\\n' "$id"
+      read -r line
+      printf '%s\\n' '{"jsonrpc":"2.0","id":"root-request","method":"roots/list"}'
+      read -r first
+      read -r second
+      case "$first" in
+        *'"id":"root-request"'*) roots_response="$first"; list_request="$second" ;;
+        *) roots_response="$second"; list_request="$first" ;;
+      esac
+      printf '%s\\n' "$roots_response" > "$marker"
+      id=$(request_id "$list_request")
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[]}}\\n' "$id"
+      """
+    )
+    defer { removeScript(script) }
+    let connection = MCPServerConnection(
+      config: MCPServerConfig(
+        name: "Roots",
+        command: script.path(percentEncoded: false),
+        arguments: [markerURL.path(percentEncoded: false)]
+      ),
+      workspaceRootURL: workspaceRootURL
+    )
+
+    let tools = try await connection.start()
+    await connection.shutdown()
+
+    #expect(tools.isEmpty)
+    let response = try JSONDecoder().decode(
+      ToolArgumentValue.self,
+      from: Data(contentsOf: markerURL)
+    )
+    guard case .object(let fields) = response,
+      case .object(let result)? = fields["result"],
+      case .array(let roots)? = result["roots"],
+      case .object(let root)? = roots.first
+    else {
+      Issue.record("Expected roots/list response")
+      return
+    }
+    #expect(root["uri"] == .string(resolvedWorkspaceRootURL.absoluteString))
+    #expect(root["name"] == nil)
+  }
+
+  @Test
   func exitingServerFailsStartWithStderrDetail() async throws {
     let script = try writeScript(
       """
@@ -79,7 +153,8 @@ struct MCPClientTests {
     )
     defer { removeScript(script) }
     let connection = MCPServerConnection(
-      config: MCPServerConfig(name: "Broken", command: script.path(percentEncoded: false))
+      config: MCPServerConfig(name: "Broken", command: script.path(percentEncoded: false)),
+      workspaceRootURL: script.deletingLastPathComponent()
     )
 
     do {
@@ -104,7 +179,10 @@ struct MCPClientTests {
       command: "npx",
       arguments: ["-y", "@modelcontextprotocol/server-everything"]
     )
-    let connection = MCPServerConnection(config: config)
+    let connection = MCPServerConnection(
+      config: config,
+      workspaceRootURL: FileManager.default.temporaryDirectory
+    )
 
     let tools = try await connection.start()
     let result = try await connection.callTool(
@@ -127,14 +205,14 @@ struct MCPClientTests {
   @Test
   func toolResultMapsContentBlocksAndErrorFlag() {
     let result = MCPServerConnection.toolResult(
-      from: .object([
-        "content": .array([
-          .object(["type": .string("text"), "text": .string("first")]),
-          .object(["type": .string("image"), "data": .string("...")]),
-          .object(["type": .string("text"), "text": .string("second")]),
-        ]),
-        "isError": .bool(true),
-      ]),
+      from: CallTool.Result(
+        content: [
+          .text(text: "first", annotations: nil, _meta: nil),
+          .image(data: "...", mimeType: "image/png", annotations: nil, _meta: nil),
+          .text(text: "second", annotations: nil, _meta: nil),
+        ],
+        isError: true
+      ),
       serverName: "Fake",
       remoteToolName: "echo"
     )
@@ -147,10 +225,9 @@ struct MCPClientTests {
   @Test
   func toolResultFallsBackToStructuredContent() {
     let result = MCPServerConnection.toolResult(
-      from: .object([
-        "content": .array([]),
-        "structuredContent": .object(["count": .number(3)]),
-      ]),
+      from: CallTool.Result(
+        structuredContent: .object(["count": .int(3)])
+      ),
       serverName: "Fake",
       remoteToolName: "stats"
     )
@@ -167,11 +244,9 @@ struct MCPClientTests {
     let oversized = String(repeating: "x", count: 100_000)
 
     let result = MCPServerConnection.toolResult(
-      from: .object([
-        "content": .array([
-          .object(["type": .string("text"), "text": .string(oversized)])
-        ])
-      ]),
+      from: CallTool.Result(
+        content: [.text(text: oversized, annotations: nil, _meta: nil)]
+      ),
       serverName: "Fake",
       remoteToolName: "dump"
     )
@@ -187,13 +262,43 @@ struct MCPClientTests {
   // MARK: - Manager
 
   @Test
+  func managerDoesNotStartServersWhenConfigurationIsOnlyLoaded() async throws {
+    let script = try writeScript(Self.fakeServerScript)
+    defer { removeScript(script) }
+    let config = MCPServerConfig(name: "Lazy", command: script.path(percentEncoded: false))
+    let manager = MCPClientManager()
+
+    await manager.applyConfiguration([config])
+
+    #expect(await manager.statuses().first?.state == .disconnected)
+    #expect(await manager.agentToolExecutors().isEmpty == true)
+  }
+
+  @Test
+  func managerStartsOnlySelectedServersForActiveSession() async throws {
+    let script = try writeScript(Self.fakeServerScript)
+    defer { removeScript(script) }
+    let first = MCPServerConfig(name: "First", command: script.path(percentEncoded: false))
+    let second = MCPServerConfig(name: "Second", command: script.path(percentEncoded: false))
+    let manager = MCPClientManager()
+
+    await activate(manager, configs: [first, second], selectedServerIDs: [second.id])
+    let statuses = await manager.statuses()
+    let groups = await manager.agentToolExecutorGroups()
+    await manager.shutdownAll()
+
+    #expect(statuses.map(\.state) == [.disconnected, .connected(toolCount: 1)])
+    #expect(groups.map(\.serverID) == [second.id])
+  }
+
+  @Test
   func managerConnectsAndProjectsExecutors() async throws {
     let script = try writeScript(Self.fakeServerScript)
     defer { removeScript(script) }
     let config = MCPServerConfig(name: "Fake", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
 
-    await manager.applyConfiguration([config])
+    await activate(manager, configs: [config])
     let statuses = await manager.statuses()
     let executors = await manager.agentToolExecutors()
     let groups = await manager.agentToolExecutorGroups()
@@ -213,11 +318,16 @@ struct MCPClientTests {
     let script = try writeScript(
       """
       #!/bin/sh
+      request_id() {
+        printf '%s\\n' "$1" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\\1/'
+      }
       read -r line
-      printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1.0"}}}'
+      id=$(request_id "$line")
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1.0"}}}\\n' "$id"
       read -r line
       read -r line
-      printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Echo text back.","inputSchema":{"type":"object"}}]}}'
+      id=$(request_id "$line")
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo text back.","inputSchema":{"type":"object"}}]}}\\n' "$id"
       echo "fatal: crashed after listing tools" >&2
       exit 9
       """
@@ -226,18 +336,24 @@ struct MCPClientTests {
     let config = MCPServerConfig(name: "Crashy", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
 
-    await manager.applyConfiguration([config])
+    await activate(manager, configs: [config])
     #expect(await manager.statuses().first?.state == .connected(toolCount: 1))
     #expect(await manager.agentToolExecutors().count == 1)
 
     do {
-      _ = try await manager.callTool(serverID: config.id, name: "echo", arguments: [:])
+      let connectionToken = try #require(await manager.connectionToken(for: config.id))
+      _ = try await manager.callTool(
+        serverID: config.id,
+        connectionToken: connectionToken,
+        name: "echo",
+        arguments: [:]
+      )
       Issue.record("Expected callTool() to throw")
     } catch let error as MCPClientError {
       switch error {
       case .notConnected, .serverExited:
         break
-      case .timedOut, .protocolError, .serverError:
+      case .staleConnection, .timedOut, .protocolError, .serverError:
         Issue.record("Expected connection lifecycle error, got \(error)")
       }
     } catch {
@@ -264,15 +380,20 @@ struct MCPClientTests {
     let script = try writeScript(
       """
       #!/bin/sh
+      request_id() {
+        printf '%s\\n' "$1" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\\1/'
+      }
       marker="$1"
       while [ ! -f "$marker" ]; do
         sleep 0.02
       done
       read -r line
-      printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"slow","version":"1.0"}}}'
+      id=$(request_id "$line")
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"slow","version":"1.0"}}}\\n' "$id"
       read -r line
       read -r line
-      printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Echo text back.","inputSchema":{"type":"object"}}]}}'
+      id=$(request_id "$line")
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"Echo text back.","inputSchema":{"type":"object"}}]}}\\n' "$id"
       """
     )
     defer { removeScript(script) }
@@ -292,7 +413,7 @@ struct MCPClientTests {
     let manager = MCPClientManager()
 
     let startTask = Task {
-      await manager.applyConfiguration([config])
+      await activate(manager, configs: [config])
     }
     try await waitUntil {
       let statuses = await manager.statuses()
@@ -322,7 +443,7 @@ struct MCPClientTests {
     let config = MCPServerConfig(name: "Broken", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
 
-    await manager.applyConfiguration([config])
+    await activate(manager, configs: [config])
     let statuses = await manager.statuses()
     let executors = await manager.agentToolExecutors()
     await manager.shutdownAll()
@@ -344,7 +465,7 @@ struct MCPClientTests {
       name: "Off", command: script.path(percentEncoded: false), isEnabled: false)
     let manager = MCPClientManager()
 
-    await manager.applyConfiguration([enabled, enabledTwin, disabled])
+    await activate(manager, configs: [enabled, enabledTwin, disabled])
     let statuses = await manager.statuses()
     let executors = await manager.agentToolExecutors()
     await manager.shutdownAll()
@@ -364,7 +485,7 @@ struct MCPClientTests {
     let config = MCPServerConfig(name: "Fake", command: script.path(percentEncoded: false))
     let manager = MCPClientManager()
 
-    await manager.applyConfiguration([config])
+    await activate(manager, configs: [config])
     await manager.applyConfiguration([])
     let statuses = await manager.statuses()
     let executors = await manager.agentToolExecutors()
@@ -373,6 +494,63 @@ struct MCPClientTests {
     #expect(statuses.isEmpty)
     #expect(executors.isEmpty)
   }
+
+  @Test
+  func managerRejectsExecutorTokenAfterReconnect() async throws {
+    let script = try writeScript(Self.fakeServerScript)
+    defer { removeScript(script) }
+    let config = MCPServerConfig(name: "Token", command: script.path(percentEncoded: false))
+    let manager = MCPClientManager()
+    await activate(manager, configs: [config])
+    let oldToken = try #require(await manager.connectionToken(for: config.id))
+
+    await manager.reconnect(serverID: config.id)
+    let newToken = try #require(await manager.connectionToken(for: config.id))
+
+    #expect(oldToken != newToken)
+    await #expect(throws: MCPClientError.staleConnection) {
+      _ = try await manager.callTool(
+        serverID: config.id,
+        connectionToken: oldToken,
+        name: "echo",
+        arguments: [:]
+      )
+    }
+    await manager.shutdownAll()
+  }
+
+  @Test
+  func settingsProbeDoesNotActivateConfiguredServer() async throws {
+    let script = try writeScript(Self.fakeServerScript)
+    defer { removeScript(script) }
+    let config = MCPServerConfig(name: "Probe", command: script.path(percentEncoded: false))
+    let manager = MCPClientManager()
+    await manager.applyConfiguration([config])
+
+    let toolCount = try await manager.testConnection(
+      config: config,
+      workspaceRootURL: FileManager.default.temporaryDirectory
+    )
+
+    #expect(toolCount == 1)
+    #expect(await manager.statuses().first?.state == .disconnected)
+    #expect(await manager.agentToolExecutors().isEmpty == true)
+  }
+}
+
+private func activate(
+  _ manager: MCPClientManager,
+  configs: [MCPServerConfig],
+  sessionID: ChatSession.ID = UUID(),
+  selectedServerIDs: [UUID]? = nil,
+  workspaceRootURL: URL = FileManager.default.temporaryDirectory
+) async {
+  await manager.reconcile(
+    configs: configs,
+    activeSessionID: sessionID,
+    selectedServerIDs: selectedServerIDs ?? configs.map(\.id),
+    workspaceRootURL: workspaceRootURL
+  )
 }
 
 private func waitUntil(

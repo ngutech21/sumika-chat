@@ -8,6 +8,7 @@ private struct MCPToolCallingFake: MCPToolCalling {
 
   func callTool(
     serverID: UUID,
+    connectionToken: UUID,
     name: String,
     arguments: ToolCallArguments
   ) async throws -> MCPToolResult {
@@ -32,6 +33,7 @@ struct MCPToolRuntimeTests {
   ) -> MCPToolExecutor {
     MCPToolExecutor(
       serverID: serverID,
+      connectionToken: UUID(),
       serverName: "GitHub",
       serverSlug: "github",
       remoteTool: MCPRemoteTool(

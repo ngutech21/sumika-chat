@@ -346,13 +346,20 @@ struct ChatSessionControllerToolLoopTests {
       ],
       [.chunk("I've completed it.")],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgentRegistry(todoWriteEnabled: true)
+      )
+    )
     controller.modelRuntime.modelState = .ready
     controller.setInteractionMode(.agent)
     controller.sendMessage(prompt: "run a failing command", in: workspace, sessionID: sessionID)
 
     try await waitUntil { controller.hasPendingApproval }
     let pending = try #require(controller.chatSession.toolCalls.first)
+    controller.configureAgentTools(todoWriteEnabled: false)
     controller.approveToolCall(id: pending.id, in: workspace)
 
     try await waitUntil { !controller.isGenerating }
@@ -368,6 +375,10 @@ struct ChatSessionControllerToolLoopTests {
 
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.count == 2)
+    #expect(
+      capturedPromptPlans.allSatisfy {
+        $0.toolContext?.registry.definition(for: .todoWrite) != nil
+      })
     #expect(capturedPromptPlans[1].transientInstructions.isEmpty)
     let capturedMessages = await runtime.capturedMessages
     let notice = try #require(latestToolFollowUpNotice(in: capturedMessages, at: 1))
@@ -1369,8 +1380,12 @@ struct ChatSessionControllerToolLoopTests {
     #expect(controller.chatSession.todoState == nil)
 
     let capturedToolContexts = await runtime.capturedToolContexts
-    let firstToolContext = try #require(capturedToolContexts.first ?? nil)
-    #expect(firstToolContext.registry.definition(for: .todoWrite) == nil)
+    let activeTurnToolContexts = capturedToolContexts.prefix(2).compactMap { $0 }
+    #expect(activeTurnToolContexts.count == 2)
+    #expect(
+      activeTurnToolContexts.allSatisfy {
+        $0.registry.definition(for: .todoWrite) == nil
+      })
 
     controller.sendMessage(prompt: "continue", in: workspace, sessionID: sessionID)
     try await waitUntil { !controller.isGenerating }
@@ -1426,8 +1441,12 @@ struct ChatSessionControllerToolLoopTests {
       controller.chatSession.todoState?.items.map(\.content) == ["Inspect files", "Run tests"])
 
     let capturedToolContexts = await runtime.capturedToolContexts
-    let firstToolContext = try #require(capturedToolContexts.first ?? nil)
-    #expect(firstToolContext.registry.definition(for: .todoWrite) != nil)
+    let activeTurnToolContexts = capturedToolContexts.prefix(2).compactMap { $0 }
+    #expect(activeTurnToolContexts.count == 2)
+    #expect(
+      activeTurnToolContexts.allSatisfy {
+        $0.registry.definition(for: .todoWrite) != nil
+      })
 
     controller.sendMessage(prompt: "continue", in: workspace, sessionID: sessionID)
     try await waitUntil { !controller.isGenerating }

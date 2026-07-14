@@ -19,6 +19,8 @@ final class AppState {
   @ObservationIgnored private var defaultSessionModeSettings =
     ManagedModelCatalog.defaultModel.defaultModeSettings
   @ObservationIgnored private var mcpAgentToolExecutorGroups: [MCPAgentToolExecutorGroup] = []
+  @ObservationIgnored private var mcpMutationTask: Task<Void, Never>?
+  @ObservationIgnored private var desiredMCPState: DesiredMCPState?
   @ObservationIgnored private var didAttemptAutoloadLastModel = false
   @ObservationIgnored private var routeWasAutomaticMissingModelRedirect = false
 
@@ -102,6 +104,7 @@ final class AppState {
 
     self.chatController.setSessionChangeHandler { [weak self] in
       self?.persistActiveSession()
+      self?.reconcileMCPConnectionsIfNeeded()
     }
     self.audioModelController.onSelectionChanged = { [weak self] modelID in
       guard let self else {
@@ -210,6 +213,7 @@ final class AppState {
     persistActiveSession()
     route = .models
     routeWasAutomaticMissingModelRedirect = false
+    reconcileMCPConnectionsIfNeeded()
   }
 
   func renameSession(_ sessionID: ChatSession.ID, title: String) {
@@ -283,15 +287,42 @@ final class AppState {
 
   func updateMCPServers(_ servers: [MCPServerConfig]) {
     settingsState.updateMCPServers(servers)
-    Task {
-      await self.applyMCPConfiguration(servers)
-    }
+    reconcileMCPConnectionsIfNeeded(force: true)
   }
 
-  func reconnectMCPServer(_ serverID: UUID) {
-    Task {
-      await self.mcpClientManager.reconnect(serverID: serverID)
-      await self.refreshAfterMCPChange()
+  func testMCPServer(_ serverID: UUID) {
+    guard let config = settingsState.mcpServers.first(where: { $0.id == serverID }),
+      config.isEnabled,
+      let workspaceRootURL = workspaceState.activeWorkspace?.rootURL
+    else {
+      return
+    }
+    let isActiveServer = activeMCPServerIDs.contains(serverID)
+    let previousMutation = mcpMutationTask
+    mcpMutationTask = Task {
+      await previousMutation?.value
+      if isActiveServer {
+        await self.mcpClientManager.reconnect(serverID: serverID)
+        await self.refreshAfterMCPChange()
+        let status = await self.mcpClientManager.statuses().first { $0.serverID == serverID }
+        self.settingsState.mcpServerTestFeedback = MCPServerTestFeedback(
+          message: Self.mcpTestMessage(serverName: config.name, state: status?.state)
+        )
+      } else {
+        do {
+          let toolCount = try await self.mcpClientManager.testConnection(
+            config: config,
+            workspaceRootURL: workspaceRootURL
+          )
+          self.settingsState.mcpServerTestFeedback = MCPServerTestFeedback(
+            message: Self.mcpTestSuccessMessage(serverName: config.name, toolCount: toolCount)
+          )
+        } catch {
+          self.settingsState.mcpServerTestFeedback = MCPServerTestFeedback(
+            message: "\(config.name) failed: \(error.localizedDescription)"
+          )
+        }
+      }
     }
   }
 
@@ -301,11 +332,7 @@ final class AppState {
       selection,
       agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
     )
-  }
-
-  private func applyMCPConfiguration(_ servers: [MCPServerConfig]) async {
-    await mcpClientManager.applyConfiguration(servers)
-    await refreshAfterMCPChange()
+    reconcileMCPConnectionsIfNeeded()
   }
 
   private func refreshAfterMCPChange() async {
@@ -345,6 +372,71 @@ final class AppState {
     return settingsState.mcpServers.map(\.id).filter { requestedIDs.contains($0) }
   }
 
+  private var activeMCPServerIDs: Set<UUID> {
+    guard case .chat = route, chatController.chatSession.interactionMode == .agent else {
+      return []
+    }
+    return Set(chatController.chatSession.selectedMCPServerIDs)
+  }
+
+  private func reconcileMCPConnectionsIfNeeded(force: Bool = false) {
+    let state = desiredMCPConnectionState()
+    guard force || desiredMCPState != state else {
+      return
+    }
+    desiredMCPState = state
+    let previousTask = mcpMutationTask
+    mcpMutationTask = Task { [mcpClientManager] in
+      await previousTask?.value
+      await mcpClientManager.reconcile(
+        configs: state.configs,
+        activeSessionID: state.activeSessionID,
+        selectedServerIDs: state.selectedServerIDs,
+        workspaceRootURL: state.workspaceRootURL
+      )
+      await self.refreshAfterMCPChange()
+    }
+  }
+
+  private func desiredMCPConnectionState() -> DesiredMCPState {
+    guard case .chat(_, let sessionID) = route,
+      chatController.chatSession.id == sessionID,
+      chatController.chatSession.interactionMode == .agent,
+      let workspaceRootURL = workspaceState.activeWorkspace?.rootURL
+    else {
+      return DesiredMCPState(configs: settingsState.mcpServers)
+    }
+    return DesiredMCPState(
+      configs: settingsState.mcpServers,
+      activeSessionID: sessionID,
+      selectedServerIDs: normalizedMCPServerSelection(
+        chatController.chatSession.selectedMCPServerIDs
+      ),
+      workspaceRootURL: workspaceRootURL
+    )
+  }
+
+  private static func mcpTestMessage(
+    serverName: String,
+    state: MCPServerStatus.State?
+  ) -> String {
+    switch state {
+    case .connected(let toolCount):
+      return mcpTestSuccessMessage(serverName: serverName, toolCount: toolCount)
+    case .failed(let message):
+      return "\(serverName) failed: \(message)"
+    case .connecting:
+      return "\(serverName) is still connecting."
+    case .disconnected, .none:
+      return "\(serverName) is disconnected."
+    }
+  }
+
+  private static func mcpTestSuccessMessage(serverName: String, toolCount: Int) -> String {
+    let tools = toolCount == 1 ? "1 tool" : "\(toolCount) tools"
+    return "\(serverName) connected successfully and advertised \(tools)."
+  }
+
   func startModelRuntimeServices() {
     chatController.modelRuntime.prepareDefaultModelDirectory()
     chatController.modelRuntime.startResourceMonitoring()
@@ -375,6 +467,7 @@ final class AppState {
   func prepareForTermination() async {
     persistActiveSession()
     await workspaceState.flushPendingSaves()
+    await mcpMutationTask?.value
     await mcpClientManager.shutdownAll()
   }
 
@@ -391,6 +484,7 @@ final class AppState {
       selection,
       agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
     )
+    reconcileMCPConnectionsIfNeeded()
   }
 
   private func applyAppBehaviorSettings(_ settings: AppBehaviorSettings) {
@@ -451,7 +545,8 @@ final class AppState {
       await settingsState.load()
 
       applyAppBehaviorSettings(settingsState.appBehaviorSettings)
-      await applyMCPConfiguration(settingsState.mcpServers)
+      await mcpClientManager.applyConfiguration(settingsState.mcpServers)
+      settingsState.mcpServerStatuses = await mcpClientManager.statuses()
       defaultSessionModelID = selectedModel.id
       defaultSessionModeSettings = settings.modeSettings
       let defaultSessionFactory = self.makeDefaultSessionFactory()
@@ -494,6 +589,7 @@ final class AppState {
       persistActiveSession()
       route = .models
       routeWasAutomaticMissingModelRedirect = true
+      reconcileMCPConnectionsIfNeeded()
     }
   }
 
@@ -510,6 +606,25 @@ final class AppState {
     chatController.modelRuntime.loadSelectedModel()
   }
 
+}
+
+private struct DesiredMCPState: Equatable {
+  var configs: [MCPServerConfig]
+  var activeSessionID: ChatSession.ID?
+  var selectedServerIDs: [UUID]
+  var workspaceRootURL: URL?
+
+  init(
+    configs: [MCPServerConfig],
+    activeSessionID: ChatSession.ID? = nil,
+    selectedServerIDs: [UUID] = [],
+    workspaceRootURL: URL? = nil
+  ) {
+    self.configs = configs
+    self.activeSessionID = activeSessionID
+    self.selectedServerIDs = selectedServerIDs
+    self.workspaceRootURL = workspaceRootURL
+  }
 }
 
 extension AppRoute {

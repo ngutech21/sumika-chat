@@ -8,7 +8,8 @@ import SwiftUI
 struct MCPServersSettingsView: View {
   let settingsState: SettingsFeatureState
   let onUpdateServers: ([MCPServerConfig]) -> Void
-  let onReconnectServer: (UUID) -> Void
+  let canTestServers: Bool
+  let onTestServer: (UUID) -> Void
 
   @State private var editorTarget: MCPServerEditorTarget?
 
@@ -24,8 +25,9 @@ struct MCPServersSettingsView: View {
             server: server,
             status: status(for: server.id),
             isEnabledBinding: isEnabledBinding(for: server.id),
+            canTest: canTestServers,
             onEdit: { editorTarget = .edit(server) },
-            onReconnect: { onReconnectServer(server.id) },
+            onTest: { onTestServer(server.id) },
             onDelete: { removeServer(server.id) }
           )
         }
@@ -90,8 +92,9 @@ private struct MCPServerRow: View {
   let server: MCPServerConfig
   let status: MCPServerStatus.State?
   let isEnabledBinding: Binding<Bool>
+  let canTest: Bool
   let onEdit: () -> Void
-  let onReconnect: () -> Void
+  let onTest: () -> Void
   let onDelete: () -> Void
 
   var body: some View {
@@ -119,11 +122,11 @@ private struct MCPServerRow: View {
         .labelsHidden()
         .toggleStyle(.switch)
         .controlSize(.mini)
-      Button("Reconnect", systemImage: "arrow.clockwise", action: onReconnect)
+      Button("Test Connection", systemImage: "stethoscope", action: onTest)
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)
-        .disabled(!server.isEnabled)
-        .help("Reconnect")
+        .disabled(!server.isEnabled || !canTest)
+        .help(canTest ? "Test Connection" : "Open a workspace to test this server")
       Button("Edit", systemImage: "pencil", action: onEdit)
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)

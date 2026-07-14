@@ -2,6 +2,10 @@ import Foundation
 import Observation
 import SumikaCore
 
+struct MCPServerTestFeedback: Equatable {
+  var message: String
+}
+
 @MainActor
 @Observable
 final class SettingsFeatureState {
@@ -12,6 +16,7 @@ final class SettingsFeatureState {
   /// reconnect so the settings UI can render connection state without
   /// reaching into the actor.
   var mcpServerStatuses: [MCPServerStatus] = []
+  var mcpServerTestFeedback: MCPServerTestFeedback?
   var errorMessage: String?
 
   @ObservationIgnored private let webAccessSettingsStore: any WebAccessSettingsStoring

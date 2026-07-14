@@ -127,6 +127,7 @@ public struct MCPRemoteTool: Codable, Equatable, Sendable {
 public protocol MCPToolCalling: Sendable {
   func callTool(
     serverID: UUID,
+    connectionToken: UUID,
     name: String,
     arguments: ToolCallArguments
   ) async throws -> MCPToolResult
@@ -144,10 +145,13 @@ public struct MCPToolExecutor: DynamicToolExecutor {
   static let maxDescriptionLength = 600
 
   public let codec: ToolCodec<MCPToolInput>
+  private let serverID: UUID
+  private let connectionToken: UUID
   private let client: any MCPToolCalling
 
   public init(
     serverID: UUID,
+    connectionToken: UUID,
     serverName: String,
     serverSlug: String,
     remoteTool: MCPRemoteTool,
@@ -189,6 +193,8 @@ public struct MCPToolExecutor: DynamicToolExecutor {
         return input
       }
     )
+    self.serverID = serverID
+    self.connectionToken = connectionToken
     self.client = client
   }
 
@@ -223,7 +229,8 @@ public struct MCPToolExecutor: DynamicToolExecutor {
   public func run(_ input: MCPToolInput, context: ToolContext) async -> ToolResultPayload {
     do {
       let result = try await client.callTool(
-        serverID: input.serverID,
+        serverID: serverID,
+        connectionToken: connectionToken,
         name: input.remoteToolName,
         arguments: input.arguments
       )

@@ -120,6 +120,7 @@ struct ChatTurnExecutionCoordinator {
     isActive: ChatTurnActiveChecker,
     interactionMode: WorkspaceInteractionMode,
     toolPromptMode: ToolPromptMode,
+    turnToolRegistry: ToolRegistry,
     stableInstructions: String,
     turnID: ChatTurn.ID,
     toolLoopIteration: Int? = nil,
@@ -144,7 +145,7 @@ struct ChatTurnExecutionCoordinator {
       stableInstructions: stableInstructions,
       toolPromptMode: toolPromptMode,
       toolCallingPolicy: toolCallingPolicy,
-      toolLoopCoordinator: runtime.toolLoopCoordinator
+      turnToolRegistry: turnToolRegistry
     )
     traceTurnPhase(
       .renderSystemPrompt,
@@ -291,6 +292,7 @@ struct ChatTurnExecutionCoordinator {
     callbacks: ChatTurnCallbacks,
     isActive: ChatTurnActiveChecker,
     finishTurn: ChatTurnFinisher,
+    turnToolRegistry: ToolRegistry,
     stableInstructions: String,
     lastNativeToolCalls: [ChatRuntimeToolCall] = []
   ) async throws -> Bool {
@@ -334,7 +336,8 @@ struct ChatTurnExecutionCoordinator {
             followUpPromptMode: followUpPromptMode,
             toolLoopIteration: toolLoopIteration,
             toolCallingPolicy: toolCallingPolicy,
-            nativeToolCalls: currentNativeToolCalls
+            nativeToolCalls: currentNativeToolCalls,
+            toolRegistry: turnToolRegistry
           )
         )
       else {
@@ -364,6 +367,7 @@ struct ChatTurnExecutionCoordinator {
           isActive: isActive,
           interactionMode: interactionMode,
           toolPromptMode: promptMode,
+          turnToolRegistry: turnToolRegistry,
           stableInstructions: stableInstructions,
           turnID: turnID,
           toolLoopIteration: toolLoopIteration
@@ -392,6 +396,7 @@ struct ChatTurnExecutionCoordinator {
           isActive: isActive,
           interactionMode: interactionMode,
           toolPromptMode: effectivePromptMode,
+          turnToolRegistry: turnToolRegistry,
           stableInstructions: stableInstructions,
           turnID: turnID,
           toolLoopIteration: toolLoopIteration
@@ -488,14 +493,19 @@ struct ChatTurnExecutionCoordinator {
     callbacks.notifySessionDidChange()
     return true
   }
+}
 
+extension ChatTurnExecutionCoordinator {
   func systemPrompt(
     session: ChatSession,
     selectedModel: ManagedModel,
     toolLoopCoordinator: ToolLoopCoordinator,
-    toolPromptMode: ToolPromptMode
+    toolPromptMode: ToolPromptMode,
+    turnToolRegistry: ToolRegistry? = nil
   ) -> String {
-    let registry = toolRegistry(for: toolPromptMode, toolLoopCoordinator: toolLoopCoordinator)
+    let registry =
+      turnToolRegistry
+      ?? toolRegistry(for: toolPromptMode, toolLoopCoordinator: toolLoopCoordinator)
     return toolPromptPolicy.systemPrompt(
       basePrompt: session.systemPrompt,
       mode: toolPromptMode,
@@ -525,23 +535,22 @@ struct ChatTurnExecutionCoordinator {
     stableInstructions: String,
     toolPromptMode: ToolPromptMode,
     toolCallingPolicy: ToolCallingPolicy,
-    toolLoopCoordinator: ToolLoopCoordinator
+    turnToolRegistry: ToolRegistry
   ) throws -> ChatRuntimePromptPlan {
-    let registry = toolRegistry(for: toolPromptMode, toolLoopCoordinator: toolLoopCoordinator)
     let cacheIdentityInstructions = try ToolSchemaCacheIdentity.instructions(
       stableInstructions: stableInstructions,
-      registry: registry
+      registry: turnToolRegistry
     )
     return ChatRuntimePromptPlan(
       stableInstructions: stableInstructions,
       transientInstructions: transientInstructions(
         session: session,
-        toolLoopCoordinator: toolLoopCoordinator
+        turnToolRegistry: turnToolRegistry
       ),
       toolContext: runtimeToolContext(
         for: toolPromptMode,
         policy: toolCallingPolicy,
-        registry: registry,
+        registry: turnToolRegistry,
         cacheIdentityInstructions: cacheIdentityInstructions
       ),
       cacheIdentityInstructions: cacheIdentityInstructions
@@ -572,11 +581,11 @@ struct ChatTurnExecutionCoordinator {
 
   private func transientInstructions(
     session: ChatSession,
-    toolLoopCoordinator: ToolLoopCoordinator
+    turnToolRegistry: ToolRegistry
   ) -> [String] {
     var instructions: [String] = []
     if session.interactionMode == .agent,
-      toolLoopCoordinator.toolRegistry.definition(for: .todoWrite) != nil,
+      turnToolRegistry.definition(for: .todoWrite) != nil,
       let planBlock = TodoPromptRenderer.compactPlanBlock(for: session.todoState)
     {
       instructions.append(

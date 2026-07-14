@@ -399,18 +399,31 @@ declarations.
   and repositories cannot contribute server configurations.
 - `MCPServerConnection` owns one stdio server process. Sumika spawns
   `/usr/bin/env <command> <args>` with the same PATH conventions as
-  `run_command`, speaks JSON-RPC 2.0 over newline-delimited JSON
-  (`initialize`, `notifications/initialized`, paginated `tools/list`,
-  `tools/call`), reads pipes through `readabilityHandler`-based line streams,
-  and terminates the whole process tree on shutdown. Result text is capped and
-  marked truncated; non-text content blocks become explicit unsupported
-  placeholders.
-- `MCPClientManager` reconciles connections with the configured server list,
-  reports per-server statuses for the settings UI, and projects every tool of
-  every connected server as an `AnyToolExecutor(dynamic:)`, grouped by the
-  stable `MCPServerConfig.id`. It never reconnects on its own; a crashed server
-  surfaces as failed tool calls until the user reconnects or reapplies the
-  configuration.
+  `run_command` and the active workspace root as its current directory. It
+  hands the child stdout/stdin descriptors to the official MCP Swift SDK's
+  `StdioTransport`; SDK `Client` owns JSON-RPC framing, lifecycle negotiation,
+  request IDs, error decoding, typed `tools/list`/`tools/call`, notifications,
+  and `roots/list` dispatch. Sumika still owns process lifetime, stderr
+  diagnostics, request timeouts, the Darwin `F_SETNOSIGPIPE` guard, and whole
+  process-tree shutdown. `tools/list` pagination is bounded by Sumika, and
+  `roots/list` contains only the active workspace URI; workspace names are not
+  sent to servers. SDK values are mapped at the connection boundary into the
+  persisted Sumika tool models. Result text is capped and marked truncated;
+  non-text content blocks become explicit unsupported placeholders.
+- `MCPClientManager` stores global configuration but starts regular connections
+  only for enabled server IDs selected by the active Agent session. Its scope is
+  the active session ID plus workspace root. Leaving Agent mode, changing
+  session/workspace, or deselecting a server shuts down connections no longer in
+  scope. The manager reports per-server statuses for Settings and projects every
+  connected tool as an `AnyToolExecutor(dynamic:)`, grouped by the stable
+  `MCPServerConfig.id`. It never reconnects on its own; a crashed server remains
+  failed until the user explicitly tests/reconnects it or its scope changes.
+- Settings `Test Connection` reconnects a server already active in the current
+  Agent session. For any other enabled server it creates an isolated connection
+  with the active workspace root, runs initialization and `tools/list`, reports
+  the tool count, and always shuts the process down. Probes do not change the
+  session selection, Agent registry, regular status, or connection token. The
+  action is unavailable without an open workspace.
 - `DynamicToolExecutor` is the instance-codec sibling of `TypedToolExecutor`.
   Both run through one shared execution state machine in `AnyToolExecutor`;
   dynamic executors additionally carry their codec so
@@ -449,11 +462,18 @@ declarations.
   selection changes, server connect/disconnect/reconnect, and todo-write setting
   changes. Chat (web) sessions never expose MCP tools, and selection changes are
   blocked during generation or unresolved approval/user-input interactions.
-- All globally enabled MCP servers still start and list their tools. Session
-  selection controls model-facing schema visibility and execution registry
-  membership, not process lifetime. Changing the selection changes the existing
+- Each regular server connection has a non-persisted token captured by its
+  `MCPToolExecutor`. Scope changes, deselection, shutdown, and reconnect rotate
+  that token. Execution first compares the executor token with the manager's
+  current token and fails with `staleConnection` on a mismatch; an old executor
+  can never fall through to a replacement connection.
+- A logical turn captures its profile-specific `ToolRegistry` once. Initial
+  prompt rendering, runtime tool context, native-call parsing, duplicate checks,
+  execution, and every model follow-up use that same registry. Registry changes
+  during generation or an approval pause apply to the next turn; the snapshot is
+  runtime-only and is never persisted. Changing selection still changes the next
   tool-schema cache identity and clears reusable runtime context. `turn_trace`
-  records the selected server IDs and active MCP tool count on prompt rendering.
+  records selected server IDs and the active MCP tool count on prompt rendering.
 - Server-provided tool descriptions are untrusted prompt input and are capped
   before entering definitions. MCP results are untrusted tool output: the
   model observation is a capped summary block, and `is_error` results project

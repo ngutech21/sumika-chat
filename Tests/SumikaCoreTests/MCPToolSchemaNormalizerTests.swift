@@ -147,6 +147,7 @@ struct MCPToolSchemaNormalizerTests {
   func executorAppliesNormalizationToDefinitionSchema() {
     let executor = MCPToolExecutor(
       serverID: UUID(),
+      connectionToken: UUID(),
       serverName: "Git",
       serverSlug: "git",
       remoteTool: MCPRemoteTool(
@@ -183,6 +184,7 @@ struct MCPToolSchemaNormalizerTests {
 private struct NoopMCPToolCalling: MCPToolCalling {
   func callTool(
     serverID: UUID,
+    connectionToken: UUID,
     name: String,
     arguments: ToolCallArguments
   ) async throws -> MCPToolResult {

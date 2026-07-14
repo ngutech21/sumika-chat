@@ -754,7 +754,7 @@
 			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
 			requirement = {
 				kind = revision;
-				revision = f5f18ed9d3373b21874bd43da34922377c6da0fb;
+				revision = 19de2799d5cfc09398cdeb0970b9e7241e1a1b55;
 			};
 		};
 		F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */ = {

@@ -8,6 +8,7 @@ public enum ChatToolLoopLimits {
 public final class ChatTurnCoordinator {
   private(set) var activeTurnID: ChatTurn.ID?
   private var activeTask: Task<Void, Never>?
+  private var turnToolRegistries: [ChatTurn.ID: ToolRegistry] = [:]
   private let executionCoordinator: ChatTurnExecutionCoordinator
   private let workspaceInstructionsLoader: any WorkspaceInstructionsLoading
   private let toolResumeCoordinator = ToolResumeCoordinator()
@@ -57,6 +58,7 @@ public final class ChatTurnCoordinator {
     activeTask?.cancel()
     activeTask = nil
     self.activeTurnID = nil
+    turnToolRegistries[activeTurnID] = nil
     return activeTurnID
   }
 
@@ -94,6 +96,8 @@ public final class ChatTurnCoordinator {
       for: toolProfile
     )
     let turnID = UUID()
+    let turnToolRegistry = runtime.toolLoopCoordinator.toolRegistry(for: toolProfile)
+    turnToolRegistries[turnID] = turnToolRegistry
     let userMessageID = UUID()
     let assistantMessageID = UUID()
 
@@ -111,7 +115,8 @@ public final class ChatTurnCoordinator {
       session: callbacks.session(),
       selectedModel: runtime.selectedModel,
       toolLoopCoordinator: runtime.toolLoopCoordinator,
-      toolPromptMode: initialToolPromptMode
+      toolPromptMode: initialToolPromptMode,
+      turnToolRegistry: turnToolRegistry
     )
     callbacks.notifySessionDidChange()
 
@@ -152,6 +157,7 @@ public final class ChatTurnCoordinator {
         isActive: self.isActive,
         interactionMode: interactionMode,
         toolPromptMode: initialToolPromptMode,
+        turnToolRegistry: turnToolRegistry,
         stableInstructions: stableInstructions,
         turnID: turnID,
         attachments: attachments
@@ -171,6 +177,7 @@ public final class ChatTurnCoordinator {
           callbacks: callbacks,
           isActive: self.isActive,
           finishTurn: self.finishTurn,
+          turnToolRegistry: turnToolRegistry,
           stableInstructions: stableInstructions,
           lastNativeToolCalls: generationResult.nativeToolCalls
         )
@@ -444,6 +451,7 @@ public final class ChatTurnCoordinator {
         modelContextPolicy: nil
       )
     ])
+    turnToolRegistries[turnID] = nil
     finishTurn(turnID)
     turnDidFinish(turnID, .disabled)
     notifySessionDidChange()
@@ -483,6 +491,7 @@ public final class ChatTurnCoordinator {
     }
 
     emitEvents(cancelledTurnEvents(turnID))
+    turnToolRegistries[turnID] = nil
     finishTurn(turnID)
     turnDidFinish(turnID, .disabled)
     notifySessionDidChange()
@@ -505,6 +514,7 @@ public final class ChatTurnCoordinator {
     if let error {
       setErrorMessage(error.localizedDescription)
     }
+    turnToolRegistries[turnID] = nil
     finishTurn(turnID)
     turnDidFinish(turnID, .disabled)
     notifySessionDidChange()
@@ -643,8 +653,14 @@ extension ChatTurnCoordinator {
     callbacks.refreshContextUsage(promptMode)
     callbacks.notifySessionDidChange()
 
+    let turnToolRegistry = frozenToolRegistry(
+      for: turnID,
+      toolProfile: toolProfile,
+      runtime: runtime
+    )
     let stableInstructions = stableInstructions(
       toolProfile: toolProfile,
+      turnToolRegistry: turnToolRegistry,
       runtime: runtime,
       callbacks: callbacks
     )
@@ -655,6 +671,7 @@ extension ChatTurnCoordinator {
       isActive: self.isActive,
       interactionMode: callbacks.session().interactionMode,
       toolPromptMode: promptMode,
+      turnToolRegistry: turnToolRegistry,
       stableInstructions: stableInstructions,
       turnID: turnID,
       toolLoopIteration: turn.toolCallBatchCount
@@ -674,6 +691,7 @@ extension ChatTurnCoordinator {
       callbacks: callbacks,
       isActive: self.isActive,
       finishTurn: self.finishTurn,
+      turnToolRegistry: turnToolRegistry,
       stableInstructions: stableInstructions,
       lastNativeToolCalls: generationResult.nativeToolCalls
     )
@@ -755,8 +773,14 @@ extension ChatTurnCoordinator {
     callbacks.refreshContextUsage(promptMode)
     callbacks.notifySessionDidChange()
 
+    let turnToolRegistry = frozenToolRegistry(
+      for: turnID,
+      toolProfile: toolProfile,
+      runtime: runtime
+    )
     let stableInstructions = stableInstructions(
       toolProfile: toolProfile,
+      turnToolRegistry: turnToolRegistry,
       runtime: runtime,
       callbacks: callbacks
     )
@@ -767,6 +791,7 @@ extension ChatTurnCoordinator {
       isActive: self.isActive,
       interactionMode: callbacks.session().interactionMode,
       toolPromptMode: promptMode,
+      turnToolRegistry: turnToolRegistry,
       stableInstructions: stableInstructions,
       turnID: turnID,
       toolLoopIteration: turn.toolCallBatchCount
@@ -790,6 +815,7 @@ extension ChatTurnCoordinator {
       callbacks: callbacks,
       isActive: self.isActive,
       finishTurn: self.finishTurn,
+      turnToolRegistry: turnToolRegistry,
       stableInstructions: stableInstructions,
       lastNativeToolCalls: generationResult.nativeToolCalls
     )
@@ -854,6 +880,7 @@ extension ChatTurnCoordinator {
 
   private func stableInstructions(
     toolProfile: ToolExecutionProfile,
+    turnToolRegistry: ToolRegistry,
     runtime: ChatTurnRuntimeContext,
     callbacks: ChatTurnCallbacks
   ) -> String {
@@ -861,7 +888,21 @@ extension ChatTurnCoordinator {
       session: callbacks.session(),
       selectedModel: runtime.selectedModel,
       toolLoopCoordinator: runtime.toolLoopCoordinator,
-      toolPromptMode: executionCoordinator.toolPromptMode(for: toolProfile)
+      toolPromptMode: executionCoordinator.toolPromptMode(for: toolProfile),
+      turnToolRegistry: turnToolRegistry
     )
+  }
+
+  private func frozenToolRegistry(
+    for turnID: ChatTurn.ID,
+    toolProfile: ToolExecutionProfile,
+    runtime: ChatTurnRuntimeContext
+  ) -> ToolRegistry {
+    if let registry = turnToolRegistries[turnID] {
+      return registry
+    }
+    let registry = runtime.toolLoopCoordinator.toolRegistry(for: toolProfile)
+    turnToolRegistries[turnID] = registry
+    return registry
   }
 }

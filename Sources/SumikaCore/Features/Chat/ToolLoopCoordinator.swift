@@ -31,6 +31,7 @@ public struct ToolLoopRequest: Sendable {
   public let toolLoopIteration: Int?
   public let toolCallingPolicy: ToolCallingPolicy
   public let nativeToolCalls: [ChatRuntimeToolCall]
+  public let toolRegistry: ToolRegistry?
 
   public init(
     workspace: Workspace,
@@ -44,7 +45,8 @@ public struct ToolLoopRequest: Sendable {
     followUpPromptMode: ToolPromptMode = .afterToolResultCanContinue,
     toolLoopIteration: Int? = nil,
     toolCallingPolicy: ToolCallingPolicy = .nativeMLX,
-    nativeToolCalls: [ChatRuntimeToolCall] = []
+    nativeToolCalls: [ChatRuntimeToolCall] = [],
+    toolRegistry: ToolRegistry? = nil
   ) {
     self.workspace = workspace
     self.sessionID = sessionID
@@ -58,6 +60,7 @@ public struct ToolLoopRequest: Sendable {
     self.toolLoopIteration = toolLoopIteration
     self.toolCallingPolicy = toolCallingPolicy
     self.nativeToolCalls = nativeToolCalls
+    self.toolRegistry = toolRegistry
   }
 }
 
@@ -94,8 +97,11 @@ public struct ToolLoopCoordinator: Sendable {
 
   public func run(_ request: ToolLoopRequest) async throws -> ChatWorkflowStep? {
     try Task.checkCancellation()
-    guard let toolOrchestrator = toolOrchestrator(for: request.toolProfile),
-      !toolOrchestrator.toolRegistry.tools.isEmpty
+    guard let toolOrchestrator = toolOrchestrator(for: request.toolProfile) else {
+      return nil
+    }
+    let toolRegistry = request.toolRegistry ?? toolOrchestrator.toolRegistry
+    guard !toolRegistry.tools.isEmpty
     else {
       return nil
     }
@@ -108,7 +114,7 @@ public struct ToolLoopCoordinator: Sendable {
         ToolLoopNativeToolParser.parse(
           request.nativeToolCalls,
           policy: request.toolCallingPolicy,
-          registry: toolOrchestrator.toolRegistry,
+          registry: toolRegistry,
           workspaceID: request.workspace.id,
           sessionID: request.sessionID,
           reservedIDs: Set(
@@ -133,7 +139,8 @@ public struct ToolLoopCoordinator: Sendable {
     case .toolCalls(let outputs):
       return await executeToolCalls(
         outputs,
-        request: request
+        request: request,
+        registry: toolRegistry
       )
     }
   }
@@ -171,7 +178,8 @@ public struct ToolLoopCoordinator: Sendable {
 
   private func executeToolCalls(
     _ outputs: [ToolCallParseOutput],
-    request: ToolLoopRequest
+    request: ToolLoopRequest,
+    registry: ToolRegistry
   ) async -> ChatWorkflowStep {
     guard !outputs.isEmpty else {
       return ChatWorkflowStep(events: [], continuation: .none)
@@ -180,7 +188,7 @@ public struct ToolLoopCoordinator: Sendable {
     if let invalidReason = invalidBatchReason(
       outputs,
       request: request,
-      registry: toolOrchestrator(for: request.toolProfile)?.toolRegistry
+      registry: registry
     ) {
       return await invalidBatchStep(
         outputs,
@@ -204,7 +212,7 @@ public struct ToolLoopCoordinator: Sendable {
       let record: ToolCallRecord
       if let duplicateRecord = duplicateToolCallRecord(
         for: output,
-        registry: toolOrchestrator.toolRegistry,
+        registry: registry,
         workspace: request.workspace,
         items: seenItems
       ) {

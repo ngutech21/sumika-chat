@@ -6,7 +6,8 @@ struct AppSettingsView: View {
   let settingsState: SettingsFeatureState
   let onUpdateAppBehaviorSettings: (AppBehaviorSettings) -> Void
   var onUpdateMCPServers: ([MCPServerConfig]) -> Void = { _ in }
-  var onReconnectMCPServer: (UUID) -> Void = { _ in }
+  var canTestMCPServers = false
+  var onTestMCPServer: (UUID) -> Void = { _ in }
   @State private var selectedTab = SettingsTab.general
 
   var body: some View {
@@ -35,7 +36,8 @@ struct AppSettingsView: View {
           MCPServersSettingsView(
             settingsState: settingsState,
             onUpdateServers: onUpdateMCPServers,
-            onReconnectServer: onReconnectMCPServer
+            canTestServers: canTestMCPServers,
+            onTestServer: onTestMCPServer
           )
         }
       }
@@ -52,6 +54,29 @@ struct AppSettingsView: View {
       },
       message: {
         Text(settingsState.errorMessage ?? "")
+      }
+    )
+    .alert(
+      "MCP Server Test",
+      isPresented: mcpServerTestFeedbackPresentedBinding,
+      actions: {
+        Button("OK") {
+          settingsState.mcpServerTestFeedback = nil
+        }
+      },
+      message: {
+        Text(settingsState.mcpServerTestFeedback?.message ?? "")
+      }
+    )
+  }
+
+  private var mcpServerTestFeedbackPresentedBinding: Binding<Bool> {
+    Binding(
+      get: { settingsState.mcpServerTestFeedback != nil },
+      set: { isPresented in
+        if !isPresented {
+          settingsState.mcpServerTestFeedback = nil
+        }
       }
     )
   }

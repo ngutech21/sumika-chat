@@ -37,18 +37,18 @@ extension MCPClientError {
     switch self {
     case .notConnected, .serverExited:
       return true
-    case .timedOut, .protocolError, .serverError:
+    case .staleConnection, .timedOut, .protocolError, .serverError:
       return false
     }
   }
 }
 
-/// Owns the stdio connections to all configured MCP servers and projects
-/// their tools as dynamic executors for the agent registry.
+/// Owns the stdio connections selected by the active Agent session and
+/// projects their tools as dynamic executors for that session's registry.
 ///
-/// The manager never reconnects on its own: connections start when a
-/// configuration is applied (or a reconnect is requested) and a crashed
-/// server is marked failed once the dead connection is observed.
+/// Loading configuration alone never starts processes. The manager reconciles
+/// explicit session/workspace scope and never reconnects a crashed server on
+/// its own.
 public actor MCPClientManager: MCPToolCalling {
   private struct ActiveServer {
     var config: MCPServerConfig
@@ -57,15 +57,27 @@ public actor MCPClientManager: MCPToolCalling {
     var connection: MCPServerConnection?
     var tools: [MCPRemoteTool]
     var state: MCPServerStatus.State
+    var isDesired: Bool
   }
 
-  private let makeConnection: @Sendable (MCPServerConfig) -> MCPServerConnection
+  private struct ActiveScope: Equatable {
+    var sessionID: ChatSession.ID
+    var workspaceRootURL: URL
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+      lhs.sessionID == rhs.sessionID && lhs.workspaceRootURL == rhs.workspaceRootURL
+    }
+  }
+
+  private let makeConnection: @Sendable (MCPServerConfig, URL) -> MCPServerConnection
   private var servers: [UUID: ActiveServer] = [:]
   private var serverOrder: [UUID] = []
+  private var activeScope: ActiveScope?
+  private var selectedServerIDs: Set<UUID> = []
 
   public init(
-    makeConnection: @escaping @Sendable (MCPServerConfig) -> MCPServerConnection = {
-      MCPServerConnection(config: $0)
+    makeConnection: @escaping @Sendable (MCPServerConfig, URL) -> MCPServerConnection = {
+      MCPServerConnection(config: $0, workspaceRootURL: $1)
     }
   ) {
     self.makeConnection = makeConnection
@@ -73,18 +85,47 @@ public actor MCPClientManager: MCPToolCalling {
 
   // MARK: - Configuration lifecycle
 
-  /// Reconciles connections with the given configuration: removed, disabled,
-  /// or launch-relevantly changed servers shut down; enabled servers without
-  /// a live connection start.
+  /// Stores configuration without activating any server process.
   public func applyConfiguration(_ configs: [MCPServerConfig]) async {
+    await reconcile(
+      configs: configs,
+      activeSessionID: nil,
+      selectedServerIDs: [],
+      workspaceRootURL: nil
+    )
+  }
+
+  /// Reconciles configured servers with the one active Agent session.
+  public func reconcile(
+    configs: [MCPServerConfig],
+    activeSessionID: ChatSession.ID?,
+    selectedServerIDs: [UUID],
+    workspaceRootURL: URL?
+  ) async {
+    let nextScope: ActiveScope? =
+      if let activeSessionID, let workspaceRootURL {
+        ActiveScope(
+          sessionID: activeSessionID,
+          workspaceRootURL: workspaceRootURL.standardizedFileURL.resolvingSymlinksInPath()
+        )
+      } else {
+        nil
+      }
+    let scopeChanged = activeScope != nextScope
+    activeScope = nextScope
+    self.selectedServerIDs = Set(selectedServerIDs)
+
+    if scopeChanged {
+      for id in serverOrder {
+        await deactivate(serverID: id)
+      }
+    }
+
     let configsByID = Dictionary(uniqueKeysWithValues: configs.map { ($0.id, $0) })
 
     for (id, server) in servers {
       let replacement = configsByID[id]
-      let keepsConnection =
-        replacement.map { !Self.requiresRestart(from: server.config, to: $0) && $0.isEnabled }
-        ?? false
-      if !keepsConnection {
+      if replacement == nil {
         await server.connection?.shutdown()
         servers[id] = nil
       }
@@ -94,27 +135,42 @@ public actor MCPClientManager: MCPToolCalling {
     var usedSlugs = Set(servers.values.map(\.slug))
     for config in configs {
       if var existing = servers[config.id] {
+        let requiresRestart = Self.requiresRestart(from: existing.config, to: config)
         existing.config = config
         servers[config.id] = existing
-        continue
+        if requiresRestart {
+          await deactivate(serverID: config.id)
+        }
+      } else {
+        let slug = Self.uniqueSlug(for: config, used: &usedSlugs)
+        servers[config.id] = ActiveServer(
+          config: config,
+          slug: slug,
+          connectionToken: UUID(),
+          connection: nil,
+          tools: [],
+          state: .disconnected,
+          isDesired: false
+        )
       }
-      let slug = Self.uniqueSlug(for: config, used: &usedSlugs)
-      servers[config.id] = ActiveServer(
-        config: config,
-        slug: slug,
-        connectionToken: UUID(),
-        connection: nil,
-        tools: [],
-        state: config.isEnabled ? .connecting : .disconnected
-      )
-      if config.isEnabled {
+
+      let shouldConnect =
+        nextScope != nil
+        && config.isEnabled
+        && self.selectedServerIDs.contains(config.id)
+      if shouldConnect, servers[config.id]?.isDesired == false {
+        servers[config.id]?.isDesired = true
+        servers[config.id]?.connectionToken = UUID()
+        servers[config.id]?.state = .connecting
         await connect(serverID: config.id)
+      } else if !shouldConnect, servers[config.id]?.isDesired == true {
+        await deactivate(serverID: config.id)
       }
     }
   }
 
   public func reconnect(serverID: UUID) async {
-    guard let server = servers[serverID], server.config.isEnabled else {
+    guard let server = servers[serverID], server.config.isEnabled, server.isDesired else {
       return
     }
     await server.connection?.shutdown()
@@ -133,6 +189,26 @@ public actor MCPClientManager: MCPToolCalling {
       servers[id]?.connection = nil
       servers[id]?.tools = []
       servers[id]?.state = .disconnected
+      servers[id]?.isDesired = false
+      servers[id]?.connectionToken = UUID()
+    }
+    activeScope = nil
+    selectedServerIDs = []
+  }
+
+  /// Starts an isolated connection for Settings, lists tools, then always stops it.
+  public func testConnection(
+    config: MCPServerConfig,
+    workspaceRootURL: URL
+  ) async throws -> Int {
+    let connection = makeConnection(config, workspaceRootURL)
+    do {
+      let tools = try await connection.start()
+      await connection.shutdown()
+      return tools.count
+    } catch {
+      await connection.shutdown()
+      throw error
     }
   }
 
@@ -162,6 +238,7 @@ public actor MCPClientManager: MCPToolCalling {
         AnyToolExecutor(
           dynamic: MCPToolExecutor(
             serverID: id,
+            connectionToken: server.connectionToken,
             serverName: server.config.name,
             serverSlug: server.slug,
             remoteTool: tool,
@@ -173,14 +250,22 @@ public actor MCPClientManager: MCPToolCalling {
     }
   }
 
+  func connectionToken(for serverID: UUID) -> UUID? {
+    servers[serverID]?.connectionToken
+  }
+
   // MARK: - MCPToolCalling
 
   public func callTool(
     serverID: UUID,
+    connectionToken: UUID,
     name: String,
     arguments: ToolCallArguments
   ) async throws -> MCPToolResult {
-    guard let connection = servers[serverID]?.connection else {
+    guard let current = servers[serverID], current.connectionToken == connectionToken else {
+      throw MCPClientError.staleConnection
+    }
+    guard let connection = current.connection else {
       throw MCPClientError.notConnected
     }
     do {
@@ -203,17 +288,18 @@ public actor MCPClientManager: MCPToolCalling {
   // MARK: - Connection helpers
 
   private func connect(serverID: UUID) async {
-    guard let server = servers[serverID] else {
+    guard let server = servers[serverID], server.isDesired, let activeScope else {
       return
     }
     let connectionToken = server.connectionToken
     servers[serverID]?.state = .connecting
-    let connection = makeConnection(server.config)
+    let connection = makeConnection(server.config, activeScope.workspaceRootURL)
     do {
       let tools = try await connection.start()
       guard let current = servers[serverID],
         current.connectionToken == connectionToken,
-        current.config.isEnabled
+        current.config.isEnabled,
+        current.isDesired
       else {
         await connection.shutdown()
         return
@@ -250,6 +336,18 @@ public actor MCPClientManager: MCPToolCalling {
     servers[serverID]?.tools = []
     servers[serverID]?.state = .failed(message: error.localizedDescription)
     return true
+  }
+
+  private func deactivate(serverID: UUID) async {
+    guard let server = servers[serverID] else {
+      return
+    }
+    await server.connection?.shutdown()
+    servers[serverID]?.connection = nil
+    servers[serverID]?.tools = []
+    servers[serverID]?.state = .disconnected
+    servers[serverID]?.isDesired = false
+    servers[serverID]?.connectionToken = UUID()
   }
 
   private static func requiresRestart(
