@@ -19,24 +19,23 @@ struct MCPServerConfigTests {
   }
 
   @Test
-  func decodingAppliesDefaultsForOptionalFields() throws {
+  func formerFlatStdioSchemaIsNotDecoded() {
     let json = """
       {
         "id": "6F1B4E86-3A6C-4E5E-9C61-27FBA9D9A902",
         "name": "everything",
-        "command": "npx"
+        "command": "npx",
+        "isEnabled": true
       }
       """
 
-    let config = try JSONDecoder().decode(MCPServerConfig.self, from: Data(json.utf8))
-
-    #expect(config.arguments.isEmpty)
-    #expect(config.environment.isEmpty)
-    #expect(config.isEnabled)
+    #expect(throws: DecodingError.self) {
+      try JSONDecoder().decode(MCPServerConfig.self, from: Data(json.utf8))
+    }
   }
 
   @Test
-  func codableRoundTripPreservesAllFields() throws {
+  func stdioCodableRoundTripPreservesTaggedTransport() throws {
     let config = MCPServerConfig(
       name: "GitHub",
       command: "npx",
@@ -49,6 +48,86 @@ struct MCPServerConfigTests {
     let decoded = try JSONDecoder().decode(MCPServerConfig.self, from: data)
 
     #expect(decoded == config)
+
+    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let transport = try #require(object["transport"] as? [String: Any])
+    #expect(transport["type"] as? String == "stdio")
+    #expect(transport["command"] as? String == "npx")
+    #expect(transport["arguments"] as? [String] == ["-y", "@modelcontextprotocol/server-github"])
+    #expect(transport["environment"] as? [String: String] == ["GITHUB_TOKEN": "token-value"])
+    #expect(transport["endpoint"] == nil)
+  }
+
+  @Test
+  func streamableHTTPCodableRoundTripPreservesTaggedTransport() throws {
+    let endpoint = try #require(URL(string: "https://mcp.example.com/service"))
+    let config = MCPServerConfig(
+      name: "Remote",
+      transport: .streamableHTTP(endpoint: endpoint)
+    )
+
+    let data = try JSONEncoder().encode(config)
+    let decoded = try JSONDecoder().decode(MCPServerConfig.self, from: data)
+
+    #expect(decoded == config)
+    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let transport = try #require(object["transport"] as? [String: Any])
+    #expect(transport["type"] as? String == "streamableHTTP")
+    #expect(transport["endpoint"] as? String == endpoint.absoluteString)
+    #expect(transport["command"] == nil)
+  }
+
+  @Test
+  func endpointPolicyAcceptsHTTPSAndLoopbackHTTP() throws {
+    let endpoints = [
+      "https://mcp.example.com/mcp",
+      "http://localhost:8080/mcp",
+      "http://127.0.0.1:8080/mcp",
+      "http://127.42.3.9/mcp",
+      "http://[::1]:8080/mcp",
+    ]
+
+    for value in endpoints {
+      let endpoint = try #require(URL(string: value))
+      try MCPServerTransportConfiguration.validateStreamableHTTPEndpoint(endpoint)
+    }
+  }
+
+  @Test
+  func endpointPolicyRejectsUnsafeURLs() throws {
+    let cases: [(String, MCPServerEndpointError)] = [
+      ("http://mcp.example.com/mcp", .insecureRemoteHTTP),
+      ("ftp://localhost/mcp", .unsupportedScheme),
+      ("https://user:pass@mcp.example.com/mcp", .embeddedCredentials),
+      ("https://mcp.example.com/mcp#fragment", .fragmentNotAllowed),
+      ("/relative/mcp", .invalidURL),
+    ]
+
+    for (value, expectedError) in cases {
+      let endpoint = try #require(URL(string: value))
+      #expect(throws: expectedError) {
+        try MCPServerTransportConfiguration.validateStreamableHTTPEndpoint(endpoint)
+      }
+    }
+  }
+
+  @Test
+  func onlyHTTPLoopbackEndpointsExposeRoots() throws {
+    #expect(
+      MCPServerTransportConfiguration.isLoopbackEndpoint(
+        try #require(URL(string: "http://localhost:8080/mcp"))
+      )
+    )
+    #expect(
+      !MCPServerTransportConfiguration.isLoopbackEndpoint(
+        try #require(URL(string: "https://localhost:8443/mcp"))
+      )
+    )
+    #expect(
+      !MCPServerTransportConfiguration.isLoopbackEndpoint(
+        try #require(URL(string: "https://mcp.example.com/mcp"))
+      )
+    )
   }
 }
 
@@ -93,7 +172,17 @@ struct MCPServersStoreTests {
     let json = """
       {
         "servers": [
-          {"id": "6F1B4E86-3A6C-4E5E-9C61-27FBA9D9A902", "name": "ok", "command": "npx"},
+          {
+            "id": "6F1B4E86-3A6C-4E5E-9C61-27FBA9D9A902",
+            "name": "ok",
+            "transport": {
+              "type": "stdio",
+              "command": "npx",
+              "arguments": [],
+              "environment": {}
+            },
+            "isEnabled": true
+          },
           {"name": "missing id and command"}
         ]
       }

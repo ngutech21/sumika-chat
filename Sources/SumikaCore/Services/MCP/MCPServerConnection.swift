@@ -34,12 +34,13 @@ public enum MCPClientError: LocalizedError, Equatable {
   }
 }
 
-/// One SDK-backed stdio connection to a configured MCP server.
+/// One SDK-backed stdio or Streamable HTTP connection to a configured MCP server.
 ///
-/// Sumika owns the child process and its workspace-scoped environment. The MCP
-/// SDK owns stdio framing, JSON-RPC, lifecycle negotiation, roots dispatch, and
-/// typed tool requests once the process pipes have been created.
+/// Sumika owns stdio child processes and transport selection. The MCP SDK owns
+/// framing, JSON-RPC, lifecycle negotiation, roots dispatch, and typed requests.
 public actor MCPServerConnection {
+  typealias HTTPTransportFactory = @Sendable (URL) -> any Transport
+
   private enum Timeouts {
     // npx/uvx may download packages on first launch.
     static let initializeSeconds = 30
@@ -55,6 +56,7 @@ public actor MCPServerConnection {
   private let workspaceRootURL: URL
   private let baseEnvironment: [String: String]
   private let pathPrefixDirectories: [URL]
+  private let makeHTTPTransport: HTTPTransportFactory
 
   private var process: Process?
   private var client: Client?
@@ -80,25 +82,65 @@ public actor MCPServerConnection {
     self.workspaceRootURL = workspaceRootURL.standardizedFileURL.resolvingSymlinksInPath()
     self.baseEnvironment = baseEnvironment
     self.pathPrefixDirectories = pathPrefixDirectories
+    self.makeHTTPTransport = { endpoint in
+      HTTPClientTransport(endpoint: endpoint, streaming: true)
+    }
+  }
+
+  init(
+    config: MCPServerConfig,
+    workspaceRootURL: URL,
+    baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+    pathPrefixDirectories: [URL] = [
+      URL(filePath: "/opt/homebrew/bin"),
+      URL(filePath: "/usr/local/bin"),
+      URL(filePath: "/opt/local/bin"),
+    ],
+    makeHTTPTransport: @escaping HTTPTransportFactory
+  ) {
+    self.config = config
+    self.workspaceRootURL = workspaceRootURL.standardizedFileURL.resolvingSymlinksInPath()
+    self.baseEnvironment = baseEnvironment
+    self.pathPrefixDirectories = pathPrefixDirectories
+    self.makeHTTPTransport = makeHTTPTransport
   }
 
   // MARK: - Lifecycle
 
-  /// Spawns the server process, performs the SDK-managed initialization, and
-  /// returns the server's tools.
+  /// Creates the configured transport, performs SDK-managed initialization,
+  /// and returns the server's tools.
   public func start() async throws -> [MCPRemoteTool] {
     guard process == nil, client == nil else {
       throw MCPClientError.protocolError("Connection was already started.")
     }
 
-    let transport = try launchProcess()
+    let transport: any Transport
+    let exposesWorkspaceRoots: Bool
+    switch config.transport {
+    case .stdio(let command, let arguments, let environment):
+      transport = try launchProcess(
+        command: command,
+        arguments: arguments,
+        environment: environment
+      )
+      exposesWorkspaceRoots = true
+    case .streamableHTTP(let endpoint):
+      try MCPServerTransportConfiguration.validateStreamableHTTPEndpoint(endpoint)
+      transport = makeHTTPTransport(endpoint)
+      exposesWorkspaceRoots = MCPServerTransportConfiguration.isLoopbackEndpoint(endpoint)
+    }
+
     let client = Client(
       name: "Sumika",
       version: "1.0",
-      capabilities: .init(roots: .init(listChanged: false))
+      capabilities: .init(
+        roots: exposesWorkspaceRoots ? .init(listChanged: false) : nil
+      )
     )
-    await client.withRootsHandler { [workspaceRootURL] in
-      [Root(uri: workspaceRootURL.absoluteString)]
+    if exposesWorkspaceRoots {
+      await client.withRootsHandler { [workspaceRootURL] in
+        [Root(uri: workspaceRootURL.absoluteString)]
+      }
     }
     self.client = client
 
@@ -180,7 +222,7 @@ public actor MCPServerConnection {
     return tools
   }
 
-  private func connect(client: Client, transport: StdioTransport) async throws {
+  private func connect(client: Client, transport: any Transport) async throws {
     try await withThrowingTaskGroup(of: Void.self) { group in
       group.addTask {
         _ = try await client.connect(transport: transport)
@@ -237,7 +279,11 @@ public actor MCPServerConnection {
 
   // MARK: - Process
 
-  private func launchProcess() throws -> StdioTransport {
+  private func launchProcess(
+    command: String,
+    arguments: [String],
+    environment: [String: String]
+  ) throws -> StdioTransport {
     let process = Process()
     let stdinPipe = Pipe()
     let stdoutPipe = Pipe()
@@ -251,8 +297,8 @@ public actor MCPServerConnection {
     try disableSIGPIPE(on: stdinHandle)
 
     process.executableURL = URL(filePath: "/usr/bin/env")
-    process.arguments = [config.command] + config.arguments
-    process.environment = resolvedEnvironment()
+    process.arguments = [command] + arguments
+    process.environment = resolvedEnvironment(overrides: environment)
     process.currentDirectoryURL = workspaceRootURL
     process.standardInput = stdinPipe
     process.standardOutput = stdoutPipe
@@ -293,7 +339,7 @@ public actor MCPServerConnection {
     #endif
   }
 
-  private func resolvedEnvironment() -> [String: String] {
+  private func resolvedEnvironment(overrides: [String: String]) -> [String: String] {
     var resolved = baseEnvironment
     let existingPath = resolved["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     let prefix =
@@ -301,7 +347,7 @@ public actor MCPServerConnection {
       .map { $0.path(percentEncoded: false) }
       .joined(separator: ":")
     resolved["PATH"] = prefix.isEmpty ? existingPath : prefix + ":" + existingPath
-    for (key, value) in config.environment {
+    for (key, value) in overrides {
       resolved[key] = value
     }
     return resolved

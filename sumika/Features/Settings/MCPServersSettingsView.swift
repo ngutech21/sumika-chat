@@ -1,7 +1,7 @@
 import SumikaCore
 import SwiftUI
 
-/// Settings tab for stdio MCP servers: a user-editable list of server
+/// Settings tab for external MCP servers: a user-editable list of server
 /// configurations plus the live connection state per server. Every mutation
 /// flows through `onUpdateServers`, which persists the list and reconciles
 /// the running connections.
@@ -41,7 +41,7 @@ struct MCPServersSettingsView: View {
         Text("MCP Servers")
       } footer: {
         Text(
-          "Servers are launched as local stdio processes and their tools become available in Agent mode. Every tool call asks for approval. Environment values are stored as plain text."
+          "Servers use a local stdio process or Streamable HTTP. Remote endpoints require HTTPS; loopback endpoints may use HTTP. Every MCP tool call asks for approval."
         )
       }
     }
@@ -109,7 +109,7 @@ private struct MCPServerRow: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        Text(commandLine)
+        Text(server.connectionDescription)
           .font(.caption)
           .foregroundStyle(.secondary)
           .lineLimit(1)
@@ -136,10 +136,6 @@ private struct MCPServerRow: View {
         .buttonStyle(.borderless)
         .help("Delete")
     }
-  }
-
-  private var commandLine: String {
-    ([server.command] + server.arguments).joined(separator: " ")
   }
 
   private var statusText: String {
@@ -194,41 +190,26 @@ private struct MCPServerEditorSheet: View {
   let onSave: (MCPServerConfig) -> Void
 
   @Environment(\.dismiss) private var dismiss
-  @State private var name = ""
-  @State private var command = ""
-  @State private var argumentsText = ""
-  @State private var environmentText = ""
+  @State private var draft = MCPServerEditorDraft()
 
   var body: some View {
     VStack(spacing: 0) {
       Form {
         Section {
-          TextField("Name", text: $name, prompt: Text("GitHub"))
-          TextField("Command", text: $command, prompt: Text("npx"))
-        } footer: {
-          Text("The command is resolved through PATH, including Homebrew locations.")
+          TextField("Name", text: $draft.name, prompt: Text("GitHub"))
+          Picker("Transport", selection: $draft.transport) {
+            ForEach(MCPServerEditorTransport.allCases) { transport in
+              Text(transport.label).tag(transport)
+            }
+          }
+          .pickerStyle(.segmented)
         }
 
-        Section {
-          TextEditor(text: $argumentsText)
-            .font(.body.monospaced())
-            .frame(height: 64)
-        } header: {
-          Text("Arguments (one per line)")
-        } footer: {
-          Text(
-            "Each line is passed to the process exactly as written — no shell, so no quotes or escaping. Put a flag and its value on separate lines."
-          )
-        }
-
-        Section {
-          TextEditor(text: $environmentText)
-            .font(.body.monospaced())
-            .frame(height: 64)
-        } header: {
-          Text("Environment (KEY=value, one per line)")
-        } footer: {
-          Text("Values are stored as plain text in mcp-servers.json.")
+        switch draft.transport {
+        case .stdio:
+          stdioFields
+        case .streamableHTTP:
+          httpFields
         }
       }
       .formStyle(.grouped)
@@ -241,16 +222,71 @@ private struct MCPServerEditorSheet: View {
         }
         .keyboardShortcut(.cancelAction)
         Button(isEditing ? "Save" : "Add") {
-          onSave(editedServer())
-          dismiss()
+          if let server = draft.server(replacing: existingServer) {
+            onSave(server)
+            dismiss()
+          }
         }
         .keyboardShortcut(.defaultAction)
-        .disabled(!isValid)
+        .disabled(!draft.isValid)
       }
       .padding(12)
     }
-    .frame(width: 460, height: 420)
+    .frame(width: 500, height: 460)
     .onAppear(perform: populateFromTarget)
+  }
+
+  @ViewBuilder
+  private var stdioFields: some View {
+    Section {
+      TextField("Command", text: $draft.command, prompt: Text("npx"))
+    } footer: {
+      Text("The command is resolved through PATH, including Homebrew locations.")
+    }
+
+    Section {
+      TextEditor(text: $draft.argumentsText)
+        .font(.body.monospaced())
+        .frame(height: 64)
+    } header: {
+      Text("Arguments (one per line)")
+    } footer: {
+      Text(
+        "Each line is passed to the process exactly as written — no shell, so no quotes or escaping. Put a flag and its value on separate lines."
+      )
+    }
+
+    Section {
+      TextEditor(text: $draft.environmentText)
+        .font(.body.monospaced())
+        .frame(height: 64)
+    } header: {
+      Text("Environment (KEY=value, one per line)")
+    } footer: {
+      Text("Values are stored as plain text in mcp-servers.json.")
+    }
+  }
+
+  @ViewBuilder
+  private var httpFields: some View {
+    Section {
+      TextField(
+        "Endpoint",
+        text: $draft.endpoint,
+        prompt: Text("https://example.com/mcp")
+      )
+      .textContentType(.URL)
+
+      if let endpointError = draft.endpointError, !draft.endpoint.isEmpty {
+        Text(endpointError.localizedDescription)
+          .font(.caption)
+          .foregroundStyle(.red)
+      }
+    } footer: {
+      Text(
+        "Remote servers require HTTPS. HTTP is allowed only for localhost and loopback addresses. Authentication and legacy HTTP+SSE are not supported. Loopback servers may receive the active workspace root; remote servers do not."
+      )
+    }
   }
 
   private var isEditing: Bool {
@@ -260,39 +296,111 @@ private struct MCPServerEditorSheet: View {
     return false
   }
 
-  private var isValid: Bool {
-    !name.trimmingCharacters(in: .whitespaces).isEmpty
-      && !command.trimmingCharacters(in: .whitespaces).isEmpty
+  private var existingServer: MCPServerConfig? {
+    if case .edit(let server) = target {
+      return server
+    }
+    return nil
   }
 
   private func populateFromTarget() {
-    guard case .edit(let server) = target else {
-      return
+    if let existingServer {
+      draft = MCPServerEditorDraft(server: existingServer)
     }
+  }
+}
+
+enum MCPServerEditorTransport: String, CaseIterable, Identifiable {
+  case stdio
+  case streamableHTTP
+
+  var id: Self { self }
+
+  var label: String {
+    switch self {
+    case .stdio:
+      "Local process"
+    case .streamableHTTP:
+      "Streamable HTTP"
+    }
+  }
+}
+
+struct MCPServerEditorDraft {
+  var name = ""
+  var transport = MCPServerEditorTransport.stdio
+  var command = ""
+  var argumentsText = ""
+  var environmentText = ""
+  var endpoint = ""
+
+  init() {}
+
+  init(server: MCPServerConfig) {
     name = server.name
-    command = server.command
-    argumentsText = server.arguments.joined(separator: "\n")
-    environmentText = server.environment
-      .sorted { $0.key < $1.key }
-      .map { "\($0.key)=\($0.value)" }
-      .joined(separator: "\n")
+    switch server.transport {
+    case .stdio(let command, let arguments, let environment):
+      transport = .stdio
+      self.command = command
+      argumentsText = arguments.joined(separator: "\n")
+      environmentText =
+        environment
+        .sorted { $0.key < $1.key }
+        .map { "\($0.key)=\($0.value)" }
+        .joined(separator: "\n")
+    case .streamableHTTP(let endpoint):
+      transport = .streamableHTTP
+      self.endpoint = endpoint.absoluteString
+    }
   }
 
-  private func editedServer() -> MCPServerConfig {
-    let existing: MCPServerConfig? =
-      if case .edit(let server) = target {
-        server
-      } else {
-        nil
-      }
+  var endpointError: (any LocalizedError)? {
+    guard transport == .streamableHTTP else { return nil }
+    guard let url = parsedEndpoint else { return MCPServerEndpointError.invalidURL }
+    do {
+      try MCPServerTransportConfiguration.validateStreamableHTTPEndpoint(url)
+      return nil
+    } catch let error as MCPServerEndpointError {
+      return error
+    } catch {
+      return MCPServerEndpointError.invalidURL
+    }
+  }
+
+  var isValid: Bool {
+    guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+    switch transport {
+    case .stdio:
+      return !command.trimmingCharacters(in: .whitespaces).isEmpty
+    case .streamableHTTP:
+      return endpointError == nil
+    }
+  }
+
+  func server(replacing existing: MCPServerConfig? = nil) -> MCPServerConfig? {
+    guard isValid else { return nil }
+    let configuration: MCPServerTransportConfiguration
+    switch transport {
+    case .stdio:
+      configuration = .stdio(
+        command: command.trimmingCharacters(in: .whitespaces),
+        arguments: Self.parsedArguments(argumentsText),
+        environment: Self.parsedEnvironment(environmentText)
+      )
+    case .streamableHTTP:
+      guard let endpoint = parsedEndpoint else { return nil }
+      configuration = .streamableHTTP(endpoint: endpoint)
+    }
     return MCPServerConfig(
       id: existing?.id ?? UUID(),
       name: name.trimmingCharacters(in: .whitespaces),
-      command: command.trimmingCharacters(in: .whitespaces),
-      arguments: Self.parsedArguments(argumentsText),
-      environment: Self.parsedEnvironment(environmentText),
+      transport: configuration,
       isEnabled: existing?.isEnabled ?? true
     )
+  }
+
+  private var parsedEndpoint: URL? {
+    URL(string: endpoint.trimmingCharacters(in: .whitespaces))
   }
 
   static func parsedArguments(_ text: String) -> [String] {
@@ -318,5 +426,16 @@ private struct MCPServerEditorSheet: View {
       environment[key] = value
     }
     return environment
+  }
+}
+
+extension MCPServerConfig {
+  var connectionDescription: String {
+    switch transport {
+    case .stdio(let command, let arguments, _):
+      return ([command] + arguments).joined(separator: " ")
+    case .streamableHTTP(let endpoint):
+      return endpoint.absoluteString
+    }
   }
 }

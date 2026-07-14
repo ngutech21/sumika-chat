@@ -173,6 +173,67 @@ struct SettingsFeatureStateTests {
     #expect(state.mcpServers == [replacement])
     #expect(state.errorMessage == nil)
   }
+
+  @Test
+  func mcpServerEditorDraftBuildsStdioConfiguration() throws {
+    let existing = MCPServerConfig(
+      name: "Existing",
+      command: "npx",
+      isEnabled: false
+    )
+    var draft = MCPServerEditorDraft(server: existing)
+    draft.name = " Local "
+    draft.command = " uvx "
+    draft.argumentsText = "--flag\nvalue"
+    draft.environmentText = "TOKEN=secret\nEMPTY="
+
+    let server = try #require(draft.server(replacing: existing))
+
+    #expect(server.id == existing.id)
+    #expect(server.name == "Local")
+    #expect(!server.isEnabled)
+    #expect(
+      server.transport
+        == .stdio(
+          command: "uvx",
+          arguments: ["--flag", "value"],
+          environment: ["TOKEN": "secret", "EMPTY": ""]
+        )
+    )
+    #expect(server.connectionDescription == "uvx --flag value")
+  }
+
+  @Test
+  func mcpServerEditorDraftBuildsStreamableHTTPConfiguration() throws {
+    var draft = MCPServerEditorDraft()
+    draft.name = "Remote"
+    draft.transport = .streamableHTTP
+    draft.endpoint = " https://mcp.example.com/mcp "
+
+    let server = try #require(draft.server())
+
+    #expect(draft.isValid)
+    #expect(draft.endpointError == nil)
+    #expect(
+      server.transport
+        == .streamableHTTP(
+          endpoint: try #require(URL(string: "https://mcp.example.com/mcp"))
+        )
+    )
+    #expect(server.connectionDescription == "https://mcp.example.com/mcp")
+  }
+
+  @Test
+  func mcpServerEditorDraftRejectsRemotePlainHTTP() {
+    var draft = MCPServerEditorDraft()
+    draft.name = "Unsafe"
+    draft.transport = .streamableHTTP
+    draft.endpoint = "http://mcp.example.com/mcp"
+
+    #expect(!draft.isValid)
+    #expect(draft.endpointError as? MCPServerEndpointError == .insecureRemoteHTTP)
+    #expect(draft.server() == nil)
+  }
 }
 
 private actor InMemorySettingsMCPServersStore: MCPServersStoring {

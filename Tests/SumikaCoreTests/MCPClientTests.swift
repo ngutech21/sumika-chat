@@ -78,6 +78,94 @@ struct MCPClientTests {
   }
 
   @Test
+  func streamableHTTPUsesInjectedTransportAndListsAndCallsTools() async throws {
+    let endpoint = try #require(URL(string: "http://127.0.0.1:8080/mcp"))
+
+    let roundTrip = try await injectedHTTPRoundTrip(endpoint: endpoint)
+
+    #expect(roundTrip.tools.map(\.name) == ["echo"])
+    #expect(roundTrip.result.content == [.text("echoed-http")])
+    #expect(roundTrip.advertisedRoots)
+  }
+
+  @Test
+  func remoteStreamableHTTPDoesNotAdvertiseWorkspaceRoots() async throws {
+    let endpoint = try #require(URL(string: "https://mcp.example.com/mcp"))
+
+    let roundTrip = try await injectedHTTPRoundTrip(endpoint: endpoint)
+
+    #expect(roundTrip.tools.map(\.name) == ["echo"])
+    #expect(!roundTrip.advertisedRoots)
+  }
+
+  private func injectedHTTPRoundTrip(
+    endpoint: URL
+  ) async throws -> (tools: [MCPRemoteTool], result: MCPToolResult, advertisedRoots: Bool) {
+    let transports = await InMemoryTransport.createConnectedPair()
+    let capabilityRecorder = MCPRootsCapabilityRecorder()
+    let server = try await startInMemoryServer(
+      transport: transports.server,
+      capabilityRecorder: capabilityRecorder
+    )
+
+    let connection = MCPServerConnection(
+      config: MCPServerConfig(
+        name: "HTTP test",
+        transport: .streamableHTTP(endpoint: endpoint)
+      ),
+      workspaceRootURL: FileManager.default.temporaryDirectory,
+      makeHTTPTransport: { _ in transports.client }
+    )
+    let tools = try await connection.start()
+    let result = try await connection.callTool(name: "echo", arguments: ["text": .string("hi")])
+    let advertisedRoots = await capabilityRecorder.advertisedRoots
+    await connection.shutdown()
+    await server.stop()
+    return (tools, result, advertisedRoots)
+  }
+
+  private func startInMemoryServer(
+    transport: InMemoryTransport,
+    toolName: String = "echo",
+    capabilityRecorder: MCPRootsCapabilityRecorder? = nil
+  ) async throws -> Server {
+    let server = Server(
+      name: "HTTP test server",
+      version: "1.0",
+      capabilities: .init(tools: .init())
+    )
+    await server.withMethodHandler(ListTools.self) { _ in
+      ListTools.Result(tools: [
+        Tool(
+          name: toolName,
+          description: "Echo text back.",
+          inputSchema: [
+            "type": "object",
+            "properties": ["text": ["type": "string"]],
+            "required": ["text"],
+          ]
+        )
+      ])
+    }
+    await server.withMethodHandler(CallTool.self) { request in
+      CallTool.Result(
+        content: [
+          .text(
+            text: request.name == toolName ? "echoed-http" : "unexpected",
+            annotations: nil,
+            _meta: nil
+          )
+        ],
+        isError: request.name == toolName ? false : true
+      )
+    }
+    try await server.start(transport: transport) { _, capabilities in
+      await capabilityRecorder?.record(advertisedRoots: capabilities.roots != nil)
+    }
+    return server
+  }
+
+  @Test
   func connectionUsesWorkspaceDirectoryAndAnswersRootsList() async throws {
     let workspaceRootURL = FileManager.default.temporaryDirectory.appending(
       path: "sumika-mcp-workspace-\(UUID().uuidString)",
@@ -314,6 +402,89 @@ struct MCPClientTests {
   }
 
   @Test
+  func managerRestartsAndRenamesToolsWhenServerNameChanges() async throws {
+    let script = try writeScript(Self.fakeServerScript)
+    defer { removeScript(script) }
+    let original = MCPServerConfig(name: "Original", command: script.path(percentEncoded: false))
+    let renamed = MCPServerConfig(
+      id: original.id,
+      name: "Renamed",
+      transport: original.transport
+    )
+    let sessionID = UUID()
+    let manager = MCPClientManager()
+
+    await activate(manager, configs: [original], sessionID: sessionID)
+    let originalToken = try #require(await manager.connectionToken(for: original.id))
+    await activate(manager, configs: [renamed], sessionID: sessionID)
+    let renamedToken = try #require(await manager.connectionToken(for: renamed.id))
+    let executors = await manager.agentToolExecutors()
+    await manager.shutdownAll()
+
+    #expect(originalToken != renamedToken)
+    #expect(executors.map(\.definition.name.rawValue) == ["mcp__renamed__echo"])
+  }
+
+  @Test
+  func managerRestartsWhenHTTPTransportEndpointChanges() async throws {
+    let firstEndpoint = try #require(URL(string: "http://127.0.0.1:8080/mcp"))
+    let secondEndpoint = try #require(URL(string: "http://127.0.0.1:8081/mcp"))
+    let firstTransports = await InMemoryTransport.createConnectedPair()
+    let secondTransports = await InMemoryTransport.createConnectedPair()
+    let firstServer = try await startInMemoryServer(
+      transport: firstTransports.server,
+      toolName: "first"
+    )
+    let secondServer = try await startInMemoryServer(
+      transport: secondTransports.server,
+      toolName: "second"
+    )
+    let clientTransports = [
+      firstEndpoint.absoluteString: firstTransports.client,
+      secondEndpoint.absoluteString: secondTransports.client,
+    ]
+    let manager = MCPClientManager { config, workspaceRootURL in
+      guard case .streamableHTTP(let endpoint) = config.transport,
+        let transport = clientTransports[endpoint.absoluteString]
+      else {
+        preconditionFailure("Unexpected MCP test configuration")
+      }
+      return MCPServerConnection(
+        config: config,
+        workspaceRootURL: workspaceRootURL,
+        makeHTTPTransport: { _ in transport }
+      )
+    }
+    let firstConfig = MCPServerConfig(
+      name: "Remote",
+      transport: .streamableHTTP(endpoint: firstEndpoint)
+    )
+    let secondConfig = MCPServerConfig(
+      id: firstConfig.id,
+      name: firstConfig.name,
+      transport: .streamableHTTP(endpoint: secondEndpoint)
+    )
+    let sessionID = UUID()
+
+    await activate(manager, configs: [firstConfig], sessionID: sessionID)
+    let firstToken = try #require(await manager.connectionToken(for: firstConfig.id))
+    #expect(
+      await manager.agentToolExecutors().map(\.definition.name.rawValue)
+        == ["mcp__remote__first"]
+    )
+
+    await activate(manager, configs: [secondConfig], sessionID: sessionID)
+    let secondToken = try #require(await manager.connectionToken(for: secondConfig.id))
+    let secondToolNames = await manager.agentToolExecutors().map(\.definition.name.rawValue)
+    await manager.shutdownAll()
+    await firstServer.stop()
+    await secondServer.stop()
+
+    #expect(firstToken != secondToken)
+    #expect(secondToolNames == ["mcp__remote__second"])
+  }
+
+  @Test
   func managerClearsAdvertisedToolsWhenConnectedServerExits() async throws {
     let script = try writeScript(
       """
@@ -405,9 +576,7 @@ struct MCPClientTests {
     let disabled = MCPServerConfig(
       id: config.id,
       name: config.name,
-      command: config.command,
-      arguments: config.arguments,
-      environment: config.environment,
+      transport: config.transport,
       isEnabled: false
     )
     let manager = MCPClientManager()
@@ -568,3 +737,11 @@ private func waitUntil(
 }
 
 private struct MCPClientTestWaitTimeoutError: Error {}
+
+private actor MCPRootsCapabilityRecorder {
+  private(set) var advertisedRoots = false
+
+  func record(advertisedRoots: Bool) {
+    self.advertisedRoots = advertisedRoots
+  }
+}

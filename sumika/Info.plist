@@ -28,6 +28,13 @@
 	<string>$(SUMIKA_RELEASE_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Sumika connects to MCP servers on your local network to make their tools available in Agent mode.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Sumika uses the microphone to transcribe your speech into chat messages on this Mac.</string>
 	<key>SumikaGitCommit</key>

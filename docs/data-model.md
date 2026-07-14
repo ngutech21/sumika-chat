@@ -14,6 +14,7 @@ flowchart TD
   InvalidToolInput --> InvalidToolCallReason
   InvalidToolInput --> ToolCallArguments
   InvalidToolResult --> InvalidToolCallReason
+  MCPServerConfig --> MCPServerTransportConfiguration
   ManagedModel --> ManagedModelStability
   ManagedModel --> ReasoningTraceFormat
   ManagedModel --> ToolCallingPolicy
@@ -269,16 +270,43 @@ Relations:
 - Kind: `struct`
 - Source: `Sources/SumikaCore/Models/MCPServerConfig.swift`
 - Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
-- Summary: User-configured external MCP server launched over stdio.  v1 scope: stdio transport only. The command is resolved through the same PATH conventions as `run_command`; environment values are stored as plain text next to the other JSON settings stores.
+- Summary: User-configured external MCP server using stdio or Streamable HTTP.
 
 Properties:
 
-- `arguments: [String]`
-- `command: String`
-- `environment: [String: String]`
 - `id: UUID`
 - `isEnabled: Bool`
 - `name: String`
+- `transport: MCPServerTransportConfiguration`
+
+Relations:
+
+- `MCPServerTransportConfiguration`
+
+### MCPServerEndpointError
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Models/MCPServerConfig.swift`
+- Conforms to: `Equatable`, `LocalizedError`, `Sendable`
+
+Cases:
+
+- `embeddedCredentials`
+- `fragmentNotAllowed`
+- `insecureRemoteHTTP`
+- `invalidURL`
+- `unsupportedScheme`
+
+### MCPServerTransportConfiguration
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Models/MCPServerConfig.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`
+
+Cases:
+
+- `stdio(command: String, arguments: [String], environment: [String: String])`
+- `streamableHTTP(endpoint: URL)`
 
 ### ManagedModel
 

@@ -393,35 +393,47 @@ the same validation, permission, approval, and projection pipeline as built-in
 tools; only their definitions and codecs are instance state instead of static
 declarations.
 
-- `MCPServerConfig` is the persisted server description (name, command,
-  arguments, environment, enabled flag), stored in `mcp-servers.json` through
-  `MCPServersStore`. Servers are configured globally in Settings; workspaces
-  and repositories cannot contribute server configurations.
-- `MCPServerConnection` owns one stdio server process. Sumika spawns
-  `/usr/bin/env <command> <args>` with the same PATH conventions as
-  `run_command` and the active workspace root as its current directory. It
-  hands the child stdout/stdin descriptors to the official MCP Swift SDK's
-  `StdioTransport`; SDK `Client` owns JSON-RPC framing, lifecycle negotiation,
-  request IDs, error decoding, typed `tools/list`/`tools/call`, notifications,
-  and `roots/list` dispatch. Sumika still owns process lifetime, stderr
-  diagnostics, request timeouts, the Darwin `F_SETNOSIGPIPE` guard, and whole
-  process-tree shutdown. `tools/list` pagination is bounded by Sumika, and
-  `roots/list` contains only the active workspace URI; workspace names are not
-  sent to servers. SDK values are mapped at the connection boundary into the
-  persisted Sumika tool models. Result text is capped and marked truncated;
-  non-text content blocks become explicit unsupported placeholders.
+- `MCPServerConfig` is the persisted server description (name, enabled flag,
+  and a tagged transport configuration), stored in `mcp-servers.json` through
+  `MCPServersStore`. A transport is either stdio with command, arguments, and
+  environment, or Streamable HTTP with one endpoint URL. Servers are configured
+  globally in Settings; workspaces and repositories cannot contribute server
+  configurations. The prototype does not decode the former flat stdio schema.
+- `MCPServerConnection` owns one stdio or Streamable HTTP connection. For stdio,
+  Sumika spawns `/usr/bin/env <command> <args>` with the same PATH conventions
+  as `run_command` and the active workspace root as its current directory, then
+  hands the child descriptors to the official MCP Swift SDK's `StdioTransport`.
+  For HTTP, Sumika creates the SDK's `HTTPClientTransport` with streaming
+  enabled; the SDK owns POST/SSE exchange, session IDs, protocol headers, and
+  stream resumption. Only current Streamable HTTP is supported, not legacy
+  HTTP+SSE, custom headers, bearer tokens, or OAuth. Remote endpoints must use
+  HTTPS. Plain HTTP is accepted only for `localhost`, IPv4 loopback, and `::1`;
+  endpoint URLs with credentials or fragments are rejected. The app declares
+  `NSAllowsLocalNetworking` without disabling App Transport Security globally.
+- The SDK `Client` owns JSON-RPC framing, lifecycle negotiation, request IDs,
+  error decoding, typed `tools/list`/`tools/call`, notifications, and optional
+  `roots/list` dispatch for both transports. stdio and loopback HTTP advertise
+  roots and return only the active workspace URI; remote HTTPS servers receive
+  neither the roots capability nor the local workspace path. Workspace names
+  are never sent. Sumika owns stdio process lifetime, stderr diagnostics,
+  request timeouts, the Darwin `F_SETNOSIGPIPE` guard, and whole process-tree
+  shutdown. `tools/list` pagination is bounded by Sumika. SDK values are mapped
+  at the connection boundary into the persisted Sumika tool models; result text
+  is capped and marked truncated, and non-text content blocks become explicit
+  unsupported placeholders.
 - `MCPClientManager` stores global configuration but starts regular connections
   only for enabled server IDs selected by the active Agent session. Its scope is
   the active session ID plus workspace root. Leaving Agent mode, changing
-  session/workspace, or deselecting a server shuts down connections no longer in
-  scope. The manager reports per-server statuses for Settings and projects every
+  session/workspace, changing transport settings, or deselecting a server shuts
+  down connections no longer in scope. The manager reports per-server statuses
+  for Settings and projects every
   connected tool as an `AnyToolExecutor(dynamic:)`, grouped by the stable
   `MCPServerConfig.id`. It never reconnects on its own; a crashed server remains
   failed until the user explicitly tests/reconnects it or its scope changes.
 - Settings `Test Connection` reconnects a server already active in the current
   Agent session. For any other enabled server it creates an isolated connection
   with the active workspace root, runs initialization and `tools/list`, reports
-  the tool count, and always shuts the process down. Probes do not change the
+  the tool count, and always shuts the connection down. Probes do not change the
   session selection, Agent registry, regular status, or connection token. The
   action is unavailable without an open workspace.
 - `DynamicToolExecutor` is the instance-codec sibling of `TypedToolExecutor`.

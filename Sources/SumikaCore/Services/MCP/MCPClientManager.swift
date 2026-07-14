@@ -43,10 +43,10 @@ extension MCPClientError {
   }
 }
 
-/// Owns the stdio connections selected by the active Agent session and
+/// Owns the MCP connections selected by the active Agent session and
 /// projects their tools as dynamic executors for that session's registry.
 ///
-/// Loading configuration alone never starts processes. The manager reconciles
+/// Loading configuration alone never starts connections. The manager reconciles
 /// explicit session/workspace scope and never reconnects a crashed server on
 /// its own.
 public actor MCPClientManager: MCPToolCalling {
@@ -132,17 +132,20 @@ public actor MCPClientManager: MCPToolCalling {
     }
 
     serverOrder = configs.map(\.id)
-    var usedSlugs = Set(servers.values.map(\.slug))
+    var usedSlugs: Set<String> = []
     for config in configs {
+      let slug = Self.uniqueSlug(for: config, used: &usedSlugs)
       if var existing = servers[config.id] {
-        let requiresRestart = Self.requiresRestart(from: existing.config, to: config)
+        let requiresRestart =
+          Self.requiresRestart(from: existing.config, to: config)
+          || existing.slug != slug
         existing.config = config
+        existing.slug = slug
         servers[config.id] = existing
         if requiresRestart {
           await deactivate(serverID: config.id)
         }
       } else {
-        let slug = Self.uniqueSlug(for: config, used: &usedSlugs)
         servers[config.id] = ActiveServer(
           config: config,
           slug: slug,
@@ -354,9 +357,7 @@ public actor MCPClientManager: MCPToolCalling {
     from old: MCPServerConfig,
     to new: MCPServerConfig
   ) -> Bool {
-    old.command != new.command
-      || old.arguments != new.arguments
-      || old.environment != new.environment
+    old.name != new.name || old.transport != new.transport
   }
 
   private static func uniqueSlug(
