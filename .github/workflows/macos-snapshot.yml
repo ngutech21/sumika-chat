@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint-build-test-analyze:
-    name: macOS App Lint, Build, Test, Analyze
+  build-snapshot:
+    name: macOS release a notarized snapshot
     runs-on: macos-26
     timeout-minutes: 90
 

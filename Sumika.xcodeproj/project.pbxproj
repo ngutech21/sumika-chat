@@ -20,6 +20,7 @@
 		F94000112FD4000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
 		F95000012FE0000000A270C /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F95000032FE0000000A270C /* SwiftTerm */; };
 		F96000012FF0000000A270C /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = F96000032FF0000000A270C /* Markdown */; };
+		F97000012FF1000000A270C /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F97000032FF1000000A270C /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -109,6 +110,7 @@
 				F93000012FD3000000A270C /* SumikaCore in Frameworks */,
 				F95000012FE0000000A270C /* SwiftTerm in Frameworks */,
 				F96000012FF0000000A270C /* Markdown in Frameworks */,
+				F97000012FF1000000A270C /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -216,6 +218,7 @@
 				F93000032FD3000000A270C /* SumikaCore */,
 				F95000032FE0000000A270C /* SwiftTerm */,
 				F96000032FF0000000A270C /* Markdown */,
+				F97000032FF1000000A270C /* Sparkle */,
 			);
 			productName = Sumika;
 			productReference = F9D7F5FB2FCC80CD00FECA78 /* Sumika.app */;
@@ -261,6 +264,7 @@
 				F91500022FD8000000A270C /* XCRemoteSwiftPackageReference "FluidAudio" */,
 				F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				F96000022FF0000000A270C /* XCRemoteSwiftPackageReference "swift-markdown" */,
+				F97000022FF1000000A270C /* XCRemoteSwiftPackageReference "Sparkle" */,
 				F93000022FD3000000A270C /* XCLocalSwiftPackageReference "." */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -797,6 +801,14 @@
 				minimumVersion = 0.8.0;
 			};
 		};
+		F97000022FF1000000A270C /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.4;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -859,6 +871,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F96000022FF0000000A270C /* XCRemoteSwiftPackageReference "swift-markdown" */;
 			productName = Markdown;
+		};
+		F97000032FF1000000A270C /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F97000022FF1000000A270C /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

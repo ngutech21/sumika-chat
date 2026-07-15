@@ -11,11 +11,17 @@ struct SumikaApp: App {
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible =
     false
   @NSApplicationDelegateAdaptor(SumikaAppDelegate.self) private var appDelegate
+  @StateObject private var appUpdater: AppUpdater
   @State private var appState: AppState
 
   @MainActor
   init() {
     NSWindow.allowsAutomaticWindowTabbing = false
+    _appUpdater = StateObject(
+      wrappedValue: AppUpdater(
+        startingUpdater: AppLaunchConfiguration.shouldStartUpdater()
+      )
+    )
     _appState = State(initialValue: AppLaunchConfiguration.makeAppState())
   }
 
@@ -33,6 +39,13 @@ struct SumikaApp: App {
         Button("About Sumika") {
           showAboutPanel()
         }
+
+        Divider()
+
+        Button("Check for Updates…") {
+          appUpdater.checkForUpdates()
+        }
+        .disabled(!appUpdater.canCheckForUpdates)
       }
 
       CommandGroup(replacing: .newItem) {

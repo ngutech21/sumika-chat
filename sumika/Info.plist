@@ -39,5 +39,17 @@
 	<string>Sumika uses the microphone to transcribe your speech into chat messages on this Mac.</string>
 	<key>SumikaGitCommit</key>
 	<string>$(SUMIKA_GIT_COMMIT)</string>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://ngutech21.github.io/sumika-chat/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>NDcfZydje8B4E9CsWYzC1Aqdpv/p7usRrSyg7XqRPvU=</string>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 </dict>
 </plist>

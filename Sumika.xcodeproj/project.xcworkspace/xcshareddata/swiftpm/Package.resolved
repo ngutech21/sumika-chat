@@ -1,5 +1,5 @@
 {
-  "originHash" : "58cb45db8de52101c8e7f634e101ec31eaa31898aaad142e1d81aa9d8b4cc730",
+  "originHash" : "add8fbbe8aad1317c1c72bd2aba6abd3e46d621233d429b9956dfe991efe0026",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -34,6 +34,15 @@
       "location" : "https://github.com/ml-explore/mlx-swift-lm",
       "state" : {
         "revision" : "19de2799d5cfc09398cdeb0970b9e7241e1a1b55"
+      }
+    },
+    {
+      "identity" : "sparkle",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sparkle-project/Sparkle",
+      "state" : {
+        "revision" : "b6496a74a087257ef5e6da1c5b29a447a60f5bd7",
+        "version" : "2.9.4"
       }
     },
     {

@@ -2,6 +2,25 @@ import Foundation
 import SumikaCore
 
 enum AppLaunchConfiguration {
+  static func shouldStartUpdater(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> Bool {
+    #if DEBUG
+      false
+    #else
+      shouldStartUpdater(environment: environment, isDebugBuild: false)
+    #endif
+  }
+
+  static func shouldStartUpdater(
+    environment: [String: String],
+    isDebugBuild: Bool
+  ) -> Bool {
+    !isDebugBuild
+      && environment["SUMIKA_UI_TEST_MODE"] != "1"
+      && !isXcodeUnitTestHost(environment: environment)
+  }
+
   @MainActor
   static func makeAppState(
     environment: [String: String] = ProcessInfo.processInfo.environment,
