@@ -113,6 +113,9 @@ release-notarized artifact_name="Sumika-macos-release.dmg":
     just release-package "{{artifact_name}}"
     just release-notarize "{{artifact_name}}"
 
+generate-sparkle-appcast:
+    ./script/generate_sparkle_appcast.sh
+
 test: test-core test-app
 
 test-core:

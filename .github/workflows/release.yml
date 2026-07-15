@@ -6,11 +6,6 @@ on:
       - master
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -19,6 +14,10 @@ jobs:
   release-please:
     name: Release Please
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -37,7 +36,10 @@ jobs:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 75
+    permissions:
+      contents: write
+      pages: write
 
     env:
       DERIVED_DATA_PATH: build/DerivedData/macos-release
@@ -127,3 +129,49 @@ jobs:
           set -euo pipefail
           test -f "$ASSET_PATH"
           gh release upload "$TAG_NAME" "$ASSET_PATH" --clobber
+
+      - name: Generate and verify Sparkle appcast
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+          APP_PATH: build/artifacts/export/Sumika.app
+          ASSET_PATH: build/artifacts/${{ steps.versions.outputs.asset_name }}
+          DOWNLOAD_URL_PREFIX: https://github.com/${{ github.repository }}/releases/download/${{ needs.release-please.outputs.tag_name }}/
+          EXPECTED_BUILD_VERSION: ${{ steps.versions.outputs.build_number }}
+          EXPECTED_SHORT_VERSION: ${{ steps.versions.outputs.marketing_version }}
+          RELEASE_NOTES_PATH: ${{ runner.temp }}/sumika-release-notes.md
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          VERIFY_DOWNLOAD_URL: 1
+        run: |
+          set -euo pipefail
+
+          gh release view "$TAG_NAME" --json body --jq '.body // ""' \
+            > "$RELEASE_NOTES_PATH"
+          test -n "$SPARKLE_ED_PRIVATE_KEY"
+          just generate-sparkle-appcast
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload appcast Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: build/artifacts/sparkle-pages
+
+  deploy-appcast:
+    name: Deploy Sparkle appcast
+    needs: build-release-asset
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy appcast to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
