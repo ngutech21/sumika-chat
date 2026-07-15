@@ -5,6 +5,10 @@ derived_data := env("DERIVED_DATA_PATH", "build/DerivedData")
 configuration := "Release"
 app_name := "Sumika"
 artifact_dir := "build/artifacts"
+archive_path := "build/artifacts/Sumika.xcarchive"
+export_dir := "build/artifacts/export"
+export_options := "script/DeveloperIDExportOptions.plist"
+developer_team := "G8Z2RHV3P5"
 
 swift := env("SWIFT", "swift")
 
@@ -43,20 +47,29 @@ release-unsigned:
 release-signed:
     @if [ -z "${DEVELOPER_ID_APPLICATION:-}" ]; then echo "DEVELOPER_ID_APPLICATION is required, for example: Developer ID Application"; exit 1; fi
     @if ! security find-identity -v -p codesigning | grep -F "$DEVELOPER_ID_APPLICATION" >/dev/null; then echo "Required Developer ID Application codesigning identity was not found."; exit 1; fi
-    @set --; \
+    @set -e; \
+    mkdir -p "{{artifact_dir}}"; \
+    rm -rf "{{archive_path}}" "{{export_dir}}"; \
+    set --; \
     if [ -n "${MARKETING_VERSION:-}" ]; then set -- "$@" "MARKETING_VERSION=$MARKETING_VERSION"; fi; \
     if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then set -- "$@" "CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION"; fi; \
     if [ -n "${SUMIKA_RELEASE_VERSION:-}" ]; then set -- "$@" "SUMIKA_RELEASE_VERSION=$SUMIKA_RELEASE_VERSION"; fi; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -configuration {{configuration}} SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" "$@" CODE_SIGNING_ALLOWED=NO build
-    @app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "generic/platform=macOS" -derivedDataPath {{derived_data}} -configuration {{configuration}} -archivePath "{{archive_path}}" SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" "$@" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" DEVELOPMENT_TEAM="{{developer_team}}" archive; \
+    xcodebuild -quiet -exportArchive -archivePath "{{archive_path}}" -exportPath "{{export_dir}}" -exportOptionsPlist "{{export_options}}"; \
+    app_bundle="{{export_dir}}/{{app_name}}.app"; \
     test -d "$app_bundle"; \
-    codesign --force --deep --options runtime --timestamp --entitlements sumika/Sumika.entitlements --sign "$DEVELOPER_ID_APPLICATION" "$app_bundle"; \
     codesign --verify --deep --strict --verbose=2 "$app_bundle"; \
-    codesign --display --entitlements - "$app_bundle" | grep -F "com.apple.security.device.audio-input" >/dev/null || { echo "Signed app bundle is missing the audio-input entitlement."; exit 1; }
+    signature_info="$(codesign --display --verbose=4 "$app_bundle" 2>&1)"; \
+    printf '%s\n' "$signature_info" | grep -F "Authority=Developer ID Application" >/dev/null || { echo "Exported app is not signed with Developer ID Application."; exit 1; }; \
+    printf '%s\n' "$signature_info" | grep -F "TeamIdentifier={{developer_team}}" >/dev/null || { echo "Exported app has the wrong signing team."; exit 1; }; \
+    printf '%s\n' "$signature_info" | grep -F "(runtime)" >/dev/null || { echo "Exported app is missing the hardened runtime."; exit 1; }; \
+    entitlements="$(codesign --display --entitlements - "$app_bundle" 2>/dev/null)"; \
+    printf '%s\n' "$entitlements" | grep -F "com.apple.security.device.audio-input" >/dev/null || { echo "Exported app is missing the audio-input entitlement."; exit 1; }; \
+    if printf '%s\n' "$entitlements" | grep -F "com.apple.security.get-task-allow" >/dev/null; then echo "Exported app must not contain get-task-allow."; exit 1; fi
 
 release-package artifact_name="Sumika-macos-release.dmg": release-signed
     @set -e; \
-    app_bundle="{{derived_data}}/Build/Products/{{configuration}}/{{app_name}}.app"; \
+    app_bundle="{{export_dir}}/{{app_name}}.app"; \
     artifact_dir="{{artifact_dir}}"; \
     artifact="$artifact_dir/{{artifact_name}}"; \
     dmg_root="$artifact_dir/dmg-root"; \

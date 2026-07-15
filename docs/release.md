@@ -29,6 +29,10 @@ existing macOS packaging tasks.
 
 6. The workflow uploads the DMG to the GitHub Release.
 
+The release task creates an Xcode archive and exports a Developer ID-signed app
+with `xcodebuild -exportArchive`. The exported app is then packaged in the DMG;
+the app bundle is not modified after export.
+
 ## Versioning
 
 Release Please owns the public release version in `version.txt`.
@@ -52,7 +56,7 @@ The app bundle uses:
 ## Notes
 
 - Nightly builds stay separate from releases.
-- Signing, notarization, stapling, and DMG creation remain in the `just`
-  release tasks.
+- Xcode Archive/Export performs Developer ID signing. Notarization, stapling,
+  and DMG creation remain in the `just` release tasks.
 - Sparkle is not part of this process yet; this release versioning is prepared
   for adding Sparkle later.
