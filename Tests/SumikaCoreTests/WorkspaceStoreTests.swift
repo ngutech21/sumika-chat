@@ -116,6 +116,37 @@ struct WorkspaceStoreTests {
   }
 
   @Test
+  func workspaceStoreLoadsSessionWithoutMCPSelection() async throws {
+    let libraryURL = temporaryLibraryURL()
+    let store = WorkspaceStore(libraryURL: libraryURL)
+    let session = ChatSession(title: "Legacy")
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [session]
+    )
+    try await store.saveLibrary(WorkspaceLibrary(workspaces: [workspace]))
+
+    var object = try #require(
+      JSONSerialization.jsonObject(
+        with: Data(contentsOf: libraryURL)
+      ) as? [String: Any]
+    )
+    var workspaces = try #require(object["workspaces"] as? [[String: Any]])
+    var sessions = try #require(workspaces[0]["sessions"] as? [[String: Any]])
+    sessions[0].removeValue(forKey: "selectedMCPServerIDs")
+    workspaces[0]["sessions"] = sessions
+    object["workspaces"] = workspaces
+    try JSONSerialization.data(withJSONObject: object).write(to: libraryURL)
+
+    let result = await store.loadLibrary()
+
+    #expect(result.library.workspaces.first?.sessions.map(\.title) == ["Legacy"])
+    #expect(result.library.workspaces.first?.sessions.first?.selectedMCPServerIDs == [])
+    #expect(result.issues.isEmpty)
+  }
+
+  @Test
   func workspaceStorePersistsLibraryAndBookmarkData() async throws {
     let libraryURL = temporaryLibraryURL()
     let store = WorkspaceStore(libraryURL: libraryURL)

@@ -122,7 +122,11 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       default: .chat
     )
     selectedMCPServerIDs = Self.uniqueIDsPreservingOrder(
-      try container.decode([UUID].self, forKey: .selectedMCPServerIDs)
+      try container.decodeIfPresent(
+        [UUID].self,
+        forKey: .selectedMCPServerIDs,
+        default: []
+      )
     )
     modeSettings = try container.decodeIfPresent(
       ChatModeSettingsSet.self,

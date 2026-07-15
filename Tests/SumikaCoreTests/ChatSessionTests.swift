@@ -69,16 +69,16 @@ struct ChatSessionTests {
   }
 
   @Test
-  func decodingRequiresSelectedMCPServerIDs() throws {
+  func decodingMissingSelectedMCPServerIDsUsesEmptyDefault() throws {
     var object = try #require(
       JSONSerialization.jsonObject(with: JSONEncoder().encode(ChatSession())) as? [String: Any]
     )
     object.removeValue(forKey: "selectedMCPServerIDs")
     let data = try JSONSerialization.data(withJSONObject: object)
 
-    #expect(throws: DecodingError.self) {
-      try JSONDecoder().decode(ChatSession.self, from: data)
-    }
+    let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
+
+    #expect(decoded.selectedMCPServerIDs.isEmpty)
   }
 
   @Test

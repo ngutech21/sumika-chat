@@ -40,11 +40,6 @@ code to put in them.
 - If logic can be tested without SwiftUI, it probably belongs in core.
 
 ## Data Model Policy
-
-Sumika is an unreleased prototype. Do not add backwards compatibility,
-migrations, legacy decode paths, or fallback fields for old persisted sessions
-unless explicitly requested.
-
 Prefer clean ADTs, single sources of truth, derived projections, and intentional
 `Codable` schemas covered by tests.
 
