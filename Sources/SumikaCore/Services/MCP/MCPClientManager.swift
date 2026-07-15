@@ -253,6 +253,8 @@ public actor MCPClientManager: MCPToolCalling {
     }
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func connectionToken(for serverID: UUID) -> UUID? {
     servers[serverID]?.connectionToken
   }
