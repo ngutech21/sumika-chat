@@ -302,15 +302,8 @@ struct ToolApprovalBatchPresentation: Equatable {
     for turn: ChatTurn
   ) -> [ToolCallRecord.ID: ToolApprovalBatchPresentation] {
     var presentations: [ToolCallRecord.ID: ToolApprovalBatchPresentation] = [:]
-    var visitedAnchorIDs = Set<ToolCallRecord.ID>()
 
-    for item in turn.items {
-      guard case .tool(let record) = item,
-        let batch = turn.toolCallBatch(containing: record.id),
-        visitedAnchorIDs.insert(batch.anchorID).inserted
-      else {
-        continue
-      }
+    for batch in turn.toolCallBatches {
       let pendingRecords = batch.pendingApprovalRecords
       guard pendingRecords.count >= 2, let firstPendingID = pendingRecords.first?.id else {
         continue

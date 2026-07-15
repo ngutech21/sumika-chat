@@ -680,6 +680,65 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func multiApprovalPresentationKeepsSeparateCanonicalBatches() {
+    let firstAnchorID = UUID()
+    let firstPendingID = UUID()
+    let firstTrailingPendingID = UUID()
+    let secondAnchorID = UUID()
+    let secondPendingID = UUID()
+    let turn = ChatTurn(
+      status: .awaitingApproval,
+      items: [
+        .tool(makeToolCallRecord(id: firstAnchorID, status: .completed)),
+        .tool(makeToolCallRecord(id: firstPendingID, status: .awaitingApproval)),
+        .tool(makeToolCallRecord(id: firstTrailingPendingID, status: .awaitingApproval)),
+        .assistantMessage(AssistantTurnMessage(content: "First response complete.")),
+        .tool(makeToolCallRecord(id: secondAnchorID, status: .awaitingApproval)),
+        .tool(makeToolCallRecord(id: secondPendingID, status: .awaitingApproval)),
+      ]
+    )
+
+    let presentations = ToolApprovalBatchPresentation.presentations(for: turn)
+
+    #expect(presentations.count == 5)
+    #expect(
+      presentations[firstAnchorID]
+        == ToolApprovalBatchPresentation(
+          anchorID: firstAnchorID,
+          pendingApprovalCount: 2,
+          showsApproveAll: false
+        ))
+    #expect(
+      presentations[firstPendingID]
+        == ToolApprovalBatchPresentation(
+          anchorID: firstAnchorID,
+          pendingApprovalCount: 2,
+          showsApproveAll: true
+        ))
+    #expect(
+      presentations[firstTrailingPendingID]
+        == ToolApprovalBatchPresentation(
+          anchorID: firstAnchorID,
+          pendingApprovalCount: 2,
+          showsApproveAll: false
+        ))
+    #expect(
+      presentations[secondAnchorID]
+        == ToolApprovalBatchPresentation(
+          anchorID: secondAnchorID,
+          pendingApprovalCount: 2,
+          showsApproveAll: true
+        ))
+    #expect(
+      presentations[secondPendingID]
+        == ToolApprovalBatchPresentation(
+          anchorID: secondAnchorID,
+          pendingApprovalCount: 2,
+          showsApproveAll: false
+        ))
+  }
+
+  @Test
   func hiddenAssistantMessageStillSeparatesCanonicalApprovalBatches() {
     let firstID = UUID()
     let secondID = UUID()
