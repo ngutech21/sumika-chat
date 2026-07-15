@@ -185,7 +185,8 @@ private func stabilityUserRow(id: String, revision: Int) -> NativeTranscriptRow 
         item: .userMessage(UserTurnMessage(content: "Please explain the workspace.")),
         toolCallRecord: nil,
         generationMetrics: nil,
-        assistantRenderBlocks: []
+        assistantRenderBlocks: [],
+        renderRevision: revision
       ))
   )
 }
@@ -206,7 +207,8 @@ private func stabilityThinkingRow(
         ),
         toolCallRecord: nil,
         generationMetrics: nil,
-        assistantRenderBlocks: []
+        assistantRenderBlocks: [],
+        renderRevision: revision
       ))
   )
 }

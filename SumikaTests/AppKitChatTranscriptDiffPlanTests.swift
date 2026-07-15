@@ -1661,7 +1661,8 @@ private func nativeUserRow(
         item: .userMessage(UserTurnMessage(content: content, attachments: attachments)),
         toolCallRecord: nil,
         generationMetrics: nil,
-        assistantRenderBlocks: []
+        assistantRenderBlocks: [],
+        renderRevision: revision
       ))
   )
 }
@@ -1684,7 +1685,8 @@ private func nativeAssistantRow(
         generationMetrics: nil,
         assistantRenderBlocks: [
           .paragraph(.init(id: .init(rawValue: "answer"), text: "Answer"))
-        ]
+        ],
+        renderRevision: revision
       ))
   )
 }
@@ -1704,7 +1706,8 @@ private func nativeThinkingRow(
         ),
         toolCallRecord: nil,
         generationMetrics: nil,
-        assistantRenderBlocks: []
+        assistantRenderBlocks: [],
+        renderRevision: revision
       ))
   )
 }
@@ -1725,7 +1728,8 @@ private func nativeStreamingThinkingRow(
         ),
         toolCallRecord: nil,
         generationMetrics: nil,
-        assistantRenderBlocks: []
+        assistantRenderBlocks: [],
+        renderRevision: revision
       ))
   )
 }
@@ -1753,7 +1757,8 @@ private func nativeCompletedThinkingRow(
         ),
         toolCallRecord: nil,
         generationMetrics: nil,
-        assistantRenderBlocks: []
+        assistantRenderBlocks: [],
+        renderRevision: revision
       ))
   )
 }
@@ -1780,7 +1785,8 @@ private func nativeAssistantCodeRow(
               text: code,
               isClosed: true
             ))
-        ]
+        ],
+        renderRevision: revision
       ))
   )
 }
@@ -1803,7 +1809,8 @@ private func nativeAssistantMarkdownRow(
         assistantRenderBlocks: [
           .paragraph(.init(id: .init(rawValue: "markdown"), text: markdown))
         ],
-        assistantSpokenText: spokenText
+        assistantSpokenText: spokenText,
+        renderRevision: revision
       ))
   )
 }
@@ -1824,7 +1831,8 @@ private func nativeStreamingAssistantRow(
         ),
         toolCallRecord: nil,
         generationMetrics: nil,
-        assistantRenderBlocks: []
+        assistantRenderBlocks: [],
+        renderRevision: revision
       ))
   )
 }
@@ -1846,7 +1854,8 @@ private func nativeStreamingBlocksAssistantRow(
         ),
         toolCallRecord: nil,
         generationMetrics: nil,
-        assistantRenderBlocks: AssistantRenderBlockParser().parse(content)
+        assistantRenderBlocks: AssistantRenderBlockParser().parse(content),
+        renderRevision: revision
       ))
   )
 }
@@ -1867,6 +1876,7 @@ private func nativeToolRow(
         toolCallRecord: record,
         generationMetrics: nil,
         assistantRenderBlocks: [],
+        renderRevision: revision,
         toolBatchPresentation: batchPresentation
       ))
   )

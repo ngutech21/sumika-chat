@@ -5,6 +5,7 @@ import SumikaCore
 final class ChatTranscriptRenderer {
   private let assistantBlocks: @MainActor (String) -> [AssistantRenderBlock]
   private var itemCache: [ChatTranscriptRenderItemKey: RenderedItemCacheEntry] = [:]
+  private var nextRenderRevision = 0
   private var assistantBlockCache: [AssistantTurnMessage.ID: AssistantBlockCacheEntry] = [:]
   private var streamingBlockCache: [AssistantTurnMessage.ID: StreamingBlockCacheEntry] = [:]
 
@@ -112,7 +113,13 @@ final class ChatTranscriptRenderer {
       return cached.item
     }
 
-    let item = makeRenderedItem(id: key.rawValue, input: input)
+    let renderRevision = nextRenderRevision
+    nextRenderRevision += 1
+    let item = makeRenderedItem(
+      id: key.rawValue,
+      input: input,
+      renderRevision: renderRevision
+    )
     itemCache[key] = RenderedItemCacheEntry(input: input, item: item)
     return item
   }
@@ -147,7 +154,8 @@ final class ChatTranscriptRenderer {
 
   private func makeRenderedItem(
     id: String,
-    input: RenderedItemCacheInput
+    input: RenderedItemCacheInput,
+    renderRevision: Int
   ) -> RenderedChatTurnItem {
     switch input.item {
     case .userMessage:
@@ -157,6 +165,7 @@ final class ChatTranscriptRenderer {
         toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [],
+        renderRevision: renderRevision,
         toolBatchPresentation: nil
       )
 
@@ -167,6 +176,7 @@ final class ChatTranscriptRenderer {
         toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [],
+        renderRevision: renderRevision,
         toolBatchPresentation: nil
       )
 
@@ -182,6 +192,7 @@ final class ChatTranscriptRenderer {
         generationMetrics: input.generationMetrics,
         assistantRenderBlocks: blocks,
         assistantSpokenText: Self.spokenText(for: message, blocks: blocks),
+        renderRevision: renderRevision,
         toolBatchPresentation: nil
       )
 
@@ -192,6 +203,7 @@ final class ChatTranscriptRenderer {
         toolCallRecord: record,
         generationMetrics: input.generationMetrics,
         assistantRenderBlocks: [],
+        renderRevision: renderRevision,
         toolBatchPresentation: input.toolBatchPresentation
       )
     }
@@ -329,10 +341,6 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
   let assistantRenderBlocks: [AssistantRenderBlock]
   let assistantSpokenText: String?
   let toolBatchPresentation: ToolApprovalBatchPresentation?
-  // Stored, not computed: rows() reads the revision for every item on every
-  // updateNSView pass (~20x/s while streaming). All fields are immutable and
-  // the renderer only creates new items when their content changed, so hashing
-  // once per creation replaces rehashing the whole transcript per flush.
   let renderRevision: Int
 
   init(
@@ -342,6 +350,7 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
     generationMetrics: ChatGenerationMetrics?,
     assistantRenderBlocks: [AssistantRenderBlock],
     assistantSpokenText: String? = nil,
+    renderRevision: Int,
     toolBatchPresentation: ToolApprovalBatchPresentation? = nil
   ) {
     self.id = id
@@ -350,100 +359,8 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
     self.generationMetrics = generationMetrics
     self.assistantRenderBlocks = assistantRenderBlocks
     self.assistantSpokenText = assistantSpokenText
+    self.renderRevision = renderRevision
     self.toolBatchPresentation = toolBatchPresentation
-    renderRevision = Self.computeRenderRevision(
-      id: id,
-      item: item,
-      generationMetrics: generationMetrics,
-      assistantRenderBlocks: assistantRenderBlocks,
-      toolBatchPresentation: toolBatchPresentation
-    )
-  }
-
-  private static func computeRenderRevision(
-    id: String,
-    item: ChatTurnItem,
-    generationMetrics: ChatGenerationMetrics?,
-    assistantRenderBlocks: [AssistantRenderBlock],
-    toolBatchPresentation: ToolApprovalBatchPresentation?
-  ) -> Int {
-    var hasher = Hasher()
-    hasher.combine(id)
-    hasher.combine(generationMetrics?.generatedTokenCount)
-    hasher.combine(generationMetrics?.tokensPerSecond)
-    hasher.combine(generationMetrics?.durationMs)
-    hasher.combine(toolBatchPresentation?.anchorID)
-    hasher.combine(toolBatchPresentation?.pendingApprovalCount)
-    hasher.combine(toolBatchPresentation?.showsApproveAll)
-
-    switch item {
-    case .userMessage(let message):
-      hasher.combine("user")
-      hasher.combine(message.content)
-      hasher.combineAttachmentRevision(message.attachments)
-
-    case .assistantThinking(let message):
-      hasher.combine("thinking")
-      hasher.combine(message.content)
-      hasher.combine(message.deliveryStatus.rawValue)
-
-    case .assistantMessage(let message):
-      hasher.combine("assistant")
-      hasher.combine(message.content)
-      hasher.combine(message.deliveryStatus.rawValue)
-      hasher.combineAttachmentRevision(message.attachments)
-      for block in assistantRenderBlocks {
-        hasher.combine(block.id.rawValue)
-        switch block {
-        case .paragraph(let paragraph):
-          hasher.combine("paragraph")
-          hasher.combine(paragraph.text)
-        case .codeBlock(let codeBlock):
-          hasher.combine("code")
-          hasher.combine(codeBlock.language)
-          hasher.combine(codeBlock.text)
-          hasher.combine(codeBlock.isClosed)
-        }
-      }
-
-    case .tool(let record):
-      hasher.combine("tool")
-      hasher.combine(record.status.rawValue)
-      hasher.combine(record.request.toolName.rawValue)
-      hasher.combine(record.request.raw.originalToolName)
-      for argument in record.request.rawArguments.sorted(by: { $0.key < $1.key }) {
-        hasher.combine(argument.key)
-        hasher.combine(argument.value.displayValue)
-      }
-      hasher.combine(record.approvalPreview?.status.rawValue)
-      hasher.combine(record.approvalPreview?.text)
-      hasher.combine(record.approvalPreview?.truncated)
-      hasher.combine(record.approvalPreview?.redacted)
-      hasher.combine(record.approvalPreview?.affectedPaths.joined(separator: "\n"))
-      hasher.combine(record.resultPreview?.status.rawValue)
-      hasher.combine(record.resultPreview?.text)
-      hasher.combine(record.resultPreview?.truncated)
-      hasher.combine(record.resultPreview?.redacted)
-      hasher.combine(record.resultPreview?.affectedPaths.joined(separator: "\n"))
-      hasher.combine(record.resultPayload?.text)
-      hasher.combine(record.resultPayload?.status.rawValue)
-    }
-
-    return hasher.finalize()
-  }
-
-}
-
-extension Hasher {
-  fileprivate mutating func combineAttachmentRevision(_ attachments: [ChatAttachment]) {
-    for attachment in attachments {
-      combine(attachment.id)
-      combine(attachment.displayName)
-      combine(attachment.kind.rawValue)
-      combine(attachment.byteSize)
-      combine(attachment.contentSignature)
-      combine(attachment.mimeType)
-    }
   }
 }
 
