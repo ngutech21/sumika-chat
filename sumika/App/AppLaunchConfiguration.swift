@@ -12,6 +12,8 @@ enum AppLaunchConfiguration {
     #endif
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   static func shouldStartUpdater(
     environment: [String: String],
     isDebugBuild: Bool
