@@ -152,7 +152,7 @@ extension NativeChatTranscriptCoordinator {
         as? NativeChatMessageCellView
         ?? NativeChatMessageCellView(identifier: cellIdentifier)
       if let row = rowsByID[itemID] {
-        configure(cell, with: row)
+        configure(cell, with: row, source: .dataSource)
       }
       return cell
     }
@@ -180,6 +180,26 @@ extension NativeChatTranscriptCoordinator {
     self.onApproveToolCallBatch = onApproveToolCallBatch
     self.onDenyToolCall = onDenyToolCall
     self.onAnswerAskUser = onAnswerAskUser
+  }
+
+  // Benchmark-only read model; cache ownership and eviction remain unchanged.
+  // swiftlint:disable:next unused_declaration
+  func performanceCacheSnapshotForTesting()
+    -> TranscriptPerformanceDiagnostics.CoordinatorCacheSnapshot
+  {
+    let highlightCounts = codeHighlightStore.performanceEntryCountsForTesting
+    let thumbnailCounts = attachmentThumbnailStore.performanceEntryCountsForTesting
+    return TranscriptPerformanceDiagnostics.CoordinatorCacheSnapshot(
+      heights: heightCache.cachedEntryCount,
+      markdown: markdownCache.cachedEntryCount,
+      highlightedCode: codeHighlightStore.cachedEntryCount,
+      highlightDescriptors: highlightCounts.descriptors,
+      highlightsInFlight: highlightCounts.inFlight,
+      highlightVersions: highlightCounts.versions,
+      thumbnails: thumbnailCounts.cached,
+      thumbnailFailures: thumbnailCounts.failed,
+      thumbnailsInFlight: thumbnailCounts.inFlight
+    )
   }
 
   func updateNSViewMetadata(itemCount: Int, rows: [NativeTranscriptRow])
@@ -392,11 +412,11 @@ extension NativeChatTranscriptCoordinator: NSTableViewDelegate {
           isSpeechEnabled: isSpeechEnabled,
           activeSpeechRowID: activeSpeechRowID
         ),
-        markdownBlocks: { [weak self] markdown in
+        markdownBlocks: { [rowID = rowModel.id, weak self] markdown in
           guard let self else {
             return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
           }
-          return self.markdownCache.blocks(for: markdown)
+          return self.markdownCache.blocks(for: markdown, rowID: rowID)
         }
       )
     }
@@ -547,8 +567,13 @@ extension NativeChatTranscriptCoordinator {
 
 extension NativeChatTranscriptCoordinator {
 
-  private func configure(_ cell: NativeChatMessageCellView, with row: NativeTranscriptRow) {
+  private func configure(
+    _ cell: NativeChatMessageCellView,
+    with row: NativeTranscriptRow,
+    source: TranscriptPerformanceDiagnostics.CellConfigurationSource
+  ) {
     ChatDiagnostics.measure("Transcript row configure", category: .transcript) {
+      TranscriptPerformanceDiagnostics.recordCellConfiguration(rowID: row.id, source: source)
       cell.configure(
         row: row,
         state: cellStateStore.state(
@@ -558,11 +583,11 @@ extension NativeChatTranscriptCoordinator {
           areToolActionsEnabled: areToolActionsEnabled
         ),
         actions: NativeTranscriptCellActions(
-          markdownBlocks: { [weak self] markdown in
+          markdownBlocks: { [rowID = row.id, weak self] markdown in
             guard let self else {
               return NativeTranscriptMarkdownRenderer.blocks(for: markdown)
             }
-            return self.markdownCache.blocks(for: markdown)
+            return self.markdownCache.blocks(for: markdown, rowID: rowID)
           },
           highlightedCode: { [weak self] rowID, codeBlock in
             self?.codeHighlightStore.highlightedCode(rowID: rowID, codeBlock: codeBlock)
@@ -759,7 +784,7 @@ extension NativeChatTranscriptCoordinator {
         else {
           continue
         }
-        configure(cell, with: rowModel)
+        configure(cell, with: rowModel, source: .visibleReconfigure)
       }
     }
   }

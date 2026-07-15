@@ -161,6 +161,13 @@ test-ui:
 perf-report scenario="ui-trace":
     @trace_path="$HOME/Library/Application Support/Sumika/debug/gemma-trace.jsonl"; trace_dir="$HOME/Library/Application Support/Sumika/debug/traces"; latest_trace=""; if [ -d "$trace_dir" ]; then latest_trace="$(ls -t "$trace_dir"/*-ui-test.jsonl 2>/dev/null | head -n 1 || true)"; if [ -n "$latest_trace" ]; then trace_path="$latest_trace"; fi; fi; if [ -z "$latest_trace" ] && [ -f .perf/ui-tests/latest-trace-path.txt ]; then candidate="$(cat .perf/ui-tests/latest-trace-path.txt)"; if [ -f "$candidate" ]; then trace_path="$candidate"; fi; fi; echo "Gemma trace: $trace_path"; xcrun swift script/trace_performance_report.swift "$trace_path" --model-id gemma4-e4b --scenario "{{scenario}}" --limit all
 
+transcript-benchmark samples="100" warmups="5":
+    SUMIKA_TRANSCRIPT_BENCHMARK_SAMPLES="{{samples}}" SUMIKA_TRANSCRIPT_BENCHMARK_WARMUPS="{{warmups}}" ./script/run_transcript_benchmark.sh
+
+transcript-benchmark-compare baseline candidate output=".perf/transcript/comparison.md":
+    mkdir -p .build/swift-script-module-cache
+    xcrun swift -module-cache-path .build/swift-script-module-cache script/compare_transcript_benchmarks.swift "{{baseline}}" "{{candidate}}" "{{output}}"
+
 signpost-report scenario="manual-chat" last="20m":
     mkdir -p .build/swift-script-module-cache
     xcrun swift -module-cache-path .build/swift-script-module-cache script/chat_signpost_report.swift --last "{{last}}" --scenario "{{scenario}}"

@@ -45,7 +45,8 @@ struct NativeTranscriptRow: Equatable, Identifiable {
     showsGenerationIndicator: Bool
   ) -> [NativeTranscriptRow] {
     var rows = items.map { item in
-      NativeTranscriptRow(id: item.id, revision: item.renderRevision, body: .item(item))
+      TranscriptPerformanceDiagnostics.recordRowWrapperProjection(rowID: item.id)
+      return NativeTranscriptRow(id: item.id, revision: item.renderRevision, body: .item(item))
     }
     if showsGenerationIndicator {
       rows.append(
@@ -317,6 +318,11 @@ struct NativeTranscriptHeightCache {
       return height
     }
     let missReason = cacheMissReason(for: key)
+    TranscriptPerformanceDiagnostics.recordHeightCacheMiss(
+      rowID: row.id,
+      reason: missReason,
+      width: normalizedWidth
+    )
     let cell = reusableMeasuringCell()
     let height = ChatDiagnostics.measure(
       "Transcript row height cache miss",

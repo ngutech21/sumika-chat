@@ -1,4 +1,4 @@
-#if DEBUG && canImport(OSLog)
+#if (DEBUG || SUMIKA_PERFORMANCE_DIAGNOSTICS) && canImport(OSLog)
   import OSLog
 #endif
 
@@ -17,7 +17,7 @@ public enum ChatDiagnostics {
   }
 
   public struct Interval {
-    #if DEBUG && canImport(OSLog)
+    #if (DEBUG || SUMIKA_PERFORMANCE_DIAGNOSTICS) && canImport(OSLog)
       fileprivate let category: Category
       fileprivate let name: StaticString
       fileprivate let state: OSSignpostIntervalState
@@ -36,7 +36,7 @@ public enum ChatDiagnostics {
     _ name: StaticString,
     category: Category
   ) -> Interval {
-    #if DEBUG && canImport(OSLog)
+    #if (DEBUG || SUMIKA_PERFORMANCE_DIAGNOSTICS) && canImport(OSLog)
       let signposter = signposter(for: category)
       return Interval(category: category, name: name, state: signposter.beginInterval(name))
     #else
@@ -49,7 +49,7 @@ public enum ChatDiagnostics {
     category: Category,
     metadata: @autoclosure () -> Metadata
   ) -> Interval {
-    #if DEBUG && canImport(OSLog)
+    #if (DEBUG || SUMIKA_PERFORMANCE_DIAGNOSTICS) && canImport(OSLog)
       let metadata = metadata()
       let signposter = signposter(for: category)
       return Interval(
@@ -63,7 +63,7 @@ public enum ChatDiagnostics {
   }
 
   public static func endInterval(_ interval: Interval) {
-    #if DEBUG && canImport(OSLog)
+    #if (DEBUG || SUMIKA_PERFORMANCE_DIAGNOSTICS) && canImport(OSLog)
       signposter(for: interval.category).endInterval(interval.name, interval.state)
     #endif
   }
@@ -74,7 +74,7 @@ public enum ChatDiagnostics {
     category: Category,
     _ operation: () throws -> T
   ) rethrows -> T {
-    #if DEBUG && canImport(OSLog)
+    #if (DEBUG || SUMIKA_PERFORMANCE_DIAGNOSTICS) && canImport(OSLog)
       let interval = beginInterval(name, category: category)
       defer {
         endInterval(interval)
@@ -92,7 +92,7 @@ public enum ChatDiagnostics {
     metadata: @autoclosure () -> Metadata,
     _ operation: () throws -> T
   ) rethrows -> T {
-    #if DEBUG && canImport(OSLog)
+    #if (DEBUG || SUMIKA_PERFORMANCE_DIAGNOSTICS) && canImport(OSLog)
       let interval = beginInterval(name, category: category, metadata: metadata())
       defer {
         endInterval(interval)
@@ -103,7 +103,7 @@ public enum ChatDiagnostics {
     #endif
   }
 
-  #if DEBUG && canImport(OSLog)
+  #if (DEBUG || SUMIKA_PERFORMANCE_DIAGNOSTICS) && canImport(OSLog)
     private static let generationSignposter = OSSignposter(
       subsystem: SumikaTelemetry.subsystem,
       category: Category.generation.rawValue

@@ -684,7 +684,7 @@ extension MLXChatRuntime {
     pendingCacheInvalidationReason = reason
   }
 
-  #if DEBUG
+  #if DEBUG || SUMIKA_PERFORMANCE_DIAGNOSTICS
     // Test-only; exercised through @testable import.
     // swiftlint:disable:next unused_declaration
     func registerActiveGenerationForTesting(id: MLXGenerationID, task: Task<Void, Never>) {

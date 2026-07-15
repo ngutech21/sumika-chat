@@ -112,9 +112,22 @@ final class ChatTranscriptRenderer {
       return cached.item
     }
 
+    TranscriptPerformanceDiagnostics.recordRenderedItemProjection(rowID: key.rawValue)
     let item = makeRenderedItem(id: key.rawValue, input: input)
     itemCache[key] = RenderedItemCacheEntry(input: input, item: item)
     return item
+  }
+
+  // Benchmark-only read model; normal transcript behavior does not depend on it.
+  // swiftlint:disable:next unused_declaration
+  func performanceCacheSnapshotForTesting()
+    -> TranscriptPerformanceDiagnostics.RendererCacheSnapshot
+  {
+    TranscriptPerformanceDiagnostics.RendererCacheSnapshot(
+      renderedItems: itemCache.count,
+      assistantBlocks: assistantBlockCache.count,
+      streamingBlocks: streamingBlockCache.count
+    )
   }
 
   private func displayItems(for turn: ChatTurn) -> [ChatTurnItem] {

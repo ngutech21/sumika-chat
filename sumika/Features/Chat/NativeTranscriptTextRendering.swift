@@ -12,10 +12,11 @@ struct NativeTranscriptMarkdownCache {
     blocksByText.count
   }
 
-  mutating func blocks(for markdown: String) -> [NativeMarkdownBlock] {
+  mutating func blocks(for markdown: String, rowID: String? = nil) -> [NativeMarkdownBlock] {
     if let cached = blocksByText[markdown] {
       return cached
     }
+    TranscriptPerformanceDiagnostics.recordMarkdownParse(rowID: rowID)
     let blocks = NativeTranscriptMarkdownRenderer.blocks(for: markdown)
     blocksByText[markdown] = blocks
     return blocks

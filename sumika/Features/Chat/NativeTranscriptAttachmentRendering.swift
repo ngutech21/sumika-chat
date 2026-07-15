@@ -55,6 +55,16 @@ final class NativeTranscriptAttachmentThumbnailStore {
     self.attachmentStore = attachmentStore
   }
 
+  // Benchmark-only; cache lifecycle remains owned by this store.
+  // swiftlint:disable:next unused_declaration
+  var performanceEntryCountsForTesting: TranscriptPerformanceDiagnostics.ThumbnailStoreEntryCounts {
+    TranscriptPerformanceDiagnostics.ThumbnailStoreEntryCounts(
+      cached: thumbnailsByDescriptor.count,
+      failed: failedDescriptors.count,
+      inFlight: inFlightDescriptors.count
+    )
+  }
+
   func thumbnail(for attachment: ChatAttachment, maxPixelSize: Int) -> NSImage? {
     let descriptor = NativeAttachmentThumbDescriptor(
       attachment: attachment,

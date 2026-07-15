@@ -54,6 +54,16 @@ final class NativeTranscriptCodeHighlightStore {
     highlightedCodeByKey.count
   }
 
+  // Benchmark-only; keeps all cache dimensions visible without affecting policy.
+  // swiftlint:disable:next unused_declaration
+  var performanceEntryCountsForTesting: TranscriptPerformanceDiagnostics.HighlightStoreEntryCounts {
+    TranscriptPerformanceDiagnostics.HighlightStoreEntryCounts(
+      descriptors: latestKeyByDescriptor.count,
+      inFlight: inFlightKeyByDescriptor.count,
+      versions: nextVersionByBlockID.count + latestVersionByBlockID.count
+    )
+  }
+
   func highlightedCode(
     rowID: String,
     codeBlock: AssistantRenderBlock.CodeBlock
