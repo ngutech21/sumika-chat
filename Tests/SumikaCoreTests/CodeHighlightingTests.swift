@@ -348,10 +348,15 @@ struct CodeHighlightingTests {
   }
 
   @Test
-  func streamingStaleResultsAreDiscarded() async throws {
-    let backend = SpyCodeHighlightingBackend(delay: .milliseconds(30))
+  func streamingStaleResultsAreDiscarded() async {
+    let backend = ControlledCodeHighlightingBackend()
     let highlighter = StreamingCodeHighlighter(backend: backend, debounce: .zero)
     let blockID = CodeHighlightBlockID(rawValue: "block-1")
+    defer {
+      Task {
+        await backend.releaseAll()
+      }
+    }
 
     let firstTask = Task {
       await highlighter.highlight(
@@ -364,17 +369,23 @@ struct CodeHighlightingTests {
         )
       )
     }
-    try await Task.sleep(for: .milliseconds(5))
-    let second = await highlighter.highlight(
-      CodeHighlightRequest(
-        blockID: blockID,
-        version: 2,
-        code: "echo \"new\"\n",
-        language: .bash,
-        isClosed: false
+    await backend.waitForRequestCount(1)
+    let secondTask = Task {
+      await highlighter.highlight(
+        CodeHighlightRequest(
+          blockID: blockID,
+          version: 2,
+          code: "echo \"new\"\n",
+          language: .bash,
+          isClosed: false
+        )
       )
-    )
+    }
+    await backend.waitForRequestCount(2)
+    await backend.releaseAll()
+
     let first = await firstTask.value
+    let second = await secondTask.value
 
     #expect(first == nil)
     #expect(second?.version == 2)
@@ -413,6 +424,68 @@ extension HighlightedCode {
       }
       return code[range].contains(text)
     }
+  }
+}
+
+private actor ControlledCodeHighlightingBackend: CodeHighlightingBackend {
+  private var requestCount = 0
+  private var requestCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] =
+    []
+  private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func highlight(
+    code: String,
+    language: CodeLanguage?,
+    theme _: CodeHighlightTheme
+  ) async throws -> HighlightedCode {
+    requestCount += 1
+    resumeRequestCountWaiters()
+
+    await withCheckedContinuation { continuation in
+      releaseContinuations.append(continuation)
+    }
+
+    return HighlightedCode(
+      code: code,
+      language: language,
+      spans: [
+        HighlightSpan(
+          range: HighlightTextRange(location: 0, length: code.utf16.count),
+          style: .keyword,
+          captureName: "keyword"
+        )
+      ]
+    )
+  }
+
+  func waitForRequestCount(_ expectedCount: Int) async {
+    guard requestCount < expectedCount else {
+      return
+    }
+
+    await withCheckedContinuation { continuation in
+      requestCountWaiters.append((expectedCount, continuation))
+    }
+  }
+
+  func releaseAll() {
+    let continuations = releaseContinuations
+    releaseContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+  }
+
+  private func resumeRequestCountWaiters() {
+    var pendingWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    for waiter in requestCountWaiters {
+      if requestCount >= waiter.count {
+        waiter.continuation.resume()
+      } else {
+        pendingWaiters.append(waiter)
+      }
+    }
+    requestCountWaiters = pendingWaiters
   }
 }
 
