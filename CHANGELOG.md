@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.3.0](https://github.com/ngutech21/sumika-chat/compare/v1.2.0-beta.0...v1.3.0) (2026-07-15)
+
+
+### Features
+
+* add automatic updates using sparkle ([4b55e95](https://github.com/ngutech21/sumika-chat/commit/4b55e95b2335dbe71deecb081c3fdaa3880f64f6))
+* add experimental Qwen 3.6 27B 8bit model with local vision support ([b11ba4e](https://github.com/ngutech21/sumika-chat/commit/b11ba4e49d9b2ef74040b4a7f8bf87ee4b690f7f))
+* add mcp server support ([#155](https://github.com/ngutech21/sumika-chat/issues/155)) ([9b72268](https://github.com/ngutech21/sumika-chat/commit/9b7226870856d42261b86852048d863bc3e366af))
+* add prompt cost regression tests and documentation ([a98334b](https://github.com/ngutech21/sumika-chat/commit/a98334b9cb0a02bfb6e039bd7abef6a1fa7f4577))
+* add support for agents.md in workspaces ([ce6c19b](https://github.com/ngutech21/sumika-chat/commit/ce6c19b71f66fc5b2a41fd5e5faf145c847a11b7))
+* add support for mcp servers using http streaming ([e6f5148](https://github.com/ngutech21/sumika-chat/commit/e6f5148d85ce6013677b9b82d8ebbd6ba6f53cd9))
+* add support for multiple tool calls from the model ([860683f](https://github.com/ngutech21/sumika-chat/commit/860683fd29252bbf99f4c5abf21d0fc5e874d967))
+* add terminal finish_task tool and remove phantom final_answer action ([7d6364c](https://github.com/ngutech21/sumika-chat/commit/7d6364cdc991cb3c066068e5fc866c5bb8f2e42f)), closes [#153](https://github.com/ngutech21/sumika-chat/issues/153)
+* configure mcp server per session ([26c2be6](https://github.com/ngutech21/sumika-chat/commit/26c2be6bc924d7cbf8261713756ac9f4a90c9f5d))
+* continue agent loop after mutations ([db4923f](https://github.com/ngutech21/sumika-chat/commit/db4923f8b705d55ca5693cd9efa4bb8eca2f638b))
+* enhance tool schema handling and improve cache identity instructions ([b4cb171](https://github.com/ngutech21/sumika-chat/commit/b4cb1718180cdaaeaffd72e5b9c862dc095a18c7))
+* implement termination handling to persist session state and flush saves ([4222136](https://github.com/ngutech21/sumika-chat/commit/4222136c51c895c704308053ad927b210c82afdc))
+* implement token limit handling in MLXModelStreamProcessor and add corresponding error description ([13e5910](https://github.com/ngutech21/sumika-chat/commit/13e59102f0c4d2773fa7d9e10badfaae90ac623d))
+
+
+### Bug Fixes
+
+* add installation step for Metal toolchain in manual build mode ([fc55119](https://github.com/ngutech21/sumika-chat/commit/fc5511986f44bb3bfd5c752bee3f1234948cb273))
+* enable vision support in small gemma modells ([77818e2](https://github.com/ngutech21/sumika-chat/commit/77818e288daf8ba4d986333dae38abc5fa1fc8f3))
+* handle cancellation errors in RuntimeContextClearCoordinator and add tests ([9467761](https://github.com/ngutech21/sumika-chat/commit/946776145b468a396136319f9a72c06c292e1d08))
+* lint false positiv ([efda8e6](https://github.com/ngutech21/sumika-chat/commit/efda8e6b00a47fa62646d9eb0b7afd4f0de5d48f))
+* specify ARM architecture for macOS build in CodeQL workflow ([b6cc38b](https://github.com/ngutech21/sumika-chat/commit/b6cc38b48a9de2718c913e30489caf5fd013b3c9))
+* stabilize macOS test execution ([b67a07b](https://github.com/ngutech21/sumika-chat/commit/b67a07b3956a234836152bf1d4898a66a3bb4d15))
+* SwiftLint analyze findings ([5e211e4](https://github.com/ngutech21/sumika-chat/commit/5e211e4dfa0f8785d51bc98eabc92959c505a73b))
+* update CodeQL workflow configuration for concurrency and timeout settings ([423e5a6](https://github.com/ngutech21/sumika-chat/commit/423e5a6d7d000a4600fb6c604c7446e1abfd0c04))
+* update macOS build destination in CodeQL workflow ([7da00ae](https://github.com/ngutech21/sumika-chat/commit/7da00ae289265e39b5507941b53bde4ad15667da))
+* update macOS workflow and Justfile to use cloned source packages directory ([9825820](https://github.com/ngutech21/sumika-chat/commit/9825820d8ddbdc42bafc26736b87b2597b814e47))
+* update Metal toolchain installation and build steps for manual mode ([59cf365](https://github.com/ngutech21/sumika-chat/commit/59cf3655cf90c060c588be768e7693a97335075c))
+* update Metal toolchain installation steps in CodeQL workflow ([73d95a9](https://github.com/ngutech21/sumika-chat/commit/73d95a93e483a4428f6f93777a832fa6b62ee010))
+* update revision for mlx-swift-lm dependency ([2c24236](https://github.com/ngutech21/sumika-chat/commit/2c24236a24c91322b7676dc3c33fdc6222475fd7))
+* update Swift concurrency flags and revise dependency revision ([6284f5b](https://github.com/ngutech21/sumika-chat/commit/6284f5b2ebfa8ee5fb1dfe8f63ce410267dada47))
+
+
+### Performance Improvements
+
+* linearize transcript tool batch projection ([45fc159](https://github.com/ngutech21/sumika-chat/commit/45fc15971ec5919c467e656cd2fa76e4d82d912a))
+* use monotonic transcript render revisions ([da8074e](https://github.com/ngutech21/sumika-chat/commit/da8074e35e6f1997b387528a985573f91d63075d))
+
 ## [1.2.0-beta.0](https://github.com/ngutech21/sumika-chat/compare/v1.1.0-beta.0...v1.2.0-beta.0) (2026-07-09)
 
 
