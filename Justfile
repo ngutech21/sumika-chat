@@ -51,10 +51,11 @@ release-signed:
     mkdir -p "{{artifact_dir}}"; \
     rm -rf "{{archive_path}}" "{{export_dir}}"; \
     set --; \
+    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
     if [ -n "${MARKETING_VERSION:-}" ]; then set -- "$@" "MARKETING_VERSION=$MARKETING_VERSION"; fi; \
     if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then set -- "$@" "CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION"; fi; \
     if [ -n "${SUMIKA_RELEASE_VERSION:-}" ]; then set -- "$@" "SUMIKA_RELEASE_VERSION=$SUMIKA_RELEASE_VERSION"; fi; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "generic/platform=macOS" -derivedDataPath {{derived_data}} -configuration {{configuration}} -archivePath "{{archive_path}}" SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" "$@" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" DEVELOPMENT_TEAM="{{developer_team}}" archive; \
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "generic/platform=macOS" -derivedDataPath {{derived_data}} -configuration {{configuration}} -archivePath "{{archive_path}}" "$@" SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" DEVELOPMENT_TEAM="{{developer_team}}" archive; \
     xcodebuild -quiet -exportArchive -archivePath "{{archive_path}}" -exportPath "{{export_dir}}" -exportOptionsPlist "{{export_options}}"; \
     app_bundle="{{export_dir}}/{{app_name}}.app"; \
     test -d "$app_bundle"; \
@@ -129,10 +130,12 @@ data-model:
     mkdir -p .build/data-model-build .build/swiftpm-cache .build/clang-module-cache .build/swiftpm-home
     HOME="$PWD/.build/swiftpm-home" CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" {{swift}} run -q --disable-sandbox --build-path .build/data-model-build --cache-path .build/swiftpm-cache DataModelGenerator
 
-test-app:
+test-app mode="clean":
     @set --; \
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} "$@" -parallel-testing-enabled NO clean test
+    clean_action=clean; \
+    if [ "{{mode}}" = "incremental" ]; then clean_action=; fi; \
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} "$@" -parallel-testing-enabled NO $clean_action test
 
 test-app-tsan:
     @set --; \
@@ -240,6 +243,7 @@ typos:
 
 periphery:
     periphery scan --retain-public --retain-codable-properties --baseline .periphery-core-baseline --relative-results --disable-update-check
-    @set -- -destination platform=macOS; \
+    @set --; \
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
-    periphery scan --project Sumika.xcodeproj --schemes Sumika --retain-public --retain-codable-properties --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check -- "$@"
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "platform=macOS" -derivedDataPath "{{derived_data}}" -parallelizeTargets "$@" CODE_SIGNING_ALLOWED=NO ENABLE_BITCODE=NO DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=YES INDEX_ENABLE_DATA_STORE=YES build-for-testing
+    periphery scan --project Sumika.xcodeproj --schemes Sumika --skip-build --index-store-path "{{derived_data}}/Index.noindex/DataStore" --retain-public --retain-codable-properties --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check

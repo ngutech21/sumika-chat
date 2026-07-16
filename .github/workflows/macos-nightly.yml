@@ -125,7 +125,7 @@ jobs:
 
       - name: Run app tests on macOS
         timeout-minutes: 20
-        run: just test-app
+        run: just test-app incremental
 
       - name: Run TSan
         timeout-minutes: 25
