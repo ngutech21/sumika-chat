@@ -216,8 +216,7 @@ enum NativeTranscriptSnapshotInvalidation {
     changedIDs: Set<String>
   ) -> IndexSet {
     let previousIDSet = Set(previousIDs)
-    let insertedIDs = currentIDs.filter { !previousIDSet.contains($0) }
-    let invalidatedIDs = changedIDs.union(insertedIDs)
+    let invalidatedIDs = changedIDs.intersection(previousIDSet)
     var indexes = IndexSet()
     for (index, id) in currentIDs.enumerated() where invalidatedIDs.contains(id) {
       indexes.insert(index)
@@ -489,7 +488,10 @@ enum NativeTranscriptRowMeasurer {
     reusing reusableCell: NativeChatMessageCellView? = nil
   ) -> CGFloat {
     ChatDiagnostics.measure("Transcript row measure", category: .transcript) {
-      NativeChatMessageCellView.measuredHeight(
+      if let userTextHeight = userTextHeight(for: row, width: width) {
+        return userTextHeight
+      }
+      return NativeChatMessageCellView.measuredHeight(
         for: row,
         width: width,
         state: state,
@@ -497,6 +499,40 @@ enum NativeTranscriptRowMeasurer {
         reusing: reusableCell
       )
     }
+  }
+
+  private static func userTextHeight(
+    for row: NativeTranscriptRow,
+    width: CGFloat
+  ) -> CGFloat? {
+    guard case .item(let item) = row.body,
+      case .userMessage(let message) = item.item,
+      message.attachments.isEmpty,
+      !message.content.isEmpty
+    else {
+      return nil
+    }
+
+    let contentHostWidth = min(item.nativeMaximumBubbleWidth, max(width - 44 - 80, 1))
+    let textWidth = max(contentHostWidth - 20, 1)
+    let textHeight = NativeTranscriptMarkdownRenderer.linkifiedPlainText(message.content)
+      .boundingRect(
+        with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
+        options: [.usesLineFragmentOrigin, .usesFontLeading]
+      ).height
+    let bubbleVerticalPadding: CGFloat = 16
+    let copyRowHeight: CGFloat = 18
+    let contentSpacing: CGFloat = 4
+    let cellVerticalPadding: CGFloat = 12
+    return ceil(
+      max(
+        44,
+        textHeight
+          + bubbleVerticalPadding
+          + copyRowHeight
+          + contentSpacing
+          + cellVerticalPadding
+      ))
   }
 
   private static func measuringActions(

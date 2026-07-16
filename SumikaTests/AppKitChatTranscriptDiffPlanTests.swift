@@ -42,6 +42,54 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func insertedMultilineUserRowUsesItsMeasuredHeightImmediately() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 552, height: 300))
+    scrollView.layoutSubtreeIfNeeded()
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    tableView.setFrameSize(NSSize(width: scrollView.contentSize.width, height: 300))
+    let content =
+      "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod "
+      + "tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero "
+      + "eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea "
+      + "takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, "
+      + "consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et "
+      + "dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo "
+      + "dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem "
+      + "ipsum dolor sit amet. last line 12345"
+    let userRow = nativeUserRow(id: "multiline-user", revision: 1, content: content)
+
+    coordinator.update(
+      rows: [userRow],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    scrollView.layoutSubtreeIfNeeded()
+    tableView.layoutSubtreeIfNeeded()
+
+    let bubbleTextWidth = max(scrollView.contentSize.width - 44 - 80 - 20, 1)
+    let requiredTextHeight = ceil(
+      NSAttributedString(
+        string: content,
+        attributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
+      ).boundingRect(
+        with: NSSize(width: bubbleTextWidth, height: .greatestFiniteMagnitude),
+        options: [.usesLineFragmentOrigin, .usesFontLeading]
+      ).height
+    )
+
+    #expect(tableView.rect(ofRow: 0).height >= requiredTextHeight + 28)
+  }
+
+  @Test
   func appendedAssistantRowDoesNotForceOutgoingScrollDecision() {
     let existingRow = nativeUserRow(id: "user", revision: 1)
     let appendedRow = nativeAssistantRow(id: "assistant", revision: 1)
@@ -55,14 +103,14 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
-  func snapshotHeightInvalidationOnlyTouchesInsertedAndChangedRows() {
+  func snapshotHeightInvalidationOnlyTouchesChangedExistingRows() {
     let rows = NativeTranscriptSnapshotInvalidation.rowIndexes(
       previousIDs: ["user", "assistant"],
       currentIDs: ["user", "tool", "assistant"],
       changedIDs: ["assistant"]
     )
 
-    #expect(rows == IndexSet([1, 2]))
+    #expect(rows == IndexSet([2]))
   }
 
   @Test
