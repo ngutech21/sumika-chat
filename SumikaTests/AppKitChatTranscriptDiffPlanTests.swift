@@ -1204,6 +1204,32 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func toolGenerationRateAppearsOnlyInExpandedDetails() throws {
+    let metrics = ChatGenerationMetrics(
+      generatedTokenCount: 493,
+      tokensPerSecond: 12.973,
+      durationMs: 38_000
+    )
+    let row = nativeToolRow(
+      id: "tool",
+      revision: 1,
+      record: nativeCompletedCommandToolRecord(),
+      generationMetrics: metrics
+    )
+    let cell = configuredNativeCell(for: row)
+
+    #expect(!cell.descendantTextValues.contains(metrics.visibleSummary))
+
+    cell.configure(
+      row: row,
+      state: NativeTranscriptCellState(isToolExpanded: true),
+      actions: testNativeActions()
+    )
+
+    #expect(cell.descendantTextValues.contains(metrics.visibleSummary))
+  }
+
+  @Test
   func toolDisclosureButtonStaysAfterToolHeaderTextWhenExpanded() throws {
     let record = nativeCompletedCommandToolRecord()
     let row = nativeToolRow(id: "tool", revision: 1, record: record)
@@ -2068,6 +2094,7 @@ private func nativeToolRow(
   id: String,
   revision: Int,
   record: ToolCallRecord = nativeToolRecord(),
+  generationMetrics: ChatGenerationMetrics? = nil,
   batchPresentation: ToolApprovalBatchPresentation? = nil
 ) -> NativeTranscriptRow {
   return NativeTranscriptRow(
@@ -2078,7 +2105,7 @@ private func nativeToolRow(
         id: id,
         item: .tool(record),
         toolCallRecord: record,
-        generationMetrics: nil,
+        generationMetrics: generationMetrics,
         assistantRenderBlocks: [],
         renderRevision: revision,
         toolBatchPresentation: batchPresentation

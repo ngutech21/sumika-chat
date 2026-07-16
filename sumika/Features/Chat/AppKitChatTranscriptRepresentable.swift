@@ -1640,6 +1640,7 @@ final class NativeChatMessageCellView: NSTableCellView {
   ) -> NSView {
     let stack = verticalStack(spacing: 7)
     let toolCall = record.transcriptToolCall
+    let hasDetails = record.hasNativeToolDetails || generationMetrics != nil
 
     let header = horizontalStack(spacing: 7)
     header.distribution = .fill
@@ -1653,7 +1654,7 @@ final class NativeChatMessageCellView: NSTableCellView {
       summaryLabel.maximumNumberOfLines = 1
       header.addArrangedSubview(summaryLabel)
     }
-    if record.hasNativeToolDetails {
+    if hasDetails {
       header.addArrangedSubview(
         makeIconButton(
           systemSymbolName: state.isToolExpanded ? "chevron.down" : "chevron.right",
@@ -1668,8 +1669,8 @@ final class NativeChatMessageCellView: NSTableCellView {
     stack.addArrangedSubview(header)
     header.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor).isActive = true
 
-    if state.isToolExpanded {
-      stack.addArrangedSubview(makeToolDetails(record: record))
+    if state.isToolExpanded, hasDetails {
+      stack.addArrangedSubview(makeToolDetails(record: record, metrics: generationMetrics))
     }
 
     if record.status == .awaitingApproval {
@@ -1722,14 +1723,10 @@ final class NativeChatMessageCellView: NSTableCellView {
       )
     }
 
-    if let generationMetrics {
-      stack.addArrangedSubview(makeSecondaryLabel(generationMetrics.nativeTokenRateSummary))
-    }
-
     return stack
   }
 
-  private func makeToolDetails(record: ToolCallRecord) -> NSView {
+  private func makeToolDetails(record: ToolCallRecord, metrics: ChatGenerationMetrics?) -> NSView {
     let stack = verticalStack(spacing: 5)
     let details = NativeToolDetailContent(record: record)
 
@@ -1762,6 +1759,10 @@ final class NativeChatMessageCellView: NSTableCellView {
 
     if !details.flags.isEmpty {
       stack.addArrangedSubview(makeSecondaryLabel(details.flags.joined(separator: " · ")))
+    }
+
+    if let metrics {
+      stack.addArrangedSubview(makeSecondaryLabel(metrics.visibleSummary))
     }
 
     return stack

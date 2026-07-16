@@ -479,6 +479,18 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func generationMetricsSummaryShowsTokenRate() {
+    let metrics = ChatGenerationMetrics(
+      generatedTokenCount: 493,
+      tokensPerSecond: 12.973,
+      durationMs: 38_000
+    )
+
+    #expect(metrics.visibleSummary.hasSuffix(" tok/s"))
+    #expect(!metrics.visibleSummary.contains("tokens ·"))
+  }
+
+  @Test
   func metricsAndToolStatusUpdatesDoNotReparseUnchangedAssistantContent() {
     let turnID = UUID()
     let assistantID = UUID()

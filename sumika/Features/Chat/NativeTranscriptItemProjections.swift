@@ -355,18 +355,6 @@ extension ToolCallStatus {
 
 extension ChatGenerationMetrics {
   var visibleSummary: String {
-    "\(generatedTokenCount) tokens · \(formattedDuration(durationMs))"
-  }
-
-  var nativeTokenRateSummary: String {
     "\(tokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tok/s"
-  }
-
-  private func formattedDuration(_ durationMs: Double) -> String {
-    let durationSeconds = durationMs / 1000
-    if durationSeconds < 10 {
-      return "\(durationSeconds.formatted(.number.precision(.fractionLength(1)))) s"
-    }
-    return "\(durationSeconds.formatted(.number.precision(.fractionLength(0)))) s"
   }
 }
