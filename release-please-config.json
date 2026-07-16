@@ -2,7 +2,6 @@
   "release-type": "simple",
   "include-v-in-tag": true,
   "include-component-in-tag": false,
-  "release-as": "1.3.0",
   "packages": {
     ".": {
       "package-name": "sumika"
