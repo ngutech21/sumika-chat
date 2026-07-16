@@ -1,25 +1,32 @@
 # Sumika
 
-A local-first macOS app for private, inspectable AI coding workflows on your own
-machine.
+A private AI assistant for your Mac, powered by local models and available
+without a recurring subscription.
 
 [![CI](https://github.com/ngutech21/sumika-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/ci.yml)
 [![MacOS Nightly](https://github.com/ngutech21/sumika-chat/actions/workflows/macos-nightly.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/macos-nightly.yml)
 [![Actions Lint](https://github.com/ngutech21/sumika-chat/actions/workflows/actions-lint.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/actions-lint.yml)
 [![Spelling](https://github.com/ngutech21/sumika-chat/actions/workflows/spelling.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/spelling.yml)
 
-Sumika helps you explore, change, and run local projects without handing
-your workspace to a cloud agent. You choose the context, review each action, and
-keep the conversation on your Mac.
+Use Sumika to write, translate, summarize, research, and work with your own
+files. When you want it to do more than chat, Agent mode can use approved tools
+and connect to local apps. Your conversations and model execution stay on your
+Mac, and you remain in control of every action.
 
 ## Highlights
 
+- 💬 **Everyday AI assistance**: write, brainstorm, translate, summarize,
+  research, and ask questions without needing a technical background.
 - 🏠 **Local by default**: run LLMs through MLX and keep model execution,
   workspace context, and speech workflows on your Mac.
+- 🌟 **No recurring subscription**: use local models without paying for a
+  hosted AI assistant plan.
 - 🧭 **Explicit context**: attach files, focus workspace context, and inspect
   what the model sees before the workflow grows opaque.
-- 🛠 **Agent with brakes**: let Sumika read files, write code, run commands, and
-  inspect diffs through typed tools with review states.
+- 🛠 **An agent that asks first**: let Sumika work with files, use connected
+  tools, and run commands while you review sensitive actions.
+- 🧩 **Connect local apps**: extend Agent mode through Model Context
+  Protocol (MCP) servers and choose the integrations available to each session.
 - ✅ **Review before action**: writes, edits, shell commands, and web access pass
   through approval instead of running as hidden automation.
 - 🌐 **Bring your own search**: connect a self-hosted SearXNG instance or use the
@@ -31,9 +38,25 @@ keep the conversation on your Mac.
 - 🖥 **Build and preview locally**: create small apps, prototypes, and HTML
   experiments, then inspect them beside the chat.
 - 🗣 **Speak and dictate**: listen to assistant responses with Apple system voices
-  and dictate prompts with local English or multilingual speech models.
+  and turn speech into prompts with local English or multilingual transcription
+  models.
+- 🔄 **Update checks built in**: automatically check for signed releases and
+  install them through the native Sparkle update flow.
 - 🧾 **Inspectable transcript**: keep prompts, assistant responses, tool calls,
   approvals, and command output visible in the chat.
+
+## Install Sumika
+
+1. Download the latest `Sumika-*-macos.dmg` from the
+   [GitHub Releases page](https://github.com/ngutech21/sumika-chat/releases/latest).
+2. Open the downloaded DMG and drag **Sumika** into **Applications**.
+3. Start Sumika from the Applications folder and download a local model from
+   the Models screen.
+
+Release downloads are signed and notarized for macOS. Once installed, Sumika
+checks automatically for new versions. When an update is available, the app
+guides you through installing it, so you do not need to download another DMG.
+You can also check manually from **Sumika > Check for Updates…**.
 
 ## Screenshots
 
@@ -60,41 +83,46 @@ chat into a cloud workflow.
 
 ## What You Can Do
 
-- Ask questions about a workspace and keep the model-facing context explicit.
+- Write and refine text, brainstorm ideas, translate languages, and summarize
+  longer content.
+- Ask questions about your own files and choose what the model can see.
+- Research topics on the public web through reviewable search and fetch tools.
+- Connect local apps and services through configured MCP integrations when you
+  want Sumika to take action beyond the chat.
+- Let the agent read, organize, search, and update local project files while you
+  review sensitive actions.
 - Build small apps, scripts, games, and UI prototypes in short, reviewable
   steps.
-- Let the agent read, list, search, and summarize local workspace files.
 - Review generated file writes, file edits, shell commands, and workspace diffs
   before they run.
-- Search and fetch the public web through policy-gated tools, using DuckDuckGo,
-  a self-hosted SearXNG instance, the built-in fetcher, or self-hosted
-  Firecrawl.
 - Use the integrated terminal and browser preview while working through an agent
   task.
 - Open local HTML previews and inspect browser state while iterating.
-- Dictate prompts instead of typing them.
+- Transcribe speech locally and dictate prompts in English, German, and other
+  supported European languages instead of typing them.
 - Listen to assistant responses with installed Apple voices.
+- Receive automatic update checks and install signed releases from the app.
 - Follow prompts, assistant responses, tool calls, approvals, and command output
   in one visible transcript.
 
 ## Interaction Modes
 
-Sumika keeps tool access explicit. The composer has a manual mode per chat
-session:
+Choose how much Sumika can do in each conversation:
 
-- **Chat**: normal conversation with public web tools only. No workspace tools,
-  shell commands, local file access, or writes.
-- **Agent**: coding workflow with workspace tools, write/edit tools, shell
-  execution, browser preview tools, and approval flow.
+- **Chat**: talk, write, translate, summarize, and research the public web. Chat
+  mode cannot access local files, run commands, or make changes.
+- **Agent**: let Sumika work with a selected folder, connected tools, commands,
+  and browser previews. Sensitive actions remain subject to approval.
 
-Mode is product state, not prompt magic. Sumika does not infer local tool access
-from wording alone.
+You select the mode yourself. Sumika never grants itself access because of how
+a prompt is worded.
 
 ## No Cloud Account Required
 
-Sumika is built for local-first work, not a hosted assistant subscription.
+Sumika is designed as a private alternative to subscription-based cloud
+assistants.
 
-- No subscription or hosted workspace account is required to use the app.
+- No recurring AI subscription or hosted workspace account is required.
 - No telemetry, prompts, transcripts, commands, or workspace contents are
   exported by the app.
 - Model execution, chat history, speech output, and dictation stay on your Mac.
@@ -111,17 +139,27 @@ Sumika includes two local voice surfaces:
 - **Assistant speech** adds play controls to completed text responses. It uses
   Apple system voices installed on the Mac, supports language and voice
   selection, and lets you tune speech rate.
-- **Composer dictation** records prompts locally. The default model is a small,
-  fast English model; a larger multilingual Parakeet model is available for
-  German and other European languages.
+- **Speech-to-text and composer dictation** record and transcribe prompts on the
+  Mac. Choose the small, fast English model for English prompts or the larger
+  multilingual Parakeet model to capture prompts in German and other supported
+  European languages.
+
+## MCP Servers
+
+The Model Context Protocol (MCP) lets AI assistants use tools provided by other
+apps and services. Configure MCP servers globally in Settings using stdio or
+Streamable HTTP, then choose the servers available to each Agent session from
+the composer. MCP tools stay out of Chat mode, and every MCP tool call requires
+approval before execution.
 
 ## Why Local First
 
-Many agent products assume cloud models, opaque context selection, and broad
-implicit access to your data or tools. Sumika explores a different
-direction:
+Most AI assistants send conversations to cloud models and charge a recurring
+subscription. Sumika takes a different approach:
 
 - Local-first model execution on macOS
+- Everyday assistance without requiring technical knowledge
+- No recurring AI subscription
 - User-controlled workspace context
 - Reviewable agent steps instead of hidden automation
 - Approval-gated tool and shell execution
@@ -136,9 +174,9 @@ they see, and reviewable before they act.
 
 ## Project Status
 
-Sumika is an unreleased prototype. It is useful for experimentation and
-local coding workflows, but APIs, persisted data, and workflows are still
-changing.
+Sumika is an evolving prototype. It is useful for local conversations, everyday
+AI assistance, and agent workflows, but APIs, persisted data, and workflows are
+still changing.
 
 ## Architecture
 
