@@ -82,6 +82,10 @@ struct NativeTranscriptRow: Equatable, Identifiable {
     return item.isStreamingAssistantThinkingMessage
   }
 
+  var isStreamingTranscriptRow: Bool {
+    isStreamingAssistantMessage || isStreamingAssistantThinkingMessage
+  }
+
   var cellKind: NativeTranscriptCellKind {
     switch body {
     case .generationIndicator:

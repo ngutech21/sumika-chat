@@ -1,12 +1,13 @@
-# Sumika
-
-A private AI assistant for your Mac, powered by local models and available
-without a recurring subscription.
 
 [![CI](https://github.com/ngutech21/sumika-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/ci.yml)
 [![MacOS Nightly](https://github.com/ngutech21/sumika-chat/actions/workflows/macos-nightly.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/macos-nightly.yml)
 [![Actions Lint](https://github.com/ngutech21/sumika-chat/actions/workflows/actions-lint.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/actions-lint.yml)
 [![Spelling](https://github.com/ngutech21/sumika-chat/actions/workflows/spelling.yml/badge.svg)](https://github.com/ngutech21/sumika-chat/actions/workflows/spelling.yml)
+
+# Sumika
+
+A private AI assistant for your Mac, powered by local models and available
+without a recurring subscription.
 
 Use Sumika to write, translate, summarize, research, and work with your own
 files. When you want it to do more than chat, Agent mode can use approved tools

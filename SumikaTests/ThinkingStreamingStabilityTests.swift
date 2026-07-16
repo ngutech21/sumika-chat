@@ -41,6 +41,8 @@ struct ThinkingStreamingStabilityTests {
       )
       coordinator.flushPendingHeightInvalidationForTesting()
       tableView.layoutSubtreeIfNeeded()
+      coordinator.flushPendingStreamingHeightUpdateForTesting()
+      tableView.layoutSubtreeIfNeeded()
     }
 
     applyAndFlush()
@@ -105,6 +107,8 @@ struct ThinkingStreamingStabilityTests {
       )
       coordinator.flushPendingHeightInvalidationForTesting()
       tableView.layoutSubtreeIfNeeded()
+      coordinator.flushPendingStreamingHeightUpdateForTesting()
+      tableView.layoutSubtreeIfNeeded()
     }
 
     applyAndFlush()
@@ -154,6 +158,8 @@ struct ThinkingStreamingStabilityTests {
         in: scrollView
       )
       coordinator.flushPendingHeightInvalidationForTesting()
+      tableView.layoutSubtreeIfNeeded()
+      coordinator.flushPendingStreamingHeightUpdateForTesting()
       tableView.layoutSubtreeIfNeeded()
     }
 

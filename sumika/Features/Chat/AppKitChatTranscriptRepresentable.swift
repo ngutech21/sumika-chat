@@ -92,6 +92,11 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private var pendingHeightInvalidationReasons = Set<String>()
   private var pendingHeightInvalidationWorkItem: DispatchWorkItem?
   private var shouldScrollAfterHeightInvalidation = false
+  private var pendingMeasuredHeightByRowID: [String: CGFloat] = [:]
+  private var lastNotedHeightByRowID: [String: CGFloat] = [:]
+  private var pendingStreamingRowIDs = Set<String>()
+  private var streamingRowsBeingCommitted = Set<String>()
+  private var streamingHeightWorkItem: DispatchWorkItem?
 
   init(
     onToggleSpeech: @escaping (String, String) -> Void,
@@ -151,6 +156,9 @@ extension NativeChatTranscriptCoordinator {
         tableView.makeView(withIdentifier: cellIdentifier, owner: self)
         as? NativeChatMessageCellView
         ?? NativeChatMessageCellView(identifier: cellIdentifier)
+      cell.onMeasuredHeight = { [weak self] rowID, height in
+        self?.recordMeasuredStreamingHeight(height, rowID: rowID)
+      }
       if let row = rowsByID[itemID] {
         configure(cell, with: row)
       }
@@ -242,6 +250,16 @@ extension NativeChatTranscriptCoordinator {
         scrollView.setAccessibilityValue(accessibilityValue)
       }
       let didChangeColumnWidth = updateColumnWidth(in: scrollView)
+      if didChangeColumnWidth {
+        resetStreamingHeightStateForWidthChange(activeRowIDs: Set(newRowIDs))
+      } else {
+        resetStreamingHeightState(
+          for: Set(
+            speechStateChangedIDs.filter {
+              rowsByID[$0]?.isStreamingTranscriptRow == true
+            })
+        )
+      }
 
       switch plan.action {
       case .snapshot:
@@ -272,16 +290,18 @@ extension NativeChatTranscriptCoordinator {
         let streamingMessageChangedIDs = streamingAssistantMessageRowIDs(in: plan.changedIDs)
         let streamingThinkingChangedIDs = streamingAssistantThinkingRowIDs(in: plan.changedIDs)
         let streamingChangedIDs = streamingMessageChangedIDs.union(streamingThinkingChangedIDs)
-        let shouldDeferPinnedScroll =
-          wasPinnedToBottom
-          && !streamingChangedIDs.isEmpty
-          && streamingChangedIDs == plan.changedIDs
-          && speechStateChangedIDs.isEmpty
-          && toolActionStateChangedIDs.isEmpty
-          && !didChangeColumnWidth
+        let deferredStreamingIDs =
+          didChangeColumnWidth
+          ? Set<String>()
+          : streamingChangedIDs
+            .subtracting(speechStateChangedIDs)
+            .subtracting(toolActionStateChangedIDs)
+        let immediateReconfiguredIDs = reconfiguredIDs.subtracting(deferredStreamingIDs)
+        let immediateChangedIDs = plan.changedIDs.subtracting(deferredStreamingIDs)
 
-        reconfigureVisibleRows(changedIDs: reconfiguredIDs)
-        var invalidationRows = rowIndexes(for: reconfiguredIDs)
+        reconfigureVisibleRows(changedIDs: immediateReconfiguredIDs)
+        scheduleStreamingHeightUpdate(for: deferredStreamingIDs)
+        var invalidationRows = rowIndexes(for: immediateReconfiguredIDs)
         if didChangeColumnWidth {
           invalidationRows.formUnion(IndexSet(integersIn: 0..<newRowIDs.count))
         }
@@ -289,23 +309,19 @@ extension NativeChatTranscriptCoordinator {
           for: invalidationRows,
           reason: heightInvalidationReason(
             didChangeColumnWidth: didChangeColumnWidth,
-            streamingMessageChangedIDs: streamingMessageChangedIDs,
-            streamingThinkingChangedIDs: streamingThinkingChangedIDs,
+            streamingMessageChangedIDs: streamingMessageChangedIDs.subtracting(
+              deferredStreamingIDs),
+            streamingThinkingChangedIDs: streamingThinkingChangedIDs.subtracting(
+              deferredStreamingIDs),
             speechStateChangedIDs: speechStateChangedIDs,
-            changedIDs: plan.changedIDs
+            changedIDs: immediateChangedIDs
           ),
-          // Re-anchor the pinned viewport on every flush that changed rows —
-          // including streaming thinking growth. Skipping the scroll only for
-          // thinking rows made the anchor alternate between "stay" and "jump
-          // to bottom" across flushes, which reads as the reasoning block
-          // hopping up and down.
+          // Re-anchor generic invalidations that changed rows. Pure streaming
+          // growth checks the current pin state in its atomic 100ms commit.
           scrollToBottomAfterFlush: wasPinnedToBottom
-            && (!plan.changedIDs.isEmpty || didChangeColumnWidth)
+            && (!immediateChangedIDs.isEmpty || didChangeColumnWidth)
         )
-        let hasRowChanges = !plan.changedIDs.isEmpty
-        if shouldScrollAfterAppend
-          || (wasPinnedToBottom && hasRowChanges && !shouldDeferPinnedScroll)
-        {
+        if shouldScrollAfterAppend || (wasPinnedToBottom && !immediateChangedIDs.isEmpty) {
           scrollToBottom(scrollView)
         }
         return
@@ -383,8 +399,13 @@ extension NativeChatTranscriptCoordinator: NSTableViewDelegate {
       guard row >= 0, row < rowIDs.count, let rowModel = rowsByID[rowIDs[row]] else {
         return 44
       }
+      if rowModel.isStreamingTranscriptRow,
+        let notedHeight = lastNotedHeightByRowID[rowModel.id]
+      {
+        return notedHeight
+      }
       let width = max(tableView?.bounds.width ?? 680, 320)
-      return heightCache.height(
+      let measuredHeight = heightCache.height(
         for: rowModel,
         width: width,
         state: cellStateStore.state(
@@ -399,6 +420,10 @@ extension NativeChatTranscriptCoordinator: NSTableViewDelegate {
           return self.markdownCache.blocks(for: markdown)
         }
       )
+      if rowModel.isStreamingTranscriptRow {
+        lastNotedHeightByRowID[rowModel.id] = measuredHeight
+      }
+      return measuredHeight
     }
   }
 
@@ -672,6 +697,7 @@ extension NativeChatTranscriptCoordinator {
   }
 
   private func applyInteractiveHeightChange(rowID: String, isExpanded: Bool) {
+    resetStreamingHeightState(for: [rowID])
     heightCache.invalidate(rowID: rowID)
     let rowIndexes = rowIndexes(for: [rowID])
     if isExpanded {
@@ -762,6 +788,199 @@ extension NativeChatTranscriptCoordinator {
         configure(cell, with: rowModel)
       }
     }
+  }
+
+  private func scheduleStreamingHeightUpdate(for rowIDs: Set<String>) {
+    guard !rowIDs.isEmpty else {
+      return
+    }
+    pendingStreamingRowIDs.formUnion(rowIDs)
+
+    // A pure streaming revision now owns both the visible reconfigure and its
+    // height commit. Do not let an older generic invalidation remeasure it by
+    // revision before that atomic commit runs.
+    pendingHeightInvalidationRows.subtract(rowIndexes(for: rowIDs))
+    if pendingHeightInvalidationRows.isEmpty {
+      pendingHeightInvalidationWorkItem?.cancel()
+      pendingHeightInvalidationWorkItem = nil
+      pendingHeightInvalidationReasons.removeAll()
+      shouldScrollAfterHeightInvalidation = false
+    }
+
+    guard streamingHeightWorkItem == nil else {
+      return
+    }
+    let workItem = DispatchWorkItem { [weak self] in
+      Task { @MainActor in
+        self?.flushStreamingHeightUpdate()
+      }
+    }
+    streamingHeightWorkItem = workItem
+    // Leading, non-starving coalescing: later revisions update rowsByID but do
+    // not move this deadline, so continuous streaming still commits at 10 Hz.
+    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100), execute: workItem)
+  }
+
+  private func recordMeasuredStreamingHeight(_ height: CGFloat, rowID: String) {
+    guard height.isFinite,
+      let row = rowsByID[rowID],
+      row.isStreamingTranscriptRow
+    else {
+      return
+    }
+    pendingMeasuredHeightByRowID[rowID] = ceil(max(44, height))
+    if !streamingRowsBeingCommitted.contains(rowID) {
+      scheduleStreamingHeightUpdate(for: [rowID])
+    }
+  }
+
+  private func flushStreamingHeightUpdate() {
+    let committingRowIDs = pendingStreamingRowIDs
+    pendingStreamingRowIDs.removeAll()
+    streamingHeightWorkItem = nil
+    guard let tableView, !committingRowIDs.isEmpty else {
+      for rowID in committingRowIDs {
+        pendingMeasuredHeightByRowID[rowID] = nil
+      }
+      return
+    }
+
+    // These values belong to the previous visible layout. Only measurements
+    // produced by the latest rowsByID models in this commit may be promoted.
+    for rowID in committingRowIDs {
+      pendingMeasuredHeightByRowID[rowID] = nil
+    }
+    let scrollView = tableView.enclosingScrollView
+    let wasPinnedToBottom = scrollView.map(isPinnedToBottom) ?? false
+
+    streamingRowsBeingCommitted = committingRowIDs
+    reconfigureVisibleRows(changedIDs: committingRowIDs)
+    layoutVisibleRows(withIDs: committingRowIDs, in: tableView)
+    streamingRowsBeingCommitted.removeAll()
+
+    var changedRows = IndexSet()
+    for rowID in committingRowIDs {
+      defer {
+        pendingMeasuredHeightByRowID[rowID] = nil
+      }
+      guard let measuredHeight = pendingMeasuredHeightByRowID[rowID],
+        let rowIndex = rowIDs.firstIndex(of: rowID),
+        rowsByID[rowID]?.isStreamingTranscriptRow == true
+      else {
+        continue
+      }
+      let notedHeight = lastNotedHeightByRowID[rowID] ?? tableView.rect(ofRow: rowIndex).height
+      if lastNotedHeightByRowID[rowID] == nil {
+        lastNotedHeightByRowID[rowID] = notedHeight
+      }
+      guard abs(measuredHeight - notedHeight) >= 0.5 else {
+        continue
+      }
+
+      // Promote before noteHeightOfRows. Its reentrant heightOfRow callback must
+      // observe only the committed value, never pending measurement state.
+      lastNotedHeightByRowID[rowID] = measuredHeight
+      changedRows.insert(rowIndex)
+    }
+
+    guard !changedRows.isEmpty else {
+      return
+    }
+    ChatDiagnostics.measure(
+      "Transcript streaming height commit",
+      category: .transcript,
+      metadata: heightInvalidationMetadata(rowIndexes: changedRows, reason: "streamingCommit")
+    ) {
+      noteHeightOfRowsWithoutAnimation(tableView, rowIndexes: changedRows)
+    }
+    tableView.layoutSubtreeIfNeeded()
+    guard wasPinnedToBottom, let scrollView else {
+      return
+    }
+    scrollView.tile()
+    scrollToBottomImmediately(scrollView)
+  }
+
+  private func layoutVisibleRows(withIDs rowIDsToLayout: Set<String>, in tableView: NSTableView) {
+    let visibleRows = tableView.rows(in: tableView.visibleRect)
+    guard visibleRows.location != NSNotFound else {
+      return
+    }
+    for row in visibleRows.location..<(visibleRows.location + visibleRows.length) {
+      guard row >= 0, row < rowIDs.count, rowIDsToLayout.contains(rowIDs[row]),
+        let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+          as? NativeChatMessageCellView
+      else {
+        continue
+      }
+      cell.layoutSubtreeIfNeeded()
+    }
+  }
+
+  private func resetStreamingHeightStateForWidthChange(activeRowIDs: Set<String>) {
+    streamingHeightWorkItem?.cancel()
+    streamingHeightWorkItem = nil
+    pendingStreamingRowIDs.removeAll()
+    pendingMeasuredHeightByRowID.removeAll()
+    lastNotedHeightByRowID.removeAll()
+    streamingRowsBeingCommitted.removeAll()
+    for rowID in activeRowIDs {
+      heightCache.invalidate(rowID: rowID)
+    }
+  }
+
+  private func resetStreamingHeightState(for rowIDsToReset: Set<String>) {
+    pendingStreamingRowIDs.subtract(rowIDsToReset)
+    streamingRowsBeingCommitted.subtract(rowIDsToReset)
+    for rowID in rowIDsToReset {
+      pendingMeasuredHeightByRowID[rowID] = nil
+      lastNotedHeightByRowID[rowID] = nil
+    }
+    if pendingStreamingRowIDs.isEmpty {
+      streamingHeightWorkItem?.cancel()
+      streamingHeightWorkItem = nil
+    }
+  }
+
+  // Test-only: the 100ms main-queue hop cannot be drained from inside a
+  // main-actor test body.
+  // swiftlint:disable:next unused_declaration
+  func flushPendingStreamingHeightUpdateForTesting() {
+    guard let workItem = streamingHeightWorkItem else {
+      return
+    }
+    workItem.cancel()
+    flushStreamingHeightUpdate()
+  }
+
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
+  var pendingMeasuredHeightByRowIDForTesting: [String: CGFloat] {
+    pendingMeasuredHeightByRowID
+  }
+
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
+  var lastNotedHeightByRowIDForTesting: [String: CGFloat] {
+    lastNotedHeightByRowID
+  }
+
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
+  var pendingStreamingRowIDsForTesting: Set<String> {
+    pendingStreamingRowIDs
+  }
+
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
+  var hasPendingStreamCommitForTesting: Bool {
+    streamingHeightWorkItem != nil
+  }
+
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
+  func stageMeasuredStreamingHeightForTesting(_ height: CGFloat, rowID: String) {
+    pendingMeasuredHeightByRowID[rowID] = height
   }
 
   private func scheduleHeightInvalidation(
@@ -956,8 +1175,23 @@ extension NativeChatTranscriptCoordinator {
 
   private func pruneCoordinatorState(activeRows: [NativeTranscriptRow]) {
     let activeRowIDs = Set(activeRows.map(\.id))
+    let activeStreamingRowIDs = Set(
+      activeRows.filter(\.isStreamingTranscriptRow).map(\.id)
+    )
     cellStateStore.prune(activeRowIDs: activeRowIDs)
     heightCache.prune(activeRows: activeRows)
+    pendingMeasuredHeightByRowID = pendingMeasuredHeightByRowID.filter {
+      activeStreamingRowIDs.contains($0.key)
+    }
+    lastNotedHeightByRowID = lastNotedHeightByRowID.filter {
+      activeStreamingRowIDs.contains($0.key)
+    }
+    pendingStreamingRowIDs.formIntersection(activeStreamingRowIDs)
+    streamingRowsBeingCommitted.formIntersection(activeStreamingRowIDs)
+    if pendingStreamingRowIDs.isEmpty {
+      streamingHeightWorkItem?.cancel()
+      streamingHeightWorkItem = nil
+    }
     markdownCache.prune(activeTexts: activeMarkdownTexts(in: activeRows))
     codeHighlightStore.prune(activeDescriptors: activeCodeHighlightDescriptors(in: activeRows))
     attachmentThumbnailStore.prune(
@@ -1040,9 +1274,12 @@ final class NativeChatMessageCellView: NSTableCellView {
   private var hostedContentView: NSView?
   private var configuredRowID: String?
   private var configuredKind: NativeTranscriptCellKind?
+  private var pendingMeasuredRowID: String?
+  private var isReportingMeasuredHeight = false
   private var alignmentConstraints: [NSLayoutConstraint] = []
   fileprivate var actions: NativeTranscriptCellActions?
   private var askUserPopUpButton: NSPopUpButton?
+  var onMeasuredHeight: ((String, CGFloat) -> Void)?
 
   // Test-only; exercised through @testable import.
   // swiftlint:disable:next unused_declaration
@@ -1093,10 +1330,18 @@ final class NativeChatMessageCellView: NSTableCellView {
     fatalError("init(coder:) has not been implemented")
   }
 
+  override func layout() {
+    super.layout()
+    reportMeasuredHeightIfNeeded()
+  }
+
   override func prepareForReuse() {
     super.prepareForReuse()
     actions = nil
     askUserPopUpButton = nil
+    onMeasuredHeight = nil
+    pendingMeasuredRowID = nil
+    isReportingMeasuredHeight = false
     configuredRowID = nil
     configuredKind = nil
     clearHostedContent()
@@ -1109,6 +1354,13 @@ final class NativeChatMessageCellView: NSTableCellView {
   ) {
     self.actions = actions
     askUserPopUpButton = nil
+    pendingMeasuredRowID = nil
+    defer {
+      if row.isStreamingTranscriptRow {
+        pendingMeasuredRowID = row.id
+        needsLayout = true
+      }
+    }
     let kind = row.cellKind
 
     if configuredRowID == row.id,
@@ -1152,14 +1404,6 @@ final class NativeChatMessageCellView: NSTableCellView {
     configuredKind = kind
     updateAlignment(for: row.body)
     updateAccessibility(for: row)
-  }
-
-  private func updateAccessibility(for row: NativeTranscriptRow) {
-    ChatDiagnostics.measure("Transcript cell accessibility", category: .transcript) {
-      setAccessibilityElement(true)
-      setAccessibilityIdentifier(row.accessibilityIdentifier)
-      setAccessibilityLabel(row.accessibilityLabel)
-    }
   }
 
   private func setupContentHost() {
@@ -1683,6 +1927,36 @@ final class NativeChatMessageCellView: NSTableCellView {
 }
 
 extension NativeChatMessageCellView {
+  private func reportMeasuredHeightIfNeeded() {
+    guard let onMeasuredHeight,
+      let measuredRowID = pendingMeasuredRowID,
+      configuredRowID == measuredRowID,
+      superview != nil,
+      !isHidden,
+      bounds.width > 0,
+      !isReportingMeasuredHeight
+    else {
+      return
+    }
+
+    pendingMeasuredRowID = nil
+    isReportingMeasuredHeight = true
+    let measuredHeight = ceil(max(44, fittingSize.height))
+    isReportingMeasuredHeight = false
+    guard measuredHeight.isFinite, configuredRowID == measuredRowID else {
+      return
+    }
+    onMeasuredHeight(measuredRowID, measuredHeight)
+  }
+
+  private func updateAccessibility(for row: NativeTranscriptRow) {
+    ChatDiagnostics.measure("Transcript cell accessibility", category: .transcript) {
+      setAccessibilityElement(true)
+      setAccessibilityIdentifier(row.accessibilityIdentifier)
+      setAccessibilityLabel(row.accessibilityLabel)
+    }
+  }
+
   fileprivate func makeCopyIconButton(rowID: String, content: String, isCopied: Bool) -> NSButton {
     makeIconButton(
       systemSymbolName: isCopied ? "checkmark" : "doc.on.doc",

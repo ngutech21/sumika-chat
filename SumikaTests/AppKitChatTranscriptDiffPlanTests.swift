@@ -233,6 +233,210 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func streamingRevisionCommitsOnlyLatestVisibleModelAndPromotesItsHeight() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 420, height: 300))
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    let initialContent = "Initial streaming text."
+    let initialRow = nativeStreamingAssistantRow(
+      id: "assistant",
+      revision: 1,
+      content: initialContent
+    )
+
+    coordinator.update(
+      rows: [initialRow],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    coordinator.flushPendingHeightInvalidationForTesting()
+    tableView.layoutSubtreeIfNeeded()
+    coordinator.flushPendingStreamingHeightUpdateForTesting()
+    tableView.layoutSubtreeIfNeeded()
+
+    let cell = try #require(
+      tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        as? NativeChatMessageCellView
+    )
+    let initialNotedHeight = try #require(
+      coordinator.lastNotedHeightByRowIDForTesting[initialRow.id]
+    )
+    let intermediateRow = nativeStreamingAssistantRow(
+      id: initialRow.id,
+      revision: 2,
+      content: "Intermediate content that must never be drawn."
+    )
+    let latestContent =
+      String(
+        repeating: "Latest streaming content wraps across several lines. ",
+        count: 24
+      ) + "LATEST"
+    let latestRow = nativeStreamingAssistantRow(
+      id: initialRow.id,
+      revision: 3,
+      content: latestContent
+    )
+
+    coordinator.update(
+      rows: [intermediateRow],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    coordinator.update(
+      rows: [latestRow],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+
+    #expect(coordinator.pendingStreamingRowIDsForTesting == [initialRow.id])
+    #expect(cell.descendantTextValues.contains(initialContent))
+    #expect(cell.descendantTextValues.contains { $0.contains("LATEST") } == false)
+    #expect(coordinator.lastNotedHeightByRowIDForTesting[initialRow.id] == initialNotedHeight)
+
+    coordinator.flushPendingStreamingHeightUpdateForTesting()
+    tableView.layoutSubtreeIfNeeded()
+
+    let committedHeight = try #require(
+      coordinator.lastNotedHeightByRowIDForTesting[initialRow.id]
+    )
+    #expect(cell.descendantTextValues.contains { $0.contains("LATEST") })
+    #expect(coordinator.pendingStreamingRowIDsForTesting.isEmpty)
+    #expect(coordinator.pendingMeasuredHeightByRowIDForTesting.isEmpty)
+    #expect(committedHeight > initialNotedHeight)
+    #expect(abs(tableView.rect(ofRow: 0).height - committedHeight) < 0.5)
+  }
+
+  @Test
+  func heightOfRowIgnoresPendingStreamingMeasurementUntilPromotion() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 640, height: 300))
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    let row = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Streaming")
+
+    coordinator.update(
+      rows: [row],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    coordinator.flushPendingHeightInvalidationForTesting()
+    tableView.layoutSubtreeIfNeeded()
+    coordinator.flushPendingStreamingHeightUpdateForTesting()
+    tableView.layoutSubtreeIfNeeded()
+    let notedHeight = try #require(coordinator.lastNotedHeightByRowIDForTesting[row.id])
+
+    coordinator.stageMeasuredStreamingHeightForTesting(notedHeight + 100, rowID: row.id)
+
+    #expect(coordinator.tableView(tableView, heightOfRow: 0) == notedHeight)
+    #expect(coordinator.lastNotedHeightByRowIDForTesting[row.id] == notedHeight)
+  }
+
+  @Test
+  func widthChangeCancelsPendingStreamingCommitAndClearsOldMeasurements() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 640, height: 300))
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    let initialRow = nativeStreamingAssistantRow(
+      id: "assistant",
+      revision: 1,
+      content: "Initial"
+    )
+
+    coordinator.update(
+      rows: [initialRow],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    coordinator.flushPendingHeightInvalidationForTesting()
+    tableView.layoutSubtreeIfNeeded()
+    coordinator.flushPendingStreamingHeightUpdateForTesting()
+    tableView.layoutSubtreeIfNeeded()
+
+    let revisedRow = nativeStreamingAssistantRow(
+      id: initialRow.id,
+      revision: 2,
+      content: String(repeating: "Growing content. ", count: 12)
+    )
+    coordinator.update(
+      rows: [revisedRow],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    #expect(coordinator.hasPendingStreamCommitForTesting)
+
+    scrollView.setFrameSize(NSSize(width: 520, height: 300))
+    coordinator.update(
+      rows: [revisedRow],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+
+    #expect(coordinator.hasPendingStreamCommitForTesting == false)
+    #expect(coordinator.pendingStreamingRowIDsForTesting.isEmpty)
+    #expect(coordinator.pendingMeasuredHeightByRowIDForTesting.isEmpty)
+    #expect(coordinator.lastNotedHeightByRowIDForTesting.isEmpty)
+  }
+
+  @Test
+  func cellHeightReportUsesOnlyTheCurrentlyConfiguredRowID() {
+    let host = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 300))
+    let cell = NativeChatMessageCellView(
+      identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
+    )
+    cell.frame = host.bounds
+    host.addSubview(cell)
+    var reportedRowIDs: [String] = []
+    cell.onMeasuredHeight = { rowID, _ in
+      reportedRowIDs.append(rowID)
+    }
+    let firstRow = nativeStreamingAssistantRow(id: "first", revision: 1, content: "First")
+    let secondRow = nativeStreamingAssistantRow(id: "second", revision: 1, content: "Second")
+
+    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    cell.configure(row: secondRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    host.layoutSubtreeIfNeeded()
+    cell.layoutSubtreeIfNeeded()
+
+    #expect(reportedRowIDs == [secondRow.id])
+
+    cell.prepareForReuse()
+    cell.configure(row: firstRow, state: NativeTranscriptCellState(), actions: testNativeActions())
+    cell.layoutSubtreeIfNeeded()
+    #expect(reportedRowIDs == [secondRow.id])
+  }
+
+  @Test
   func heightCacheReusesMeasuringCellForStreamingRevisions() throws {
     var cache = NativeTranscriptHeightCache()
     let shortRow = nativeStreamingAssistantRow(id: "assistant", revision: 1, content: "Hello")
