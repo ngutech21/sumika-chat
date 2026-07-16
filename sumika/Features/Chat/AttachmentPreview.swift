@@ -15,7 +15,9 @@ struct AttachmentPreview: View {
   var body: some View {
     HStack(spacing: 7) {
       thumbnail
-      attachmentName
+      if attachment.kind != .image {
+        attachmentName
+      }
 
       if let onRemove {
         Button {

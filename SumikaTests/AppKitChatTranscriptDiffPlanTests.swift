@@ -1048,7 +1048,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
-  func userImageAttachmentRendersOutsideMessageBubbleAsButton() {
+  func userImageAttachmentRendersOutsideMessageBubbleWithoutFilename() {
     let row = nativeUserRow(
       id: "user-image-attachment-button",
       revision: 1,
@@ -1068,6 +1068,7 @@ struct AppKitChatTranscriptDiffPlanTests {
     #expect(messageBubble != nil)
     if let imageButton, let messageBubble {
       #expect(!imageButton.isDescendant(of: messageBubble))
+      #expect(imageButton.descendants(of: NSTextField.self).isEmpty)
     }
   }
 

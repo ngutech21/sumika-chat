@@ -2191,26 +2191,13 @@ extension NativeChatMessageCellView {
 
   fileprivate func makeImageAttachmentPreview(_ attachment: ChatAttachment, rowID: String) -> NSView
   {
-    let stack = verticalStack(spacing: 0)
-    stack.alignment = .leading
     let maxPixelSize = NativeTranscriptAttachmentPreviewMetrics.maxImagePixelSize
     actions?.requestAttachmentThumbnail(rowID, attachment, maxPixelSize)
     let imageView = makeAttachmentImageView(
       actions?.attachmentThumbnail(attachment, maxPixelSize)
     )
-    stack.addArrangedSubview(imageView)
 
-    let nameLabel = makeSecondaryLabel(attachment.displayName)
-    nameLabel.maximumNumberOfLines = 1
-    nameLabel.lineBreakMode = .byTruncatingMiddle
-    NSLayoutConstraint.activate([
-      nameLabel.widthAnchor.constraint(
-        lessThanOrEqualToConstant: NativeTranscriptAttachmentPreviewMetrics.imageSize.width
-      )
-    ])
-    stack.addArrangedSubview(nameLabel)
-
-    let container = clickableContainer(stack)
+    let container = clickableContainer(imageView)
     container.toolTip = attachment.displayPath
     container.setAccessibilityElement(true)
     container.setAccessibilityRole(.button)
