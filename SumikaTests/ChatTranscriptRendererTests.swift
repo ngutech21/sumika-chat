@@ -739,7 +739,10 @@ struct ChatTranscriptRendererTests {
       return false
     }
     #expect(renderedTools.count == 2)
-    #expect(renderedTools.allSatisfy { $0.toolBatchPresentation == nil })
+    #expect(renderedTools[0].toolBatchPresentation?.anchorID == firstID)
+    #expect(renderedTools[1].toolBatchPresentation?.anchorID == secondID)
+    #expect(renderedTools.allSatisfy { $0.toolBatchPresentation?.pendingApprovalCount == 1 })
+    #expect(renderedTools.allSatisfy { $0.toolBatchPresentation?.showsApproveAll == false })
   }
 
   @Test
@@ -768,7 +771,9 @@ struct ChatTranscriptRendererTests {
     )
     let updatedFirstItem = renderer.items(for: [partiallyResolvedTurn])[0]
 
-    #expect(updatedFirstItem.toolBatchPresentation == nil)
+    #expect(updatedFirstItem.toolBatchPresentation?.anchorID == firstID)
+    #expect(updatedFirstItem.toolBatchPresentation?.pendingApprovalCount == 1)
+    #expect(updatedFirstItem.toolBatchPresentation?.showsApproveAll == false)
     #expect(updatedFirstItem.renderRevision != initialFirstItem.renderRevision)
   }
 

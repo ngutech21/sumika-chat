@@ -167,7 +167,7 @@ public final class ChatTurnCoordinator {
       }
       if toolProfile.allowsToolLoop {
         try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
-        let shouldComplete = try await executionCoordinator.runToolLoop(
+        let toolLoopOutcome = try await executionCoordinator.runToolLoop(
           workspace: workspace,
           sessionID: sessionID,
           lastAssistantMessageID: assistantMessageID,
@@ -181,12 +181,15 @@ public final class ChatTurnCoordinator {
           stableInstructions: stableInstructions,
           lastNativeToolCalls: generationResult.nativeToolCalls
         )
-        guard shouldComplete else {
-          return .stop
-        }
-      } else {
-        try executionCoordinator.requireVisibleFinalResponse(generationResult)
+        return try await self.resolveToolLoopOutcome(
+          toolLoopOutcome,
+          in: workspace,
+          turnID: turnID,
+          runtime: runtime,
+          callbacks: callbacks
+        )
       }
+      try executionCoordinator.requireVisibleFinalResponse(generationResult)
       return .complete
     }
 
@@ -213,6 +216,7 @@ public final class ChatTurnCoordinator {
     in workspace: Workspace,
     turnID: ChatTurn.ID,
     toolOrchestrator: ToolOrchestrator,
+    approvalSource: ToolApprovalSource = .manual,
     runtime: ChatTurnRuntimeContext,
     callbacks: ChatTurnCallbacks
   ) {
@@ -235,6 +239,7 @@ public final class ChatTurnCoordinator {
         in: workspace,
         turnID: turnID,
         toolOrchestrator: toolOrchestrator,
+        approvalSource: approvalSource,
         runtime: runtime,
         callbacks: callbacks
       )
@@ -247,6 +252,7 @@ public final class ChatTurnCoordinator {
     in workspace: Workspace,
     turnID: ChatTurn.ID,
     toolOrchestrator: ToolOrchestrator,
+    approvalSource: ToolApprovalSource = .manual,
     runtime: ChatTurnRuntimeContext,
     callbacks: ChatTurnCallbacks
   ) {
@@ -272,6 +278,7 @@ public final class ChatTurnCoordinator {
         in: workspace,
         turnID: turnID,
         toolOrchestrator: toolOrchestrator,
+        approvalSource: approvalSource,
         runtime: runtime,
         callbacks: callbacks
       )
@@ -557,12 +564,67 @@ public final class ChatTurnCoordinator {
 // derived batch barrier together. ask_user intentionally keeps its dedicated
 // single-call answer/resume path.
 extension ChatTurnCoordinator {
+  private func resolveToolLoopOutcome(
+    _ outcome: ChatToolLoopOutcome,
+    in workspace: Workspace?,
+    turnID: ChatTurn.ID,
+    runtime: ChatTurnRuntimeContext,
+    callbacks: ChatTurnCallbacks
+  ) async throws -> ChatTurnTaskOutcome {
+    switch outcome {
+    case .complete:
+      return .complete
+    case .stop:
+      return .stop
+    case .resumeAutomaticApproval(let batchAnchorID):
+      guard isActive(turnID) else {
+        return .stop
+      }
+      guard let workspace else {
+        return .fail(cancelsStreaming: false)
+      }
+      let session = callbacks.session()
+      guard session.interactionMode == .agent,
+        session.toolApprovalPolicy == .automatic
+      else {
+        return .pause(.awaitingApproval)
+      }
+      guard let turn = session.turns.first(where: { $0.id == turnID }),
+        let batch = turn.toolCallBatch(containing: batchAnchorID),
+        batch.anchorID == batchAnchorID,
+        !batch.pendingApprovalRecords.isEmpty
+      else {
+        return .fail(cancelsStreaming: false)
+      }
+
+      callbacks.emitEvents([
+        .turnStatusChanged(
+          turnID: turnID,
+          status: .running,
+          modelContextPolicy: nil
+        )
+      ])
+      callbacks.notifySessionDidChange()
+      return try await resumeApprovedToolCalls(
+        batch.pendingApprovalRecords,
+        batchAnchorID: batch.anchorID,
+        in: workspace,
+        turnID: turnID,
+        toolOrchestrator: runtime.agentToolOrchestrator,
+        approvalSource: .automatic,
+        runtime: runtime,
+        callbacks: callbacks
+      )
+    }
+  }
+
   private func resumeApprovedToolCalls(
     _ existingRecords: [ToolCallRecord],
     batchAnchorID: ToolCallRecord.ID,
     in workspace: Workspace,
     turnID: ChatTurn.ID,
     toolOrchestrator: ToolOrchestrator,
+    approvalSource: ToolApprovalSource,
     runtime: ChatTurnRuntimeContext,
     callbacks: ChatTurnCallbacks
   ) async throws -> ChatTurnTaskOutcome {
@@ -571,6 +633,20 @@ extension ChatTurnCoordinator {
       guard isActive(turnID) else {
         return .stop
       }
+      if approvalSource == .automatic {
+        let session = callbacks.session()
+        guard session.interactionMode == .agent,
+          session.toolApprovalPolicy == .automatic
+        else {
+          return try await continueAfterResolvedToolBatch(
+            containing: batchAnchorID,
+            in: workspace,
+            turnID: turnID,
+            runtime: runtime,
+            callbacks: callbacks
+          )
+        }
+      }
       guard
         let liveRecord = callbacks.session().toolCallRecord(id: requestedRecord.id),
         liveRecord.status == .awaitingApproval
@@ -578,12 +654,27 @@ extension ChatTurnCoordinator {
         continue
       }
 
-      let approvedRecord = await toolOrchestrator.executeApproved(
-        request: liveRecord.request,
-        approvedEvaluation: liveRecord.evaluation,
-        workspace: workspace
-      )
-      guard isActive(turnID) else {
+      var approvedRecord: ToolCallRecord
+      if approvalSource == .automatic {
+        approvedRecord = await toolOrchestrator.executeApproved(
+          request: liveRecord.request,
+          workspace: workspace
+        )
+      } else {
+        approvedRecord = await toolOrchestrator.executeApproved(
+          request: liveRecord.request,
+          approvedEvaluation: liveRecord.evaluation,
+          workspace: workspace
+        )
+      }
+      if approvedRecord.status != .awaitingApproval,
+        approvedRecord.evaluation.decision != .denied
+      {
+        approvedRecord.approvalSource = approvalSource
+      }
+      guard isActive(turnID), !Task.isCancelled else {
+        callbacks.emitEvents([.toolCallUpdated(approvedRecord)])
+        callbacks.notifySessionDidChange()
         return .stop
       }
       if approvedRecord.status == .awaitingApproval {
@@ -681,7 +772,7 @@ extension ChatTurnCoordinator {
       return .complete
     }
     try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
-    let shouldComplete = try await executionCoordinator.runToolLoop(
+    let toolLoopOutcome = try await executionCoordinator.runToolLoop(
       workspace: workspace,
       sessionID: existingRecord.request.sessionID,
       lastAssistantMessageID: nextAssistantMessageID,
@@ -695,7 +786,13 @@ extension ChatTurnCoordinator {
       stableInstructions: stableInstructions,
       lastNativeToolCalls: generationResult.nativeToolCalls
     )
-    return shouldComplete ? .complete : .stop
+    return try await resolveToolLoopOutcome(
+      toolLoopOutcome,
+      in: workspace,
+      turnID: turnID,
+      runtime: runtime,
+      callbacks: callbacks
+    )
   }
 
   private func resumeDeniedToolCall(
@@ -805,7 +902,7 @@ extension ChatTurnCoordinator {
       return .fail(cancelsStreaming: false)
     }
     try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
-    let shouldComplete = try await executionCoordinator.runToolLoop(
+    let toolLoopOutcome = try await executionCoordinator.runToolLoop(
       workspace: workspace,
       sessionID: firstRecord.request.sessionID,
       lastAssistantMessageID: nextAssistantMessageID,
@@ -819,7 +916,13 @@ extension ChatTurnCoordinator {
       stableInstructions: stableInstructions,
       lastNativeToolCalls: generationResult.nativeToolCalls
     )
-    return shouldComplete ? .complete : .stop
+    return try await resolveToolLoopOutcome(
+      toolLoopOutcome,
+      in: workspace,
+      turnID: turnID,
+      runtime: runtime,
+      callbacks: callbacks
+    )
   }
 
   private func resolvedToolProfile(

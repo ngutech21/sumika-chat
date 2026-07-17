@@ -813,7 +813,8 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
       selectedModel: ManagedModelCatalog.defaultModel,
       operationID: operationID,
       chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator
+      toolLoopCoordinator: toolLoopCoordinator,
+      agentToolOrchestrator: toolOrchestrator
     )
   }
 

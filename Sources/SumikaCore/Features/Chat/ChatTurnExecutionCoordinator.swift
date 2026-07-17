@@ -20,6 +20,7 @@ struct ChatTurnRuntimeContext {
   let operationID: UUID
   let chatGenerationCoordinator: ChatGenerationCoordinator
   let toolLoopCoordinator: ToolLoopCoordinator
+  let agentToolOrchestrator: ToolOrchestrator
 }
 
 @MainActor
@@ -39,6 +40,12 @@ enum ChatTurnTaskOutcome {
   case pause(ChatTurnStatus)
   case stop
   case fail(cancelsStreaming: Bool)
+}
+
+enum ChatToolLoopOutcome {
+  case complete
+  case stop
+  case resumeAutomaticApproval(batchAnchorID: ToolCallRecord.ID)
 }
 
 @MainActor
@@ -295,7 +302,7 @@ struct ChatTurnExecutionCoordinator {
     turnToolRegistry: ToolRegistry,
     stableInstructions: String,
     lastNativeToolCalls: [ChatRuntimeToolCall] = []
-  ) async throws -> Bool {
+  ) async throws -> ChatToolLoopOutcome {
     let toolProfile = activeToolProfile(
       workspace: workspace,
       sessionID: sessionID,
@@ -303,7 +310,7 @@ struct ChatTurnExecutionCoordinator {
       selectedModel: runtime.selectedModel
     )
     guard toolProfile.allowsToolLoop, let workspace, let sessionID else {
-      return true
+      return .complete
     }
 
     var currentAssistantMessageID = lastAssistantMessageID
@@ -337,16 +344,23 @@ struct ChatTurnExecutionCoordinator {
             toolLoopIteration: toolLoopIteration,
             toolCallingPolicy: toolCallingPolicy,
             nativeToolCalls: currentNativeToolCalls,
-            toolRegistry: turnToolRegistry
+            toolRegistry: turnToolRegistry,
+            approvalPolicyProvider: {
+              let session = await callbacks.session()
+              guard session.interactionMode == .agent else {
+                return .manual
+              }
+              return session.toolApprovalPolicy
+            }
           )
         )
       else {
-        return true
+        return .complete
       }
       currentNativeToolCalls = []
       try Task.checkCancellation()
       guard isActive(turnID) else {
-        return false
+        return .stop
       }
 
       callbacks.emitEvents(step.events)
@@ -357,7 +371,9 @@ struct ChatTurnExecutionCoordinator {
         finishTurn(turnID)
         callbacks.turnDidFinish(turnID, .disabled)
         callbacks.notifySessionDidChange()
-        return false
+        return .stop
+      case .resumeAutomaticApproval(let batchAnchorID):
+        return .resumeAutomaticApproval(batchAnchorID: batchAnchorID)
       case .resumeGeneration(let nextAssistantMessageID, let promptMode):
         callbacks.setActiveToolPromptMode(promptMode)
         let generationResult = try await streamAssistantReply(
@@ -376,7 +392,7 @@ struct ChatTurnExecutionCoordinator {
         try requireVisibleTextOrToolCall(generationResult)
         guard !promptMode.isFinal else {
           try requireVisibleFinalResponse(generationResult)
-          return true
+          return .complete
         }
         currentAssistantMessageID = nextAssistantMessageID
       case .resumeCorrectionGeneration(let nextAssistantMessageID, let promptMode):
@@ -405,15 +421,15 @@ struct ChatTurnExecutionCoordinator {
         try requireVisibleTextOrToolCall(generationResult)
         guard !effectivePromptMode.isFinal else {
           try requireVisibleFinalResponse(generationResult)
-          return true
+          return .complete
         }
         currentAssistantMessageID = nextAssistantMessageID
       case .none, .stopTurn:
-        return true
+        return .complete
       }
     }
 
-    return true
+    return .complete
   }
 
   func requireVisibleTextOrToolCall(_ generationResult: ChatGenerationResult) throws {

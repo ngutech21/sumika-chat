@@ -70,6 +70,7 @@ public enum ChatWorkflowContinuation: Equatable, Sendable {
   case none
   case awaitingApproval
   case awaitingUserAnswer
+  case resumeAutomaticApproval(batchAnchorID: ToolCallRecord.ID)
   case resumeGeneration(
     assistantMessageID: UUID,
     promptMode: ToolPromptMode

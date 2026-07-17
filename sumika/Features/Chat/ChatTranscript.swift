@@ -5,11 +5,13 @@ struct ChatTranscript: View {
   let turns: [ChatTurn]
   let modelState: ModelLoadState
   let isGenerating: Bool
+  let toolApprovalPolicy: ToolApprovalPolicy
   let appBehaviorSettings: AppBehaviorSettings
   let assistantSpeechService: AssistantSpeechService
   var bottomContentInset: CGFloat = 0
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onApproveToolCallBatch: (ToolCallRecord.ID) -> Void
+  let onResumeAutomaticApprovalBatch: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
   let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
   @State private var renderer = ChatTranscriptRenderer()
@@ -37,6 +39,7 @@ struct ChatTranscript: View {
       AppKitChatTranscriptRepresentable(
         items: items,
         isGenerating: isGenerating,
+        toolApprovalPolicy: toolApprovalPolicy,
         showsGenerationIndicator: ChatTranscriptGenerationIndicatorPolicy.shouldShow(
           isGenerating: isGenerating,
           turns: turns
@@ -54,6 +57,7 @@ struct ChatTranscript: View {
         },
         onApproveToolCall: onApproveToolCall,
         onApproveToolCallBatch: onApproveToolCallBatch,
+        onResumeAutomaticApprovalBatch: onResumeAutomaticApprovalBatch,
         onDenyToolCall: onDenyToolCall,
         onAnswerAskUser: onAnswerAskUser
       )

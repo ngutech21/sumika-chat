@@ -682,6 +682,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   public var request: ToolCallRequest
   public var evaluation: ToolPermissionEvaluation
   public var state: ToolCallState
+  public var approvalSource: ToolApprovalSource?
   public var modelFollowUpNotice: String?
 
   public var status: ToolCallStatus {
@@ -704,11 +705,13 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
     request: ToolCallRequest,
     evaluation: ToolPermissionEvaluation,
     state: ToolCallState,
+    approvalSource: ToolApprovalSource? = nil,
     modelFollowUpNotice: String? = nil
   ) {
     self.request = request
     self.evaluation = evaluation
     self.state = state
+    self.approvalSource = approvalSource
     self.modelFollowUpNotice = modelFollowUpNotice
   }
 
@@ -716,6 +719,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
     case request
     case evaluation
     case state
+    case approvalSource
     case modelFollowUpNotice
   }
 
@@ -724,6 +728,10 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
     request = try container.decode(ToolCallRequest.self, forKey: .request)
     evaluation = try container.decode(ToolPermissionEvaluation.self, forKey: .evaluation)
     state = try container.decode(ToolCallState.self, forKey: .state)
+    approvalSource = try container.decodeIfPresent(
+      ToolApprovalSource.self,
+      forKey: .approvalSource
+    )
     modelFollowUpNotice = try container.decodeIfPresent(String.self, forKey: .modelFollowUpNotice)
   }
 
@@ -732,6 +740,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
     try container.encode(request, forKey: .request)
     try container.encode(evaluation, forKey: .evaluation)
     try container.encode(state, forKey: .state)
+    try container.encodeIfPresent(approvalSource, forKey: .approvalSource)
     try container.encodeIfPresent(modelFollowUpNotice, forKey: .modelFollowUpNotice)
   }
 }

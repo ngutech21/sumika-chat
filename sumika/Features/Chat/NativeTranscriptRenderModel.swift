@@ -268,16 +268,26 @@ struct NativeToolDetailContent: Equatable {
   }
 
   private static func permissionLines(for record: ToolCallRecord) -> [String] {
+    let approvalLine: [String] =
+      switch record.approvalSource {
+      case .automatic:
+        ["Approval: Auto-approved"]
+      case .manual:
+        ["Approval: Approved manually"]
+      case nil:
+        []
+      }
+
     switch record.status {
     case .awaitingApproval:
-      [
+      return approvalLine + [
         "Risk: \(record.evaluation.riskLevel.rawValue)",
         "Reason: \(record.evaluation.reason)",
       ]
     case .denied where !record.evaluation.reason.isEmpty:
-      ["Denied: \(record.evaluation.reason)"]
+      return approvalLine + ["Denied: \(record.evaluation.reason)"]
     default:
-      []
+      return approvalLine
     }
   }
 }
@@ -549,6 +559,7 @@ enum NativeTranscriptRowMeasurer {
       toggleSpeech: { _, _ in },
       approve: { _ in },
       approveAll: { _ in },
+      resumeAutomation: { _ in },
       deny: { _ in },
       answerAskUser: { _, _, _ in },
       toggleToolExpansion: { _ in },
@@ -566,6 +577,7 @@ struct NativeTranscriptCellState: Equatable {
   var isThinkingExpanded: Bool
   var askUserSelection: String?
   var isToolActionEnabled: Bool
+  var toolApprovalPolicy: ToolApprovalPolicy
 
   init(
     isCopied: Bool = false,
@@ -574,7 +586,8 @@ struct NativeTranscriptCellState: Equatable {
     isToolExpanded: Bool = false,
     isThinkingExpanded: Bool = false,
     askUserSelection: String? = nil,
-    isToolActionEnabled: Bool = true
+    isToolActionEnabled: Bool = true,
+    toolApprovalPolicy: ToolApprovalPolicy = .manual
   ) {
     self.isCopied = isCopied
     self.isSpeechEnabled = isSpeechEnabled
@@ -583,6 +596,7 @@ struct NativeTranscriptCellState: Equatable {
     self.isThinkingExpanded = isThinkingExpanded
     self.askUserSelection = askUserSelection
     self.isToolActionEnabled = isToolActionEnabled
+    self.toolApprovalPolicy = toolApprovalPolicy
   }
 }
 
@@ -596,7 +610,8 @@ struct NativeTranscriptCoordinatorState: Equatable {
     for rowID: String,
     isSpeechEnabled: Bool = false,
     activeSpeechRowID: String? = nil,
-    areToolActionsEnabled: Bool = true
+    areToolActionsEnabled: Bool = true,
+    toolApprovalPolicy: ToolApprovalPolicy = .manual
   ) -> NativeTranscriptCellState {
     NativeTranscriptCellState(
       isCopied: copiedRowIDs.contains(rowID),
@@ -605,7 +620,8 @@ struct NativeTranscriptCoordinatorState: Equatable {
       isToolExpanded: expandedToolRowIDs.contains(rowID),
       isThinkingExpanded: expandedThinkingRowIDs.contains(rowID),
       askUserSelection: askUserSelections[rowID],
-      isToolActionEnabled: areToolActionsEnabled
+      isToolActionEnabled: areToolActionsEnabled,
+      toolApprovalPolicy: toolApprovalPolicy
     )
   }
 
@@ -656,6 +672,7 @@ struct NativeTranscriptCellActions {
   var toggleSpeech: @MainActor (String, String) -> Void
   var approve: @MainActor (ToolCallRecord.ID) -> Void
   var approveAll: @MainActor (ToolCallRecord.ID) -> Void
+  var resumeAutomation: @MainActor (ToolCallRecord.ID) -> Void
   var deny: @MainActor (ToolCallRecord.ID) -> Void
   var answerAskUser: @MainActor (String, ToolCallRecord.ID, String) -> Void
   var toggleToolExpansion: @MainActor (String) -> Void

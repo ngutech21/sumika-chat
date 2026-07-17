@@ -32,6 +32,7 @@ public struct ToolLoopRequest: Sendable {
   public let toolCallingPolicy: ToolCallingPolicy
   public let nativeToolCalls: [ChatRuntimeToolCall]
   public let toolRegistry: ToolRegistry?
+  public let approvalPolicyProvider: @Sendable () async -> ToolApprovalPolicy
 
   public init(
     workspace: Workspace,
@@ -46,7 +47,8 @@ public struct ToolLoopRequest: Sendable {
     toolLoopIteration: Int? = nil,
     toolCallingPolicy: ToolCallingPolicy = .nativeMLX,
     nativeToolCalls: [ChatRuntimeToolCall] = [],
-    toolRegistry: ToolRegistry? = nil
+    toolRegistry: ToolRegistry? = nil,
+    approvalPolicyProvider: @escaping @Sendable () async -> ToolApprovalPolicy = { .manual }
   ) {
     self.workspace = workspace
     self.sessionID = sessionID
@@ -61,6 +63,7 @@ public struct ToolLoopRequest: Sendable {
     self.toolCallingPolicy = toolCallingPolicy
     self.nativeToolCalls = nativeToolCalls
     self.toolRegistry = toolRegistry
+    self.approvalPolicyProvider = approvalPolicyProvider
   }
 }
 
@@ -204,6 +207,7 @@ public struct ToolLoopCoordinator: Sendable {
     var seenItems = request.items
     var isAwaitingApproval = false
     var isAwaitingUserAnswer = false
+    var batchAnchorID: ToolCallRecord.ID?
 
     for output in outputs {
       guard let toolOrchestrator = toolOrchestrator(for: request.toolProfile) else {
@@ -231,6 +235,9 @@ public struct ToolLoopCoordinator: Sendable {
         )
       }
       seenItems.append(.tool(record))
+      if batchAnchorID == nil {
+        batchAnchorID = record.id
+      }
 
       events.append(
         .assistantAnnotatedAsNativeToolCall(
@@ -304,7 +311,15 @@ public struct ToolLoopCoordinator: Sendable {
           status: .awaitingApproval,
           modelContextPolicy: nil
         ))
-      return ChatWorkflowStep(events: events, continuation: .awaitingApproval)
+      let continuation: ChatWorkflowContinuation =
+        if await request.approvalPolicyProvider() == .automatic,
+          let batchAnchorID
+        {
+          .resumeAutomaticApproval(batchAnchorID: batchAnchorID)
+        } else {
+          .awaitingApproval
+        }
+      return ChatWorkflowStep(events: events, continuation: continuation)
     }
 
     events.append(

@@ -82,6 +82,28 @@ struct ChatSessionTests {
   }
 
   @Test
+  func toolApprovalPolicyPersistsPerSessionAndDefaultsToManualForLegacyData() throws {
+    let automaticSession = ChatSession(toolApprovalPolicy: .automatic)
+    let roundTripped = try JSONDecoder().decode(
+      ChatSession.self,
+      from: JSONEncoder().encode(automaticSession)
+    )
+    #expect(roundTripped.toolApprovalPolicy == .automatic)
+
+    var legacyObject = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(automaticSession))
+        as? [String: Any]
+    )
+    legacyObject.removeValue(forKey: "toolApprovalPolicy")
+    let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+
+    let legacySession = try JSONDecoder().decode(ChatSession.self, from: legacyData)
+
+    #expect(legacySession.toolApprovalPolicy == .manual)
+    #expect(ChatSession().toolApprovalPolicy == .manual)
+  }
+
+  @Test
   func decodingMissingModeSettingsUsesDefaults() throws {
     let legacyGenerationSettings = ChatGenerationSettings(
       temperature: 1.7,

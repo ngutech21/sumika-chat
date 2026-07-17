@@ -7,6 +7,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
 
   let items: [RenderedChatTurnItem]
   let isGenerating: Bool
+  let toolApprovalPolicy: ToolApprovalPolicy
   let showsGenerationIndicator: Bool
   let accessibilityValue: String
   let isSpeechEnabled: Bool
@@ -17,6 +18,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
   let onToggleSpeech: (String, String) -> Void
   let onApproveToolCall: (ToolCallRecord.ID) -> Void
   let onApproveToolCallBatch: (ToolCallRecord.ID) -> Void
+  let onResumeAutomaticApprovalBatch: (ToolCallRecord.ID) -> Void
   let onDenyToolCall: (ToolCallRecord.ID) -> Void
   let onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
 
@@ -26,7 +28,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
       onApproveToolCall: onApproveToolCall,
       onDenyToolCall: onDenyToolCall,
       onAnswerAskUser: onAnswerAskUser,
-      onApproveToolCallBatch: onApproveToolCallBatch
+      onApproveToolCallBatch: onApproveToolCallBatch,
+      onResumeAutomaticApprovalBatch: onResumeAutomaticApprovalBatch
     )
   }
 
@@ -49,7 +52,8 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         onApproveToolCall: onApproveToolCall,
         onDenyToolCall: onDenyToolCall,
         onAnswerAskUser: onAnswerAskUser,
-        onApproveToolCallBatch: onApproveToolCallBatch
+        onApproveToolCallBatch: onApproveToolCallBatch,
+        onResumeAutomaticApprovalBatch: onResumeAutomaticApprovalBatch
       )
       context.coordinator.applyBottomContentInset(bottomContentInset, to: scrollView)
       context.coordinator.update(
@@ -58,6 +62,7 @@ struct AppKitChatTranscriptRepresentable: NSViewRepresentable {
         isSpeechEnabled: isSpeechEnabled,
         activeSpeechRowID: activeSpeechRowID,
         areToolActionsEnabled: !isGenerating,
+        toolApprovalPolicy: toolApprovalPolicy,
         in: scrollView
       )
     }
@@ -72,6 +77,7 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private var onToggleSpeech: (String, String) -> Void
   private var onApproveToolCall: (ToolCallRecord.ID) -> Void
   private var onApproveToolCallBatch: (ToolCallRecord.ID) -> Void
+  private var onResumeAutomaticApprovalBatch: (ToolCallRecord.ID) -> Void
   private var onDenyToolCall: (ToolCallRecord.ID) -> Void
   private var onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
   private weak var tableView: NSTableView?
@@ -82,6 +88,7 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private var isSpeechEnabled = false
   private var activeSpeechRowID: String?
   private var areToolActionsEnabled = true
+  private var toolApprovalPolicy = ToolApprovalPolicy.manual
   private var cellStateStore = NativeTranscriptCoordinatorState()
   private var heightCache = NativeTranscriptHeightCache()
   private var markdownCache = NativeTranscriptMarkdownCache()
@@ -103,11 +110,13 @@ final class NativeChatTranscriptCoordinator: NSObject {
     onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
     onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
     onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void,
-    onApproveToolCallBatch: @escaping (ToolCallRecord.ID) -> Void = { _ in }
+    onApproveToolCallBatch: @escaping (ToolCallRecord.ID) -> Void = { _ in },
+    onResumeAutomaticApprovalBatch: @escaping (ToolCallRecord.ID) -> Void = { _ in }
   ) {
     self.onToggleSpeech = onToggleSpeech
     self.onApproveToolCall = onApproveToolCall
     self.onApproveToolCallBatch = onApproveToolCallBatch
+    self.onResumeAutomaticApprovalBatch = onResumeAutomaticApprovalBatch
     self.onDenyToolCall = onDenyToolCall
     self.onAnswerAskUser = onAnswerAskUser
   }
@@ -181,11 +190,13 @@ extension NativeChatTranscriptCoordinator {
     onApproveToolCall: @escaping (ToolCallRecord.ID) -> Void,
     onDenyToolCall: @escaping (ToolCallRecord.ID) -> Void,
     onAnswerAskUser: @escaping (ToolCallRecord.ID, String) -> Void,
-    onApproveToolCallBatch: @escaping (ToolCallRecord.ID) -> Void
+    onApproveToolCallBatch: @escaping (ToolCallRecord.ID) -> Void,
+    onResumeAutomaticApprovalBatch: @escaping (ToolCallRecord.ID) -> Void
   ) {
     self.onToggleSpeech = onToggleSpeech
     self.onApproveToolCall = onApproveToolCall
     self.onApproveToolCallBatch = onApproveToolCallBatch
+    self.onResumeAutomaticApprovalBatch = onResumeAutomaticApprovalBatch
     self.onDenyToolCall = onDenyToolCall
     self.onAnswerAskUser = onAnswerAskUser
   }
@@ -204,6 +215,7 @@ extension NativeChatTranscriptCoordinator {
     isSpeechEnabled: Bool,
     activeSpeechRowID: String?,
     areToolActionsEnabled: Bool = true,
+    toolApprovalPolicy: ToolApprovalPolicy = .manual,
     in scrollView: NSScrollView
   ) {
     ChatDiagnostics.measure("Transcript coordinator update", category: .transcript) {
@@ -231,7 +243,8 @@ extension NativeChatTranscriptCoordinator {
       )
       let toolActionStateChangedIDs = changedToolActionRowIDs(
         currentRows: rows,
-        areToolActionsEnabled: areToolActionsEnabled
+        areToolActionsEnabled: areToolActionsEnabled,
+        toolApprovalPolicy: toolApprovalPolicy
       )
       let shouldScrollAfterAppend =
         NativeTranscriptScrollDecision.shouldScrollToBottomAfterAppend(
@@ -245,6 +258,7 @@ extension NativeChatTranscriptCoordinator {
       self.isSpeechEnabled = isSpeechEnabled
       self.activeSpeechRowID = activeSpeechRowID
       self.areToolActionsEnabled = areToolActionsEnabled
+      self.toolApprovalPolicy = toolApprovalPolicy
       pruneCoordinatorState(activeRows: rows)
       ChatDiagnostics.measure("Transcript accessibility update", category: .transcript) {
         scrollView.setAccessibilityValue(accessibilityValue)
@@ -383,9 +397,13 @@ extension NativeChatTranscriptCoordinator {
 
   private func changedToolActionRowIDs(
     currentRows: [NativeTranscriptRow],
-    areToolActionsEnabled: Bool
+    areToolActionsEnabled: Bool,
+    toolApprovalPolicy: ToolApprovalPolicy
   ) -> Set<String> {
-    guard self.areToolActionsEnabled != areToolActionsEnabled else {
+    guard
+      self.areToolActionsEnabled != areToolActionsEnabled
+        || self.toolApprovalPolicy != toolApprovalPolicy
+    else {
       return []
     }
     return Set(currentRows.filter { $0.cellKind == .tool }.map(\.id))
@@ -411,7 +429,9 @@ extension NativeChatTranscriptCoordinator: NSTableViewDelegate {
         state: cellStateStore.state(
           for: rowModel.id,
           isSpeechEnabled: isSpeechEnabled,
-          activeSpeechRowID: activeSpeechRowID
+          activeSpeechRowID: activeSpeechRowID,
+          areToolActionsEnabled: areToolActionsEnabled,
+          toolApprovalPolicy: toolApprovalPolicy
         ),
         markdownBlocks: { [weak self] markdown in
           guard let self else {
@@ -580,7 +600,8 @@ extension NativeChatTranscriptCoordinator {
           for: row.id,
           isSpeechEnabled: isSpeechEnabled,
           activeSpeechRowID: activeSpeechRowID,
-          areToolActionsEnabled: areToolActionsEnabled
+          areToolActionsEnabled: areToolActionsEnabled,
+          toolApprovalPolicy: toolApprovalPolicy
         ),
         actions: NativeTranscriptCellActions(
           markdownBlocks: { [weak self] markdown in
@@ -632,6 +653,9 @@ extension NativeChatTranscriptCoordinator {
           },
           approveAll: { [weak self] anchorID in
             self?.onApproveToolCallBatch(anchorID)
+          },
+          resumeAutomation: { [weak self] anchorID in
+            self?.onResumeAutomaticApprovalBatch(anchorID)
           },
           deny: { [weak self] toolCallID in
             self?.onDenyToolCall(toolCallID)
@@ -1631,101 +1655,6 @@ final class NativeChatMessageCellView: NSTableCellView {
     }
   }
 
-  private func makeToolView(
-    record: ToolCallRecord,
-    generationMetrics: ChatGenerationMetrics?,
-    batchPresentation: ToolApprovalBatchPresentation?,
-    rowID: String,
-    state: NativeTranscriptCellState
-  ) -> NSView {
-    let stack = verticalStack(spacing: 7)
-    let toolCall = record.transcriptToolCall
-    let hasDetails = record.hasNativeToolDetails || generationMetrics != nil
-
-    let header = horizontalStack(spacing: 7)
-    header.distribution = .fill
-    header.addArrangedSubview(makeToolStatusIndicator(status: record.status))
-    let nameLabel = makeTextLabel(toolCall.toolName.rawValue, color: .labelColor)
-    nameLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-    header.addArrangedSubview(nameLabel)
-    if let summary = toolCall.nativeHeaderSummary {
-      let summaryLabel = makeSecondaryLabel(summary)
-      summaryLabel.lineBreakMode = .byTruncatingMiddle
-      summaryLabel.maximumNumberOfLines = 1
-      header.addArrangedSubview(summaryLabel)
-    }
-    if hasDetails {
-      header.addArrangedSubview(
-        makeIconButton(
-          systemSymbolName: state.isToolExpanded ? "chevron.down" : "chevron.right",
-          accessibilityLabel: state.isToolExpanded ? "Hide details" : "Show details",
-          tintColor: .tertiaryLabelColor
-        ) { [weak self] in
-          self?.actions?.toggleToolExpansion(rowID)
-        }
-      )
-    }
-    header.addArrangedSubview(spacer())
-    stack.addArrangedSubview(header)
-    header.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor).isActive = true
-
-    if state.isToolExpanded, hasDetails {
-      stack.addArrangedSubview(makeToolDetails(record: record, metrics: generationMetrics))
-    }
-
-    if record.status == .awaitingApproval {
-      let actionsRow = horizontalStack(spacing: 8)
-      if let batch = batchPresentation, batch.showsApproveAll {
-        actionsRow.addArrangedSubview(
-          makeSmallButton(
-            title: "Approve all (\(batch.pendingApprovalCount))",
-            accessibilityIdentifier: "chat.tool.approveAll.\(batch.anchorID.uuidString)",
-            accessibilityLabel: "Approve all \(batch.pendingApprovalCount) tool calls",
-            isEnabled: state.isToolActionEnabled
-          ) { [weak self] in
-            self?.actions?.approveAll(batch.anchorID)
-          }
-        )
-      }
-      actionsRow.addArrangedSubview(
-        makeSmallButton(
-          title: "Approve",
-          accessibilityIdentifier: "chat.tool.approve.\(record.id.uuidString)",
-          accessibilityLabel: "Approve \(toolCall.toolName.rawValue) tool call",
-          isEnabled: state.isToolActionEnabled
-        ) { [weak self] in
-          self?.actions?.approve(record.id)
-        }
-      )
-      actionsRow.addArrangedSubview(
-        makeSmallButton(
-          title: "Deny",
-          accessibilityIdentifier: "chat.tool.deny.\(record.id.uuidString)",
-          accessibilityLabel: "Deny \(toolCall.toolName.rawValue) tool call",
-          isEnabled: state.isToolActionEnabled
-        ) { [weak self] in
-          self?.actions?.deny(record.id)
-        }
-      )
-      actionsRow.addArrangedSubview(spacer())
-      stack.addArrangedSubview(actionsRow)
-    }
-
-    if record.status == .awaitingUserAnswer, let input = record.nativeAskUserInput {
-      stack.addArrangedSubview(
-        makeAskUserView(
-          input: input,
-          selectedAnswer: state.askUserSelection,
-          isEnabled: state.isToolActionEnabled,
-          rowID: rowID,
-          toolCallID: record.id
-        )
-      )
-    }
-
-    return stack
-  }
-
   private func makeToolDetails(record: ToolCallRecord, metrics: ChatGenerationMetrics?) -> NSView {
     let stack = verticalStack(spacing: 5)
     let details = NativeToolDetailContent(record: record)
@@ -1928,6 +1857,124 @@ final class NativeChatMessageCellView: NSTableCellView {
 }
 
 extension NativeChatMessageCellView {
+  private func makeToolView(
+    record: ToolCallRecord,
+    generationMetrics: ChatGenerationMetrics?,
+    batchPresentation: ToolApprovalBatchPresentation?,
+    rowID: String,
+    state: NativeTranscriptCellState
+  ) -> NSView {
+    let stack = verticalStack(spacing: 7)
+    let toolCall = record.transcriptToolCall
+    let hasDetails = record.hasNativeToolDetails || generationMetrics != nil
+
+    let header = horizontalStack(spacing: 7)
+    header.distribution = .fill
+    header.addArrangedSubview(makeToolStatusIndicator(status: record.status))
+    let nameLabel = makeTextLabel(toolCall.toolName.rawValue, color: .labelColor)
+    nameLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+    header.addArrangedSubview(nameLabel)
+    if record.approvalSource == .automatic {
+      let approvalLabel = makeSecondaryLabel("Auto-approved")
+      approvalLabel.textColor = .systemOrange
+      header.addArrangedSubview(approvalLabel)
+    }
+    if let summary = toolCall.nativeHeaderSummary {
+      let summaryLabel = makeSecondaryLabel(summary)
+      summaryLabel.lineBreakMode = .byTruncatingMiddle
+      summaryLabel.maximumNumberOfLines = 1
+      header.addArrangedSubview(summaryLabel)
+    }
+    if hasDetails {
+      header.addArrangedSubview(
+        makeIconButton(
+          systemSymbolName: state.isToolExpanded ? "chevron.down" : "chevron.right",
+          accessibilityLabel: state.isToolExpanded ? "Hide details" : "Show details",
+          tintColor: .tertiaryLabelColor
+        ) { [weak self] in
+          self?.actions?.toggleToolExpansion(rowID)
+        }
+      )
+    }
+    header.addArrangedSubview(spacer())
+    stack.addArrangedSubview(header)
+    header.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor).isActive = true
+
+    if state.isToolExpanded, hasDetails {
+      stack.addArrangedSubview(makeToolDetails(record: record, metrics: generationMetrics))
+    }
+
+    if record.status == .awaitingApproval {
+      let actionsRow = horizontalStack(spacing: 8)
+      if state.toolApprovalPolicy == .automatic {
+        let showsResume =
+          batchPresentation.map { $0.pendingApprovalCount == 1 || $0.showsApproveAll } ?? true
+        if showsResume {
+          let anchorID = batchPresentation?.anchorID ?? record.id
+          actionsRow.addArrangedSubview(
+            makeSmallButton(
+              title: "Resume automation",
+              accessibilityIdentifier: "chat.tool.resumeAutomation.\(anchorID.uuidString)",
+              accessibilityLabel: "Resume automatic tool approval",
+              isEnabled: state.isToolActionEnabled
+            ) { [weak self] in
+              self?.actions?.resumeAutomation(anchorID)
+            }
+          )
+        }
+      } else {
+        if let batch = batchPresentation, batch.showsApproveAll {
+          actionsRow.addArrangedSubview(
+            makeSmallButton(
+              title: "Approve all (\(batch.pendingApprovalCount))",
+              accessibilityIdentifier: "chat.tool.approveAll.\(batch.anchorID.uuidString)",
+              accessibilityLabel: "Approve all \(batch.pendingApprovalCount) tool calls",
+              isEnabled: state.isToolActionEnabled
+            ) { [weak self] in
+              self?.actions?.approveAll(batch.anchorID)
+            }
+          )
+        }
+        actionsRow.addArrangedSubview(
+          makeSmallButton(
+            title: "Approve",
+            accessibilityIdentifier: "chat.tool.approve.\(record.id.uuidString)",
+            accessibilityLabel: "Approve \(toolCall.toolName.rawValue) tool call",
+            isEnabled: state.isToolActionEnabled
+          ) { [weak self] in
+            self?.actions?.approve(record.id)
+          }
+        )
+        actionsRow.addArrangedSubview(
+          makeSmallButton(
+            title: "Deny",
+            accessibilityIdentifier: "chat.tool.deny.\(record.id.uuidString)",
+            accessibilityLabel: "Deny \(toolCall.toolName.rawValue) tool call",
+            isEnabled: state.isToolActionEnabled
+          ) { [weak self] in
+            self?.actions?.deny(record.id)
+          }
+        )
+      }
+      actionsRow.addArrangedSubview(spacer())
+      stack.addArrangedSubview(actionsRow)
+    }
+
+    if record.status == .awaitingUserAnswer, let input = record.nativeAskUserInput {
+      stack.addArrangedSubview(
+        makeAskUserView(
+          input: input,
+          selectedAnswer: state.askUserSelection,
+          isEnabled: state.isToolActionEnabled,
+          rowID: rowID,
+          toolCallID: record.id
+        )
+      )
+    }
+
+    return stack
+  }
+
   private func reportMeasuredHeightIfNeeded() {
     guard let onMeasuredHeight,
       let measuredRowID = pendingMeasuredRowID,

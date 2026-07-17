@@ -317,7 +317,7 @@ struct ToolApprovalBatchPresentation: Equatable {
 
     for batch in turn.toolCallBatches {
       let pendingRecords = batch.pendingApprovalRecords
-      guard pendingRecords.count >= 2, let firstPendingID = pendingRecords.first?.id else {
+      guard let firstPendingID = pendingRecords.first?.id else {
         continue
       }
 
@@ -325,7 +325,7 @@ struct ToolApprovalBatchPresentation: Equatable {
         presentations[batchRecord.id] = ToolApprovalBatchPresentation(
           anchorID: batch.anchorID,
           pendingApprovalCount: pendingRecords.count,
-          showsApproveAll: batchRecord.id == firstPendingID
+          showsApproveAll: pendingRecords.count >= 2 && batchRecord.id == firstPendingID
         )
       }
     }

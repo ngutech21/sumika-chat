@@ -5,6 +5,60 @@ import Testing
 
 struct ToolCallTests {
   @Test
+  func approvalSourcePersistsAndDefaultsToNilForLegacyRecords() throws {
+    let request = ToolCallRequest.validated(
+      raw: RawToolCallRequest(
+        workspaceID: UUID(),
+        sessionID: UUID(),
+        toolName: .runCommand,
+        arguments: ["command": .string("just test")]
+      ),
+      payload: .runCommand(
+        RunCommandInput(command: "just test", timeoutSeconds: 120)
+      )
+    )
+    let record = ToolCallRecord(
+      request: request,
+      evaluation: ToolPermissionEvaluation(
+        decision: .requiresApproval,
+        reason: "Commands require approval.",
+        riskLevel: .high
+      ),
+      state: .completed(
+        .runCommand(
+          RunCommandResult(
+            command: "just test",
+            timeoutSeconds: 120,
+            exitCode: 0,
+            durationMs: 10,
+            stdout: ToolTextOutput(text: ""),
+            stderr: ToolTextOutput(text: ""),
+            outputRef: "cmd_test"
+          )
+        )
+      ),
+      approvalSource: .automatic
+    )
+
+    let roundTripped = try JSONDecoder().decode(
+      ToolCallRecord.self,
+      from: JSONEncoder().encode(record)
+    )
+    #expect(roundTripped.approvalSource == .automatic)
+
+    let encodedRecord = try JSONEncoder().encode(record)
+    var legacyObject = try #require(
+      JSONSerialization.jsonObject(with: encodedRecord) as? [String: Any]
+    )
+    legacyObject.removeValue(forKey: "approvalSource")
+    let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+
+    let legacyRecord = try JSONDecoder().decode(ToolCallRecord.self, from: legacyData)
+
+    #expect(legacyRecord.approvalSource == nil)
+  }
+
+  @Test
   func toolArgumentValueDecodesJSONScalarsCollectionsAndNull() throws {
     let data = Data(
       """

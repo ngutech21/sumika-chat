@@ -120,12 +120,15 @@ struct ChatSessionControllerTests {
     #expect(controller.composerSessionState.pendingAttachments == [attachment])
     #expect(controller.composerSessionState.activeAttachments == [attachment])
     #expect(controller.composerSessionState.interactionMode == .chat)
+    #expect(controller.composerSessionState.toolApprovalPolicy == .manual)
     #expect(controller.composerSessionState.selectedMCPServerIDs == [mcpServerID])
     #expect(controller.composerSessionState.todoState == nil)
 
     controller.chatSession.interactionMode = .agent
+    controller.chatSession.toolApprovalPolicy = .automatic
 
     #expect(controller.composerSessionState.interactionMode == .agent)
+    #expect(controller.composerSessionState.toolApprovalPolicy == .automatic)
     #expect(controller.composerSessionState.todoState == todoState)
   }
 
@@ -181,6 +184,7 @@ struct ChatSessionControllerTests {
         generationSettings: .agentDefault
       ),
       interactionMode: .agent,
+      toolApprovalPolicy: .automatic,
       selectedMCPServerIDs: [mcpServerID]
     )
     let controller = ChatSessionController(
@@ -193,8 +197,10 @@ struct ChatSessionControllerTests {
 
     #expect(controller.chatSession.focusedFileState == focusedFileState)
     #expect(controller.chatSession.interactionMode == .agent)
+    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
     #expect(snapshot.focusedFileState == focusedFileState)
     #expect(snapshot.interactionMode == .agent)
+    #expect(snapshot.toolApprovalPolicy == .automatic)
     #expect(snapshot.selectedMCPServerIDs == [mcpServerID])
   }
 
@@ -295,6 +301,51 @@ struct ChatSessionControllerTests {
     )
 
     #expect(controller.chatSession.interactionMode == .chat)
+  }
+
+  @Test
+  func automaticApprovalIsAgentOnlyRetainedAcrossModeChangesAndDisablesImmediately() throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+
+    #expect(!controller.canEnableAutomaticToolApproval)
+    controller.setInteractionMode(.agent)
+    #expect(controller.canEnableAutomaticToolApproval)
+
+    controller.enableAutomaticToolApproval(in: workspace)
+    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
+    #expect(!controller.canEnableAutomaticToolApproval)
+
+    controller.setInteractionMode(.chat)
+    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
+    #expect(!controller.canEnableAutomaticToolApproval)
+
+    controller.setInteractionMode(.agent)
+    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
+
+    controller.disableAutomaticToolApproval()
+    #expect(controller.chatSession.toolApprovalPolicy == .manual)
+    #expect(controller.canEnableAutomaticToolApproval)
+
+    controller.chatSession.turns = [
+      ChatTurn(
+        status: .awaitingApproval,
+        items: [.tool(makeToolCallRecord(status: .awaitingApproval))]
+      )
+    ]
+    #expect(controller.canEnableAutomaticToolApproval)
+
+    controller.chatSession.turns = [
+      ChatTurn(
+        status: .awaitingUserAnswer,
+        items: [.tool(makeToolCallRecord(status: .awaitingUserAnswer))]
+      )
+    ]
+    #expect(!controller.canEnableAutomaticToolApproval)
   }
 
   @Test

@@ -19,6 +19,7 @@ struct ChatTranscriptHost: View {
       turns: controller.chatSession.turns,
       modelState: controller.modelRuntime.modelState,
       isGenerating: controller.isGenerating,
+      toolApprovalPolicy: controller.chatSession.toolApprovalPolicy,
       appBehaviorSettings: appBehaviorSettings,
       assistantSpeechService: assistantSpeechService,
       bottomContentInset: bottomContentInset,
@@ -27,6 +28,9 @@ struct ChatTranscriptHost: View {
       },
       onApproveToolCallBatch: { anchorID in
         controller.approveToolCallBatch(containing: anchorID, in: toolWorkspace)
+      },
+      onResumeAutomaticApprovalBatch: { anchorID in
+        controller.resumeAutomaticApprovalBatch(containing: anchorID, in: toolWorkspace)
       },
       onDenyToolCall: { toolCallID in
         controller.denyToolCall(id: toolCallID)

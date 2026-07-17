@@ -46,6 +46,7 @@ struct WorkspaceChatComposerHost: View {
       selectedModel: composerSelectedModel(from: localDownloadedModels),
       modelState: controller.modelRuntime.modelState,
       interactionMode: composerState.interactionMode,
+      toolApprovalPolicy: composerState.toolApprovalPolicy,
       mcpServerPickerConfiguration: MCPServerPicker.Configuration(
         servers: mcpServers,
         statuses: mcpServerStatuses,
@@ -60,11 +61,16 @@ struct WorkspaceChatComposerHost: View {
       canChangeModel: !localDownloadedModels.isEmpty && !isGenerating
         && controller.modelRuntime.canChangeModel,
       canChangeInteractionMode: controller.canChangeInteractionMode,
+      canEnableAutomaticToolApproval: controller.canEnableAutomaticToolApproval,
       canSend: controller.modelRuntime.modelState == .ready && !isGenerating,
       canRunLocalCommand: !isGenerating,
       isGenerating: isGenerating,
       errorMessage: controller.errorMessage,
       onSelectInteractionMode: controller.setInteractionMode,
+      onEnableAutomaticToolApproval: {
+        controller.enableAutomaticToolApproval(in: toolWorkspace)
+      },
+      onDisableAutomaticToolApproval: controller.disableAutomaticToolApproval,
       onSetReasoningEnabled: controller.setReasoningEnabled,
       onSelectModel: selectModel(_:),
       onLoadModel: loadSelectedModel,
@@ -80,6 +86,10 @@ struct WorkspaceChatComposerHost: View {
 
   private var downloadedModels: [ManagedModel] {
     controller.modelRuntime.availableModels.filter { controller.modelRuntime.isModelDownloaded($0) }
+  }
+
+  private var toolWorkspace: Workspace {
+    context.workspace(containing: sessionID ?? controller.chatSession.id)
   }
 
   private func composerSelectedModel(from downloadedModels: [ManagedModel]) -> ManagedModel {

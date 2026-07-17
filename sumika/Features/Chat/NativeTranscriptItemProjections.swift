@@ -84,13 +84,18 @@ extension RenderedChatTurnItem {
   var nativeAccessibilityLabel: String {
     switch item {
     case .userMessage:
-      "User message"
+      return "User message"
     case .assistantThinking:
-      "Assistant reasoning"
+      return "Assistant reasoning"
     case .assistantMessage:
-      shouldShowAssistantPlaceholder ? assistantPlaceholderTitle : "Assistant message"
+      return shouldShowAssistantPlaceholder ? assistantPlaceholderTitle : "Assistant message"
     case .tool(let record):
-      "Tool \(record.request.toolName.rawValue), \(record.status.nativeDisplayName)"
+      let parts: [String?] = [
+        "Tool \(record.request.toolName.rawValue)",
+        record.status.nativeDisplayName,
+        record.approvalSource == .automatic ? "auto-approved" : nil,
+      ]
+      return parts.compactMap(\.self).joined(separator: ", ")
     }
   }
 

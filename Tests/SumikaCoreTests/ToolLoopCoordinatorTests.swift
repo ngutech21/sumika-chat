@@ -1047,6 +1047,133 @@ struct ToolLoopCoordinatorTests {
   }
 
   @Test
+  func automaticApprovalMaterializesPendingWriteBeforeRequestingResume() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("automatic.txt"),
+              "content": .string("approved automatically\n"),
+            ]
+          )
+        ],
+        approvalPolicyProvider: { .automatic }
+      )
+    )
+
+    let record = try #require(toolCallRecord(from: result))
+    #expect(record.status == .awaitingApproval)
+    #expect(record.approvalSource == nil)
+    #expect(toolResults(from: result).isEmpty)
+    #expect(
+      result?.continuation == .resumeAutomaticApproval(batchAnchorID: record.id)
+    )
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: workspace.rootURL.appending(path: "automatic.txt").path
+      )
+    )
+  }
+
+  @Test
+  func automaticApprovalDoesNotBypassAskUserOrHardDenial() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let questionResult = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "ask_user",
+            arguments: [
+              "question": .string("Which option?"),
+              "option1": .string("First"),
+              "option2": .string("Second"),
+            ]
+          )
+        ],
+        approvalPolicyProvider: { .automatic }
+      )
+    )
+    #expect(toolCallRecord(from: questionResult)?.status == .awaitingUserAnswer)
+    #expect(toolCallRecord(from: questionResult)?.approvalSource == nil)
+    #expect(questionResult?.continuation == .awaitingUserAnswer)
+
+    let deniedResult = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("../outside.txt"),
+              "content": .string("must not be written\n"),
+            ]
+          )
+        ],
+        approvalPolicyProvider: { .automatic }
+      )
+    )
+    #expect(toolCallRecord(from: deniedResult)?.status == .denied)
+    #expect(toolCallRecord(from: deniedResult)?.approvalSource == nil)
+  }
+
+  @Test
+  func automaticApprovalMaterializesEntireBatchBeforeRequestingResume() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+
+    let result = try await ToolLoopCoordinator().run(
+      request(
+        workspace: workspace,
+        sessionID: sessionID,
+        nativeToolCalls: [
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("first.txt"),
+              "content": .string("first\n"),
+            ]
+          ),
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("second.txt"),
+              "content": .string("second\n"),
+            ]
+          ),
+        ],
+        approvalPolicyProvider: { .automatic }
+      )
+    )
+
+    let records = toolCallRecords(from: result)
+    #expect(records.map(\.status) == [.awaitingApproval, .awaitingApproval])
+    #expect(records.map(\.approvalSource) == [nil, nil])
+    #expect(
+      result?.continuation == .resumeAutomaticApproval(batchAnchorID: records[0].id)
+    )
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: workspace.rootURL.appending(path: "first.txt").path
+      )
+    )
+    #expect(
+      !FileManager.default.fileExists(atPath: workspace.rootURL.appending(path: "second.txt").path)
+    )
+  }
+
+  @Test
   func awaitingApprovalDoesNotHideLaterIndependentToolCall() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -1549,7 +1676,8 @@ struct ToolLoopCoordinatorTests {
     interactionMode: WorkspaceInteractionMode = .agent,
     toolProfile: ToolExecutionProfile = .agent,
     toolCallingPolicy: ToolCallingPolicy = .nativeMLX,
-    nativeToolCalls: [ChatRuntimeToolCall]
+    nativeToolCalls: [ChatRuntimeToolCall],
+    approvalPolicyProvider: @escaping @Sendable () async -> ToolApprovalPolicy = { .manual }
   ) -> ToolLoopRequest {
     var items: [ChatTurnItem] = []
     if let userContent {
@@ -1577,7 +1705,8 @@ struct ToolLoopCoordinatorTests {
       toolProfile: toolProfile,
       followUpPromptMode: followUpPromptMode,
       toolCallingPolicy: toolCallingPolicy,
-      nativeToolCalls: nativeToolCalls
+      nativeToolCalls: nativeToolCalls,
+      approvalPolicyProvider: approvalPolicyProvider
     )
   }
 
@@ -1676,7 +1805,8 @@ struct ToolLoopCoordinatorTests {
     case .some(.resumeGeneration(_, let promptMode)),
       .some(.resumeCorrectionGeneration(_, let promptMode)):
       return promptMode
-    case .some(.none), .some(.awaitingApproval), .some(.awaitingUserAnswer), .some(.stopTurn):
+    case .some(.none), .some(.awaitingApproval), .some(.awaitingUserAnswer),
+      .some(.resumeAutomaticApproval), .some(.stopTurn):
       return nil
     case Optional.none:
       return nil

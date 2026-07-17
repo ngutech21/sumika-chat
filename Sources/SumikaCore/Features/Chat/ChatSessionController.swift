@@ -72,6 +72,13 @@ public final class ChatSessionController {
     chatSession.interactionMode == .agent && canChangeInteractionMode
   }
 
+  public var canEnableAutomaticToolApproval: Bool {
+    chatSession.interactionMode == .agent
+      && chatSession.toolApprovalPolicy == .manual
+      && !isGenerating
+      && !hasPendingUserAnswer
+  }
+
   public convenience init() {
     self.init(modelSettingsStore: ModelSettingsStore())
   }
@@ -246,6 +253,7 @@ extension ChatSessionController {
       pendingAttachments: session.pendingAttachments,
       activeAttachments: activeAttachments(in: session),
       interactionMode: session.interactionMode,
+      toolApprovalPolicy: session.toolApprovalPolicy,
       selectedMCPServerIDs: session.selectedMCPServerIDs,
       reasoningEnabled: session.generationSettings.reasoningEnabled,
       todoState: visibleTodoState(in: session)
@@ -307,6 +315,7 @@ extension ChatSessionController {
     snapshot.focusedFileState = chatSession.focusedFileState
     snapshot.modeSettings = chatSession.modeSettings
     snapshot.interactionMode = chatSession.interactionMode
+    snapshot.toolApprovalPolicy = chatSession.toolApprovalPolicy
     snapshot.setSelectedMCPServerIDs(chatSession.selectedMCPServerIDs)
     snapshot.todoState = chatSession.todoState
     snapshot.pendingAttachments = []
@@ -343,6 +352,31 @@ extension ChatSessionController {
     clearRuntimeContextForReuse()
     refreshContextUsage(
       toolPromptMode: chatSession.interactionMode == .chat ? .disabled : .enabled(true))
+    notifySessionDidChange()
+  }
+
+  public func enableAutomaticToolApproval(in workspace: Workspace) {
+    guard canEnableAutomaticToolApproval else {
+      return
+    }
+
+    chatSession.toolApprovalPolicy = .automatic
+    errorMessage = nil
+    notifySessionDidChange()
+
+    guard let batchAnchorID = latestPendingApprovalBatchAnchorID else {
+      return
+    }
+    resumeAutomaticApprovalBatch(containing: batchAnchorID, in: workspace)
+  }
+
+  public func disableAutomaticToolApproval() {
+    guard chatSession.toolApprovalPolicy != .manual else {
+      return
+    }
+
+    chatSession.toolApprovalPolicy = .manual
+    errorMessage = nil
     notifySessionDidChange()
   }
 
@@ -872,6 +906,45 @@ extension ChatSessionController {
     )
   }
 
+  public func resumeAutomaticApprovalBatch(
+    containing batchAnchorID: ToolCallRecord.ID,
+    in workspace: Workspace
+  ) {
+    guard !isGenerating,
+      chatSession.interactionMode == .agent,
+      chatSession.toolApprovalPolicy == .automatic,
+      let turnID = chatSession.turnID(containingToolCall: batchAnchorID),
+      let turn = chatSession.turns.first(where: { $0.id == turnID }),
+      let batch = turn.toolCallBatch(containing: batchAnchorID),
+      batch.anchorID == batchAnchorID,
+      let firstRecord = batch.pendingApprovalRecords.first
+    else {
+      return
+    }
+
+    isGenerating = true
+    errorMessage = nil
+    chatTurnCoordinator.approveToolCallBatch(
+      batch.pendingApprovalRecords,
+      batchAnchorID: batch.anchorID,
+      in: workspace,
+      turnID: turnID,
+      toolOrchestrator: toolOrchestrator(for: firstRecord),
+      approvalSource: .automatic,
+      runtime: turnRuntimeContext(),
+      callbacks: turnCallbacks()
+    )
+  }
+
+  private var latestPendingApprovalBatchAnchorID: ToolCallRecord.ID? {
+    for turn in chatSession.turns.reversed() {
+      if let batch = turn.toolCallBatches.last(where: { !$0.pendingApprovalRecords.isEmpty }) {
+        return batch.anchorID
+      }
+    }
+    return nil
+  }
+
   private func toolOrchestrator(for record: ToolCallRecord) -> ToolOrchestrator {
     guard chatSession.interactionMode == .chat else {
       return toolOrchestrator
@@ -956,7 +1029,8 @@ extension ChatSessionController {
       selectedModel: modelRuntime.selectedModel,
       operationID: modelRuntime.currentOperationID(),
       chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator
+      toolLoopCoordinator: toolLoopCoordinator,
+      agentToolOrchestrator: toolOrchestrator
     )
   }
 

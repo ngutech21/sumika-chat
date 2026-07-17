@@ -863,6 +863,60 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func automaticApprovalShowsOnlyResumeAutomationForInterruptedBatch() throws {
+    let anchorID = UUID()
+    var resumedAnchors: [ToolCallRecord.ID] = []
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in },
+      onResumeAutomaticApprovalBatch: { resumedAnchors.append($0) }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 760, height: 520))
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+    let rows = [
+      nativeToolRow(
+        id: "tool-anchor",
+        revision: 1,
+        record: nativeApprovalToolRecord(id: anchorID),
+        batchPresentation: ToolApprovalBatchPresentation(
+          anchorID: anchorID,
+          pendingApprovalCount: 1,
+          showsApproveAll: false
+        )
+      )
+    ]
+
+    coordinator.update(
+      rows: rows,
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      toolApprovalPolicy: .automatic,
+      in: scrollView
+    )
+    tableView.layoutSubtreeIfNeeded()
+
+    let cell = try #require(
+      tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        as? NativeChatMessageCellView
+    )
+    let resumeID = "chat.tool.resumeAutomation.\(anchorID.uuidString)"
+    let resumeButton = try #require(
+      cell.descendantButtons(accessibilityIdentifier: resumeID).first
+    )
+
+    #expect(
+      cell.descendantButtons(accessibilityIdentifier: "chat.tool.approve.\(anchorID)").isEmpty
+    )
+    #expect(cell.descendantButtons(accessibilityIdentifier: "chat.tool.deny.\(anchorID)").isEmpty)
+    resumeButton.performClick(nil)
+    #expect(resumedAnchors == [anchorID])
+  }
+
+  @Test
   func askUserControlsDisableWhileGenerating() throws {
     let row = nativeToolRow(
       id: "ask-user",
@@ -1106,6 +1160,16 @@ struct AppKitChatTranscriptDiffPlanTests {
     #expect(details.affectedPaths == ["Package.swift"])
     #expect(details.flags == ["truncated"])
     #expect(!details.isEmpty)
+  }
+
+  @Test
+  func nativeToolDetailsIncludeAutomaticApprovalSource() {
+    var record = nativeCompletedCommandToolRecord()
+    record.approvalSource = .automatic
+
+    let details = NativeToolDetailContent(record: record)
+
+    #expect(details.permissionLines == ["Approval: Auto-approved"])
   }
 
   @Test
@@ -2388,6 +2452,7 @@ private func testNativeActions() -> NativeTranscriptCellActions {
     toggleSpeech: { _, _ in },
     approve: { _ in },
     approveAll: { _ in },
+    resumeAutomation: { _ in },
     deny: { _ in },
     answerAskUser: { _, _, _ in },
     toggleToolExpansion: { _ in },

@@ -10,17 +10,21 @@ struct ChatComposer: View {
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
   let interactionMode: WorkspaceInteractionMode
+  let toolApprovalPolicy: ToolApprovalPolicy
   let mcpServerPickerConfiguration: MCPServerPicker.Configuration
   let reasoningEnabled: Bool
   let todoState: TodoState?
   let contextUsage: ChatContextUsage?
   let canChangeModel: Bool
   let canChangeInteractionMode: Bool
+  let canEnableAutomaticToolApproval: Bool
   let canSend: Bool
   let canRunLocalCommand: Bool
   let isGenerating: Bool
   let errorMessage: String?
   let onSelectInteractionMode: (WorkspaceInteractionMode) -> Void
+  let onEnableAutomaticToolApproval: () -> Void
+  let onDisableAutomaticToolApproval: () -> Void
   let onSetReasoningEnabled: (Bool) -> Void
   let onSelectModel: (ManagedModel) -> Void
   let onLoadModel: () -> Void
@@ -36,6 +40,7 @@ struct ChatComposer: View {
   @State private var slashSelectionIndex = 0
   @State private var slashSuggestionsDismissed = false
   @State private var showModelPicker = false
+  @State private var showAutoApproveConfirmation = false
   @State private var isDropTarget = false
 
   private let slashCommandParser = SlashCommandParser()
@@ -112,6 +117,9 @@ struct ChatComposer: View {
 
           modelPicker
           modeSelector
+          if interactionMode == .agent {
+            autoApproveToggle
+          }
           MCPServerPicker(configuration: mcpServerPickerConfiguration)
           reasoningToggle
 
@@ -174,72 +182,18 @@ struct ChatComposer: View {
       }
     }
     .padding(16)
-  }
-
-  private var modeSelector: some View {
-    HStack(spacing: 2) {
-      ForEach(WorkspaceInteractionMode.allCases, id: \.self) { mode in
-        modeButton(mode)
+    .alert("Enable Auto-approve?", isPresented: $showAutoApproveConfirmation) {
+      Button("Cancel", role: .cancel) {}
+      Button("Enable Auto-approve", role: .destructive) {
+        onEnableAutomaticToolApproval()
       }
+    } message: {
+      Text(
+        """
+        Agent will execute file changes, web and MCP actions, and arbitrary shell commands without asking again. Shell commands run with your user permissions and can access files outside this workspace and the network.
+        """
+      )
     }
-    .padding(2)
-    .frame(width: 112, height: 28)
-    .background(Color.secondary.opacity(0.09), in: RoundedRectangle(cornerRadius: 6))
-    .overlay {
-      RoundedRectangle(cornerRadius: 6)
-        .strokeBorder(Color.secondary.opacity(0.14), lineWidth: 1)
-    }
-    .accessibilityElement(children: .contain)
-    .accessibilityLabel("Mode")
-    .accessibilityValue(interactionMode.displayName)
-    .accessibilityIdentifier("chat.modePicker")
-  }
-
-  private func modeButton(_ mode: WorkspaceInteractionMode) -> some View {
-    let isSelected = mode == interactionMode
-
-    return Button {
-      guard mode != interactionMode else {
-        return
-      }
-      onSelectInteractionMode(mode)
-    } label: {
-      Text(mode.displayName)
-        .font(.caption2.weight(isSelected ? .semibold : .medium))
-        .foregroundStyle(modeButtonForeground(isSelected: isSelected))
-        .frame(width: 52, height: 24)
-        .background(
-          modeButtonBackground(isSelected: isSelected),
-          in: RoundedRectangle(cornerRadius: 5)
-        )
-        .overlay {
-          RoundedRectangle(cornerRadius: 5)
-            .strokeBorder(modeButtonBorder(isSelected: isSelected), lineWidth: 1)
-        }
-    }
-    .buttonStyle(.plain)
-    .disabled(!canChangeInteractionMode)
-    .accessibilityLabel(mode.displayName)
-    .accessibilityValue(isSelected ? "Selected" : "Not selected")
-    .accessibilityIdentifier("chat.mode.\(mode.rawValue)")
-  }
-
-  private func modeButtonForeground(isSelected: Bool) -> Color {
-    guard isSelected else {
-      return .secondary
-    }
-    return .white
-  }
-
-  private func modeButtonBackground(isSelected: Bool) -> Color {
-    guard isSelected else {
-      return .clear
-    }
-    return .accentColor
-  }
-
-  private func modeButtonBorder(isSelected: Bool) -> Color {
-    isSelected ? Color.accentColor.opacity(0.65) : Color.clear
   }
 
   private var reasoningToggle: some View {
@@ -699,6 +653,118 @@ struct ChatComposer: View {
   private static let attachmentDropTypes: [UTType] = [
     .fileURL
   ]
+}
+
+extension ChatComposer {
+  fileprivate var modeSelector: some View {
+    HStack(spacing: 2) {
+      ForEach(WorkspaceInteractionMode.allCases, id: \.self) { mode in
+        modeButton(mode)
+      }
+    }
+    .padding(2)
+    .frame(width: 112, height: 28)
+    .background(Color.secondary.opacity(0.09), in: RoundedRectangle(cornerRadius: 6))
+    .overlay {
+      RoundedRectangle(cornerRadius: 6)
+        .strokeBorder(Color.secondary.opacity(0.14), lineWidth: 1)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Mode")
+    .accessibilityValue(interactionMode.displayName)
+    .accessibilityIdentifier("chat.modePicker")
+  }
+
+  fileprivate func modeButton(_ mode: WorkspaceInteractionMode) -> some View {
+    let isSelected = mode == interactionMode
+
+    return Button {
+      guard mode != interactionMode else {
+        return
+      }
+      onSelectInteractionMode(mode)
+    } label: {
+      Text(mode.displayName)
+        .font(.caption2.weight(isSelected ? .semibold : .medium))
+        .foregroundStyle(modeButtonForeground(isSelected: isSelected))
+        .frame(width: 52, height: 24)
+        .background(
+          modeButtonBackground(isSelected: isSelected),
+          in: RoundedRectangle(cornerRadius: 5)
+        )
+        .overlay {
+          RoundedRectangle(cornerRadius: 5)
+            .strokeBorder(modeButtonBorder(isSelected: isSelected), lineWidth: 1)
+        }
+    }
+    .buttonStyle(.plain)
+    .disabled(!canChangeInteractionMode)
+    .accessibilityLabel(mode.displayName)
+    .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    .accessibilityIdentifier("chat.mode.\(mode.rawValue)")
+  }
+
+  fileprivate func modeButtonForeground(isSelected: Bool) -> Color {
+    guard isSelected else {
+      return .secondary
+    }
+    return .white
+  }
+
+  fileprivate func modeButtonBackground(isSelected: Bool) -> Color {
+    guard isSelected else {
+      return .clear
+    }
+    return .accentColor
+  }
+
+  fileprivate func modeButtonBorder(isSelected: Bool) -> Color {
+    isSelected ? Color.accentColor.opacity(0.65) : Color.clear
+  }
+
+  fileprivate var autoApproveToggle: some View {
+    let isAutomatic = toolApprovalPolicy == .automatic
+
+    return Button {
+      if isAutomatic {
+        onDisableAutomaticToolApproval()
+      } else {
+        showAutoApproveConfirmation = true
+      }
+    } label: {
+      HStack(spacing: 5) {
+        Image(systemName: isAutomatic ? "shield.fill" : "shield")
+          .font(.system(size: 10, weight: .semibold))
+        Text("Auto-approve")
+          .font(.caption2.weight(isAutomatic ? .semibold : .medium))
+          .lineLimit(1)
+      }
+      .foregroundStyle(isAutomatic ? Color.orange : Color.secondary)
+      .padding(.horizontal, 7)
+      .frame(width: 106, height: 24)
+      .background(
+        isAutomatic ? Color.orange.opacity(0.18) : Color.secondary.opacity(0.08),
+        in: RoundedRectangle(cornerRadius: 5)
+      )
+      .overlay {
+        RoundedRectangle(cornerRadius: 5)
+          .strokeBorder(
+            isAutomatic ? Color.orange.opacity(0.65) : Color.secondary.opacity(0.16),
+            lineWidth: isAutomatic ? 1.2 : 1
+          )
+      }
+    }
+    .buttonStyle(.plain)
+    .disabled(!isAutomatic && !canEnableAutomaticToolApproval)
+    .help(
+      isAutomatic
+        ? "Disable automatic tool approval"
+        : "Automatically approve tools for this session"
+    )
+    .accessibilityLabel("Auto-approve")
+    .accessibilityValue(isAutomatic ? "Enabled" : "Disabled")
+    .accessibilityIdentifier("chat.autoApproveToggle")
+  }
 }
 
 struct ComposerDraftState: Equatable {

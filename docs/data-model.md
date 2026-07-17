@@ -35,6 +35,7 @@ flowchart TD
   ToolCallParseOutput --> RawToolCallRequest
   ToolCallParseOutput --> ToolCallModelMessage
   ToolCallPayload --> InvalidToolInput
+  ToolCallRecord --> ToolApprovalSource
   ToolCallRecord --> ToolCallRequest
   ToolCallRecord --> ToolCallState
   ToolCallRecord --> ToolPermissionEvaluation
@@ -594,6 +595,28 @@ Relations:
 
 - `WorkspaceRelativePath`
 
+### ToolApprovalPolicy
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Models/ToolApproval.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
+
+Cases:
+
+- `automatic`
+- `manual`
+
+### ToolApprovalSource
+
+- Kind: `enum`
+- Source: `Sources/SumikaCore/Models/ToolApproval.swift`
+- Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
+
+Cases:
+
+- `automatic`
+- `manual`
+
 ### ToolArgumentTrace
 
 - Kind: `struct`
@@ -718,6 +741,7 @@ Relations:
 
 Properties:
 
+- `approvalSource: ToolApprovalSource?`
 - `evaluation: ToolPermissionEvaluation`
 - `modelFollowUpNotice: String?`
 - `request: ToolCallRequest`
@@ -725,6 +749,7 @@ Properties:
 
 Relations:
 
+- `ToolApprovalSource`
 - `ToolCallRequest`
 - `ToolCallState`
 - `ToolPermissionEvaluation`

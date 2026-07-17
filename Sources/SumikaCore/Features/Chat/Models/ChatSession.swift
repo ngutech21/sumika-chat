@@ -30,6 +30,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     set { activeModeSettings.generationSettings = newValue }
   }
   public var interactionMode: WorkspaceInteractionMode
+  public var toolApprovalPolicy: ToolApprovalPolicy
   public private(set) var selectedMCPServerIDs: [UUID]
   public var todoState: TodoState?
   public var pendingAttachments: [ChatAttachment]
@@ -46,6 +47,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     focusedFileState: FocusedFileState = .empty,
     modeSettings: ChatModeSettingsSet = .defaultSettings,
     interactionMode: WorkspaceInteractionMode = .chat,
+    toolApprovalPolicy: ToolApprovalPolicy = .manual,
     selectedMCPServerIDs: [UUID] = [],
     todoState: TodoState? = nil,
     activeAttachmentContext: ActiveAttachmentContext = .empty,
@@ -58,6 +60,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.turns = turns
     self.focusedFileState = focusedFileState
     self.interactionMode = interactionMode
+    self.toolApprovalPolicy = toolApprovalPolicy
     self.selectedMCPServerIDs = Self.uniqueIDsPreservingOrder(selectedMCPServerIDs)
     self.modeSettings = modeSettings
     self.todoState = todoState
@@ -77,6 +80,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       && lhs.focusedFileState == rhs.focusedFileState
       && lhs.modeSettings == rhs.modeSettings
       && lhs.interactionMode == rhs.interactionMode
+      && lhs.toolApprovalPolicy == rhs.toolApprovalPolicy
       && lhs.selectedMCPServerIDs == rhs.selectedMCPServerIDs
       && lhs.todoState == rhs.todoState
       && lhs.activeAttachmentContext == rhs.activeAttachmentContext
@@ -92,6 +96,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     case focusedFileState
     case modeSettings
     case interactionMode
+    case toolApprovalPolicy
     case selectedMCPServerIDs
     case todoState
     case activeAttachmentContext
@@ -120,6 +125,11 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       WorkspaceInteractionMode.self,
       forKey: .interactionMode,
       default: .chat
+    )
+    toolApprovalPolicy = try container.decodeIfPresent(
+      ToolApprovalPolicy.self,
+      forKey: .toolApprovalPolicy,
+      default: .manual
     )
     selectedMCPServerIDs = Self.uniqueIDsPreservingOrder(
       try container.decodeIfPresent(
@@ -153,6 +163,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     try container.encode(focusedFileState, forKey: .focusedFileState)
     try container.encode(modeSettings, forKey: .modeSettings)
     try container.encode(interactionMode, forKey: .interactionMode)
+    try container.encode(toolApprovalPolicy, forKey: .toolApprovalPolicy)
     try container.encode(selectedMCPServerIDs, forKey: .selectedMCPServerIDs)
     try container.encode(todoState, forKey: .todoState)
     try container.encode(activeAttachmentContext, forKey: .activeAttachmentContext)

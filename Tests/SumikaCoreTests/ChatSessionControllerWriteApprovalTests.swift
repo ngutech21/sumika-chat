@@ -164,6 +164,7 @@ struct ChatSessionControllerWriteApprovalTests {
     #expect(!controller.isGenerating)
     #expect(!controller.hasPendingApproval)
     #expect(controller.chatSession.toolCalls[0].status == .completed)
+    #expect(controller.chatSession.toolCalls[0].approvalSource == .manual)
     #expect(controller.chatSession.toolCalls[0].resultPreview?.status == .success)
     #expect(controller.chatSession.testMessages.count == 3)
     #expect(controller.chatSession.testMessages[1].kind == .toolResult)
@@ -195,6 +196,240 @@ struct ChatSessionControllerWriteApprovalTests {
     let capturedPromptPlans = await runtime.capturedPromptPlans
     #expect(capturedPromptPlans.last?.transientInstructions.isEmpty == true)
     #expect(capturedPromptPlans.last?.toolContext != nil)
+  }
+
+  @Test
+  func automaticApprovalExecutesWriteAndAllowsFinalAssistantResponse() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let content = "approved automatically\n"
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("automatic.txt"),
+              "content": .string(content),
+            ]
+          ))
+      ],
+      [.chunk("Updated automatic.txt.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.enableAutomaticToolApproval(in: workspace)
+
+    controller.sendMessage(
+      prompt: "create the file", in: workspace, sessionID: sessionID)
+
+    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
+
+    let record = try #require(controller.chatSession.toolCalls.first)
+    #expect(record.status == .completed)
+    #expect(record.approvalSource == .automatic)
+    #expect(!controller.hasPendingApproval)
+    #expect(
+      try String(
+        contentsOf: workspace.rootURL.appending(path: "automatic.txt"),
+        encoding: .utf8
+      ) == content
+    )
+  }
+
+  @Test
+  func cancellingAutomaticApprovalPersistsFinishedToolAndDoesNotStartNextTool() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let processRunner = ControlledCommandProcessRunner()
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        runCommandToolCall("first"),
+        runCommandToolCall("second"),
+      ]
+    ])
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: ToolExecutorRegistry([
+          AnyToolExecutor(RunCommandToolExecutor(processRunner: processRunner))
+        ])
+      )
+    )
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.enableAutomaticToolApproval(in: workspace)
+
+    controller.sendMessage(
+      prompt: "run both commands", in: workspace, sessionID: sessionID)
+
+    try await waitUntilAsync { await processRunner.startedCount == 1 }
+    #expect(
+      controller.chatSession.toolCalls.map(\.status) == [
+        .awaitingApproval, .awaitingApproval,
+      ])
+
+    controller.cancelGeneration()
+    await processRunner.releaseFirst()
+
+    try await waitUntilAsync {
+      await processRunner.startedCount > 1
+        || controller.chatSession.toolCalls.first?.status == .completed
+    }
+
+    let records = controller.chatSession.toolCalls
+    #expect(records.map(\.status) == [.completed, .awaitingApproval])
+    #expect(records.map(\.approvalSource) == [.automatic, nil])
+    #expect(await processRunner.startedCount == 1)
+    #expect(controller.chatSession.turns.first?.status == .cancelled)
+
+    await processRunner.releaseAll()
+  }
+
+  @Test
+  func enablingAutomaticApprovalResumesExistingPendingBatch() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("resumed.txt"),
+              "content": .string("resumed\n"),
+            ]
+          ))
+      ],
+      [.chunk("Resumed the automation.")],
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(
+      prompt: "create the file", in: workspace, sessionID: sessionID)
+    try await waitUntil { controller.hasPendingApproval }
+
+    controller.enableAutomaticToolApproval(in: workspace)
+
+    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
+    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
+    #expect(controller.chatSession.toolCalls.first?.approvalSource == .automatic)
+    #expect(
+      FileManager.default.fileExists(
+        atPath: workspace.rootURL.appending(path: "resumed.txt").path
+      )
+    )
+  }
+
+  @Test
+  func disablingAutomaticApprovalPausesBeforeNextUnstartedPendingTool() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("first.txt"),
+              "content": .string("first\n"),
+            ]
+          )),
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "write_file",
+            arguments: [
+              "path": .string("second.txt"),
+              "content": .string("second\n"),
+            ]
+          )),
+      ]
+    ])
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    controller.modelRuntime.modelState = .ready
+    controller.setInteractionMode(.agent)
+    controller.sendMessage(
+      prompt: "create both files", in: workspace, sessionID: sessionID)
+    try await waitUntil {
+      controller.chatSession.toolCalls.count == 2 && controller.hasPendingApproval
+    }
+
+    var didDisable = false
+    controller.setSessionChangeHandler {
+      guard !didDisable,
+        controller.chatSession.toolCalls.first?.status == .completed
+      else {
+        return
+      }
+      didDisable = true
+      controller.disableAutomaticToolApproval()
+    }
+
+    controller.enableAutomaticToolApproval(in: workspace)
+
+    try await waitUntil { !controller.isGenerating && didDisable }
+    let records = controller.chatSession.toolCalls
+    #expect(controller.chatSession.toolApprovalPolicy == .manual)
+    #expect(records.map(\.status) == [.completed, .awaitingApproval])
+    #expect(records.map(\.approvalSource) == [.automatic, nil])
+    #expect(
+      FileManager.default.fileExists(
+        atPath: workspace.rootURL.appending(path: "first.txt").path
+      )
+    )
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: workspace.rootURL.appending(path: "second.txt").path
+      )
+    )
+  }
+
+  @Test
+  func loadingAutomaticSessionDoesNotExecutePersistedPendingApproval() async throws {
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let pendingRecord = await ToolOrchestrator(executorRegistry: .codingAgent).execute(
+      request: RawToolCallRequest(
+        workspaceID: workspace.id,
+        sessionID: sessionID,
+        toolName: .writeFile,
+        arguments: [
+          "path": .string("must-wait.txt"),
+          "content": .string("not on load\n"),
+        ]
+      ),
+      workspace: workspace
+    )
+    let session = ChatSession(
+      id: sessionID,
+      turns: [
+        ChatTurn(
+          status: .awaitingApproval,
+          items: [.tool(pendingRecord)]
+        )
+      ],
+      interactionMode: .agent,
+      toolApprovalPolicy: .automatic
+    )
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+
+    controller.loadSession(session)
+    await Task.yield()
+
+    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
+    #expect(controller.hasPendingApproval)
+    #expect(!controller.isGenerating)
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: workspace.rootURL.appending(path: "must-wait.txt").path
+      )
+    )
   }
 
   @Test
@@ -250,6 +485,31 @@ struct ChatSessionControllerWriteApprovalTests {
     }
   }
 
+  private func waitUntilAsync(
+    timeout: Duration = .seconds(1),
+    condition: @escaping @MainActor () async -> Bool
+  ) async throws {
+    let start = ContinuousClock.now
+    while !(await condition()) {
+      if start.duration(to: .now) > timeout {
+        Issue.record("Timed out waiting for async condition")
+        throw TestWaitTimeoutError()
+      }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+  }
+
+  private func runCommandToolCall(_ command: String) -> ChatModelStreamEvent {
+    .toolCall(
+      ChatRuntimeToolCall(
+        name: ToolName.runCommand.rawValue,
+        arguments: [
+          "command": .string(command),
+          "timeoutSeconds": .number(10),
+        ]
+      ))
+  }
+
   private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
     let rootURL = FileManager.default.temporaryDirectory.appending(
       path: "sumika-tests-\(UUID().uuidString)",
@@ -275,5 +535,43 @@ struct ChatSessionControllerWriteApprovalTests {
         )
       ]
     )
+  }
+}
+
+private actor ControlledCommandProcessRunner: CommandProcessRunning {
+  private var requests: [CommandProcessRequest] = []
+  private var continuations: [CheckedContinuation<Void, Never>] = []
+
+  var startedCount: Int {
+    requests.count
+  }
+
+  func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult {
+    requests.append(request)
+    await withCheckedContinuation { continuation in
+      continuations.append(continuation)
+    }
+    return CommandProcessResult(
+      exitCode: Task.isCancelled ? nil : 0,
+      durationMs: 1,
+      stdout: "",
+      stderr: "",
+      cancelled: Task.isCancelled
+    )
+  }
+
+  func releaseFirst() {
+    guard !continuations.isEmpty else {
+      return
+    }
+    continuations.removeFirst().resume()
+  }
+
+  func releaseAll() {
+    let pendingContinuations = continuations
+    continuations.removeAll()
+    for continuation in pendingContinuations {
+      continuation.resume()
+    }
   }
 }

@@ -23,10 +23,13 @@ flowchart TD
   L --> O["ToolResultProjector derives display + observation"]
   O --> P["ToolResultModelMessage stores payload only"]
   O --> Q["Render ToolModelObservation into FrozenModelContent"]
-  J --> M{"User decision"}
-  M -- "approve" --> N["Approved execution re-validates raw request + runs typed tool"]
+  J --> Y["Persist complete batch in ChatTurn.items"]
+  Y --> M{"Session approval policy"}
+  M -- "automatic" --> N["Approved execution re-validates raw request + runs typed tool"]
+  M -- "manual" --> X{"User decision"}
+  X -- "approve" --> N
   N --> R["ToolResumeCoordinator builds approved-result events from result payload"]
-  M -- "deny" --> S["ToolResumeCoordinator builds denied-result events"]
+  X -- "deny" --> S["ToolResumeCoordinator builds denied-result events"]
   B --> T["ask_user request"]
   T --> U["ToolCallRecord awaitingUserAnswer"]
   U --> V["User answers"]
@@ -66,19 +69,38 @@ flowchart TD
   invokes `ToolLoopCoordinator`, applies `ChatWorkflowStep` continuations via
   emitted workflow events, pauses on approval or `ask_user`, and resumes through
   approved, denied, or answered tool flows.
+- `ChatSession.toolApprovalPolicy` is persisted per session and defaults to
+  `manual`. It is effective only while that same session is in Agent mode;
+  switching to Chat preserves the preference without enabling workspace tools,
+  and new or other sessions do not inherit it.
+- With the `automatic` session policy, a `.requiresApproval` result enters the
+  same approved execution path without showing Approve/Deny. The complete batch
+  is first emitted into canonical `ChatTurn.items` with `awaitingApproval`
+  records; only then may automatic execution start. The runtime reads the live
+  policy before every not-yet-started sibling, so disabling it lets an
+  already-running tool finish but restores the manual pause for later calls.
+  `.denied` decisions and `ask_user` are never bypassed.
+- `ToolCallRecord.approvalSource` records `manual` or `automatic` after an
+  approval-required tool actually starts through the approved path. The
+  transcript derives its `Auto-approved` indicator from this persisted
+  provenance rather than the session's current policy.
 - Approval and denial update one existing batch record in place. The turn stays
   paused while any sibling call is unresolved and starts exactly one model
   follow-up only after the whole batch has model-facing results. `Approve all`
   executes the remaining approved records sequentially in original model order;
   individual decisions may arrive in any order without changing result order.
 - Immediately before approved execution, the tool input and permission scope are
-  evaluated again. If the normalized target paths or risk level changed since
-  the preview (for example after a symlink change), the record returns to
-  `awaitingApproval` with the fresh scope and no side effect runs.
+  evaluated again. A manual approval returns to `awaitingApproval` when the
+  normalized target paths or risk level changed since the preview (for example
+  after a symlink change). Automatic approval accepts the freshly evaluated
+  `.requiresApproval` scope, while a fresh `.denied` decision still prevents the
+  side effect.
 - `ChatModelContextBuilder` suppresses every result in a partially resolved
   batch. Only a model-ready batch is projected as one assistant tool-call group
   followed by one ordered tool message per call. Persisted partial records remain
-  available to the transcript and can be resumed after reload.
+  available to the transcript after reload. Loading a session never starts a
+  pending side effect, even when its policy is automatic; the transcript exposes
+  an explicit `Resume automation` action for that batch.
 - `ToolResumeCoordinator` builds the workflow events for approved tool results,
   denied tool results, and answered `ask_user` receipts. It does not own async
   execution; the active turn task stays in `ChatTurnCoordinator`.
@@ -544,8 +566,9 @@ declarations.
   Git-only: it returns `git status --short`, `git diff --stat`, and unified
   `git diff` output for tracked changes. Untracked files are reported in status
   without dumping their contents. Output is capped and marked when truncated.
-- Write tools and command tools must require explicit approval before
-  execution.
+- Write tools and command tools must enter the approval-required path before
+  execution. The active Agent session's manual or automatic policy decides
+  whether that path pauses for user input.
 - `ask_user` is available only in the Agent registry. It is a read-only control
   tool for genuinely blocking clarification, not routine confirmation and not
   side-effect approval. Its model-facing answer options are plain string
@@ -557,22 +580,27 @@ declarations.
   pauses the tool loop with `awaitingUserAnswer`. When the user answers, the turn
   resumes with a compact model-facing receipt containing only the answer.
 - A tool that returns `.requiresApproval` must move to
-  `ToolCallStatus.awaitingApproval`. It must not be marked as denied, failed,
-  completed, or executed automatically.
+  `ToolCallStatus.awaitingApproval` before the session policy is applied. It must
+  not be marked as denied, failed, or completed at that point.
 - Tools that can preview an approval-sensitive operation should attach that
   preview before entering `awaitingApproval`. Preview generation must not
   mutate the workspace.
 - Approved execution must re-validate the raw request and re-run
   permission/path evaluation immediately before the side effect.
+- When an approved execution returns, its record must be updated with the
+  terminal result before cancellation or active-turn checks can stop the
+  workflow. Cancellation must prevent every later unstarted batch member and
+  the model follow-up from starting.
 - `run_command` is available only in the Agent registry. It executes
-  `/bin/bash -c <command>` in the active workspace root after approval. The
+  `/bin/bash -c <command>` in the active workspace root through the approved
+  execution path. The
   approval preview and record must preserve the exact command string from the
-  request. The command must never spawn before approval, and denied approval
-  must append a denied result without creating a process.
+  request. The command must never spawn before that path is entered, and denied
+  approval must append a denied result without creating a process.
 - The macOS app target currently builds without App Sandbox so developer
   toolchains such as Homebrew, `uv`, Python, Git, and project package managers
   can be launched by `run_command`. The command tool still owns explicit
-  approval, request revalidation, foreground-only execution, timeout handling,
+  approval policy, request revalidation, foreground-only execution, timeout handling,
   output capture, and audit state.
 - `run_command` uses an optional timeout that defaults to 120 seconds when
   omitted and is clamped to the supported range before execution. It captures
