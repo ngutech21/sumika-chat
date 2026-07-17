@@ -6,20 +6,24 @@
 
 # Sumika
 
-A private AI assistant for your Mac, powered by local models and available
-without a recurring subscription.
+A self-contained, private AI assistant for your Mac. Sumika runs local models
+directly through MLX — no Ollama, LM Studio, external model server, API key, or
+separate runtime required.
 
-Use Sumika to write, translate, summarize, research, and work with your own
-files. When you want it to do more than chat, Agent mode can use approved tools
-and connect to local apps. Your conversations and model execution stay on your
-Mac, and you remain in control of every action.
+Install the app, choose and download a model, and start chatting right away.
+
+Use Chat mode to write, translate, summarize, research, or code. Switch to Agent
+mode when you want Sumika to write code, work with your files, use approved
+tools, or connect to local apps. Your conversations and model execution stay on
+your Mac, and you remain in control of every action.
 
 ## Highlights
 
 - 💬 **Everyday AI assistance**: write, brainstorm, translate, summarize,
   research, and ask questions without needing a technical background.
-- 🏠 **Local by default**: run LLMs through MLX and keep model execution,
-  workspace context, and speech workflows on your Mac.
+- 🏠 **Everything you need in one app**: download a model from the built-in
+  model browser and start chatting. No Ollama, LM Studio, or separate inference
+  backend is required.
 - 🌟 **No recurring subscription**: use local models without paying for a
   hosted AI assistant plan.
 - 🧭 **Explicit context**: attach files, focus workspace context, and inspect
@@ -53,11 +57,28 @@ Mac, and you remain in control of every action.
 2. Open the downloaded DMG and drag **Sumika** into **Applications**.
 3. Start Sumika from the Applications folder and download a local model from
    the Models screen.
+4. Open a conversation and choose Chat or Agent mode.
 
 Release downloads are signed and notarized for macOS. Once installed, Sumika
 checks automatically for new versions. When an update is available, the app
 guides you through installing it, so you do not need to download another DMG.
 You can also check manually from **Sumika > Check for Updates…**.
+
+## Supported Models
+
+All listed models run locally and support Chat mode, Agent tool calling, and
+image input.
+
+| Model | Download size |
+| --- | ---: |
+| [Gemma 4 E4B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-e4b-it-qat-4bit) | 6.8 GB |
+| [Gemma 4 12B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-12B-it-qat-4bit) | 11.0 GB |
+| [Gemma 4 26B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-26B-A4B-it-qat-4bit) | 15.6 GB |
+| [Gemma 4 31B QAT 4-bit](https://huggingface.co/mlx-community/gemma-4-31B-it-qat-4bit) | 28.8 GB |
+| [Qwen 3.6 27B 4-bit](https://huggingface.co/mlx-community/Qwen3.6-27B-4bit) | 16.1 GB |
+| [Qwen 3.6 27B 8-bit](https://huggingface.co/mlx-community/Qwen3.6-27B-8bit) | 29.5 GB |
+| [Qwen 3.6 35B A3B 4-bit](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-4bit) | 20.4 GB |
+| [Qwen 3.6 35B A3B 8-bit](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-8bit) | 37.7 GB |
 
 ## Screenshots
 

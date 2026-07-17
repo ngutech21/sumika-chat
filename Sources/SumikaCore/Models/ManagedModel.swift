@@ -113,7 +113,7 @@ public enum ManagedModelCatalog {
   public static let models: [ManagedModel] = [
     ManagedModel(
       id: "gemma4-e2b-qat-4bit",
-      displayName: "Gemma 4 e2b qat",
+      displayName: "Gemma 4 E2B QAT 4-bit",
       detail: "Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-E2B-it-qat-4bit",
       localDirectoryName: "gemma-4-E2B-it-qat-4bit",
@@ -130,7 +130,7 @@ public enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "gemma4-e4b-qat-4bit",
-      displayName: "Gemma 4 e4b qat",
+      displayName: "Gemma 4 E4B QAT 4-bit",
       detail: "Gemma 4 small model",
       huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-qat-4bit",
       localDirectoryName: "gemma-4-e4b-it-qat-4bit",
@@ -147,7 +147,7 @@ public enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "gemma-4-e4b-it-4bit",
-      displayName: "Gemma 4 e4b",
+      displayName: "Gemma 4 E4B 4-bit",
       detail: "Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-4bit",
       localDirectoryName: "gemma-4-e4b-it-4bit",
@@ -164,7 +164,7 @@ public enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "gemma4-12b-qat-4bit",
-      displayName: "Gemma 4 12b qat",
+      displayName: "Gemma 4 12B QAT 4-bit",
       detail: "Larger Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-12B-it-qat-4bit",
       localDirectoryName: "gemma-4-12B-it-qat-4bit",
@@ -181,7 +181,7 @@ public enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "gemma4-26b-qat-4bit",
-      displayName: "Gemma 4 26b qat",
+      displayName: "Gemma 4 26B QAT 4-bit",
       detail: "Larger Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-26B-A4B-it-qat-4bit",
       localDirectoryName: "gemma-4-26B-A4B-it-qat-4bit",
@@ -198,7 +198,7 @@ public enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "gemma4-31b-qat-4bit",
-      displayName: "Gemma 4 31b qat",
+      displayName: "Gemma 4 31B QAT 4-bit",
       detail: "Large Gemma 4 model with local vision support.",
       huggingFaceRepoID: "mlx-community/gemma-4-31B-it-qat-4bit",
       localDirectoryName: "gemma-4-31b-qat-4bit",
@@ -216,7 +216,7 @@ public enum ManagedModelCatalog {
 
     ManagedModel(
       id: "qwen3.6-35b-a3b-4bit",
-      displayName: "Qwen 3.6 35B A3B 4bit",
+      displayName: "Qwen 3.6 35B A3B 4-bit",
       detail: "Experimental Qwen3.6 MoE model with local vision support.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-35B-A3B-4bit",
       localDirectoryName: "Qwen3.6-35B-A3B-4bit",
@@ -233,7 +233,7 @@ public enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "qwen3.6-35b-a3b-8bit",
-      displayName: "Qwen 3.6 35B A3B 8bit",
+      displayName: "Qwen 3.6 35B A3B 8-bit",
       detail: "Experimental Qwen3.6 MoE model with local vision support.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-35B-A3B-8bit",
       localDirectoryName: "Qwen3.6-35B-A3B-8bit",
@@ -250,7 +250,7 @@ public enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "qwen3.6-27B-4bit",
-      displayName: "Qwen 3.6 27B 4bit",
+      displayName: "Qwen 3.6 27B 4-bit",
       detail: "Experimental Qwen3.6 model with local vision support.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-27B-4bit",
       localDirectoryName: "Qwen3.6-27B-4bit",
@@ -267,7 +267,7 @@ public enum ManagedModelCatalog {
     ),
     ManagedModel(
       id: "qwen3.6-27B-8bit",
-      displayName: "Qwen 3.6 27B 8bit",
+      displayName: "Qwen 3.6 27B 8-bit",
       detail: "Experimental Qwen3.6 model with local vision support.",
       huggingFaceRepoID: "mlx-community/Qwen3.6-27B-8bit",
       localDirectoryName: "Qwen3.6-27B-8bit",
