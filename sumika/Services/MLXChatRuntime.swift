@@ -6,6 +6,11 @@ import MLXVLM
 import SumikaCore
 
 final actor MLXChatRuntime: ChatModelRuntime {
+  /// Leaves image sizing to each model processor instead of pre-resizing to 512 px.
+  nonisolated static var modelNativeMediaProcessing: UserInput.Processing {
+    .init()
+  }
+
   private var modelContainer: ModelContainer?
   private var loadedModelSupportsImageInput = false
   private var loadedReasoningTraceFormat: ReasoningTraceFormat = .none
@@ -567,6 +572,7 @@ extension MLXChatRuntime {
       ),
       history: history,
       generateParameters: generateParameters,
+      processing: Self.modelNativeMediaProcessing,
       additionalContext: additionalContext
     )
     cachedSession = CachedMLXSession(

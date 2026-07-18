@@ -29,6 +29,15 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func chatSessionMediaProcessingDelegatesSizingToModelProcessor() {
+    let processing = MLXChatRuntime.modelNativeMediaProcessing
+
+    #expect(processing.resize == nil)
+    #expect(processing.minPixels == nil)
+    #expect(processing.maxPixels == nil)
+  }
+
+  @Test
   func gemma4GenerationConfigFixtureCarriesEOTTokenID() throws {
     let data = Data(
       """
