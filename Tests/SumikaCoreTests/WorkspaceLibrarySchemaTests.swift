@@ -5,7 +5,8 @@ import Testing
 
 /// Golden-fixture tests pinning the persisted workspace-library schema.
 ///
-/// The checked-in fixture is the compatibility contract for `workspaces.json`:
+/// The checked-in legacy fixture remains the v0 migration contract. The v1
+/// fixtures pin the split manifest and session envelopes byte for byte.
 /// any schema change fails these tests until the change is made intentional —
 /// either by adding a default for a new field or by regenerating the fixture
 /// with `SUMIKA_REGENERATE_FIXTURES=1 xcrun swift test`.
@@ -40,6 +41,65 @@ struct WorkspaceLibrarySchemaTests {
 
     #expect(decoded == WorkspaceLibraryGoldenFixture.makeLibrary())
     #expect(diagnostics.droppedElements.isEmpty)
+  }
+
+  @Test
+  func versionOneGoldenFixturesEncodeByteIdentically() throws {
+    let library = WorkspaceLibraryGoldenFixture.makeLibrary()
+    let manifestData = try WorkspacePersistenceCoding.makeEncoder().encode(
+      WorkspaceLibraryManifest(
+        library: library,
+        updatedAt: Date(timeIntervalSinceReferenceDate: 9_500)
+      )
+    )
+    let session = try #require(library.workspaces.first?.sessions.first)
+    let sessionData = try WorkspacePersistenceCoding.makeEncoder().encode(
+      WorkspaceSessionDocument(session: session)
+    )
+
+    if ProcessInfo.processInfo.environment["SUMIKA_REGENERATE_FIXTURES"] == "1" {
+      try manifestData.write(to: Self.manifestV1FixtureURL)
+      try sessionData.write(to: Self.sessionV1FixtureURL)
+      return
+    }
+
+    let expectedManifestData = try Data(contentsOf: Self.manifestV1FixtureURL)
+    let expectedSessionData = try Data(contentsOf: Self.sessionV1FixtureURL)
+    #expect(manifestData == expectedManifestData)
+    #expect(sessionData == expectedSessionData)
+  }
+
+  @Test
+  func versionOneGoldenFixturesDecodeExactlyWithoutDrops() throws {
+    guard ProcessInfo.processInfo.environment["SUMIKA_REGENERATE_FIXTURES"] != "1" else {
+      return
+    }
+    let library = WorkspaceLibraryGoldenFixture.makeLibrary()
+    let manifestDiagnostics = DecodeDiagnostics()
+    let manifest = try WorkspacePersistenceCoding.makeDecoder(
+      diagnostics: manifestDiagnostics
+    ).decode(
+      WorkspaceLibraryManifest.self,
+      from: Data(contentsOf: Self.manifestV1FixtureURL)
+    )
+    let sessionDiagnostics = DecodeDiagnostics()
+    let sessionDocument = try WorkspacePersistenceCoding.makeDecoder(
+      diagnostics: sessionDiagnostics
+    ).decode(
+      WorkspaceSessionDocument.self,
+      from: Data(contentsOf: Self.sessionV1FixtureURL)
+    )
+
+    #expect(
+      manifest
+        == WorkspaceLibraryManifest(
+          library: library,
+          updatedAt: Date(timeIntervalSinceReferenceDate: 9_500)
+        )
+    )
+    #expect(sessionDocument == WorkspaceSessionDocument(session: library.workspaces[0].sessions[0]))
+    #expect(manifestDiagnostics.droppedElements.isEmpty)
+    #expect(sessionDiagnostics.droppedElements.isEmpty)
   }
 
   /// The fixture must keep exercising every persisted union so renames in any
@@ -205,6 +265,26 @@ struct WorkspaceLibrarySchemaTests {
       .deletingLastPathComponent()
       .appending(path: "Fixtures", directoryHint: .isDirectory)
       .appending(path: "workspace-library-golden.json", directoryHint: .notDirectory)
+  }
+
+  private static var manifestV1FixtureURL: URL {
+    fixtureDirectoryURL.appending(
+      path: "workspace-manifest-v1-golden.json",
+      directoryHint: .notDirectory
+    )
+  }
+
+  private static var sessionV1FixtureURL: URL {
+    fixtureDirectoryURL.appending(
+      path: "workspace-session-v1-golden.json",
+      directoryHint: .notDirectory
+    )
+  }
+
+  private static var fixtureDirectoryURL: URL {
+    URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .appending(path: "Fixtures", directoryHint: .isDirectory)
   }
 
   private static func loadFixture() throws -> Data {

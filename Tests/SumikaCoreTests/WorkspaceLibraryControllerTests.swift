@@ -109,8 +109,10 @@ struct WorkspaceLibraryControllerTests {
     controller.selectChat(workspaceID: workspaceID, sessionID: firstSessionID)
     #expect(controller.library.activeSessionID == firstSessionID)
 
+    let membershipUpdatedAt = controller.activeWorkspace?.updatedAt
     controller.renameSession(firstSessionID, title: "  Renamed  ")
     #expect(controller.activeSession?.title == "Renamed")
+    #expect(controller.activeWorkspace?.updatedAt == membershipUpdatedAt)
 
     controller.renameSession(firstSessionID, title: "   ")
     #expect(controller.activeSession?.title == "Renamed")
@@ -302,7 +304,7 @@ struct WorkspaceLibraryControllerTests {
   }
 
   @Test
-  func persistActiveSessionSnapshotUpdatesOnlyActiveSessionAndWorkspaceTimestamp() throws {
+  func persistActiveSessionSnapshotDoesNotChangeWorkspaceTimestamp() throws {
     let workspaceUpdatedAt = Date(timeIntervalSinceReferenceDate: 10)
     let persistedAt = Date(timeIntervalSinceReferenceDate: 40)
     let workspaceID = fixedUUID("00000000-0000-0000-0000-000000000401")
@@ -336,7 +338,7 @@ struct WorkspaceLibraryControllerTests {
     let savedOtherSession = try #require(
       savedWorkspace.sessions.first(where: { $0.id == otherSessionID })
     )
-    #expect(savedWorkspace.updatedAt == persistedAt)
+    #expect(savedWorkspace.updatedAt == workspaceUpdatedAt)
     #expect(savedActiveSession.title == "Persisted")
     #expect(savedActiveSession.interactionMode == .agent)
     #expect(savedOtherSession == otherSession)

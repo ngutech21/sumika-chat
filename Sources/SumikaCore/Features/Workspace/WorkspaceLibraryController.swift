@@ -187,7 +187,6 @@ public struct WorkspaceLibraryController {
     let currentDate = now()
     library.workspaces[workspaceIndex].sessions[sessionIndex].title = trimmedTitle
     library.workspaces[workspaceIndex].sessions[sessionIndex].updatedAt = currentDate
-    library.workspaces[workspaceIndex].updatedAt = currentDate
     return true
   }
 
@@ -276,7 +275,6 @@ public struct WorkspaceLibraryController {
     }
 
     library.workspaces[workspaceIndex].sessions[sessionIndex] = snapshot
-    library.workspaces[workspaceIndex].updatedAt = now()
   }
 
   private func makeDefaultSession(createdAt: Date, updatedAt: Date) -> ChatSession {

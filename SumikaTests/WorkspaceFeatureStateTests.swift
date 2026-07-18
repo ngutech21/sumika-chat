@@ -332,18 +332,62 @@ struct WorkspaceFeatureStateTests {
     emptyState.openActiveWorkspaceInVisualStudioCode()
     #expect(emptyState.errorMessage == "No active workspace is selected.")
   }
+
+  @Test
+  func blockingLoadIssuePreventsWorkspaceMutationsAndSaves() async throws {
+    let sessionID = UUID()
+    let workspaceID = UUID()
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Read-only fallback",
+      rootURL: FileManager.default.temporaryDirectory,
+      sessions: [ChatSession(id: sessionID, title: "Existing")]
+    )
+    let initialLibrary = WorkspaceLibrary(
+      workspaces: [workspace],
+      activeWorkspaceID: workspaceID,
+      activeSessionID: sessionID
+    )
+    let store = WorkspaceFeatureInMemoryStore(
+      initialLibrary: initialLibrary,
+      loadIssues: [.decodeFailed(message: "invalid manifest")]
+    )
+    let state = WorkspaceFeatureState(
+      workspaceStore: store,
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+    )
+
+    await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
+    let createChange = state.createSession(in: workspaceID)
+    let selectionChange = state.selectWorkspace(workspaceID)
+    state.renameSession(sessionID, title: "Must not change")
+    state.persistActiveSessionSnapshot(ChatSession(id: sessionID, title: "Must not save"))
+
+    #expect(state.isPersistenceBlocked)
+    #expect(state.errorMessage?.contains("invalid") == true)
+    #expect(createChange == .unchanged)
+    #expect(selectionChange == .unchanged)
+    #expect(state.library == initialLibrary)
+    #expect(await store.latestSavedLibrary() == nil)
+  }
 }
 
 private actor WorkspaceFeatureInMemoryStore: WorkspaceStoring {
   private var library: WorkspaceLibrary
+  private let loadIssues: [WorkspaceLibraryLoadIssue]
   private var savedLibraries: [WorkspaceLibrary] = []
 
-  init(initialLibrary: WorkspaceLibrary) {
+  init(
+    initialLibrary: WorkspaceLibrary,
+    loadIssues: [WorkspaceLibraryLoadIssue] = []
+  ) {
     self.library = initialLibrary
+    self.loadIssues = loadIssues
   }
 
   func loadLibrary() async -> WorkspaceLibraryLoadResult {
-    WorkspaceLibraryLoadResult(library: library)
+    WorkspaceLibraryLoadResult(library: library, issues: loadIssues)
   }
 
   func saveLibrary(_ library: WorkspaceLibrary) async throws {

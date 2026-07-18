@@ -6,130 +6,57 @@ import Testing
 struct WorkspaceStoreTests {
   @Test
   func workspaceStoreReturnsCleanEmptyLibraryForMissingFile() async throws {
-    let missingStore = WorkspaceStore(libraryURL: temporaryLibraryURL())
+    let missingStore = WorkspaceStore(baseURL: temporaryBaseURL())
 
     let result = await missingStore.loadLibrary()
     #expect(result.library == WorkspaceLibrary())
     #expect(result.issues.isEmpty)
+    #expect(result.canPersist)
   }
 
   @Test
-  func workspaceStoreMovesCorruptFileAsideAndReportsDecodeFailure() async throws {
-    let corruptURL = temporaryLibraryURL()
+  func workspaceStoreFailsClosedWithoutChangingInvalidLegacyData() async throws {
+    let baseURL = temporaryBaseURL()
+    let legacyURL = legacyLibraryURL(baseURL: baseURL)
     try FileManager.default.createDirectory(
-      at: corruptURL.deletingLastPathComponent(),
+      at: baseURL,
       withIntermediateDirectories: true
     )
-    try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
-    let store = WorkspaceStore(libraryURL: corruptURL)
+    let invalidData = Data("not json".utf8)
+    try invalidData.write(to: legacyURL)
+    let store = WorkspaceStore(baseURL: baseURL)
 
     let result = await store.loadLibrary()
 
     #expect(result.library == WorkspaceLibrary())
-    guard case .decodeFailed(_, let backupPath) = result.issues.first else {
-      Issue.record("Expected a decodeFailed issue, got \(result.issues)")
+    #expect(!result.canPersist)
+    guard case .migrationFailed = result.issues.first else {
+      Issue.record("Expected a migrationFailed issue, got \(result.issues)")
       return
     }
-    let backup = try #require(backupPath)
-    #expect(backup.contains("workspaces.json.corrupt-"))
-    #expect(FileManager.default.fileExists(atPath: backup))
-    #expect(!FileManager.default.fileExists(atPath: corruptURL.path(percentEncoded: false)))
-    #expect(try String(contentsOfFile: backup, encoding: .utf8) == "not json")
-  }
-
-  @Test
-  func workspaceStoreKeepsBackupCopyWhenElementsAreDropped() async throws {
-    let libraryURL = temporaryLibraryURL()
-    let store = WorkspaceStore(libraryURL: libraryURL)
-    let intactWorkspace = Workspace(
-      name: "Intact",
-      rootURL: URL(filePath: "/tmp/intact", directoryHint: .isDirectory)
-    )
-    try await store.saveLibrary(WorkspaceLibrary(workspaces: [intactWorkspace]))
-
-    // Corrupt one workspace element in place: rootURL is the only required
-    // field, so removing it makes exactly that element undecodable.
-    var object = try #require(
-      JSONSerialization.jsonObject(
-        with: Data(contentsOf: libraryURL)
-      ) as? [String: Any]
-    )
-    var workspaces = try #require(object["workspaces"] as? [[String: Any]])
-    var broken = workspaces[0]
-    broken.removeValue(forKey: "rootURL")
-    broken["name"] = "Broken"
-    workspaces.append(broken)
-    object["workspaces"] = workspaces
-    try JSONSerialization.data(withJSONObject: object).write(to: libraryURL)
-
-    let result = await store.loadLibrary()
-
-    #expect(result.library.workspaces.map(\.name) == ["Intact"])
-    guard case .droppedElements(let details, let backupPath) = result.issues.first else {
-      Issue.record("Expected a droppedElements issue, got \(result.issues)")
-      return
+    #expect(try Data(contentsOf: legacyURL) == invalidData)
+    #expect(!FileManager.default.fileExists(atPath: manifestURL(baseURL: baseURL).path))
+    await #expect(throws: Error.self) {
+      try await store.saveLibrary(WorkspaceLibrary())
     }
-    #expect(details.count == 1)
-    let backup = try #require(backupPath)
-    #expect(backup.contains("workspaces.json.partial-"))
-    #expect(FileManager.default.fileExists(atPath: backup))
-    // The original file stays in place for the app to keep using.
-    #expect(FileManager.default.fileExists(atPath: libraryURL.path(percentEncoded: false)))
-  }
-
-  @Test
-  func workspaceStoreDropsUndecodableSessionButKeepsSiblings() async throws {
-    let libraryURL = temporaryLibraryURL()
-    let store = WorkspaceStore(libraryURL: libraryURL)
-    let intactSession = ChatSession(title: "Intact", selectedModelID: "gemma4-12b-qat-4bit")
-    let workspace = Workspace(
-      name: "Project",
-      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
-      sessions: [intactSession]
-    )
-    try await store.saveLibrary(WorkspaceLibrary(workspaces: [workspace]))
-
-    var object = try #require(
-      JSONSerialization.jsonObject(
-        with: Data(contentsOf: libraryURL)
-      ) as? [String: Any]
-    )
-    var workspaces = try #require(object["workspaces"] as? [[String: Any]])
-    var sessions = try #require(workspaces[0]["sessions"] as? [[String: Any]])
-    var broken = sessions[0]
-    // A present-but-mistyped field must fail only this session.
-    broken["interactionMode"] = 42
-    broken["title"] = "Broken"
-    sessions.append(broken)
-    workspaces[0]["sessions"] = sessions
-    object["workspaces"] = workspaces
-    try JSONSerialization.data(withJSONObject: object).write(to: libraryURL)
-
-    let result = await store.loadLibrary()
-
-    #expect(result.library.workspaces.first?.sessions.map(\.title) == ["Intact"])
-    guard case .droppedElements(let details, _) = result.issues.first else {
-      Issue.record("Expected a droppedElements issue, got \(result.issues)")
-      return
-    }
-    #expect(details.count == 1)
   }
 
   @Test
   func workspaceStoreLoadsSessionWithoutMCPSelection() async throws {
-    let libraryURL = temporaryLibraryURL()
-    let store = WorkspaceStore(libraryURL: libraryURL)
+    let baseURL = temporaryBaseURL()
+    let legacyURL = legacyLibraryURL(baseURL: baseURL)
+    try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
     let session = ChatSession(title: "Legacy")
     let workspace = Workspace(
       name: "Project",
       rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
       sessions: [session]
     )
-    try await store.saveLibrary(WorkspaceLibrary(workspaces: [workspace]))
+    let library = WorkspaceLibrary(workspaces: [workspace])
 
     var object = try #require(
       JSONSerialization.jsonObject(
-        with: Data(contentsOf: libraryURL)
+        with: JSONEncoder().encode(library)
       ) as? [String: Any]
     )
     var workspaces = try #require(object["workspaces"] as? [[String: Any]])
@@ -137,8 +64,9 @@ struct WorkspaceStoreTests {
     sessions[0].removeValue(forKey: "selectedMCPServerIDs")
     workspaces[0]["sessions"] = sessions
     object["workspaces"] = workspaces
-    try JSONSerialization.data(withJSONObject: object).write(to: libraryURL)
+    try JSONSerialization.data(withJSONObject: object).write(to: legacyURL)
 
+    let store = WorkspaceStore(baseURL: baseURL)
     let result = await store.loadLibrary()
 
     #expect(result.library.workspaces.first?.sessions.map(\.title) == ["Legacy"])
@@ -148,8 +76,8 @@ struct WorkspaceStoreTests {
 
   @Test
   func workspaceStorePersistsLibraryAndBookmarkData() async throws {
-    let libraryURL = temporaryLibraryURL()
-    let store = WorkspaceStore(libraryURL: libraryURL)
+    let baseURL = temporaryBaseURL()
+    let store = WorkspaceStore(baseURL: baseURL)
     let session = ChatSession(
       selectedModelID: "gemma4-12b-qat-4bit",
       turns: [
@@ -184,15 +112,15 @@ struct WorkspaceStoreTests {
 
     try await store.saveLibrary(library)
 
-    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary().library
-    #expect(reloaded == library)
+    let reloaded = await WorkspaceStore(baseURL: baseURL).loadLibrary().library
+    #expect(reloaded == (try normalizedForV1Persistence(library)))
     #expect(reloaded.workspaces.first?.bookmarkData == Data([1, 2, 3]))
   }
 
   @Test
   func workspaceStorePersistsToolCallRecords() async throws {
-    let libraryURL = temporaryLibraryURL()
-    let store = WorkspaceStore(libraryURL: libraryURL)
+    let baseURL = temporaryBaseURL()
+    let store = WorkspaceStore(baseURL: baseURL)
     let workspaceID = UUID()
     let sessionID = UUID()
     let toolCall = makeToolCallRecord(workspaceID: workspaceID, sessionID: sessionID)
@@ -224,7 +152,7 @@ struct WorkspaceStoreTests {
 
     try await store.saveLibrary(library)
 
-    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary().library
+    let reloaded = await WorkspaceStore(baseURL: baseURL).loadLibrary().library
     let reloadedToolCall = try #require(reloaded.workspaces.first?.sessions.first?.toolCalls.first)
     #expect(reloadedToolCall == toolCall)
     #expect(
@@ -235,13 +163,16 @@ struct WorkspaceStoreTests {
             content: ToolTextOutput(text: "Preview", truncated: true, redacted: true)
           )))
     #expect(reloadedToolCall.resultPreview?.redacted == true)
-    #expect(reloaded.workspaces.first?.sessions.first?.turns == session.turns)
+    #expect(
+      reloaded.workspaces.first?.sessions.first?.turns
+        == (try normalizedForV1Persistence(session)).turns
+    )
   }
 
   @Test
   func workspaceStorePersistsFocusedFileState() async throws {
-    let libraryURL = temporaryLibraryURL()
-    let store = WorkspaceStore(libraryURL: libraryURL)
+    let baseURL = temporaryBaseURL()
+    let store = WorkspaceStore(baseURL: baseURL)
     let path = WorkspaceRelativePath(rawValue: "Sources/App.swift")
     let focusedFileState = FocusedFileState(
       activePath: path,
@@ -279,14 +210,14 @@ struct WorkspaceStoreTests {
 
     try await store.saveLibrary(library)
 
-    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary().library
+    let reloaded = await WorkspaceStore(baseURL: baseURL).loadLibrary().library
     #expect(reloaded.workspaces.first?.sessions.first?.focusedFileState == focusedFileState)
   }
 
   @Test
   func workspaceStorePersistsTodoState() async throws {
-    let libraryURL = temporaryLibraryURL()
-    let store = WorkspaceStore(libraryURL: libraryURL)
+    let baseURL = temporaryBaseURL()
+    let store = WorkspaceStore(baseURL: baseURL)
     let todoState = TodoState(items: [
       TodoItem(id: "inspect", content: "Inspect files", status: .completed),
       TodoItem(id: "verify", content: "Run tests", status: .inProgress),
@@ -307,8 +238,11 @@ struct WorkspaceStoreTests {
 
     try await store.saveLibrary(WorkspaceLibrary(workspaces: [workspace]))
 
-    let reloaded = await WorkspaceStore(libraryURL: libraryURL).loadLibrary().library
-    #expect(reloaded.workspaces.first?.sessions.first?.todoState == todoState)
+    let reloaded = await WorkspaceStore(baseURL: baseURL).loadLibrary().library
+    #expect(
+      reloaded.workspaces.first?.sessions.first?.todoState
+        == (try normalizedForV1Persistence(session)).todoState
+    )
   }
 
   @Test
@@ -402,10 +336,58 @@ struct WorkspaceStoreTests {
     #expect(decoded == session)
   }
 
-  private func temporaryLibraryURL() -> URL {
+  private func temporaryBaseURL() -> URL {
     FileManager.default.temporaryDirectory
       .appending(path: "sumika-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+  }
+
+  private func legacyLibraryURL(baseURL: URL) -> URL {
+    baseURL
       .appending(path: "workspaces.json", directoryHint: .notDirectory)
+  }
+
+  private func manifestURL(baseURL: URL) -> URL {
+    baseURL
+      .appending(path: "WorkspaceLibrary", directoryHint: .isDirectory)
+      .appending(path: "workspaces.json", directoryHint: .notDirectory)
+  }
+
+  private func normalizedForV1Persistence(_ session: ChatSession) throws -> ChatSession {
+    let data = try WorkspacePersistenceCoding.makeEncoder().encode(
+      WorkspaceSessionDocument(session: session)
+    )
+    return try WorkspacePersistenceCoding.makeDecoder().decode(
+      WorkspaceSessionDocument.self,
+      from: data
+    ).session
+  }
+
+  private func normalizedForV1Persistence(
+    _ library: WorkspaceLibrary
+  ) throws -> WorkspaceLibrary {
+    let manifestData = try WorkspacePersistenceCoding.makeEncoder().encode(
+      WorkspaceLibraryManifest(
+        library: library,
+        updatedAt: Date(timeIntervalSinceReferenceDate: 0)
+      )
+    )
+    let manifest = try WorkspacePersistenceCoding.makeDecoder().decode(
+      WorkspaceLibraryManifest.self,
+      from: manifestData
+    )
+    let sessions = try Dictionary(
+      uniqueKeysWithValues: library.workspaces.flatMap(\.sessions).map { session in
+        let normalized = try normalizedForV1Persistence(session)
+        return (normalized.id, normalized)
+      }
+    )
+    return WorkspaceLibrary(
+      workspaces: manifest.workspaces.map { workspace in
+        workspace.workspace(sessions: workspace.sessionIDs.compactMap { sessions[$0] })
+      },
+      activeWorkspaceID: manifest.activeWorkspaceID,
+      activeSessionID: manifest.activeSessionID
+    )
   }
 
   private func makeToolCallRecord(

@@ -24,16 +24,13 @@ struct WorkspaceSelectionChange: Equatable {
 final class WorkspaceFeatureState {
   var errorMessage: String?
   var isLoading = true
+  private(set) var isPersistenceBlocked = false
   private(set) var activeWorkspaceContext: WorkspaceChatContext?
   private(set) var activeSessionID: ChatSession.ID?
   private(set) var sidebarState = WorkspaceSidebarState()
 
   var library: WorkspaceLibrary {
-    get { workspaceLibraryController.library }
-    set {
-      workspaceLibraryController.replaceLibrary(newValue)
-      syncWorkspaceProjections()
-    }
+    workspaceLibraryController.library
   }
 
   var activeWorkspace: Workspace? {
@@ -72,9 +69,10 @@ final class WorkspaceFeatureState {
   {
     updateDefaultSessionFactory(defaultSessionFactory)
     let loadResult = await workspaceStore.loadLibrary()
+    isPersistenceBlocked = !loadResult.canPersist
     workspaceLibraryController.replaceLibrary(loadResult.library)
     normalizeLoadedLibrary(
-      persistNormalization: loadResult.issues.allSatisfy(\.isSafeToPersistOver)
+      persistNormalization: loadResult.canPersist
     )
     syncWorkspaceProjections()
     if let loadIssueMessage = Self.loadIssueMessage(for: loadResult.issues) {
@@ -87,6 +85,9 @@ final class WorkspaceFeatureState {
 
   @discardableResult
   func addWorkspace(from url: URL) -> WorkspaceSelectionChange {
+    guard !isPersistenceBlocked else {
+      return .unchanged
+    }
     let rootURL = url.standardizedFileURL.resolvingSymlinksInPath()
     let workspaceID = workspaceLibraryController.addWorkspace(
       name: rootURL.lastPathComponent,
@@ -100,6 +101,9 @@ final class WorkspaceFeatureState {
 
   @discardableResult
   func createSession(in workspaceID: Workspace.ID? = nil) -> WorkspaceSelectionChange {
+    guard !isPersistenceBlocked else {
+      return .unchanged
+    }
     guard let sessionID = workspaceLibraryController.createSession(in: workspaceID) else {
       return .unchanged
     }
@@ -113,6 +117,9 @@ final class WorkspaceFeatureState {
     workspaceID: Workspace.ID,
     sessionID: ChatSession.ID
   ) -> WorkspaceSelectionChange {
+    guard !isPersistenceBlocked else {
+      return .unchanged
+    }
     guard workspaceLibraryController.selectChat(workspaceID: workspaceID, sessionID: sessionID)
     else {
       return .unchanged
@@ -124,6 +131,9 @@ final class WorkspaceFeatureState {
 
   @discardableResult
   func selectWorkspace(_ workspaceID: Workspace.ID) -> WorkspaceSelectionChange {
+    guard !isPersistenceBlocked else {
+      return .unchanged
+    }
     guard workspaceLibraryController.selectWorkspace(workspaceID) else {
       return .unchanged
     }
@@ -133,6 +143,9 @@ final class WorkspaceFeatureState {
   }
 
   func renameSession(_ sessionID: ChatSession.ID, title: String) {
+    guard !isPersistenceBlocked else {
+      return
+    }
     guard workspaceLibraryController.renameSession(sessionID, title: title) else {
       return
     }
@@ -142,6 +155,9 @@ final class WorkspaceFeatureState {
 
   @discardableResult
   func deleteSession(_ sessionID: ChatSession.ID) -> WorkspaceSelectionChange {
+    guard !isPersistenceBlocked else {
+      return .unchanged
+    }
     let wasActiveSession = library.activeSessionID == sessionID
     guard workspaceLibraryController.deleteSession(sessionID) else {
       return .unchanged
@@ -153,6 +169,9 @@ final class WorkspaceFeatureState {
 
   @discardableResult
   func removeWorkspace(_ workspaceID: Workspace.ID) -> WorkspaceSelectionChange {
+    guard !isPersistenceBlocked else {
+      return .unchanged
+    }
     let wasActiveWorkspace = library.activeWorkspaceID == workspaceID
     guard workspaceLibraryController.removeWorkspace(workspaceID) else {
       return .unchanged
@@ -163,6 +182,9 @@ final class WorkspaceFeatureState {
   }
 
   func persistActiveSessionSnapshot(_ snapshot: ChatSession) {
+    guard !isPersistenceBlocked else {
+      return
+    }
     workspaceLibraryController.persistActiveSessionSnapshot(snapshot)
     syncWorkspaceProjections()
     saveLibrary()
@@ -199,16 +221,19 @@ final class WorkspaceFeatureState {
 
     switch issue {
     case .readFailed:
-      return "Stored workspaces could not be read. Starting with an empty library; "
-        + "the existing file was left untouched."
-    case .decodeFailed(_, let backupPath):
-      let backupNotice = backupPath.map { " The unreadable file was moved to \($0)." } ?? ""
-      return "Stored workspaces could not be loaded and were reset.\(backupNotice)"
-    case .droppedElements(let details, let backupPath):
-      let backupNotice =
-        backupPath.map { " A backup of the previous file was saved to \($0)." } ?? ""
-      return "\(details.count) stored chat item(s) could not be loaded and were skipped."
-        + backupNotice
+      return "Stored workspaces could not be read. The existing data was left untouched."
+    case .decodeFailed:
+      return "Stored workspaces are invalid. The existing data was left untouched."
+    case .migrationFailed:
+      return
+        "Stored workspaces could not be migrated losslessly. "
+        + "The legacy data was left untouched."
+    case .unsupportedVersion(_, let found, let supported):
+      return
+        "Stored workspaces use format version \(found), "
+        + "but this version of Sumika supports \(supported)."
+    case .legacyCleanupFailed:
+      return "Stored workspaces were migrated, but the obsolete legacy file could not be removed."
     }
   }
 

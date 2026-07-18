@@ -75,7 +75,7 @@ enum AppLaunchConfiguration {
       settingsURL: storageRoot.appending(path: "mcp-servers.json", directoryHint: .notDirectory)
     )
     let workspaceStore = UITestWorkspaceStore(
-      libraryURL: storageRoot.appending(path: "workspaces.json", directoryHint: .notDirectory),
+      baseURL: storageRoot,
       initialLibrary: makeUITestWorkspaceLibrary(
         workspaceURL: workspaceURL,
         selectedModel: selectedModel
@@ -108,7 +108,7 @@ enum AppLaunchConfiguration {
 
     return AppState(
       workspaceStore: WorkspaceStore(
-        libraryURL: storageRoot.appending(path: "workspaces.json", directoryHint: .notDirectory)
+        baseURL: storageRoot
       ),
       modelSettingsStore: makeUnitTestHostModelSettingsStore(
         environment: environment,
@@ -177,27 +177,43 @@ enum AppLaunchConfiguration {
 }
 
 private actor UITestWorkspaceStore: WorkspaceStoring {
-  private let libraryURL: URL
+  private let manifestURL: URL
+  private let legacyLibraryURL: URL
+  private let backingStore: WorkspaceStore
   private var library: WorkspaceLibrary
 
-  init(libraryURL: URL, initialLibrary: WorkspaceLibrary) {
-    self.libraryURL = libraryURL
+  init(baseURL: URL, initialLibrary: WorkspaceLibrary) {
+    self.manifestURL =
+      baseURL
+      .appending(path: "WorkspaceLibrary", directoryHint: .isDirectory)
+      .appending(path: "workspaces.json", directoryHint: .notDirectory)
+    self.legacyLibraryURL = baseURL.appending(
+      path: "workspaces.json",
+      directoryHint: .notDirectory
+    )
+    self.backingStore = WorkspaceStore(baseURL: baseURL)
     self.library = initialLibrary
   }
 
   func loadLibrary() async -> WorkspaceLibraryLoadResult {
-    WorkspaceLibraryLoadResult(library: library)
+    let hasManifest = FileManager.default.fileExists(
+      atPath: manifestURL.path(percentEncoded: false)
+    )
+    let hasLegacyLibrary = FileManager.default.fileExists(
+      atPath: legacyLibraryURL.path(percentEncoded: false)
+    )
+    guard hasManifest || hasLegacyLibrary else {
+      return WorkspaceLibraryLoadResult(library: library)
+    }
+    let result = await backingStore.loadLibrary()
+    if result.canPersist {
+      library = result.library
+    }
+    return result
   }
 
   func saveLibrary(_ library: WorkspaceLibrary) async throws {
     self.library = library
-    try FileManager.default.createDirectory(
-      at: libraryURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
-    )
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let data = try encoder.encode(library)
-    try data.write(to: libraryURL, options: .atomic)
+    try await backingStore.saveLibrary(library)
   }
 }

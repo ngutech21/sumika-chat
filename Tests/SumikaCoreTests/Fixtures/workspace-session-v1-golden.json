@@ -1,0 +1,127 @@
+{
+  "session" : {
+    "activeAttachmentContext" : {
+      "attachmentIDs" : [
+
+      ]
+    },
+    "createdAt" : "2001-01-01T00:25:00.000Z",
+    "focusedFileState" : {
+      "focusedAttachments" : [
+
+      ],
+      "recentPaths" : [
+
+      ],
+      "snapshots" : [
+
+      ]
+    },
+    "id" : "BBBBBBBB-0000-0000-0000-000000000001",
+    "interactionMode" : "chat",
+    "modeSettings" : {
+      "agent" : {
+        "generationSettings" : {
+          "maxTokens" : 2048,
+          "presencePenalty" : 0.5,
+          "reasoningEnabled" : true,
+          "repetitionContextSize" : 256,
+          "repetitionPenalty" : 1,
+          "temperature" : 0.3,
+          "topK" : 64,
+          "topP" : 0.95
+        },
+        "systemPrompt" : "Agent prompt"
+      },
+      "chat" : {
+        "generationSettings" : {
+          "maxTokens" : 2048,
+          "presencePenalty" : 0,
+          "reasoningEnabled" : true,
+          "repetitionContextSize" : 20,
+          "repetitionPenalty" : 1,
+          "temperature" : 1,
+          "topK" : 0,
+          "topP" : 1
+        },
+        "systemPrompt" : "Chat prompt"
+      }
+    },
+    "selectedMCPServerIDs" : [
+
+    ],
+    "selectedModelID" : "gemma4-12b-qat-4bit",
+    "title" : "Chat Session",
+    "todoState" : null,
+    "turns" : [
+      {
+        "createdAt" : "2001-01-01T00:33:20.000Z",
+        "id" : "EEEEEEEE-0000-0000-0000-000000000001",
+        "items" : [
+          {
+            "kind" : "userMessage",
+            "payload" : {
+              "attachments" : [
+                {
+                  "createdAt" : "2001-01-01T00:33:20.000Z",
+                  "displayName" : "notes.txt",
+                  "id" : "CCCCCCCC-0000-0000-0000-00000000000A",
+                  "payload" : {
+                    "text" : {
+                      "_0" : {
+                        "byteSize" : 13,
+                        "content" : "attached text",
+                        "contentSHA256" : "fixed-hash"
+                      }
+                    }
+                  }
+                }
+              ],
+              "content" : "Hello",
+              "id" : "CCCCCCCC-0000-0000-0000-000000000001",
+              "promptContext" : {
+                "empty" : 4000,
+                "kind" : "empty"
+              }
+            }
+          },
+          {
+            "kind" : "assistantThinking",
+            "payload" : {
+              "completedAt" : "2001-01-01T00:36:40.000Z",
+              "content" : "Considering a greeting.",
+              "deliveryStatus" : "complete",
+              "id" : "CCCCCCCC-0000-0000-0000-000000000002",
+              "startedAt" : "2001-01-01T00:35:00.000Z"
+            }
+          },
+          {
+            "kind" : "assistantMessage",
+            "payload" : {
+              "attachments" : [
+
+              ],
+              "content" : "Hi there!",
+              "deliveryStatus" : "complete",
+              "generationMetrics" : {
+                "durationMs" : 117.6,
+                "generatedTokenCount" : 5,
+                "tokensPerSecond" : 42.5
+              },
+              "id" : "CCCCCCCC-0000-0000-0000-000000000003",
+              "modelProjectionPolicy" : {
+                "content" : "Hi!",
+                "kind" : "override"
+              }
+            }
+          }
+        ],
+        "modelContextPolicy" : "included",
+        "status" : "completed",
+        "updatedAt" : "2001-01-01T00:38:20.000Z"
+      }
+    ],
+    "updatedAt" : "2001-01-01T00:40:00.000Z"
+  },
+  "version" : 1
+}
