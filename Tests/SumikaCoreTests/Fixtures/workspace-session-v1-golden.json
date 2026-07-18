@@ -53,6 +53,7 @@
     "selectedModelID" : "gemma4-12b-qat-4bit",
     "title" : "Chat Session",
     "todoState" : null,
+    "toolApprovalPolicy" : "manual",
     "turns" : [
       {
         "createdAt" : "2001-01-01T00:33:20.000Z",
