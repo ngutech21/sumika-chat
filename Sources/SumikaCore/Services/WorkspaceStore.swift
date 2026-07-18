@@ -461,10 +461,11 @@ public actor WorkspaceStore: WorkspaceStoring {
       let sourceData = try WorkspacePersistenceCoding.makeEncoder().encode(
         WorkspaceSessionDocument(session: sourceSession)
       )
-      let stagedData = try WorkspacePersistenceCoding.makeEncoder().encode(
-        WorkspaceSessionDocument(session: stagedSession)
-      )
-      guard sourceData == stagedData else {
+      let normalizedSource = try WorkspacePersistenceCoding.makeDecoder().decode(
+        WorkspaceSessionDocument.self,
+        from: sourceData
+      ).session
+      guard normalizedSource == stagedSession else {
         throw WorkspacePersistenceError.invalidLegacy(
           "Versioned session differs from the legacy source: \(sessionID.uuidString)."
         )

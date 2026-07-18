@@ -96,6 +96,63 @@ struct WorkspacePersistenceV1Tests {
   }
 
   @Test
+  func migrationWithMultipleFocusedFileSnapshotsIsLossless() async throws {
+    let baseURL = temporaryBaseURL()
+    try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
+    var legacyLibrary = makeLibrary()
+    legacyLibrary.workspaces[0].sessions[0].focusedFileState = FocusedFileState(
+      snapshots: [
+        WorkspaceRelativePath(rawValue: "README.md"): FocusedFileSnapshot(
+          contentHash: "readme",
+          excerpt: "# Project",
+          fullContentAvailable: true,
+          updatedAt: Date(timeIntervalSinceReferenceDate: 1_000)
+        ),
+        WorkspaceRelativePath(rawValue: "Sources/App.swift"): FocusedFileSnapshot(
+          contentHash: "app",
+          excerpt: "struct App {}",
+          fullContentAvailable: true,
+          updatedAt: Date(timeIntervalSinceReferenceDate: 2_000)
+        ),
+        WorkspaceRelativePath(rawValue: "Sources/Feature.swift"): FocusedFileSnapshot(
+          contentHash: "feature",
+          excerpt: "struct Feature {}",
+          fullContentAvailable: true,
+          updatedAt: Date(timeIntervalSinceReferenceDate: 3_000)
+        ),
+        WorkspaceRelativePath(rawValue: "Tests/FeatureTests.swift"): FocusedFileSnapshot(
+          contentHash: "tests",
+          excerpt: "struct FeatureTests {}",
+          fullContentAvailable: true,
+          updatedAt: Date(timeIntervalSinceReferenceDate: 4_000)
+        ),
+      ]
+    )
+    let legacyData = try JSONEncoder().encode(legacyLibrary)
+    try legacyData.write(to: legacyURL(baseURL: baseURL))
+    let diagnostics = DecodeDiagnostics()
+    let expected = try legacyDecoder(diagnostics: diagnostics).decode(
+      WorkspaceLibrary.self,
+      from: legacyData
+    )
+    #expect(diagnostics.droppedElements.isEmpty)
+
+    let result = await WorkspaceStore(baseURL: baseURL).loadLibrary()
+
+    #expect(result.issues.isEmpty)
+    #expect(result.library == expected)
+    let migratedSession = try #require(
+      result.library.workspaces.first?.sessions.first
+    )
+    #expect(migratedSession.focusedFileState.snapshots.count == 4)
+    #expect(!FileManager.default.fileExists(atPath: legacyURL(baseURL: baseURL).path))
+
+    let restarted = await WorkspaceStore(baseURL: baseURL).loadLibrary()
+    #expect(restarted.issues.isEmpty)
+    #expect(restarted.library == expected)
+  }
+
+  @Test
   func staleMigrationDirectoryDoesNotPreventRepeatableMigration() async throws {
     let baseURL = temporaryBaseURL()
     let staleStagingURL = baseURL.appending(
