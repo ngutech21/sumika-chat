@@ -10,22 +10,16 @@ struct ChatComposer: View {
   let selectedModel: ManagedModel
   let modelState: ModelLoadState
   let interactionMode: WorkspaceInteractionMode
-  let toolApprovalPolicy: ToolApprovalPolicy
-  let mcpServerPickerConfiguration: MCPServerPicker.Configuration
-  let reasoningEnabled: Bool
+  let sessionOptionsConfiguration: ChatComposerOptions.Configuration
   let todoState: TodoState?
   let contextUsage: ChatContextUsage?
   let canChangeModel: Bool
   let canChangeInteractionMode: Bool
-  let canEnableAutomaticToolApproval: Bool
   let canSend: Bool
   let canRunLocalCommand: Bool
   let isGenerating: Bool
   let errorMessage: String?
   let onSelectInteractionMode: (WorkspaceInteractionMode) -> Void
-  let onEnableAutomaticToolApproval: () -> Void
-  let onDisableAutomaticToolApproval: () -> Void
-  let onSetReasoningEnabled: (Bool) -> Void
   let onSelectModel: (ManagedModel) -> Void
   let onLoadModel: () -> Void
   let onAddAttachments: () -> Void
@@ -40,7 +34,6 @@ struct ChatComposer: View {
   @State private var slashSelectionIndex = 0
   @State private var slashSuggestionsDismissed = false
   @State private var showModelPicker = false
-  @State private var showAutoApproveConfirmation = false
   @State private var isDropTarget = false
 
   private let slashCommandParser = SlashCommandParser()
@@ -115,22 +108,9 @@ struct ChatComposer: View {
           .disabled(isGenerating || modelState != .ready)
           .accessibilityLabel("Add context files")
 
-          modelPicker
+          modelControlGroup
           modeSelector
-          if interactionMode == .agent {
-            autoApproveToggle
-          }
-          MCPServerPicker(configuration: mcpServerPickerConfiguration)
-          reasoningToggle
-
-          // The contextual load control lives at the trailing end of the
-          // leading cluster and keeps a fixed width. Because nothing sits
-          // between it and the Spacer, switching "Load" → "Loading" or hiding
-          // it once the model is ready never nudges the controls to its left
-          // or the send cluster to its right.
-          if modelState != .ready {
-            loadButton
-          }
+          ChatComposerOptions(configuration: sessionOptionsConfiguration)
 
           Spacer(minLength: 8)
 
@@ -182,75 +162,54 @@ struct ChatComposer: View {
       }
     }
     .padding(16)
-    .alert("Enable Auto-approve?", isPresented: $showAutoApproveConfirmation) {
-      Button("Cancel", role: .cancel) {}
-      Button("Enable Auto-approve", role: .destructive) {
-        onEnableAutomaticToolApproval()
-      }
-    } message: {
-      Text(
-        """
-        Agent will execute file changes, web and MCP actions, and arbitrary shell commands without asking again. Shell commands run with your user permissions and can access files outside this workspace and the network.
-        """
-      )
-    }
   }
 
-  private var reasoningToggle: some View {
-    Button {
-      onSetReasoningEnabled(!reasoningEnabled)
-    } label: {
-      HStack(spacing: 5) {
-        Image(systemName: reasoningEnabled ? "lightbulb.fill" : "lightbulb")
-          .font(.system(size: 10, weight: .semibold))
-        Text(reasoningEnabled ? "Reasoning On" : "Reasoning")
-          .font(.caption2.weight(reasoningEnabled ? .semibold : .medium))
-          .lineLimit(1)
-      }
-      .foregroundStyle(reasoningEnabled ? Color.accentColor : Color.secondary)
-      .padding(.horizontal, 7)
-      .frame(width: 104, height: 24)
-      .background(
-        reasoningEnabled ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08),
-        in: RoundedRectangle(cornerRadius: 5)
-      )
-      .overlay {
-        RoundedRectangle(cornerRadius: 5)
-          .strokeBorder(
-            reasoningEnabled ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.16),
-            lineWidth: reasoningEnabled ? 1.2 : 1
-          )
-      }
+  private var modelControlGroup: some View {
+    HStack(spacing: 0) {
+      modelPicker
+
+      Divider()
+        .frame(height: 14)
+
+      loadButton
     }
-    .buttonStyle(.plain)
-    .disabled(!canChangeInteractionMode)
-    .help(reasoningEnabled ? "Disable model reasoning" : "Enable model reasoning")
-    .accessibilityLabel("Reasoning")
-    .accessibilityValue(reasoningEnabled ? "On" : "Off")
-    .accessibilityIdentifier("chat.reasoningToggle")
+    .frame(height: 24)
+    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+    .overlay {
+      RoundedRectangle(cornerRadius: 5)
+        .strokeBorder(Color.secondary.opacity(0.14), lineWidth: 1)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Model")
+    .accessibilityIdentifier("chat.modelControl")
   }
 
   private var loadButton: some View {
     Button(action: onLoadModel) {
-      Group {
-        if modelState == .loading {
+      HStack(spacing: 5) {
+        switch modelState {
+        case .loading:
           HStack(spacing: 6) {
             ProgressView()
               .controlSize(.small)
               .accessibilityIdentifier("load-model-progress")
-            Text(modelLoadActionTitle)
+            Text("Loading")
           }
-        } else {
-          Label(modelLoadActionTitle, systemImage: "play.fill")
+        case .ready:
+          Label("Ready", systemImage: "checkmark")
+            .foregroundStyle(.secondary)
+        case .notLoaded, .failed:
+          Label("Load", systemImage: "play.fill")
         }
       }
-      // A fixed content width keeps the button itself from resizing as it
-      // moves between the "Load" and "Loading" states.
-      .frame(width: 74)
+      .font(.caption2.weight(.medium))
+      .frame(width: 82, height: 24)
+      .contentShape(Rectangle())
     }
-    .controlSize(.small)
+    .buttonStyle(.plain)
     .disabled(!canLoadSelectedModel)
     .accessibilityLabel(modelLoadHelp)
+    .accessibilityValue(modelState.label)
     .accessibilityIdentifier("load-model-button")
   }
 
@@ -276,7 +235,7 @@ struct ChatComposer: View {
       .foregroundStyle(.secondary)
       .padding(.horizontal, 8)
       .frame(width: 150, height: 24)
-      .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .disabled(!canChangeModel)
@@ -323,7 +282,7 @@ struct ChatComposer: View {
   }
 
   private var canLoadSelectedModel: Bool {
-    !availableModels.isEmpty && modelState != .loading && !isGenerating
+    !availableModels.isEmpty && modelState != .loading && modelState != .ready && !isGenerating
   }
 
   private var canAcceptAttachments: Bool {
@@ -338,14 +297,20 @@ struct ChatComposer: View {
     canActivateSend ? Color.white : Color.secondary
   }
 
-  private var modelLoadActionTitle: String {
-    modelState == .loading ? "Loading" : "Load"
-  }
-
   private var modelLoadHelp: String {
-    availableModels.isEmpty
-      ? "Download a model from Models first"
-      : "Load selected model"
+    if availableModels.isEmpty {
+      return "Download a model from Models first"
+    }
+    switch modelState {
+    case .notLoaded:
+      return "Load selected model"
+    case .loading:
+      return "Loading selected model"
+    case .ready:
+      return "Model ready"
+    case .failed:
+      return "Retry loading selected model"
+    }
   }
 
   private var modelPickerTitle: String {
@@ -722,49 +687,6 @@ extension ChatComposer {
     isSelected ? Color.accentColor.opacity(0.65) : Color.clear
   }
 
-  fileprivate var autoApproveToggle: some View {
-    let isAutomatic = toolApprovalPolicy == .automatic
-
-    return Button {
-      if isAutomatic {
-        onDisableAutomaticToolApproval()
-      } else {
-        showAutoApproveConfirmation = true
-      }
-    } label: {
-      HStack(spacing: 5) {
-        Image(systemName: isAutomatic ? "shield.fill" : "shield")
-          .font(.system(size: 10, weight: .semibold))
-        Text("Auto-approve")
-          .font(.caption2.weight(isAutomatic ? .semibold : .medium))
-          .lineLimit(1)
-      }
-      .foregroundStyle(isAutomatic ? Color.orange : Color.secondary)
-      .padding(.horizontal, 7)
-      .frame(width: 106, height: 24)
-      .background(
-        isAutomatic ? Color.orange.opacity(0.18) : Color.secondary.opacity(0.08),
-        in: RoundedRectangle(cornerRadius: 5)
-      )
-      .overlay {
-        RoundedRectangle(cornerRadius: 5)
-          .strokeBorder(
-            isAutomatic ? Color.orange.opacity(0.65) : Color.secondary.opacity(0.16),
-            lineWidth: isAutomatic ? 1.2 : 1
-          )
-      }
-    }
-    .buttonStyle(.plain)
-    .disabled(!isAutomatic && !canEnableAutomaticToolApproval)
-    .help(
-      isAutomatic
-        ? "Disable automatic tool approval"
-        : "Automatically approve tools for this session"
-    )
-    .accessibilityLabel("Auto-approve")
-    .accessibilityValue(isAutomatic ? "Enabled" : "Disabled")
-    .accessibilityIdentifier("chat.autoApproveToggle")
-  }
 }
 
 struct ComposerDraftState: Equatable {

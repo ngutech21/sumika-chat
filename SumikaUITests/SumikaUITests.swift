@@ -68,7 +68,7 @@ final class SumikaUITests: XCTestCase {
   }
 
   @MainActor
-  func testMCPServerPickerIsAgentOnlyAndPersistsSelection() throws {
+  func testSessionOptionsShowOnlyRelevantControlsAndPersistMCPSelection() throws {
     let server = MCPServerConfig(
       name: "Offline Test Server",
       command: "/usr/bin/false",
@@ -78,27 +78,48 @@ final class SumikaUITests: XCTestCase {
     let application = try launchApp(fixture: fixture)
     defer { application.terminate() }
 
-    let picker = application.buttons["chat.mcpServerPicker"]
-    XCTAssertTrue(picker.waitForExistence(timeout: 10))
-    XCTAssertFalse(picker.isEnabled)
-    XCTAssertEqual(picker.value as? String, "Unavailable in Chat mode")
+    let options = application.buttons["chat.sessionOptions"]
+    XCTAssertTrue(options.waitForExistence(timeout: 10))
+    XCTAssertEqual(options.value as? String, "Reasoning on")
+    options.click()
 
-    try selectAgentMode(in: application)
-    XCTAssertTrue(waitUntil(timeout: 10) { picker.isEnabled })
-    picker.click()
-
-    let serverRow = application.descendants(matching: .any)[
+    let reasoningToggle = application.switches["chat.reasoningToggle"]
+    let autoApproveToggle = application.switches["chat.autoApproveToggle"]
+    let serverRow = application.buttons[
       "chat.mcpServer.\(server.id.uuidString)"
     ]
+    XCTAssertTrue(reasoningToggle.waitForExistence(timeout: 5))
+    XCTAssertFalse(autoApproveToggle.exists)
+    XCTAssertFalse(serverRow.exists)
+
+    application.typeKey(.escape, modifierFlags: [])
+    try selectAgentMode(in: application)
+    options.click()
+
+    XCTAssertTrue(autoApproveToggle.waitForExistence(timeout: 5))
     XCTAssertTrue(serverRow.waitForExistence(timeout: 5))
     XCTAssertTrue((serverRow.value as? String)?.contains("Disabled") == true)
     serverRow.click()
 
     XCTAssertTrue(
       waitUntil(timeout: 10) {
-        picker.value as? String == "1 server selected"
+        (options.value as? String)?.contains("1 MCP server selected") == true
       }
     )
+
+    application.typeKey(.escape, modifierFlags: [])
+    try selectChatMode(in: application)
+    options.click()
+    XCTAssertTrue(reasoningToggle.waitForExistence(timeout: 5))
+    XCTAssertFalse(autoApproveToggle.exists)
+    XCTAssertFalse(serverRow.exists)
+
+    application.typeKey(.escape, modifierFlags: [])
+    try selectAgentMode(in: application)
+    options.click()
+    XCTAssertTrue(serverRow.waitForExistence(timeout: 5))
+    XCTAssertTrue((serverRow.value as? String)?.contains("Selected") == true)
+
     let libraryURL = fixture.storageRoot.appending(
       path: "workspaces.json",
       directoryHint: .notDirectory
@@ -114,6 +135,36 @@ final class SumikaUITests: XCTestCase {
         return library.workspaces.first?.sessions.first?.selectedMCPServerIDs == [server.id]
       },
       "The selected MCP server should persist on the active session."
+    )
+  }
+
+  @MainActor
+  func testSessionOptionsConfirmAndExposeAutomaticApproval() throws {
+    let fixture = try launchFixture()
+    let application = try launchApp(fixture: fixture)
+    defer { application.terminate() }
+
+    try selectAgentMode(in: application)
+
+    let options = application.buttons["chat.sessionOptions"]
+    XCTAssertTrue(options.waitForExistence(timeout: 10))
+    options.click()
+
+    let autoApproveToggle = application.switches["chat.autoApproveToggle"]
+    XCTAssertTrue(autoApproveToggle.waitForExistence(timeout: 5))
+    autoApproveToggle.click()
+
+    let confirmationSheet = application.sheets.firstMatch
+    XCTAssertTrue(confirmationSheet.waitForExistence(timeout: 5))
+    let enableButton = confirmationSheet.buttons["Enable Auto-approve"]
+    XCTAssertTrue(enableButton.exists)
+    enableButton.click()
+
+    XCTAssertTrue(
+      waitUntil(timeout: 10) {
+        (options.value as? String)?.contains("Auto-approve on") == true
+      },
+      "The composer must expose active automatic approval without reopening options."
     )
   }
 
@@ -468,7 +519,7 @@ final class SumikaUITests: XCTestCase {
     let workspaceURL = storageRoot.appending(path: "workspace", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
     if !mcpServers.isEmpty {
-      try JSONEncoder().encode(mcpServers).write(
+      try JSONEncoder().encode(["servers": mcpServers]).write(
         to: storageRoot.appending(path: "mcp-servers.json", directoryHint: .notDirectory),
         options: .atomic
       )
@@ -520,16 +571,28 @@ final class SumikaUITests: XCTestCase {
   @MainActor
   private func loadSelectedModel(in application: XCUIApplication) throws {
     let messageField = waitForMessageField(in: application)
+    let modelPicker = application.buttons["chat.modelPicker"]
     let loadButton = application.buttons["load-model-button"]
     let sendButton = application.buttons["send-button"]
+    XCTAssertTrue(modelPicker.waitForExistence(timeout: 30))
     XCTAssertTrue(loadButton.waitForExistence(timeout: 30))
     XCTAssertFalse(sendButton.isEnabled)
     XCTAssertTrue(
       loadButton.isEnabled,
       "Load must be enabled for the preinstalled Gemma 4 E4B Experimental cache.")
+    let modelPickerFrame = modelPicker.frame
+    let loadButtonFrame = loadButton.frame
+    XCTAssertEqual(
+      loadButtonFrame.minX,
+      modelPickerFrame.maxX,
+      accuracy: 2,
+      "The model load control must stay directly beside the model picker."
+    )
     loadButton.click()
 
     _ = application.progressIndicators["load-model-progress"].waitForExistence(timeout: 5)
+    XCTAssertEqual(loadButton.frame.minX, loadButtonFrame.minX, accuracy: 2)
+    XCTAssertEqual(modelPicker.frame.minX, modelPickerFrame.minX, accuracy: 2)
     messageField.click()
     messageField.typeText("Model load readiness probe")
     XCTAssertTrue(
@@ -538,6 +601,9 @@ final class SumikaUITests: XCTestCase {
       },
       "Gemma 4 E4B Experimental did not become ready before the UI-test timeout."
     )
+    XCTAssertEqual(loadButton.value as? String, "Model ready")
+    XCTAssertEqual(loadButton.frame.minX, loadButtonFrame.minX, accuracy: 2)
+    XCTAssertEqual(modelPicker.frame.minX, modelPickerFrame.minX, accuracy: 2)
     messageField.typeKey("a", modifierFlags: .command)
     messageField.typeKey(.delete, modifierFlags: [])
   }

@@ -46,32 +46,33 @@ struct WorkspaceChatComposerHost: View {
       selectedModel: composerSelectedModel(from: localDownloadedModels),
       modelState: controller.modelRuntime.modelState,
       interactionMode: composerState.interactionMode,
-      toolApprovalPolicy: composerState.toolApprovalPolicy,
-      mcpServerPickerConfiguration: MCPServerPicker.Configuration(
+      sessionOptionsConfiguration: ChatComposerOptions.Configuration(
+        interactionMode: composerState.interactionMode,
+        reasoningEnabled: composerState.reasoningEnabled,
+        toolApprovalPolicy: composerState.toolApprovalPolicy,
+        canChangeReasoning: controller.canChangeInteractionMode,
+        canEnableAutomaticToolApproval: controller.canEnableAutomaticToolApproval,
         servers: mcpServers,
         statuses: mcpServerStatuses,
         selectedServerIDs: composerState.selectedMCPServerIDs,
-        interactionMode: composerState.interactionMode,
-        canChangeSelection: controller.canChangeMCPServerSelection,
+        canChangeMCPSelection: controller.canChangeMCPServerSelection,
+        onSetReasoningEnabled: controller.setReasoningEnabled,
+        onEnableAutomaticToolApproval: {
+          controller.enableAutomaticToolApproval(in: toolWorkspace)
+        },
+        onDisableAutomaticToolApproval: controller.disableAutomaticToolApproval,
         onSelectServerIDs: onSelectMCPServerIDs
       ),
-      reasoningEnabled: composerState.reasoningEnabled,
       todoState: composerState.todoState,
       contextUsage: controller.contextUsage,
       canChangeModel: !localDownloadedModels.isEmpty && !isGenerating
         && controller.modelRuntime.canChangeModel,
       canChangeInteractionMode: controller.canChangeInteractionMode,
-      canEnableAutomaticToolApproval: controller.canEnableAutomaticToolApproval,
       canSend: controller.modelRuntime.modelState == .ready && !isGenerating,
       canRunLocalCommand: !isGenerating,
       isGenerating: isGenerating,
       errorMessage: controller.errorMessage,
       onSelectInteractionMode: controller.setInteractionMode,
-      onEnableAutomaticToolApproval: {
-        controller.enableAutomaticToolApproval(in: toolWorkspace)
-      },
-      onDisableAutomaticToolApproval: controller.disableAutomaticToolApproval,
-      onSetReasoningEnabled: controller.setReasoningEnabled,
       onSelectModel: selectModel(_:),
       onLoadModel: loadSelectedModel,
       onAddAttachments: chooseAttachments,
