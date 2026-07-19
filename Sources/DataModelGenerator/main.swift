@@ -18,6 +18,10 @@ let modelsDirectories = [
     path: "Sources/SumikaCore/Features/ToolRuntime/Models",
     directoryHint: .isDirectory
   ),
+  repositoryRoot.appending(
+    path: "Sources/SumikaCore/Features/Agent/MCP/Models",
+    directoryHint: .isDirectory
+  ),
 ]
 let outputURL = repositoryRoot.appending(
   path: "docs/data-model.md",

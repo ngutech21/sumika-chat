@@ -269,7 +269,7 @@ Relations:
 ### MCPServerConfig
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/MCPServerConfig.swift`
+- Source: `Sources/SumikaCore/Features/Agent/MCP/Models/MCPServerConfig.swift`
 - Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
 - Summary: User-configured external MCP server using stdio or Streamable HTTP.
 
@@ -287,7 +287,7 @@ Relations:
 ### MCPServerEndpointError
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/MCPServerConfig.swift`
+- Source: `Sources/SumikaCore/Features/Agent/MCP/Models/MCPServerConfig.swift`
 - Conforms to: `Equatable`, `LocalizedError`, `Sendable`
 
 Cases:
@@ -301,7 +301,7 @@ Cases:
 ### MCPServerTransportConfiguration
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/MCPServerConfig.swift`
+- Source: `Sources/SumikaCore/Features/Agent/MCP/Models/MCPServerConfig.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
