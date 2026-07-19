@@ -35,7 +35,7 @@ enum AppLaunchConfiguration {
 
     if isXcodeUnitTestHost(environment: environment) {
       return makeUnitTestHostAppState(
-        environment: environment, runtime: runtime ?? MockChatRuntime())
+        environment: environment, runtime: runtime ?? MLXChatRuntime())
     }
 
     return AppState(runtime: runtime ?? MLXChatRuntime())

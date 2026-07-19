@@ -168,38 +168,6 @@ package final actor MLXChatRuntime: ChatModelRuntime {
   package func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    try await streamReply(
-      for: transcript,
-      attachments: attachments,
-      promptPlan: ChatRuntimePromptPlan(stableInstructions: systemPrompt),
-      settings: settings
-    )
-  }
-
-  package func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext?
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    try await streamReply(
-      for: transcript,
-      attachments: attachments,
-      promptPlan: ChatRuntimePromptPlan(
-        stableInstructions: systemPrompt,
-        toolContext: toolContext
-      ),
-      settings: settings
-    )
-  }
-
-  package func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {

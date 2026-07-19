@@ -9,19 +9,6 @@ public protocol ChatModelRuntime: Sendable {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
-  func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext?
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
-  func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
@@ -90,99 +77,7 @@ extension ChatModelRuntime {
     nil
   }
 
-  public func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext?
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = toolContext
-    return try await streamReply(
-      for: transcript,
-      attachments: attachments,
-      systemPrompt: systemPrompt,
-      settings: settings
-    )
-  }
-
-  public func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    try await streamReply(
-      for: transcript,
-      attachments: attachments,
-      systemPrompt: promptPlan.stableInstructions,
-      settings: settings,
-      toolContext: promptPlan.toolContext
-    )
-  }
-
   public func generatedTokenCount(for text: String) async throws -> Int {
     text.split(whereSeparator: \.isWhitespace).count
-  }
-}
-
-public struct MockChatRuntime: ChatModelRuntime {
-  public init() {}
-
-  public func load(configuration: ChatModelConfiguration) async throws {
-    _ = configuration
-    try await Task.sleep(for: .milliseconds(350))
-  }
-
-  public func unload() async {}
-
-  public func clearContext() async {}
-
-  public func generatedTokenCount(for text: String) async throws -> Int {
-    text.split(whereSeparator: \.isWhitespace).count
-  }
-
-  public func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = attachments
-    _ = systemPrompt
-    _ = settings
-
-    let lastMessage = transcript.projectedEntries(mode: .fullHistory)
-      .last(where: { $0.role == .user || $0.role == .tool })
-    let attachmentSummary = attachments.map(\.displayName).joined(separator: ", ")
-    let lastPrompt = lastMessage?.content ?? ""
-    let chunks = [
-      "Mock runtime received:\n\n",
-      lastPrompt,
-      attachmentSummary.isEmpty ? "" : "\n\nAttached files: \(attachmentSummary)",
-      "\n\n",
-      "Next step: replace MockChatRuntime with a Gemma MLX runtime behind the same ChatModelRuntime protocol.",
-    ]
-
-    return AsyncThrowingStream { continuation in
-      let task = Task {
-        for chunk in chunks {
-          try? await Task.sleep(for: .milliseconds(120))
-          guard !Task.isCancelled else { break }
-          continuation.yield(.chunk(chunk))
-        }
-
-        continuation.yield(
-          .completed(
-            ChatGenerationMetrics(generatedTokenCount: 18, tokensPerSecond: 40, durationMs: 450)
-          )
-        )
-        continuation.finish()
-      }
-
-      continuation.onTermination = { _ in
-        task.cancel()
-      }
-    }
   }
 }

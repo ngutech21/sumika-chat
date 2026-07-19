@@ -338,12 +338,12 @@ private actor RuntimeCacheSnapshotRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
+    _ = promptPlan
     _ = settings
     return AsyncThrowingStream { continuation in
       continuation.yield(.chunk("hello"))
@@ -379,12 +379,12 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
+    _ = promptPlan
     _ = settings
 
     return AsyncThrowingStream { continuation in

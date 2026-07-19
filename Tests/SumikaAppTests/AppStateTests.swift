@@ -1750,35 +1750,6 @@ private actor AppStateTestRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = transcript
-    _ = attachments
-    _ = settings
-    capturedSystemPrompts.append(systemPrompt)
-    capturedToolContexts.append(nil)
-    return stream(from: nextEvents())
-  }
-
-  func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext?
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    _ = transcript
-    _ = attachments
-    _ = settings
-    capturedSystemPrompts.append(systemPrompt)
-    capturedToolContexts.append(toolContext)
-    return stream(from: nextEvents())
-  }
-
-  func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {

@@ -490,10 +490,14 @@ private actor RuntimeControllerRecordingRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    AsyncThrowingStream { continuation in
+    _ = transcript
+    _ = attachments
+    _ = promptPlan
+    _ = settings
+    return AsyncThrowingStream { continuation in
       continuation.finish()
     }
   }
@@ -535,12 +539,12 @@ private actor RuntimeControllerRaceLoadingRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
+    _ = promptPlan
     _ = settings
     return AsyncThrowingStream { continuation in
       continuation.finish()
@@ -584,12 +588,12 @@ private actor RuntimeControllerDelayedUnloadRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
+    _ = promptPlan
     _ = settings
     return AsyncThrowingStream { continuation in
       continuation.finish()
