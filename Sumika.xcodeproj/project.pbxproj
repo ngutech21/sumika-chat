@@ -7,20 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		F9071F142FCD7946000A270C /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = F9071F132FCD7946000A270C /* MLX */; };
-		F9071F162FCD7946000A270C /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = F9071F152FCD7946000A270C /* MLXNN */; };
-		F9071F182FCD7946000A270C /* MLXRandom in Frameworks */ = {isa = PBXBuildFile; productRef = F9071F172FCD7946000A270C /* MLXRandom */; };
-		F9081F142FCE1000000A270C /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F132FCE1000000A270C /* MLXLLM */; };
-		F9081F162FCE1000000A270C /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F152FCE1000000A270C /* MLXLMCommon */; };
-		F9081F182FCE1000000A270C /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F172FCE1000000A270C /* MLXVLM */; };
-		F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1B2FCE1000000A270C /* Tokenizers */; };
-		F9081F202FCE1000000A270C /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = F9081F1F2FCE1000000A270C /* HuggingFace */; };
-		F91500012FD8000000A270C /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = F91500032FD8000000A270C /* FluidAudio */; };
-		F93000012FD3000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
-		F94000112FD4000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F93000032FD3000000A270C /* SumikaCore */; };
-		F95000012FE0000000A270C /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = F95000032FE0000000A270C /* SwiftTerm */; };
-		F96000012FF0000000A270C /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = F96000032FF0000000A270C /* Markdown */; };
-		F97000012FF1000000A270C /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F97000032FF1000000A270C /* Sparkle */; };
+		F91FA420300D1C580088C402 /* SumikaApp in Frameworks */ = {isa = PBXBuildFile; productRef = F91FA41F300D1C580088C402 /* SumikaApp */; };
+		F94000112FD4000000A270C /* SumikaCore in Frameworks */ = {isa = PBXBuildFile; productRef = F91FA421300D1C850088C402 /* SumikaCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,7 +30,7 @@
 
 /* Begin PBXFileReference section */
 		F9071FA72FCDAD93000A270C /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
-		F910000A2FD0720000A270C /* SumikaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SumikaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F910000A2FD0720000A270C /* SumikaHostedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SumikaHostedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F940000A2FD4000000A270C /* SumikaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SumikaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F9D7F5FB2FCC80CD00FECA78 /* Sumika.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sumika.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -58,9 +46,19 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		F91000092FD0720000A270C /* SumikaTests */ = {
+		F91000092FD0720000A270C /* Tests/SumikaAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = SumikaTests;
+			path = Tests/SumikaAppTests;
+			sourceTree = "<group>";
+		};
+		F91000112FD0720000A270C /* Tests/SumikaRuntimeMLXTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests/SumikaRuntimeMLXTests;
+			sourceTree = "<group>";
+		};
+		F91000122FD0720000A270C /* Tests/SumikaTestSupport */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests/SumikaTestSupport;
 			sourceTree = "<group>";
 		};
 		F94000092FD4000000A270C /* SumikaUITests */ = {
@@ -98,32 +96,30 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F9071F162FCD7946000A270C /* MLXNN in Frameworks */,
-				F9071F182FCD7946000A270C /* MLXRandom in Frameworks */,
-				F9071F142FCD7946000A270C /* MLX in Frameworks */,
-				F9081F142FCE1000000A270C /* MLXLLM in Frameworks */,
-				F9081F162FCE1000000A270C /* MLXLMCommon in Frameworks */,
-				F9081F182FCE1000000A270C /* MLXVLM in Frameworks */,
-				F9081F202FCE1000000A270C /* HuggingFace in Frameworks */,
-				F9081F1C2FCE1000000A270C /* Tokenizers in Frameworks */,
-				F91500012FD8000000A270C /* FluidAudio in Frameworks */,
-				F93000012FD3000000A270C /* SumikaCore in Frameworks */,
-				F95000012FE0000000A270C /* SwiftTerm in Frameworks */,
-				F96000012FF0000000A270C /* Markdown in Frameworks */,
-				F97000012FF1000000A270C /* Sparkle in Frameworks */,
+				F91FA420300D1C580088C402 /* SumikaApp in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		F91FA41E300D1C580088C402 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		F9D7F5F22FCC80CD00FECA78 = {
 			isa = PBXGroup;
 			children = (
 				F9071FA72FCDAD93000A270C /* LICENSE */,
 				F9D7F5FD2FCC80CD00FECA78 /* sumika */,
-				F91000092FD0720000A270C /* SumikaTests */,
+				F91000092FD0720000A270C /* Tests/SumikaAppTests */,
+				F91000112FD0720000A270C /* Tests/SumikaRuntimeMLXTests */,
+				F91000122FD0720000A270C /* Tests/SumikaTestSupport */,
 				F94000092FD4000000A270C /* SumikaUITests */,
+				F91FA41E300D1C580088C402 /* Frameworks */,
 				F9D7F5FC2FCC80CD00FECA78 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -132,7 +128,7 @@
 			isa = PBXGroup;
 			children = (
 				F9D7F5FB2FCC80CD00FECA78 /* Sumika.app */,
-				F910000A2FD0720000A270C /* SumikaTests.xctest */,
+				F910000A2FD0720000A270C /* SumikaHostedTests.xctest */,
 				F940000A2FD4000000A270C /* SumikaUITests.xctest */,
 			);
 			name = Products;
@@ -141,9 +137,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		F91000012FD0720000A270C /* SumikaTests */ = {
+		F91000012FD0720000A270C /* SumikaHostedTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F910000D2FD0720000A270C /* Build configuration list for PBXNativeTarget "SumikaTests" */;
+			buildConfigurationList = F910000D2FD0720000A270C /* Build configuration list for PBXNativeTarget "SumikaHostedTests" */;
 			buildPhases = (
 				F91000052FD0720000A270C /* Sources */,
 				F91000062FD0720000A270C /* Frameworks */,
@@ -155,13 +151,15 @@
 				F910000C2FD0720000A270C /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				F91000092FD0720000A270C /* SumikaTests */,
+				F91000092FD0720000A270C /* Tests/SumikaAppTests */,
+				F91000112FD0720000A270C /* Tests/SumikaRuntimeMLXTests */,
+				F91000122FD0720000A270C /* Tests/SumikaTestSupport */,
 			);
-			name = SumikaTests;
+			name = SumikaHostedTests;
 			packageProductDependencies = (
 			);
-			productName = SumikaTests;
-			productReference = F910000A2FD0720000A270C /* SumikaTests.xctest */;
+			productName = SumikaHostedTests;
+			productReference = F910000A2FD0720000A270C /* SumikaHostedTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		F94000012FD4000000A270C /* SumikaUITests */ = {
@@ -182,7 +180,7 @@
 			);
 			name = SumikaUITests;
 			packageProductDependencies = (
-				F93000032FD3000000A270C /* SumikaCore */,
+				F91FA421300D1C850088C402 /* SumikaCore */,
 			);
 			productName = SumikaUITests;
 			productReference = F940000A2FD4000000A270C /* SumikaUITests.xctest */;
@@ -206,19 +204,7 @@
 			);
 			name = Sumika;
 			packageProductDependencies = (
-				F9071F132FCD7946000A270C /* MLX */,
-				F9071F152FCD7946000A270C /* MLXNN */,
-				F9071F172FCD7946000A270C /* MLXRandom */,
-				F9081F132FCE1000000A270C /* MLXLLM */,
-				F9081F152FCE1000000A270C /* MLXLMCommon */,
-				F9081F172FCE1000000A270C /* MLXVLM */,
-				F9081F1F2FCE1000000A270C /* HuggingFace */,
-				F9081F1B2FCE1000000A270C /* Tokenizers */,
-				F91500032FD8000000A270C /* FluidAudio */,
-				F93000032FD3000000A270C /* SumikaCore */,
-				F95000032FE0000000A270C /* SwiftTerm */,
-				F96000032FF0000000A270C /* Markdown */,
-				F97000032FF1000000A270C /* Sparkle */,
+				F91FA41F300D1C580088C402 /* SumikaApp */,
 			);
 			productName = Sumika;
 			productReference = F9D7F5FB2FCC80CD00FECA78 /* Sumika.app */;
@@ -257,15 +243,7 @@
 			mainGroup = F9D7F5F22FCC80CD00FECA78;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				F9071F122FCD7946000A270C /* XCRemoteSwiftPackageReference "mlx-swift" */,
-				F9081F122FCE1000000A270C /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
-				F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */,
-				F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */,
-				F91500022FD8000000A270C /* XCRemoteSwiftPackageReference "FluidAudio" */,
-				F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */,
-				F96000022FF0000000A270C /* XCRemoteSwiftPackageReference "swift-markdown" */,
-				F97000022FF1000000A270C /* XCRemoteSwiftPackageReference "Sparkle" */,
-				F93000022FD3000000A270C /* XCLocalSwiftPackageReference "." */,
+				F91FA41D300D1BEC0088C402 /* XCLocalSwiftPackageReference "../sumika-chat" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F9D7F5FC2FCC80CD00FECA78 /* Products */;
@@ -273,7 +251,7 @@
 			projectRoot = "";
 			targets = (
 				F9D7F5FA2FCC80CD00FECA78 /* Sumika */,
-				F91000012FD0720000A270C /* SumikaTests */,
+				F91000012FD0720000A270C /* SumikaHostedTests */,
 				F94000012FD4000000A270C /* SumikaUITests */,
 			);
 		};
@@ -383,15 +361,15 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=complete";
-				PRODUCT_BUNDLE_IDENTIFIER = chat.sumika.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = "chat.sumika.hosted-tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sumika.app/Contents/MacOS/Sumika";
 			};
@@ -412,15 +390,15 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=complete";
-				PRODUCT_BUNDLE_IDENTIFIER = chat.sumika.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = "chat.sumika.hosted-tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sumika.app/Contents/MacOS/Sumika";
 			};
@@ -446,8 +424,8 @@
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 				TEST_TARGET_NAME = Sumika;
 			};
@@ -473,8 +451,8 @@
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 				TEST_TARGET_NAME = Sumika;
 			};
@@ -630,8 +608,8 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 7;
 				XROS_DEPLOYMENT_TARGET = 26.5;
@@ -688,8 +666,8 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 7;
 				XROS_DEPLOYMENT_TARGET = 26.5;
@@ -699,7 +677,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		F910000D2FD0720000A270C /* Build configuration list for PBXNativeTarget "SumikaTests" */ = {
+		F910000D2FD0720000A270C /* Build configuration list for PBXNativeTarget "SumikaHostedTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F910000E2FD0720000A270C /* Debug */,
@@ -738,144 +716,22 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		F93000022FD3000000A270C /* XCLocalSwiftPackageReference "." */ = {
+		F91FA41D300D1BEC0088C402 /* XCLocalSwiftPackageReference "../sumika-chat" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = .;
+			relativePath = "../sumika-chat";
 		};
 /* End XCLocalSwiftPackageReference section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		F9071F122FCD7946000A270C /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ml-explore/mlx-swift/";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.31.6;
-			};
-		};
-		F9081F122FCE1000000A270C /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
-			requirement = {
-				kind = revision;
-				revision = 343cae3799054b2e138ebfb1ae8d7d0f6c6a4a5b;
-			};
-		};
-		F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/huggingface/swift-transformers";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.3.3;
-			};
-		};
-		F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/huggingface/swift-huggingface";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.9.0;
-			};
-		};
-		F91500022FD8000000A270C /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/FluidInference/FluidAudio";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.15.4;
-			};
-		};
-		F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.13.0;
-			};
-		};
-		F96000022FF0000000A270C /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/swiftlang/swift-markdown.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.8.0;
-			};
-		};
-		F97000022FF1000000A270C /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.9.4;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
 /* Begin XCSwiftPackageProductDependency section */
-		F9071F132FCD7946000A270C /* MLX */ = {
+		F91FA41F300D1C580088C402 /* SumikaApp */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = F9071F122FCD7946000A270C /* XCRemoteSwiftPackageReference "mlx-swift" */;
-			productName = MLX;
+			package = F91FA41D300D1BEC0088C402 /* XCLocalSwiftPackageReference "../sumika-chat" */;
+			productName = SumikaApp;
 		};
-		F9071F152FCD7946000A270C /* MLXNN */ = {
+		F91FA421300D1C850088C402 /* SumikaCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = F9071F122FCD7946000A270C /* XCRemoteSwiftPackageReference "mlx-swift" */;
-			productName = MLXNN;
-		};
-		F9071F172FCD7946000A270C /* MLXRandom */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F9071F122FCD7946000A270C /* XCRemoteSwiftPackageReference "mlx-swift" */;
-			productName = MLXRandom;
-		};
-		F9081F132FCE1000000A270C /* MLXLLM */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F9081F122FCE1000000A270C /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
-			productName = MLXLLM;
-		};
-		F9081F152FCE1000000A270C /* MLXLMCommon */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F9081F122FCE1000000A270C /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
-			productName = MLXLMCommon;
-		};
-		F9081F172FCE1000000A270C /* MLXVLM */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F9081F122FCE1000000A270C /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
-			productName = MLXVLM;
-		};
-		F9081F1B2FCE1000000A270C /* Tokenizers */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F9081F1E2FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-transformers" */;
-			productName = Tokenizers;
-		};
-		F9081F1F2FCE1000000A270C /* HuggingFace */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F9081F212FCE1000000A270C /* XCRemoteSwiftPackageReference "swift-huggingface" */;
-			productName = HuggingFace;
-		};
-		F91500032FD8000000A270C /* FluidAudio */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F91500022FD8000000A270C /* XCRemoteSwiftPackageReference "FluidAudio" */;
-			productName = FluidAudio;
-		};
-		F93000032FD3000000A270C /* SumikaCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F93000022FD3000000A270C /* XCLocalSwiftPackageReference "." */;
+			package = F91FA41D300D1BEC0088C402 /* XCLocalSwiftPackageReference "../sumika-chat" */;
 			productName = SumikaCore;
-		};
-		F95000032FE0000000A270C /* SwiftTerm */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F95000022FE0000000A270C /* XCRemoteSwiftPackageReference "SwiftTerm" */;
-			productName = SwiftTerm;
-		};
-		F96000032FF0000000A270C /* Markdown */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F96000022FF0000000A270C /* XCRemoteSwiftPackageReference "swift-markdown" */;
-			productName = Markdown;
-		};
-		F97000032FF1000000A270C /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F97000022FF1000000A270C /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

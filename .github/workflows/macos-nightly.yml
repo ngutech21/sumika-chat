@@ -19,10 +19,6 @@ jobs:
     timeout-minutes: 90
 
     env:
-      PROJECT: Sumika.xcodeproj
-      SCHEME: Sumika
-      DESTINATION: platform=macOS,arch=arm64
-      CONFIGURATION: Release
       DERIVED_DATA_PATH: build/DerivedData/macos-nightly
       CLONED_SOURCE_PACKAGES_DIR_PATH: .build/xcode-source-packages
       # Hosted runners cannot approve mlx-swift's CudaBuild plugin interactively.
@@ -41,6 +37,12 @@ jobs:
           xcrun --sdk macosx --show-sdk-version
           xcrun swift --version
 
+      - name: Install lint tools
+        timeout-minutes: 10
+        run: |
+          brew untap aws/tap || true
+          brew install just swiftlint periphery create-dmg
+
       - name: Cache Swift package checkouts
         uses: actions/cache@v6
         with:
@@ -51,24 +53,9 @@ jobs:
             .build/artifacts
           key: ${{ runner.os }}-macos-nightly-swiftpm-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
-      - name: Resolve Swift packages
+      - name: Verify Swift package lockfiles
         timeout-minutes: 10
-        run: |
-          xcodebuild -resolvePackageDependencies \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"
-
-      - name: Verify resolved packages are committed
-        run: |
-          git diff --exit-code -- \
-            Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
-
-      - name: Install lint tools
-        timeout-minutes: 10
-        run: |
-          brew untap aws/tap || true
-          brew install just swiftlint periphery create-dmg
+        run: just check-package-locks
 
       - name: Run SwiftLint
         timeout-minutes: 10
@@ -99,7 +86,7 @@ jobs:
         timeout-minutes: 20
         env:
           SWIFT_BACKTRACE: enable
-        run: swift test --no-parallel -Xswiftc -warnings-as-errors
+        run: just test-core
 
       - name: Print core test failure diagnostics
         if: failure() && steps.core_tests.outcome == 'failure'

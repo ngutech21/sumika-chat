@@ -1054,7 +1054,7 @@ extension XCUIElement {
 
 extension Array where Element == TraceRow {
   fileprivate func containsRequiredTraceKinds() -> Bool {
-    containsKind("gemma_request") && containsKind("gemma_response") && containsKind("turn_trace")
+    containsKind("mlx_request") && containsKind("mlx_response") && containsKind("turn_trace")
   }
 
   fileprivate func containsKind(_ kind: String) -> Bool {
@@ -1088,7 +1088,7 @@ extension Array where Element == TraceRow {
 
   fileprivate func containsResponseOutput(containing text: String) -> Bool {
     contains { row in
-      row.kind == "gemma_response" && row.output?.contains(text) == true
+      row.kind == "mlx_response" && row.output?.contains(text) == true
     }
   }
 

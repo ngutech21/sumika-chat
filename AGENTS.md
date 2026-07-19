@@ -14,14 +14,22 @@ Follow the existing layout:
 
 - Core logic: `Sources/SumikaCore/`
 - Core tests: `Tests/SumikaCoreTests/`
-- macOS app/UI/platform/MLX: `sumika/`
-- App tests: `SumikaTests/`
-- UI/runtime tests: `SumikaUITests/`
+- macOS app/UI/platform: `Sources/SumikaApp/`
+- MLX runtime: `Sources/SumikaRuntimeMLX/`
+- App tests: `Tests/SumikaAppTests/`
+- MLX runtime tests: `Tests/SumikaRuntimeMLXTests/`
+- Xcode app launcher/resources: `sumika/`
+- UI tests: `SumikaUITests/`
 
-Keep dependencies one-way: app -> `SumikaCore`. Views call controllers or app
-state; controllers call coordinators/services; services exchange structured
-models. SwiftUI views must not parse model output, touch the filesystem directly,
-run shell commands, make permission decisions, or know MLX details.
+Keep dependencies one-way: `SumikaApp` -> `SumikaRuntimeMLX` -> `SumikaCore`;
+`SumikaApp` may also use `SumikaCore` directly. Views call controllers or app state;
+controllers call coordinators/services; services exchange structured models.
+SwiftUI views must not parse model output, touch the filesystem directly, run shell
+commands, make permission decisions, or know MLX details.
+
+`SumikaHostedTests` is the Xcode test host for the SwiftPM app/runtime test sources.
+Keep it because Xcode builds and embeds the MLX Metal test resources that
+command-line SwiftPM does not provide.
 
 
 Do not create new top-level folders or abstractions unless real code requires them.
@@ -31,7 +39,7 @@ code to put in them.
 ## Core/App Boundaries
 
 - Keep reusable behavior in `SumikaCore`; keep MLX/Gemma backends in
-  `sumika/Services/` behind core protocols.
+  `Sources/SumikaRuntimeMLX/` behind core protocols.
 - SwiftUI controllers are UI facades only: hold view state, expose small user
   actions, call coordinators/services, and map results back to UI.
 - Workflow lifecycle belongs in coordinators. Execution, side effects,
@@ -147,7 +155,7 @@ Use the narrowest feedback loop while debugging:
 - Core-only: `just test-core`.
 - App-target only: `just test-app`.
 - UI tests, accessibility IDs, launch test mode, model-loading UI, chat/agent UI,
-  or Gemma trace behavior used by UI tests: `just test-ui`.
+  or MLX trace behavior used by UI tests: `just test-ui`.
 - Cross-boundary or build/test wiring: `just test`.
 
 For final verification after implementation, prefer `just final-check`. It runs `typos`, `format`, `lint`, `periphery`, `test`. If a focused test just
@@ -166,10 +174,20 @@ xcodebuild -project Sumika.xcodeproj -scheme Sumika -destination "platform=macOS
 ./script/build_and_run.sh --verify
 ```
 
-CI intentionally runs only headless SwiftPM tests with `xcrun swift test`.
-`just test-ui` is local-only, enables `SUMIKA_DEBUG_TRACE=1`, must never
-download a model, and should skip cleanly if `gemma4-e4b` is missing. Use
-`just data-model` to regenerate `docs/data-model.md`.
+`just resolve-packages` updates both the root SwiftPM lockfile and the Xcode app
+lockfile. Commit both after dependency changes; they represent different
+resolver roots and are not expected to be byte-identical. CI runs
+`just check-package-locks` with automatic dependency updates disabled to reject
+missing or stale lockfiles without upgrading packages during a CI run.
+If a dependency PR changes only the root graph, run `just resolve-packages` and
+commit the regenerated Xcode lockfile as part of that PR.
+
+CI runs `just test`: headless SwiftPM tests for `SumikaCore` and
+`DataModelGenerator`, followed by Xcode-hosted unit tests for `SumikaApp` and
+`SumikaRuntimeMLX`. CI does not run UI tests. `just test-ui` is local-only,
+enables `SUMIKA_DEBUG_TRACE=1`, must never download a model, and should skip
+cleanly if `gemma4-e4b` is missing. Use `just data-model` to regenerate
+`docs/data-model.md`.
 
 ## Debugging And Tracing
 
@@ -188,7 +206,7 @@ Use the project script before inventing new launch flows:
 Normal trace:
 
 ```text
-~/Library/Application Support/Sumika/debug/gemma-trace.jsonl
+~/Library/Application Support/Sumika/debug/mlx-trace.jsonl
 ```
 
 UI-test per-run traces:
@@ -198,8 +216,8 @@ UI-test per-run traces:
 ```
 
 Do not create additional chat/model performance trace formats. Extend
-`GemmaDebugTraceStore`. Existing row kinds are `gemma_request`,
-`gemma_response`, and `turn_trace`.
+`MLXDebugTraceStore`. Existing row kinds are `mlx_request`,
+`mlx_response`, and `turn_trace`.
 
 When diagnosing latency, group by `turnID` and `generationID`; compare runtime,
 tool, tokenization, and persistence phases before assuming model decode is the

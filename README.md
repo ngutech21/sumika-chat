@@ -202,10 +202,22 @@ still changing.
 
 ## Architecture
 
-The project is split into a headless SwiftPM core library and a macOS app
-target. Reusable agent, runtime, persistence, and workflow logic lives in
-`SumikaCore`; the app target owns SwiftUI/AppKit views, launch wiring, platform
-services, and MLX-backed implementations.
+The project uses one Swift package with three production modules and a thin
+native Xcode app target:
+
+- `SumikaCore` owns provider-neutral domain models, agent/workflow logic,
+  persistence, tools, and runtime interfaces.
+- `SumikaRuntimeMLX` implements the local MLX/Hugging Face runtime behind the
+  core interfaces.
+- `SumikaApp` owns SwiftUI/AppKit, launch composition, and macOS integrations
+  such as Sparkle.
+- `sumika/` contains only the native app launcher, resources, entitlements, and
+  bundle metadata.
+
+Dependencies point one-way: `SumikaApp` -> `SumikaRuntimeMLX` ->
+`SumikaCore`; `SumikaApp` may also use `SumikaCore` directly. All external
+Swift package dependencies are declared in the root `Package.swift`; the Xcode
+app target links only the local `SumikaApp` product.
 
 - [Tool Runtime](docs/tool-runtime.md): core flow for adding type-safe tools,
   permissions, registries, and model-facing tool calls.
@@ -234,6 +246,16 @@ just release-unsigned
 open "build/DerivedData/Build/Products/Release/Sumika.app"
 ```
 
+Build and export a Developer ID-signed release archive:
+
+```sh
+DEVELOPER_ID_APPLICATION="Developer ID Application: …" just release-signed
+```
+
+The signed release command verifies the exported app, including the embedded
+Sparkle framework, updater, XPC helpers, update feed configuration, nested
+signatures, signing team, hardened runtime, and release entitlements.
+
 You can also build from Xcode by opening `Sumika.xcodeproj` and running the
 `Sumika` scheme for macOS.
 
@@ -246,11 +268,21 @@ just format
 just final-check
 ```
 
-`just build`, `just release-unsigned`, and `just test` run the `Sumika` Xcode
-scheme with a stable DerivedData path under `build/DerivedData`. `just lint`
-runs SwiftLint using `.swiftlint.yml`. `just format` formats Swift sources with
-`swift-format`. `just final-check` runs the broader local verification suite
-before review.
+`just build` and `just release-unsigned` run the `Sumika` Xcode scheme with a
+stable DerivedData path under `build/DerivedData`. `just test` combines the
+headless SwiftPM core/generator tests with the Xcode-hosted app and MLX runtime
+unit tests. `just lint` runs SwiftLint using `.swiftlint.yml`. `just format`
+checks Swift sources with `swift-format`. `just final-check` runs the broader
+local verification suite before review.
+
+`just resolve-packages` resolves both the root SwiftPM graph and the Xcode app
+graph. Commit both `Package.resolved` files after dependency changes.
+`just check-package-locks` disables automatic dependency updates and verifies
+that both committed lockfiles still satisfy their graph. The two files
+represent different resolver roots and are not expected to be byte-identical.
+If a Dependabot PR changes the root graph and this check reports a stale Xcode
+lockfile, run `just resolve-packages` and commit the regenerated Xcode
+`Package.resolved` file to the PR.
 
 ## License
 

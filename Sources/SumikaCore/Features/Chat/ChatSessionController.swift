@@ -79,14 +79,10 @@ public final class ChatSessionController {
       && !hasPendingUserAnswer
   }
 
-  public convenience init() {
-    self.init(modelSettingsStore: ModelSettingsStore())
-  }
-
   public convenience init(
     modelSettingsStore settingsStore: any ModelSettingsStoring,
     modelDownloader downloader: any ModelDownloading = UnavailableModelDownloader(),
-    runtime: any ChatModelRuntime = MockChatRuntime(),
+    runtime: any ChatModelRuntime,
     resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,

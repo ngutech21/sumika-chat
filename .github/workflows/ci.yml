@@ -27,6 +27,7 @@ jobs:
         timeout-minutes: 10
         run: brew install just swiftlint swift-format
 
+
       - name: Run format
         timeout-minutes: 10
         run: just format
@@ -36,14 +37,22 @@ jobs:
         run: just lint
     
 
-  core-tests:
-    name: Linux SumikaCore
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  unit-tests:
+    name: macOS Core, App, and MLX unit tests
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      CLONED_SOURCE_PACKAGES_DIR_PATH: .build/xcode-source-packages
+      # Hosted runners cannot approve mlx-swift's CudaBuild plugin interactively.
+      SKIP_PACKAGE_PLUGIN_VALIDATION: "1"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+    
+      - name: Install lint tools
+        timeout-minutes: 10
+        run: brew install just
 
       - name: Setup Swift
         uses: swift-actions/setup-swift@v3
@@ -55,20 +64,21 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
+            .build/xcode-source-packages
             .build/repositories
             .build/checkouts
             .build/artifacts
-          key: ${{ runner.os }}-swift-6.3.2-swiftpm-${{ hashFiles('Package.resolved') }}
+          key: ${{ runner.os }}-swift-6.3.2-swiftpm-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Print toolchain
         run: |
           uname -a
           swift --version
 
-      - name: Build package tests
-        timeout-minutes: 20
-        run: swift build --build-tests --disable-xctest --enable-swift-testing
-
-      - name: Run package tests
+      - name: Verify Swift package lockfiles
         timeout-minutes: 10
-        run: swift test --skip-build --disable-xctest --enable-swift-testing --no-parallel --verbose
+        run: just check-package-locks
+
+      - name: Run unit tests
+        timeout-minutes: 30
+        run: just test

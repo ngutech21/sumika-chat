@@ -114,12 +114,12 @@ private actor BlockingFirstClearRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
+    _ = promptPlan
     _ = settings
     return AsyncThrowingStream { $0.finish() }
   }

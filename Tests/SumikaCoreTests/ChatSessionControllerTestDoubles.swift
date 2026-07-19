@@ -28,12 +28,12 @@ actor NonCooperativeStreamingRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
+    _ = promptPlan
     _ = settings
 
     didStartStreaming = true
@@ -83,12 +83,12 @@ actor ControlledContextUsageRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
+    _ = promptPlan
     _ = settings
     return AsyncThrowingStream { continuation in
       continuation.finish()
@@ -112,12 +112,12 @@ actor CountingClearContextRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
+    _ = promptPlan
     _ = settings
     return AsyncThrowingStream { continuation in
       continuation.yield(.completed(nil))
@@ -144,12 +144,12 @@ actor InterruptedStreamingRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
+    _ = promptPlan
     _ = settings
     return AsyncThrowingStream { continuation in
       for chunk in chunks {
@@ -196,15 +196,17 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = attachments
     _ = settings
 
+    capturedPromptPlans.append(promptPlan)
+    capturedToolContexts.append(promptPlan.toolContext)
     capturedMessages.append(
       transcript.projectedEntries(mode: .fullHistory))
-    capturedSystemPrompts.append(systemPrompt)
+    capturedSystemPrompts.append(promptPlan.stableInstructions)
     let callIndex = streamReplyCount
     streamReplyCount += 1
     let events = turns[min(callIndex, turns.count - 1)]
@@ -246,38 +248,6 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
         task.cancel()
       }
     }
-  }
-
-  func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext?
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    capturedToolContexts.append(toolContext)
-    return try await streamReply(
-      for: transcript,
-      attachments: attachments,
-      systemPrompt: systemPrompt,
-      settings: settings
-    )
-  }
-
-  func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    capturedPromptPlans.append(promptPlan)
-    capturedToolContexts.append(promptPlan.toolContext)
-    return try await streamReply(
-      for: transcript,
-      attachments: attachments,
-      systemPrompt: promptPlan.stableInstructions,
-      settings: settings
-    )
   }
 
   func releaseStream(callIndex: Int) {
@@ -322,12 +292,12 @@ actor PartialFailingStreamingRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
+    _ = promptPlan
     _ = settings
 
     return AsyncThrowingStream { continuation in
@@ -371,12 +341,12 @@ actor DelayedClearContextRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
     _ = transcript
     _ = attachments
-    _ = systemPrompt
+    _ = promptPlan
     _ = settings
     streamReplyCount += 1
     return AsyncThrowingStream { continuation in
@@ -493,13 +463,15 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
-    systemPrompt: String,
+    promptPlan: ChatRuntimePromptPlan,
     settings: ChatGenerationSettings
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    capturedPromptPlans.append(promptPlan)
+    capturedToolContexts.append(promptPlan.toolContext)
     capturedMessages.append(
       transcript.projectedEntries(mode: .fullHistory))
     capturedAttachments.append(attachments)
-    capturedSystemPrompts.append(systemPrompt)
+    capturedSystemPrompts.append(promptPlan.stableInstructions)
     capturedGenerationSettings.append(settings)
     let callIndex = streamReplyCount
     let events = turns[min(callIndex, turns.count - 1)]
@@ -528,38 +500,6 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
       }
       continuation.finish()
     }
-  }
-
-  func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    systemPrompt: String,
-    settings: ChatGenerationSettings,
-    toolContext: ChatRuntimeToolContext?
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    capturedToolContexts.append(toolContext)
-    return try await streamReply(
-      for: transcript,
-      attachments: attachments,
-      systemPrompt: systemPrompt,
-      settings: settings
-    )
-  }
-
-  func streamReply(
-    for transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    promptPlan: ChatRuntimePromptPlan,
-    settings: ChatGenerationSettings
-  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    capturedPromptPlans.append(promptPlan)
-    capturedToolContexts.append(promptPlan.toolContext)
-    return try await streamReply(
-      for: transcript,
-      attachments: attachments,
-      systemPrompt: promptPlan.stableInstructions,
-      settings: settings
-    )
   }
 
 }

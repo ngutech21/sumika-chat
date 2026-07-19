@@ -21,7 +21,19 @@ deps:
    brew install swiftlint swift-format periphery create-dmg
 
 resolve-packages:
-    xcodebuild -resolvePackageDependencies -project {{project}} -scheme {{scheme}}
+    {{swift}} package resolve
+    @set --; \
+    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
+    if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
+    xcodebuild -resolvePackageDependencies -project {{project}} -scheme {{scheme}} "$@"
+
+check-package-locks:
+    {{swift}} package --disable-automatic-resolution resolve
+    @set --; \
+    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
+    if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
+    xcodebuild -resolvePackageDependencies -project {{project}} -scheme {{scheme}} -onlyUsePackageVersionsFromResolvedFile "$@"
+    git diff --exit-code -- Package.resolved Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 build:
     @set --; \
@@ -56,11 +68,11 @@ release-signed:
     if [ -n "${MARKETING_VERSION:-}" ]; then set -- "$@" "MARKETING_VERSION=$MARKETING_VERSION"; fi; \
     if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then set -- "$@" "CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION"; fi; \
     if [ -n "${SUMIKA_RELEASE_VERSION:-}" ]; then set -- "$@" "SUMIKA_RELEASE_VERSION=$SUMIKA_RELEASE_VERSION"; fi; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "generic/platform=macOS" -derivedDataPath {{derived_data}} -configuration {{configuration}} -archivePath "{{archive_path}}" "$@" SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" DEVELOPMENT_TEAM="{{developer_team}}" archive; \
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "generic/platform=macOS" -derivedDataPath {{derived_data}} -configuration {{configuration}} -archivePath "{{archive_path}}" -disableAutomaticPackageResolution "$@" SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" DEVELOPMENT_TEAM="{{developer_team}}" archive; \
     xcodebuild -quiet -exportArchive -archivePath "{{archive_path}}" -exportPath "{{export_dir}}" -exportOptionsPlist "{{export_options}}"; \
     app_bundle="{{export_dir}}/{{app_name}}.app"; \
     test -d "$app_bundle"; \
-    codesign --verify --deep --strict --verbose=2 "$app_bundle"; \
+    bash script/verify_release_app.sh "$app_bundle" "{{developer_team}}"; \
     signature_info="$(codesign --display --verbose=4 "$app_bundle" 2>&1)"; \
     printf '%s\n' "$signature_info" | grep -F "Authority=Developer ID Application" >/dev/null || { echo "Exported app is not signed with Developer ID Application."; exit 1; }; \
     printf '%s\n' "$signature_info" | grep -F "TeamIdentifier={{developer_team}}" >/dev/null || { echo "Exported app has the wrong signing team."; exit 1; }; \
@@ -121,7 +133,7 @@ generate-sparkle-appcast:
 test: test-core test-app
 
 test-core:
-    {{swift}} test --no-parallel -q -Xswiftc -warnings-as-errors
+    {{swift}} test --no-parallel -q -Xswiftc -warnings-as-errors --filter 'SumikaCoreTests|DataModelGeneratorTests'
 
 prompt-cost:
     SUMIKA_PRINT_PROMPT_COST=1 {{swift}} test --no-parallel --filter PromptCostRegressionTests
@@ -152,7 +164,7 @@ test-app-asan:
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}}-asan "$@" -enableAddressSanitizer YES -parallel-testing-enabled NO test
 
 test-ui:
-    @echo "Gemma trace directory: $HOME/Library/Application Support/Sumika/debug/traces"; \
+    @echo "MLX trace directory: $HOME/Library/Application Support/Sumika/debug/traces"; \
     status=0; \
     SUMIKA_DEBUG_TRACE=1 xcodebuild -quiet -project {{project}} -scheme SumikaUITests -destination "{{destination}}" -derivedDataPath {{derived_data}} -parallel-testing-enabled NO test -only-testing:SumikaUITests/SumikaUITests || status=$?; \
     result=$(ls -td {{derived_data}}/Logs/Test/Test-SumikaUITests-*.xcresult 2>/dev/null | head -n 1 || true); \
@@ -166,7 +178,7 @@ test-ui:
     exit "$status"
 
 perf-report scenario="ui-trace":
-    @trace_path="$HOME/Library/Application Support/Sumika/debug/gemma-trace.jsonl"; trace_dir="$HOME/Library/Application Support/Sumika/debug/traces"; latest_trace=""; if [ -d "$trace_dir" ]; then latest_trace="$(ls -t "$trace_dir"/*-ui-test.jsonl 2>/dev/null | head -n 1 || true)"; if [ -n "$latest_trace" ]; then trace_path="$latest_trace"; fi; fi; if [ -z "$latest_trace" ] && [ -f .perf/ui-tests/latest-trace-path.txt ]; then candidate="$(cat .perf/ui-tests/latest-trace-path.txt)"; if [ -f "$candidate" ]; then trace_path="$candidate"; fi; fi; echo "Gemma trace: $trace_path"; xcrun swift script/trace_performance_report.swift "$trace_path" --model-id gemma4-e4b --scenario "{{scenario}}" --limit all
+    @trace_path="$HOME/Library/Application Support/Sumika/debug/mlx-trace.jsonl"; trace_dir="$HOME/Library/Application Support/Sumika/debug/traces"; latest_trace=""; if [ -d "$trace_dir" ]; then latest_trace="$(ls -t "$trace_dir"/*-ui-test.jsonl 2>/dev/null | head -n 1 || true)"; if [ -n "$latest_trace" ]; then trace_path="$latest_trace"; fi; fi; if [ -z "$latest_trace" ] && [ -f .perf/ui-tests/latest-trace-path.txt ]; then candidate="$(cat .perf/ui-tests/latest-trace-path.txt)"; if [ -f "$candidate" ]; then trace_path="$candidate"; fi; fi; echo "MLX trace: $trace_path"; xcrun swift script/trace_performance_report.swift "$trace_path" --model-id gemma4-e4b --scenario "{{scenario}}" --limit all
 
 signpost-report scenario="manual-chat" last="20m":
     mkdir -p .build/swift-script-module-cache
@@ -239,11 +251,11 @@ final-check: typos format lint periphery test
 
 format:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
-    swift-format lint --strict --recursive --parallel sumika SumikaTests SumikaUITests Sources Tests Package.swift
+    swift-format lint --strict --recursive --parallel sumika SumikaUITests Sources Tests Package.swift
 
 format-fix:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
-    swift-format format --in-place --recursive --parallel sumika SumikaTests SumikaUITests Sources Tests Package.swift
+    swift-format format --in-place --recursive --parallel sumika SumikaUITests Sources Tests Package.swift
 
 typos:
     typos -q --format brief
@@ -254,4 +266,4 @@ periphery:
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
     if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "platform=macOS" -derivedDataPath "{{derived_data}}" -parallelizeTargets "$@" CODE_SIGNING_ALLOWED=NO ENABLE_BITCODE=NO DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=YES INDEX_ENABLE_DATA_STORE=YES build-for-testing
-    periphery scan --project Sumika.xcodeproj --schemes Sumika --skip-build --index-store-path "{{derived_data}}/Index.noindex/DataStore" --retain-public --retain-codable-properties --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check
+    periphery scan --project Sumika.xcodeproj --schemes Sumika --skip-build --index-store-path "{{derived_data}}/Index.noindex/DataStore" --retain-public --retain-codable-properties --report-include "Sources/SumikaApp/**/*.swift" --report-include "Sources/SumikaRuntimeMLX/**/*.swift" --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check

@@ -17,10 +17,6 @@ jobs:
     timeout-minutes: 90
 
     env:
-      PROJECT: Sumika.xcodeproj
-      SCHEME: Sumika
-      DESTINATION: platform=macOS,arch=arm64
-      CONFIGURATION: Release
       DERIVED_DATA_PATH: build/DerivedData/macos-snapshot
       CLONED_SOURCE_PACKAGES_DIR_PATH: .build/xcode-source-packages
       # Hosted runners cannot approve mlx-swift's CudaBuild plugin interactively.
@@ -39,6 +35,12 @@ jobs:
           xcrun --sdk macosx --show-sdk-version
           xcrun swift --version
 
+      - name: Install tools
+        timeout-minutes: 10
+        run: |
+          brew untap aws/tap || true
+          brew install just create-dmg
+
       - name: Cache Swift package checkouts
         uses: actions/cache@v6
         with:
@@ -49,24 +51,9 @@ jobs:
             .build/artifacts
           key: ${{ runner.os }}-macos-snapshot-swiftpm-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
-      - name: Resolve Swift packages
+      - name: Verify Swift package lockfiles
         timeout-minutes: 10
-        run: |
-          xcodebuild -resolvePackageDependencies \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"
-
-      - name: Verify resolved packages are committed
-        run: |
-          git diff --exit-code -- \
-            Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
-
-      - name: Install tools
-        timeout-minutes: 10
-        run: |
-          brew untap aws/tap || true
-          brew install just create-dmg
+        run: just check-package-locks
 
 
       - name: Import Developer ID certificate

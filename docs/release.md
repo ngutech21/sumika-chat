@@ -48,6 +48,17 @@ The release task creates an Xcode archive and exports a Developer ID-signed app
 with `xcodebuild -exportArchive`. The exported app is then packaged in the DMG;
 the app bundle is not modified after export.
 
+`just release-signed` runs `script/verify_release_app.sh` against that exported
+app. The check requires the embedded Sparkle framework, updater resources,
+`Autoupdate`, updater app, downloader and installer XPC services, a runtime
+link to Sparkle, valid nested signatures from the configured team, and nonempty
+`SUFeedURL` and `SUPublicEDKey` values.
+
+After changing Sparkle dependency or embedding wiring, also install the
+notarized DMG on a clean macOS account, launch Sumika, and invoke
+**Check for Updates…** once. That final interactive smoke test is deliberately
+separate from the archive-structure verification.
+
 ## Versioning
 
 Release Please owns the public release version in `version.txt`.
