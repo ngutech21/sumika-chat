@@ -1,6 +1,6 @@
 import Testing
 
-@testable import SumikaCore
+@testable import SumikaApp
 
 struct AssistantMarkdownPreprocessorTests {
   @Test

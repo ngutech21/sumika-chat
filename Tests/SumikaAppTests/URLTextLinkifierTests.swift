@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import SumikaCore
+@testable import SumikaApp
 
 struct URLTextLinkifierTests {
   @Test
