@@ -47,7 +47,8 @@ enum AppLaunchConfiguration {
       )
     }
 
-    return AppState(
+    return makeConfiguredAppState(
+      modelDownloader: HuggingFaceModelDownloader(),
       runtime: resolvedRuntime,
       turnTracer: debugTraceStore
     )
@@ -97,14 +98,15 @@ enum AppLaunchConfiguration {
     )
     try? FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
 
-    return AppState(
+    return makeConfiguredAppState(
+      modelDownloader: UnavailableModelDownloader(),
+      runtime: runtime,
+      turnTracer: turnTracer,
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
-      mcpServersStore: mcpServersStore,
-      runtime: runtime,
-      turnTracer: turnTracer
+      mcpServersStore: mcpServersStore
     )
   }
 
@@ -121,7 +123,11 @@ enum AppLaunchConfiguration {
       directoryHint: .isDirectory
     )
 
-    return AppState(
+    return makeConfiguredAppState(
+      modelDownloader: UnavailableModelDownloader(),
+      runtime: runtime,
+      modelAvailability: { _ in false },
+      turnTracer: NoopTurnTracer(),
       workspaceStore: WorkspaceStore(
         baseURL: storageRoot
       ),
@@ -139,11 +145,48 @@ enum AppLaunchConfiguration {
       ),
       mcpServersStore: MCPServersStore(
         settingsURL: storageRoot.appending(path: "mcp-servers.json", directoryHint: .notDirectory)
-      ),
-      modelDownloader: UnavailableModelDownloader(),
+      )
+    )
+  }
+
+  @MainActor
+  private static func makeConfiguredAppState(
+    modelDownloader: any ModelDownloading,
+    runtime: any ChatModelRuntime,
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
+      ModelLifecycleCoordinator.defaultModelAvailability,
+    turnTracer: any TurnTracing,
+    workspaceStore: any WorkspaceStoring = WorkspaceStore(),
+    modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
+    webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
+    appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
+    mcpServersStore: any MCPServersStoring = MCPServersStore()
+  ) -> AppState {
+    let browserToolService = HTMLPreviewBrowserToolService()
+    let chatController = ChatSessionController(
+      modelSettingsStore: modelSettingsStore,
+      modelDownloader: modelDownloader,
       runtime: runtime,
-      modelAvailability: { _ in false },
-      turnTracer: NoopTurnTracer()
+      modelAvailability: modelAvailability,
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false),
+        browserToolService: browserToolService,
+        webAccessSettingsProvider: {
+          await webAccessSettingsStore.settings()
+        }
+      ),
+      turnTracer: turnTracer
+    )
+
+    return AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: webAccessSettingsStore,
+      appBehaviorSettingsStore: appBehaviorSettingsStore,
+      mcpServersStore: mcpServersStore,
+      browserToolService: browserToolService,
+      chatController: chatController,
+      turnTracer: turnTracer
     )
   }
 

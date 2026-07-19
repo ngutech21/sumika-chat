@@ -30,7 +30,6 @@ final class AppState {
     webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
     mcpServersStore: any MCPServersStoring = MCPServersStore(),
-    modelDownloader: any ModelDownloading = HuggingFaceModelDownloader(),
     runtime: any ChatModelRuntime,
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,
@@ -56,7 +55,6 @@ final class AppState {
       chatController: Self.makeChatController(
         modelSettingsStore: modelSettingsStore,
         webAccessSettingsStore: webAccessSettingsStore,
-        modelDownloader: modelDownloader,
         runtime: runtime,
         modelAvailability: modelAvailability,
         browserToolService: browserToolService,
@@ -123,7 +121,6 @@ final class AppState {
   private static func makeChatController(
     modelSettingsStore: any ModelSettingsStoring,
     webAccessSettingsStore: any WebAccessSettingsStoring,
-    modelDownloader: any ModelDownloading,
     runtime: any ChatModelRuntime,
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
     browserToolService: HTMLPreviewBrowserToolService,
@@ -131,7 +128,6 @@ final class AppState {
   ) -> ChatSessionController {
     ChatSessionController(
       modelSettingsStore: modelSettingsStore,
-      modelDownloader: modelDownloader,
       runtime: runtime,
       modelAvailability: modelAvailability,
       toolOrchestrator: ToolOrchestrator(

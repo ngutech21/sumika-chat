@@ -1,7 +1,7 @@
 import Foundation
 import SumikaCore
 
-package actor change TurnTracing {
+package actor MLXDebugTraceStore: TurnTracing {
   nonisolated static var isEnabled: Bool {
     let value = ProcessInfo.processInfo.environment["SUMIKA_DEBUG_TRACE"] ?? ""
     return ["1", "true", "yes", "on"].contains(value.lowercased())
