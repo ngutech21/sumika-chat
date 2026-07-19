@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.4.0](https://github.com/ngutech21/sumika-chat/compare/v1.3.0...v1.4.0) (2026-07-19)
+
+
+### Features
+
+* add auto approve mode ([a7d56fb](https://github.com/ngutech21/sumika-chat/commit/a7d56fb05a3fb52015751f0eff3baf4dfe3800ea))
+* split workspace persistence ([3b81e51](https://github.com/ngutech21/sumika-chat/commit/3b81e512b0a9cc3019373138a441e9dda041ea30))
+
+
+### Bug Fixes
+
+* size user transcript rows for wrapped text ([21ebdaa](https://github.com/ngutech21/sumika-chat/commit/21ebdaaf137b7d62688c8931a2af55d495d3c241))
+
+
+### Performance Improvements
+
+* coalesce streaming transcript layout updates ([361c84b](https://github.com/ngutech21/sumika-chat/commit/361c84baff0882073ac416c5ddbe9c36cfb2a48e))
+
 ## [1.3.0](https://github.com/ngutech21/sumika-chat/compare/v1.2.0-beta.0...v1.3.0) (2026-07-15)
 
 
