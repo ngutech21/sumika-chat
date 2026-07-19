@@ -312,7 +312,7 @@ Cases:
 ### ManagedModel
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ManagedModel.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
 - Conforms to: `Equatable`, `Identifiable`, `Sendable`
 
 Properties:
@@ -342,7 +342,7 @@ Relations:
 ### ManagedModelCatalog
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ManagedModel.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
 
 Properties:
 
@@ -355,7 +355,7 @@ Relations:
 ### ManagedModelStability
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ManagedModel.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Cases:
@@ -382,7 +382,7 @@ Relations:
 ### ModelDownloadState
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ModelRuntimeState.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ModelRuntimeState.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Cases:
@@ -395,7 +395,7 @@ Cases:
 ### ModelLoadState
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ModelRuntimeState.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ModelRuntimeState.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Cases:
@@ -418,12 +418,12 @@ Relations:
 ### ProcessResourceCalculator
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ProcessResourceUsage.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ProcessResourceUsage.swift`
 
 ### ProcessResourceSample
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ProcessResourceUsage.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ProcessResourceUsage.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -434,7 +434,7 @@ Properties:
 ### ProcessResourceUsage
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ProcessResourceUsage.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ProcessResourceUsage.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -547,7 +547,7 @@ Relations:
 ### ReasoningTraceFormat
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ManagedModel.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Cases:
@@ -812,7 +812,7 @@ Cases:
 ### ToolCallingPolicy
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ManagedModel.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
