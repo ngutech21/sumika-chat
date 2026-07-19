@@ -123,7 +123,7 @@ nonisolated struct MLXSessionCacheTrace: Equatable, Sendable {
 
 nonisolated struct CachedMLXSession {
   let session: MLXLMCommon.ChatSession
-  let prefix: [MLXMessageSnapshot]
+  let prefix: [ProviderPromptMessage]
   let identity: MLXSessionCacheIdentity
   let state: MLXCachedSessionState
 }

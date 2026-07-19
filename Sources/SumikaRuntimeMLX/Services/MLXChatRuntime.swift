@@ -129,9 +129,9 @@ package final actor MLXChatRuntime: ChatModelRuntime {
 
   nonisolated static func appendTransientInstructions(
     _ instructions: [String],
-    toPromptSnapshot promptSnapshot: [MLXMessageSnapshot],
+    toPromptSnapshot promptSnapshot: [ProviderPromptMessage],
     promptMessages: [Chat.Message]
-  ) -> (promptSnapshot: [MLXMessageSnapshot], promptMessages: [Chat.Message]) {
+  ) -> (promptSnapshot: [ProviderPromptMessage], promptMessages: [Chat.Message]) {
     var updatedSnapshot = promptSnapshot
     var updatedMessages = promptMessages
     for instruction in instructions {
@@ -139,14 +139,14 @@ package final actor MLXChatRuntime: ChatModelRuntime {
         lastSnapshot.role == Chat.Message.Role.user.rawValue,
         !lastSnapshot.hasToolMetadata
       {
-        updatedSnapshot[updatedSnapshot.count - 1] = MLXMessageSnapshot(
+        updatedSnapshot[updatedSnapshot.count - 1] = ProviderPromptMessage(
           role: Chat.Message.Role.user.rawValue,
           content: [lastSnapshot.content, instruction].joined(separator: "\n\n"),
           imageSignatures: lastSnapshot.imageSignatures
         )
       } else {
         updatedSnapshot.append(
-          MLXMessageSnapshot(
+          ProviderPromptMessage(
             role: Chat.Message.Role.user.rawValue,
             content: instruction
           )
@@ -397,7 +397,7 @@ extension MLXChatRuntime {
   private func prepareSession(
     modelContainer: ModelContainer,
     history: [Chat.Message],
-    historySnapshot: [MLXMessageSnapshot],
+    historySnapshot: [ProviderPromptMessage],
     promptMessages: [Chat.Message],
     systemPrompt: String,
     cacheSystemPrompt: String,
@@ -567,8 +567,8 @@ extension MLXChatRuntime {
 
   private func markSessionCompleted(
     generationID: MLXGenerationID,
-    historyPrefix: [MLXMessageSnapshot],
-    promptSnapshot: [MLXMessageSnapshot],
+    historyPrefix: [ProviderPromptMessage],
+    promptSnapshot: [ProviderPromptMessage],
     output: String
   ) {
     guard generationOwnership.completeIfCurrent(generationID) else {
@@ -585,7 +585,7 @@ extension MLXChatRuntime {
     let completedPrefix =
       historyPrefix
       + promptSnapshot
-      + [MLXMessageSnapshot(role: Chat.Message.Role.assistant.rawValue, content: output)]
+      + [ProviderPromptMessage(role: Chat.Message.Role.assistant.rawValue, content: output)]
     cachedSession = CachedMLXSession(
       session: cached.session,
       prefix: completedPrefix,
@@ -597,8 +597,8 @@ extension MLXChatRuntime {
 
   private func markSessionNativeToolCallBoundary(
     generationID: MLXGenerationID,
-    historyPrefix: [MLXMessageSnapshot],
-    promptSnapshot: [MLXMessageSnapshot],
+    historyPrefix: [ProviderPromptMessage],
+    promptSnapshot: [ProviderPromptMessage],
     output: String,
     nativeToolCalls: [ChatRuntimeToolCall]
   ) {
@@ -686,8 +686,8 @@ extension MLXChatRuntime {
 
   nonisolated private static func toolCallSnapshot(
     from toolCall: ChatRuntimeToolCall
-  ) -> MLXToolCallSnapshot {
-    MLXToolCallSnapshot(
+  ) -> ProviderToolCall {
+    ProviderToolCall(
       id: RuntimeToolCallID.uuid(from: toolCall.id).map(RuntimeToolCallID.string(for:))
         ?? toolCall.id,
       name: toolCall.name,
@@ -698,8 +698,8 @@ extension MLXChatRuntime {
   nonisolated static func nativeToolCallBoundarySnapshot(
     output: String,
     nativeToolCalls: [ChatRuntimeToolCall]
-  ) -> MLXMessageSnapshot {
-    MLXMessageSnapshot(
+  ) -> ProviderPromptMessage {
+    ProviderPromptMessage(
       role: Chat.Message.Role.assistant.rawValue,
       content: output,
       toolCalls: nativeToolCalls.map(Self.toolCallSnapshot(from:))

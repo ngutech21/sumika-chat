@@ -271,7 +271,7 @@ flowchart TD
 ## MLX Cache Rules
 
 `MLXChatRuntime` treats `MLXLMCommon.ChatSession` as the KV-cache owner. Sumika
-keeps only a minimal shadow ledger: the last accepted `MLXMessageSnapshot`
+keeps only a minimal shadow ledger: the last accepted `ProviderPromptMessage`
 prefix, a small prefill identity, and a conservative clean/in-flight/dirty state.
 
 - Reuse is safe when the cached session is clean, the prefill identity matches,

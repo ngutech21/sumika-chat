@@ -127,7 +127,7 @@ struct GemmaDebugTraceStoreTests {
     let promptWithTransientInstructions = MLXChatRuntime.appendTransientInstructions(
       [runtimeContext],
       toPromptSnapshot: [
-        MLXMessageSnapshot(
+        ProviderPromptMessage(
           role: Chat.Message.Role.tool.rawValue,
           content: toolObservation,
           toolCallID: "call_1"

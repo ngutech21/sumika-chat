@@ -447,20 +447,20 @@ struct MLXChatRuntimeTemplateTests {
   @Test
   func cachePrefixComparisonIncludesImageSignatures() {
     let cachedPrefix = [
-      MLXMessageSnapshot(
+      ProviderPromptMessage(
         role: "user",
         content: "what is in the picture",
         imageSignatures: ["sha256:abc"]
       ),
-      MLXMessageSnapshot(role: "assistant", content: "A blue Mini Cooper."),
+      ProviderPromptMessage(role: "assistant", content: "A blue Mini Cooper."),
     ]
     let currentHistory = [
-      MLXMessageSnapshot(
+      ProviderPromptMessage(
         role: "user",
         content: "what is in the picture",
         imageSignatures: ["sha256:other"]
       ),
-      MLXMessageSnapshot(role: "assistant", content: "A blue Mini Cooper."),
+      ProviderPromptMessage(role: "assistant", content: "A blue Mini Cooper."),
     ]
 
     #expect(MLXSessionCachePolicy.isPrefix(cachedPrefix, of: cachedPrefix))
@@ -1604,7 +1604,7 @@ struct MLXChatRuntimeTemplateTests {
       followUpInput.historySnapshot
       + followUpInput.promptSnapshot
       + [
-        MLXMessageSnapshot(
+        ProviderPromptMessage(
           role: Chat.Message.Role.assistant.rawValue,
           content: "README.md is a project file."
         )
@@ -1882,11 +1882,11 @@ struct MLXChatRuntimeTemplateTests {
       writeGenerationInput.historySnapshot
       + writeGenerationInput.promptSnapshot
       + [
-        MLXMessageSnapshot(
+        ProviderPromptMessage(
           role: Chat.Message.Role.assistant.rawValue,
           content: "",
           toolCalls: [
-            MLXToolCallSnapshot(
+            ProviderToolCall(
               id: RuntimeToolCallID.string(for: writeCallID),
               name: ToolName.writeFile.rawValue,
               arguments: writeArguments
@@ -2047,8 +2047,8 @@ struct MLXChatRuntimeTemplateTests {
     // Reused subcase: cached prefix equals the whole history, so the delta is the
     // prompt. A tool-response prompt must force a rebuild; a user prompt must not.
     let history = [
-      MLXMessageSnapshot(role: "user", content: "hi"),
-      MLXMessageSnapshot(role: "assistant", content: "call"),
+      ProviderPromptMessage(role: "user", content: "hi"),
+      ProviderPromptMessage(role: "assistant", content: "call"),
     ]
     #expect(
       MLXSessionCachePolicy.deltaBeginsWithToolResult(
@@ -2072,9 +2072,9 @@ struct MLXChatRuntimeTemplateTests {
     // Append-delta subcase: the cached prefix is shorter than history, so the delta
     // starts inside history at cachedPrefixCount. Detect a tool tail there.
     let history = [
-      MLXMessageSnapshot(role: "user", content: "hi"),
-      MLXMessageSnapshot(role: "assistant", content: "call"),
-      MLXMessageSnapshot(role: "tool", content: "result"),
+      ProviderPromptMessage(role: "user", content: "hi"),
+      ProviderPromptMessage(role: "assistant", content: "call"),
+      ProviderPromptMessage(role: "tool", content: "result"),
     ]
     #expect(
       MLXSessionCachePolicy.deltaBeginsWithToolResult(
@@ -2083,9 +2083,9 @@ struct MLXChatRuntimeTemplateTests {
         promptFirstRole: nil))
 
     let nonToolTail = [
-      MLXMessageSnapshot(role: "user", content: "hi"),
-      MLXMessageSnapshot(role: "assistant", content: "call"),
-      MLXMessageSnapshot(role: "user", content: "again"),
+      ProviderPromptMessage(role: "user", content: "hi"),
+      ProviderPromptMessage(role: "assistant", content: "call"),
+      ProviderPromptMessage(role: "user", content: "again"),
     ]
     #expect(
       !MLXSessionCachePolicy.deltaBeginsWithToolResult(

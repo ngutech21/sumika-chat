@@ -3,9 +3,9 @@ import SumikaCore
 
 nonisolated struct MLXGenerationInput {
   let history: [Chat.Message]
-  let historySnapshot: [MLXMessageSnapshot]
+  let historySnapshot: [ProviderPromptMessage]
   let promptMessages: [Chat.Message]
-  let promptSnapshot: [MLXMessageSnapshot]
+  let promptSnapshot: [ProviderPromptMessage]
 }
 
 nonisolated enum MLXHistoryRenderer {
@@ -146,7 +146,7 @@ nonisolated enum MLXHistoryRenderer {
 
   /// Maps normalized snapshots back to `Chat.Message`.
   nonisolated static func chatMessages(
-    from snapshots: [MLXMessageSnapshot]
+    from snapshots: [ProviderPromptMessage]
   ) -> [Chat.Message] {
     snapshots.map { snapshot in
       switch snapshot.role {
@@ -168,7 +168,7 @@ nonisolated enum MLXHistoryRenderer {
   }
 
   nonisolated private static func mlxToolCall(
-    from snapshot: MLXToolCallSnapshot
+    from snapshot: ProviderToolCall
   ) -> MLXLMCommon.ToolCall {
     MLXLMCommon.ToolCall(
       function: MLXLMCommon.ToolCall.Function(
@@ -203,7 +203,7 @@ nonisolated enum MLXHistoryRenderer {
   }
 
   nonisolated static func validatedChatMessages(
-    from snapshots: [MLXMessageSnapshot]
+    from snapshots: [ProviderPromptMessage]
   ) throws -> [Chat.Message] {
     try validatedTemplateMessages(chatMessages(from: snapshots))
   }
@@ -218,7 +218,7 @@ nonisolated enum MLXHistoryRenderer {
 
   nonisolated static func generationHistorySnapshot(
     from entries: ArraySlice<ProjectedModelContextEntry>
-  ) -> [MLXMessageSnapshot] {
+  ) -> [ProviderPromptMessage] {
     ProviderPromptProjection.normalized(
       from: entries,
       dropsTrailingUser: true

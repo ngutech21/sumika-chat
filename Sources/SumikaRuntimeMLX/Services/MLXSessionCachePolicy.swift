@@ -79,9 +79,9 @@ nonisolated enum MLXSessionCachePolicy {
   nonisolated static func trace(
     mode: MLXSessionCacheMode,
     reason: MLXSessionCacheReason,
-    currentHistory: [MLXMessageSnapshot],
+    currentHistory: [ProviderPromptMessage],
     currentIdentity: MLXSessionCacheIdentity,
-    cachedPrefix: [MLXMessageSnapshot]?,
+    cachedPrefix: [ProviderPromptMessage]?,
     cachedIdentity: MLXSessionCacheIdentity?,
     appendOnly: Bool,
     mismatchReason: String?,
@@ -123,8 +123,8 @@ nonisolated enum MLXSessionCachePolicy {
   }
 
   nonisolated static func firstMismatchIndex(
-    cachedPrefix: [MLXMessageSnapshot],
-    currentHistory: [MLXMessageSnapshot]
+    cachedPrefix: [ProviderPromptMessage],
+    currentHistory: [ProviderPromptMessage]
   ) -> Int? {
     let sharedCount = min(cachedPrefix.count, currentHistory.count)
     for index in 0..<sharedCount where cachedPrefix[index] != currentHistory[index] {
@@ -134,8 +134,8 @@ nonisolated enum MLXSessionCachePolicy {
   }
 
   nonisolated static func isPrefix(
-    _ prefix: [MLXMessageSnapshot],
-    of messages: [MLXMessageSnapshot]
+    _ prefix: [ProviderPromptMessage],
+    of messages: [ProviderPromptMessage]
   ) -> Bool {
     guard prefix.count <= messages.count else {
       return false
@@ -151,7 +151,7 @@ nonisolated enum MLXSessionCachePolicy {
   /// templated adjacently.
   nonisolated static func deltaBeginsWithToolResult(
     cachedPrefixCount: Int,
-    historySnapshot: [MLXMessageSnapshot],
+    historySnapshot: [ProviderPromptMessage],
     promptFirstRole: String?
   ) -> Bool {
     let toolRole = Chat.Message.Role.tool.rawValue
@@ -168,7 +168,7 @@ nonisolated enum MLXSessionCachePolicy {
   }
 
   nonisolated static func contextSignature(
-    for messages: [MLXMessageSnapshot],
+    for messages: [ProviderPromptMessage],
     identity: MLXSessionCacheIdentity
   ) -> String {
     "identity-\(identitySignature(for: identity)):history-\(contextSignature(for: messages))"
@@ -186,7 +186,7 @@ nonisolated enum MLXSessionCachePolicy {
     }
   }
 
-  nonisolated static func contextSignature(for messages: [MLXMessageSnapshot]) -> String {
+  nonisolated static func contextSignature(for messages: [ProviderPromptMessage]) -> String {
     var hash: UInt64 = 14_695_981_039_346_656_037
     func update(_ byte: UInt8) {
       hash ^= UInt64(byte)

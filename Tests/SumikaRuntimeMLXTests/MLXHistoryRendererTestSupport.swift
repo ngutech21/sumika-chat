@@ -9,9 +9,9 @@ extension MLXHistoryRenderer {
   /// `generationHistorySnapshot(from:)` instead.
   nonisolated static func messageSnapshot(
     from messages: [Chat.Message]
-  ) -> [MLXMessageSnapshot] {
+  ) -> [ProviderPromptMessage] {
     messages.map { message in
-      MLXMessageSnapshot(role: message.role.rawValue, content: message.content)
+      ProviderPromptMessage(role: message.role.rawValue, content: message.content)
     }
   }
 }
