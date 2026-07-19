@@ -41,6 +41,9 @@ jobs:
     name: macOS SumikaCore
     runs-on: macos-26
     timeout-minutes: 15
+    env:
+      # Hosted runners cannot approve mlx-swift's CudaBuild plugin interactively.
+      SKIP_PACKAGE_PLUGIN_VALIDATION: "1"
 
     steps:
       - name: Checkout
