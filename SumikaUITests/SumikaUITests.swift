@@ -508,7 +508,7 @@ final class SumikaUITests: XCTestCase {
     let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
     guard FileManager.default.fileExists(atPath: configURL.path(percentEncoded: false)) else {
       throw XCTSkip(
-        "Gemma 4 E4B Experimental config.json is missing at \(configURL.path(percentEncoded: false))"
+        "UI test model \(model.displayName) config.json is missing at \(configURL.path(percentEncoded: false))"
       )
     }
 

@@ -3,10 +3,10 @@
 ## Project Goal
 
 `sumika-chat` is the repository for Sumika, a macOS Swift app for local-first
-coding with small Gemma models running through MLX. Keep workflows focused,
-inspectable, reviewable, and explicit: local context, short steps, auditable
-shell execution, and macOS-native SwiftUI/AppKit UI. Do not assume network
-access is available or desirable.
+coding with local Gemma and Qwen models running through MLX. Keep workflows
+focused, inspectable, reviewable, and explicit: local context, short steps,
+auditable shell execution, and macOS-native SwiftUI/AppKit UI. Do not assume
+network access is available or desirable.
 
 ## Architecture Rules
 
@@ -31,21 +31,28 @@ commands, make permission decisions, or know MLX details.
 Keep it because Xcode builds and embeds the MLX Metal test resources that
 command-line SwiftPM does not provide.
 
-
 Do not create new top-level folders or abstractions unless real code requires them.
 Start small. Do not introduce empty folders or abstractions before there is real
 code to put in them.
 
 ## Core/App Boundaries
 
-- Keep reusable behavior in `SumikaCore`; keep MLX/Gemma backends in
-  `Sources/SumikaRuntimeMLX/` behind core protocols.
+- Keep agent/domain workflows, models, policies, and vendor-neutral protocols in
+  `SumikaCore`. Treat it as a pure Swift agent module: it must not import SwiftUI,
+  AppKit, MLX, SwiftTreeSitter, or TreeSitter language modules, and its target must
+  not depend on Tree-sitter products or scanner targets.
+- Keep MLX/Gemma/Qwen backends in `Sources/SumikaRuntimeMLX/` behind core
+  protocols.
+- Keep presentation-specific backends such as Tree-sitter code highlighting in
+  `Sources/SumikaApp/` behind core protocols.
 - SwiftUI controllers are UI facades only: hold view state, expose small user
   actions, call coordinators/services, and map results back to UI.
 - Workflow lifecycle belongs in coordinators. Execution, side effects,
   persistence, and platform integration belong in services/executors. Context and
   prompt selection belong in builders/policies.
-- If logic can be tested without SwiftUI, it probably belongs in core.
+- Testability without SwiftUI does not determine ownership by itself. Keep
+  presentation, vendor, runtime, and platform adapters outside core even when
+  they are independently testable.
 
 ## Data Model Policy
 Prefer clean ADTs, single sources of truth, derived projections, and intentional
@@ -167,6 +174,7 @@ check, such as `just typos`.
 Other useful commands:
 
 ```sh
+xcrun swift build --target SumikaCore
 xcrun swift build
 xcrun swift test
 xcodebuild -project Sumika.xcodeproj -scheme Sumika -destination "platform=macOS" build
@@ -186,8 +194,8 @@ CI runs `just test`: headless SwiftPM tests for `SumikaCore` and
 `DataModelGenerator`, followed by Xcode-hosted unit tests for `SumikaApp` and
 `SumikaRuntimeMLX`. CI does not run UI tests. `just test-ui` is local-only,
 enables `SUMIKA_DEBUG_TRACE=1`, must never download a model, and should skip
-cleanly if `gemma4-e4b` is missing. Use `just data-model` to regenerate
-`docs/data-model.md`.
+cleanly if the model selected by `SumikaUITests.modelID` is missing. Use
+`just data-model` to regenerate `docs/data-model.md`.
 
 ## Debugging And Tracing
 
