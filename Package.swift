@@ -20,9 +20,9 @@ let package = Package(
     .macOS(.v15)
   ],
   products: [
-    .library(name: "SumikaCore",targets: ["SumikaCore"] ),
+    .library(name: "SumikaCore", targets: ["SumikaCore"]),
     .library(name: "SumikaApp", targets: ["SumikaApp"]),
-    .library(name: "SumikaRuntimeMLX", targets: ["SumikaRuntimeMLX"])
+    .library(name: "SumikaRuntimeMLX", targets: ["SumikaRuntimeMLX"]),
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),
@@ -36,14 +36,16 @@ let package = Package(
     .package(url: "https://github.com/tree-sitter/tree-sitter-json", exact: "0.24.8"),
     .package(url: "https://github.com/tree-sitter/tree-sitter-python", exact: "0.25.0"),
     .package(url: "https://github.com/tree-sitter/tree-sitter-typescript", exact: "0.23.2"),
-    .package(url: "https://github.com/ml-explore/mlx-swift/",from: "0.31.6"),
-    .package(url: "https://github.com/ml-explore/mlx-swift-lm",revision: "343cae3799054b2e138ebfb1ae8d7d0f6c6a4a5b"),
-    .package(url: "https://github.com/huggingface/swift-transformers",from: "1.3.3"),
-    .package(url: "https://github.com/huggingface/swift-huggingface",from: "0.9.0"),
-    .package(url: "https://github.com/FluidInference/FluidAudio",from: "0.15.4"),
-    .package(url: "https://github.com/migueldeicaza/SwiftTerm",from: "1.13.0"),
-    .package(url: "https://github.com/swiftlang/swift-markdown.git",from: "0.8.0"),
-    .package(url: "https://github.com/sparkle-project/Sparkle",from: "2.9.4"),
+    .package(url: "https://github.com/ml-explore/mlx-swift/", from: "0.31.6"),
+    .package(
+      url: "https://github.com/ml-explore/mlx-swift-lm",
+      revision: "343cae3799054b2e138ebfb1ae8d7d0f6c6a4a5b"),
+    .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
+    .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
+    .package(url: "https://github.com/FluidInference/FluidAudio", from: "0.15.4"),
+    .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.13.0"),
+    .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0"),
+    .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.4"),
 
   ],
   targets: [
