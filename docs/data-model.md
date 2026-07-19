@@ -117,7 +117,7 @@ flowchart TD
 ### ChatGenerationConfigPreset
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ChatModelConfiguration.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ChatModelConfiguration.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -130,7 +130,7 @@ Properties:
 ### ChatGenerationSettings
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ChatGenerationSettings.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/ChatGenerationSettings.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -148,7 +148,7 @@ Properties:
 ### ChatModelConfiguration
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ChatModelConfiguration.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ChatModelConfiguration.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -165,7 +165,7 @@ Relations:
 ### ContextBudget
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -264,7 +264,7 @@ Relations:
 ### LocalModelDirectory
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ChatModelConfiguration.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ChatModelConfiguration.swift`
 
 ### MCPServerConfig
 
@@ -408,7 +408,7 @@ Cases:
 ### NoopTurnTracer
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `TurnTracing`
 
 Relations:
@@ -488,7 +488,7 @@ Cases:
 ### PromptContextExcerpt
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -499,7 +499,7 @@ Properties:
 ### PromptContextTruncation
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -620,7 +620,7 @@ Cases:
 ### ToolArgumentTrace
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1311,7 +1311,7 @@ Properties:
 ### TurnTraceContext
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 
 Properties:
 
@@ -1324,7 +1324,7 @@ Relations:
 ### TurnTraceEvent
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1373,7 +1373,7 @@ Relations:
 ### TurnTraceMetadata
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `Sendable`
 
 Properties:
@@ -1391,7 +1391,7 @@ Relations:
 ### TurnTracePhase
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `CaseIterable`, `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -1412,7 +1412,7 @@ Cases:
 ### TurnTracing
 
 - Kind: `protocol`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `Sendable`
 
 ### Workspace
@@ -1504,7 +1504,7 @@ Cases:
 ### WorkspaceInstructionsPromptContext
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
@@ -1520,7 +1520,7 @@ Relations:
 ### WorkspaceInstructionsRemoval
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1534,7 +1534,7 @@ Relations:
 ### WorkspaceInstructionsSnapshot
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:

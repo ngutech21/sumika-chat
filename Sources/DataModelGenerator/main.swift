@@ -23,6 +23,20 @@ let modelsDirectories = [
     directoryHint: .isDirectory
   ),
 ]
+let modelFiles = [
+  repositoryRoot.appending(
+    path: "Sources/SumikaCore/Features/Chat/Models/ChatGenerationSettings.swift",
+    directoryHint: .notDirectory
+  ),
+  repositoryRoot.appending(
+    path: "Sources/SumikaCore/Features/Chat/Models/PromptContext.swift",
+    directoryHint: .notDirectory
+  ),
+  repositoryRoot.appending(
+    path: "Sources/SumikaCore/Observability/TurnTraceEvent.swift",
+    directoryHint: .notDirectory
+  ),
+]
 let outputURL = repositoryRoot.appending(
   path: "docs/data-model.md",
   directoryHint: .notDirectory
@@ -31,6 +45,7 @@ let outputURL = repositoryRoot.appending(
 do {
   try DataModelGenerator().generate(
     modelsDirectories: modelsDirectories,
+    modelFiles: modelFiles,
     outputURL: outputURL,
     repositoryRoot: repositoryRoot
   )
