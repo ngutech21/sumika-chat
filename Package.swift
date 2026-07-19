@@ -70,12 +70,6 @@ let package = Package(
       dependencies: [
         "SumikaCore",
         "SumikaRuntimeMLX",
-        .product(name: "MLX", package: "mlx-swift"), // fixme move to mlxruntime
-        .product(name: "MLXLLM", package: "mlx-swift-lm"), // fixme move to mlxruntime
-        .product(name: "MLXLMCommon", package: "mlx-swift-lm"), // fixme move to mlxruntime
-        .product(name: "MLXVLM", package: "mlx-swift-lm"), // fixme move to mlxruntime
-        .product(name: "Tokenizers", package: "swift-transformers"), // fixme move to mlxruntime
-        .product(name: "HuggingFace", package: "swift-huggingface"), // fixme move to mlxruntime
         .product(name: "FluidAudio", package: "FluidAudio"),
         .product(name: "SwiftTerm", package: "SwiftTerm"),
         .product(name: "Markdown", package: "swift-markdown"),
