@@ -155,7 +155,7 @@ Use the narrowest feedback loop while debugging:
 - Core-only: `just test-core`.
 - App-target only: `just test-app`.
 - UI tests, accessibility IDs, launch test mode, model-loading UI, chat/agent UI,
-  or Gemma trace behavior used by UI tests: `just test-ui`.
+  or MLX trace behavior used by UI tests: `just test-ui`.
 - Cross-boundary or build/test wiring: `just test`.
 
 For final verification after implementation, prefer `just final-check`. It runs `typos`, `format`, `lint`, `periphery`, `test`. If a focused test just
@@ -196,7 +196,7 @@ Use the project script before inventing new launch flows:
 Normal trace:
 
 ```text
-~/Library/Application Support/Sumika/debug/gemma-trace.jsonl
+~/Library/Application Support/Sumika/debug/mlx-trace.jsonl
 ```
 
 UI-test per-run traces:

@@ -951,7 +951,8 @@ struct AppStateTests {
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: InMemoryMCPServersStore(),
       browserToolService: HTMLPreviewBrowserToolService(),
-      chatController: controller
+      chatController: controller,
+      turnTracer: NoopTurnTracer()
     )
 
     try await waitUntil {
@@ -1113,7 +1114,8 @@ struct AppStateTests {
       webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
       mcpServersStore: InMemoryMCPServersStore(),
       browserToolService: browserToolService,
-      chatController: controller
+      chatController: controller,
+      turnTracer: NoopTurnTracer()
     )
 
     #expect(appState.browserToolService === browserToolService)

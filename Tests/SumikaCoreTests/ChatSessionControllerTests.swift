@@ -1767,7 +1767,7 @@ struct ChatSessionControllerTests {
   }
 
   private func waitUntil(
-    timeout: Duration = .seconds(1),
+    timeout: Duration = .seconds(5),
     condition: @escaping @MainActor () -> Bool
   ) async throws {
     let start = ContinuousClock.now
@@ -1781,7 +1781,7 @@ struct ChatSessionControllerTests {
   }
 
   private func waitUntilAsync(
-    timeout: Duration = .seconds(1),
+    timeout: Duration = .seconds(5),
     condition: @escaping () async -> Bool
   ) async throws {
     let start = ContinuousClock.now

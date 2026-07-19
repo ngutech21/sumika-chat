@@ -26,7 +26,8 @@ struct WorkspaceFeatureStateTests {
     let state = WorkspaceFeatureState(
       workspaceStore: store,
       workspaceOpener: WorkspaceFeatureRecordingOpener(),
-      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(systemPrompt: "Initial")
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(systemPrompt: "Initial"),
+      turnTracer: NoopTurnTracer()
     )
 
     let change = await state.loadLibrary(
@@ -74,7 +75,8 @@ struct WorkspaceFeatureStateTests {
         )
       ),
       workspaceOpener: WorkspaceFeatureRecordingOpener(),
-      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
     )
 
     await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
@@ -138,7 +140,8 @@ struct WorkspaceFeatureStateTests {
         )
       ),
       workspaceOpener: WorkspaceFeatureRecordingOpener(),
-      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
     )
 
     await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
@@ -177,7 +180,8 @@ struct WorkspaceFeatureStateTests {
     let state = WorkspaceFeatureState(
       workspaceStore: store,
       workspaceOpener: WorkspaceFeatureRecordingOpener(),
-      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
     )
     await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
     let contextBeforePersist = state.activeWorkspaceContext
@@ -229,7 +233,8 @@ struct WorkspaceFeatureStateTests {
         )
       ),
       workspaceOpener: WorkspaceFeatureRecordingOpener(),
-      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
     )
     await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
     let sidebarStateBeforePersist = state.sidebarState
@@ -270,7 +275,8 @@ struct WorkspaceFeatureStateTests {
         )
       ),
       workspaceOpener: WorkspaceFeatureRecordingOpener(),
-      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
     )
     await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
 
@@ -310,7 +316,8 @@ struct WorkspaceFeatureStateTests {
         )
       ),
       workspaceOpener: opener,
-      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
     )
     await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
 
@@ -326,7 +333,8 @@ struct WorkspaceFeatureStateTests {
     let emptyState = WorkspaceFeatureState(
       workspaceStore: WorkspaceFeatureInMemoryStore(initialLibrary: WorkspaceLibrary()),
       workspaceOpener: opener,
-      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
     )
     await emptyState.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
     emptyState.openActiveWorkspaceInVisualStudioCode()
@@ -355,7 +363,8 @@ struct WorkspaceFeatureStateTests {
     let state = WorkspaceFeatureState(
       workspaceStore: store,
       workspaceOpener: WorkspaceFeatureRecordingOpener(),
-      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory()
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: NoopTurnTracer()
     )
 
     await state.loadLibrary(defaultSessionFactory: makeWorkspaceFeatureDefaultFactory())
@@ -370,6 +379,24 @@ struct WorkspaceFeatureStateTests {
     #expect(selectionChange == .unchanged)
     #expect(state.library == initialLibrary)
     #expect(await store.latestSavedLibrary() == nil)
+  }
+
+  @Test
+  func successfulSaveRecordsPersistThroughInjectedTracer() async {
+    let tracer = WorkspaceFeatureRecordingTurnTracer()
+    let state = WorkspaceFeatureState(
+      workspaceStore: WorkspaceFeatureInMemoryStore(initialLibrary: WorkspaceLibrary()),
+      workspaceOpener: WorkspaceFeatureRecordingOpener(),
+      defaultSessionFactory: makeWorkspaceFeatureDefaultFactory(),
+      turnTracer: tracer
+    )
+
+    _ = state.addWorkspace(
+      from: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    )
+    await state.flushPendingSaves()
+
+    #expect(await tracer.phases == [.persist])
   }
 }
 
@@ -397,6 +424,14 @@ private actor WorkspaceFeatureInMemoryStore: WorkspaceStoring {
 
   func latestSavedLibrary() -> WorkspaceLibrary? {
     savedLibraries.last
+  }
+}
+
+private actor WorkspaceFeatureRecordingTurnTracer: TurnTracing {
+  private(set) var phases: [TurnTracePhase] = []
+
+  func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+    phases.append(event.phase)
   }
 }
 

@@ -29,22 +29,35 @@ enum AppLaunchConfiguration {
     environment: [String: String] = ProcessInfo.processInfo.environment,
     runtime: (any ChatModelRuntime)? = nil
   ) -> AppState {
+    let debugTraceStore = MLXDebugTraceStore()
+    let resolvedRuntime = runtime ?? MLXChatRuntime(debugTraceStore: debugTraceStore)
+
     if environment["SUMIKA_UI_TEST_MODE"] == "1" {
-      return makeUITestAppState(environment: environment, runtime: runtime ?? MLXChatRuntime())
+      return makeUITestAppState(
+        environment: environment,
+        runtime: resolvedRuntime,
+        turnTracer: debugTraceStore
+      )
     }
 
     if isXcodeUnitTestHost(environment: environment) {
       return makeUnitTestHostAppState(
-        environment: environment, runtime: runtime ?? MLXChatRuntime())
+        environment: environment,
+        runtime: resolvedRuntime
+      )
     }
 
-    return AppState(runtime: runtime ?? MLXChatRuntime())
+    return AppState(
+      runtime: resolvedRuntime,
+      turnTracer: debugTraceStore
+    )
   }
 
   @MainActor
   private static func makeUITestAppState(
     environment: [String: String],
-    runtime: any ChatModelRuntime
+    runtime: any ChatModelRuntime,
+    turnTracer: any TurnTracing
   ) -> AppState {
     let storageRoot = URL(
       filePath: environment["SUMIKA_UI_TEST_STORAGE_ROOT"]
@@ -90,7 +103,8 @@ enum AppLaunchConfiguration {
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: mcpServersStore,
-      runtime: runtime
+      runtime: runtime,
+      turnTracer: turnTracer
     )
   }
 

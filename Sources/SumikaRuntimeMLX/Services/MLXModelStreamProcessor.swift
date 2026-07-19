@@ -16,6 +16,7 @@ nonisolated enum MLXModelStreamProcessor {
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
+    debugTraceStore: MLXDebugTraceStore,
     markCompleted: @escaping @Sendable (String) async -> Void,
     markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
       {
@@ -30,6 +31,7 @@ nonisolated enum MLXModelStreamProcessor {
       traceID: traceID,
       traceMetadata: traceMetadata,
       cacheTrace: cacheTrace,
+      debugTraceStore: debugTraceStore,
       markCompleted: markCompleted,
       markNativeToolCallBoundary: markNativeToolCallBoundary,
       markCancelled: markCancelled,
@@ -43,6 +45,7 @@ nonisolated enum MLXModelStreamProcessor {
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
+    debugTraceStore: MLXDebugTraceStore,
     markCompleted: @escaping @Sendable (String) async -> Void,
     markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
       {
@@ -168,6 +171,7 @@ nonisolated enum MLXModelStreamProcessor {
           traceID: traceID,
           traceMetadata: traceMetadata,
           cacheTrace: cacheTrace,
+          debugTraceStore: debugTraceStore,
           markCompleted: markCompleted,
           markNativeToolCallBoundary: markNativeToolCallBoundary,
           markCancelled: markCancelled,
@@ -175,7 +179,7 @@ nonisolated enum MLXModelStreamProcessor {
         )
       } catch is CancellationError {
         await markCancelled(.cancelled)
-        await MLXDebugTraceStore.shared.traceResponse(
+        await debugTraceStore.traceResponse(
           id: traceID,
           output: output,
           metrics: completedMetrics,
@@ -190,10 +194,11 @@ nonisolated enum MLXModelStreamProcessor {
             traceID: traceID,
             traceMetadata: traceMetadata,
             cacheTrace: cacheTrace,
+            debugTraceStore: debugTraceStore,
             memoryCacheClearer: memoryCacheClearer
           )
         }
-        await MLXDebugTraceStore.shared.traceResponse(
+        await debugTraceStore.traceResponse(
           id: traceID,
           output: output,
           metrics: completedMetrics,
@@ -319,6 +324,7 @@ nonisolated enum MLXModelStreamProcessor {
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
+    debugTraceStore: MLXDebugTraceStore,
     markCompleted: @Sendable (String) async -> Void,
     markNativeToolCallBoundary: @Sendable (String, [ChatRuntimeToolCall]) async -> Void,
     markCancelled: @Sendable (MLXSessionInvalidationReason) async -> Void,
@@ -332,7 +338,7 @@ nonisolated enum MLXModelStreamProcessor {
 
     if !nativeToolCalls.isEmpty {
       await markNativeToolCallBoundary(visibleOutput, nativeToolCalls)
-      await MLXDebugTraceStore.shared.traceResponse(
+      await debugTraceStore.traceResponse(
         id: traceID,
         output: output,
         metrics: completedMetrics
@@ -350,10 +356,11 @@ nonisolated enum MLXModelStreamProcessor {
           traceID: traceID,
           traceMetadata: traceMetadata,
           cacheTrace: cacheTrace,
+          debugTraceStore: debugTraceStore,
           memoryCacheClearer: memoryCacheClearer
         )
       }
-      await MLXDebugTraceStore.shared.traceResponse(
+      await debugTraceStore.traceResponse(
         id: traceID,
         output: output,
         metrics: completedMetrics,
@@ -372,10 +379,11 @@ nonisolated enum MLXModelStreamProcessor {
           traceID: traceID,
           traceMetadata: traceMetadata,
           cacheTrace: cacheTrace,
+          debugTraceStore: debugTraceStore,
           memoryCacheClearer: memoryCacheClearer
         )
       }
-      await MLXDebugTraceStore.shared.traceResponse(
+      await debugTraceStore.traceResponse(
         id: traceID,
         output: output,
         metrics: completedMetrics,
@@ -386,7 +394,7 @@ nonisolated enum MLXModelStreamProcessor {
     }
 
     await markCompleted(visibleOutput)
-    await MLXDebugTraceStore.shared.traceResponse(
+    await debugTraceStore.traceResponse(
       id: traceID,
       output: output,
       metrics: completedMetrics
@@ -412,6 +420,7 @@ nonisolated enum MLXModelStreamProcessor {
     traceID: UUID?,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace?,
+    debugTraceStore: MLXDebugTraceStore,
     memoryCacheClearer: MLXMemoryCacheClearer
   ) async {
     let memoryClearStartedAt = Date()
@@ -440,7 +449,7 @@ nonisolated enum MLXModelStreamProcessor {
     if let traceMetadata {
       await traceMetadata.tracer.recordTurnTraceEvent(event)
     } else {
-      await MLXDebugTraceStore.shared.traceTurnEvent(event)
+      await debugTraceStore.traceTurnEvent(event)
     }
   }
 

@@ -2212,6 +2212,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { _ in },
       markCancelled: { reason in
         await recorder.record(reason)
@@ -2277,6 +2278,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { _ in },
       markCancelled: { _ in },
       memoryCacheClearer: MLXMemoryCacheClearer { reason in
@@ -2312,6 +2314,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { _ in
         Issue.record("A token-limited response must not be marked complete.")
       },
@@ -2400,6 +2403,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { output in
         await completionRecorder.record(output)
       },
@@ -2491,6 +2495,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { output in
         await completionRecorder.record(output)
       },
@@ -2532,6 +2537,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { _ in },
       markCancelled: { _ in },
       memoryCacheClearer: MLXMemoryCacheClearer { reason in
@@ -2559,6 +2565,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { _ in },
       markCancelled: { _ in },
       memoryCacheClearer: MLXMemoryCacheClearer { reason in
@@ -2586,6 +2593,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { _ in },
       markCancelled: { _ in },
       memoryCacheClearer: MLXMemoryCacheClearer { reason in
@@ -2609,7 +2617,9 @@ struct MLXChatRuntimeTemplateTests {
     let runtime = MLXChatRuntime(
       memoryCacheClearer: MLXMemoryCacheClearer { reason in
         await memoryClearRecorder.record(reason)
-      })
+      },
+      debugTraceStore: temporaryDebugTraceStore()
+    )
 
     await runtime.unload()
     await runtime.clearContext()
@@ -2660,6 +2670,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { _ in
         await recorder.record(.signatureMismatch)
       },
@@ -2712,6 +2723,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { _ in
         await recorder.record(.signatureMismatch)
       },
@@ -2773,6 +2785,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { _ in },
       markNativeToolCallBoundary: { output, nativeToolCalls in
         await boundaryRecorder.record(output: output, nativeToolCalls: nativeToolCalls)
@@ -3058,6 +3071,7 @@ struct MLXChatRuntimeTemplateTests {
       traceID: UUID(),
       traceMetadata: nil,
       cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
       markCompleted: { _ in },
       markCancelled: { reason in
         await recorder.record(reason)
@@ -3083,6 +3097,14 @@ struct MLXChatRuntimeTemplateTests {
     while try await iterator.next() != nil {}
   }
 
+  private func temporaryDebugTraceStore() -> MLXDebugTraceStore {
+    MLXDebugTraceStore(
+      fileURL: FileManager.default.temporaryDirectory
+        .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
+    )
+  }
+
   private func assertLifecycleOperationDrainsBeforeMemoryClear(
     reason: MLXMemoryClearReason,
     operation: @escaping @Sendable (MLXChatRuntime) async -> Void
@@ -3091,7 +3113,9 @@ struct MLXChatRuntimeTemplateTests {
     let runtime = MLXChatRuntime(
       memoryCacheClearer: MLXMemoryCacheClearer { reason in
         await recorder.record(.memoryClear(reason))
-      })
+      },
+      debugTraceStore: temporaryDebugTraceStore()
+    )
     let task = Task<Void, Never> {
       while !Task.isCancelled {
         try? await Task.sleep(for: .milliseconds(10))

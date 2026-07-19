@@ -78,7 +78,7 @@ func defaultTraceURL() -> URL {
     .appending(path: "Application Support", directoryHint: .isDirectory)
     .appending(path: "Sumika", directoryHint: .isDirectory)
     .appending(path: "debug", directoryHint: .isDirectory)
-    .appending(path: "gemma-trace.jsonl", directoryHint: .notDirectory)
+    .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
 }
 
 func value<T>(_ dictionary: [String: Any], _ key: String, as _: T.Type) -> T? {

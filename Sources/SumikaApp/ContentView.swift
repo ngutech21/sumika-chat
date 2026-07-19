@@ -11,15 +11,6 @@ struct ContentView: View {
   @State private var workspaceChatActions: WorkspaceChatActions
 
   @MainActor
-  init() {
-    let appState = AppState()
-    _appState = State(initialValue: appState)
-    _workspaceChatActions = State(
-      initialValue: WorkspaceChatActions(workspaceState: appState.workspaceState)
-    )
-  }
-
-  @MainActor
   init(appState: AppState) {
     _appState = State(initialValue: appState)
     _workspaceChatActions = State(
@@ -174,7 +165,7 @@ struct ContentView: View {
 }
 
 #Preview {
-  ContentView()
+  ContentView(appState: AppLaunchConfiguration.makeAppState())
 }
 
 private struct ModelsRouteHost: View {

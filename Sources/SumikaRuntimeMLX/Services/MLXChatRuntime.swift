@@ -23,13 +23,19 @@ package final actor MLXChatRuntime: ChatModelRuntime {
   private var activeGenerationRegistry = MLXActiveGenerationRegistry()
   private var lifecycleTransitionInProgress = false
   private let memoryCacheClearer: MLXMemoryCacheClearer
+  private let debugTraceStore: MLXDebugTraceStore
 
-  package init() {
+  package init(debugTraceStore: MLXDebugTraceStore) {
     self.memoryCacheClearer = .live
+    self.debugTraceStore = debugTraceStore
   }
 
-  init(memoryCacheClearer: MLXMemoryCacheClearer = .live) {
+  init(
+    memoryCacheClearer: MLXMemoryCacheClearer = .live,
+    debugTraceStore: MLXDebugTraceStore
+  ) {
     self.memoryCacheClearer = memoryCacheClearer
+    self.debugTraceStore = debugTraceStore
   }
 
   package func load(configuration: ChatModelConfiguration) async throws {
@@ -82,6 +88,7 @@ package final actor MLXChatRuntime: ChatModelRuntime {
       traceID: nil,
       traceMetadata: TurnTraceContext.current,
       cacheTrace: nil,
+      debugTraceStore: debugTraceStore,
       memoryCacheClearer: memoryCacheClearer
     )
   }
@@ -97,6 +104,7 @@ package final actor MLXChatRuntime: ChatModelRuntime {
       traceID: nil,
       traceMetadata: TurnTraceContext.current,
       cacheTrace: nil,
+      debugTraceStore: debugTraceStore,
       memoryCacheClearer: memoryCacheClearer
     )
   }
@@ -280,6 +288,7 @@ package final actor MLXChatRuntime: ChatModelRuntime {
       traceID: traceID,
       traceMetadata: traceMetadata,
       cacheTrace: cachePlan.trace,
+      debugTraceStore: debugTraceStore,
       markCompleted: { [weak self] output in
         await self?.markSessionCompleted(
           generationID: generationID,
@@ -332,7 +341,7 @@ extension MLXChatRuntime {
     defer {
       ChatDiagnostics.endInterval(interval)
     }
-    await MLXDebugTraceStore.shared.traceRequest(
+    await debugTraceStore.traceRequest(
       id: id,
       history: traceHistory,
       prompt: prompt,

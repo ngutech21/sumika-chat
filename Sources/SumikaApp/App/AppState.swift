@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import SumikaCore
-import SumikaRuntimeMLX
 
 @MainActor
 @Observable
@@ -32,10 +31,10 @@ final class AppState {
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
     mcpServersStore: any MCPServersStoring = MCPServersStore(),
     modelDownloader: any ModelDownloading = HuggingFaceModelDownloader(),
-    runtime: any ChatModelRuntime = MLXChatRuntime(),
+    runtime: any ChatModelRuntime,
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,
-    turnTracer: any TurnTracing = MLXDebugTraceStore.shared,
+    turnTracer: any TurnTracing = NoopTurnTracer(),
     workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService(),
     assistantSpeechService: AssistantSpeechService = AssistantSpeechService(),
     audioModelController: ComposerAudioModelController = ComposerAudioModelController()
@@ -62,7 +61,8 @@ final class AppState {
         modelAvailability: modelAvailability,
         browserToolService: browserToolService,
         turnTracer: turnTracer
-      )
+      ),
+      turnTracer: turnTracer
     )
   }
 
@@ -78,7 +78,8 @@ final class AppState {
     audioModelController: ComposerAudioModelController = ComposerAudioModelController(),
     composerSpeechInputController: ComposerSpeechInputController? = nil,
     browserToolService: HTMLPreviewBrowserToolService,
-    chatController: ChatSessionController
+    chatController: ChatSessionController,
+    turnTracer: any TurnTracing
   ) {
     self.modelSettingsStore = modelSettingsStore
     self.browserToolService = browserToolService
@@ -100,7 +101,8 @@ final class AppState {
       defaultSessionFactory: Self.defaultSessionFactory(
         selectedModelID: defaultSessionModelID,
         modeSettings: defaultSessionModeSettings
-      )
+      ),
+      turnTracer: turnTracer
     )
 
     self.chatController.setSessionChangeHandler { [weak self] in

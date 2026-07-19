@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import SumikaCore
-import SumikaRuntimeMLX
 
 struct WorkspaceSelectionChange: Equatable {
   let selectionChanged: Bool
@@ -45,16 +44,19 @@ final class WorkspaceFeatureState {
   private var workspaceLibraryController: WorkspaceLibraryController
   @ObservationIgnored private let workspaceStore: any WorkspaceStoring
   @ObservationIgnored private let workspaceOpener: any WorkspaceOpening
+  @ObservationIgnored private let turnTracer: any TurnTracing
   @ObservationIgnored private var saveLibraryTask: Task<Void, Never>?
   @ObservationIgnored private var errorMessageReflectsSaveFailure = false
 
   init(
     workspaceStore: any WorkspaceStoring,
     workspaceOpener: any WorkspaceOpening,
-    defaultSessionFactory: DefaultChatSessionFactory
+    defaultSessionFactory: DefaultChatSessionFactory,
+    turnTracer: any TurnTracing
   ) {
     self.workspaceStore = workspaceStore
     self.workspaceOpener = workspaceOpener
+    self.turnTracer = turnTracer
     self.workspaceLibraryController = WorkspaceLibraryController(
       defaultSessionFactory: defaultSessionFactory
     )
@@ -289,12 +291,12 @@ final class WorkspaceFeatureState {
   private func saveLibrary() {
     let library = library
     let previousSaveTask = saveLibraryTask
-    saveLibraryTask = Task { [workspaceStore] in
+    saveLibraryTask = Task { [turnTracer, workspaceStore] in
       await previousSaveTask?.value
       do {
         let startedAt = Date()
         try await workspaceStore.saveLibrary(library)
-        await MLXDebugTraceStore.shared.traceTurnEvent(
+        await turnTracer.recordTurnTraceEvent(
           TurnTraceEvent(
             phase: .persist,
             durationMs: Date().timeIntervalSince(startedAt) * 1000

@@ -1,9 +1,7 @@
 import Foundation
 import SumikaCore
 
-package actor MLXDebugTraceStore: TurnTracing {
-  package static let shared = MLXDebugTraceStore()
-
+package actor change TurnTracing {
   nonisolated static var isEnabled: Bool {
     let value = ProcessInfo.processInfo.environment["SUMIKA_DEBUG_TRACE"] ?? ""
     return ["1", "true", "yes", "on"].contains(value.lowercased())
@@ -11,6 +9,10 @@ package actor MLXDebugTraceStore: TurnTracing {
 
   private let fileURL: URL
   private let maxFieldCharacters = 80_000
+
+  package init() {
+    self.fileURL = Self.defaultFileURL()
+  }
 
   init(fileURL: URL = MLXDebugTraceStore.defaultFileURL()) {
     self.fileURL = fileURL

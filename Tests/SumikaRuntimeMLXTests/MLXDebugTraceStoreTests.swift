@@ -21,7 +21,7 @@ struct MLXDebugTraceStoreTests {
   }
 
   @Test
-  func turnTraceEventWritesToGemmaTraceJSONLWhenDebugTraceIsEnabled() async throws {
+  func turnTraceEventWritesToMLXTraceJSONLWhenDebugTraceIsEnabled() async throws {
     setenv("SUMIKA_DEBUG_TRACE", "1", 1)
     defer {
       unsetenv("SUMIKA_DEBUG_TRACE")
@@ -183,7 +183,7 @@ struct MLXDebugTraceStoreTests {
   @Test
   func defaultTraceFileUsesBasenameEnvironmentOverrideWhenPresent() async throws {
     setenv("SUMIKA_DEBUG_TRACE", "1", 1)
-    let basename = "\(UUID().uuidString)-gemma-trace.jsonl"
+    let basename = "\(UUID().uuidString)-mlx-trace.jsonl"
     setenv("SUMIKA_DEBUG_TRACE_BASENAME", basename, 1)
     defer {
       unsetenv("SUMIKA_DEBUG_TRACE")
@@ -207,6 +207,6 @@ struct MLXDebugTraceStoreTests {
   private func temporaryTraceFileURL() -> URL {
     FileManager.default.temporaryDirectory
       .appending(path: UUID().uuidString, directoryHint: .isDirectory)
-      .appending(path: "gemma-trace.jsonl", directoryHint: .notDirectory)
+      .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
   }
 }
