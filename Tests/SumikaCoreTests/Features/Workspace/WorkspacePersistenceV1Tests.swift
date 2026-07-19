@@ -686,6 +686,8 @@ struct WorkspacePersistenceV1Tests {
   private var legacyFixtureURL: URL {
     URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
       .appending(path: "Fixtures", directoryHint: .isDirectory)
       .appending(path: "workspace-library-golden.json", directoryHint: .notDirectory)
   }

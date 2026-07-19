@@ -263,6 +263,8 @@ struct WorkspaceLibrarySchemaTests {
   private static var fixtureURL: URL {
     URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
       .appending(path: "Fixtures", directoryHint: .isDirectory)
       .appending(path: "workspace-library-golden.json", directoryHint: .notDirectory)
   }
@@ -283,6 +285,8 @@ struct WorkspaceLibrarySchemaTests {
 
   private static var fixtureDirectoryURL: URL {
     URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
       .deletingLastPathComponent()
       .appending(path: "Fixtures", directoryHint: .isDirectory)
   }

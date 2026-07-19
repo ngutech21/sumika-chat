@@ -1,10 +1,16 @@
 import Foundation
 
 let repositoryRoot = URL(filePath: FileManager.default.currentDirectoryPath)
-let modelsDirectory = repositoryRoot.appending(
-  path: "Sources/SumikaCore/Models",
-  directoryHint: .isDirectory
-)
+let modelsDirectories = [
+  repositoryRoot.appending(
+    path: "Sources/SumikaCore/Models",
+    directoryHint: .isDirectory
+  ),
+  repositoryRoot.appending(
+    path: "Sources/SumikaCore/Features/Workspace/Models",
+    directoryHint: .isDirectory
+  ),
+]
 let outputURL = repositoryRoot.appending(
   path: "docs/data-model.md",
   directoryHint: .notDirectory
@@ -12,7 +18,7 @@ let outputURL = repositoryRoot.appending(
 
 do {
   try DataModelGenerator().generate(
-    modelsDirectory: modelsDirectory,
+    modelsDirectories: modelsDirectories,
     outputURL: outputURL,
     repositoryRoot: repositoryRoot
   )

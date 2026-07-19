@@ -13,11 +13,13 @@ public struct DataModelGenerator: Sendable {
   }
 
   public func generate(
-    modelsDirectory: URL,
+    modelsDirectories: [URL],
     outputURL: URL,
     repositoryRoot: URL
   ) throws {
-    let files = try swiftFiles(in: modelsDirectory)
+    let files = try modelsDirectories.flatMap { directory in
+      try swiftFiles(in: directory)
+    }
     let declarations = try files.flatMap { fileURL in
       let source = try String(contentsOf: fileURL, encoding: .utf8)
       let sourcePath = fileURL.pathRelative(to: repositoryRoot)

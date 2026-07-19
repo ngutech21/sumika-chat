@@ -1418,7 +1418,7 @@ Cases:
 ### Workspace
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/Workspace.swift`
+- Source: `Sources/SumikaCore/Features/Workspace/Models/Workspace.swift`
 - Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
 
 Properties:
@@ -1555,7 +1555,7 @@ Relations:
 ### WorkspaceLibrary
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/Workspace.swift`
+- Source: `Sources/SumikaCore/Features/Workspace/Models/Workspace.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1571,7 +1571,7 @@ Relations:
 ### WorkspacePathResolutionError
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/Workspace.swift`
+- Source: `Sources/SumikaCore/Features/Workspace/Models/Workspace.swift`
 - Conforms to: `Equatable`, `LocalizedError`
 
 Cases:
