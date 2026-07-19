@@ -1,3 +1,5 @@
+import SumikaCore
+
 nonisolated extension AssistantTurnMessage {
   public var shouldShowAssistantPlaceholder: Bool {
     deliveryStatus == .streaming && content.isEmpty

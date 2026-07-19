@@ -99,7 +99,7 @@ extension ChatTurnItem {
     case .assistantThinking(let message):
       message.deliveryStatus == .streaming || !message.content.isEmpty
     case .assistantMessage(let message):
-      message.shouldShowAssistantPlaceholder || !message.content.isEmpty
+      message.deliveryStatus == .streaming || !message.content.isEmpty
     case .userMessage, .tool:
       true
     }
