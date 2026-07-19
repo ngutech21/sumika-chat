@@ -175,7 +175,7 @@ nonisolated enum MLXModelStreamProcessor {
         )
       } catch is CancellationError {
         await markCancelled(.cancelled)
-        await GemmaDebugTraceStore.shared.traceResponse(
+        await MLXDebugTraceStore.shared.traceResponse(
           id: traceID,
           output: output,
           metrics: completedMetrics,
@@ -193,7 +193,7 @@ nonisolated enum MLXModelStreamProcessor {
             memoryCacheClearer: memoryCacheClearer
           )
         }
-        await GemmaDebugTraceStore.shared.traceResponse(
+        await MLXDebugTraceStore.shared.traceResponse(
           id: traceID,
           output: output,
           metrics: completedMetrics,
@@ -332,7 +332,7 @@ nonisolated enum MLXModelStreamProcessor {
 
     if !nativeToolCalls.isEmpty {
       await markNativeToolCallBoundary(visibleOutput, nativeToolCalls)
-      await GemmaDebugTraceStore.shared.traceResponse(
+      await MLXDebugTraceStore.shared.traceResponse(
         id: traceID,
         output: output,
         metrics: completedMetrics
@@ -353,7 +353,7 @@ nonisolated enum MLXModelStreamProcessor {
           memoryCacheClearer: memoryCacheClearer
         )
       }
-      await GemmaDebugTraceStore.shared.traceResponse(
+      await MLXDebugTraceStore.shared.traceResponse(
         id: traceID,
         output: output,
         metrics: completedMetrics,
@@ -375,7 +375,7 @@ nonisolated enum MLXModelStreamProcessor {
           memoryCacheClearer: memoryCacheClearer
         )
       }
-      await GemmaDebugTraceStore.shared.traceResponse(
+      await MLXDebugTraceStore.shared.traceResponse(
         id: traceID,
         output: output,
         metrics: completedMetrics,
@@ -386,7 +386,7 @@ nonisolated enum MLXModelStreamProcessor {
     }
 
     await markCompleted(visibleOutput)
-    await GemmaDebugTraceStore.shared.traceResponse(
+    await MLXDebugTraceStore.shared.traceResponse(
       id: traceID,
       output: output,
       metrics: completedMetrics
@@ -440,7 +440,7 @@ nonisolated enum MLXModelStreamProcessor {
     if let traceMetadata {
       await traceMetadata.tracer.recordTurnTraceEvent(event)
     } else {
-      await GemmaDebugTraceStore.shared.traceTurnEvent(event)
+      await MLXDebugTraceStore.shared.traceTurnEvent(event)
     }
   }
 

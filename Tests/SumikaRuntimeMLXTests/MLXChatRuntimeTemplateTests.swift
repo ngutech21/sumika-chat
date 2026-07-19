@@ -118,7 +118,7 @@ struct MLXChatRuntimeTemplateTests {
     let allowedFiles = Set([
       repositoryURL
         .appending(
-          path: "Sources/SumikaRuntimeMLX/Services/GemmaDebugTraceStore.swift",
+          path: "Sources/SumikaRuntimeMLX/Services/MLXDebugTraceStore.swift",
           directoryHint: .notDirectory
         )
         .standardizedFileURL.path(percentEncoded: false)

@@ -206,8 +206,8 @@ UI-test per-run traces:
 ```
 
 Do not create additional chat/model performance trace formats. Extend
-`GemmaDebugTraceStore`. Existing row kinds are `gemma_request`,
-`gemma_response`, and `turn_trace`.
+`MLXDebugTraceStore`. Existing row kinds are `mlx_request`,
+`mlx_response`, and `turn_trace`.
 
 When diagnosing latency, group by `turnID` and `generationID`; compare runtime,
 tool, tokenization, and persistence phases before assuming model decode is the

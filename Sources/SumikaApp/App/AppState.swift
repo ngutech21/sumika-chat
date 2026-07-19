@@ -35,7 +35,7 @@ final class AppState {
     runtime: any ChatModelRuntime = MLXChatRuntime(),
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
       ModelLifecycleCoordinator.defaultModelAvailability,
-    turnTracer: any TurnTracing = GemmaDebugTraceStore.shared,
+    turnTracer: any TurnTracing = MLXDebugTraceStore.shared,
     workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService(),
     assistantSpeechService: AssistantSpeechService = AssistantSpeechService(),
     audioModelController: ComposerAudioModelController = ComposerAudioModelController()

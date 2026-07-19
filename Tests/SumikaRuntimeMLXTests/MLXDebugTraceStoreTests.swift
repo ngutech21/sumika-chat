@@ -6,12 +6,12 @@ import Testing
 @testable import SumikaRuntimeMLX
 
 @Suite(.serialized)
-struct GemmaDebugTraceStoreTests {
+struct MLXDebugTraceStoreTests {
   @Test
   func turnTraceEventDoesNotWriteWhenDebugTraceIsDisabled() async throws {
     unsetenv("SUMIKA_DEBUG_TRACE")
     let fileURL = temporaryTraceFileURL()
-    let store = GemmaDebugTraceStore(fileURL: fileURL)
+    let store = MLXDebugTraceStore(fileURL: fileURL)
 
     await store.traceTurnEvent(
       TurnTraceEvent(phase: .runtimeTTFT, durationMs: 10, ttftMs: 10)
@@ -29,7 +29,7 @@ struct GemmaDebugTraceStoreTests {
     let turnID = UUID()
     let generationID = UUID()
     let fileURL = temporaryTraceFileURL()
-    let store = GemmaDebugTraceStore(fileURL: fileURL)
+    let store = MLXDebugTraceStore(fileURL: fileURL)
 
     await store.traceTurnEvent(
       TurnTraceEvent(
@@ -113,7 +113,7 @@ struct GemmaDebugTraceStoreTests {
       unsetenv("SUMIKA_DEBUG_TRACE")
     }
     let fileURL = temporaryTraceFileURL()
-    let store = GemmaDebugTraceStore(fileURL: fileURL)
+    let store = MLXDebugTraceStore(fileURL: fileURL)
     let toolObservation = """
       <observation call_id="call_1" tool="read_file" status="success">
       README contents
@@ -154,7 +154,7 @@ struct GemmaDebugTraceStoreTests {
     let history = try #require(object["history"] as? [[String: Any]])
     let prompt = try #require(object["prompt"] as? String)
 
-    #expect(object["kind"] as? String == "gemma_request")
+    #expect(object["kind"] as? String == "mlx_request")
     #expect(prompt.contains(runtimeContext))
     #expect(prompt.contains(toolObservation))
     #expect((history.first?["content"] as? String)?.contains(runtimeContext) == false)
@@ -171,7 +171,7 @@ struct GemmaDebugTraceStoreTests {
       unsetenv("SUMIKA_DEBUG_TRACE_FILE")
     }
 
-    let store = GemmaDebugTraceStore()
+    let store = MLXDebugTraceStore()
 
     await store.traceTurnEvent(
       TurnTraceEvent(phase: .runtimeTTFT, durationMs: 10, ttftMs: 10)
@@ -190,7 +190,7 @@ struct GemmaDebugTraceStoreTests {
       unsetenv("SUMIKA_DEBUG_TRACE_BASENAME")
     }
 
-    let store = GemmaDebugTraceStore()
+    let store = MLXDebugTraceStore()
 
     await store.traceTurnEvent(
       TurnTraceEvent(phase: .runtimeTTFT, durationMs: 10, ttftMs: 10)

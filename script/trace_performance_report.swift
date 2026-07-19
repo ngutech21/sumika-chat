@@ -372,7 +372,7 @@ for (rowIndex, row) in rows.enumerated() {
   switch kind {
   case "turn_trace":
     id = value(object, "generationID", as: String.self)
-  case "gemma_request", "gemma_response":
+  case "mlx_request", "mlx_response":
     id = value(object, "id", as: String.self)
   default:
     id = nil
@@ -392,10 +392,10 @@ for (rowIndex, row) in rows.enumerated() {
   }
 
   switch kind {
-  case "gemma_request":
+  case "mlx_request":
     report.requestSeen = true
     report.contextTokenLimit = report.contextTokenLimit ?? intValue(object, "contextTokenLimit")
-  case "gemma_response":
+  case "mlx_response":
     report.responseSeen = true
     report.responseError = value(object, "error", as: String.self)
     if let metrics = value(object, "metrics", as: [String: Any].self) {

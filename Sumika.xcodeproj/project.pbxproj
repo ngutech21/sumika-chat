@@ -48,17 +48,17 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		F91000092FD0720000A270C /* SumikaAppTests */ = {
+		F91000092FD0720000A270C /* Tests/SumikaAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Tests/SumikaAppTests;
 			sourceTree = "<group>";
 		};
-		F91000112FD0720000A270C /* SumikaRuntimeMLXTests */ = {
+		F91000112FD0720000A270C /* Tests/SumikaRuntimeMLXTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Tests/SumikaRuntimeMLXTests;
 			sourceTree = "<group>";
 		};
-		F91000122FD0720000A270C /* SumikaTestSupport */ = {
+		F91000122FD0720000A270C /* Tests/SumikaTestSupport */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Tests/SumikaTestSupport;
 			sourceTree = "<group>";
@@ -119,9 +119,9 @@
 			children = (
 				F9071FA72FCDAD93000A270C /* LICENSE */,
 				F9D7F5FD2FCC80CD00FECA78 /* sumika */,
-				F91000092FD0720000A270C /* SumikaAppTests */,
-				F91000112FD0720000A270C /* SumikaRuntimeMLXTests */,
-				F91000122FD0720000A270C /* SumikaTestSupport */,
+				F91000092FD0720000A270C /* Tests/SumikaAppTests */,
+				F91000112FD0720000A270C /* Tests/SumikaRuntimeMLXTests */,
+				F91000122FD0720000A270C /* Tests/SumikaTestSupport */,
 				F94000092FD4000000A270C /* SumikaUITests */,
 				F91FA41E300D1C580088C402 /* Frameworks */,
 				F9D7F5FC2FCC80CD00FECA78 /* Products */,
@@ -155,9 +155,9 @@
 				F910000C2FD0720000A270C /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				F91000092FD0720000A270C /* SumikaAppTests */,
-				F91000112FD0720000A270C /* SumikaRuntimeMLXTests */,
-				F91000122FD0720000A270C /* SumikaTestSupport */,
+				F91000092FD0720000A270C /* Tests/SumikaAppTests */,
+				F91000112FD0720000A270C /* Tests/SumikaRuntimeMLXTests */,
+				F91000122FD0720000A270C /* Tests/SumikaTestSupport */,
 			);
 			name = SumikaHostedTests;
 			packageProductDependencies = (

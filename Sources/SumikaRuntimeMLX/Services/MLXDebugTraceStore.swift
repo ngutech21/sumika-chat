@@ -1,8 +1,8 @@
 import Foundation
 import SumikaCore
 
-package actor GemmaDebugTraceStore: TurnTracing {
-  package static let shared = GemmaDebugTraceStore()
+package actor MLXDebugTraceStore: TurnTracing {
+  package static let shared = MLXDebugTraceStore()
 
   nonisolated static var isEnabled: Bool {
     let value = ProcessInfo.processInfo.environment["SUMIKA_DEBUG_TRACE"] ?? ""
@@ -12,7 +12,7 @@ package actor GemmaDebugTraceStore: TurnTracing {
   private let fileURL: URL
   private let maxFieldCharacters = 80_000
 
-  init(fileURL: URL = GemmaDebugTraceStore.defaultFileURL()) {
+  init(fileURL: URL = MLXDebugTraceStore.defaultFileURL()) {
     self.fileURL = fileURL
   }
 
@@ -42,7 +42,7 @@ package actor GemmaDebugTraceStore: TurnTracing {
     var request: [String: Any] = [
       "id": id.uuidString,
       "timestamp": timestamp(),
-      "kind": "gemma_request",
+      "kind": "mlx_request",
       "settings": settingsTrace,
       "history": history.map(traceMessage(from:)),
       "prompt": truncatedPrompt.value,
@@ -74,7 +74,7 @@ package actor GemmaDebugTraceStore: TurnTracing {
     var response: [String: Any] = [
       "id": id.uuidString,
       "timestamp": timestamp(),
-      "kind": "gemma_response",
+      "kind": "mlx_response",
       "output": truncatedOutput.value,
       "outputTruncated": truncatedOutput.truncated,
     ]
@@ -235,7 +235,7 @@ package actor GemmaDebugTraceStore: TurnTracing {
     }
 
     return debugDirectory()
-      .appending(path: "gemma-trace.jsonl", directoryHint: .notDirectory)
+      .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
   }
 
   nonisolated private static func debugDirectory() -> URL {

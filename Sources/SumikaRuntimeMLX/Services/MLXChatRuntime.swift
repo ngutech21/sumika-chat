@@ -332,7 +332,7 @@ extension MLXChatRuntime {
     defer {
       ChatDiagnostics.endInterval(interval)
     }
-    await GemmaDebugTraceStore.shared.traceRequest(
+    await MLXDebugTraceStore.shared.traceRequest(
       id: id,
       history: traceHistory,
       prompt: prompt,

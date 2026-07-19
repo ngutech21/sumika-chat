@@ -294,7 +294,7 @@ final class WorkspaceFeatureState {
       do {
         let startedAt = Date()
         try await workspaceStore.saveLibrary(library)
-        await GemmaDebugTraceStore.shared.traceTurnEvent(
+        await MLXDebugTraceStore.shared.traceTurnEvent(
           TurnTraceEvent(
             phase: .persist,
             durationMs: Date().timeIntervalSince(startedAt) * 1000
