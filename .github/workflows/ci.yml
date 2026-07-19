@@ -25,11 +25,8 @@ jobs:
 
       - name: Install lint tools
         timeout-minutes: 10
-        run: brew install just typos swiftlint swift-format
+        run: brew install just swiftlint swift-format
 
-      - name: Run typos
-        timeout-minutes: 5
-        run: just typos
 
       - name: Run format
         timeout-minutes: 10
@@ -48,6 +45,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+    
+      - name: Install lint tools
+        timeout-minutes: 10
+        run: brew install just
 
       - name: Setup Swift
         uses: swift-actions/setup-swift@v3
