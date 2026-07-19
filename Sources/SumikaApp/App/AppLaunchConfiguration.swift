@@ -1,5 +1,6 @@
 import Foundation
 import SumikaCore
+import SumikaRuntimeMLX
 
 enum AppLaunchConfiguration {
   static func shouldStartUpdater(

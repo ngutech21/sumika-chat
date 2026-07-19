@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SumikaCore
+import SumikaRuntimeMLX
 
 @MainActor
 @Observable

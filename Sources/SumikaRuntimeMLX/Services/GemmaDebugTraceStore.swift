@@ -1,8 +1,8 @@
 import Foundation
 import SumikaCore
 
-actor GemmaDebugTraceStore: TurnTracing {
-  static let shared = GemmaDebugTraceStore()
+package actor GemmaDebugTraceStore: TurnTracing {
+  package static let shared = GemmaDebugTraceStore()
 
   nonisolated static var isEnabled: Bool {
     let value = ProcessInfo.processInfo.environment["SUMIKA_DEBUG_TRACE"] ?? ""
@@ -90,11 +90,11 @@ actor GemmaDebugTraceStore: TurnTracing {
     append(response)
   }
 
-  func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+  package func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
     traceTurnEvent(event)
   }
 
-  func traceTurnEvent(_ event: TurnTraceEvent) {
+  package func traceTurnEvent(_ event: TurnTraceEvent) {
     guard Self.isEnabled else {
       return
     }
