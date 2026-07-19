@@ -43,6 +43,7 @@ jobs:
 
     env:
       DERIVED_DATA_PATH: build/DerivedData/macos-release
+      CLONED_SOURCE_PACKAGES_DIR_PATH: .build/xcode-source-packages
       # Hosted runners cannot approve mlx-swift's CudaBuild plugin interactively.
       SKIP_PACKAGE_PLUGIN_VALIDATION: "1"
       DEVELOPER_ID_APPLICATION: Developer ID Application
@@ -65,6 +66,10 @@ jobs:
       - name: Install build tools
         timeout-minutes: 10
         run: brew install just create-dmg
+
+      - name: Verify Swift package lockfiles
+        timeout-minutes: 10
+        run: just check-package-locks
 
       - name: Prepare release version settings
         id: versions

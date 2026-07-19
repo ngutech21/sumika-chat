@@ -21,7 +21,19 @@ deps:
    brew install swiftlint swift-format periphery create-dmg
 
 resolve-packages:
-    xcodebuild -resolvePackageDependencies -project {{project}} -scheme {{scheme}}
+    {{swift}} package resolve
+    @set --; \
+    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
+    if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
+    xcodebuild -resolvePackageDependencies -project {{project}} -scheme {{scheme}} "$@"
+
+check-package-locks:
+    {{swift}} package --disable-automatic-resolution resolve
+    @set --; \
+    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
+    if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
+    xcodebuild -resolvePackageDependencies -project {{project}} -scheme {{scheme}} -onlyUsePackageVersionsFromResolvedFile "$@"
+    git diff --exit-code -- Package.resolved Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 build:
     @set --; \
@@ -56,11 +68,11 @@ release-signed:
     if [ -n "${MARKETING_VERSION:-}" ]; then set -- "$@" "MARKETING_VERSION=$MARKETING_VERSION"; fi; \
     if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then set -- "$@" "CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION"; fi; \
     if [ -n "${SUMIKA_RELEASE_VERSION:-}" ]; then set -- "$@" "SUMIKA_RELEASE_VERSION=$SUMIKA_RELEASE_VERSION"; fi; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "generic/platform=macOS" -derivedDataPath {{derived_data}} -configuration {{configuration}} -archivePath "{{archive_path}}" "$@" SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" DEVELOPMENT_TEAM="{{developer_team}}" archive; \
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "generic/platform=macOS" -derivedDataPath {{derived_data}} -configuration {{configuration}} -archivePath "{{archive_path}}" -disableAutomaticPackageResolution "$@" SUMIKA_GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" DEVELOPMENT_TEAM="{{developer_team}}" archive; \
     xcodebuild -quiet -exportArchive -archivePath "{{archive_path}}" -exportPath "{{export_dir}}" -exportOptionsPlist "{{export_options}}"; \
     app_bundle="{{export_dir}}/{{app_name}}.app"; \
     test -d "$app_bundle"; \
-    codesign --verify --deep --strict --verbose=2 "$app_bundle"; \
+    bash script/verify_release_app.sh "$app_bundle" "{{developer_team}}"; \
     signature_info="$(codesign --display --verbose=4 "$app_bundle" 2>&1)"; \
     printf '%s\n' "$signature_info" | grep -F "Authority=Developer ID Application" >/dev/null || { echo "Exported app is not signed with Developer ID Application."; exit 1; }; \
     printf '%s\n' "$signature_info" | grep -F "TeamIdentifier={{developer_team}}" >/dev/null || { echo "Exported app has the wrong signing team."; exit 1; }; \

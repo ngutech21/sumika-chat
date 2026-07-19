@@ -174,10 +174,20 @@ xcodebuild -project Sumika.xcodeproj -scheme Sumika -destination "platform=macOS
 ./script/build_and_run.sh --verify
 ```
 
-CI intentionally runs only headless SwiftPM tests with `xcrun swift test`.
-`just test-ui` is local-only, enables `SUMIKA_DEBUG_TRACE=1`, must never
-download a model, and should skip cleanly if `gemma4-e4b` is missing. Use
-`just data-model` to regenerate `docs/data-model.md`.
+`just resolve-packages` updates both the root SwiftPM lockfile and the Xcode app
+lockfile. Commit both after dependency changes; they represent different
+resolver roots and are not expected to be byte-identical. CI runs
+`just check-package-locks` with automatic dependency updates disabled to reject
+missing or stale lockfiles without upgrading packages during a CI run.
+If a dependency PR changes only the root graph, run `just resolve-packages` and
+commit the regenerated Xcode lockfile as part of that PR.
+
+CI runs `just test`: headless SwiftPM tests for `SumikaCore` and
+`DataModelGenerator`, followed by Xcode-hosted unit tests for `SumikaApp` and
+`SumikaRuntimeMLX`. CI does not run UI tests. `just test-ui` is local-only,
+enables `SUMIKA_DEBUG_TRACE=1`, must never download a model, and should skip
+cleanly if `gemma4-e4b` is missing. Use `just data-model` to regenerate
+`docs/data-model.md`.
 
 ## Debugging And Tracing
 

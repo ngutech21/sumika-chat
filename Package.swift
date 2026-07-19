@@ -22,7 +22,6 @@ let package = Package(
   products: [
     .library(name: "SumikaCore", targets: ["SumikaCore"]),
     .library(name: "SumikaApp", targets: ["SumikaApp"]),
-    .library(name: "SumikaRuntimeMLX", targets: ["SumikaRuntimeMLX"]),
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),

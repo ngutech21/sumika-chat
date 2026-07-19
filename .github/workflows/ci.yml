@@ -37,11 +37,12 @@ jobs:
         run: just lint
     
 
-  core-tests:
-    name: macOS SumikaCore
+  unit-tests:
+    name: macOS Core, App, and MLX unit tests
     runs-on: macos-26
-    timeout-minutes: 15
+    timeout-minutes: 45
     env:
+      CLONED_SOURCE_PACKAGES_DIR_PATH: .build/xcode-source-packages
       # Hosted runners cannot approve mlx-swift's CudaBuild plugin interactively.
       SKIP_PACKAGE_PLUGIN_VALIDATION: "1"
 
@@ -63,16 +64,21 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
+            .build/xcode-source-packages
             .build/repositories
             .build/checkouts
             .build/artifacts
-          key: ${{ runner.os }}-swift-6.3.2-swiftpm-${{ hashFiles('Package.resolved') }}
+          key: ${{ runner.os }}-swift-6.3.2-swiftpm-${{ hashFiles('Package.resolved', 'Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Print toolchain
         run: |
           uname -a
           swift --version
 
-      - name: Run package tests
+      - name: Verify Swift package lockfiles
+        timeout-minutes: 10
+        run: just check-package-locks
+
+      - name: Run unit tests
         timeout-minutes: 30
         run: just test
