@@ -43,6 +43,8 @@ jobs:
 
     env:
       DERIVED_DATA_PATH: build/DerivedData/macos-release
+      # Hosted runners cannot approve mlx-swift's CudaBuild plugin interactively.
+      SKIP_PACKAGE_PLUGIN_VALIDATION: "1"
       DEVELOPER_ID_APPLICATION: Developer ID Application
       SUMIKA_GIT_COMMIT: ${{ needs.release-please.outputs.sha }}
 

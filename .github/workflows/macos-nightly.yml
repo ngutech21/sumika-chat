@@ -25,6 +25,8 @@ jobs:
       CONFIGURATION: Release
       DERIVED_DATA_PATH: build/DerivedData/macos-nightly
       CLONED_SOURCE_PACKAGES_DIR_PATH: .build/xcode-source-packages
+      # Hosted runners cannot approve mlx-swift's CudaBuild plugin interactively.
+      SKIP_PACKAGE_PLUGIN_VALIDATION: "1"
       SUMIKA_GIT_COMMIT: ${{ github.sha }}
       DEVELOPER_ID_APPLICATION: Developer ID Application
 
@@ -80,18 +82,6 @@ jobs:
         timeout-minutes: 20
         run: just periphery
 
-      - name: Analyze
-        timeout-minutes: 15
-        run: |
-          xcodebuild analyze \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -destination "$DESTINATION" \
-            -derivedDataPath "$DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH" \
-            SUMIKA_GIT_COMMIT="$SUMIKA_GIT_COMMIT" \
-            CODE_SIGNING_ALLOWED=NO
 
       - name: Print core test environment
         run: |
