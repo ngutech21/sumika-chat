@@ -33,7 +33,13 @@ func localRelativePath(_ path: String, repoRoot: URL) -> String? {
   let url = URL(filePath: path)
   let relative = url.path(percentEncoded: false)
     .replacingOccurrences(of: repoRoot.path(percentEncoded: false) + "/", with: "")
-  guard relative != path, relative.hasPrefix("sumika/") || relative.hasPrefix("SumikaTests/")
+  guard
+    relative != path,
+    relative.hasPrefix("sumika/")
+      || relative.hasPrefix("Sources/SumikaApp/")
+      || relative.hasPrefix("Sources/SumikaRuntimeMLX/")
+      || relative.hasPrefix("Tests/SumikaAppTests/")
+      || relative.hasPrefix("Tests/SumikaRuntimeMLXTests/")
   else {
     return nil
   }

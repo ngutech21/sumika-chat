@@ -1,7 +1,7 @@
 import SumikaCore
 import Testing
 
-@testable import Sumika
+@testable import SumikaApp
 
 @MainActor
 struct AssistantMessageContentTests {

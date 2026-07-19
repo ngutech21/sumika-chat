@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import Sumika
+@testable import SumikaApp
 
 struct HTMLPreviewConsoleEntryTests {
   @Test

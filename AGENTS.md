@@ -14,14 +14,22 @@ Follow the existing layout:
 
 - Core logic: `Sources/SumikaCore/`
 - Core tests: `Tests/SumikaCoreTests/`
-- macOS app/UI/platform/MLX: `sumika/`
-- App tests: `SumikaTests/`
-- UI/runtime tests: `SumikaUITests/`
+- macOS app/UI/platform: `Sources/SumikaApp/`
+- MLX runtime: `Sources/SumikaRuntimeMLX/`
+- App tests: `Tests/SumikaAppTests/`
+- MLX runtime tests: `Tests/SumikaRuntimeMLXTests/`
+- Xcode app launcher/resources: `sumika/`
+- UI tests: `SumikaUITests/`
 
-Keep dependencies one-way: app -> `SumikaCore`. Views call controllers or app
-state; controllers call coordinators/services; services exchange structured
-models. SwiftUI views must not parse model output, touch the filesystem directly,
-run shell commands, make permission decisions, or know MLX details.
+Keep dependencies one-way: `SumikaApp` -> `SumikaRuntimeMLX` -> `SumikaCore`;
+`SumikaApp` may also use `SumikaCore` directly. Views call controllers or app state;
+controllers call coordinators/services; services exchange structured models.
+SwiftUI views must not parse model output, touch the filesystem directly, run shell
+commands, make permission decisions, or know MLX details.
+
+`SumikaHostedTests` is the Xcode test host for the SwiftPM app/runtime test sources.
+Keep it because Xcode builds and embeds the MLX Metal test resources that
+command-line SwiftPM does not provide.
 
 
 Do not create new top-level folders or abstractions unless real code requires them.
@@ -31,7 +39,7 @@ code to put in them.
 ## Core/App Boundaries
 
 - Keep reusable behavior in `SumikaCore`; keep MLX/Gemma backends in
-  `sumika/Services/` behind core protocols.
+  `Sources/SumikaRuntimeMLX/` behind core protocols.
 - SwiftUI controllers are UI facades only: hold view state, expose small user
   actions, call coordinators/services, and map results back to UI.
 - Workflow lifecycle belongs in coordinators. Execution, side effects,

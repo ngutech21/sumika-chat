@@ -1,7 +1,7 @@
 import AVFoundation
 import Testing
 
-@testable import Sumika
+@testable import SumikaApp
 
 @MainActor
 struct AssistantSpeechServiceTests {

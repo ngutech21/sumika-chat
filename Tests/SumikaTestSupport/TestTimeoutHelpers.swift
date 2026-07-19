@@ -1,8 +1,10 @@
 import Foundation
 
+// Shared by asynchronous tests across the package.
+
 struct TestWaitTimeoutError: Error {}
 
-func withTestTimeout<T: Sendable>(
+public func withTestTimeout<T: Sendable>(
   _ timeout: Duration = .seconds(2),
   operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {

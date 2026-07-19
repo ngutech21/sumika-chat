@@ -121,7 +121,7 @@ generate-sparkle-appcast:
 test: test-core test-app
 
 test-core:
-    {{swift}} test --no-parallel -q -Xswiftc -warnings-as-errors
+    {{swift}} test --no-parallel -q -Xswiftc -warnings-as-errors --filter 'SumikaCoreTests|DataModelGeneratorTests'
 
 prompt-cost:
     SUMIKA_PRINT_PROMPT_COST=1 {{swift}} test --no-parallel --filter PromptCostRegressionTests
@@ -239,11 +239,11 @@ final-check: typos format lint periphery test
 
 format:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
-    swift-format lint --strict --recursive --parallel sumika SumikaTests SumikaUITests Sources Tests Package.swift
+    swift-format lint --strict --recursive --parallel sumika SumikaUITests Sources Tests Package.swift
 
 format-fix:
     @command -v swift-format >/dev/null || { echo "swift-format is not installed."; exit 127; }
-    swift-format format --in-place --recursive --parallel sumika SumikaTests SumikaUITests Sources Tests Package.swift
+    swift-format format --in-place --recursive --parallel sumika SumikaUITests Sources Tests Package.swift
 
 typos:
     typos -q --format brief
@@ -254,4 +254,4 @@ periphery:
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
     if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
     xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "platform=macOS" -derivedDataPath "{{derived_data}}" -parallelizeTargets "$@" CODE_SIGNING_ALLOWED=NO ENABLE_BITCODE=NO DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=YES INDEX_ENABLE_DATA_STORE=YES build-for-testing
-    periphery scan --project Sumika.xcodeproj --schemes Sumika --skip-build --index-store-path "{{derived_data}}/Index.noindex/DataStore" --retain-public --retain-codable-properties --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check
+    periphery scan --project Sumika.xcodeproj --schemes Sumika --skip-build --index-store-path "{{derived_data}}/Index.noindex/DataStore" --retain-public --retain-codable-properties --report-include "Sources/SumikaApp/**/*.swift" --report-include "Sources/SumikaRuntimeMLX/**/*.swift" --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check

@@ -99,7 +99,7 @@ jobs:
         timeout-minutes: 20
         env:
           SWIFT_BACKTRACE: enable
-        run: swift test --no-parallel -Xswiftc -warnings-as-errors
+        run: just test-core
 
       - name: Print core test failure diagnostics
         if: failure() && steps.core_tests.outcome == 'failure'

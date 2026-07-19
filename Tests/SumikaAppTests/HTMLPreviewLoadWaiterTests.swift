@@ -1,6 +1,10 @@
 import Testing
 
-@testable import Sumika
+@testable import SumikaApp
+
+#if canImport(SumikaTestSupport)
+  import SumikaTestSupport
+#endif
 
 @MainActor
 struct HTMLPreviewLoadWaiterTests {

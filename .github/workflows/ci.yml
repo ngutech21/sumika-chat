@@ -25,7 +25,11 @@ jobs:
 
       - name: Install lint tools
         timeout-minutes: 10
-        run: brew install just swiftlint swift-format
+        run: brew install just typos swiftlint swift-format
+
+      - name: Run typos
+        timeout-minutes: 5
+        run: just typos
 
       - name: Run format
         timeout-minutes: 10
@@ -37,8 +41,8 @@ jobs:
     
 
   core-tests:
-    name: Linux SumikaCore
-    runs-on: ubuntu-latest
+    name: macOS SumikaCore
+    runs-on: macos-26
     timeout-minutes: 15
 
     steps:
@@ -65,10 +69,6 @@ jobs:
           uname -a
           swift --version
 
-      - name: Build package tests
-        timeout-minutes: 20
-        run: swift build --build-tests --disable-xctest --enable-swift-testing
-
       - name: Run package tests
-        timeout-minutes: 10
-        run: swift test --skip-build --disable-xctest --enable-swift-testing --no-parallel --verbose
+        timeout-minutes: 30
+        run: just test

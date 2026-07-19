@@ -1,21 +1,7 @@
-import Foundation
 import MLXLMCommon
 import SumikaCore
 
-@testable import Sumika
-
-func testModeSettings(
-  mode: WorkspaceInteractionMode = .chat,
-  systemPrompt: String,
-  generationSettings: ChatGenerationSettings
-) -> ChatModeSettingsSet {
-  var modeSettings = ChatModeSettingsSet.defaultSettings
-  modeSettings[mode] = ChatModeSettings(
-    systemPrompt: systemPrompt,
-    generationSettings: generationSettings
-  )
-  return modeSettings
-}
+@testable import SumikaRuntimeMLX
 
 extension MLXHistoryRenderer {
   /// Test-only convenience that builds cache snapshots straight from chat

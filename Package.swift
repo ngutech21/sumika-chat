@@ -121,6 +121,30 @@ let package = Package(
       resources: [.process("Fixtures")],
       swiftSettings: concurrencyChecking
     ),
+    .target(
+      name: "SumikaTestSupport",
+      path: "Tests/SumikaTestSupport",
+      swiftSettings: appConcurrencyChecking
+    ),
+    .testTarget(
+      name: "SumikaAppTests",
+      dependencies: [
+        "SumikaApp",
+        "SumikaCore",
+        "SumikaTestSupport",
+      ],
+      swiftSettings: appConcurrencyChecking
+    ),
+    .testTarget(
+      name: "SumikaRuntimeMLXTests",
+      dependencies: [
+        "SumikaRuntimeMLX",
+        "SumikaCore",
+        "SumikaTestSupport",
+        .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+      ],
+      swiftSettings: appConcurrencyChecking
+    ),
     .testTarget(
       name: "DataModelGeneratorTests",
       dependencies: ["DataModelGenerator"],

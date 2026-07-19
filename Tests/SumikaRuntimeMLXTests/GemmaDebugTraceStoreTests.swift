@@ -3,7 +3,7 @@ import MLXLMCommon
 import SumikaCore
 import Testing
 
-@testable import Sumika
+@testable import SumikaRuntimeMLX
 
 @Suite(.serialized)
 struct GemmaDebugTraceStoreTests {

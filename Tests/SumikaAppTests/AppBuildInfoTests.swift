@@ -1,6 +1,6 @@
 import Testing
 
-@testable import Sumika
+@testable import SumikaApp
 
 @Suite
 struct AppBuildInfoTests {

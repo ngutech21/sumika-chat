@@ -2,7 +2,7 @@ import AppKit
 import SumikaCore
 import Testing
 
-@testable import Sumika
+@testable import SumikaApp
 
 // Pins the viewport stability contract while a thinking row streams: expanded
 // reasoning follows growth monotonically for pinned viewports, unpinned

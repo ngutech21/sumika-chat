@@ -286,7 +286,8 @@ public enum ManagedModelCatalog {
       id: "qwen3.6-40B-8bit-heretic",
       displayName: "Qwen 3.6 40B uncensored 8-bit",
       detail: "Uncensored Qwen3.6 model with local vision support.",
-      huggingFaceRepoID: "mlx-community/Qwen3.6-40B-Claude-4.6-Opus-Deckard-Heretic-Uncensored-Thinking-8bit",
+      huggingFaceRepoID:
+        "mlx-community/Qwen3.6-40B-Claude-4.6-Opus-Deckard-Heretic-Uncensored-Thinking-8bit",
       localDirectoryName: "Qwen3.6-40B-Claude-4.6-Opus-Deckard-Heretic-Uncensored-Thinking-8bit",
       estimatedDownloadSize: "41.5 GB",
       isRecommended: false,

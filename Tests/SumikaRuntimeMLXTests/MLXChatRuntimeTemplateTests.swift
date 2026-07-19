@@ -3,9 +3,13 @@ import MLXLMCommon
 import SumikaCore
 import Testing
 
-@testable import Sumika
+@testable import SumikaRuntimeMLX
 
-@Suite
+#if canImport(SumikaTestSupport)
+  import SumikaTestSupport
+#endif
+
+@Suite(.enabled(if: mlxDefaultMetalLibraryAvailable()))
 struct MLXChatRuntimeTemplateTests {
   @Test
   func neutralRepetitionPenaltyDoesNotEnableMLXProcessor() {
@@ -113,7 +117,10 @@ struct MLXChatRuntimeTemplateTests {
     ]
     let allowedFiles = Set([
       repositoryURL
-        .appending(path: "sumika/Services/GemmaDebugTraceStore.swift", directoryHint: .notDirectory)
+        .appending(
+          path: "Sources/SumikaRuntimeMLX/Services/GemmaDebugTraceStore.swift",
+          directoryHint: .notDirectory
+        )
         .standardizedFileURL.path(percentEncoded: false)
     ])
 

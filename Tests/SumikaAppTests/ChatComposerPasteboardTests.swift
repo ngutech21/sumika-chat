@@ -1,7 +1,7 @@
 import AppKit
 import Testing
 
-@testable import Sumika
+@testable import SumikaApp
 
 @MainActor
 @Suite(.serialized)
