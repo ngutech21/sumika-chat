@@ -63,17 +63,12 @@ let package = Package(
       publicHeadersPath: "include",
       cSettings: [.headerSearchPath("include")]
     ),
-    .target(
-      name: "DataModelGeneratorCore",
+    .executableTarget(
+      name: "DataModelGenerator",
       dependencies: [
         .product(name: "SwiftParser", package: "swift-syntax"),
         .product(name: "SwiftSyntax", package: "swift-syntax"),
       ],
-      swiftSettings: concurrencyChecking
-    ),
-    .executableTarget(
-      name: "DataModelGenerator",
-      dependencies: ["DataModelGeneratorCore"],
       swiftSettings: concurrencyChecking
     ),
     .testTarget(
@@ -87,7 +82,7 @@ let package = Package(
     ),
     .testTarget(
       name: "DataModelGeneratorTests",
-      dependencies: ["DataModelGeneratorCore"],
+      dependencies: ["DataModelGenerator"],
       swiftSettings: concurrencyChecking
     ),
   ]

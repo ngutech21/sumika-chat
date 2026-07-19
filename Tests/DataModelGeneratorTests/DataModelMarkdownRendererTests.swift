@@ -1,6 +1,6 @@
 import Testing
 
-@testable import DataModelGeneratorCore
+@testable import DataModelGenerator
 
 struct DataModelMarkdownRendererTests {
   @Test

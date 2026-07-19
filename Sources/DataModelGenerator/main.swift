@@ -1,4 +1,3 @@
-import DataModelGeneratorCore
 import Foundation
 
 let repositoryRoot = URL(filePath: FileManager.default.currentDirectoryPath)
