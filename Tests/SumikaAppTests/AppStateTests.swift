@@ -32,6 +32,37 @@ struct AppStateTests {
   }
 
   @Test
+  func modelManagementErrorsStayOnModelManagementState() async throws {
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime(),
+      modelAvailability: { _ in false }
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    appState.modelManagementState.loadAvailableModelForConversation()
+
+    #expect(
+      appState.modelManagementState.errorMessage
+        == "Download a model from Models first."
+    )
+    #expect(appState.chatController.errorMessage == nil)
+
+    appState.modelManagementState.performPrimaryAction()
+
+    try await waitUntil {
+      appState.modelManagementState.errorMessage == "No model downloader is configured."
+    }
+    #expect(appState.chatController.errorMessage == nil)
+  }
+
+  @Test
   func updatingModeSettingsRefreshesAndPersistsActiveSession() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()

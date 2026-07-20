@@ -20,15 +20,16 @@ struct WorkspacePreviewFeatureStateTests {
       encoding: .utf8
     )
     let state = WorkspacePreviewFeatureState()
-    try state.showFilePreview(path: "notes.txt", in: workspace)
+    #expect(state.showFilePreview(path: "notes.txt", in: workspace))
     let initialRequestID = state.htmlPreviewRequestID
 
-    try state.showHTMLPreview(path: "index.html", in: workspace)
+    #expect(state.showHTMLPreview(path: "index.html", in: workspace))
 
     #expect(state.htmlPreview?.relativePath == WorkspaceRelativePath(rawValue: "index.html"))
     #expect(state.filePreview == nil)
     #expect(state.htmlPreviewRequestID != initialRequestID)
     #expect(state.isVisible)
+    #expect(state.errorMessage == nil)
   }
 
   @Test
@@ -45,13 +46,14 @@ struct WorkspacePreviewFeatureStateTests {
       encoding: .utf8
     )
     let state = WorkspacePreviewFeatureState()
-    try state.showHTMLPreview(path: "index.html", in: workspace)
+    #expect(state.showHTMLPreview(path: "index.html", in: workspace))
 
-    try state.showFilePreview(path: "notes.txt", in: workspace)
+    #expect(state.showFilePreview(path: "notes.txt", in: workspace))
 
     #expect(state.htmlPreview == nil)
     #expect(state.filePreview?.relativePath == WorkspaceRelativePath(rawValue: "notes.txt"))
     #expect(state.isVisible)
+    #expect(state.errorMessage == nil)
   }
 
   @Test
@@ -68,7 +70,7 @@ struct WorkspacePreviewFeatureStateTests {
       encoding: .utf8
     )
     let state = WorkspacePreviewFeatureState()
-    try state.showHTMLPreview(path: "index.html", in: workspace)
+    #expect(state.showHTMLPreview(path: "index.html", in: workspace))
     state.closeFilePreview()
 
     #expect(state.htmlPreview != nil)
@@ -77,13 +79,31 @@ struct WorkspacePreviewFeatureStateTests {
     state.closeHTMLPreview()
     #expect(!state.isVisible)
 
-    try state.showFilePreview(path: "notes.txt", in: workspace)
+    #expect(state.showFilePreview(path: "notes.txt", in: workspace))
     state.closeHTMLPreview()
     #expect(state.htmlPreview == nil)
     #expect(state.filePreview != nil)
 
     state.closeAll()
     #expect(!state.isVisible)
+  }
+
+  @Test
+  func previewFailureIsOwnedAndClearedByPreviewState() throws {
+    let workspace = try makeWorkspace()
+    let state = WorkspacePreviewFeatureState()
+
+    #expect(!state.showHTMLPreview(path: "missing.html", in: workspace))
+    #expect(state.errorMessage != nil)
+
+    try "<!doctype html>".write(
+      to: workspace.rootURL.appending(path: "index.html", directoryHint: .notDirectory),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    #expect(state.showHTMLPreview(path: "index.html", in: workspace))
+    #expect(state.errorMessage == nil)
   }
 
   private func makeWorkspace() throws -> Workspace {

@@ -248,13 +248,20 @@ enum AppLaunchConfiguration {
       chatAttachmentLoader: chatAttachmentLoader,
       turnTracer: turnTracer
     )
-    modelManagementController.setEventHandlers(chatController.modelManagementEventHandlers)
+    let modelManagementState = ModelManagementFeatureState(
+      modelController: modelManagementController,
+      chatController: chatController
+    )
+    modelManagementController.setEventHandlers(
+      chatController.modelManagementEventHandlers(
+        errorDidOccur: { [weak modelManagementState] message in
+          modelManagementState?.handleModelRuntimeError(message)
+        }
+      )
+    )
     modelManagementController.loadPersistedModelSelection()
     return ConversationComposition(
-      modelManagementState: ModelManagementFeatureState(
-        modelController: modelManagementController,
-        chatController: chatController
-      ),
+      modelManagementState: modelManagementState,
       sessionCoordinator: ConversationSessionCoordinator(
         modelController: modelManagementController,
         chatController: chatController

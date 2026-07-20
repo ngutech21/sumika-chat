@@ -17,7 +17,7 @@ package final class ChatSessionController {
   package private(set) var modelContextDebugState = ModelContextDebugState()
   package var contextUsage: ChatContextUsage?
   package var isGenerating = false
-  package var errorMessage: String?
+  package private(set) var errorMessage: String?
 
   @ObservationIgnored private let conversationModel: @MainActor () -> ConversationModelState
   @ObservationIgnored private let runtimeContextClearCoordinator: RuntimeContextClearCoordinator
@@ -107,7 +107,9 @@ extension ChatSessionController {
     conversationModel()
   }
 
-  package var modelManagementEventHandlers: ModelManagementEventHandlers {
+  package func modelManagementEventHandlers(
+    errorDidOccur: @escaping @MainActor (String) -> Void
+  ) -> ModelManagementEventHandlers {
     ModelManagementEventHandlers(
       modelDidChange: { [weak self] settings in
         self?.handleModelDidChange(settings)
@@ -118,9 +120,7 @@ extension ChatSessionController {
       contextUsageShouldRefresh: { [weak self] in
         await self?.updateContextUsage()
       },
-      errorDidOccur: { [weak self] message in
-        self?.errorMessage = message
-      }
+      errorDidOccur: errorDidOccur
     )
   }
 
@@ -195,6 +195,18 @@ extension ChatSessionController {
 
     chatSession.modeSettings = modeSettings
     refreshContextUsage()
+    notifySessionDidChange()
+    return true
+  }
+
+  @discardableResult
+  package func renameSession(to title: String) -> Bool {
+    let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedTitle.isEmpty else {
+      return false
+    }
+
+    chatSession.title = trimmedTitle
     notifySessionDidChange()
     return true
   }

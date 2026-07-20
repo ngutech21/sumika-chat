@@ -152,7 +152,9 @@ extension ChatSessionController {
       turnTracer: turnTracer
     )
     ChatSessionControllerTestModelRegistry.register(modelController, for: self)
-    modelController.setEventHandlers(modelManagementEventHandlers)
+    modelController.setEventHandlers(
+      modelManagementEventHandlers(errorDidOccur: { _ in })
+    )
   }
 
   func loadSession(_ session: ChatSession) {

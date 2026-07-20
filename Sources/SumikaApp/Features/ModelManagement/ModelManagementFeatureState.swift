@@ -6,6 +6,7 @@ import SumikaCore
 final class ModelManagementFeatureState {
   @ObservationIgnored private let modelController: ModelRuntimeController
   private let chatController: ChatSessionController
+  private(set) var errorMessage: String?
 
   init(
     modelController: ModelRuntimeController,
@@ -21,10 +22,6 @@ final class ModelManagementFeatureState {
 
   var modeSettings: ChatModeSettingsSet {
     chatController.modeSettings
-  }
-
-  var errorMessage: String? {
-    chatController.errorMessage
   }
 
   var downloadedModels: [ManagedModel] {
@@ -90,6 +87,7 @@ final class ModelManagementFeatureState {
       return
     }
 
+    errorMessage = nil
     chatController.prepareForModelRuntimeAction(
       cancelGeneration: false,
       invalidateContext: shouldInvalidateContext
@@ -98,6 +96,7 @@ final class ModelManagementFeatureState {
   }
 
   func performPrimaryAction() {
+    errorMessage = nil
     switch primaryAction {
     case .download:
       chatController.prepareForModelRuntimeAction(
@@ -121,12 +120,13 @@ final class ModelManagementFeatureState {
   }
 
   func loadAvailableModelForConversation() {
+    errorMessage = nil
     chatController.prepareForModelRuntimeAction(
       cancelGeneration: false,
       invalidateContext: true
     )
     guard let availableModel = preferredDownloadedModel else {
-      chatController.errorMessage = "Download a model from Models first."
+      errorMessage = "Download a model from Models first."
       return
     }
 
@@ -157,6 +157,10 @@ final class ModelManagementFeatureState {
 
   func loadSelectedModelForStartup() {
     modelController.loadSelectedModel()
+  }
+
+  func handleModelRuntimeError(_ message: String) {
+    errorMessage = message
   }
 
   private var preferredDownloadedModel: ManagedModel? {

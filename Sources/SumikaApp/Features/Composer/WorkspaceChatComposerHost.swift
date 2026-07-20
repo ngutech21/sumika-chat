@@ -16,6 +16,7 @@ struct WorkspaceChatComposerHost: View {
   let onOpenAudioModels: () -> Void
 
   private static let slashCommandParser = SlashCommandParser()
+  @State private var composerErrorMessage: String?
 
   private var onSend: (String) -> Bool {
     { submittedDraft in
@@ -72,7 +73,7 @@ struct WorkspaceChatComposerHost: View {
       canSend: modelManagementState.canSend,
       canRunLocalCommand: !isGenerating,
       isGenerating: isGenerating,
-      errorMessage: controller.errorMessage,
+      errorMessage: presentedErrorMessage,
       onSelectInteractionMode: controller.setInteractionMode,
       onSelectModel: selectModel(_:),
       onLoadModel: loadSelectedModel,
@@ -94,6 +95,13 @@ struct WorkspaceChatComposerHost: View {
     context.workspace(containing: sessionID ?? controller.chatSession.id)
   }
 
+  private var presentedErrorMessage: String? {
+    composerErrorMessage
+      ?? previewState.errorMessage
+      ?? modelManagementState.errorMessage
+      ?? controller.errorMessage
+  }
+
   private func composerSelectedModel(from downloadedModels: [ManagedModel]) -> ManagedModel {
     let selectedModel = modelManagementState.state.selectedModel
     if downloadedModels.contains(selectedModel) {
@@ -104,37 +112,53 @@ struct WorkspaceChatComposerHost: View {
   }
 
   private func selectModel(_ model: ManagedModel) {
+    clearLocalPresentationErrors()
     modelManagementState.selectConversationModel(model)
   }
 
   private func loadSelectedModel() {
+    clearLocalPresentationErrors()
     modelManagementState.loadAvailableModelForConversation()
   }
 
   private func handleLocalSlashCommand(_ draft: String) -> LocalSlashCommandResult {
     let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmedDraft.hasPrefix("/") else {
+      clearLocalPresentationErrors()
       return .notHandled
     }
 
     let name = String(trimmedDraft.dropFirst().prefix { !$0.isWhitespace })
     guard let descriptor = SlashCommandRegistry.descriptor(named: name) else {
       // Unknown command text: leave it for the normal send path.
+      clearLocalPresentationErrors()
       return .notHandled
     }
 
     guard let command = Self.slashCommandParser.parse(trimmedDraft) else {
-      controller.errorMessage = descriptor.usage
+      previewState.clearError()
+      composerErrorMessage = descriptor.usage
       return .handled(shouldClearDraft: false)
     }
 
+    composerErrorMessage = nil
     switch command {
     case .preview(let path):
-      guard runPreviewCommand(path: path) else {
+      guard
+        previewState.showHTMLPreview(
+          path: path,
+          in: context.workspaceWithoutSessions
+        )
+      else {
         return .handled(shouldClearDraft: false)
       }
     case .show(let path):
-      guard runShowCommand(path: path) else {
+      guard
+        previewState.showFilePreview(
+          path: path,
+          in: context.workspaceWithoutSessions
+        )
+      else {
         return .handled(shouldClearDraft: false)
       }
     }
@@ -155,26 +179,9 @@ struct WorkspaceChatComposerHost: View {
     }
   }
 
-  private func runPreviewCommand(path: String) -> Bool {
-    do {
-      try previewState.showHTMLPreview(path: path, in: context.workspaceWithoutSessions)
-      controller.errorMessage = nil
-      return true
-    } catch {
-      controller.errorMessage = error.localizedDescription
-      return false
-    }
-  }
-
-  private func runShowCommand(path: String) -> Bool {
-    do {
-      try previewState.showFilePreview(path: path, in: context.workspaceWithoutSessions)
-      controller.errorMessage = nil
-      return true
-    } catch {
-      controller.errorMessage = error.localizedDescription
-      return false
-    }
+  private func clearLocalPresentationErrors() {
+    composerErrorMessage = nil
+    previewState.clearError()
   }
 
   private enum LocalSlashCommandResult {

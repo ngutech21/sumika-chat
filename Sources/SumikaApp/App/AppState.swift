@@ -203,18 +203,16 @@ final class AppState {
   }
 
   func renameSession(_ sessionID: ChatSession.ID, title: String) {
-    workspaceState.renameSession(sessionID, title: title)
-
     guard
-      chatController.chatSession.id == sessionID,
-      let renamedSession = workspaceState.library.workspaces
-        .flatMap(\.sessions)
-        .first(where: { $0.id == sessionID })
+      !workspaceState.isPersistenceBlocked,
+      workspaceState.activeSessionID == sessionID,
+      chatController.chatSession.id == sessionID
     else {
+      workspaceState.renameSession(sessionID, title: title)
       return
     }
 
-    chatController.chatSession.title = renamedSession.title
+    chatController.renameSession(to: title)
   }
 
   @discardableResult

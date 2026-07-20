@@ -583,6 +583,25 @@ struct ChatSessionControllerTests {
   }
 
   @Test
+  func renameSessionNormalizesTitleAndNotifiesChange() {
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model"
+    )
+    var changeCount = 0
+    controller.setSessionChangeHandler {
+      changeCount += 1
+    }
+
+    #expect(controller.renameSession(to: "  Manual title  "))
+    #expect(controller.chatSession.title == "Manual title")
+    #expect(changeCount == 1)
+    #expect(!controller.renameSession(to: "   "))
+    #expect(controller.chatSession.title == "Manual title")
+    #expect(changeCount == 1)
+  }
+
+  @Test
   func sendMessageDoesNotRenameManualTitle() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
