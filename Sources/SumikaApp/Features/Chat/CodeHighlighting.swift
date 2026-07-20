@@ -1,7 +1,7 @@
 import Foundation
 import SumikaCore
 
-nonisolated public protocol CodeHighlightingBackend: Sendable {
+nonisolated protocol CodeHighlightingBackend: Sendable {
   func highlight(
     code: String,
     language: CodeLanguage?,
@@ -10,7 +10,7 @@ nonisolated public protocol CodeHighlightingBackend: Sendable {
 }
 
 nonisolated extension CodeLanguage {
-  public var displayName: String {
+  var displayName: String {
     switch self {
     case .bash:
       "Bash"
@@ -30,61 +30,41 @@ nonisolated extension CodeLanguage {
   }
 }
 
-nonisolated public struct HighlightedCode: Equatable, Sendable {
-  public var code: String
-  public var language: CodeLanguage?
-  public var spans: [HighlightSpan]
+nonisolated struct HighlightedCode: Equatable, Sendable {
+  var code: String
+  var language: CodeLanguage?
+  var spans: [HighlightSpan]
 
-  public init(
-    code: String,
-    language: CodeLanguage?,
-    spans: [HighlightSpan]
-  ) {
-    self.code = code
-    self.language = language
-    self.spans = spans
-  }
-
-  public static func plain(code: String, language: CodeLanguage?) -> HighlightedCode {
+  static func plain(code: String, language: CodeLanguage?) -> HighlightedCode {
     HighlightedCode(code: code, language: language, spans: [])
   }
 }
 
-nonisolated public struct HighlightSpan: Equatable, Sendable {
-  public var range: HighlightTextRange
-  public var style: CodeHighlightStyle
-  public var captureName: String
-
-  public init(
-    range: HighlightTextRange,
-    style: CodeHighlightStyle,
-    captureName: String
-  ) {
-    self.range = range
-    self.style = style
-    self.captureName = captureName
-  }
+nonisolated struct HighlightSpan: Equatable, Sendable {
+  var range: HighlightTextRange
+  var style: CodeHighlightStyle
+  var captureName: String
 }
 
-nonisolated public struct HighlightTextRange: Equatable, Sendable {
-  public var location: Int
-  public var length: Int
+nonisolated struct HighlightTextRange: Equatable, Sendable {
+  var location: Int
+  var length: Int
 
-  public init(location: Int, length: Int) {
+  init(location: Int, length: Int) {
     self.location = location
     self.length = length
   }
 
-  public var upperBound: Int {
+  var upperBound: Int {
     location + length
   }
 
-  public var nsRange: NSRange {
+  var nsRange: NSRange {
     NSRange(location: location, length: length)
   }
 }
 
-nonisolated public enum CodeHighlightStyle: String, Equatable, Hashable, Sendable {
+nonisolated enum CodeHighlightStyle: String, Equatable, Hashable, Sendable {
   case attribute
   case comment
   case constant
@@ -99,14 +79,10 @@ nonisolated public enum CodeHighlightStyle: String, Equatable, Hashable, Sendabl
   case variable
 }
 
-nonisolated public struct CodeHighlightTheme: Equatable, Hashable, Sendable {
-  public var stylesByCapturePrefix: [String: CodeHighlightStyle]
+nonisolated struct CodeHighlightTheme: Equatable, Hashable, Sendable {
+  var stylesByCapturePrefix: [String: CodeHighlightStyle]
 
-  public init(stylesByCapturePrefix: [String: CodeHighlightStyle]) {
-    self.stylesByCapturePrefix = stylesByCapturePrefix
-  }
-
-  public func style(for captureName: String) -> CodeHighlightStyle? {
+  func style(for captureName: String) -> CodeHighlightStyle? {
     let components = captureName.split(separator: ".").map(String.init)
     for componentCount in stride(from: components.count, through: 1, by: -1) {
       let prefix = components.prefix(componentCount).joined(separator: ".")
@@ -117,7 +93,7 @@ nonisolated public struct CodeHighlightTheme: Equatable, Hashable, Sendable {
     return nil
   }
 
-  public static let chat = CodeHighlightTheme(
+  static let chat = CodeHighlightTheme(
     stylesByCapturePrefix: [
       "attribute": .attribute,
       "boolean": .constant,
@@ -142,23 +118,19 @@ nonisolated public struct CodeHighlightTheme: Equatable, Hashable, Sendable {
   )
 }
 
-nonisolated public struct CodeHighlightBlockID: Equatable, Hashable, Sendable {
-  public var rawValue: String
-
-  public init(rawValue: String) {
-    self.rawValue = rawValue
-  }
+nonisolated struct CodeHighlightBlockID: Equatable, Hashable, Sendable {
+  var rawValue: String
 }
 
-nonisolated public struct CodeHighlightRequest: Equatable, Sendable {
-  public var blockID: CodeHighlightBlockID
-  public var version: Int
-  public var code: String
-  public var language: CodeLanguage?
-  public var theme: CodeHighlightTheme
-  public var isClosed: Bool
+nonisolated struct CodeHighlightRequest: Equatable, Sendable {
+  var blockID: CodeHighlightBlockID
+  var version: Int
+  var code: String
+  var language: CodeLanguage?
+  var theme: CodeHighlightTheme
+  var isClosed: Bool
 
-  public init(
+  init(
     blockID: CodeHighlightBlockID,
     version: Int,
     code: String,
@@ -175,33 +147,21 @@ nonisolated public struct CodeHighlightRequest: Equatable, Sendable {
   }
 }
 
-nonisolated public struct CodeHighlightResult: Equatable, Sendable {
-  public var blockID: CodeHighlightBlockID
-  public var version: Int
-  public var highlightedCode: HighlightedCode
-  public var cacheHit: Bool
-
-  public init(
-    blockID: CodeHighlightBlockID,
-    version: Int,
-    highlightedCode: HighlightedCode,
-    cacheHit: Bool
-  ) {
-    self.blockID = blockID
-    self.version = version
-    self.highlightedCode = highlightedCode
-    self.cacheHit = cacheHit
-  }
+nonisolated struct CodeHighlightResult: Equatable, Sendable {
+  var blockID: CodeHighlightBlockID
+  var version: Int
+  var highlightedCode: HighlightedCode
+  var cacheHit: Bool
 }
 
-public actor StreamingCodeHighlighter {
+actor StreamingCodeHighlighter {
   private let backend: any CodeHighlightingBackend
   private let debounce: Duration
   private let highlighterVersion: String
   private var latestVersionsByBlockID: [CodeHighlightBlockID: Int] = [:]
   private var cache: [CodeHighlightCacheKey: HighlightedCode] = [:]
 
-  public init(
+  init(
     backend: any CodeHighlightingBackend,
     debounce: Duration = .milliseconds(150),
     highlighterVersion: String = "tree-sitter-v1"
@@ -211,7 +171,7 @@ public actor StreamingCodeHighlighter {
     self.highlighterVersion = highlighterVersion
   }
 
-  public func highlight(_ request: CodeHighlightRequest) async -> CodeHighlightResult? {
+  func highlight(_ request: CodeHighlightRequest) async -> CodeHighlightResult? {
     latestVersionsByBlockID[request.blockID] = request.version
 
     guard !request.code.isEmpty, request.language != nil else {
@@ -309,13 +269,13 @@ public actor StreamingCodeHighlighter {
   }
 }
 
-nonisolated public struct CodeHighlightCacheKey: Equatable, Hashable, Sendable {
-  public var language: CodeLanguage?
-  public var codeHash: UInt64
-  public var theme: CodeHighlightTheme
-  public var highlighterVersion: String
+nonisolated struct CodeHighlightCacheKey: Equatable, Hashable, Sendable {
+  var language: CodeLanguage?
+  var codeHash: UInt64
+  var theme: CodeHighlightTheme
+  var highlighterVersion: String
 
-  public init(
+  init(
     language: CodeLanguage?,
     codeHash: UInt64,
     theme: CodeHighlightTheme,
@@ -327,7 +287,7 @@ nonisolated public struct CodeHighlightCacheKey: Equatable, Hashable, Sendable {
     self.highlighterVersion = highlighterVersion
   }
 
-  public init(
+  init(
     code: String,
     language: CodeLanguage?,
     theme: CodeHighlightTheme,

@@ -17,9 +17,9 @@ actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
         #"(?<![A-Za-z0-9_.-])(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:px|em|rem|vh|vw|vmin|vmax|ch|ex|cm|mm|in|pt|pc|fr|deg|rad|turn|s|ms|dpi|dpcm|dppx|%)"#
     )
 
-  public init() {}
+  init() {}
 
-  public func highlight(
+  func highlight(
     code: String,
     language: CodeLanguage?,
     theme: CodeHighlightTheme = .chat

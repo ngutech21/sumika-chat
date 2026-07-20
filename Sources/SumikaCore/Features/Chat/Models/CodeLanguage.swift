@@ -1,6 +1,6 @@
 import Foundation
 
-public enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
+package enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
   case bash
   case css
   case html
@@ -9,7 +9,7 @@ public enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
   case python
   case typescript
 
-  public init?(fenceLanguage: String?) {
+  package init?(fenceLanguage: String?) {
     guard
       let rawLanguage = fenceLanguage?
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,7 +41,7 @@ public enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
     }
   }
 
-  public init?(filePath: String) {
+  package init?(filePath: String) {
     let trimmedPath = filePath.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedPath.isEmpty else {
       return nil

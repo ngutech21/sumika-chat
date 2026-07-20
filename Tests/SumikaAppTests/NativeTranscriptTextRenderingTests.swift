@@ -1,8 +1,8 @@
 import AppKit
-import SumikaCore
 import Testing
 
 @testable import SumikaApp
+@testable import SumikaCore
 
 @MainActor
 struct NativeTranscriptTextRenderingTests {
