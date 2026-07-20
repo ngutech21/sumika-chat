@@ -4,16 +4,16 @@ import Foundation
   import Darwin
 #endif
 
-public protocol ProcessResourceMonitoring: Sendable {
+package protocol ProcessResourceMonitoring: Sendable {
   func currentUsage() async -> ProcessResourceUsage?
 }
 
-public actor ProcessResourceMonitor: ProcessResourceMonitoring {
+package actor ProcessResourceMonitor: ProcessResourceMonitoring {
   private var previousSample: ProcessResourceSample?
 
-  public init() {}
+  package init() {}
 
-  public func currentUsage() async -> ProcessResourceUsage? {
+  package func currentUsage() async -> ProcessResourceUsage? {
     guard let memoryBytes = Self.currentMemoryBytes(),
       let currentSample = Self.currentSample()
     else {

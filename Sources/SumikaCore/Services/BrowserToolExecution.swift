@@ -1,21 +1,21 @@
-public protocol BrowserToolServing: Sendable {
+package protocol BrowserToolServing: Sendable {
   func refresh(_ input: BrowserRefreshInput) async -> BrowserRefreshResult
   func inspect(_ input: BrowserInspectInput) async -> BrowserInspectResult
 }
 
-public struct UnavailableBrowserToolService: BrowserToolServing {
-  public init() {}
+package struct UnavailableBrowserToolService: BrowserToolServing {
+  package init() {}
 
-  public func refresh(_ input: BrowserRefreshInput) async -> BrowserRefreshResult {
+  package func refresh(_ input: BrowserRefreshInput) async -> BrowserRefreshResult {
     _ = input
     return .failed(reason: .executionError(Self.unavailableMessage))
   }
 
-  public func inspect(_ input: BrowserInspectInput) async -> BrowserInspectResult {
+  package func inspect(_ input: BrowserInspectInput) async -> BrowserInspectResult {
     _ = input
     return .failed(reason: .executionError(Self.unavailableMessage))
   }
 
-  public static let unavailableMessage =
+  package static let unavailableMessage =
     "HTML preview is not available. Open a preview with /preview <path-to-html-file> first."
 }

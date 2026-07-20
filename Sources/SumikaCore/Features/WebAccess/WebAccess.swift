@@ -25,11 +25,11 @@ package enum WebAccessPolicy: String, Codable, CaseIterable, Equatable, Sendable
   }
 }
 
-public enum WebSearchProvider: String, Codable, CaseIterable, Equatable, Sendable {
+package enum WebSearchProvider: String, Codable, CaseIterable, Equatable, Sendable {
   case duckDuckGo
   case searxng
 
-  public var displayName: String {
+  package var displayName: String {
     switch self {
     case .duckDuckGo:
       "DuckDuckGo"
@@ -39,11 +39,11 @@ public enum WebSearchProvider: String, Codable, CaseIterable, Equatable, Sendabl
   }
 }
 
-public enum WebFetchProvider: String, Codable, CaseIterable, Equatable, Sendable {
+package enum WebFetchProvider: String, Codable, CaseIterable, Equatable, Sendable {
   case builtIn
   case firecrawl
 
-  public var displayName: String {
+  package var displayName: String {
     switch self {
     case .builtIn:
       "Built-in"

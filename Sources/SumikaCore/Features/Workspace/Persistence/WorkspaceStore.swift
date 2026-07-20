@@ -4,28 +4,28 @@ import Foundation
   import OSLog
 #endif
 
-public protocol WorkspaceStoring: Sendable {
+package protocol WorkspaceStoring: Sendable {
   func loadLibrary() async -> WorkspaceLibraryLoadResult
   func saveLibrary(_ library: WorkspaceLibrary) async throws
 }
 
 /// The loaded library plus every issue encountered while loading it. An empty
 /// `issues` array means the on-disk state was read back verbatim.
-public struct WorkspaceLibraryLoadResult: Equatable, Sendable {
-  public let library: WorkspaceLibrary
-  public let issues: [WorkspaceLibraryLoadIssue]
+package struct WorkspaceLibraryLoadResult: Equatable, Sendable {
+  package let library: WorkspaceLibrary
+  package let issues: [WorkspaceLibraryLoadIssue]
 
-  public init(library: WorkspaceLibrary, issues: [WorkspaceLibraryLoadIssue] = []) {
+  package init(library: WorkspaceLibrary, issues: [WorkspaceLibraryLoadIssue] = []) {
     self.library = library
     self.issues = issues
   }
 
-  public var canPersist: Bool {
+  package var canPersist: Bool {
     issues.allSatisfy(\.isSafeToPersistOver)
   }
 }
 
-public enum WorkspaceLibraryLoadIssue: Equatable, Sendable {
+package enum WorkspaceLibraryLoadIssue: Equatable, Sendable {
   /// A persisted document exists but could not be read. All files remain untouched.
   case readFailed(message: String)
   /// A persisted document is invalid for its declared format. All files remain untouched.
@@ -37,7 +37,7 @@ public enum WorkspaceLibraryLoadIssue: Equatable, Sendable {
   /// Versioned data loaded successfully, but the obsolete legacy file remains.
   case legacyCleanupFailed(message: String)
 
-  public var isSafeToPersistOver: Bool {
+  package var isSafeToPersistOver: Bool {
     switch self {
     case .legacyCleanupFailed:
       true
@@ -47,7 +47,7 @@ public enum WorkspaceLibraryLoadIssue: Equatable, Sendable {
   }
 }
 
-public actor WorkspaceStore: WorkspaceStoring {
+package actor WorkspaceStore: WorkspaceStoring {
   nonisolated private let baseURL: URL
   nonisolated private let libraryDirectoryURL: URL
   nonisolated private let manifestURL: URL
@@ -59,7 +59,7 @@ public actor WorkspaceStore: WorkspaceStoring {
   private var lastPersistedLibrary: WorkspaceLibrary?
   private var lastPersistedManifest: WorkspaceLibraryManifest?
 
-  public init(
+  package init(
     baseURL: URL = LocalModelDirectory.defaultBaseURL.deletingLastPathComponent(),
     now: @escaping @Sendable () -> Date = { Date() }
   ) {
@@ -83,7 +83,7 @@ public actor WorkspaceStore: WorkspaceStoring {
     self.now = now
   }
 
-  public func loadLibrary() async -> WorkspaceLibraryLoadResult {
+  package func loadLibrary() async -> WorkspaceLibraryLoadResult {
     do {
       let loaded: LoadedWorkspaceLibrary
       if FileManager.default.fileExists(atPath: manifestURL.path(percentEncoded: false)) {
@@ -137,7 +137,7 @@ public actor WorkspaceStore: WorkspaceStoring {
     }
   }
 
-  public func saveLibrary(_ library: WorkspaceLibrary) async throws {
+  package func saveLibrary(_ library: WorkspaceLibrary) async throws {
     guard !isPersistenceBlocked else {
       throw WorkspacePersistenceError.persistenceBlocked
     }

@@ -1,20 +1,20 @@
 import Foundation
 
-public protocol ChatAttachmentLoading: Sendable {
+package protocol ChatAttachmentLoading: Sendable {
   func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
   ) throws -> [ChatAttachment]
 }
 
-public struct ChatAttachmentLoader: ChatAttachmentLoading {
+package struct ChatAttachmentLoader: ChatAttachmentLoading {
   private let attachmentStore: ChatAttachmentStore
 
-  public init(attachmentStore: ChatAttachmentStore = ChatAttachmentStore()) {
+  package init(attachmentStore: ChatAttachmentStore = ChatAttachmentStore()) {
     self.attachmentStore = attachmentStore
   }
 
-  public func loadAttachments(
+  package func loadAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment]
   ) throws -> [ChatAttachment] {

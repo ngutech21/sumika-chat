@@ -1,14 +1,14 @@
 import Foundation
 
-public typealias AttachmentID = UUID
+package typealias AttachmentID = UUID
 
-public struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
-  public let id: AttachmentID
-  public let displayName: String
-  public let payload: ChatAttachmentPayload
-  public let createdAt: Date
+package struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
+  package let id: AttachmentID
+  package let displayName: String
+  package let payload: ChatAttachmentPayload
+  package let createdAt: Date
 
-  public init(
+  package init(
     id: AttachmentID = AttachmentID(),
     displayName: String,
     payload: ChatAttachmentPayload,
@@ -27,7 +27,7 @@ public struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     case createdAt
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decodeIfPresent(AttachmentID.self, forKey: .id, default: AttachmentID())
     displayName = try container.decodeIfPresent(String.self, forKey: .displayName, default: "")
@@ -35,7 +35,7 @@ public struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt, default: Date())
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(id, forKey: .id)
     try container.encode(displayName, forKey: .displayName)
@@ -43,15 +43,15 @@ public struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     try container.encode(createdAt, forKey: .createdAt)
   }
 
-  public var displayPath: String {
+  package var displayPath: String {
     displayName
   }
 
-  public var kind: ChatAttachmentKind {
+  package var kind: ChatAttachmentKind {
     payload.kind
   }
 
-  public var content: String {
+  package var content: String {
     switch payload {
     case .text(let textPayload):
       textPayload.content
@@ -60,26 +60,26 @@ public struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     }
   }
 
-  public var byteSize: Int {
+  package var byteSize: Int {
     payload.byteSize
   }
 
-  public var contentSHA256: String {
+  package var contentSHA256: String {
     payload.contentSHA256
   }
 
   /// Stable identity of the attachment bytes, used in cache prefix snapshots.
   /// Falls back to the attachment ID when no content hash was recorded, so two
   /// different attachments can never share a signature.
-  public var contentSignature: String {
+  package var contentSignature: String {
     contentSHA256.isEmpty ? "attachment:\(id.uuidString)" : "sha256:\(contentSHA256)"
   }
 
-  public var mimeType: String? {
+  package var mimeType: String? {
     payload.mimeType
   }
 
-  public var metadata: ChatAttachmentMetadata? {
+  package var metadata: ChatAttachmentMetadata? {
     switch payload {
     case .text(let payload):
       ChatAttachmentMetadata(
@@ -96,7 +96,7 @@ public struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     }
   }
 
-  public init(
+  package init(
     id: AttachmentID = AttachmentID(),
     url _: URL,
     displayName: String,
@@ -127,16 +127,16 @@ public struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-public enum ChatAttachmentKind: String, Codable, Equatable, Sendable {
+package enum ChatAttachmentKind: String, Codable, Equatable, Sendable {
   case text
   case image
 }
 
-public enum ChatAttachmentPayload: Codable, Equatable, Sendable {
+package enum ChatAttachmentPayload: Codable, Equatable, Sendable {
   case text(TextAttachmentPayload)
   case image(ImageAttachmentPayload)
 
-  public var kind: ChatAttachmentKind {
+  package var kind: ChatAttachmentKind {
     switch self {
     case .text:
       .text
@@ -145,7 +145,7 @@ public enum ChatAttachmentPayload: Codable, Equatable, Sendable {
     }
   }
 
-  public var byteSize: Int {
+  package var byteSize: Int {
     switch self {
     case .text(let payload):
       payload.byteSize
@@ -154,7 +154,7 @@ public enum ChatAttachmentPayload: Codable, Equatable, Sendable {
     }
   }
 
-  public var contentSHA256: String {
+  package var contentSHA256: String {
     switch self {
     case .text(let payload):
       payload.contentSHA256
@@ -163,7 +163,7 @@ public enum ChatAttachmentPayload: Codable, Equatable, Sendable {
     }
   }
 
-  public var mimeType: String? {
+  package var mimeType: String? {
     switch self {
     case .text:
       nil
@@ -173,36 +173,36 @@ public enum ChatAttachmentPayload: Codable, Equatable, Sendable {
   }
 }
 
-public struct TextAttachmentPayload: Codable, Equatable, Sendable {
-  public let content: String
-  public let byteSize: Int
-  public let contentSHA256: String
+package struct TextAttachmentPayload: Codable, Equatable, Sendable {
+  package let content: String
+  package let byteSize: Int
+  package let contentSHA256: String
 
-  public init(content: String, byteSize: Int, contentSHA256: String) {
+  package init(content: String, byteSize: Int, contentSHA256: String) {
     self.content = content
     self.byteSize = byteSize
     self.contentSHA256 = contentSHA256
   }
 }
 
-public struct ImageAttachmentPayload: Codable, Equatable, Sendable {
-  public let mimeType: String
-  public let byteSize: Int
-  public let contentSHA256: String
+package struct ImageAttachmentPayload: Codable, Equatable, Sendable {
+  package let mimeType: String
+  package let byteSize: Int
+  package let contentSHA256: String
 
-  public init(mimeType: String, byteSize: Int, contentSHA256: String) {
+  package init(mimeType: String, byteSize: Int, contentSHA256: String) {
     self.mimeType = mimeType
     self.byteSize = byteSize
     self.contentSHA256 = contentSHA256
   }
 }
 
-public struct ChatAttachmentMetadata: Codable, Equatable, Sendable {
-  public let mimeType: String?
-  public let byteCount: Int
-  public let contentSHA256: String?
+package struct ChatAttachmentMetadata: Codable, Equatable, Sendable {
+  package let mimeType: String?
+  package let byteCount: Int
+  package let contentSHA256: String?
 
-  public init(
+  package init(
     mimeType: String?,
     byteCount: Int,
     contentSHA256: String? = nil
@@ -212,33 +212,33 @@ public struct ChatAttachmentMetadata: Codable, Equatable, Sendable {
     self.contentSHA256 = contentSHA256
   }
 
-  public var imageSummary: String {
+  package var imageSummary: String {
     let type = mimeType ?? "image"
     return "\(type), \(byteCount) bytes"
   }
 }
 
-public enum ChatAttachmentLimits {
-  public static let maxTextFileBytes = 256 * 1024
-  public static let maxImageFileBytes = 10 * 1024 * 1024
-  public static let maxAttachmentCount = 8
+package enum ChatAttachmentLimits {
+  package static let maxTextFileBytes = 256 * 1024
+  package static let maxImageFileBytes = 10 * 1024 * 1024
+  package static let maxAttachmentCount = 8
 
-  public static let supportedTextFileExtensions: Set<String> = [
+  package static let supportedTextFileExtensions: Set<String> = [
     "c", "cc", "cpp", "css", "csv", "go", "h", "hpp", "html", "java",
     "js", "json", "kt", "log", "md", "mjs", "py", "rb", "rs", "sh",
     "swift", "toml", "ts", "tsx", "txt", "xml", "yaml", "yml",
   ]
 
-  public static let supportedImageFileExtensions: Set<String> = [
+  package static let supportedImageFileExtensions: Set<String> = [
     "jpeg", "jpg", "png", "webp",
   ]
 
-  public static var supportedFileExtensions: Set<String> {
+  package static var supportedFileExtensions: Set<String> {
     supportedTextFileExtensions.union(supportedImageFileExtensions)
   }
 }
 
-public enum ChatAttachmentError: LocalizedError {
+package enum ChatAttachmentError: LocalizedError {
   case tooManyFiles(Int)
   case unsupportedFileType(String)
   case fileTooLarge(String, Int)
@@ -246,7 +246,7 @@ public enum ChatAttachmentError: LocalizedError {
   case missingStoredAttachment(String)
   case changedStoredAttachment(String)
 
-  public var errorDescription: String? {
+  package var errorDescription: String? {
     switch self {
     case .tooManyFiles(let limit):
       "Attach up to \(limit) files."
@@ -264,8 +264,8 @@ public enum ChatAttachmentError: LocalizedError {
   }
 }
 
-public enum LocalAttachmentDirectory {
-  public static var defaultBaseURL: URL {
+package enum LocalAttachmentDirectory {
+  package static var defaultBaseURL: URL {
     let applicationSupportURL = FileManager.default.urls(
       for: .applicationSupportDirectory,
       in: .userDomainMask
@@ -278,20 +278,20 @@ public enum LocalAttachmentDirectory {
   }
 }
 
-public struct ActiveAttachmentContext: Codable, Equatable, Sendable {
-  public var attachmentIDs: [AttachmentID]
+package struct ActiveAttachmentContext: Codable, Equatable, Sendable {
+  package var attachmentIDs: [AttachmentID]
 
-  public init(attachmentIDs: [AttachmentID] = []) {
+  package init(attachmentIDs: [AttachmentID] = []) {
     self.attachmentIDs = attachmentIDs
   }
 
-  public static let empty = ActiveAttachmentContext()
+  package static let empty = ActiveAttachmentContext()
 
   private enum CodingKeys: String, CodingKey {
     case attachmentIDs
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     attachmentIDs = try container.decodeIfPresent(
       [AttachmentID].self,
@@ -300,12 +300,12 @@ public struct ActiveAttachmentContext: Codable, Equatable, Sendable {
     )
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(attachmentIDs, forKey: .attachmentIDs)
   }
 
-  public mutating func activate(_ attachments: [ChatAttachment]) {
+  package mutating func activate(_ attachments: [ChatAttachment]) {
     for attachment in attachments where attachment.kind == .image {
       guard !attachmentIDs.contains(attachment.id) else {
         continue
@@ -314,7 +314,7 @@ public struct ActiveAttachmentContext: Codable, Equatable, Sendable {
     }
   }
 
-  public mutating func remove(_ id: AttachmentID) {
+  package mutating func remove(_ id: AttachmentID) {
     attachmentIDs.removeAll { $0 == id }
   }
 }

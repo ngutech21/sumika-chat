@@ -4,19 +4,19 @@ import Foundation
 ///
 /// Batch membership is reconstructed from ``ChatTurn/items`` and is intentionally
 /// not persisted separately. Records remain in their canonical transcript order.
-public struct ToolCallBatch: Equatable, Sendable {
-  public let anchorID: ToolCallRecord.ID
-  public let records: [ToolCallRecord]
+package struct ToolCallBatch: Equatable, Sendable {
+  package let anchorID: ToolCallRecord.ID
+  package let records: [ToolCallRecord]
 
-  public var pendingApprovalRecords: [ToolCallRecord] {
+  package var pendingApprovalRecords: [ToolCallRecord] {
     records.filter { $0.status == .awaitingApproval }
   }
 
-  public var hasPendingUserAnswer: Bool {
+  package var hasPendingUserAnswer: Bool {
     records.contains { $0.status == .awaitingUserAnswer }
   }
 
-  public var isModelReady: Bool {
+  package var isModelReady: Bool {
     records.allSatisfy { $0.resultPayload != nil }
   }
 
@@ -27,15 +27,15 @@ public struct ToolCallBatch: Equatable, Sendable {
   }
 }
 
-public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
-  public let id: UUID
-  public private(set) var status: ChatTurnStatus
-  public private(set) var modelContextPolicy: ChatTurnModelContextPolicy
-  public private(set) var items: [ChatTurnItem]
-  public var createdAt: Date
-  public private(set) var updatedAt: Date
+package struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
+  package let id: UUID
+  package private(set) var status: ChatTurnStatus
+  package private(set) var modelContextPolicy: ChatTurnModelContextPolicy
+  package private(set) var items: [ChatTurnItem]
+  package var createdAt: Date
+  package private(set) var updatedAt: Date
 
-  public init(
+  package init(
     id: UUID = UUID(),
     status: ChatTurnStatus,
     modelContextPolicy: ChatTurnModelContextPolicy = .included,
@@ -60,7 +60,7 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     case updatedAt
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
     status = try container.decodeIfPresent(
@@ -75,7 +75,7 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: createdAt)
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(id, forKey: .id)
     try container.encode(status, forKey: .status)
@@ -292,7 +292,7 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
   ///
   /// User and assistant messages delimit assistant responses. Assistant thinking
   /// items are transparent so presentation-only reasoning cannot split a batch.
-  public func toolCallBatch(containing toolCallID: ToolCallRecord.ID) -> ToolCallBatch? {
+  package func toolCallBatch(containing toolCallID: ToolCallRecord.ID) -> ToolCallBatch? {
     toolCallBatches.first { batch in
       batch.records.contains { $0.id == toolCallID }
     }
@@ -301,7 +301,7 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
   /// Tool-call batches in canonical transcript order. This derived collection is
   /// also the source of truth for the per-turn native tool budget: one response
   /// containing multiple calls contributes exactly one batch.
-  public var toolCallBatches: [ToolCallBatch] {
+  package var toolCallBatches: [ToolCallBatch] {
     var batches: [ToolCallBatch] = []
     var records: [ToolCallRecord] = []
 
@@ -329,7 +329,7 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     return batches
   }
 
-  public var toolCallBatchCount: Int {
+  package var toolCallBatchCount: Int {
     toolCallBatches.count
   }
 
@@ -391,7 +391,7 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-public enum ChatTurnItem: Codable, Equatable, Sendable {
+package enum ChatTurnItem: Codable, Equatable, Sendable {
   case userMessage(UserTurnMessage)
   case assistantThinking(AssistantThinkingMessage)
   case assistantMessage(AssistantTurnMessage)
@@ -409,7 +409,7 @@ public enum ChatTurnItem: Codable, Equatable, Sendable {
     case tool
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
     case .userMessage:
@@ -425,7 +425,7 @@ public enum ChatTurnItem: Codable, Equatable, Sendable {
     }
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     switch self {
     case .userMessage(let message):
@@ -444,13 +444,13 @@ public enum ChatTurnItem: Codable, Equatable, Sendable {
   }
 }
 
-public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
-  public let id: UUID
-  public var content: String
-  public var attachments: [ChatAttachment]
-  public var promptContext: CurrentPromptContext
+package struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
+  package let id: UUID
+  package var content: String
+  package var attachments: [ChatAttachment]
+  package var promptContext: CurrentPromptContext
 
-  public init(
+  package init(
     id: UUID = UUID(),
     content: String,
     attachments: [ChatAttachment] = [],
@@ -469,7 +469,7 @@ public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
     case promptContext
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
     content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
@@ -481,7 +481,7 @@ public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
     )
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(id, forKey: .id)
     try container.encode(content, forKey: .content)
@@ -490,7 +490,7 @@ public struct UserTurnMessage: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-public enum AssistantModelProjectionPolicy: Codable, Equatable, Sendable {
+package enum AssistantModelProjectionPolicy: Codable, Equatable, Sendable {
   case visibleContent
   case override(String)
   case excluded
@@ -506,7 +506,7 @@ public enum AssistantModelProjectionPolicy: Codable, Equatable, Sendable {
     case excluded
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
     case .visibleContent:
@@ -518,7 +518,7 @@ public enum AssistantModelProjectionPolicy: Codable, Equatable, Sendable {
     }
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     switch self {
     case .visibleContent:
@@ -532,21 +532,21 @@ public enum AssistantModelProjectionPolicy: Codable, Equatable, Sendable {
   }
 }
 
-public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
-  public enum DeliveryStatus: String, Codable, Equatable, Sendable {
+package struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
+  package enum DeliveryStatus: String, Codable, Equatable, Sendable {
     case complete
     case streaming
     case cancelled
   }
 
-  public let id: UUID
-  public var content: String
-  public var modelProjectionPolicy: AssistantModelProjectionPolicy
-  public var attachments: [ChatAttachment]
-  public var generationMetrics: ChatGenerationMetrics?
-  public var deliveryStatus: DeliveryStatus
+  package let id: UUID
+  package var content: String
+  package var modelProjectionPolicy: AssistantModelProjectionPolicy
+  package var attachments: [ChatAttachment]
+  package var generationMetrics: ChatGenerationMetrics?
+  package var deliveryStatus: DeliveryStatus
 
-  public init(
+  package init(
     id: UUID = UUID(),
     content: String,
     attachments: [ChatAttachment] = [],
@@ -571,7 +571,7 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
     case deliveryStatus
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
     content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
@@ -592,7 +592,7 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
     )
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(id, forKey: .id)
     try container.encode(content, forKey: .content)
@@ -604,7 +604,7 @@ public struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
 }
 
 nonisolated extension AssistantTurnMessage {
-  public var modelProjectedContent: String? {
+  package var modelProjectedContent: String? {
     switch modelProjectionPolicy {
     case .visibleContent:
       return content
@@ -616,20 +616,20 @@ nonisolated extension AssistantTurnMessage {
   }
 }
 
-public struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendable {
-  public enum DeliveryStatus: String, Codable, Equatable, Sendable {
+package struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendable {
+  package enum DeliveryStatus: String, Codable, Equatable, Sendable {
     case complete
     case streaming
     case cancelled
   }
 
-  public let id: UUID
-  public var content: String
-  public var deliveryStatus: DeliveryStatus
-  public var startedAt: Date?
-  public var completedAt: Date?
+  package let id: UUID
+  package var content: String
+  package var deliveryStatus: DeliveryStatus
+  package var startedAt: Date?
+  package var completedAt: Date?
 
-  public init(
+  package init(
     id: UUID = UUID(),
     content: String,
     deliveryStatus: DeliveryStatus = .complete,
@@ -643,7 +643,7 @@ public struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendab
     self.completedAt = completedAt
   }
 
-  public var reasoningDuration: TimeInterval? {
+  package var reasoningDuration: TimeInterval? {
     guard let startedAt, let completedAt else {
       return nil
     }
@@ -658,7 +658,7 @@ public struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendab
     case completedAt
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
     content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
@@ -671,7 +671,7 @@ public struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendab
     completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(id, forKey: .id)
     try container.encode(content, forKey: .content)
@@ -681,7 +681,7 @@ public struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendab
   }
 }
 
-public enum ChatTurnStatus: String, Codable, Equatable, Sendable {
+package enum ChatTurnStatus: String, Codable, Equatable, Sendable {
   case running
   case awaitingApproval
   case awaitingUserAnswer
@@ -690,13 +690,13 @@ public enum ChatTurnStatus: String, Codable, Equatable, Sendable {
   case failed
 }
 
-public enum ChatTurnModelContextPolicy: String, Codable, Equatable, Sendable {
+package enum ChatTurnModelContextPolicy: String, Codable, Equatable, Sendable {
   case included
   case excluded
 }
 
 nonisolated extension ChatTurnItem {
-  public var messageID: UUID? {
+  package var messageID: UUID? {
     switch self {
     case .userMessage(let message):
       message.id
@@ -709,7 +709,7 @@ nonisolated extension ChatTurnItem {
     }
   }
 
-  public var userContent: String? {
+  package var userContent: String? {
     guard case .userMessage(let message) = self else {
       return nil
     }

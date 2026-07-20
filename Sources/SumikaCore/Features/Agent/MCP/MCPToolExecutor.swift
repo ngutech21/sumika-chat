@@ -16,14 +16,14 @@ enum MCPToolNaming {
 
 // MARK: - Input
 
-public struct MCPToolInput: Codable, Equatable, Sendable {
-  public var serverID: UUID
-  public var serverName: String
-  public var serverSlug: String
-  public var remoteToolName: String
-  public var arguments: ToolCallArguments
+package struct MCPToolInput: Codable, Equatable, Sendable {
+  package var serverID: UUID
+  package var serverName: String
+  package var serverSlug: String
+  package var remoteToolName: String
+  package var arguments: ToolCallArguments
 
-  public init(
+  package init(
     serverID: UUID,
     serverName: String,
     serverSlug: String,
@@ -37,26 +37,26 @@ public struct MCPToolInput: Codable, Equatable, Sendable {
     self.arguments = arguments
   }
 
-  public var qualifiedName: ToolName {
+  package var qualifiedName: ToolName {
     MCPToolNaming.qualifiedName(serverSlug: serverSlug, remoteToolName: remoteToolName)
   }
 }
 
 // MARK: - Result
 
-public enum MCPToolContentBlock: Codable, Equatable, Sendable {
+package enum MCPToolContentBlock: Codable, Equatable, Sendable {
   case text(String)
   case unsupported(type: String)
 }
 
-public struct MCPToolResult: Codable, Equatable, Sendable {
-  public var serverName: String
-  public var remoteToolName: String
-  public var content: [MCPToolContentBlock]
-  public var isError: Bool
-  public var truncated: Bool
+package struct MCPToolResult: Codable, Equatable, Sendable {
+  package var serverName: String
+  package var remoteToolName: String
+  package var content: [MCPToolContentBlock]
+  package var isError: Bool
+  package var truncated: Bool
 
-  public init(
+  package init(
     serverName: String,
     remoteToolName: String,
     content: [MCPToolContentBlock],
@@ -72,7 +72,7 @@ public struct MCPToolResult: Codable, Equatable, Sendable {
 }
 
 nonisolated extension MCPToolResult {
-  public var renderedText: String {
+  package var renderedText: String {
     guard !content.isEmpty else {
       return isError ? "The MCP tool reported an error without details." : "(empty result)"
     }
@@ -86,7 +86,7 @@ nonisolated extension MCPToolResult {
     }.joined(separator: "\n\n")
   }
 
-  public var preview: ToolResultPreview {
+  package var preview: ToolResultPreview {
     ToolResultPreview(
       status: isError ? .failed : .success,
       text: previewText,

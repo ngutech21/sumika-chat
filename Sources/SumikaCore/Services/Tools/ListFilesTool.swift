@@ -1,15 +1,15 @@
 import Foundation
 
-public struct ListFilesInput: Codable, Equatable, Sendable {
-  public let path: String?
+package struct ListFilesInput: Codable, Equatable, Sendable {
+  package let path: String?
 }
 
-public struct ListFilesResult: Codable, Equatable, Sendable {
-  public var root: WorkspaceRelativePath
-  public var entries: [WorkspaceFileEntry]
-  public var truncated: Bool
+package struct ListFilesResult: Codable, Equatable, Sendable {
+  package var root: WorkspaceRelativePath
+  package var entries: [WorkspaceFileEntry]
+  package var truncated: Bool
 
-  public init(
+  package init(
     root: WorkspaceRelativePath,
     entries: [WorkspaceFileEntry],
     truncated: Bool = false
@@ -35,7 +35,7 @@ nonisolated extension ListFilesResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let listFiles = ToolDefinition(
+  package static let listFiles = ToolDefinition(
     name: .listFiles,
     description:
       "List files and folders in a workspace-relative directory. Use this to explore project structure before choosing a path.",

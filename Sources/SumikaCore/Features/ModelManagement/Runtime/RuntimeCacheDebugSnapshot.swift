@@ -1,23 +1,23 @@
 import Foundation
 
-public struct RuntimeCacheDebugSnapshot: Equatable, Sendable {
-  public let generationID: UUID
-  public let recordedAt: Date
-  public let cacheMode: String
-  public let cacheReason: String
-  public let reuseStrategy: String
-  public let appendDeltaStartIndex: Int?
-  public let contextSignature: String
-  public let previousContextSignature: String?
-  public let appendOnly: Bool
-  public let reusedMessageCount: Int
-  public let appendedMessageCount: Int
-  public let mismatchReason: String?
-  public let firstMismatchIndex: Int?
-  public let systemPromptChanged: Bool?
-  public let currentPromptContextChanged: Bool?
+package struct RuntimeCacheDebugSnapshot: Equatable, Sendable {
+  package let generationID: UUID
+  package let recordedAt: Date
+  package let cacheMode: String
+  package let cacheReason: String
+  package let reuseStrategy: String
+  package let appendDeltaStartIndex: Int?
+  package let contextSignature: String
+  package let previousContextSignature: String?
+  package let appendOnly: Bool
+  package let reusedMessageCount: Int
+  package let appendedMessageCount: Int
+  package let mismatchReason: String?
+  package let firstMismatchIndex: Int?
+  package let systemPromptChanged: Bool?
+  package let currentPromptContextChanged: Bool?
 
-  public init(
+  package init(
     generationID: UUID,
     recordedAt: Date,
     cacheMode: String,

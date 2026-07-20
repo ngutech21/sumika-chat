@@ -1,12 +1,12 @@
 import Foundation
 
-public struct ChatModelConfiguration: Equatable, Sendable {
-  public let localModelDirectory: URL
-  public let contextTokenLimit: Int?
-  public let supportsImageInput: Bool
-  public let reasoningTraceFormat: ReasoningTraceFormat
+package struct ChatModelConfiguration: Equatable, Sendable {
+  package let localModelDirectory: URL
+  package let contextTokenLimit: Int?
+  package let supportsImageInput: Bool
+  package let reasoningTraceFormat: ReasoningTraceFormat
 
-  public init(
+  package init(
     localModelDirectory: URL,
     contextTokenLimit: Int? = nil,
     supportsImageInput: Bool = false,
@@ -18,18 +18,18 @@ public struct ChatModelConfiguration: Equatable, Sendable {
     self.reasoningTraceFormat = reasoningTraceFormat
   }
 
-  public var displayPath: String {
+  package var displayPath: String {
     localModelDirectory.path(percentEncoded: false)
   }
 }
 
-public struct ChatGenerationConfigPreset: Equatable, Sendable {
-  public let temperature: Double?
-  public let topP: Double?
-  public let topK: Int?
-  public let repetitionPenalty: Double?
+package struct ChatGenerationConfigPreset: Equatable, Sendable {
+  package let temperature: Double?
+  package let topP: Double?
+  package let topK: Int?
+  package let repetitionPenalty: Double?
 
-  public init(
+  package init(
     temperature: Double? = nil,
     topP: Double? = nil,
     topK: Int? = nil,
@@ -41,11 +41,11 @@ public struct ChatGenerationConfigPreset: Equatable, Sendable {
     self.repetitionPenalty = repetitionPenalty
   }
 
-  public var hasValues: Bool {
+  package var hasValues: Bool {
     temperature != nil || topP != nil || topK != nil || repetitionPenalty != nil
   }
 
-  public func applying(to settings: ChatGenerationSettings) -> ChatGenerationSettings {
+  package func applying(to settings: ChatGenerationSettings) -> ChatGenerationSettings {
     var updated = settings
     if let temperature {
       updated.temperature = temperature
@@ -63,10 +63,10 @@ public struct ChatGenerationConfigPreset: Equatable, Sendable {
   }
 }
 
-public enum LocalModelDirectory {
-  public static let defaultModelName = ManagedModelCatalog.defaultModel.localDirectoryName
+package enum LocalModelDirectory {
+  package static let defaultModelName = ManagedModelCatalog.defaultModel.localDirectoryName
 
-  public static var defaultBaseURL: URL {
+  package static var defaultBaseURL: URL {
     let applicationSupportURL = FileManager.default.urls(
       for: .applicationSupportDirectory,
       in: .userDomainMask
@@ -78,17 +78,17 @@ public enum LocalModelDirectory {
       .appending(path: "Models", directoryHint: .isDirectory)
   }
 
-  public static var defaultModelURL: URL {
+  package static var defaultModelURL: URL {
     defaultBaseURL.appending(path: defaultModelName, directoryHint: .isDirectory)
   }
 
-  public static func ensureDefaultBaseDirectoryExists() throws -> URL {
+  package static func ensureDefaultBaseDirectoryExists() throws -> URL {
     let url = defaultBaseURL
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
   }
 
-  public static func readContextTokenLimit(from modelDirectory: URL) -> Int? {
+  package static func readContextTokenLimit(from modelDirectory: URL) -> Int? {
     let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
     guard
       let data = try? Data(contentsOf: configURL),
@@ -100,7 +100,7 @@ public enum LocalModelDirectory {
     return contextTokenLimit(in: object)
   }
 
-  public static func readGenerationConfigPreset(
+  package static func readGenerationConfigPreset(
     from modelDirectory: URL
   ) -> ChatGenerationConfigPreset? {
     let configURL = modelDirectory.appending(

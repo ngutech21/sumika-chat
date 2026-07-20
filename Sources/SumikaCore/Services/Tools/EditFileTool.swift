@@ -1,9 +1,9 @@
 import Foundation
 
-public struct EditFileInput: Codable, Equatable, Sendable {
-  public let path: String
-  public let oldText: String
-  public let newText: String
+package struct EditFileInput: Codable, Equatable, Sendable {
+  package let path: String
+  package let oldText: String
+  package let newText: String
 
   private enum CodingKeys: String, CodingKey {
     case path
@@ -12,7 +12,7 @@ public struct EditFileInput: Codable, Equatable, Sendable {
   }
 }
 
-public enum EditFileResult: Codable, Equatable, Sendable {
+package enum EditFileResult: Codable, Equatable, Sendable {
   case success(path: WorkspaceRelativePath, diff: String?, matchStrategy: EditMatchStrategy)
   case oldTextNotFound(
     path: WorkspaceRelativePath,
@@ -24,7 +24,7 @@ public enum EditFileResult: Codable, Equatable, Sendable {
   case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
 }
 
-public enum EditMatchStrategy: String, Codable, Equatable, Sendable {
+package enum EditMatchStrategy: String, Codable, Equatable, Sendable {
   case exact
   case normalizedLineEndings
   case trimTrailingWhitespace
@@ -79,7 +79,7 @@ nonisolated extension EditFileResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let editFile = ToolDefinition(
+  package static let editFile = ToolDefinition(
     name: .editFile,
     description:
       "Replace exactly one current text span in an existing workspace file. Always provide all required arguments: path, old_text, and new_text. Never call edit_file with empty arguments. Call read_file first unless the exact current old_text is visible in the latest context. old_text must be copied verbatim from current file content, match once, and be as small as practical. Do not guess from memory.",
@@ -769,26 +769,26 @@ struct EditFileToolExecutor: TypedToolExecutor {
 }
 
 nonisolated private struct ValidatedEdit {
-  public let path: String
-  public let resolvedURL: URL
-  public let oldText: String
-  public let newText: String
-  public let matchStrategy: EditMatchStrategy
-  public let updatedContent: String
+  package let path: String
+  package let resolvedURL: URL
+  package let oldText: String
+  package let newText: String
+  package let matchStrategy: EditMatchStrategy
+  package let updatedContent: String
 }
 
 nonisolated private struct EditMatch {
-  public let range: Range<String.Index>
-  public let replacementText: String
-  public let strategy: EditMatchStrategy
+  package let range: Range<String.Index>
+  package let replacementText: String
+  package let strategy: EditMatchStrategy
 }
 
 nonisolated private struct TextLine {
-  public let body: String
-  public let lineEnding: String
-  public let bodyRange: Range<String.Index>
-  public let fullRange: Range<String.Index>
-  public let fullText: String
+  package let body: String
+  package let lineEnding: String
+  package let bodyRange: Range<String.Index>
+  package let fullRange: Range<String.Index>
+  package let fullText: String
 }
 
 /// Tokenizes the edit's `oldText` and `content` into lines exactly once and shares the
@@ -824,11 +824,11 @@ nonisolated private final class TokenizedEdit {
 }
 
 nonisolated private struct IndexedNormalizedText {
-  public let text: String
+  package let text: String
   private let lowerBounds: [String.Index]
   private let upperBounds: [String.Index]
 
-  public init(lineEndingNormalizing source: String) {
+  package init(lineEndingNormalizing source: String) {
     var text = ""
     var lowerBounds: [String.Index] = []
     var upperBounds: [String.Index] = []
@@ -871,7 +871,7 @@ nonisolated private struct IndexedNormalizedText {
   /// advances, so each match costs O(1) to map and the whole search is O(n) — the previous
   /// `sourceRange(for:)` recomputed `String.distance(from: startIndex,…)` per lookup, which
   /// is O(n) every time on a `String`'s bidirectional index.
-  public func sourceRanges(matching needle: String, maxCount: Int) -> [Range<String.Index>] {
+  package func sourceRanges(matching needle: String, maxCount: Int) -> [Range<String.Index>] {
     var results: [Range<String.Index>] = []
     var searchStart = text.startIndex
     var searchStartOffset = 0
@@ -899,14 +899,14 @@ nonisolated private struct IndexedNormalizedText {
   }
 }
 
-public enum EditFileValidationError: LocalizedError {
+internal enum EditFileValidationError: LocalizedError {
   case emptyOldText
   case identicalReplacement
   case nonUTF8
   case oldTextNotFound
   case ambiguousOldText
 
-  public var errorDescription: String? {
+  package var errorDescription: String? {
     switch self {
     case .emptyOldText:
       "edit_file old_text must not be empty."

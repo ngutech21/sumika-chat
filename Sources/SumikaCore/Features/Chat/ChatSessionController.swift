@@ -7,19 +7,19 @@ import Observation
 
 @MainActor
 @Observable
-public final class ChatSessionController {
-  public var chatSession = ChatSession.defaultSession {
+package final class ChatSessionController {
+  package var chatSession = ChatSession.defaultSession {
     didSet {
       syncComposerSessionState()
     }
   }
-  public private(set) var composerSessionState = ChatComposerSessionState()
-  public private(set) var modelContextDebugState = ModelContextDebugState()
-  public var contextUsage: ChatContextUsage?
-  public var isGenerating = false
-  public var errorMessage: String?
+  package private(set) var composerSessionState = ChatComposerSessionState()
+  package private(set) var modelContextDebugState = ModelContextDebugState()
+  package var contextUsage: ChatContextUsage?
+  package var isGenerating = false
+  package var errorMessage: String?
 
-  public let modelRuntime: ModelRuntimeController
+  package let modelRuntime: ModelRuntimeController
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
   @ObservationIgnored private let runtimeContextClearCoordinator: RuntimeContextClearCoordinator
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
@@ -46,33 +46,33 @@ public final class ChatSessionController {
     )
   #endif
 
-  public func canSend(prompt: String) -> Bool {
+  package func canSend(prompt: String) -> Bool {
     modelRuntime.modelState == .ready
       && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && !isGenerating
   }
 
-  public var hasPendingApproval: Bool {
+  package var hasPendingApproval: Bool {
     chatSession.containsToolCall { $0.status == .awaitingApproval }
   }
 
-  public var hasPendingUserAnswer: Bool {
+  package var hasPendingUserAnswer: Bool {
     chatSession.containsToolCall { $0.status == .awaitingUserAnswer }
   }
 
-  public var isInputBlocked: Bool {
+  package var isInputBlocked: Bool {
     hasPendingApproval || hasPendingUserAnswer
   }
 
-  public var canChangeInteractionMode: Bool {
+  package var canChangeInteractionMode: Bool {
     !isGenerating && !isInputBlocked
   }
 
-  public var canChangeMCPServerSelection: Bool {
+  package var canChangeMCPServerSelection: Bool {
     chatSession.interactionMode == .agent && canChangeInteractionMode
   }
 
-  public var canEnableAutomaticToolApproval: Bool {
+  package var canEnableAutomaticToolApproval: Bool {
     chatSession.interactionMode == .agent
       && chatSession.toolApprovalPolicy == .manual
       && !isGenerating
@@ -274,11 +274,11 @@ extension ChatSessionController {
     return todoState
   }
 
-  public func setSessionChangeHandler(_ handler: (@MainActor @Sendable () -> Void)?) {
+  package func setSessionChangeHandler(_ handler: (@MainActor @Sendable () -> Void)?) {
     onSessionDidChange = handler
   }
 
-  public func loadSession(_ session: ChatSession) {
+  package func loadSession(_ session: ChatSession) {
     let model =
       ManagedModelCatalog.model(id: session.selectedModelID)
       ?? ManagedModelCatalog.defaultModel
@@ -303,7 +303,7 @@ extension ChatSessionController {
     }
   }
 
-  public func sessionSnapshot(updating session: ChatSession) -> ChatSession {
+  package func sessionSnapshot(updating session: ChatSession) -> ChatSession {
     var snapshot = session
     snapshot.title = chatSession.title
     snapshot.selectedModelID = modelRuntime.selectedModelID
@@ -319,7 +319,7 @@ extension ChatSessionController {
     return snapshot
   }
 
-  public func setInteractionMode(_ mode: WorkspaceInteractionMode) {
+  package func setInteractionMode(_ mode: WorkspaceInteractionMode) {
     guard canChangeInteractionMode, chatSession.interactionMode != mode else {
       return
     }
@@ -336,7 +336,7 @@ extension ChatSessionController {
     notifySessionDidChange()
   }
 
-  public func setReasoningEnabled(_ isEnabled: Bool) {
+  package func setReasoningEnabled(_ isEnabled: Bool) {
     guard canChangeInteractionMode, chatSession.generationSettings.reasoningEnabled != isEnabled
     else {
       return
@@ -351,7 +351,7 @@ extension ChatSessionController {
     notifySessionDidChange()
   }
 
-  public func enableAutomaticToolApproval(in workspace: Workspace) {
+  package func enableAutomaticToolApproval(in workspace: Workspace) {
     guard canEnableAutomaticToolApproval else {
       return
     }
@@ -366,7 +366,7 @@ extension ChatSessionController {
     resumeAutomaticApprovalBatch(containing: batchAnchorID, in: workspace)
   }
 
-  public func disableAutomaticToolApproval() {
+  package func disableAutomaticToolApproval() {
     guard chatSession.toolApprovalPolicy != .manual else {
       return
     }
@@ -376,7 +376,7 @@ extension ChatSessionController {
     notifySessionDidChange()
   }
 
-  public func configureAgentTools(todoWriteEnabled: Bool) {
+  package func configureAgentTools(todoWriteEnabled: Bool) {
     setAgentToolExecutorRegistry(
       ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: todoWriteEnabled)
     )
@@ -416,7 +416,7 @@ extension ChatSessionController {
     applySelectedMCPServerIDs(serverIDs, agentToolExecutorRegistry: agentToolExecutorRegistry)
   }
 
-  public func prepareForModelRuntimeAction(
+  package func prepareForModelRuntimeAction(
     cancelGeneration shouldCancelGeneration: Bool,
     invalidateContext shouldInvalidateContext: Bool
   ) {
@@ -465,12 +465,12 @@ extension ChatSessionController {
   }
 
   @discardableResult
-  public func sendMessage(prompt: String) -> Bool {
+  package func sendMessage(prompt: String) -> Bool {
     sendMessage(prompt: prompt, workspace: nil, sessionID: nil)
   }
 
   @discardableResult
-  public func sendMessage(
+  package func sendMessage(
     prompt: String,
     in workspace: Workspace,
     sessionID: ChatSession.ID
@@ -479,7 +479,7 @@ extension ChatSessionController {
   }
 
   @discardableResult
-  public func sendMessage(prompt: String, in workspace: Workspace) -> Bool {
+  package func sendMessage(prompt: String, in workspace: Workspace) -> Bool {
     sendMessage(prompt: prompt, workspace: workspace, sessionID: workspace.sessions.first?.id)
   }
 
@@ -605,7 +605,7 @@ extension ChatSessionController {
     chatSession.title = ChatSessionTitleGenerator.title(fromFirstPrompt: prompt)
   }
 
-  public func cancelGeneration() {
+  package func cancelGeneration() {
     cancelGeneration(notify: true)
   }
 
@@ -626,7 +626,7 @@ extension ChatSessionController {
     }
   }
 
-  public func clearChatHistory() {
+  package func clearChatHistory() {
     transcriptMutator.clearTranscript(in: &chatSession)
     updateRuntimeCacheDebugSnapshot(nil)
     invalidateModelContextDebugDocument()
@@ -637,7 +637,7 @@ extension ChatSessionController {
     refreshContextUsage()
   }
 
-  public func refreshContextUsage() {
+  package func refreshContextUsage() {
     refreshContextUsage(toolPromptMode: .disabled)
   }
 
@@ -650,11 +650,11 @@ extension ChatSessionController {
     contextUsage = snapshot.estimatedUsage(isStale: false)
   }
 
-  public func updateContextUsage() async {
+  package func updateContextUsage() async {
     refreshContextUsage()
   }
 
-  public func modelContextDebugDocument(
+  package func modelContextDebugDocument(
     workspace: Workspace? = nil,
     sessionID: ChatSession.ID? = nil
   ) throws -> ModelContextDebugDocument {
@@ -778,14 +778,14 @@ extension ChatSessionController {
     )
   }
 
-  public func addAttachments(from urls: [URL]) {
+  package func addAttachments(from urls: [URL]) {
     attachmentCoordinator.addAttachments(
       from: urls,
       existingAttachments: chatSession.pendingAttachments,
       onEvent: handleAttachmentEvent(_:))
   }
 
-  public func removeAttachment(id: ChatAttachment.ID) {
+  package func removeAttachment(id: ChatAttachment.ID) {
     attachmentCoordinator.removeAttachment(id: id, onEvent: handleAttachmentEvent(_:))
   }
 
@@ -847,7 +847,7 @@ extension ChatSessionController {
     }
   }
 
-  public func approveToolCall(id toolCallID: ToolCallRecord.ID, in workspace: Workspace) {
+  package func approveToolCall(id toolCallID: ToolCallRecord.ID, in workspace: Workspace) {
     guard !isGenerating else {
       return
     }
@@ -874,7 +874,7 @@ extension ChatSessionController {
     )
   }
 
-  public func approveToolCallBatch(
+  package func approveToolCallBatch(
     containing batchAnchorID: ToolCallRecord.ID,
     in workspace: Workspace
   ) {
@@ -906,7 +906,7 @@ extension ChatSessionController {
     )
   }
 
-  public func resumeAutomaticApprovalBatch(
+  package func resumeAutomaticApprovalBatch(
     containing batchAnchorID: ToolCallRecord.ID,
     in workspace: Workspace
   ) {
@@ -957,7 +957,7 @@ extension ChatSessionController {
     }
   }
 
-  public func answerAskUserToolCall(
+  package func answerAskUserToolCall(
     id toolCallID: ToolCallRecord.ID,
     answer rawAnswer: String,
     in workspace: Workspace
@@ -999,7 +999,7 @@ extension ChatSessionController {
     )
   }
 
-  public func denyToolCall(id toolCallID: ToolCallRecord.ID) {
+  package func denyToolCall(id toolCallID: ToolCallRecord.ID) {
     guard !isGenerating else {
       return
     }

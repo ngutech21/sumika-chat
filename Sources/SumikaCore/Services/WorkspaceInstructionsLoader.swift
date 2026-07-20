@@ -3,12 +3,12 @@
 import Crypto
 import Foundation
 
-public struct WorkspaceInstructionsDocument: Equatable, Sendable {
-  public let path: WorkspaceRelativePath
-  public let contentHash: String
-  public let content: String
+internal struct WorkspaceInstructionsDocument: Equatable, Sendable {
+  package let path: WorkspaceRelativePath
+  package let contentHash: String
+  package let content: String
 
-  public init(
+  package init(
     path: WorkspaceRelativePath,
     contentHash: String,
     content: String
@@ -19,18 +19,18 @@ public struct WorkspaceInstructionsDocument: Equatable, Sendable {
   }
 }
 
-public enum WorkspaceInstructionsLoadResult: Equatable, Sendable {
+internal enum WorkspaceInstructionsLoadResult: Equatable, Sendable {
   case missing
   case found(WorkspaceInstructionsDocument)
 }
 
-public protocol WorkspaceInstructionsLoading: Sendable {
+internal protocol WorkspaceInstructionsLoading: Sendable {
   func loadInstructions(
     from workspace: Workspace
   ) async throws -> WorkspaceInstructionsLoadResult
 }
 
-public enum WorkspaceInstructionsLoadingError: LocalizedError, Equatable, Sendable {
+internal enum WorkspaceInstructionsLoadingError: LocalizedError, Equatable, Sendable {
   case cannotInspectWorkspace
   case ambiguousMatches([String])
   case notRegularFile(String)
@@ -38,7 +38,7 @@ public enum WorkspaceInstructionsLoadingError: LocalizedError, Equatable, Sendab
   case cannotRead(String)
   case invalidUTF8(String)
 
-  public var errorDescription: String? {
+  package var errorDescription: String? {
     switch self {
     case .cannotInspectWorkspace:
       "Could not inspect the workspace root for AGENTS.md."
@@ -56,12 +56,12 @@ public enum WorkspaceInstructionsLoadingError: LocalizedError, Equatable, Sendab
   }
 }
 
-public struct WorkspaceInstructionsLoader: WorkspaceInstructionsLoading {
-  public static let fileName = "AGENTS.md"
+internal struct WorkspaceInstructionsLoader: WorkspaceInstructionsLoading {
+  package static let fileName = "AGENTS.md"
 
-  public init() {}
+  package init() {}
 
-  public func loadInstructions(
+  package func loadInstructions(
     from workspace: Workspace
   ) async throws -> WorkspaceInstructionsLoadResult {
     try await Task.detached(priority: .userInitiated) {

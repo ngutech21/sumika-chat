@@ -1,21 +1,21 @@
 import Foundation
 
-public enum ManagedModelStability: Equatable, Sendable {
+package enum ManagedModelStability: Equatable, Sendable {
   case stable
   case experimental
 }
 
-public enum ReasoningTraceFormat: Equatable, Sendable {
+package enum ReasoningTraceFormat: Equatable, Sendable {
   case none
   case gemmaChannel
   case qwenThinkTags
 }
 
-public struct ToolCallingPolicy: Codable, Equatable, Sendable {
-  public var isEnabled: Bool
-  public var allowsMultipleToolCalls: Bool
+package struct ToolCallingPolicy: Codable, Equatable, Sendable {
+  package var isEnabled: Bool
+  package var allowsMultipleToolCalls: Bool
 
-  public init(
+  package init(
     isEnabled: Bool,
     allowsMultipleToolCalls: Bool
   ) {
@@ -23,34 +23,34 @@ public struct ToolCallingPolicy: Codable, Equatable, Sendable {
     self.allowsMultipleToolCalls = allowsMultipleToolCalls
   }
 
-  public static let unsupported = ToolCallingPolicy(
+  package static let unsupported = ToolCallingPolicy(
     isEnabled: false,
     allowsMultipleToolCalls: false
   )
-  public static let nativeMLX = ToolCallingPolicy(
+  package static let nativeMLX = ToolCallingPolicy(
     isEnabled: true,
     allowsMultipleToolCalls: true
   )
 }
 
-public struct ManagedModel: Identifiable, Equatable, Sendable {
-  public let id: String
-  public let displayName: String
-  public let detail: String
-  public let huggingFaceRepoID: String
-  public let localDirectoryName: String
-  public let estimatedDownloadSize: String
-  public let isRecommended: Bool
-  public let requiresLargeMemory: Bool
-  public let stability: ManagedModelStability
-  public let toolCallingPolicy: ToolCallingPolicy
-  public let supportsImageInput: Bool
-  public let reasoningTraceFormat: ReasoningTraceFormat
-  public let defaultModeSettings: ChatModeSettingsSet
-  public let defaultContextTokenLimit: Int
-  public let enabled: Bool
+package struct ManagedModel: Identifiable, Equatable, Sendable {
+  package let id: String
+  package let displayName: String
+  package let detail: String
+  package let huggingFaceRepoID: String
+  package let localDirectoryName: String
+  package let estimatedDownloadSize: String
+  package let isRecommended: Bool
+  package let requiresLargeMemory: Bool
+  package let stability: ManagedModelStability
+  package let toolCallingPolicy: ToolCallingPolicy
+  package let supportsImageInput: Bool
+  package let reasoningTraceFormat: ReasoningTraceFormat
+  package let defaultModeSettings: ChatModeSettingsSet
+  package let defaultContextTokenLimit: Int
+  package let enabled: Bool
 
-  public init(
+  package init(
     id: String,
     displayName: String,
     detail: String,
@@ -84,33 +84,33 @@ public struct ManagedModel: Identifiable, Equatable, Sendable {
     self.enabled = enabled
   }
 
-  public var defaultSystemPrompt: String {
+  package var defaultSystemPrompt: String {
     defaultModeSettings.agent.systemPrompt
   }
 
-  public var defaultGenerationSettings: ChatGenerationSettings {
+  package var defaultGenerationSettings: ChatGenerationSettings {
     defaultModeSettings.agent.generationSettings
   }
 
-  public var supportsWorkspaceTools: Bool {
+  package var supportsWorkspaceTools: Bool {
     toolCallingPolicy.isEnabled
   }
 
-  public var localDirectoryURL: URL {
+  package var localDirectoryURL: URL {
     LocalModelDirectory.defaultBaseURL.appending(
       path: localDirectoryName, directoryHint: .isDirectory)
   }
 
-  public var localPath: String {
+  package var localPath: String {
     localDirectoryURL.path(percentEncoded: false)
   }
 }
 
-public enum ManagedModelCatalog {
-  public static let defaultModelID = "gemma4-12b-qat-4bit"
-  public static let defaultContextTokenLimit = 16_384
+package enum ManagedModelCatalog {
+  package static let defaultModelID = "gemma4-12b-qat-4bit"
+  package static let defaultContextTokenLimit = 16_384
 
-  public static let models: [ManagedModel] = [
+  package static let models: [ManagedModel] = [
     ManagedModel(
       id: "gemma4-e2b-qat-4bit",
       displayName: "Gemma 4 E2B QAT 4-bit",
@@ -302,11 +302,11 @@ public enum ManagedModelCatalog {
     ),
   ].filter(\.enabled)
 
-  public static var defaultModel: ManagedModel {
+  package static var defaultModel: ManagedModel {
     models.first { $0.id == defaultModelID } ?? models[0]
   }
 
-  public static func model(id: String) -> ManagedModel? {
+  package static func model(id: String) -> ManagedModel? {
     models.first { $0.id == id }
   }
 }

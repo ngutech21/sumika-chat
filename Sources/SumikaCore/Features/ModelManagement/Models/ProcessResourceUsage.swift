@@ -1,18 +1,18 @@
 import Foundation
 
-public struct ProcessResourceUsage: Equatable, Sendable {
-  public let memoryBytes: UInt64
-  public let cpuPercent: Double
+package struct ProcessResourceUsage: Equatable, Sendable {
+  package let memoryBytes: UInt64
+  package let cpuPercent: Double
 
-  public var memorySummary: String {
+  package var memorySummary: String {
     Self.formatMemory(bytes: memoryBytes)
   }
 
-  public var cpuSummary: String {
+  package var cpuSummary: String {
     String(format: "%.0f%%", cpuPercent)
   }
 
-  public static func formatMemory(bytes: UInt64) -> String {
+  package static func formatMemory(bytes: UInt64) -> String {
     guard bytes >= 1024 else {
       return "\(bytes) B"
     }
@@ -30,13 +30,13 @@ public struct ProcessResourceUsage: Equatable, Sendable {
   }
 }
 
-public struct ProcessResourceSample: Equatable, Sendable {
-  public let cpuTime: TimeInterval
-  public let wallTime: TimeInterval
+package struct ProcessResourceSample: Equatable, Sendable {
+  package let cpuTime: TimeInterval
+  package let wallTime: TimeInterval
 }
 
-public enum ProcessResourceCalculator {
-  public static func cpuPercent(
+package enum ProcessResourceCalculator {
+  package static func cpuPercent(
     previous: ProcessResourceSample,
     current: ProcessResourceSample
   ) -> Double {

@@ -1,15 +1,15 @@
 import Foundation
 
-public struct Workspace: Codable, Identifiable, Equatable, Sendable {
-  public let id: UUID
-  public var name: String
-  public var rootURL: URL
-  public var bookmarkData: Data?
-  public var sessions: [ChatSession]
-  public var createdAt: Date
-  public var updatedAt: Date
+package struct Workspace: Codable, Identifiable, Equatable, Sendable {
+  package let id: UUID
+  package var name: String
+  package var rootURL: URL
+  package var bookmarkData: Data?
+  package var sessions: [ChatSession]
+  package var createdAt: Date
+  package var updatedAt: Date
 
-  public init(
+  package init(
     id: UUID = UUID(),
     name: String,
     rootURL: URL,
@@ -37,7 +37,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     case updatedAt
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let decodedRootURL = try container.decode(URL.self, forKey: .rootURL)
     id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
@@ -53,7 +53,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: createdAt)
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(id, forKey: .id)
     try container.encode(name, forKey: .name)
@@ -64,16 +64,16 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     try container.encode(updatedAt, forKey: .updatedAt)
   }
 
-  public var normalizedRootPath: String {
+  package var normalizedRootPath: String {
     Self.normalizedPath(for: rootURL)
   }
 
-  public static func normalizedPath(for url: URL) -> String {
+  package static func normalizedPath(for url: URL) -> String {
     normalizedPathString(for: url.standardizedFileURL.resolvingSymlinksInPath())
   }
 
   /// Tool executors must call this again directly before file IO.
-  public func resolveAllowedPath(_ input: String) throws -> URL {
+  package func resolveAllowedPath(_ input: String) throws -> URL {
     let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedInput.isEmpty else {
       throw WorkspacePathResolutionError.emptyPath
@@ -107,7 +107,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     return URL(filePath: candidatePath)
   }
 
-  public func relativePath(for resolvedURL: URL) -> WorkspaceRelativePath {
+  package func relativePath(for resolvedURL: URL) -> WorkspaceRelativePath {
     let rootPath = Self.normalizedPath(for: rootURL)
     let candidatePath = Self.normalizedPath(for: resolvedURL)
     if candidatePath == rootPath {
@@ -119,7 +119,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     return WorkspaceRelativePath(rawValue: candidatePath)
   }
 
-  public func withSecurityScopedAccess<Result>(_ body: () throws -> Result) rethrows -> Result {
+  package func withSecurityScopedAccess<Result>(_ body: () throws -> Result) rethrows -> Result {
     #if canImport(Darwin)
       let accessURL = securityScopedAccessURL()
       let didStartSecurityScope = accessURL.startAccessingSecurityScopedResource()
@@ -135,7 +135,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     #endif
   }
 
-  public func withAsyncSecurityScopedAccess<Result>(
+  package func withAsyncSecurityScopedAccess<Result>(
     _ body: () async throws -> Result
   ) async rethrows -> Result {
     #if canImport(Darwin)
@@ -208,12 +208,12 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-public enum WorkspacePathResolutionError: LocalizedError, Equatable {
+package enum WorkspacePathResolutionError: LocalizedError, Equatable {
   case emptyPath
   case unsupportedURLScheme(String)
   case pathOutsideWorkspace
 
-  public var errorDescription: String? {
+  package var errorDescription: String? {
     switch self {
     case .emptyPath:
       "Path is empty."
@@ -225,12 +225,12 @@ public enum WorkspacePathResolutionError: LocalizedError, Equatable {
   }
 }
 
-public struct WorkspaceLibrary: Codable, Equatable, Sendable {
-  public var workspaces: [Workspace]
-  public var activeWorkspaceID: Workspace.ID?
-  public var activeSessionID: ChatSession.ID?
+package struct WorkspaceLibrary: Codable, Equatable, Sendable {
+  package var workspaces: [Workspace]
+  package var activeWorkspaceID: Workspace.ID?
+  package var activeSessionID: ChatSession.ID?
 
-  public init(
+  package init(
     workspaces: [Workspace] = [],
     activeWorkspaceID: Workspace.ID? = nil,
     activeSessionID: ChatSession.ID? = nil
@@ -246,14 +246,14 @@ public struct WorkspaceLibrary: Codable, Equatable, Sendable {
     case activeSessionID
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     workspaces = try container.decodeLossyArray([Workspace].self, forKey: .workspaces)
     activeWorkspaceID = try container.decodeIfPresent(Workspace.ID.self, forKey: .activeWorkspaceID)
     activeSessionID = try container.decodeIfPresent(ChatSession.ID.self, forKey: .activeSessionID)
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(workspaces, forKey: .workspaces)
     try container.encodeIfPresent(activeWorkspaceID, forKey: .activeWorkspaceID)

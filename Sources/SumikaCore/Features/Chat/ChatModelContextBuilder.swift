@@ -1,10 +1,10 @@
 import Foundation
 
-package struct ChatModelContextBuilder: Sendable {
+internal struct ChatModelContextBuilder: Sendable {
   private let promptContextSelector: any CurrentPromptContextSelecting
   private let focusedFileReusePolicy: FocusedFilePromptReusePolicy
 
-  package init(
+  internal init(
     promptContextSelector: any CurrentPromptContextSelecting = CurrentPromptContextSelector()
   ) {
     self.promptContextSelector = promptContextSelector
@@ -19,7 +19,7 @@ package struct ChatModelContextBuilder: Sendable {
     self.focusedFileReusePolicy = focusedFileReusePolicy
   }
 
-  package func transcript(
+  internal func transcript(
     from state: ChatSession,
     includingTurnID: ChatTurn.ID? = nil
   ) -> ModelPromptProjection {

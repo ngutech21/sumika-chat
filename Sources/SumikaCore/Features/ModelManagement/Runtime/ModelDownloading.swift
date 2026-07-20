@@ -1,16 +1,16 @@
 import Foundation
 
-public protocol ModelDownloading: Sendable {
+package protocol ModelDownloading: Sendable {
   func download(
     model: ManagedModel,
     progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
   ) async throws -> URL
 }
 
-public struct UnavailableModelDownloader: ModelDownloading {
-  public init() {}
+package struct UnavailableModelDownloader: ModelDownloading {
+  package init() {}
 
-  public func download(
+  package func download(
     model: ManagedModel,
     progressHandler: @MainActor @Sendable (Progress) -> Void
   ) async throws -> URL {
@@ -20,8 +20,8 @@ public struct UnavailableModelDownloader: ModelDownloading {
   }
 }
 
-public struct UnavailableModelDownloadError: LocalizedError, Sendable {
-  public var errorDescription: String? {
+package struct UnavailableModelDownloadError: LocalizedError, Sendable {
+  package var errorDescription: String? {
     "No model downloader is configured."
   }
 }

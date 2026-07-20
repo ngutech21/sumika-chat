@@ -1,19 +1,19 @@
 import Foundation
 
-public struct AskUserInput: Codable, Equatable, Sendable {
-  public let question: String
-  public let options: [String]
+package struct AskUserInput: Codable, Equatable, Sendable {
+  package let question: String
+  package let options: [String]
 
-  public init(question: String, options: [String]) {
+  package init(question: String, options: [String]) {
     self.question = question
     self.options = options
   }
 }
 
-public struct AskUserResult: Codable, Equatable, Sendable {
-  public let answer: String
+package struct AskUserResult: Codable, Equatable, Sendable {
+  package let answer: String
 
-  public init(answer: String) {
+  package init(answer: String) {
     self.answer = answer
   }
 }
@@ -25,7 +25,7 @@ nonisolated extension AskUserResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let askUser = ToolDefinition(
+  package static let askUser = ToolDefinition(
     name: .askUser,
     description:
       "Ask the user one blocking clarification question with predefined answer options. Use only when workspace inspection cannot resolve the ambiguity and choosing a default would risk wrong changes.",

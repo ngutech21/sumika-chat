@@ -1,18 +1,18 @@
 import Foundation
 
-public struct SearchFilesInput: Codable, Equatable, Sendable {
-  public let pattern: String
-  public let path: String?
-  public let include: String?
+package struct SearchFilesInput: Codable, Equatable, Sendable {
+  package let pattern: String
+  package let path: String?
+  package let include: String?
 }
 
-public struct SearchFilesResult: Codable, Equatable, Sendable {
-  public var root: WorkspaceRelativePath
-  public var pattern: String
-  public var matches: [SearchFileMatch]
-  public var truncated: Bool
+package struct SearchFilesResult: Codable, Equatable, Sendable {
+  package var root: WorkspaceRelativePath
+  package var pattern: String
+  package var matches: [SearchFileMatch]
+  package var truncated: Bool
 
-  public init(
+  package init(
     root: WorkspaceRelativePath,
     pattern: String,
     matches: [SearchFileMatch],
@@ -39,7 +39,7 @@ nonisolated extension SearchFilesResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let searchFiles = ToolDefinition(
+  package static let searchFiles = ToolDefinition(
     name: .searchFiles,
     description:
       "Search text contents of workspace files. Use this to locate symbols, strings, errors, or relevant code before reading or editing files.",
@@ -258,7 +258,7 @@ struct SearchFilesToolExecutor: TypedToolExecutor {
 }
 
 nonisolated private struct SearchFileScanLimits {
-  public let maxSnippetLength: Int
-  public let maxFileBytes: Int
-  public let remainingMatchCount: Int
+  package let maxSnippetLength: Int
+  package let maxFileBytes: Int
+  package let remainingMatchCount: Int
 }

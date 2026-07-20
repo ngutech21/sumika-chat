@@ -1,31 +1,31 @@
-public struct WebSearchInput: Codable, Equatable, Sendable {
-  public var query: String
-  public var maxResults: Int?
+package struct WebSearchInput: Codable, Equatable, Sendable {
+  package var query: String
+  package var maxResults: Int?
 
-  public init(query: String, maxResults: Int? = nil) {
+  package init(query: String, maxResults: Int? = nil) {
     self.query = query
     self.maxResults = maxResults
   }
 }
 
-public struct WebSearchResult: Codable, Equatable, Sendable {
-  public var title: String
-  public var url: String
-  public var snippet: String?
+package struct WebSearchResult: Codable, Equatable, Sendable {
+  package var title: String
+  package var url: String
+  package var snippet: String?
 
-  public init(title: String, url: String, snippet: String? = nil) {
+  package init(title: String, url: String, snippet: String? = nil) {
     self.title = title
     self.url = url
     self.snippet = snippet
   }
 }
 
-public enum WebSearchToolResult: Codable, Equatable, Sendable {
+package enum WebSearchToolResult: Codable, Equatable, Sendable {
   case success(
     query: String, provider: WebSearchProvider, results: [WebSearchResult], truncated: Bool)
   case failed(query: String, reason: ToolFailureReason)
 
-  public init(
+  package init(
     query: String,
     provider: WebSearchProvider,
     results: [WebSearchResult],
@@ -57,7 +57,7 @@ nonisolated extension WebSearchToolResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let webSearch = ToolDefinition(
+  package static let webSearch = ToolDefinition(
     name: .webSearch,
     description: "Search public web pages without sending workspace contents.",
     parameters: [

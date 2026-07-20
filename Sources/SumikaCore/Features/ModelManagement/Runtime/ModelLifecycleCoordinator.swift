@@ -1,13 +1,13 @@
 import Foundation
 
-public struct DownloadModelResult: Sendable {
-  public let localPath: String
+package struct DownloadModelResult: Sendable {
+  package let localPath: String
 }
 
-public enum LocalModelDirectoryError: LocalizedError {
+package enum LocalModelDirectoryError: LocalizedError {
   case notFound(String)
 
-  public var errorDescription: String? {
+  package var errorDescription: String? {
     switch self {
     case .notFound(let path):
       "Model directory does not exist: \(path)"
@@ -15,7 +15,7 @@ public enum LocalModelDirectoryError: LocalizedError {
   }
 }
 
-public struct ModelLifecycleCoordinator: Sendable {
+package struct ModelLifecycleCoordinator: Sendable {
   private let modelDownloader: any ModelDownloading
   private let runtimeOperations: RuntimeOperationCoordinator
   private let modelAvailability: @Sendable (ManagedModel) -> Bool
@@ -30,18 +30,18 @@ public struct ModelLifecycleCoordinator: Sendable {
     self.modelAvailability = modelAvailability
   }
 
-  public func ensureDefaultModelDirectoryExists() throws -> URL {
+  package func ensureDefaultModelDirectoryExists() throws -> URL {
     try LocalModelDirectory.ensureDefaultBaseDirectoryExists()
   }
 
-  public func modelAvailabilitySnapshot(for models: [ManagedModel]) -> [ManagedModel.ID: Bool] {
+  package func modelAvailabilitySnapshot(for models: [ManagedModel]) -> [ManagedModel.ID: Bool] {
     Dictionary(
       uniqueKeysWithValues: models.map { model in
         (model.id, isModelDownloaded(model))
       })
   }
 
-  public func download(
+  package func download(
     model: ManagedModel,
     progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
   ) async throws -> DownloadModelResult {
@@ -49,7 +49,7 @@ public struct ModelLifecycleCoordinator: Sendable {
     return DownloadModelResult(localPath: model.localPath)
   }
 
-  public func loadModel(
+  package func loadModel(
     from directoryURL: URL,
     requestedContextTokenLimit: Int,
     supportsImageInput: Bool,
@@ -71,11 +71,11 @@ public struct ModelLifecycleCoordinator: Sendable {
     try await runtimeOperations.load(configuration: configuration, operationID: operationID)
   }
 
-  public func unloadModel(operationID: UUID) async throws {
+  package func unloadModel(operationID: UUID) async throws {
     try await runtimeOperations.unload(operationID: operationID)
   }
 
-  public func clearContext(operationID: UUID) async throws {
+  package func clearContext(operationID: UUID) async throws {
     try await runtimeOperations.clearContext(operationID: operationID)
   }
 
@@ -83,7 +83,7 @@ public struct ModelLifecycleCoordinator: Sendable {
     modelAvailability(model)
   }
 
-  public static func defaultModelAvailability(_ model: ManagedModel) -> Bool {
+  package static func defaultModelAvailability(_ model: ManagedModel) -> Bool {
     let modelDirectory = model.localDirectoryURL
     let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
     var isDirectory: ObjCBool = false

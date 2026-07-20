@@ -1,14 +1,14 @@
 import Foundation
 
-public struct WorkspaceDiffInput: Codable, Equatable, Sendable {
-  public let path: String?
+package struct WorkspaceDiffInput: Codable, Equatable, Sendable {
+  package let path: String?
 
-  public init(path: String? = nil) {
+  package init(path: String? = nil) {
     self.path = path
   }
 }
 
-public enum WorkspaceDiffResult: Codable, Equatable, Sendable {
+package enum WorkspaceDiffResult: Codable, Equatable, Sendable {
   case success(path: WorkspaceRelativePath?, content: ToolTextOutput)
   case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
 }
@@ -34,7 +34,7 @@ nonisolated extension WorkspaceDiffResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let workspaceDiff = ToolDefinition(
+  package static let workspaceDiff = ToolDefinition(
     name: .workspaceDiff,
     description: "Show current Git status and diff.",
     parameters: [

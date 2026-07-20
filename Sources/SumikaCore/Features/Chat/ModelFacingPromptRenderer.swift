@@ -49,7 +49,7 @@ package enum ModelFacingPromptRenderer {
     )
   }
 
-  package static func toolResultEntry(
+  internal static func toolResultEntry(
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
     sourceMessageID: UUID? = nil,

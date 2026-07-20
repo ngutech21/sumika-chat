@@ -3,14 +3,14 @@
 import Crypto
 import Foundation
 
-public struct ChatAttachmentStore: Sendable {
-  public let baseURL: URL
+package struct ChatAttachmentStore: Sendable {
+  package let baseURL: URL
 
-  public init(baseURL: URL = LocalAttachmentDirectory.defaultBaseURL) {
+  package init(baseURL: URL = LocalAttachmentDirectory.defaultBaseURL) {
     self.baseURL = baseURL
   }
 
-  public func storeFile(
+  package func storeFile(
     from sourceURL: URL,
     id: AttachmentID,
     displayName: String
@@ -30,7 +30,7 @@ public struct ChatAttachmentStore: Sendable {
     return destinationURL
   }
 
-  public func localURL(for id: AttachmentID) throws -> URL {
+  package func localURL(for id: AttachmentID) throws -> URL {
     let fileManager = FileManager.default
     let directoryURL = directoryURL(for: id)
     let fileURLs = try fileManager.contentsOfDirectory(
@@ -48,7 +48,7 @@ public struct ChatAttachmentStore: Sendable {
     return storedFileURL
   }
 
-  public func validateStoredFile(for attachment: ChatAttachment) throws -> URL {
+  package func validateStoredFile(for attachment: ChatAttachment) throws -> URL {
     let localURL = try localURL(for: attachment.id)
     let data = try Data(contentsOf: localURL)
     guard Self.contentSHA256(for: data) == attachment.contentSHA256 else {
@@ -57,11 +57,11 @@ public struct ChatAttachmentStore: Sendable {
     return localURL
   }
 
-  public func directoryURL(for id: AttachmentID) -> URL {
+  package func directoryURL(for id: AttachmentID) -> URL {
     baseURL.appending(path: id.uuidString, directoryHint: .isDirectory)
   }
 
-  public static func contentSHA256(for data: Data) -> String {
+  package static func contentSHA256(for data: Data) -> String {
     let digest = SHA256.hash(data: data)
     return digest.map { String(format: "%02x", $0) }.joined()
   }

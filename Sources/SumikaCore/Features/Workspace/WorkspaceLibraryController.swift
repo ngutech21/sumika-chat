@@ -1,11 +1,11 @@
 import Foundation
 
-public struct DefaultChatSessionFactory: Equatable, Sendable {
-  public var selectedModelID: ManagedModel.ID
-  public var modeSettings: ChatModeSettingsSet
-  public var interactionMode: WorkspaceInteractionMode
+package struct DefaultChatSessionFactory: Equatable, Sendable {
+  package var selectedModelID: ManagedModel.ID
+  package var modeSettings: ChatModeSettingsSet
+  package var interactionMode: WorkspaceInteractionMode
 
-  public init(
+  package init(
     selectedModelID: ManagedModel.ID,
     modeSettings: ChatModeSettingsSet,
     interactionMode: WorkspaceInteractionMode = .chat
@@ -15,7 +15,7 @@ public struct DefaultChatSessionFactory: Equatable, Sendable {
     self.interactionMode = interactionMode
   }
 
-  public init(
+  package init(
     selectedModelID: ManagedModel.ID,
     systemPrompt: String,
     generationSettings: ChatGenerationSettings,
@@ -32,7 +32,7 @@ public struct DefaultChatSessionFactory: Equatable, Sendable {
     )
   }
 
-  public func makeSession(
+  package func makeSession(
     title: String = ChatSession.defaultTitle,
     createdAt: Date = Date(),
     updatedAt: Date = Date()
@@ -48,13 +48,13 @@ public struct DefaultChatSessionFactory: Equatable, Sendable {
   }
 }
 
-public struct WorkspaceLibraryController {
-  public private(set) var library: WorkspaceLibrary
-  public var defaultSessionFactory: DefaultChatSessionFactory
+package struct WorkspaceLibraryController {
+  package private(set) var library: WorkspaceLibrary
+  package var defaultSessionFactory: DefaultChatSessionFactory
 
   private let now: () -> Date
 
-  public init(
+  package init(
     library: WorkspaceLibrary = WorkspaceLibrary(),
     defaultSessionFactory: DefaultChatSessionFactory,
     now: @escaping () -> Date = Date.init
@@ -64,7 +64,7 @@ public struct WorkspaceLibraryController {
     self.now = now
   }
 
-  public var activeWorkspace: Workspace? {
+  package var activeWorkspace: Workspace? {
     guard let activeWorkspaceID = library.activeWorkspaceID else {
       return nil
     }
@@ -72,11 +72,11 @@ public struct WorkspaceLibraryController {
     return library.workspaces.first { $0.id == activeWorkspaceID }
   }
 
-  public var activeWorkspaceID: Workspace.ID? {
+  package var activeWorkspaceID: Workspace.ID? {
     library.activeWorkspaceID
   }
 
-  public var activeSession: ChatSession? {
+  package var activeSession: ChatSession? {
     guard
       let activeWorkspace,
       let activeSessionID = library.activeSessionID
@@ -87,12 +87,12 @@ public struct WorkspaceLibraryController {
     return activeWorkspace.sessions.first { $0.id == activeSessionID }
   }
 
-  public var activeSessionID: ChatSession.ID? {
+  package var activeSessionID: ChatSession.ID? {
     library.activeSessionID
   }
 
   @discardableResult
-  public mutating func addWorkspace(
+  package mutating func addWorkspace(
     name: String,
     rootURL: URL,
     bookmarkData: Data? = nil
@@ -125,7 +125,7 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func createSession(in workspaceID: Workspace.ID? = nil) -> ChatSession.ID? {
+  package mutating func createSession(in workspaceID: Workspace.ID? = nil) -> ChatSession.ID? {
     guard
       let workspaceIndex = workspaceIndex(for: workspaceID ?? library.activeWorkspaceID)
     else {
@@ -142,7 +142,7 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func selectChat(
+  package mutating func selectChat(
     workspaceID: Workspace.ID,
     sessionID: ChatSession.ID
   ) -> Bool {
@@ -159,7 +159,7 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func selectWorkspace(_ workspaceID: Workspace.ID) -> Bool {
+  package mutating func selectWorkspace(_ workspaceID: Workspace.ID) -> Bool {
     guard workspaceIndex(for: workspaceID) != nil else {
       return false
     }
@@ -170,7 +170,7 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func renameSession(_ sessionID: ChatSession.ID, title: String) -> Bool {
+  package mutating func renameSession(_ sessionID: ChatSession.ID, title: String) -> Bool {
     let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard
       !trimmedTitle.isEmpty,
@@ -191,7 +191,7 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func deleteSession(_ sessionID: ChatSession.ID) -> Bool {
+  package mutating func deleteSession(_ sessionID: ChatSession.ID) -> Bool {
     guard
       let workspaceIndex = library.workspaces.firstIndex(where: { workspace in
         workspace.sessions.contains { $0.id == sessionID }
@@ -213,7 +213,7 @@ public struct WorkspaceLibraryController {
   }
 
   @discardableResult
-  public mutating func removeWorkspace(_ workspaceID: Workspace.ID) -> Bool {
+  package mutating func removeWorkspace(_ workspaceID: Workspace.ID) -> Bool {
     guard let removedWorkspaceIndex = workspaceIndex(for: workspaceID) else {
       return false
     }
@@ -237,11 +237,11 @@ public struct WorkspaceLibraryController {
     return true
   }
 
-  public mutating func replaceLibrary(_ library: WorkspaceLibrary) {
+  package mutating func replaceLibrary(_ library: WorkspaceLibrary) {
     self.library = library
   }
 
-  public mutating func normalizeLoadedLibrary() {
+  package mutating func normalizeLoadedLibrary() {
     library.workspaces = deduplicatedWorkspaces(library.workspaces)
 
     if let activeWorkspaceID = library.activeWorkspaceID,
@@ -266,7 +266,7 @@ public struct WorkspaceLibraryController {
     }
   }
 
-  public mutating func persistActiveSessionSnapshot(_ snapshot: ChatSession) {
+  package mutating func persistActiveSessionSnapshot(_ snapshot: ChatSession) {
     guard
       let workspaceIndex = activeWorkspaceIndex,
       let sessionIndex = activeSessionIndex(in: workspaceIndex)

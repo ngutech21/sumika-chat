@@ -1,6 +1,6 @@
 import Foundation
 
-public enum TurnTracePhase: String, Codable, CaseIterable, Equatable, Sendable {
+package enum TurnTracePhase: String, Codable, CaseIterable, Equatable, Sendable {
   case contextBuild = "context_build"
   case tokenizeContextUsage = "tokenize_context_usage"
   case renderSystemPrompt = "render_system_prompt"
@@ -15,44 +15,44 @@ public enum TurnTracePhase: String, Codable, CaseIterable, Equatable, Sendable {
   case memoryClear = "memory_clear"
 }
 
-public struct TurnTraceEvent: Codable, Equatable, Sendable {
-  public let turnID: UUID?
-  public let generationID: UUID?
-  public let phase: TurnTracePhase
-  public let durationMs: Double
-  public let promptBytes: Int?
-  public let promptTokens: Int?
-  public let messageCount: Int?
-  public let toolLoopIteration: Int?
-  public let toolName: String?
-  public let ttftMs: Double?
-  public let tokensPerSecond: Double?
-  public let cacheMode: String?
-  public let cacheReason: String?
-  public let memoryClearReason: String?
-  public let interactionMode: WorkspaceInteractionMode?
-  public let selectedMCPServerIDs: [UUID]?
-  public let activeMCPToolCount: Int?
-  public let contextSignature: String?
-  public let previousContextSignature: String?
-  public let appendOnly: Bool?
-  public let reusedMessageCount: Int?
-  public let appendedMessageCount: Int?
-  public let mismatchReason: String?
-  public let firstMismatchIndex: Int?
-  public let systemPromptChanged: Bool?
-  public let currentPromptContextChanged: Bool?
-  public let toolCallFormat: String?
-  public let toolValidationStatus: String?
-  public let toolValidationError: String?
-  public let toolOriginalName: String?
-  public let toolArgumentKeys: [String]?
-  public let toolArguments: [ToolArgumentTrace]?
-  public let imageCount: Int?
-  public let imageTypes: [String]?
-  public let imageByteCount: Int?
+package struct TurnTraceEvent: Codable, Equatable, Sendable {
+  package let turnID: UUID?
+  package let generationID: UUID?
+  package let phase: TurnTracePhase
+  package let durationMs: Double
+  package let promptBytes: Int?
+  package let promptTokens: Int?
+  package let messageCount: Int?
+  package let toolLoopIteration: Int?
+  package let toolName: String?
+  package let ttftMs: Double?
+  package let tokensPerSecond: Double?
+  package let cacheMode: String?
+  package let cacheReason: String?
+  package let memoryClearReason: String?
+  package let interactionMode: WorkspaceInteractionMode?
+  package let selectedMCPServerIDs: [UUID]?
+  package let activeMCPToolCount: Int?
+  package let contextSignature: String?
+  package let previousContextSignature: String?
+  package let appendOnly: Bool?
+  package let reusedMessageCount: Int?
+  package let appendedMessageCount: Int?
+  package let mismatchReason: String?
+  package let firstMismatchIndex: Int?
+  package let systemPromptChanged: Bool?
+  package let currentPromptContextChanged: Bool?
+  package let toolCallFormat: String?
+  package let toolValidationStatus: String?
+  package let toolValidationError: String?
+  package let toolOriginalName: String?
+  package let toolArgumentKeys: [String]?
+  package let toolArguments: [ToolArgumentTrace]?
+  package let imageCount: Int?
+  package let imageTypes: [String]?
+  package let imageByteCount: Int?
 
-  public init(
+  package init(
     turnID: UUID? = nil,
     generationID: UUID? = nil,
     phase: TurnTracePhase,
@@ -127,13 +127,13 @@ public struct TurnTraceEvent: Codable, Equatable, Sendable {
   }
 }
 
-public struct ToolArgumentTrace: Codable, Equatable, Sendable {
-  public let name: String
-  public let valueType: String
-  public let preview: String
-  public let previewTruncated: Bool
+package struct ToolArgumentTrace: Codable, Equatable, Sendable {
+  package let name: String
+  package let valueType: String
+  package let preview: String
+  package let previewTruncated: Bool
 
-  public init(
+  package init(
     name: String,
     valueType: String,
     preview: String,
@@ -146,26 +146,26 @@ public struct ToolArgumentTrace: Codable, Equatable, Sendable {
   }
 }
 
-public protocol TurnTracing: Sendable {
+package protocol TurnTracing: Sendable {
   func recordTurnTraceEvent(_ event: TurnTraceEvent) async
 }
 
-public struct NoopTurnTracer: TurnTracing {
-  public init() {}
+package struct NoopTurnTracer: TurnTracing {
+  package init() {}
 
-  public func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+  package func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
     _ = event
   }
 }
 
-public struct TurnTraceMetadata: Sendable {
-  public let turnID: UUID?
-  public let generationID: UUID
-  public let tracer: any TurnTracing
-  public let toolLoopIteration: Int?
-  public let interactionMode: WorkspaceInteractionMode?
+package struct TurnTraceMetadata: Sendable {
+  package let turnID: UUID?
+  package let generationID: UUID
+  package let tracer: any TurnTracing
+  package let toolLoopIteration: Int?
+  package let interactionMode: WorkspaceInteractionMode?
 
-  public init(
+  package init(
     turnID: UUID?,
     generationID: UUID,
     tracer: any TurnTracing,
@@ -180,6 +180,6 @@ public struct TurnTraceMetadata: Sendable {
   }
 }
 
-public enum TurnTraceContext {
+package enum TurnTraceContext {
   @TaskLocal public static var current: TurnTraceMetadata?
 }

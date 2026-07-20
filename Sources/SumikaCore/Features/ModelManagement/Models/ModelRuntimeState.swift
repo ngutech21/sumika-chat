@@ -1,12 +1,12 @@
 import Foundation
 
-public enum ModelDownloadState: Equatable, Sendable {
+package enum ModelDownloadState: Equatable, Sendable {
   case idle
   case downloading(progress: Double?)
   case downloaded
   case failed(String)
 
-  public var isDownloading: Bool {
+  package var isDownloading: Bool {
     if case .downloading = self {
       return true
     }
@@ -14,7 +14,7 @@ public enum ModelDownloadState: Equatable, Sendable {
     return false
   }
 
-  public var label: String {
+  package var label: String {
     switch self {
     case .idle:
       "Not downloaded"
@@ -32,13 +32,13 @@ public enum ModelDownloadState: Equatable, Sendable {
   }
 }
 
-public enum ModelLoadState: Equatable, Sendable {
+package enum ModelLoadState: Equatable, Sendable {
   case notLoaded
   case loading
   case ready
   case failed(String)
 
-  public var label: String {
+  package var label: String {
     switch self {
     case .notLoaded:
       "No model loaded"
@@ -51,7 +51,7 @@ public enum ModelLoadState: Equatable, Sendable {
     }
   }
 
-  public var systemImage: String {
+  package var systemImage: String {
     switch self {
     case .notLoaded:
       "circle"

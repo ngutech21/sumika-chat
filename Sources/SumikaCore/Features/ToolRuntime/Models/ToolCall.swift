@@ -1,45 +1,45 @@
 import Foundation
 
-public typealias ToolCallArguments = [String: ToolArgumentValue]
+package typealias ToolCallArguments = [String: ToolArgumentValue]
 
-public struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable {
-  public let rawValue: String
+package struct ToolName: Codable, Equatable, Hashable, Sendable, RawRepresentable {
+  package let rawValue: String
 
-  public init(rawValue: String) {
+  package init(rawValue: String) {
     self.rawValue = rawValue
   }
 
-  public static let listFiles = ToolName(rawValue: "list_files")
-  public static let globFiles = ToolName(rawValue: "glob_files")
-  public static let readFile = ToolName(rawValue: "read_file")
-  public static let showFile = ToolName(rawValue: "show_file")
-  public static let searchFiles = ToolName(rawValue: "search_files")
-  public static let workspaceDiff = ToolName(rawValue: "workspace_diff")
-  public static let workspaceDiagnostics = ToolName(rawValue: "workspace_diagnostics")
-  public static let editFile = ToolName(rawValue: "edit_file")
-  public static let writeFile = ToolName(rawValue: "write_file")
-  public static let runCommand = ToolName(rawValue: "run_command")
-  public static let todoWrite = ToolName(rawValue: "todo_write")
-  public static let askUser = ToolName(rawValue: "ask_user")
-  public static let finishTask = ToolName(rawValue: "finish_task")
-  public static let browserRefresh = ToolName(rawValue: "browser_refresh")
-  public static let browserInspect = ToolName(rawValue: "browser_inspect")
-  public static let webSearch = ToolName(rawValue: "web_search")
-  public static let webFetch = ToolName(rawValue: "web_fetch")
-  public static let invalid = ToolName(rawValue: "invalid")
+  package static let listFiles = ToolName(rawValue: "list_files")
+  package static let globFiles = ToolName(rawValue: "glob_files")
+  package static let readFile = ToolName(rawValue: "read_file")
+  package static let showFile = ToolName(rawValue: "show_file")
+  package static let searchFiles = ToolName(rawValue: "search_files")
+  package static let workspaceDiff = ToolName(rawValue: "workspace_diff")
+  package static let workspaceDiagnostics = ToolName(rawValue: "workspace_diagnostics")
+  package static let editFile = ToolName(rawValue: "edit_file")
+  package static let writeFile = ToolName(rawValue: "write_file")
+  package static let runCommand = ToolName(rawValue: "run_command")
+  package static let todoWrite = ToolName(rawValue: "todo_write")
+  package static let askUser = ToolName(rawValue: "ask_user")
+  package static let finishTask = ToolName(rawValue: "finish_task")
+  package static let browserRefresh = ToolName(rawValue: "browser_refresh")
+  package static let browserInspect = ToolName(rawValue: "browser_inspect")
+  package static let webSearch = ToolName(rawValue: "web_search")
+  package static let webFetch = ToolName(rawValue: "web_fetch")
+  package static let invalid = ToolName(rawValue: "invalid")
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.singleValueContainer()
     self.init(rawValue: try container.decode(String.self))
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.singleValueContainer()
     try container.encode(rawValue)
   }
 }
 
-public enum ToolArgumentValue: Codable, Equatable, Sendable {
+package enum ToolArgumentValue: Codable, Equatable, Sendable {
   case string(String)
   case number(Double)
   case bool(Bool)
@@ -47,7 +47,7 @@ public enum ToolArgumentValue: Codable, Equatable, Sendable {
   case object([String: ToolArgumentValue])
   case null
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.singleValueContainer()
 
     if container.decodeNil() {
@@ -65,7 +65,7 @@ public enum ToolArgumentValue: Codable, Equatable, Sendable {
     }
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.singleValueContainer()
 
     switch self {
@@ -85,16 +85,16 @@ public enum ToolArgumentValue: Codable, Equatable, Sendable {
   }
 }
 
-public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
-  public let id: UUID
-  public let workspaceID: Workspace.ID
-  public let sessionID: ChatSession.ID
-  public var toolName: ToolName
-  public var arguments: ToolCallArguments
-  public var originalToolName: String?
-  public var createdAt: Date
+package struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
+  package let id: UUID
+  package let workspaceID: Workspace.ID
+  package let sessionID: ChatSession.ID
+  package var toolName: ToolName
+  package var arguments: ToolCallArguments
+  package var originalToolName: String?
+  package var createdAt: Date
 
-  public init(
+  package init(
     id: UUID = UUID(),
     workspaceID: Workspace.ID,
     sessionID: ChatSession.ID,
@@ -113,14 +113,14 @@ public struct RawToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-public enum RuntimeToolCallID {
-  public static let prefix = "call_"
+package enum RuntimeToolCallID {
+  package static let prefix = "call_"
 
-  public static func string(for uuid: UUID) -> String {
+  package static func string(for uuid: UUID) -> String {
     prefix + uuid.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
   }
 
-  public static func uuid(from id: String?) -> UUID? {
+  package static func uuid(from id: String?) -> UUID? {
     guard let id, id.hasPrefix(prefix) else {
       return nil
     }
@@ -141,7 +141,7 @@ public enum RuntimeToolCallID {
     return UUID(uuidString: parts.map(String.init).joined(separator: "-"))
   }
 
-  public static func uniqueUUID(from id: String?, usedIDs: inout Set<UUID>) -> UUID {
+  package static func uniqueUUID(from id: String?, usedIDs: inout Set<UUID>) -> UUID {
     if let parsedID = uuid(from: id), !usedIDs.contains(parsedID) {
       usedIDs.insert(parsedID)
       return parsedID
@@ -155,7 +155,7 @@ public enum RuntimeToolCallID {
     return generatedID
   }
 
-  public static func normalizedString(from id: String?, usedIDs: inout Set<UUID>) -> String {
+  package static func normalizedString(from id: String?, usedIDs: inout Set<UUID>) -> String {
     string(for: uniqueUUID(from: id, usedIDs: &usedIDs))
   }
 
@@ -169,16 +169,16 @@ public enum RuntimeToolCallID {
   }
 }
 
-public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
-  public var raw: RawToolCallRequest
-  public var payload: ToolCallPayload
+package struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
+  package var raw: RawToolCallRequest
+  package var payload: ToolCallPayload
 
-  public var id: UUID { raw.id }
-  public var workspaceID: Workspace.ID { raw.workspaceID }
-  public var sessionID: ChatSession.ID { raw.sessionID }
-  public var toolName: ToolName { raw.toolName }
-  public var createdAt: Date { raw.createdAt }
-  public var rawArguments: ToolCallArguments { raw.arguments }
+  package var id: UUID { raw.id }
+  package var workspaceID: Workspace.ID { raw.workspaceID }
+  package var sessionID: ChatSession.ID { raw.sessionID }
+  package var toolName: ToolName { raw.toolName }
+  package var createdAt: Date { raw.createdAt }
+  package var rawArguments: ToolCallArguments { raw.arguments }
 
   private init(raw: RawToolCallRequest, payload: ToolCallPayload) {
     self.raw = raw
@@ -190,7 +190,7 @@ public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
     case payload
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let raw = try container.decode(RawToolCallRequest.self, forKey: .raw)
     let payload = try container.decode(ToolCallPayload.self, forKey: .payload)
@@ -208,13 +208,13 @@ public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
     self.payload = payload
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(raw, forKey: .raw)
     try container.encode(payload, forKey: .payload)
   }
 
-  public static func validated(
+  package static func validated(
     raw: RawToolCallRequest,
     payload: ToolCallPayload
   ) -> ToolCallRequest {
@@ -225,7 +225,7 @@ public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
     return ToolCallRequest(raw: raw, payload: payload)
   }
 
-  public static func invalid(
+  package static func invalid(
     raw: RawToolCallRequest,
     input: InvalidToolInput
   ) -> ToolCallRequest {
@@ -233,7 +233,7 @@ public struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-public enum ToolCallPayload: Codable, Equatable, Sendable {
+package enum ToolCallPayload: Codable, Equatable, Sendable {
   case readFile(ReadFileInput)
   case showFile(ReadFileInput)
   case listFiles(ListFilesInput)
@@ -281,7 +281,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
     case invalid
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
     case .readFile:
@@ -327,7 +327,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
     }
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(kind, forKey: .kind)
     switch self {
@@ -398,7 +398,7 @@ public enum ToolCallPayload: Codable, Equatable, Sendable {
 }
 
 nonisolated extension ToolCallPayload {
-  public var toolName: ToolName {
+  package var toolName: ToolName {
     switch self {
     case .readFile:
       .readFile
@@ -441,7 +441,7 @@ nonisolated extension ToolCallPayload {
     }
   }
 
-  public func matches(_ toolName: ToolName) -> Bool {
+  package func matches(_ toolName: ToolName) -> Bool {
     switch self {
     case .invalid:
       true
@@ -451,12 +451,12 @@ nonisolated extension ToolCallPayload {
   }
 }
 
-public struct InvalidToolInput: Codable, Equatable, Sendable {
-  public var originalName: String?
-  public var rawArguments: ToolCallArguments
-  public var reason: InvalidToolCallReason
+package struct InvalidToolInput: Codable, Equatable, Sendable {
+  package var originalName: String?
+  package var rawArguments: ToolCallArguments
+  package var reason: InvalidToolCallReason
 
-  public init(
+  package init(
     originalName: String?,
     rawArguments: ToolCallArguments,
     reason: InvalidToolCallReason
@@ -467,7 +467,7 @@ public struct InvalidToolInput: Codable, Equatable, Sendable {
   }
 }
 
-public enum InvalidToolCallReason: Error, Codable, Equatable, Sendable {
+package enum InvalidToolCallReason: Error, Codable, Equatable, Sendable {
   case unknownToolName(String)
   case unavailableToolName(String)
   case unknownArguments([String])
@@ -482,7 +482,7 @@ public enum InvalidToolCallReason: Error, Codable, Equatable, Sendable {
 }
 
 nonisolated extension InvalidToolCallReason {
-  public var message: String {
+  package var message: String {
     switch self {
     case .unknownToolName(let name):
       "Unknown tool: \(name)."
@@ -510,13 +510,13 @@ nonisolated extension InvalidToolCallReason {
   }
 }
 
-public struct ToolCallModelMessage: Codable, Equatable, Sendable {
-  public var callID: UUID
-  public var toolName: ToolName
-  public var arguments: [ToolCallModelArgument]
-  public var rawArguments: ToolCallArguments
+package struct ToolCallModelMessage: Codable, Equatable, Sendable {
+  package var callID: UUID
+  package var toolName: ToolName
+  package var arguments: [ToolCallModelArgument]
+  package var rawArguments: ToolCallArguments
 
-  public init(
+  package init(
     callID: UUID,
     toolName: ToolName,
     arguments: [ToolCallModelArgument],
@@ -532,7 +532,7 @@ public struct ToolCallModelMessage: Codable, Equatable, Sendable {
       )
   }
 
-  public init(rawRequest: RawToolCallRequest) {
+  package init(rawRequest: RawToolCallRequest) {
     self.init(
       callID: rawRequest.id,
       toolName: rawRequest.toolName,
@@ -543,18 +543,18 @@ public struct ToolCallModelMessage: Codable, Equatable, Sendable {
     )
   }
 
-  public init(request: ToolCallRequest) {
+  package init(request: ToolCallRequest) {
     self.init(
       rawRequest: request.raw
     )
   }
 }
 
-public struct ToolCallParseOutput: Equatable, Sendable {
-  public var request: RawToolCallRequest
-  public var modelMessage: ToolCallModelMessage
+package struct ToolCallParseOutput: Equatable, Sendable {
+  package var request: RawToolCallRequest
+  package var modelMessage: ToolCallModelMessage
 
-  public init(
+  package init(
     request: RawToolCallRequest,
     modelMessage: ToolCallModelMessage
   ) {
@@ -564,7 +564,7 @@ public struct ToolCallParseOutput: Equatable, Sendable {
 }
 
 nonisolated extension ToolCallModelMessage {
-  public var modelContextContent: String {
+  package var modelContextContent: String {
     if isPayloadOmittedFromHistory {
       return payloadOmittedModelContextContent
     }
@@ -614,15 +614,15 @@ nonisolated extension ToolCallModelMessage {
   }
 }
 
-public struct ToolCallModelArgument: Codable, Identifiable, Equatable, Sendable {
-  public var id: String { name }
+package struct ToolCallModelArgument: Codable, Identifiable, Equatable, Sendable {
+  package var id: String { name }
 
-  public var name: String
-  public var value: String
+  package var name: String
+  package var value: String
 }
 
 nonisolated extension ToolCallModelMessage {
-  public var transcriptArguments: [ToolCallModelArgument] {
+  package var transcriptArguments: [ToolCallModelArgument] {
     switch toolName {
     case .writeFile:
       return arguments.filter {
@@ -658,7 +658,7 @@ nonisolated extension ToolCallModelMessage {
 }
 
 nonisolated extension ToolArgumentValue {
-  public var displayValue: String {
+  package var displayValue: String {
     switch self {
     case .string(let value):
       value
@@ -676,32 +676,32 @@ nonisolated extension ToolArgumentValue {
   }
 }
 
-public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
-  public var id: UUID { request.id }
+package struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
+  package var id: UUID { request.id }
 
-  public var request: ToolCallRequest
-  public var evaluation: ToolPermissionEvaluation
-  public var state: ToolCallState
-  public var approvalSource: ToolApprovalSource?
-  public var modelFollowUpNotice: String?
+  package var request: ToolCallRequest
+  package var evaluation: ToolPermissionEvaluation
+  package var state: ToolCallState
+  package var approvalSource: ToolApprovalSource?
+  package var modelFollowUpNotice: String?
 
-  public var status: ToolCallStatus {
+  package var status: ToolCallStatus {
     state.status
   }
 
-  public var resultPayload: ToolResultPayload? {
+  package var resultPayload: ToolResultPayload? {
     state.resultPayload
   }
 
-  public var approvalPreview: ToolResultPreview? {
+  package var approvalPreview: ToolResultPreview? {
     state.approvalPreview
   }
 
-  public var resultPreview: ToolResultPreview? {
+  package var resultPreview: ToolResultPreview? {
     state.preview
   }
 
-  public init(
+  package init(
     request: ToolCallRequest,
     evaluation: ToolPermissionEvaluation,
     state: ToolCallState,
@@ -723,7 +723,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
     case modelFollowUpNotice
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     request = try container.decode(ToolCallRequest.self, forKey: .request)
     evaluation = try container.decode(ToolPermissionEvaluation.self, forKey: .evaluation)
@@ -735,7 +735,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
     modelFollowUpNotice = try container.decodeIfPresent(String.self, forKey: .modelFollowUpNotice)
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(request, forKey: .request)
     try container.encode(evaluation, forKey: .evaluation)
@@ -745,7 +745,7 @@ public struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
   }
 }
 
-public enum ToolCallState: Codable, Equatable, Sendable {
+package enum ToolCallState: Codable, Equatable, Sendable {
   case pending
   case awaitingApproval(preview: ToolResultPreview?)
   case awaitingUserAnswer
@@ -772,7 +772,7 @@ public enum ToolCallState: Codable, Equatable, Sendable {
     case cancelled
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
     case .pending:
@@ -796,7 +796,7 @@ public enum ToolCallState: Codable, Equatable, Sendable {
     }
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     switch self {
     case .pending:
@@ -824,7 +824,7 @@ public enum ToolCallState: Codable, Equatable, Sendable {
 }
 
 nonisolated extension ToolCallState {
-  public var status: ToolCallStatus {
+  package var status: ToolCallStatus {
     switch self {
     case .pending:
       .pending
@@ -845,7 +845,7 @@ nonisolated extension ToolCallState {
     }
   }
 
-  public var resultPayload: ToolResultPayload? {
+  package var resultPayload: ToolResultPayload? {
     switch self {
     case .completed(let payload), .denied(let payload), .failed(let payload):
       payload
@@ -854,7 +854,7 @@ nonisolated extension ToolCallState {
     }
   }
 
-  public var approvalPreview: ToolResultPreview? {
+  package var approvalPreview: ToolResultPreview? {
     switch self {
     case .awaitingApproval(let preview):
       preview
@@ -863,12 +863,12 @@ nonisolated extension ToolCallState {
     }
   }
 
-  public var preview: ToolResultPreview? {
+  package var preview: ToolResultPreview? {
     resultPayload?.preview ?? approvalPreview
   }
 }
 
-public enum ToolCallStatus: String, Codable, Equatable, Sendable {
+package enum ToolCallStatus: String, Codable, Equatable, Sendable {
   case pending
   case awaitingApproval
   case awaitingUserAnswer
@@ -879,15 +879,15 @@ public enum ToolCallStatus: String, Codable, Equatable, Sendable {
   case cancelled
 }
 
-public struct WorkspaceRelativePath: RawRepresentable, Codable, Equatable, Hashable, Sendable {
-  public var rawValue: String
+package struct WorkspaceRelativePath: RawRepresentable, Codable, Equatable, Hashable, Sendable {
+  package var rawValue: String
 
-  public init(rawValue: String) {
+  package init(rawValue: String) {
     self.rawValue = rawValue
   }
 }
 
-public enum ToolResultPayload: Codable, Equatable, Sendable {
+package enum ToolResultPayload: Codable, Equatable, Sendable {
   case readFile(ReadFileResult)
   case listFiles(ListFilesResult)
   case globFiles(GlobFilesResult)
@@ -937,7 +937,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
     case failure
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
     case .readFile:
@@ -987,7 +987,7 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
     }
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(kind, forKey: .kind)
     switch self {
@@ -1060,17 +1060,17 @@ public enum ToolResultPayload: Codable, Equatable, Sendable {
   }
 }
 
-public struct DuplicateToolCallResult: Codable, Equatable, Sendable {
-  public var previousCallID: UUID
-  public var message: String
-  public var affectedPaths: [WorkspaceRelativePath]
-  public var replayedObservation: ToolModelObservation?
+package struct DuplicateToolCallResult: Codable, Equatable, Sendable {
+  package var previousCallID: UUID
+  package var message: String
+  package var affectedPaths: [WorkspaceRelativePath]
+  package var replayedObservation: ToolModelObservation?
   /// True from the 2nd consecutive identical duplicate: the replayed content is
   /// withheld and the model-facing observation is framed as non-success to break
   /// the loop. The persisted/UI preview stays a benign "duplicate replay".
-  public var blocked: Bool
+  package var blocked: Bool
 
-  public init(
+  package init(
     previousCallID: UUID,
     message: String,
     affectedPaths: [WorkspaceRelativePath] = [],
@@ -1085,15 +1085,15 @@ public struct DuplicateToolCallResult: Codable, Equatable, Sendable {
   }
 }
 
-public struct WorkspaceDiagnostic: Codable, Equatable, Sendable {
-  public var path: WorkspaceRelativePath
-  public var line: Int
-  public var column: Int?
-  public var severity: WorkspaceDiagnosticSeverity
-  public var message: String
-  public var source: WorkspaceDiagnosticSource
+package struct WorkspaceDiagnostic: Codable, Equatable, Sendable {
+  package var path: WorkspaceRelativePath
+  package var line: Int
+  package var column: Int?
+  package var severity: WorkspaceDiagnosticSeverity
+  package var message: String
+  package var source: WorkspaceDiagnosticSource
 
-  public init(
+  package init(
     path: WorkspaceRelativePath,
     line: Int,
     column: Int?,
@@ -1110,33 +1110,33 @@ public struct WorkspaceDiagnostic: Codable, Equatable, Sendable {
   }
 }
 
-public enum WorkspaceDiagnosticSeverity: String, Codable, Equatable, Sendable {
+package enum WorkspaceDiagnosticSeverity: String, Codable, Equatable, Sendable {
   case error
   case warning
   case note
 }
 
-public enum WorkspaceDiagnosticSource: String, Codable, Equatable, Sendable {
+package enum WorkspaceDiagnosticSource: String, Codable, Equatable, Sendable {
   case lastCommandOutput
 }
 
-public struct InvalidToolResult: Codable, Equatable, Sendable {
-  public var originalName: String?
-  public var reason: InvalidToolCallReason
+package struct InvalidToolResult: Codable, Equatable, Sendable {
+  package var originalName: String?
+  package var reason: InvalidToolCallReason
 
-  public init(originalName: String?, reason: InvalidToolCallReason) {
+  package init(originalName: String?, reason: InvalidToolCallReason) {
     self.originalName = originalName
     self.reason = reason
   }
 }
 
-public struct ToolFailure: Codable, Equatable, Sendable {
-  public var toolName: ToolName
-  public var path: WorkspaceRelativePath?
-  public var reason: ToolFailureReason
-  public var recovery: RecoveryHint?
+package struct ToolFailure: Codable, Equatable, Sendable {
+  package var toolName: ToolName
+  package var path: WorkspaceRelativePath?
+  package var reason: ToolFailureReason
+  package var recovery: RecoveryHint?
 
-  public init(
+  package init(
     toolName: ToolName,
     path: WorkspaceRelativePath?,
     reason: ToolFailureReason,
@@ -1149,7 +1149,7 @@ public struct ToolFailure: Codable, Equatable, Sendable {
   }
 }
 
-public enum ToolFailureReason: Codable, Equatable, Sendable {
+package enum ToolFailureReason: Codable, Equatable, Sendable {
   case fileNotFound(path: WorkspaceRelativePath?, suggestions: [MissingPathSuggestion])
   case pathOutsideWorkspace
   case emptyPath
@@ -1164,7 +1164,7 @@ public enum ToolFailureReason: Codable, Equatable, Sendable {
   case cancelled
 }
 
-public enum RecoveryHint: Codable, Equatable, Sendable {
+package enum RecoveryHint: Codable, Equatable, Sendable {
   case readFile(path: WorkspaceRelativePath)
   case retryWithMoreContext(path: WorkspaceRelativePath)
   case chooseOneOf(paths: [WorkspaceRelativePath])
@@ -1172,76 +1172,76 @@ public enum RecoveryHint: Codable, Equatable, Sendable {
   case stop
 }
 
-public struct MissingPathSuggestion: Codable, Equatable, Sendable {
-  public var path: WorkspaceRelativePath
-  public var reason: String
-  public var confidence: Double
+package struct MissingPathSuggestion: Codable, Equatable, Sendable {
+  package var path: WorkspaceRelativePath
+  package var reason: String
+  package var confidence: Double
 
-  public init(path: WorkspaceRelativePath, reason: String, confidence: Double) {
+  package init(path: WorkspaceRelativePath, reason: String, confidence: Double) {
     self.path = path
     self.reason = reason
     self.confidence = confidence
   }
 }
 
-public struct ToolTextOutput: Codable, Equatable, Sendable {
-  public var text: String
-  public var truncated: Bool
-  public var redacted: Bool
+package struct ToolTextOutput: Codable, Equatable, Sendable {
+  package var text: String
+  package var truncated: Bool
+  package var redacted: Bool
 
-  public init(text: String, truncated: Bool = false, redacted: Bool = false) {
+  package init(text: String, truncated: Bool = false, redacted: Bool = false) {
     self.text = text
     self.truncated = truncated
     self.redacted = redacted
   }
 }
 
-public struct ReadKey: Codable, Equatable, Hashable, Sendable {
-  public var path: WorkspaceRelativePath
-  public var range: String?
+package struct ReadKey: Codable, Equatable, Hashable, Sendable {
+  package var path: WorkspaceRelativePath
+  package var range: String?
 
-  public init(path: WorkspaceRelativePath, range: String? = nil) {
+  package init(path: WorkspaceRelativePath, range: String? = nil) {
     self.path = path
     self.range = range
   }
 }
 
-public struct WorkspaceFileEntry: Codable, Equatable, Sendable {
-  public var path: WorkspaceRelativePath
-  public var kind: WorkspaceFileKind
+package struct WorkspaceFileEntry: Codable, Equatable, Sendable {
+  package var path: WorkspaceRelativePath
+  package var kind: WorkspaceFileKind
 
-  public init(path: WorkspaceRelativePath, kind: WorkspaceFileKind) {
+  package init(path: WorkspaceRelativePath, kind: WorkspaceFileKind) {
     self.path = path
     self.kind = kind
   }
 }
 
-public enum WorkspaceFileKind: String, Codable, Equatable, Sendable {
+package enum WorkspaceFileKind: String, Codable, Equatable, Sendable {
   case file
   case directory
 }
 
-public struct SearchFileMatch: Codable, Equatable, Sendable {
-  public var path: WorkspaceRelativePath
-  public var line: Int
-  public var snippet: String
+package struct SearchFileMatch: Codable, Equatable, Sendable {
+  package var path: WorkspaceRelativePath
+  package var line: Int
+  package var snippet: String
 
-  public init(path: WorkspaceRelativePath, line: Int, snippet: String) {
+  package init(path: WorkspaceRelativePath, line: Int, snippet: String) {
     self.path = path
     self.line = line
     self.snippet = snippet
   }
 }
 
-public struct ToolResultPreview: Codable, Equatable, Sendable {
-  public var status: ToolResultStatus
-  public var text: String
-  public var truncated: Bool
-  public var redacted: Bool
-  public var affectedPaths: [String]
-  public var resultPayload: ToolResultPayload?
+package struct ToolResultPreview: Codable, Equatable, Sendable {
+  package var status: ToolResultStatus
+  package var text: String
+  package var truncated: Bool
+  package var redacted: Bool
+  package var affectedPaths: [String]
+  package var resultPayload: ToolResultPayload?
 
-  public init(
+  package init(
     status: ToolResultStatus = .success,
     text: String,
     truncated: Bool = false,
@@ -1266,7 +1266,7 @@ public struct ToolResultPreview: Codable, Equatable, Sendable {
     case resultPayload
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     status = try container.decodeIfPresent(
       ToolResultStatus.self, forKey: .status, default: .success)
@@ -1278,7 +1278,7 @@ public struct ToolResultPreview: Codable, Equatable, Sendable {
     resultPayload = try container.decodeIfPresent(ToolResultPayload.self, forKey: .resultPayload)
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(status, forKey: .status)
     try container.encode(text, forKey: .text)
@@ -1289,34 +1289,34 @@ public struct ToolResultPreview: Codable, Equatable, Sendable {
   }
 }
 
-public enum ToolResultStatus: String, Codable, Equatable, Sendable {
+package enum ToolResultStatus: String, Codable, Equatable, Sendable {
   case success
   case failed
   case denied
 }
 
 nonisolated extension ToolResultPayload {
-  public var status: ToolResultStatus {
+  package var status: ToolResultStatus {
     preview.status
   }
 
-  public var text: String {
+  package var text: String {
     preview.text
   }
 
-  public var truncated: Bool {
+  package var truncated: Bool {
     preview.truncated
   }
 
-  public var redacted: Bool {
+  package var redacted: Bool {
     preview.redacted
   }
 
-  public var affectedPaths: [String] {
+  package var affectedPaths: [String] {
     preview.affectedPaths
   }
 
-  public var preview: ToolResultPreview {
+  package var preview: ToolResultPreview {
     switch self {
     case .readFile(let result):
       return result.preview
@@ -1374,7 +1374,7 @@ nonisolated extension ToolResultPayload {
 }
 
 nonisolated extension ToolFailure {
-  public var message: String {
+  package var message: String {
     let prefix = "\(toolName.rawValue) failed"
     let text: String
     guard let path else {
@@ -1415,7 +1415,7 @@ nonisolated extension ToolFailureReason {
     }
   }
 
-  public var message: String {
+  package var message: String {
     switch self {
     case .fileNotFound(let path, let suggestions):
       var text = "File not found"
@@ -1459,7 +1459,7 @@ nonisolated extension ToolFailureReason {
 }
 
 nonisolated extension RecoveryHint {
-  public var message: String {
+  package var message: String {
     switch self {
     case .readFile(let path):
       return
@@ -1477,12 +1477,12 @@ nonisolated extension RecoveryHint {
   }
 }
 
-public struct ToolResultModelMessage: Codable, Equatable, Sendable {
-  public var callID: UUID
-  public var toolName: ToolName
-  public var payload: ToolResultPayload
+package struct ToolResultModelMessage: Codable, Equatable, Sendable {
+  package var callID: UUID
+  package var toolName: ToolName
+  package var payload: ToolResultPayload
 
-  public init(
+  package init(
     callID: UUID,
     toolName: ToolName,
     payload: ToolResultPayload
@@ -1492,7 +1492,7 @@ public struct ToolResultModelMessage: Codable, Equatable, Sendable {
     self.payload = payload
   }
 
-  public init(record: ToolCallRecord) {
+  package init(record: ToolCallRecord) {
     self.init(
       callID: record.id,
       toolName: record.request.toolName,
@@ -1510,19 +1510,19 @@ public struct ToolResultModelMessage: Codable, Equatable, Sendable {
 }
 
 nonisolated extension ToolResultModelMessage {
-  public var preview: ToolResultPreview {
+  package var preview: ToolResultPreview {
     payload.preview
   }
 }
 
-public struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
-  public var decision: ToolPermissionDecision
-  public var reason: String
-  public var riskLevel: ToolRiskLevel
-  public var normalizedPaths: [String]
-  public var workspaceRelativePaths: [WorkspaceRelativePath]
+package struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
+  package var decision: ToolPermissionDecision
+  package var reason: String
+  package var riskLevel: ToolRiskLevel
+  package var normalizedPaths: [String]
+  package var workspaceRelativePaths: [WorkspaceRelativePath]
 
-  public init(
+  package init(
     decision: ToolPermissionDecision,
     reason: String,
     riskLevel: ToolRiskLevel,
@@ -1544,7 +1544,7 @@ public struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
     case workspaceRelativePaths
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     decision = try container.decode(ToolPermissionDecision.self, forKey: .decision)
     reason = try container.decodeIfPresent(String.self, forKey: .reason, default: "")
@@ -1558,7 +1558,7 @@ public struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
     )
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(decision, forKey: .decision)
     try container.encode(reason, forKey: .reason)
@@ -1567,23 +1567,23 @@ public struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
     try container.encode(workspaceRelativePaths, forKey: .workspaceRelativePaths)
   }
 
-  public var modelFacingPaths: [String] {
+  package var modelFacingPaths: [String] {
     let relativePaths = workspaceRelativePaths.map(\.rawValue)
     return relativePaths.isEmpty ? normalizedPaths : relativePaths
   }
 
-  public var firstModelFacingPath: WorkspaceRelativePath? {
+  package var firstModelFacingPath: WorkspaceRelativePath? {
     workspaceRelativePaths.first ?? normalizedPaths.first.map(WorkspaceRelativePath.init(rawValue:))
   }
 }
 
-public enum ToolPermissionDecision: String, Codable, Equatable, Sendable {
+package enum ToolPermissionDecision: String, Codable, Equatable, Sendable {
   case allowed
   case requiresApproval
   case denied
 }
 
-public enum ToolRiskLevel: String, Codable, Equatable, Sendable {
+package enum ToolRiskLevel: String, Codable, Equatable, Sendable {
   case low
   case medium
   case high

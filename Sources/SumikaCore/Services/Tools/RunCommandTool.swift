@@ -1,11 +1,11 @@
 import Foundation
 
-public struct RunCommandInput: Codable, Equatable, Sendable {
-  public static let defaultTimeoutSeconds = 120
+package struct RunCommandInput: Codable, Equatable, Sendable {
+  package static let defaultTimeoutSeconds = 120
 
-  public let command: String
-  public let timeoutSeconds: Int
-  public let reason: String?
+  package let command: String
+  package let timeoutSeconds: Int
+  package let reason: String?
 
   private enum CodingKeys: String, CodingKey {
     case command
@@ -13,13 +13,13 @@ public struct RunCommandInput: Codable, Equatable, Sendable {
     case reason
   }
 
-  public init(command: String, timeoutSeconds: Int, reason: String? = nil) {
+  package init(command: String, timeoutSeconds: Int, reason: String? = nil) {
     self.command = command
     self.timeoutSeconds = timeoutSeconds
     self.reason = reason
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     command = try container.decode(String.self, forKey: .command)
     if let value = try? container.decode(Int.self, forKey: .timeoutSeconds) {
@@ -37,10 +37,10 @@ public struct RunCommandInput: Codable, Equatable, Sendable {
   }
 }
 
-public enum RunCommandInputValidationError: LocalizedError, Equatable {
+internal enum RunCommandInputValidationError: LocalizedError, Equatable {
   case invalidTimeout
 
-  public var errorDescription: String? {
+  package var errorDescription: String? {
     switch self {
     case .invalidTimeout:
       "run_command timeoutSeconds must be an integer."
@@ -48,18 +48,18 @@ public enum RunCommandInputValidationError: LocalizedError, Equatable {
   }
 }
 
-public struct RunCommandResult: Codable, Equatable, Sendable {
-  public var command: String
-  public var timeoutSeconds: Int
-  public var exitCode: Int32?
-  public var durationMs: Int
-  public var stdout: ToolTextOutput
-  public var stderr: ToolTextOutput
-  public var outputRef: String?
-  public var stdoutOmittedChars: Int
-  public var stderrOmittedChars: Int
-  public var timedOut: Bool
-  public var cancelled: Bool
+package struct RunCommandResult: Codable, Equatable, Sendable {
+  package var command: String
+  package var timeoutSeconds: Int
+  package var exitCode: Int32?
+  package var durationMs: Int
+  package var stdout: ToolTextOutput
+  package var stderr: ToolTextOutput
+  package var outputRef: String?
+  package var stdoutOmittedChars: Int
+  package var stderrOmittedChars: Int
+  package var timedOut: Bool
+  package var cancelled: Bool
 
   private enum CodingKeys: String, CodingKey {
     case command
@@ -75,7 +75,7 @@ public struct RunCommandResult: Codable, Equatable, Sendable {
     case cancelled
   }
 
-  public init(
+  package init(
     command: String,
     timeoutSeconds: Int,
     exitCode: Int32?,
@@ -101,7 +101,7 @@ public struct RunCommandResult: Codable, Equatable, Sendable {
     self.cancelled = cancelled
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     command = try container.decode(String.self, forKey: .command)
     timeoutSeconds = try container.decode(Int.self, forKey: .timeoutSeconds)
@@ -116,7 +116,7 @@ public struct RunCommandResult: Codable, Equatable, Sendable {
     cancelled = try container.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
   }
 
-  public var outputTruncated: Bool {
+  package var outputTruncated: Bool {
     stdout.truncated || stderr.truncated
   }
 }
@@ -138,7 +138,7 @@ nonisolated extension RunCommandResult {
     )
   }
 
-  public var previewText: String {
+  package var previewText: String {
     var lines: [String] = [
       "Command: \(command)",
       "Exit code: \(exitCode.map(String.init) ?? "none")",
@@ -173,7 +173,7 @@ nonisolated extension RunCommandResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let runCommand = ToolDefinition(
+  package static let runCommand = ToolDefinition(
     name: .runCommand,
     description:
       "Run an approved foreground shell command in the workspace root. Do not use this to write files when write_file or edit_file can do the change.",

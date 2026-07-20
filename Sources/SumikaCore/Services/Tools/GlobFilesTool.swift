@@ -1,17 +1,17 @@
 import Foundation
 
-public struct GlobFilesInput: Codable, Equatable, Sendable {
-  public let pattern: String
-  public let path: String?
+package struct GlobFilesInput: Codable, Equatable, Sendable {
+  package let pattern: String
+  package let path: String?
 }
 
-public struct GlobFilesResult: Codable, Equatable, Sendable {
-  public var root: WorkspaceRelativePath
-  public var pattern: String
-  public var matches: [WorkspaceRelativePath]
-  public var truncated: Bool
+package struct GlobFilesResult: Codable, Equatable, Sendable {
+  package var root: WorkspaceRelativePath
+  package var pattern: String
+  package var matches: [WorkspaceRelativePath]
+  package var truncated: Bool
 
-  public init(
+  package init(
     root: WorkspaceRelativePath,
     pattern: String,
     matches: [WorkspaceRelativePath],
@@ -37,7 +37,7 @@ nonisolated extension GlobFilesResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let globFiles = ToolDefinition(
+  package static let globFiles = ToolDefinition(
     name: .globFiles,
     description:
       "Find workspace files by glob pattern. Use this when the target path or file type is unknown but a filename pattern is known.",

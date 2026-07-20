@@ -1,40 +1,40 @@
 import Foundation
 
-public enum FinishTaskStatus: String, Codable, CaseIterable, Equatable, Sendable {
+package enum FinishTaskStatus: String, Codable, CaseIterable, Equatable, Sendable {
   case done
   case blocked
   case needsUser = "needs_user"
 }
 
-public struct FinishTaskInput: Codable, Equatable, Sendable {
-  public let status: FinishTaskStatus
-  public let summary: String
+package struct FinishTaskInput: Codable, Equatable, Sendable {
+  package let status: FinishTaskStatus
+  package let summary: String
 
   private enum CodingKeys: String, CodingKey {
     case status
     case summary
   }
 
-  public init(status: FinishTaskStatus, summary: String) {
+  package init(status: FinishTaskStatus, summary: String) {
     self.status = status
     self.summary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     status = try container.decode(FinishTaskStatus.self, forKey: .status)
     summary = try container.decode(String.self, forKey: .summary)
       .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(status, forKey: .status)
     try container.encode(summary, forKey: .summary)
   }
 }
 
-public enum FinishTaskResult: Codable, Equatable, Sendable {
+package enum FinishTaskResult: Codable, Equatable, Sendable {
   case success
   case failed(reason: ToolFailureReason)
 }
@@ -51,7 +51,7 @@ nonisolated extension FinishTaskResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let finishTask = ToolDefinition(
+  package static let finishTask = ToolDefinition(
     name: .finishTask,
     description:
       "Finish the current task. Call this tool alone. The summary is shown directly to the user as the final response.",

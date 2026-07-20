@@ -1,30 +1,30 @@
 import Foundation
 
-public enum SlashCommand: Equatable, Sendable {
+package enum SlashCommand: Equatable, Sendable {
   case preview(path: String)
   case show(path: String)
 }
 
 /// Static metadata for a slash command, used both for parsing and to drive the
 /// composer autocomplete suggestions.
-public struct SlashCommandDescriptor: Equatable, Sendable, Identifiable {
-  public let name: String
-  public let summary: String
-  public let argumentHint: String?
+package struct SlashCommandDescriptor: Equatable, Sendable, Identifiable {
+  package let name: String
+  package let summary: String
+  package let argumentHint: String?
 
-  public init(name: String, summary: String, argumentHint: String?) {
+  package init(name: String, summary: String, argumentHint: String?) {
     self.name = name
     self.summary = summary
     self.argumentHint = argumentHint
   }
 
-  public var id: String { name }
+  package var id: String { name }
 
   /// The full command token as typed, e.g. `/show`.
-  public var token: String { "/" + name }
+  package var token: String { "/" + name }
 
   /// A one-line usage hint, e.g. `Usage: /show <path>`.
-  public var usage: String {
+  package var usage: String {
     guard let argumentHint else {
       return "Usage: \(token)"
     }
@@ -32,8 +32,8 @@ public struct SlashCommandDescriptor: Equatable, Sendable, Identifiable {
   }
 }
 
-public enum SlashCommandRegistry {
-  public static let all: [SlashCommandDescriptor] = [
+package enum SlashCommandRegistry {
+  package static let all: [SlashCommandDescriptor] = [
     SlashCommandDescriptor(
       name: "show",
       summary: "Show a file locally without adding it to the model context",
@@ -48,7 +48,7 @@ public enum SlashCommandRegistry {
 
   /// Commands whose name starts with `prefix` (case-insensitive). An empty
   /// prefix returns every command.
-  public static func matching(prefix: String) -> [SlashCommandDescriptor] {
+  package static func matching(prefix: String) -> [SlashCommandDescriptor] {
     guard !prefix.isEmpty else {
       return all
     }
@@ -57,16 +57,16 @@ public enum SlashCommandRegistry {
   }
 
   /// The command whose name exactly equals `name` (case-insensitive).
-  public static func descriptor(named name: String) -> SlashCommandDescriptor? {
+  package static func descriptor(named name: String) -> SlashCommandDescriptor? {
     let lowered = name.lowercased()
     return all.first { $0.name.lowercased() == lowered }
   }
 }
 
-public struct SlashCommandParser: Sendable {
-  public init() {}
+package struct SlashCommandParser: Sendable {
+  package init() {}
 
-  public func parse(_ input: String) -> SlashCommand? {
+  package func parse(_ input: String) -> SlashCommand? {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmed.hasPrefix("/") else {
       return nil

@@ -1,16 +1,16 @@
 import Foundation
 
-public struct WebFetchInput: Codable, Equatable, Sendable {
-  public var url: String
-  public var maxBytes: Int?
+package struct WebFetchInput: Codable, Equatable, Sendable {
+  package var url: String
+  package var maxBytes: Int?
 
-  public init(url: String, maxBytes: Int? = nil) {
+  package init(url: String, maxBytes: Int? = nil) {
     self.url = url
     self.maxBytes = maxBytes
   }
 }
 
-public enum WebFetchToolResult: Codable, Equatable, Sendable {
+package enum WebFetchToolResult: Codable, Equatable, Sendable {
   case success(
     url: String,
     provider: WebFetchProvider?,
@@ -27,7 +27,7 @@ public enum WebFetchToolResult: Codable, Equatable, Sendable {
     reason: ToolFailureReason
   )
 
-  public init(
+  package init(
     url: String,
     provider: WebFetchProvider?,
     finalURL: String,
@@ -87,7 +87,7 @@ nonisolated extension WebFetchToolResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let webFetch = ToolDefinition(
+  package static let webFetch = ToolDefinition(
     name: .webFetch,
     description: "Fetch public text content from an http or https URL.",
     parameters: [

@@ -1,16 +1,16 @@
 import Foundation
 
-public struct StoredModelSettings: Codable, Equatable, Sendable {
-  public var modeSettings: ChatModeSettingsSet
-  public var contextTokenLimit: Int
-  public var systemPrompt: String {
+package struct StoredModelSettings: Codable, Equatable, Sendable {
+  package var modeSettings: ChatModeSettingsSet
+  package var contextTokenLimit: Int
+  package var systemPrompt: String {
     modeSettings.agent.systemPrompt
   }
-  public var generationSettings: ChatGenerationSettings {
+  package var generationSettings: ChatGenerationSettings {
     modeSettings.agent.generationSettings
   }
 
-  public init(
+  package init(
     modeSettings: ChatModeSettingsSet = .defaultSettings,
     contextTokenLimit: Int = ManagedModelCatalog.defaultContextTokenLimit
   ) {
@@ -18,7 +18,7 @@ public struct StoredModelSettings: Codable, Equatable, Sendable {
     self.contextTokenLimit = contextTokenLimit
   }
 
-  public init(
+  package init(
     systemPrompt: String,
     generationSettings: ChatGenerationSettings,
     contextTokenLimit: Int = ManagedModelCatalog.defaultContextTokenLimit
@@ -38,7 +38,7 @@ public struct StoredModelSettings: Codable, Equatable, Sendable {
     case contextTokenLimit
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     contextTokenLimit = try container.decodeIfPresent(
       Int.self,
@@ -70,7 +70,7 @@ public struct StoredModelSettings: Codable, Equatable, Sendable {
     modeSettings = ChatModeSettingsSet(chat: settings, agent: settings)
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(modeSettings, forKey: .modeSettings)
     try container.encode(contextTokenLimit, forKey: .contextTokenLimit)
@@ -81,7 +81,7 @@ private enum ModelSettingsFileCodingKeys: String, CodingKey {
   case modelSettings
 }
 
-public protocol ModelSettingsStoring: Sendable {
+package protocol ModelSettingsStoring: Sendable {
   func selectedModelID(availableModelIDs: Set<String>) async -> String
   func setSelectedModelID(_ modelID: String) async
   func settings(for model: ManagedModel) async -> StoredModelSettings
@@ -89,10 +89,10 @@ public protocol ModelSettingsStoring: Sendable {
 }
 
 nonisolated private struct UserDefaultsBox: @unchecked Sendable {
-  public let userDefaults: UserDefaults
+  package let userDefaults: UserDefaults
 }
 
-public actor ModelSettingsStore: ModelSettingsStoring {
+package actor ModelSettingsStore: ModelSettingsStoring {
   private struct SettingsFile: Codable {
     var modelSettings: [String: StoredModelSettings]
 
@@ -116,7 +116,7 @@ public actor ModelSettingsStore: ModelSettingsStoring {
   private let generationConfigPresetProvider:
     @Sendable (ManagedModel) -> ChatGenerationConfigPreset?
 
-  public init(
+  package init(
     userDefaults: UserDefaults = .standard,
     settingsURL: URL = LocalModelDirectory.defaultBaseURL
       .deletingLastPathComponent()
@@ -132,7 +132,7 @@ public actor ModelSettingsStore: ModelSettingsStoring {
     self.generationConfigPresetProvider = generationConfigPresetProvider
   }
 
-  public func selectedModelID(availableModelIDs: Set<String>) async -> String {
+  package func selectedModelID(availableModelIDs: Set<String>) async -> String {
     guard
       let storedID = userDefaultsBox.userDefaults.string(forKey: selectedModelKey),
       availableModelIDs.contains(storedID)
@@ -143,11 +143,11 @@ public actor ModelSettingsStore: ModelSettingsStoring {
     return storedID
   }
 
-  public func setSelectedModelID(_ modelID: String) async {
+  package func setSelectedModelID(_ modelID: String) async {
     userDefaultsBox.userDefaults.set(modelID, forKey: selectedModelKey)
   }
 
-  public func settings(for model: ManagedModel) async -> StoredModelSettings {
+  package func settings(for model: ManagedModel) async -> StoredModelSettings {
     guard let stored = readSettingsFile().modelSettings[model.id] else {
       return StoredModelSettings(
         modeSettings: Self.applyingGenerationConfigPreset(
@@ -166,7 +166,7 @@ public actor ModelSettingsStore: ModelSettingsStoring {
   /// preset (the model authors' recommendation). Agent mode adopts only the nucleus/top-k
   /// shape and keeps its conservative, loop-resistant temperature and penalties, since the
   /// recommended temperature (~1.0 for Gemma) would make tool calling unreliable.
-  public static func applyingGenerationConfigPreset(
+  package static func applyingGenerationConfigPreset(
     _ preset: ChatGenerationConfigPreset?,
     to modeSettings: ChatModeSettingsSet
   ) -> ChatModeSettingsSet {
@@ -181,7 +181,7 @@ public actor ModelSettingsStore: ModelSettingsStoring {
     return updated
   }
 
-  public func save(settings: StoredModelSettings, for model: ManagedModel) async throws {
+  package func save(settings: StoredModelSettings, for model: ManagedModel) async throws {
     var file = readSettingsFile()
     file.modelSettings[model.id] = settings
 

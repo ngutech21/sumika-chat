@@ -1,11 +1,11 @@
 import Foundation
 
-public struct WriteFileInput: Codable, Equatable, Sendable {
-  public let path: String
-  public let content: String
+package struct WriteFileInput: Codable, Equatable, Sendable {
+  package let path: String
+  package let content: String
 }
 
-public enum WriteFileResult: Codable, Equatable, Sendable {
+package enum WriteFileResult: Codable, Equatable, Sendable {
   case success(path: WorkspaceRelativePath, bytesWritten: Int)
   case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
 }
@@ -29,7 +29,7 @@ nonisolated extension WriteFileResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let writeFile = ToolDefinition(
+  package static let writeFile = ToolDefinition(
     name: .writeFile,
     description:
       "Create a new workspace text file or intentionally replace an entire small file. Prefer edit_file for targeted changes to existing files.",

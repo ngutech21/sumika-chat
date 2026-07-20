@@ -1,21 +1,21 @@
-public struct ChatGenerationSettings: Codable, Equatable, Sendable {
-  public var temperature: Double
-  public var topP: Double
-  public var topK: Int
-  public var maxTokens: Int
-  public var maxKVSize: Int?
-  public var repetitionPenalty: Double
+package struct ChatGenerationSettings: Codable, Equatable, Sendable {
+  package var temperature: Double
+  package var topP: Double
+  package var topK: Int
+  package var maxTokens: Int
+  package var maxKVSize: Int?
+  package var repetitionPenalty: Double
   /// How many recent tokens the repetition/presence penalties look back over.
   /// The MLX default of 20 is shorter than a single tool call, so it cannot see —
   /// and therefore cannot discourage — a repeated tool call. Agent mode widens it.
-  public var repetitionContextSize: Int
+  package var repetitionContextSize: Int
   /// Additive penalty applied once to any token already seen in the penalty window.
   /// Preferred over a high repetition penalty for tool loops: it discourages repeated
   /// content without penalising the structural JSON tokens every tool call needs.
-  public var presencePenalty: Double
-  public var reasoningEnabled: Bool
+  package var presencePenalty: Double
+  package var reasoningEnabled: Bool
 
-  public init(
+  package init(
     temperature: Double,
     topP: Double,
     topK: Int,
@@ -49,7 +49,7 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
     case reasoningEnabled
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     temperature = try container.decodeIfPresent(Double.self, forKey: .temperature, default: 1)
     topP = try container.decodeIfPresent(Double.self, forKey: .topP, default: 1)
@@ -78,7 +78,7 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
     )
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(temperature, forKey: .temperature)
     try container.encode(topP, forKey: .topP)
@@ -91,7 +91,7 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
     try container.encode(reasoningEnabled, forKey: .reasoningEnabled)
   }
 
-  public static let chatDefault = ChatGenerationSettings(
+  package static let chatDefault = ChatGenerationSettings(
     temperature: 1,
     topP: 1,
     topK: 0,
@@ -104,7 +104,7 @@ public struct ChatGenerationSettings: Codable, Equatable, Sendable {
   /// deterministically with no escape), a moderate presence penalty discourages
   /// re-emitting the same call, and the penalty window is widened to actually span a
   /// prior tool call. topP/topK match the Gemma generation_config recommendation.
-  public static let agentDefault = ChatGenerationSettings(
+  package static let agentDefault = ChatGenerationSettings(
     temperature: 0.3,
     topP: 0.95,
     topK: 64,

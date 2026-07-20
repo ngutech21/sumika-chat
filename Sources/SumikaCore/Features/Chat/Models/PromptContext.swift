@@ -1,14 +1,14 @@
-public struct ContextBudget: Codable, Equatable, Sendable {
-  public let maxCharacters: Int
+package struct ContextBudget: Codable, Equatable, Sendable {
+  package let maxCharacters: Int
 
   private init(maxCharacters: Int) {
     self.maxCharacters = maxCharacters
   }
 
-  public static let focusedFileDefault = ContextBudget(maxCharacters: 4_000)
-  public static let workspaceInstructionsDefault = ContextBudget(maxCharacters: 8_000)
+  package static let focusedFileDefault = ContextBudget(maxCharacters: 4_000)
+  package static let workspaceInstructionsDefault = ContextBudget(maxCharacters: 8_000)
 
-  public static func checked(maxCharacters: Int) -> ContextBudget? {
+  package static func checked(maxCharacters: Int) -> ContextBudget? {
     guard maxCharacters > 0 else {
       return nil
     }
@@ -19,7 +19,7 @@ public struct ContextBudget: Codable, Equatable, Sendable {
     ContextBudget(maxCharacters: maxCharacters)
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.singleValueContainer()
     let maxCharacters = try container.decode(Int.self)
     guard maxCharacters > 0 else {
@@ -31,15 +31,15 @@ public struct ContextBudget: Codable, Equatable, Sendable {
     self.init(maxCharacters: maxCharacters)
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.singleValueContainer()
     try container.encode(maxCharacters)
   }
 }
 
-public struct PromptContextExcerpt: Codable, Equatable, Sendable {
-  public let text: String
-  public let truncated: Bool
+package struct PromptContextExcerpt: Codable, Equatable, Sendable {
+  package let text: String
+  package let truncated: Bool
 
   private init(text: String, truncated: Bool) {
     self.text = text
@@ -51,12 +51,12 @@ public struct PromptContextExcerpt: Codable, Equatable, Sendable {
   }
 }
 
-public enum PromptContextTruncation: String, Codable, Equatable, Sendable {
+package enum PromptContextTruncation: String, Codable, Equatable, Sendable {
   case none
   case byCharacterBudget
 }
 
-public enum WorkspaceInstructionsPromptContext: Codable, Equatable, Sendable {
+package enum WorkspaceInstructionsPromptContext: Codable, Equatable, Sendable {
   case snapshot(WorkspaceInstructionsSnapshot)
   case removed(WorkspaceInstructionsRemoval)
 
@@ -71,7 +71,7 @@ public enum WorkspaceInstructionsPromptContext: Codable, Equatable, Sendable {
     case removed
   }
 
-  public var path: WorkspaceRelativePath {
+  package var path: WorkspaceRelativePath {
     switch self {
     case .snapshot(let snapshot):
       snapshot.path
@@ -80,14 +80,14 @@ public enum WorkspaceInstructionsPromptContext: Codable, Equatable, Sendable {
     }
   }
 
-  public var snapshot: WorkspaceInstructionsSnapshot? {
+  package var snapshot: WorkspaceInstructionsSnapshot? {
     guard case .snapshot(let snapshot) = self else {
       return nil
     }
     return snapshot
   }
 
-  public static func makeSnapshot(
+  package static func makeSnapshot(
     path: WorkspaceRelativePath,
     contentHash: String,
     content: String,
@@ -111,13 +111,13 @@ public enum WorkspaceInstructionsPromptContext: Codable, Equatable, Sendable {
     )
   }
 
-  public static func makeRemoval(
+  package static func makeRemoval(
     path: WorkspaceRelativePath
   ) -> WorkspaceInstructionsPromptContext {
     .removed(WorkspaceInstructionsRemoval(path: path))
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
     case .snapshot:
@@ -131,7 +131,7 @@ public enum WorkspaceInstructionsPromptContext: Codable, Equatable, Sendable {
     }
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     switch self {
     case .snapshot(let snapshot):
@@ -144,12 +144,12 @@ public enum WorkspaceInstructionsPromptContext: Codable, Equatable, Sendable {
   }
 }
 
-public struct WorkspaceInstructionsSnapshot: Codable, Equatable, Sendable {
-  public let path: WorkspaceRelativePath
-  public let contentHash: String
-  public let excerpt: PromptContextExcerpt
-  public let budget: ContextBudget
-  public let truncation: PromptContextTruncation
+package struct WorkspaceInstructionsSnapshot: Codable, Equatable, Sendable {
+  package let path: WorkspaceRelativePath
+  package let contentHash: String
+  package let excerpt: PromptContextExcerpt
+  package let budget: ContextBudget
+  package let truncation: PromptContextTruncation
 
   fileprivate init(
     path: WorkspaceRelativePath,
@@ -173,7 +173,7 @@ public struct WorkspaceInstructionsSnapshot: Codable, Equatable, Sendable {
     case truncation
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let path = try container.decode(WorkspaceRelativePath.self, forKey: .path)
     let contentHash = try container.decode(String.self, forKey: .contentHash)
@@ -202,8 +202,8 @@ public struct WorkspaceInstructionsSnapshot: Codable, Equatable, Sendable {
   }
 }
 
-public struct WorkspaceInstructionsRemoval: Codable, Equatable, Sendable {
-  public let path: WorkspaceRelativePath
+package struct WorkspaceInstructionsRemoval: Codable, Equatable, Sendable {
+  package let path: WorkspaceRelativePath
 
   fileprivate init(path: WorkspaceRelativePath) {
     self.path = path

@@ -1,38 +1,38 @@
 import Foundation
 
-public enum AssistantRenderBlock: Equatable, Identifiable, Sendable {
+package enum AssistantRenderBlock: Equatable, Identifiable, Sendable {
   case paragraph(Paragraph)
   case codeBlock(CodeBlock)
 
-  public struct BlockID: Hashable, Equatable, Sendable, CustomStringConvertible {
-    public let rawValue: String
+  package struct BlockID: Hashable, Equatable, Sendable, CustomStringConvertible {
+    package let rawValue: String
 
-    public init(rawValue: String) {
+    package init(rawValue: String) {
       self.rawValue = rawValue
     }
 
-    public var description: String {
+    package var description: String {
       rawValue
     }
   }
 
-  public struct Paragraph: Equatable, Identifiable, Sendable {
-    public let id: BlockID
-    public var text: String
+  package struct Paragraph: Equatable, Identifiable, Sendable {
+    package let id: BlockID
+    package var text: String
 
-    public init(id: BlockID, text: String) {
+    package init(id: BlockID, text: String) {
       self.id = id
       self.text = text
     }
   }
 
-  public struct CodeBlock: Equatable, Identifiable, Sendable {
-    public let id: BlockID
-    public var language: String?
-    public var text: String
-    public var isClosed: Bool
+  package struct CodeBlock: Equatable, Identifiable, Sendable {
+    package let id: BlockID
+    package var language: String?
+    package var text: String
+    package var isClosed: Bool
 
-    public init(
+    package init(
       id: BlockID,
       language: String?,
       text: String,
@@ -45,7 +45,7 @@ public enum AssistantRenderBlock: Equatable, Identifiable, Sendable {
     }
   }
 
-  public var id: BlockID {
+  package var id: BlockID {
     switch self {
     case .paragraph(let paragraph):
       paragraph.id
@@ -55,17 +55,17 @@ public enum AssistantRenderBlock: Equatable, Identifiable, Sendable {
   }
 }
 
-public struct AssistantRenderBlockParser: Sendable {
-  public init() {}
+package struct AssistantRenderBlockParser: Sendable {
+  package init() {}
 
-  public func parse(_ content: String) -> [AssistantRenderBlock] {
+  package func parse(_ content: String) -> [AssistantRenderBlock] {
     parseTail(of: content, fromUTF16Offset: 0, nextBlockOrdinal: 0).blocks
   }
 
   // Streaming entry point: blocks are delimited by fence lines, so appending
   // content can only ever change the final block. Callers cache the offset of
   // that block and reparse just the tail instead of the whole message.
-  public func parseTail(
+  package func parseTail(
     of content: String,
     fromUTF16Offset offset: Int,
     nextBlockOrdinal: Int
@@ -83,11 +83,11 @@ public struct AssistantRenderBlockParser: Sendable {
   }
 }
 
-public struct AssistantRenderBlockTailParse: Sendable, Equatable {
-  public let blocks: [AssistantRenderBlock]
-  public let lastBlockUTF16Offset: Int?
+package struct AssistantRenderBlockTailParse: Sendable, Equatable {
+  package let blocks: [AssistantRenderBlock]
+  package let lastBlockUTF16Offset: Int?
 
-  public init(blocks: [AssistantRenderBlock], lastBlockUTF16Offset: Int?) {
+  package init(blocks: [AssistantRenderBlock], lastBlockUTF16Offset: Int?) {
     self.blocks = blocks
     self.lastBlockUTF16Offset = lastBlockUTF16Offset
   }

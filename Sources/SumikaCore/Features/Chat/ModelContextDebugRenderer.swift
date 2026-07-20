@@ -1,23 +1,23 @@
 import Foundation
 
-public struct ModelContextDebugDocument: Equatable, Sendable {
-  public let systemPrompt: ModelContextDebugEntry
-  public let entries: [ModelContextDebugEntry]
-  public let totalCharacters: Int
-  public let totalEstimatedTokens: Int
-  public let signature: String
-  public let renderedContext: String
+package struct ModelContextDebugDocument: Equatable, Sendable {
+  package let systemPrompt: ModelContextDebugEntry
+  package let entries: [ModelContextDebugEntry]
+  package let totalCharacters: Int
+  package let totalEstimatedTokens: Int
+  package let signature: String
+  package let renderedContext: String
 }
 
-public struct ModelContextDebugEntry: Identifiable, Equatable, Sendable {
-  public let id: String
-  public let index: Int?
-  public let role: ModelContextDebugRole
-  public let content: String
-  public let characterCount: Int
-  public let estimatedTokens: Int
+package struct ModelContextDebugEntry: Identifiable, Equatable, Sendable {
+  package let id: String
+  package let index: Int?
+  package let role: ModelContextDebugRole
+  package let content: String
+  package let characterCount: Int
+  package let estimatedTokens: Int
 
-  public init(
+  package init(
     id: String? = nil,
     index: Int?,
     role: ModelContextDebugRole,
@@ -46,14 +46,14 @@ public struct ModelContextDebugEntry: Identifiable, Equatable, Sendable {
   }
 }
 
-public enum ModelContextDebugRole: String, Equatable, Sendable {
+package enum ModelContextDebugRole: String, Equatable, Sendable {
   case system
   case user
   case assistant
   case tool
 }
 
-public enum ModelContextDebugRenderer {
+internal enum ModelContextDebugRenderer {
   package static func render(
     transcript: ModelPromptProjection,
     systemPrompt: String,

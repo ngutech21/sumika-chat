@@ -1,22 +1,22 @@
 import Foundation
 
-public struct ToolResultProjection: Equatable, Sendable {
-  public let display: ToolDisplayPayload
-  public let observation: ToolModelObservation
-  public let metadata: ToolResultModelMetadata
+package struct ToolResultProjection: Equatable, Sendable {
+  package let display: ToolDisplayPayload
+  package let observation: ToolModelObservation
+  package let metadata: ToolResultModelMetadata
 }
 
-public struct ToolResultModelMetadata: Equatable, Sendable {
-  public var kind: String
-  public var duplicate: Bool
-  public var fields: [ToolResultModelMetadataField]
-  public var nextAllowedActions: [String]
-  public var notReexecuted: Bool
-  public var replayedResultKind: String?
-  public var forbiddenRepeat: Bool
-  public var nextStep: String?
+package struct ToolResultModelMetadata: Equatable, Sendable {
+  package var kind: String
+  package var duplicate: Bool
+  package var fields: [ToolResultModelMetadataField]
+  package var nextAllowedActions: [String]
+  package var notReexecuted: Bool
+  package var replayedResultKind: String?
+  package var forbiddenRepeat: Bool
+  package var nextStep: String?
 
-  public init(
+  package init(
     kind: String,
     duplicate: Bool = false,
     fields: [ToolResultModelMetadataField] = [],
@@ -37,17 +37,17 @@ public struct ToolResultModelMetadata: Equatable, Sendable {
   }
 }
 
-public struct ToolResultModelMetadataField: Equatable, Sendable {
-  public var name: String
-  public var value: ToolResultModelMetadataValue
+package struct ToolResultModelMetadataField: Equatable, Sendable {
+  package var name: String
+  package var value: ToolResultModelMetadataValue
 
-  public init(name: String, value: ToolResultModelMetadataValue) {
+  package init(name: String, value: ToolResultModelMetadataValue) {
     self.name = name
     self.value = value
   }
 }
 
-public indirect enum ToolResultModelMetadataValue: Equatable, Sendable {
+package indirect enum ToolResultModelMetadataValue: Equatable, Sendable {
   case array([ToolResultModelMetadataValue])
   case string(String)
   case int(Int)
@@ -55,36 +55,36 @@ public indirect enum ToolResultModelMetadataValue: Equatable, Sendable {
   case null
 }
 
-public enum ProjectionLimitStrategy: Equatable, Sendable {
+internal enum ProjectionLimitStrategy: Equatable, Sendable {
   case head
   case tail
   case headTail
 }
 
-public struct ProjectionLimit: Equatable, Sendable {
-  public var maxCharacters: Int
-  public var strategy: ProjectionLimitStrategy
+internal struct ProjectionLimit: Equatable, Sendable {
+  package var maxCharacters: Int
+  package var strategy: ProjectionLimitStrategy
 
-  public init(maxCharacters: Int, strategy: ProjectionLimitStrategy) {
+  package init(maxCharacters: Int, strategy: ProjectionLimitStrategy) {
     self.maxCharacters = maxCharacters
     self.strategy = strategy
   }
 
-  public static let defaultModelObservation = ProjectionLimit(
+  package static let defaultModelObservation = ProjectionLimit(
     maxCharacters: 8_000,
     strategy: .headTail
   )
 }
 
-public struct ProjectionLimitResult: Equatable, Sendable {
-  public let text: String
-  public let wasLimited: Bool
+internal struct ProjectionLimitResult: Equatable, Sendable {
+  package let text: String
+  package let wasLimited: Bool
 }
 
-public enum ProjectionLimiter {
+internal enum ProjectionLimiter {
   private static let marker = "\n[tool observation truncated]\n"
 
-  public static func limit(_ text: String, limit: ProjectionLimit) -> ProjectionLimitResult {
+  package static func limit(_ text: String, limit: ProjectionLimit) -> ProjectionLimitResult {
     guard text.count > limit.maxCharacters else {
       return ProjectionLimitResult(text: text, wasLimited: false)
     }
@@ -126,7 +126,7 @@ public enum ProjectionLimiter {
   }
 }
 
-public enum ToolDisplayPayload: Equatable, Sendable {
+package enum ToolDisplayPayload: Equatable, Sendable {
   case fileContent(path: WorkspaceRelativePath, content: ToolTextOutput)
   case fileList(root: WorkspaceRelativePath, entries: [WorkspaceFileEntry], truncated: Bool)
   case searchResults(
@@ -139,11 +139,11 @@ public enum ToolDisplayPayload: Equatable, Sendable {
   case summary(status: ToolResultStatus, text: String, affectedPaths: [WorkspaceRelativePath])
 }
 
-public struct ToolModelObservation: Codable, Equatable, Sendable {
-  public let toolName: ToolName
-  public let status: ToolResultStatus
-  public let affectedPaths: [WorkspaceRelativePath]
-  public let blocks: [ToolObservationBlock]
+package struct ToolModelObservation: Codable, Equatable, Sendable {
+  package let toolName: ToolName
+  package let status: ToolResultStatus
+  package let affectedPaths: [WorkspaceRelativePath]
+  package let blocks: [ToolObservationBlock]
 
   private init(
     toolName: ToolName,
@@ -239,7 +239,7 @@ public struct ToolModelObservation: Codable, Equatable, Sendable {
   }
 }
 
-public enum ToolObservationBlock: Codable, Equatable, Sendable {
+package enum ToolObservationBlock: Codable, Equatable, Sendable {
   case summary(String)
   case fileDisplayedToUser(
     path: WorkspaceRelativePath,
@@ -293,14 +293,14 @@ extension ToolObservationBlock {
   }
 }
 
-public struct ToolResultProjectionPolicy: Equatable, Sendable {
-  public var maxListObservationEntries: Int
-  public var maxSearchObservationSnippets: Int
-  public var includeShowFileBodyInObservation: Bool
-  public var includeReadFileBodyInObservation: Bool
-  public var modelObservationLimit: ProjectionLimit
+internal struct ToolResultProjectionPolicy: Equatable, Sendable {
+  package var maxListObservationEntries: Int
+  package var maxSearchObservationSnippets: Int
+  package var includeShowFileBodyInObservation: Bool
+  package var includeReadFileBodyInObservation: Bool
+  package var modelObservationLimit: ProjectionLimit
 
-  public init(
+  package init(
     maxListObservationEntries: Int = 40,
     maxSearchObservationSnippets: Int = 20,
     includeShowFileBodyInObservation: Bool = false,
@@ -314,14 +314,21 @@ public struct ToolResultProjectionPolicy: Equatable, Sendable {
     self.modelObservationLimit = modelObservationLimit
   }
 
-  public static let `default` = ToolResultProjectionPolicy()
+  package static let `default` = ToolResultProjectionPolicy()
 }
 
-public enum ToolResultProjector {
-  public static func project(
+package enum ToolResultProjector {
+  package static func project(
+    payload: ToolResultPayload,
+    request: ToolCallRequest
+  ) -> ToolResultProjection {
+    project(payload: payload, request: request, policy: .default)
+  }
+
+  internal static func project(
     payload: ToolResultPayload,
     request: ToolCallRequest,
-    policy: ToolResultProjectionPolicy = .default
+    policy: ToolResultProjectionPolicy
   ) -> ToolResultProjection {
     switch payload {
     case .readFile(let result):
