@@ -1,11 +1,11 @@
 import Foundation
 
 @MainActor
-final class RuntimeContextClearCoordinator {
+package final class RuntimeContextClearCoordinator {
   private let modelLifecycleCoordinator: ModelLifecycleCoordinator
   private var pendingClear: PendingRuntimeContextClear?
 
-  init(modelLifecycleCoordinator: ModelLifecycleCoordinator) {
+  package init(modelLifecycleCoordinator: ModelLifecycleCoordinator) {
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
   }
 

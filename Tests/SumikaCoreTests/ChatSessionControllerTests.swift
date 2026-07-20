@@ -7,6 +7,24 @@ import Testing
 @MainActor
 struct ChatSessionControllerTests {
   @Test
+  func releasingControllerReleasesTestModelComposition() async throws {
+    weak var modelController: ModelRuntimeController?
+
+    do {
+      let controller = ChatSessionController(
+        runtime: ChatSessionFakeChatModelRuntime(),
+        modelPath: "/tmp/model"
+      )
+      modelController = controller.modelRuntime
+      #expect(modelController != nil)
+    }
+
+    try await waitUntil(timeout: .seconds(1)) {
+      modelController == nil
+    }
+  }
+
+  @Test
   func canSendRequiresReadyModelNonEmptyPromptAndIdleGeneration() {
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
@@ -808,6 +826,36 @@ struct ChatSessionControllerTests {
     #expect(persistedItems[1].contentForTesting.isEmpty)
     #expect(persistedItems[1].deliveryStatusForTesting == .cancelled)
     #expect(controller.errorMessage == nil)
+  }
+
+  @Test
+  func switchingSessionCancelsOldTurnBeforeApplyingNewModelAndSession() async throws {
+    let runtime = NonCooperativeStreamingRuntime(chunks: ["late reply"])
+    defer { Task { await runtime.releaseChunks() } }
+    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
+    let targetSession = ChatSession(selectedModelID: targetModel.id)
+    controller.modelRuntime.modelState = .ready
+    controller.sendMessage(prompt: "Do not leak this reply")
+
+    try await waitUntilAsync { await runtime.didStartStreaming }
+
+    ConversationSessionCoordinator(
+      modelController: controller.modelRuntime,
+      chatController: controller
+    ).switchSession(to: targetSession)
+
+    #expect(!controller.isGenerating)
+    #expect(controller.modelRuntime.selectedModelID == targetModel.id)
+    #expect(controller.modelRuntime.modelState == .notLoaded)
+    #expect(controller.chatSession.id == targetSession.id)
+    #expect(controller.chatSession.turns.isEmpty)
+
+    await runtime.releaseChunks()
+    try await waitUntilAsync { await runtime.didFinishStreaming }
+
+    #expect(controller.chatSession.id == targetSession.id)
+    #expect(controller.chatSession.turns.isEmpty)
   }
 
   @Test

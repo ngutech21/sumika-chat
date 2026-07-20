@@ -15,6 +15,7 @@ final class AppState {
   @ObservationIgnored let chatController: ChatSessionController
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
   @ObservationIgnored let mcpClientManager: MCPClientManager
+  @ObservationIgnored private let conversationSessionCoordinator: ConversationSessionCoordinator
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
   @ObservationIgnored private var defaultSessionModeSettings =
@@ -40,6 +41,19 @@ final class AppState {
     audioModelController: ComposerAudioModelController = ComposerAudioModelController()
   ) {
     let browserToolService = HTMLPreviewBrowserToolService()
+    let conversation = AppLaunchConfiguration.makeConversationComposition(
+      modelSettingsStore: modelSettingsStore,
+      runtime: runtime,
+      modelAvailability: modelAvailability,
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false),
+        browserToolService: browserToolService,
+        webAccessSettingsProvider: {
+          await webAccessSettingsStore.settings()
+        }
+      ),
+      turnTracer: turnTracer
+    )
     self.init(
       workspaceStore: workspaceStore,
       modelSettingsStore: modelSettingsStore,
@@ -53,14 +67,7 @@ final class AppState {
         audioModelController: audioModelController
       ),
       browserToolService: browserToolService,
-      chatController: Self.makeChatController(
-        modelSettingsStore: modelSettingsStore,
-        webAccessSettingsStore: webAccessSettingsStore,
-        runtime: runtime,
-        modelAvailability: modelAvailability,
-        browserToolService: browserToolService,
-        turnTracer: turnTracer
-      ),
+      conversation: conversation,
       turnTracer: turnTracer
     )
   }
@@ -77,13 +84,14 @@ final class AppState {
     audioModelController: ComposerAudioModelController = ComposerAudioModelController(),
     composerSpeechInputController: ComposerSpeechInputController? = nil,
     browserToolService: HTMLPreviewBrowserToolService,
-    chatController: ChatSessionController,
+    conversation: ConversationComposition,
     turnTracer: any TurnTracing
   ) {
     self.modelSettingsStore = modelSettingsStore
     self.browserToolService = browserToolService
-    self.chatController = chatController
-    self.modelManagementState = ModelManagementFeatureState(chatController: chatController)
+    self.chatController = conversation.chatController
+    self.modelManagementState = conversation.modelManagementState
+    self.conversationSessionCoordinator = conversation.sessionCoordinator
     self.mcpClientManager = mcpClientManager
     self.assistantSpeechService = assistantSpeechService
     self.audioModelController = audioModelController
@@ -118,29 +126,6 @@ final class AppState {
       self.updateAppBehaviorSettings(settings)
     }
     loadStoredLibrary()
-  }
-
-  private static func makeChatController(
-    modelSettingsStore: any ModelSettingsStoring,
-    webAccessSettingsStore: any WebAccessSettingsStoring,
-    runtime: any ChatModelRuntime,
-    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
-    browserToolService: HTMLPreviewBrowserToolService,
-    turnTracer: any TurnTracing
-  ) -> ChatSessionController {
-    ChatSessionController(
-      modelSettingsStore: modelSettingsStore,
-      runtime: runtime,
-      modelAvailability: modelAvailability,
-      toolOrchestrator: ToolOrchestrator(
-        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false),
-        browserToolService: browserToolService,
-        webAccessSettingsProvider: {
-          await webAccessSettingsStore.settings()
-        }
-      ),
-      turnTracer: turnTracer
-    )
   }
 
   @discardableResult
@@ -478,7 +463,7 @@ final class AppState {
     } else {
       session = emptySessionForNoActiveWorkspace()
     }
-    chatController.loadSession(session)
+    conversationSessionCoordinator.switchSession(to: session)
     let selection = normalizedMCPServerSelection(session.selectedMCPServerIDs)
     chatController.reconcileSelectedMCPServerIDs(
       selection,

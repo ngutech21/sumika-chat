@@ -4,14 +4,19 @@ import SumikaCore
 @MainActor
 @Observable
 final class ModelManagementFeatureState {
+  @ObservationIgnored private let modelController: ModelRuntimeController
   private let chatController: ChatSessionController
 
-  init(chatController: ChatSessionController) {
+  init(
+    modelController: ModelRuntimeController,
+    chatController: ChatSessionController
+  ) {
+    self.modelController = modelController
     self.chatController = chatController
   }
 
   var state: ModelManagementState {
-    chatController.modelRuntime.state
+    modelController.state
   }
 
   var errorMessage: String? {
@@ -58,8 +63,8 @@ final class ModelManagementFeatureState {
   }
 
   func startRuntimeServices() {
-    chatController.modelRuntime.prepareDefaultModelDirectory()
-    chatController.modelRuntime.startResourceMonitoring()
+    modelController.prepareDefaultModelDirectory()
+    modelController.startResourceMonitoring()
   }
 
   func selectModel(_ model: ManagedModel) {
@@ -85,7 +90,7 @@ final class ModelManagementFeatureState {
       cancelGeneration: false,
       invalidateContext: shouldInvalidateContext
     )
-    chatController.modelRuntime.selectModel(model)
+    modelController.selectModel(model)
   }
 
   func performPrimaryAction() {
@@ -95,19 +100,19 @@ final class ModelManagementFeatureState {
         cancelGeneration: false,
         invalidateContext: false
       )
-      chatController.modelRuntime.downloadSelectedModel()
+      modelController.downloadSelectedModel()
     case .load:
       chatController.prepareForModelRuntimeAction(
         cancelGeneration: false,
         invalidateContext: true
       )
-      chatController.modelRuntime.loadSelectedModel()
+      modelController.loadSelectedModel()
     case .unload:
       chatController.prepareForModelRuntimeAction(
         cancelGeneration: true,
         invalidateContext: true
       )
-      chatController.modelRuntime.unloadModel()
+      modelController.unloadModel()
     }
   }
 
@@ -122,25 +127,25 @@ final class ModelManagementFeatureState {
     }
 
     if state.selectedModel.id != availableModel.id {
-      chatController.modelRuntime.selectModel(availableModel)
+      modelController.selectModel(availableModel)
     }
-    chatController.modelRuntime.loadSelectedModel()
+    modelController.loadSelectedModel()
   }
 
   func setContextTokenLimit(_ limit: Int) {
-    chatController.modelRuntime.setContextTokenLimit(limit)
+    modelController.setContextTokenLimit(limit)
   }
 
   func saveSelectedModelSettings(modeSettings: ChatModeSettingsSet) {
-    chatController.modelRuntime.saveSelectedModelSettings(modeSettings: modeSettings)
+    modelController.saveSelectedModelSettings(modeSettings: modeSettings)
   }
 
   func isSelectedModelDownloaded() -> Bool {
-    chatController.modelRuntime.isSelectedModelDownloaded()
+    modelController.isSelectedModelDownloaded()
   }
 
   func loadSelectedModelForStartup() {
-    chatController.modelRuntime.loadSelectedModel()
+    modelController.loadSelectedModel()
   }
 
   private var preferredDownloadedModel: ManagedModel? {
@@ -151,6 +156,14 @@ final class ModelManagementFeatureState {
     return downloadedModels.first
   }
 }
+
+#if DEBUG
+  extension ModelManagementFeatureState {
+    func setModelLoadStateForTesting(_ state: ModelLoadState) {
+      modelController.setModelLoadStateForTesting(state)
+    }
+  }
+#endif
 
 enum ModelManagementPrimaryAction: Equatable {
   case download

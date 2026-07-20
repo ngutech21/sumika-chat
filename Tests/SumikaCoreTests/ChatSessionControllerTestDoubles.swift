@@ -2,6 +2,167 @@ import Foundation
 
 @testable import SumikaCore
 
+@MainActor
+private enum ChatSessionControllerTestModelRegistry {
+  private final class WeakModelControllerReference {
+    weak var controller: ModelRuntimeController?
+
+    init(_ controller: ModelRuntimeController) {
+      self.controller = controller
+    }
+  }
+
+  private static var controllers: [ObjectIdentifier: WeakModelControllerReference] = [:]
+
+  static func register(
+    _ modelController: ModelRuntimeController,
+    for chatController: ChatSessionController
+  ) {
+    controllers = controllers.filter { $0.value.controller != nil }
+    controllers[ObjectIdentifier(chatController)] = WeakModelControllerReference(modelController)
+  }
+
+  static func modelController(for chatController: ChatSessionController) -> ModelRuntimeController {
+    guard let controller = controllers[ObjectIdentifier(chatController)]?.controller else {
+      preconditionFailure("Missing model controller for ChatSessionController test composition")
+    }
+    return controller
+  }
+}
+
+@MainActor
+extension ChatSessionController {
+  var modelRuntime: ModelRuntimeController {
+    ChatSessionControllerTestModelRegistry.modelController(for: self)
+  }
+
+  convenience init(
+    modelSettingsStore settingsStore: any ModelSettingsStoring,
+    modelDownloader downloader: any ModelDownloading = UnavailableModelDownloader(),
+    runtime: any ChatModelRuntime,
+    resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
+      ModelLifecycleCoordinator.defaultModelAvailability,
+    toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
+    chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
+    turnTracer: any TurnTracing = NoopTurnTracer()
+  ) {
+    let selectedModel = ManagedModelCatalog.defaultModel
+    let storedSettings = StoredModelSettings(
+      modeSettings: selectedModel.defaultModeSettings,
+      contextTokenLimit: selectedModel.defaultContextTokenLimit
+    )
+    self.init(
+      testSelectedModelID: selectedModel.id,
+      modelPath: selectedModel.localPath,
+      modelContextTokenLimit: storedSettings.contextTokenLimit,
+      chatSession: ChatSession(
+        turns: [],
+        pendingAttachments: [],
+        modeSettings: storedSettings.modeSettings
+      ),
+      modelSettingsStore: settingsStore,
+      modelDownloader: downloader,
+      runtime: runtime,
+      resourceMonitor: resourceMonitor,
+      modelAvailability: modelAvailability,
+      toolOrchestrator: toolOrchestrator,
+      chatAttachmentLoader: chatAttachmentLoader,
+      turnTracer: turnTracer
+    )
+    modelRuntime.loadPersistedModelSelection()
+  }
+
+  convenience init(
+    runtime: any ChatModelRuntime,
+    resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
+    modelPath: String,
+    modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
+    modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
+      ModelLifecycleCoordinator.defaultModelAvailability,
+    toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
+    chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
+    turnTracer: any TurnTracing = NoopTurnTracer()
+  ) {
+    self.init(
+      testSelectedModelID: ManagedModelCatalog.defaultModelID,
+      modelPath: modelPath,
+      modelContextTokenLimit: ManagedModelCatalog.defaultModel.defaultContextTokenLimit,
+      chatSession: .defaultSession,
+      modelSettingsStore: modelSettingsStore,
+      modelDownloader: modelDownloader,
+      runtime: runtime,
+      resourceMonitor: resourceMonitor,
+      modelAvailability: modelAvailability,
+      toolOrchestrator: toolOrchestrator,
+      chatAttachmentLoader: chatAttachmentLoader,
+      turnTracer: turnTracer
+    )
+  }
+
+  private convenience init(
+    testSelectedModelID selectedModelID: ManagedModel.ID,
+    modelPath: String,
+    modelContextTokenLimit: Int,
+    chatSession: ChatSession,
+    modelSettingsStore: any ModelSettingsStoring,
+    modelDownloader: any ModelDownloading,
+    runtime: any ChatModelRuntime,
+    resourceMonitor: any ProcessResourceMonitoring,
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
+    toolOrchestrator: ToolOrchestrator,
+    chatAttachmentLoader: any ChatAttachmentLoading,
+    turnTracer: any TurnTracing
+  ) {
+    let operationID = UUID()
+    let runtimeOperations = RuntimeOperationCoordinator(
+      runtime: runtime,
+      initialOperationID: operationID
+    )
+    let modelLifecycleCoordinator = ModelLifecycleCoordinator(
+      modelDownloader: modelDownloader,
+      runtimeOperations: runtimeOperations,
+      modelAvailability: modelAvailability
+    )
+    let modelController = ModelRuntimeController(
+      selectedModelID: selectedModelID,
+      modelPath: modelPath,
+      modelContextTokenLimit: modelContextTokenLimit,
+      modelSettingsStore: modelSettingsStore,
+      runtimeOperations: runtimeOperations,
+      modelLifecycleCoordinator: modelLifecycleCoordinator,
+      resourceMonitor: resourceMonitor,
+      initialOperationID: operationID
+    )
+    self.init(
+      conversationModel: { [modelController] in
+        modelController.conversationState
+      },
+      runtimeContextClearCoordinator: RuntimeContextClearCoordinator(
+        modelLifecycleCoordinator: modelLifecycleCoordinator
+      ),
+      chatGenerationCoordinator: ChatGenerationCoordinator(
+        runtimeOperations: runtimeOperations,
+        turnTracer: turnTracer
+      ),
+      chatSession: chatSession,
+      toolOrchestrator: toolOrchestrator,
+      chatAttachmentLoader: chatAttachmentLoader,
+      turnTracer: turnTracer
+    )
+    ChatSessionControllerTestModelRegistry.register(modelController, for: self)
+    modelController.setEventHandlers(modelManagementEventHandlers)
+  }
+
+  func loadSession(_ session: ChatSession) {
+    ConversationSessionCoordinator(
+      modelController: modelRuntime,
+      chatController: self
+    ).switchSession(to: session)
+  }
+}
+
 actor NonCooperativeStreamingRuntime: ChatModelRuntime {
   private let chunks: [String]
   private var streamContinuation: CheckedContinuation<Void, Never>?

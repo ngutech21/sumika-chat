@@ -1,12 +1,12 @@
 import Foundation
 
-actor RuntimeOperationCoordinator {
+package actor RuntimeOperationCoordinator {
   private let runtime: any ChatModelRuntime
   private var currentOperationID = UUID()
   private var activeUnloadTask: Task<Void, Never>?
   private var activeUnloadOperationID: UUID?
 
-  init(runtime: any ChatModelRuntime, initialOperationID: UUID = UUID()) {
+  package init(runtime: any ChatModelRuntime, initialOperationID: UUID = UUID()) {
     self.runtime = runtime
     self.currentOperationID = initialOperationID
   }

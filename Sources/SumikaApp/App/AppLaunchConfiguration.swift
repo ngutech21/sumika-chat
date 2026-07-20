@@ -163,7 +163,7 @@ enum AppLaunchConfiguration {
     mcpServersStore: any MCPServersStoring = MCPServersStore()
   ) -> AppState {
     let browserToolService = HTMLPreviewBrowserToolService()
-    let chatController = ChatSessionController(
+    let conversation = makeConversationComposition(
       modelSettingsStore: modelSettingsStore,
       modelDownloader: modelDownloader,
       runtime: runtime,
@@ -185,8 +185,81 @@ enum AppLaunchConfiguration {
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: mcpServersStore,
       browserToolService: browserToolService,
-      chatController: chatController,
+      conversation: conversation,
       turnTracer: turnTracer
+    )
+  }
+
+  @MainActor
+  static func makeConversationComposition(
+    modelSettingsStore: any ModelSettingsStoring,
+    modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
+    runtime: any ChatModelRuntime,
+    resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
+    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
+      ModelLifecycleCoordinator.defaultModelAvailability,
+    toolOrchestrator: ToolOrchestrator,
+    chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
+    turnTracer: any TurnTracing
+  ) -> ConversationComposition {
+    let selectedModel = ManagedModelCatalog.defaultModel
+    let storedSettings = StoredModelSettings(
+      modeSettings: selectedModel.defaultModeSettings,
+      contextTokenLimit: selectedModel.defaultContextTokenLimit
+    )
+    let operationID = UUID()
+    let runtimeOperations = RuntimeOperationCoordinator(
+      runtime: runtime,
+      initialOperationID: operationID
+    )
+    let modelLifecycleCoordinator = ModelLifecycleCoordinator(
+      modelDownloader: modelDownloader,
+      runtimeOperations: runtimeOperations,
+      modelAvailability: modelAvailability
+    )
+    let modelManagementController = ModelRuntimeController(
+      selectedModelID: selectedModel.id,
+      modelPath: selectedModel.localPath,
+      modelContextTokenLimit: storedSettings.contextTokenLimit,
+      modelSettingsStore: modelSettingsStore,
+      runtimeOperations: runtimeOperations,
+      modelLifecycleCoordinator: modelLifecycleCoordinator,
+      resourceMonitor: resourceMonitor,
+      initialOperationID: operationID
+    )
+    let initialConversationState = modelManagementController.conversationState
+    let chatController = ChatSessionController(
+      conversationModel: { [weak modelManagementController] in
+        modelManagementController?.conversationState ?? initialConversationState
+      },
+      runtimeContextClearCoordinator: RuntimeContextClearCoordinator(
+        modelLifecycleCoordinator: modelLifecycleCoordinator
+      ),
+      chatGenerationCoordinator: ChatGenerationCoordinator(
+        runtimeOperations: runtimeOperations,
+        turnTracer: turnTracer
+      ),
+      chatSession: ChatSession(
+        turns: [],
+        pendingAttachments: [],
+        modeSettings: storedSettings.modeSettings
+      ),
+      toolOrchestrator: toolOrchestrator,
+      chatAttachmentLoader: chatAttachmentLoader,
+      turnTracer: turnTracer
+    )
+    modelManagementController.setEventHandlers(chatController.modelManagementEventHandlers)
+    modelManagementController.loadPersistedModelSelection()
+    return ConversationComposition(
+      modelManagementState: ModelManagementFeatureState(
+        modelController: modelManagementController,
+        chatController: chatController
+      ),
+      sessionCoordinator: ConversationSessionCoordinator(
+        modelController: modelManagementController,
+        chatController: chatController
+      ),
+      chatController: chatController
     )
   }
 
@@ -232,6 +305,12 @@ enum AppLaunchConfiguration {
       activeSessionID: session.id
     )
   }
+}
+
+struct ConversationComposition {
+  let modelManagementState: ModelManagementFeatureState
+  let sessionCoordinator: ConversationSessionCoordinator
+  let chatController: ChatSessionController
 }
 
 private actor UITestWorkspaceStore: WorkspaceStoring {

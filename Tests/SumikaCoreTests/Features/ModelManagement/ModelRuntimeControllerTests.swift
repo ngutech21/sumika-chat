@@ -44,6 +44,12 @@ struct ModelRuntimeControllerTests {
     #expect(state.modelState == .notLoaded)
     #expect(state.modelContextTokenLimit == downloadedModel.defaultContextTokenLimit)
     #expect(state.canChangeModel)
+
+    let conversationState = controller.conversationState
+    #expect(conversationState.selectedModel == state.selectedModel)
+    #expect(conversationState.loadState == state.modelState)
+    #expect(conversationState.contextTokenLimit == state.modelContextTokenLimit)
+    #expect(conversationState.operationID == controller.currentOperationID())
   }
 
   @Test

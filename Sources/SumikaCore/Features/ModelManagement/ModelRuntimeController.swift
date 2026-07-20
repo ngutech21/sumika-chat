@@ -58,7 +58,16 @@ package final class ModelRuntimeController {
     )
   }
 
-  init(
+  package var conversationState: ConversationModelState {
+    ConversationModelState(
+      selectedModel: selectedModel,
+      loadState: modelState,
+      contextTokenLimit: modelContextTokenLimit,
+      operationID: modelOperationID
+    )
+  }
+
+  package init(
     selectedModelID: ManagedModel.ID,
     modelPath: String,
     modelContextTokenLimit: Int,
@@ -80,6 +89,13 @@ package final class ModelRuntimeController {
     refreshModelAvailability()
   }
 
+  package func setEventHandlers(_ handlers: ModelManagementEventHandlers) {
+    onModelDidChange = handlers.modelDidChange
+    onRuntimeDidReset = handlers.runtimeDidReset
+    onContextUsageShouldRefresh = handlers.contextUsageShouldRefresh
+    onError = handlers.errorDidOccur
+  }
+
   deinit {
     loadTask?.cancel()
     downloadTask?.cancel()
@@ -89,6 +105,12 @@ package final class ModelRuntimeController {
   package func currentOperationID() -> UUID {
     modelOperationID
   }
+
+  #if DEBUG
+    package func setModelLoadStateForTesting(_ state: ModelLoadState) {
+      modelState = state
+    }
+  #endif
 
   package func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
     try? await runtimeOperations.runtimeCacheDebugSnapshot(operationID: modelOperationID)
@@ -166,7 +188,7 @@ package final class ModelRuntimeController {
     }
   }
 
-  package func applySessionModel(_ model: ManagedModel) -> Bool {
+  func applySessionModel(_ model: ManagedModel) -> Bool {
     let isModelSwitch = selectedModelID != model.id
     let shouldUnloadRuntime = isModelSwitch && modelState != .notLoaded
 

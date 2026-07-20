@@ -32,6 +32,54 @@ struct AppStateTests {
   }
 
   @Test
+  func selectingSessionAppliesItsModelThroughModelManagement() async throws {
+    let workspaceID = UUID()
+    let initialSession = ChatSession(selectedModelID: ManagedModelCatalog.defaultModelID)
+    let selectedModel = try #require(
+      ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit")
+    )
+    let targetSession = ChatSession(selectedModelID: selectedModel.id)
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [initialSession, targetSession]
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: initialSession.id
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+        && appState.modelManagementState.state.selectedModel.id
+          == ManagedModelCatalog.defaultModelID
+    }
+
+    #expect(
+      appState.selectChat(
+        workspaceID: workspaceID,
+        sessionID: targetSession.id
+      )
+    )
+    #expect(appState.chatController.chatSession.id == targetSession.id)
+    #expect(appState.modelManagementState.state.selectedModel == selectedModel)
+    #expect(
+      appState.chatController.sessionSnapshot(updating: targetSession).selectedModelID
+        == selectedModel.id
+    )
+  }
+
+  @Test
   func interactionModeChangePersistsActiveSession() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()
@@ -200,7 +248,7 @@ struct AppStateTests {
       throw AppStateTestFailure.missingWorkspace
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
-    appState.chatController.modelRuntime.modelState = .ready
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
     appState.chatController.sendMessage(
       prompt: "Persist this", in: activeWorkspace, sessionID: activeSessionID)
 
@@ -840,7 +888,7 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
     let context = try #require(appState.workspaceState.activeWorkspaceContext)
-    appState.chatController.modelRuntime.modelState = .ready
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
 
     let didSend = appState.sendMessage(prompt: "Create a chat", in: context, sessionID: nil)
 
@@ -964,18 +1012,28 @@ struct AppStateTests {
   func autoloadLastModelDefaultsOffAndDoesNotLoadOnStartup() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()
-    let controller = ChatSessionController(
+    let webAccessSettingsStore = InMemoryWebAccessSettingsStore()
+    let browserToolService = HTMLPreviewBrowserToolService()
+    let conversation = AppLaunchConfiguration.makeConversationComposition(
       modelSettingsStore: modelSettingsStore,
-      runtime: AppStateTestRuntime()
+      runtime: AppStateTestRuntime(),
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false),
+        browserToolService: browserToolService,
+        webAccessSettingsProvider: {
+          await webAccessSettingsStore.settings()
+        }
+      ),
+      turnTracer: NoopTurnTracer()
     )
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
       modelSettingsStore: modelSettingsStore,
-      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: InMemoryMCPServersStore(),
-      browserToolService: HTMLPreviewBrowserToolService(),
-      chatController: controller,
+      browserToolService: browserToolService,
+      conversation: conversation,
       turnTracer: NoopTurnTracer()
     )
 
@@ -986,7 +1044,7 @@ struct AppStateTests {
 
     #expect(appState.settingsState.appBehaviorSettings == AppBehaviorSettings())
     #expect(!appState.settingsState.appBehaviorSettings.todoWriteToolEnabled)
-    #expect(controller.modelRuntime.modelState == .notLoaded)
+    #expect(appState.modelManagementState.state.modelState == .notLoaded)
   }
 
   @Test
@@ -1017,7 +1075,7 @@ struct AppStateTests {
     }
     #expect(appState.settingsState.appBehaviorSettings == updated)
     #expect(await runtime.loadCount() == 0)
-    #expect(appState.chatController.modelRuntime.modelState == .notLoaded)
+    #expect(appState.modelManagementState.state.modelState == .notLoaded)
   }
 
   @Test
@@ -1058,7 +1116,7 @@ struct AppStateTests {
     appState.startModelRuntimeServices()
 
     try await waitUntil {
-      appState.chatController.modelRuntime.modelState == .ready
+      appState.modelManagementState.state.modelState == .ready
     }
 
     #expect(appState.settingsState.appBehaviorSettings.autoloadLastModel)
@@ -1088,7 +1146,7 @@ struct AppStateTests {
     appState.startModelRuntimeServices()
 
     #expect(appState.settingsState.appBehaviorSettings.autoloadLastModel)
-    #expect(appState.chatController.modelRuntime.modelState == .notLoaded)
+    #expect(appState.modelManagementState.state.modelState == .notLoaded)
     #expect(await runtime.loadCount() == 0)
   }
 
@@ -1119,26 +1177,36 @@ struct AppStateTests {
     appState.startModelRuntimeServices()
 
     #expect(appState.settingsState.appBehaviorSettings.autoloadLastModel)
-    #expect(appState.chatController.modelRuntime.modelState == .notLoaded)
+    #expect(appState.modelManagementState.state.modelState == .notLoaded)
     #expect(await runtime.loadCount() == 0)
   }
 
   @Test
   func injectedControllerUsesSuppliedBrowserToolService() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
+    let webAccessSettingsStore = InMemoryWebAccessSettingsStore()
     let browserToolService = HTMLPreviewBrowserToolService()
-    let controller = ChatSessionController(
+    let conversation = AppLaunchConfiguration.makeConversationComposition(
       modelSettingsStore: modelSettingsStore,
-      runtime: AppStateTestRuntime()
+      runtime: AppStateTestRuntime(),
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false),
+        browserToolService: browserToolService,
+        webAccessSettingsProvider: {
+          await webAccessSettingsStore.settings()
+        }
+      ),
+      turnTracer: NoopTurnTracer()
     )
+    let controller = conversation.chatController
 
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
       modelSettingsStore: modelSettingsStore,
-      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      webAccessSettingsStore: webAccessSettingsStore,
       mcpServersStore: InMemoryMCPServersStore(),
       browserToolService: browserToolService,
-      chatController: controller,
+      conversation: conversation,
       turnTracer: NoopTurnTracer()
     )
 
@@ -1199,7 +1267,7 @@ struct AppStateTests {
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.chatController.setInteractionMode(.agent)
-    appState.chatController.modelRuntime.modelState = .ready
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
     appState.chatController.sendMessage(
       prompt: "refresh the preview", in: workspace, sessionID: activeSessionID)
 
@@ -1247,7 +1315,7 @@ struct AppStateTests {
       throw AppStateTestFailure.missingWorkspace
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
-    appState.chatController.modelRuntime.modelState = .ready
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
     appState.chatController.setInteractionMode(.agent)
     appState.chatController.sendMessage(
       prompt: "inspect the project", in: activeWorkspace, sessionID: activeSessionID)
@@ -1306,7 +1374,7 @@ struct AppStateTests {
       throw AppStateTestFailure.missingWorkspace
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
-    appState.chatController.modelRuntime.modelState = .ready
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
     appState.chatController.setInteractionMode(.agent)
     appState.chatController.sendMessage(
       prompt: "inspect the project", in: activeWorkspace, sessionID: activeSessionID)
@@ -1467,7 +1535,7 @@ struct AppStateTests {
       }?.state == .connected(toolCount: 1))
 
     let activeWorkspace = try #require(appState.workspaceState.activeWorkspace)
-    appState.chatController.modelRuntime.modelState = .ready
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
     appState.chatController.sendMessage(
       prompt: "Use the first server",
       in: activeWorkspace,

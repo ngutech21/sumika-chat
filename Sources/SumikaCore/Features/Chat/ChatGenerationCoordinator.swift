@@ -28,17 +28,17 @@ struct ChatGenerationResult: Equatable, Sendable {
 }
 
 @MainActor
-struct ChatGenerationCoordinator {
+package struct ChatGenerationCoordinator {
   private let runtimeOperations: RuntimeOperationCoordinator
   private let turnTracer: any TurnTracing
   private let streamingFlushInterval: TimeInterval
   private let streamingFlushCharacterLimit: Int
 
-  init(
+  package init(
     runtimeOperations: RuntimeOperationCoordinator,
     turnTracer: any TurnTracing = NoopTurnTracer(),
-    streamingFlushInterval: TimeInterval,
-    streamingFlushCharacterLimit: Int
+    streamingFlushInterval: TimeInterval = 0.05,
+    streamingFlushCharacterLimit: Int = 240
   ) {
     self.runtimeOperations = runtimeOperations
     self.turnTracer = turnTracer

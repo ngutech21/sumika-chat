@@ -19,8 +19,7 @@ package final class ChatSessionController {
   package var isGenerating = false
   package var errorMessage: String?
 
-  package let modelRuntime: ModelRuntimeController
-  @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
+  @ObservationIgnored private let conversationModel: @MainActor () -> ConversationModelState
   @ObservationIgnored private let runtimeContextClearCoordinator: RuntimeContextClearCoordinator
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
   @ObservationIgnored private var toolOrchestrator: ToolOrchestrator
@@ -36,9 +35,6 @@ package final class ChatSessionController {
   @ObservationIgnored private var pendingAgentToolExecutorRegistry: ToolExecutorRegistry?
   @ObservationIgnored private var pendingSelectedMCPServerIDs: [UUID]?
   @ObservationIgnored private var activeModelContextDebugToolPromptMode: ToolPromptMode?
-  @ObservationIgnored private let streamingFlushInterval: TimeInterval = 0.05
-  @ObservationIgnored private let streamingFlushCharacterLimit = 240
-
   #if canImport(OSLog)
     nonisolated private static let logger = Logger(
       subsystem: SumikaTelemetry.subsystem,
@@ -47,7 +43,7 @@ package final class ChatSessionController {
   #endif
 
   package func canSend(prompt: String) -> Bool {
-    modelRuntime.modelState == .ready
+    conversationModelState.loadState == .ready
       && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && !isGenerating
   }
@@ -79,116 +75,20 @@ package final class ChatSessionController {
       && !hasPendingUserAnswer
   }
 
-  package convenience init(
-    modelSettingsStore settingsStore: any ModelSettingsStoring,
-    modelDownloader downloader: any ModelDownloading = UnavailableModelDownloader(),
-    runtime: any ChatModelRuntime,
-    resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
-    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
-      ModelLifecycleCoordinator.defaultModelAvailability,
+  package init(
+    conversationModel: @escaping @MainActor () -> ConversationModelState,
+    runtimeContextClearCoordinator: RuntimeContextClearCoordinator,
+    chatGenerationCoordinator: ChatGenerationCoordinator,
+    chatSession: ChatSession = ChatSession(),
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
-    let selectedModel = ManagedModelCatalog.defaultModel
-    let storedSettings = StoredModelSettings(
-      modeSettings: selectedModel.defaultModeSettings,
-      contextTokenLimit: selectedModel.defaultContextTokenLimit
-    )
-    self.init(
-      selectedModelID: selectedModel.id,
-      modelPath: selectedModel.localPath,
-      modelContextTokenLimit: storedSettings.contextTokenLimit,
-      chatSession: ChatSession(
-        turns: [],
-        pendingAttachments: [],
-        modeSettings: storedSettings.modeSettings
-      ),
-      modelSettingsStore: settingsStore,
-      modelDownloader: downloader,
-      runtime: runtime,
-      resourceMonitor: resourceMonitor,
-      modelAvailability: modelAvailability,
-      toolOrchestrator: toolOrchestrator,
-      chatAttachmentLoader: chatAttachmentLoader,
-      turnTracer: turnTracer
-    )
-    modelRuntime.loadPersistedModelSelection()
-  }
-
-  convenience init(
-    runtime: any ChatModelRuntime,
-    resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
-    modelPath: String,
-    modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
-    modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
-    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
-      ModelLifecycleCoordinator.defaultModelAvailability,
-    toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
-    chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
-    turnTracer: any TurnTracing = NoopTurnTracer()
-  ) {
-    self.init(
-      selectedModelID: ManagedModelCatalog.defaultModelID,
-      modelPath: modelPath,
-      modelContextTokenLimit: ManagedModelCatalog.defaultModel.defaultContextTokenLimit,
-      chatSession: .defaultSession,
-      modelSettingsStore: modelSettingsStore,
-      modelDownloader: modelDownloader,
-      runtime: runtime,
-      resourceMonitor: resourceMonitor,
-      modelAvailability: modelAvailability,
-      toolOrchestrator: toolOrchestrator,
-      chatAttachmentLoader: chatAttachmentLoader,
-      turnTracer: turnTracer
-    )
-  }
-
-  private init(
-    selectedModelID: ManagedModel.ID,
-    modelPath: String,
-    modelContextTokenLimit: Int,
-    chatSession: ChatSession,
-    modelSettingsStore: any ModelSettingsStoring,
-    modelDownloader: any ModelDownloading,
-    runtime: any ChatModelRuntime,
-    resourceMonitor: any ProcessResourceMonitoring,
-    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
-    toolOrchestrator: ToolOrchestrator,
-    chatAttachmentLoader: any ChatAttachmentLoading,
-    turnTracer: any TurnTracing
-  ) {
+    self.conversationModel = conversationModel
+    self.runtimeContextClearCoordinator = runtimeContextClearCoordinator
+    self.chatGenerationCoordinator = chatGenerationCoordinator
     self.turnTracer = turnTracer
-    let modelOperationID = UUID()
-    let runtimeOperations = RuntimeOperationCoordinator(
-      runtime: runtime,
-      initialOperationID: modelOperationID
-    )
-    let modelLifecycleCoordinator = ModelLifecycleCoordinator(
-      modelDownloader: modelDownloader,
-      runtimeOperations: runtimeOperations,
-      modelAvailability: modelAvailability
-    )
-    self.modelLifecycleCoordinator = modelLifecycleCoordinator
     self.chatTurnCoordinator = ChatTurnCoordinator(turnTracer: turnTracer)
-    self.runtimeContextClearCoordinator = RuntimeContextClearCoordinator(
-      modelLifecycleCoordinator: modelLifecycleCoordinator)
-    self.chatGenerationCoordinator = ChatGenerationCoordinator(
-      runtimeOperations: runtimeOperations,
-      turnTracer: turnTracer,
-      streamingFlushInterval: streamingFlushInterval,
-      streamingFlushCharacterLimit: streamingFlushCharacterLimit
-    )
-    self.modelRuntime = ModelRuntimeController(
-      selectedModelID: selectedModelID,
-      modelPath: modelPath,
-      modelContextTokenLimit: modelContextTokenLimit,
-      modelSettingsStore: modelSettingsStore,
-      runtimeOperations: runtimeOperations,
-      modelLifecycleCoordinator: modelLifecycleCoordinator,
-      resourceMonitor: resourceMonitor,
-      initialOperationID: modelOperationID
-    )
     self.toolOrchestrator = toolOrchestrator
     self.chatWebToolOrchestrator = toolOrchestrator.replacingExecutorRegistry(.chatWeb)
     self.toolLoopCoordinator = ToolLoopCoordinator(
@@ -199,41 +99,46 @@ package final class ChatSessionController {
     self.attachmentCoordinator = ChatAttachmentCoordinator(loader: chatAttachmentLoader)
     self.chatSession = chatSession
     self.composerSessionState = Self.composerSessionState(for: chatSession)
-    configureModelRuntimeCallbacks()
   }
 }
 
 extension ChatSessionController {
-  private func configureModelRuntimeCallbacks() {
-    modelRuntime.onModelDidChange = { [weak self] settings in
-      guard let self else {
-        return
+  private var conversationModelState: ConversationModelState {
+    conversationModel()
+  }
+
+  package var modelManagementEventHandlers: ModelManagementEventHandlers {
+    ModelManagementEventHandlers(
+      modelDidChange: { [weak self] settings in
+        self?.handleModelDidChange(settings)
+      },
+      runtimeDidReset: { [weak self] in
+        self?.handleModelRuntimeDidReset()
+      },
+      contextUsageShouldRefresh: { [weak self] in
+        await self?.updateContextUsage()
+      },
+      errorDidOccur: { [weak self] message in
+        self?.errorMessage = message
       }
+    )
+  }
 
-      self.disableUnsupportedInteractionModeIfNeeded()
-      self.chatSession.modeSettings = settings.modeSettings
-      self.updateRuntimeCacheDebugSnapshot(nil)
-      self.invalidateModelContextDebugDocument()
-      self.invalidateContextUsage()
-      self.notifySessionDidChange()
+  private func handleModelDidChange(_ settings: StoredModelSettings) {
+    disableUnsupportedInteractionModeIfNeeded()
+    chatSession.modeSettings = settings.modeSettings
+    updateRuntimeCacheDebugSnapshot(nil)
+    invalidateModelContextDebugDocument()
+    invalidateContextUsage()
+    notifySessionDidChange()
 
-      self.clearRuntimeContextForReuse()
-      self.refreshContextUsage()
-    }
-    modelRuntime.onRuntimeDidReset = { [weak self] in
-      guard let self else {
-        return
-      }
+    clearRuntimeContextForReuse()
+    refreshContextUsage()
+  }
 
-      self.updateRuntimeCacheDebugSnapshot(nil)
-      self.invalidateContextUsage()
-    }
-    modelRuntime.onContextUsageShouldRefresh = { [weak self] in
-      await self?.updateContextUsage()
-    }
-    modelRuntime.onError = { [weak self] message in
-      self?.errorMessage = message
-    }
+  private func handleModelRuntimeDidReset() {
+    updateRuntimeCacheDebugSnapshot(nil)
+    invalidateContextUsage()
   }
 
   private func syncComposerSessionState() {
@@ -278,13 +183,10 @@ extension ChatSessionController {
     onSessionDidChange = handler
   }
 
-  package func loadSession(_ session: ChatSession) {
-    let model =
-      ManagedModelCatalog.model(id: session.selectedModelID)
-      ?? ManagedModelCatalog.defaultModel
-
-    cancelGeneration(notify: false)
-    let didResetRuntime = modelRuntime.applySessionModel(model)
+  func installSession(
+    _ session: ChatSession,
+    modelRuntimeWasReset: Bool
+  ) {
     errorMessage = nil
     contextUsage = nil
     updateRuntimeCacheDebugSnapshot(nil)
@@ -293,9 +195,9 @@ extension ChatSessionController {
     disableUnsupportedInteractionModeIfNeeded()
     invalidateModelContextDebugDocument()
 
-    if didResetRuntime {
+    if modelRuntimeWasReset {
       invalidateContextUsage()
-    } else if modelRuntime.modelState == .loading {
+    } else if conversationModelState.loadState == .loading {
       invalidateContextUsage()
     } else {
       clearRuntimeContextForReuse()
@@ -306,7 +208,7 @@ extension ChatSessionController {
   package func sessionSnapshot(updating session: ChatSession) -> ChatSession {
     var snapshot = session
     snapshot.title = chatSession.title
-    snapshot.selectedModelID = modelRuntime.selectedModelID
+    snapshot.selectedModelID = conversationModelState.selectedModel.id
     snapshot.turns = chatSession.turns
     snapshot.focusedFileState = chatSession.focusedFileState
     snapshot.modeSettings = chatSession.modeSettings
@@ -323,8 +225,9 @@ extension ChatSessionController {
     guard canChangeInteractionMode, chatSession.interactionMode != mode else {
       return
     }
-    guard modelRuntime.selectedModel.supports(interactionMode: mode) else {
-      errorMessage = unsupportedInteractionModeMessage(for: modelRuntime.selectedModel)
+    let selectedModel = conversationModelState.selectedModel
+    guard selectedModel.supports(interactionMode: mode) else {
+      errorMessage = unsupportedInteractionModeMessage(for: selectedModel)
       return
     }
 
@@ -490,14 +393,15 @@ extension ChatSessionController {
   ) -> Bool {
     let prompt = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
     guard canSend(prompt: rawPrompt) else { return false }
-    guard modelRuntime.selectedModel.supports(interactionMode: chatSession.interactionMode) else {
-      errorMessage = unsupportedInteractionModeMessage(for: modelRuntime.selectedModel)
+    let selectedModel = conversationModelState.selectedModel
+    guard selectedModel.supports(interactionMode: chatSession.interactionMode) else {
+      errorMessage = unsupportedInteractionModeMessage(for: selectedModel)
       return false
     }
     let attachmentsForTurn = attachmentsForCurrentTurn()
-    guard modelRuntime.selectedModel.supportsImageInput || !attachmentsForTurn.hasImages
+    guard selectedModel.supportsImageInput || !attachmentsForTurn.hasImages
     else {
-      errorMessage = unsupportedImageInputMessage(for: modelRuntime.selectedModel)
+      errorMessage = unsupportedImageInputMessage(for: selectedModel)
       return false
     }
 
@@ -609,6 +513,10 @@ extension ChatSessionController {
     cancelGeneration(notify: true)
   }
 
+  func cancelGenerationForSessionSwitch() {
+    cancelGeneration(notify: false)
+  }
+
   private func cancelGeneration(notify: Bool) {
     let didCancel = chatTurnCoordinator.cancelActiveTurn(
       emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
@@ -701,7 +609,7 @@ extension ChatSessionController {
 
   private func clearRuntimeContextForReuse() {
     updateRuntimeCacheDebugSnapshot(nil)
-    let operationID = modelRuntime.currentOperationID()
+    let operationID = conversationModelState.operationID
     runtimeContextClearCoordinator.clear(operationID: operationID) { [weak self] error in
       if error is CancellationError {
         return
@@ -769,12 +677,13 @@ extension ChatSessionController {
       interactionMode: chatSession.interactionMode
     )
 
+    let modelState = conversationModelState
     return ContextUsageSnapshot(
-      modelState: modelRuntime.modelState,
+      modelState: modelState.loadState,
       transcript: transcript,
       attachments: attachmentsForCurrentTurn(),
       systemPrompt: renderedSystemPrompt,
-      contextTokenLimit: modelRuntime.modelContextTokenLimit
+      contextTokenLimit: modelState.contextTokenLimit
     )
   }
 
@@ -1025,9 +934,10 @@ extension ChatSessionController {
   }
 
   private func turnRuntimeContext() -> ChatTurnRuntimeContext {
-    ChatTurnRuntimeContext(
-      selectedModel: modelRuntime.selectedModel,
-      operationID: modelRuntime.currentOperationID(),
+    let modelState = conversationModelState
+    return ChatTurnRuntimeContext(
+      selectedModel: modelState.selectedModel,
+      operationID: modelState.operationID,
       chatGenerationCoordinator: chatGenerationCoordinator,
       toolLoopCoordinator: toolLoopCoordinator,
       agentToolOrchestrator: toolOrchestrator
@@ -1106,7 +1016,7 @@ extension ChatSessionController {
   fileprivate func systemPrompt(toolPromptMode: ToolPromptMode) -> String {
     chatTurnCoordinator.systemPrompt(
       session: chatSession,
-      selectedModel: modelRuntime.selectedModel,
+      selectedModel: conversationModelState.selectedModel,
       toolLoopCoordinator: toolLoopCoordinator,
       toolPromptMode: toolPromptMode
     )
@@ -1126,12 +1036,12 @@ extension ChatSessionController {
       session: chatSession,
       workspace: workspace,
       sessionID: sessionID,
-      selectedModel: modelRuntime.selectedModel
+      selectedModel: conversationModelState.selectedModel
     )
   }
 
   private func disableUnsupportedInteractionModeIfNeeded() {
-    let selectedModel = modelRuntime.selectedModel
+    let selectedModel = conversationModelState.selectedModel
     guard !selectedModel.supports(interactionMode: chatSession.interactionMode) else {
       return
     }
