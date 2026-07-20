@@ -1,6 +1,7 @@
 import Foundation
+import SumikaCore
 
-public protocol CodeHighlightingBackend: Sendable {
+nonisolated public protocol CodeHighlightingBackend: Sendable {
   func highlight(
     code: String,
     language: CodeLanguage?,
@@ -8,64 +9,7 @@ public protocol CodeHighlightingBackend: Sendable {
   ) async throws -> HighlightedCode
 }
 
-public enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
-  case bash
-  case css
-  case html
-  case javascript
-  case json
-  case python
-  case typescript
-
-  public init?(fenceLanguage: String?) {
-    guard
-      let rawLanguage = fenceLanguage?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased(),
-      !rawLanguage.isEmpty
-    else {
-      return nil
-    }
-
-    let normalizedLanguage = rawLanguage.split(whereSeparator: { $0 == " " || $0 == "\t" }).first
-      .map(String.init)
-    switch normalizedLanguage {
-    case "bash", "sh", "shell", "zsh":
-      self = .bash
-    case "css":
-      self = .css
-    case "html", "htm":
-      self = .html
-    case "js", "javascript", "mjs", "cjs":
-      self = .javascript
-    case "json":
-      self = .json
-    case "py", "python", "python3":
-      self = .python
-    case "ts", "typescript":
-      self = .typescript
-    default:
-      return nil
-    }
-  }
-
-  public init?(filePath: String) {
-    let trimmedPath = filePath.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmedPath.isEmpty else {
-      return nil
-    }
-
-    let fileName = trimmedPath.split(separator: "/").last.map(String.init) ?? trimmedPath
-    guard
-      let dotIndex = fileName.lastIndex(of: "."),
-      dotIndex < fileName.index(before: fileName.endIndex)
-    else {
-      return nil
-    }
-
-    self.init(fenceLanguage: String(fileName[fileName.index(after: dotIndex)...]))
-  }
-
+nonisolated extension CodeLanguage {
   public var displayName: String {
     switch self {
     case .bash:
@@ -86,7 +30,7 @@ public enum CodeLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
   }
 }
 
-public struct HighlightedCode: Equatable, Sendable {
+nonisolated public struct HighlightedCode: Equatable, Sendable {
   public var code: String
   public var language: CodeLanguage?
   public var spans: [HighlightSpan]
@@ -106,7 +50,7 @@ public struct HighlightedCode: Equatable, Sendable {
   }
 }
 
-public struct HighlightSpan: Equatable, Sendable {
+nonisolated public struct HighlightSpan: Equatable, Sendable {
   public var range: HighlightTextRange
   public var style: CodeHighlightStyle
   public var captureName: String
@@ -122,7 +66,7 @@ public struct HighlightSpan: Equatable, Sendable {
   }
 }
 
-public struct HighlightTextRange: Equatable, Sendable {
+nonisolated public struct HighlightTextRange: Equatable, Sendable {
   public var location: Int
   public var length: Int
 
@@ -140,7 +84,7 @@ public struct HighlightTextRange: Equatable, Sendable {
   }
 }
 
-public enum CodeHighlightStyle: String, Equatable, Hashable, Sendable {
+nonisolated public enum CodeHighlightStyle: String, Equatable, Hashable, Sendable {
   case attribute
   case comment
   case constant
@@ -155,7 +99,7 @@ public enum CodeHighlightStyle: String, Equatable, Hashable, Sendable {
   case variable
 }
 
-public struct CodeHighlightTheme: Equatable, Hashable, Sendable {
+nonisolated public struct CodeHighlightTheme: Equatable, Hashable, Sendable {
   public var stylesByCapturePrefix: [String: CodeHighlightStyle]
 
   public init(stylesByCapturePrefix: [String: CodeHighlightStyle]) {
@@ -198,7 +142,7 @@ public struct CodeHighlightTheme: Equatable, Hashable, Sendable {
   )
 }
 
-public struct CodeHighlightBlockID: Equatable, Hashable, Sendable {
+nonisolated public struct CodeHighlightBlockID: Equatable, Hashable, Sendable {
   public var rawValue: String
 
   public init(rawValue: String) {
@@ -206,7 +150,7 @@ public struct CodeHighlightBlockID: Equatable, Hashable, Sendable {
   }
 }
 
-public struct CodeHighlightRequest: Equatable, Sendable {
+nonisolated public struct CodeHighlightRequest: Equatable, Sendable {
   public var blockID: CodeHighlightBlockID
   public var version: Int
   public var code: String
@@ -231,7 +175,7 @@ public struct CodeHighlightRequest: Equatable, Sendable {
   }
 }
 
-public struct CodeHighlightResult: Equatable, Sendable {
+nonisolated public struct CodeHighlightResult: Equatable, Sendable {
   public var blockID: CodeHighlightBlockID
   public var version: Int
   public var highlightedCode: HighlightedCode
@@ -365,7 +309,7 @@ public actor StreamingCodeHighlighter {
   }
 }
 
-public struct CodeHighlightCacheKey: Equatable, Hashable, Sendable {
+nonisolated public struct CodeHighlightCacheKey: Equatable, Hashable, Sendable {
   public var language: CodeLanguage?
   public var codeHash: UInt64
   public var theme: CodeHighlightTheme
@@ -398,7 +342,7 @@ public struct CodeHighlightCacheKey: Equatable, Hashable, Sendable {
   }
 }
 
-extension String {
+nonisolated extension String {
   fileprivate var lastStableLineEndIndex: String.Index? {
     guard let newlineIndex = lastIndex(of: "\n") else {
       return nil
