@@ -229,8 +229,7 @@ struct AppStateTests {
     #expect(appState.chatController.sessionID == targetSession.id)
     #expect(appState.modelManagementState.state.selectedModel == selectedModel)
     #expect(
-      appState.chatController.sessionSnapshot(updating: targetSession).selectedModelID
-        == selectedModel.id
+      appState.chatController.sessionSnapshot().selectedModelID == selectedModel.id
     )
   }
 

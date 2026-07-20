@@ -435,14 +435,14 @@ final class AppState {
   @discardableResult
   func persistActiveSession() -> Bool {
     guard
-      let currentSession = workspaceState.activeSession,
-      chatController.sessionID == currentSession.id
+      let activeSessionID = workspaceState.activeSessionID,
+      chatController.sessionID == activeSessionID
     else {
       return false
     }
 
     workspaceState.persistActiveSessionSnapshot(
-      chatController.sessionSnapshot(updating: currentSession)
+      chatController.sessionSnapshot()
     )
     return true
   }

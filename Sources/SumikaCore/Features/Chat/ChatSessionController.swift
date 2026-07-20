@@ -241,17 +241,9 @@ extension ChatSessionController {
     }
   }
 
-  package func sessionSnapshot(updating session: ChatSession) -> ChatSession {
-    var snapshot = session
-    snapshot.title = chatSession.title
+  package func sessionSnapshot() -> ChatSession {
+    var snapshot = chatSession
     snapshot.selectedModelID = conversationModelState.selectedModel.id
-    snapshot.turns = chatSession.turns
-    snapshot.focusedFileState = chatSession.focusedFileState
-    snapshot.modeSettings = chatSession.modeSettings
-    snapshot.interactionMode = chatSession.interactionMode
-    snapshot.toolApprovalPolicy = chatSession.toolApprovalPolicy
-    snapshot.setSelectedMCPServerIDs(chatSession.selectedMCPServerIDs)
-    snapshot.todoState = chatSession.todoState
     snapshot.pendingAttachments = []
     snapshot.updatedAt = Date()
     return snapshot

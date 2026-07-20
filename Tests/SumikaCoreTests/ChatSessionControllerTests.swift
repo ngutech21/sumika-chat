@@ -224,7 +224,7 @@ struct ChatSessionControllerTests {
     )
 
     controller.loadSession(session)
-    let snapshot = controller.sessionSnapshot(updating: session)
+    let snapshot = controller.sessionSnapshot()
 
     #expect(controller.chatSession.focusedFileState == focusedFileState)
     #expect(controller.chatSession.interactionMode == .agent)
@@ -257,7 +257,7 @@ struct ChatSessionControllerTests {
         todoState: liveTodoState
       ))
 
-    #expect(controller.sessionSnapshot(updating: persisted).todoState == liveTodoState)
+    #expect(controller.sessionSnapshot().todoState == liveTodoState)
 
     controller.loadSession(
       ChatSession(
@@ -265,7 +265,44 @@ struct ChatSessionControllerTests {
         interactionMode: .agent
       ))
 
-    #expect(controller.sessionSnapshot(updating: persisted).todoState == nil)
+    #expect(controller.sessionSnapshot().todoState == nil)
+  }
+
+  @Test
+  func sessionSnapshotCopiesCompleteLiveSessionState() {
+    let attachment = makeAttachment(name: "context.png", kind: .image)
+    let activeAttachmentContext = ActiveAttachmentContext(
+      attachmentIDs: [attachment.id]
+    )
+    let liveSession = ChatSession(
+      title: "Live session",
+      pendingAttachments: [attachment],
+      focusedFileState: FocusedFileState(
+        activePath: WorkspaceRelativePath(rawValue: "README.md")
+      ),
+      interactionMode: .agent,
+      toolApprovalPolicy: .automatic,
+      selectedMCPServerIDs: [UUID()],
+      todoState: TodoState(items: [
+        TodoItem(id: "1", content: "Run tests", status: .inProgress)
+      ]),
+      activeAttachmentContext: activeAttachmentContext
+    )
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      chatSession: liveSession
+    )
+
+    let snapshot = controller.sessionSnapshot()
+    var expected = liveSession
+    expected.selectedModelID = snapshot.selectedModelID
+    expected.pendingAttachments = []
+    expected.updatedAt = snapshot.updatedAt
+
+    #expect(snapshot == expected)
+    #expect(snapshot.activeAttachmentContext == activeAttachmentContext)
+    #expect(snapshot.pendingAttachments.isEmpty)
   }
 
   @Test
@@ -329,7 +366,7 @@ struct ChatSessionControllerTests {
     controller.modelRuntime.selectModel(targetModel)
 
     try await waitUntilAsync { await runtime.clearContextCount == 1 }
-    let snapshot = controller.sessionSnapshot(updating: controller.chatSession)
+    let snapshot = controller.sessionSnapshot()
     #expect(controller.chatSession.turns == [originalTurn])
     #expect(snapshot.turns == [originalTurn])
     #expect(snapshot.selectedModelID == targetModel.id)
@@ -620,7 +657,7 @@ struct ChatSessionControllerTests {
     try await waitUntil { !controller.isGenerating }
 
     #expect(controller.chatSession.title == "build a snake game in python")
-    #expect(controller.sessionSnapshot(updating: session).title == "build a snake game in python")
+    #expect(controller.sessionSnapshot().title == "build a snake game in python")
   }
 
   @Test
