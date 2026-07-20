@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol ToolOrchestrating: Sendable {
+protocol ToolOrchestrating: Sendable {
   var toolRegistry: ToolRegistry { get }
 
   func execute(request: RawToolCallRequest, workspace: Workspace) async -> ToolCallRecord
@@ -8,33 +8,33 @@ public protocol ToolOrchestrating: Sendable {
 
 extension ToolOrchestrator: ToolOrchestrating {}
 
-public enum ToolExecutionProfile: Equatable, Sendable {
+enum ToolExecutionProfile: Equatable, Sendable {
   case disabled
   case chatWeb
   case agent
 
-  public var allowsToolLoop: Bool {
+  var allowsToolLoop: Bool {
     self != .disabled
   }
 }
 
-public struct ToolLoopRequest: Sendable {
-  public let workspace: Workspace
-  public let sessionID: ChatSession.ID
-  public let turnID: ChatTurn.ID
-  public let assistantMessageID: UUID
-  public let items: [ChatTurnItem]
-  public let focusedFileState: FocusedFileState
-  public let interactionMode: WorkspaceInteractionMode
-  public let toolProfile: ToolExecutionProfile
-  public let followUpPromptMode: ToolPromptMode
-  public let toolLoopIteration: Int?
-  public let toolCallingPolicy: ToolCallingPolicy
-  public let nativeToolCalls: [ChatRuntimeToolCall]
-  public let toolRegistry: ToolRegistry?
-  public let approvalPolicyProvider: @Sendable () async -> ToolApprovalPolicy
+struct ToolLoopRequest: Sendable {
+  let workspace: Workspace
+  let sessionID: ChatSession.ID
+  let turnID: ChatTurn.ID
+  let assistantMessageID: UUID
+  let items: [ChatTurnItem]
+  let focusedFileState: FocusedFileState
+  let interactionMode: WorkspaceInteractionMode
+  let toolProfile: ToolExecutionProfile
+  let followUpPromptMode: ToolPromptMode
+  let toolLoopIteration: Int?
+  let toolCallingPolicy: ToolCallingPolicy
+  let nativeToolCalls: [ChatRuntimeToolCall]
+  let toolRegistry: ToolRegistry?
+  let approvalPolicyProvider: @Sendable () async -> ToolApprovalPolicy
 
-  public init(
+  init(
     workspace: Workspace,
     sessionID: ChatSession.ID,
     turnID: ChatTurn.ID,
@@ -67,13 +67,13 @@ public struct ToolLoopRequest: Sendable {
   }
 }
 
-public struct ToolLoopCoordinator: Sendable {
+struct ToolLoopCoordinator: Sendable {
   private let chatWebToolOrchestrator: any ToolOrchestrating
   private let agentToolOrchestrator: any ToolOrchestrating
   private let focusedFileReducer: FocusedFileStateReducer
   private let turnTracer: any TurnTracing
 
-  public init(
+  init(
     chatWebToolOrchestrator: any ToolOrchestrating = ToolOrchestrator(
       executorRegistry: .chatWeb),
     agentToolOrchestrator: any ToolOrchestrating = ToolOrchestrator(
@@ -87,18 +87,18 @@ public struct ToolLoopCoordinator: Sendable {
     self.turnTracer = turnTracer
   }
 
-  public var toolRegistry: ToolRegistry {
+  var toolRegistry: ToolRegistry {
     agentToolOrchestrator.toolRegistry
   }
 
-  public func toolRegistry(for profile: ToolExecutionProfile) -> ToolRegistry {
+  func toolRegistry(for profile: ToolExecutionProfile) -> ToolRegistry {
     guard let orchestrator = toolOrchestrator(for: profile) else {
       return ToolRegistry(tools: [])
     }
     return orchestrator.toolRegistry
   }
 
-  public func run(_ request: ToolLoopRequest) async throws -> ChatWorkflowStep? {
+  func run(_ request: ToolLoopRequest) async throws -> ChatWorkflowStep? {
     try Task.checkCancellation()
     guard let toolOrchestrator = toolOrchestrator(for: request.toolProfile) else {
       return nil

@@ -1,29 +1,19 @@
 import Foundation
 
-public struct ToolResumeResult: Equatable, Sendable {
-  public let events: [ChatWorkflowEvent]
-  public let followUpPromptMode: ToolPromptMode?
-  public let nextAssistantMessageID: UUID?
-
-  public init(
-    events: [ChatWorkflowEvent],
-    followUpPromptMode: ToolPromptMode?,
-    nextAssistantMessageID: UUID?
-  ) {
-    self.events = events
-    self.followUpPromptMode = followUpPromptMode
-    self.nextAssistantMessageID = nextAssistantMessageID
-  }
+struct ToolResumeResult: Equatable, Sendable {
+  let events: [ChatWorkflowEvent]
+  let followUpPromptMode: ToolPromptMode?
+  let nextAssistantMessageID: UUID?
 }
 
-public struct ToolResumeCoordinator: Sendable {
+struct ToolResumeCoordinator: Sendable {
   private let focusedFileReducer: FocusedFileStateReducer
 
-  public init(focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer()) {
+  init(focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer()) {
     self.focusedFileReducer = focusedFileReducer
   }
 
-  public func approvedToolResult(
+  func approvedToolResult(
     record: ToolCallRecord,
     focusedFileState: FocusedFileState,
     turnID: ChatTurn.ID
@@ -44,7 +34,7 @@ public struct ToolResumeCoordinator: Sendable {
     )
   }
 
-  public func answeredAskUserTool(
+  func answeredAskUserTool(
     record: ToolCallRecord,
     answer: String,
     turnID: ChatTurn.ID
@@ -65,7 +55,7 @@ public struct ToolResumeCoordinator: Sendable {
     )
   }
 
-  public func deniedTool(
+  func deniedTool(
     record: ToolCallRecord,
     turnID: ChatTurn.ID
   ) -> ToolResumeResult {

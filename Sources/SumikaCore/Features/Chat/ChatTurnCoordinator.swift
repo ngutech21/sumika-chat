@@ -1,11 +1,11 @@
 import Foundation
 
-public enum ChatToolLoopLimits {
-  public static let defaultMaxToolLoopIterations = 8
+enum ChatToolLoopLimits {
+  static let defaultMaxToolLoopIterations = 8
 }
 
 @MainActor
-public final class ChatTurnCoordinator {
+final class ChatTurnCoordinator {
   private(set) var activeTurnID: ChatTurn.ID?
   private var activeTask: Task<Void, Never>?
   private var turnToolRegistries: [ChatTurn.ID: ToolRegistry] = [:]
@@ -14,7 +14,7 @@ public final class ChatTurnCoordinator {
   private let toolResumeCoordinator = ToolResumeCoordinator()
   private let maxToolLoopIterations: Int
 
-  public init(
+  init(
     focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer(),
     modelContextBuilder: ChatModelContextBuilder = ChatModelContextBuilder(),
     toolPromptPolicy: ToolPromptPolicy = ToolPromptPolicy(),
@@ -38,7 +38,7 @@ public final class ChatTurnCoordinator {
   }
 
   @discardableResult
-  public func startTurn(
+  func startTurn(
     id turnID: ChatTurn.ID,
     operation: @escaping @MainActor @Sendable (ChatTurn.ID) async -> Void
   ) -> ChatTurn.ID {
@@ -50,7 +50,7 @@ public final class ChatTurnCoordinator {
     return turnID
   }
 
-  public func cancelActiveTurn() -> ChatTurn.ID? {
+  func cancelActiveTurn() -> ChatTurn.ID? {
     guard let activeTurnID else {
       return nil
     }
@@ -62,7 +62,7 @@ public final class ChatTurnCoordinator {
     return activeTurnID
   }
 
-  public func finishTurn(_ turnID: ChatTurn.ID) {
+  func finishTurn(_ turnID: ChatTurn.ID) {
     guard activeTurnID == turnID else {
       return
     }
@@ -71,7 +71,7 @@ public final class ChatTurnCoordinator {
     activeTurnID = nil
   }
 
-  public func isActive(_ turnID: ChatTurn.ID) -> Bool {
+  func isActive(_ turnID: ChatTurn.ID) -> Bool {
     activeTurnID == turnID
   }
 

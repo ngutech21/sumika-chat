@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ToolPromptMode: Equatable, Sendable {
+enum ToolPromptMode: Equatable, Sendable {
   case disabled
   case enabled(Bool)
   case chatWeb
@@ -11,7 +11,7 @@ public enum ToolPromptMode: Equatable, Sendable {
 
   /// A final generation runs with tools stripped and must produce visible text.
   /// Both the agent and the chat-web variants are terminal.
-  public var isFinal: Bool {
+  var isFinal: Bool {
     switch self {
     case .afterToolResultFinal, .afterChatWebToolResultFinal:
       return true
@@ -23,7 +23,7 @@ public enum ToolPromptMode: Equatable, Sendable {
 
   /// The final (tools-stripped) mode appropriate for a tool profile, so a chat-web
   /// session keeps its own prompt/notice instead of pulling in agent workspace rules.
-  public static func finalMode(for profile: ToolExecutionProfile) -> ToolPromptMode {
+  static func finalMode(for profile: ToolExecutionProfile) -> ToolPromptMode {
     switch profile {
     case .chatWeb:
       return .afterChatWebToolResultFinal
@@ -35,7 +35,7 @@ public enum ToolPromptMode: Equatable, Sendable {
   }
 
   /// The tools-enabled follow-up mode after a non-terminal tool result, per profile.
-  public static func continuationMode(for profile: ToolExecutionProfile) -> ToolPromptMode {
+  static func continuationMode(for profile: ToolExecutionProfile) -> ToolPromptMode {
     switch profile {
     case .chatWeb:
       return .afterChatWebToolResultCanContinue
@@ -51,7 +51,7 @@ public enum ToolPromptMode: Equatable, Sendable {
 ///
 /// Keeping this typed prevents ordinary successful results — including writes and
 /// edits — from accidentally becoming terminal through an unrelated status check.
-public enum ToolFollowUpFinalReason: Equatable, Sendable {
+enum ToolFollowUpFinalReason: Equatable, Sendable {
   case denial
   case blockedDuplicate
   case repeatedRunCommandFailure
@@ -59,8 +59,8 @@ public enum ToolFollowUpFinalReason: Equatable, Sendable {
 }
 
 /// Pure policy for choosing the model mode after one or more tool observations.
-public enum ToolFollowUpPromptPolicy {
-  public static func promptMode(
+enum ToolFollowUpPromptPolicy {
+  static func promptMode(
     for toolProfile: ToolExecutionProfile,
     default defaultMode: ToolPromptMode? = nil,
     finalReason: ToolFollowUpFinalReason? = nil
@@ -72,15 +72,13 @@ public enum ToolFollowUpPromptPolicy {
   }
 }
 
-public enum ToolAvailability: Equatable, Sendable {
+enum ToolAvailability: Equatable, Sendable {
   case unavailable
   case availableForWorkspace
 }
 
-public struct ToolPromptPolicy: Sendable {
-  public init() {}
-
-  public func toolAvailability(
+struct ToolPromptPolicy: Sendable {
+  func toolAvailability(
     workspace: Workspace?,
     sessionID: ChatSession.ID?
   ) -> ToolAvailability {
@@ -95,7 +93,7 @@ public struct ToolPromptPolicy: Sendable {
     return .availableForWorkspace
   }
 
-  public func systemPrompt(
+  func systemPrompt(
     basePrompt: String,
     mode: ToolPromptMode,
     toolRegistry: ToolRegistry,

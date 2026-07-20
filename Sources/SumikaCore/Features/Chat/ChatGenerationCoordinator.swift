@@ -1,10 +1,10 @@
 import Foundation
 
-public enum ChatGenerationError: LocalizedError, Equatable, Sendable {
+enum ChatGenerationError: LocalizedError, Equatable, Sendable {
   case streamInterrupted
   case emptyModelResponse
 
-  public var errorDescription: String? {
+  var errorDescription: String? {
     switch self {
     case .streamInterrupted:
       "Model generation ended before completion."
@@ -14,11 +14,11 @@ public enum ChatGenerationError: LocalizedError, Equatable, Sendable {
   }
 }
 
-public struct ChatGenerationResult: Equatable, Sendable {
-  public var assistantContent: String
-  public var nativeToolCalls: [ChatRuntimeToolCall]
+struct ChatGenerationResult: Equatable, Sendable {
+  var assistantContent: String
+  var nativeToolCalls: [ChatRuntimeToolCall]
 
-  public init(
+  init(
     assistantContent: String,
     nativeToolCalls: [ChatRuntimeToolCall] = []
   ) {
@@ -28,13 +28,13 @@ public struct ChatGenerationResult: Equatable, Sendable {
 }
 
 @MainActor
-public struct ChatGenerationCoordinator {
+struct ChatGenerationCoordinator {
   private let runtimeOperations: RuntimeOperationCoordinator
   private let turnTracer: any TurnTracing
   private let streamingFlushInterval: TimeInterval
   private let streamingFlushCharacterLimit: Int
 
-  public init(
+  init(
     runtimeOperations: RuntimeOperationCoordinator,
     turnTracer: any TurnTracing = NoopTurnTracer(),
     streamingFlushInterval: TimeInterval,
@@ -46,7 +46,7 @@ public struct ChatGenerationCoordinator {
     self.streamingFlushCharacterLimit = streamingFlushCharacterLimit
   }
 
-  public init(
+  init(
     runtime: any ChatModelRuntime,
     turnTracer: any TurnTracing = NoopTurnTracer(),
     streamingFlushInterval: TimeInterval,
@@ -60,7 +60,7 @@ public struct ChatGenerationCoordinator {
     )
   }
 
-  public func streamAssistantReplyResult(
+  func streamAssistantReplyResult(
     turnID: ChatTurn.ID? = nil,
     operationID requestedOperationID: UUID? = nil,
     toolLoopIteration: Int? = nil,

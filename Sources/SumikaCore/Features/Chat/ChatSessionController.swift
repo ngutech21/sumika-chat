@@ -637,7 +637,11 @@ extension ChatSessionController {
     refreshContextUsage()
   }
 
-  public func refreshContextUsage(toolPromptMode: ToolPromptMode = .disabled) {
+  public func refreshContextUsage() {
+    refreshContextUsage(toolPromptMode: .disabled)
+  }
+
+  func refreshContextUsage(toolPromptMode: ToolPromptMode) {
     let snapshot = contextUsageSnapshot(toolPromptMode: toolPromptMode)
     guard snapshot.modelState == .ready else {
       contextUsage = nil
