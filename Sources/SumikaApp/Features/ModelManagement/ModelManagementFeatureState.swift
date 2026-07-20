@@ -19,6 +19,10 @@ final class ModelManagementFeatureState {
     modelController.state
   }
 
+  var modeSettings: ChatModeSettingsSet {
+    chatController.modeSettings
+  }
+
   var errorMessage: String? {
     chatController.errorMessage
   }
@@ -132,11 +136,18 @@ final class ModelManagementFeatureState {
     modelController.loadSelectedModel()
   }
 
-  func setContextTokenLimit(_ limit: Int) {
-    modelController.setContextTokenLimit(limit)
+  func updateModeSettings(_ modeSettings: ChatModeSettingsSet) {
+    guard chatController.updateModeSettings(modeSettings) else {
+      return
+    }
+    modelController.saveSelectedModelSettings(modeSettings: modeSettings)
   }
 
-  func saveSelectedModelSettings(modeSettings: ChatModeSettingsSet) {
+  func updateContextTokenLimit(_ limit: Int) {
+    guard state.modelContextTokenLimit != limit else {
+      return
+    }
+    modelController.setContextTokenLimit(limit)
     modelController.saveSelectedModelSettings(modeSettings: modeSettings)
   }
 

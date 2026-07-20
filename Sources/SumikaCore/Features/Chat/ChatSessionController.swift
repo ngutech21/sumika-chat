@@ -183,6 +183,22 @@ extension ChatSessionController {
     onSessionDidChange = handler
   }
 
+  package var modeSettings: ChatModeSettingsSet {
+    chatSession.modeSettings
+  }
+
+  @discardableResult
+  package func updateModeSettings(_ modeSettings: ChatModeSettingsSet) -> Bool {
+    guard chatSession.modeSettings != modeSettings else {
+      return false
+    }
+
+    chatSession.modeSettings = modeSettings
+    refreshContextUsage()
+    notifySessionDidChange()
+    return true
+  }
+
   func installSession(
     _ session: ChatSession,
     modelRuntimeWasReset: Bool

@@ -24,7 +24,7 @@ struct AppStateTests {
 
     let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
     appState.modelManagementState.selectModel(targetModel)
-    appState.modelManagementState.setContextTokenLimit(12_288)
+    appState.modelManagementState.updateContextTokenLimit(12_288)
 
     #expect(appState.modelManagementState.state.selectedModel == targetModel)
     #expect(appState.modelManagementState.state.modelContextTokenLimit == 12_288)
@@ -32,7 +32,7 @@ struct AppStateTests {
   }
 
   @Test
-  func modelsRouteModeSettingsSequenceRefreshesAndPersistsActiveSession() async throws {
+  func updatingModeSettingsRefreshesAndPersistsActiveSession() async throws {
     let workspaceID = UUID()
     let sessionID = UUID()
     let otherSessionID = UUID()
@@ -79,18 +79,13 @@ struct AppStateTests {
     appState.chatController.refreshContextUsage()
     let initialUsage = try #require(appState.chatController.contextUsage)
 
-    var updatedModeSettings = appState.chatController.chatSession.modeSettings
+    var updatedModeSettings = appState.modelManagementState.modeSettings
     updatedModeSettings.chat.systemPrompt += String(
       repeating: " Additional context.",
       count: 100
     )
 
-    appState.chatController.chatSession.modeSettings = updatedModeSettings
-    appState.chatController.refreshContextUsage()
-    appState.modelManagementState.saveSelectedModelSettings(
-      modeSettings: updatedModeSettings
-    )
-    #expect(appState.persistActiveSession())
+    appState.modelManagementState.updateModeSettings(updatedModeSettings)
 
     let refreshedUsage = try #require(appState.chatController.contextUsage)
     #expect(refreshedUsage.usedTokens > initialUsage.usedTokens)
@@ -123,11 +118,11 @@ struct AppStateTests {
         sessionID: sessionID
       )
     )
-    #expect(appState.chatController.chatSession.modeSettings == updatedModeSettings)
+    #expect(appState.modelManagementState.modeSettings == updatedModeSettings)
   }
 
   @Test
-  func modelsRouteContextLimitSequencePersistsCurrentModeSettings() async throws {
+  func updatingContextLimitPersistsCurrentModeSettings() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
@@ -142,13 +137,10 @@ struct AppStateTests {
     }
 
     let selectedModel = appState.modelManagementState.state.selectedModel
-    let currentModeSettings = appState.chatController.chatSession.modeSettings
+    let currentModeSettings = appState.modelManagementState.modeSettings
     let contextTokenLimit = 12_288
 
-    appState.modelManagementState.setContextTokenLimit(contextTokenLimit)
-    appState.modelManagementState.saveSelectedModelSettings(
-      modeSettings: currentModeSettings
-    )
+    appState.modelManagementState.updateContextTokenLimit(contextTokenLimit)
 
     try await waitUntil {
       let settings = await modelSettingsStore.settings(for: selectedModel)
@@ -160,7 +152,7 @@ struct AppStateTests {
     #expect(appState.modelManagementState.state.modelContextTokenLimit == contextTokenLimit)
     #expect(storedSettings.contextTokenLimit == contextTokenLimit)
     #expect(storedSettings.modeSettings == currentModeSettings)
-    #expect(appState.chatController.chatSession.modeSettings == currentModeSettings)
+    #expect(appState.modelManagementState.modeSettings == currentModeSettings)
   }
 
   @Test

@@ -9,7 +9,6 @@ enum ModelsTab: String, CaseIterable, Hashable {
 struct ModelsView: View {
   let modelManagementState: ModelManagementFeatureState
   @Bindable var audioModelController: ComposerAudioModelController
-  @Binding var modeSettings: ChatModeSettingsSet
   @Binding var selectedTab: ModelsTab
   let errorMessage: String?
 
@@ -99,11 +98,16 @@ struct ModelsView: View {
 
           ModelAdvancedSettings(
             model: state.selectedModel,
-            modeSettings: $modeSettings,
+            modeSettings: Binding(
+              get: { modelManagementState.modeSettings },
+              set: { modeSettings in
+                modelManagementState.updateModeSettings(modeSettings)
+              }
+            ),
             contextTokenLimit: Binding(
               get: { modelManagementState.state.modelContextTokenLimit },
               set: { limit in
-                modelManagementState.setContextTokenLimit(limit)
+                modelManagementState.updateContextTokenLimit(limit)
               }
             ),
             canChangeContextTokenLimit: state.modelState == .notLoaded,

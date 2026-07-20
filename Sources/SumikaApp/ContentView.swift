@@ -55,12 +55,11 @@ struct ContentView: View {
     if let route = appState.route {
       switch route {
       case .models:
-        ModelsRouteHost(
-          controller: controller,
+        ModelsView(
           modelManagementState: appState.modelManagementState,
           audioModelController: appState.audioModelController,
           selectedTab: $modelsTab,
-          onPersistActiveSession: { _ = appState.persistActiveSession() }
+          errorMessage: appState.modelManagementState.errorMessage
         )
       case .workspace:
         WorkspaceRouteHost(
@@ -169,41 +168,6 @@ struct ContentView: View {
 
 #Preview {
   ContentView(appState: AppLaunchConfiguration.makeAppState())
-}
-
-private struct ModelsRouteHost: View {
-  let controller: ChatSessionController
-  let modelManagementState: ModelManagementFeatureState
-  let audioModelController: ComposerAudioModelController
-  @Binding var selectedTab: ModelsTab
-  let onPersistActiveSession: () -> Void
-
-  var body: some View {
-    ModelsView(
-      modelManagementState: modelManagementState,
-      audioModelController: audioModelController,
-      modeSettings: Binding(
-        get: { controller.chatSession.modeSettings },
-        set: { controller.chatSession.modeSettings = $0 }
-      ),
-      selectedTab: $selectedTab,
-      errorMessage: modelManagementState.errorMessage
-    )
-    .onChange(of: controller.chatSession.modeSettings) {
-      controller.refreshContextUsage()
-      saveSelectedModelSettings()
-      onPersistActiveSession()
-    }
-    .onChange(of: modelManagementState.state.modelContextTokenLimit) {
-      saveSelectedModelSettings()
-    }
-  }
-
-  private func saveSelectedModelSettings() {
-    modelManagementState.saveSelectedModelSettings(
-      modeSettings: controller.chatSession.modeSettings
-    )
-  }
 }
 
 private struct WorkspaceRouteHost: View {
