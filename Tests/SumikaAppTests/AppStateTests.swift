@@ -32,6 +32,138 @@ struct AppStateTests {
   }
 
   @Test
+  func modelsRouteModeSettingsSequenceRefreshesAndPersistsActiveSession() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let otherSessionID = UUID()
+    let session = ChatSession(
+      id: sessionID,
+      selectedModelID: ManagedModelCatalog.defaultModelID,
+      modeSettings: testModeSettings(
+        systemPrompt: "Initial prompt",
+        generationSettings: .chatDefault
+      )
+    )
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        session,
+        ChatSession(
+          id: otherSessionID,
+          selectedModelID: ManagedModelCatalog.defaultModelID
+        ),
+      ]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: sessionID
+      )
+    )
+    let modelSettingsStore = InMemoryModelSettingsStore()
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
+    appState.chatController.refreshContextUsage()
+    let initialUsage = try #require(appState.chatController.contextUsage)
+
+    var updatedModeSettings = appState.chatController.chatSession.modeSettings
+    updatedModeSettings.chat.systemPrompt += String(
+      repeating: " Additional context.",
+      count: 100
+    )
+
+    appState.chatController.chatSession.modeSettings = updatedModeSettings
+    appState.chatController.refreshContextUsage()
+    appState.modelManagementState.saveSelectedModelSettings(
+      modeSettings: updatedModeSettings
+    )
+    #expect(appState.persistActiveSession())
+
+    let refreshedUsage = try #require(appState.chatController.contextUsage)
+    #expect(refreshedUsage.usedTokens > initialUsage.usedTokens)
+
+    let selectedModel = appState.modelManagementState.state.selectedModel
+    try await waitUntil {
+      await modelSettingsStore.settings(for: selectedModel).modeSettings
+        == updatedModeSettings
+    }
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      library.workspaces.first?
+        .sessions.first(where: { $0.id == sessionID })?
+        .modeSettings == updatedModeSettings
+    }
+    let savedSession = try #require(
+      savedLibrary.workspaces.first?
+        .sessions.first(where: { $0.id == sessionID })
+    )
+    #expect(savedSession.modeSettings == updatedModeSettings)
+
+    #expect(
+      appState.selectChat(
+        workspaceID: workspaceID,
+        sessionID: otherSessionID
+      )
+    )
+    #expect(
+      appState.selectChat(
+        workspaceID: workspaceID,
+        sessionID: sessionID
+      )
+    )
+    #expect(appState.chatController.chatSession.modeSettings == updatedModeSettings)
+  }
+
+  @Test
+  func modelsRouteContextLimitSequencePersistsCurrentModeSettings() async throws {
+    let modelSettingsStore = InMemoryModelSettingsStore()
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    let selectedModel = appState.modelManagementState.state.selectedModel
+    let currentModeSettings = appState.chatController.chatSession.modeSettings
+    let contextTokenLimit = 12_288
+
+    appState.modelManagementState.setContextTokenLimit(contextTokenLimit)
+    appState.modelManagementState.saveSelectedModelSettings(
+      modeSettings: currentModeSettings
+    )
+
+    try await waitUntil {
+      let settings = await modelSettingsStore.settings(for: selectedModel)
+      return settings.contextTokenLimit == contextTokenLimit
+        && settings.modeSettings == currentModeSettings
+    }
+    let storedSettings = await modelSettingsStore.settings(for: selectedModel)
+
+    #expect(appState.modelManagementState.state.modelContextTokenLimit == contextTokenLimit)
+    #expect(storedSettings.contextTokenLimit == contextTokenLimit)
+    #expect(storedSettings.modeSettings == currentModeSettings)
+    #expect(appState.chatController.chatSession.modeSettings == currentModeSettings)
+  }
+
+  @Test
   func selectingSessionAppliesItsModelThroughModelManagement() async throws {
     let workspaceID = UUID()
     let initialSession = ChatSession(selectedModelID: ManagedModelCatalog.defaultModelID)
