@@ -5,15 +5,15 @@ import SumikaCore
 @Observable
 final class ModelManagementFeatureState {
   @ObservationIgnored private let modelController: ModelRuntimeController
-  private let chatController: ChatSessionController
+  private let conversationEngine: ConversationEngine
   private(set) var errorMessage: String?
 
   init(
     modelController: ModelRuntimeController,
-    chatController: ChatSessionController
+    conversationEngine: ConversationEngine
   ) {
     self.modelController = modelController
-    self.chatController = chatController
+    self.conversationEngine = conversationEngine
   }
 
   var state: ModelManagementState {
@@ -21,7 +21,7 @@ final class ModelManagementFeatureState {
   }
 
   var modeSettings: ChatModeSettingsSet {
-    chatController.modeSettings
+    conversationEngine.modeSettings
   }
 
   var downloadedModels: [ManagedModel] {
@@ -29,11 +29,11 @@ final class ModelManagementFeatureState {
   }
 
   var canChangeModel: Bool {
-    !chatController.isGenerating && state.canChangeModel
+    !conversationEngine.isGenerating && state.canChangeModel
   }
 
   var canSend: Bool {
-    state.modelState == .ready && !chatController.isGenerating
+    state.modelState == .ready && !conversationEngine.isGenerating
   }
 
   var effectiveDownloadState: ModelDownloadState {
@@ -88,7 +88,7 @@ final class ModelManagementFeatureState {
     }
 
     errorMessage = nil
-    chatController.prepareForModelRuntimeAction(
+    conversationEngine.prepareForModelRuntimeAction(
       cancelGeneration: false,
       invalidateContext: shouldInvalidateContext
     )
@@ -99,19 +99,19 @@ final class ModelManagementFeatureState {
     errorMessage = nil
     switch primaryAction {
     case .download:
-      chatController.prepareForModelRuntimeAction(
+      conversationEngine.prepareForModelRuntimeAction(
         cancelGeneration: false,
         invalidateContext: false
       )
       modelController.downloadSelectedModel()
     case .load:
-      chatController.prepareForModelRuntimeAction(
+      conversationEngine.prepareForModelRuntimeAction(
         cancelGeneration: false,
         invalidateContext: true
       )
       modelController.loadSelectedModel()
     case .unload:
-      chatController.prepareForModelRuntimeAction(
+      conversationEngine.prepareForModelRuntimeAction(
         cancelGeneration: true,
         invalidateContext: true
       )
@@ -121,7 +121,7 @@ final class ModelManagementFeatureState {
 
   func loadAvailableModelForConversation() {
     errorMessage = nil
-    chatController.prepareForModelRuntimeAction(
+    conversationEngine.prepareForModelRuntimeAction(
       cancelGeneration: false,
       invalidateContext: true
     )
@@ -137,7 +137,7 @@ final class ModelManagementFeatureState {
   }
 
   func updateModeSettings(_ modeSettings: ChatModeSettingsSet) {
-    guard chatController.updateModeSettings(modeSettings) else {
+    guard conversationEngine.updateModeSettings(modeSettings) else {
       return
     }
     modelController.saveSelectedModelSettings(modeSettings: modeSettings)

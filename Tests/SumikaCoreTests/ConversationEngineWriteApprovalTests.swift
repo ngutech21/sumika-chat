@@ -5,7 +5,7 @@ import Testing
 
 @Suite(.serialized)
 @MainActor
-struct ChatSessionControllerWriteApprovalTests {
+struct ConversationEngineWriteApprovalTests {
   @Test
   func nativeWriteFileToolCallWaitsForApprovalWithoutWriting() async throws {
     let sessionID = UUID()
@@ -22,22 +22,22 @@ struct ChatSessionControllerWriteApprovalTests {
           ))
       ]
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
       prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
+    try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
 
     let outputURL = workspace.rootURL.appending(path: "movies.html")
-    #expect(!controller.isGenerating)
-    #expect(controller.hasPendingApproval)
-    #expect(controller.chatSession.toolCalls.count == 1)
-    #expect(controller.chatSession.toolCalls[0].status == .awaitingApproval)
-    #expect(controller.chatSession.toolCalls[0].request.toolName == .writeFile)
-    #expect(controller.chatSession.testMessages.count == 2)
-    #expect(controller.chatSession.testMessages[1].kind == .toolCall)
+    #expect(!engine.isGenerating)
+    #expect(engine.hasPendingApproval)
+    #expect(engine.chatSession.toolCalls.count == 1)
+    #expect(engine.chatSession.toolCalls[0].status == .awaitingApproval)
+    #expect(engine.chatSession.toolCalls[0].request.toolName == .writeFile)
+    #expect(engine.chatSession.testMessages.count == 2)
+    #expect(engine.chatSession.testMessages[1].kind == .toolCall)
     #expect(!FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)))
   }
 
@@ -57,15 +57,15 @@ struct ChatSessionControllerWriteApprovalTests {
           ))
       ]
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
       prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
+    try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
 
-    #expect(controller.hasPendingApproval)
-    #expect(controller.canSend(prompt: "skip that and explain the current state"))
+    #expect(engine.hasPendingApproval)
+    #expect(engine.canSend(prompt: "skip that and explain the current state"))
   }
 
   @Test
@@ -85,37 +85,37 @@ struct ChatSessionControllerWriteApprovalTests {
       ],
       [.chunk("I will explain the current state instead.")],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
       prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
+    try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
+    let toolCallID = try #require(engine.chatSession.toolCalls.first?.id)
 
-    controller.sendMessage(
+    engine.sendMessage(
       prompt: "skip that and explain the current state", in: workspace, sessionID: sessionID)
 
     try await waitUntil {
-      controller.chatSession.turns.count == 2 && !controller.isGenerating
+      engine.chatSession.turns.count == 2 && !engine.isGenerating
     }
 
     let outputURL = workspace.rootURL.appending(path: "movies.html")
     #expect(!FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)))
-    #expect(controller.chatSession.turns[0].status == .cancelled)
-    #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
-    #expect(controller.chatSession.toolCalls.first?.status == .denied)
-    #expect(controller.chatSession.toolCalls.first?.resultPreview?.status == .denied)
-    #expect(controller.chatSession.turns[1].status == .completed)
+    #expect(engine.chatSession.turns[0].status == .cancelled)
+    #expect(engine.chatSession.turns[0].modelContextPolicy == .excluded)
+    #expect(engine.chatSession.toolCalls.first?.status == .denied)
+    #expect(engine.chatSession.toolCalls.first?.resultPreview?.status == .denied)
+    #expect(engine.chatSession.turns[1].status == .completed)
     #expect(
-      controller.chatSession.testMessages.last?.content
+      engine.chatSession.testMessages.last?.content
         == "I will explain the current state instead.")
 
-    controller.approveToolCall(id: toolCallID, in: workspace)
+    engine.approveToolCall(id: toolCallID, in: workspace)
     await Task.yield()
 
-    #expect(controller.chatSession.toolCalls.first?.status == .denied)
-    #expect(controller.chatSession.turns[0].status == .cancelled)
+    #expect(engine.chatSession.toolCalls.first?.status == .denied)
+    #expect(engine.chatSession.turns[0].status == .cancelled)
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
@@ -147,30 +147,30 @@ struct ChatSessionControllerWriteApprovalTests {
       ],
       [.chunk("Updated movies.html.")],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
       prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
+    try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
+    let toolCallID = try #require(engine.chatSession.toolCalls.first?.id)
 
-    controller.approveToolCall(id: toolCallID, in: workspace)
+    engine.approveToolCall(id: toolCallID, in: workspace)
 
-    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
+    try await waitUntil { engine.chatSession.turns.first?.status == .completed }
 
     let outputURL = workspace.rootURL.appending(path: "movies.html")
     #expect(try String(contentsOf: outputURL, encoding: .utf8) == htmlContent)
-    #expect(!controller.isGenerating)
-    #expect(!controller.hasPendingApproval)
-    #expect(controller.chatSession.toolCalls[0].status == .completed)
-    #expect(controller.chatSession.toolCalls[0].approvalSource == .manual)
-    #expect(controller.chatSession.toolCalls[0].resultPreview?.status == .success)
-    #expect(controller.chatSession.testMessages.count == 3)
-    #expect(controller.chatSession.testMessages[1].kind == .toolResult)
-    #expect(controller.chatSession.testMessages[1].toolCall?.toolName == .writeFile)
-    #expect(controller.chatSession.testMessages[1].toolResult?.toolName == .writeFile)
-    #expect(controller.chatSession.testMessages[2].content == "Updated movies.html.")
+    #expect(!engine.isGenerating)
+    #expect(!engine.hasPendingApproval)
+    #expect(engine.chatSession.toolCalls[0].status == .completed)
+    #expect(engine.chatSession.toolCalls[0].approvalSource == .manual)
+    #expect(engine.chatSession.toolCalls[0].resultPreview?.status == .success)
+    #expect(engine.chatSession.testMessages.count == 3)
+    #expect(engine.chatSession.testMessages[1].kind == .toolResult)
+    #expect(engine.chatSession.testMessages[1].toolCall?.toolName == .writeFile)
+    #expect(engine.chatSession.testMessages[1].toolResult?.toolName == .writeFile)
+    #expect(engine.chatSession.testMessages[2].content == "Updated movies.html.")
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
@@ -216,20 +216,20 @@ struct ChatSessionControllerWriteApprovalTests {
       ],
       [.chunk("Updated automatic.txt.")],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.enableAutomaticToolApproval(in: workspace)
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.enableAutomaticToolApproval(in: workspace)
 
-    controller.sendMessage(
+    engine.sendMessage(
       prompt: "create the file", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
+    try await waitUntil { engine.chatSession.turns.first?.status == .completed }
 
-    let record = try #require(controller.chatSession.toolCalls.first)
+    let record = try #require(engine.chatSession.toolCalls.first)
     #expect(record.status == .completed)
     #expect(record.approvalSource == .automatic)
-    #expect(!controller.hasPendingApproval)
+    #expect(!engine.hasPendingApproval)
     #expect(
       try String(
         contentsOf: workspace.rootURL.appending(path: "automatic.txt"),
@@ -249,7 +249,7 @@ struct ChatSessionControllerWriteApprovalTests {
         runCommandToolCall("second"),
       ]
     ])
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       toolOrchestrator: ToolOrchestrator(
@@ -258,32 +258,32 @@ struct ChatSessionControllerWriteApprovalTests {
         ])
       )
     )
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.enableAutomaticToolApproval(in: workspace)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.enableAutomaticToolApproval(in: workspace)
 
-    controller.sendMessage(
+    engine.sendMessage(
       prompt: "run both commands", in: workspace, sessionID: sessionID)
 
     try await waitUntilAsync { await processRunner.startedCount == 1 }
     #expect(
-      controller.chatSession.toolCalls.map(\.status) == [
+      engine.chatSession.toolCalls.map(\.status) == [
         .awaitingApproval, .awaitingApproval,
       ])
 
-    controller.cancelGeneration()
+    engine.cancelGeneration()
     await processRunner.releaseFirst()
 
     try await waitUntilAsync {
       await processRunner.startedCount > 1
-        || controller.chatSession.toolCalls.first?.status == .completed
+        || engine.chatSession.toolCalls.first?.status == .completed
     }
 
-    let records = controller.chatSession.toolCalls
+    let records = engine.chatSession.toolCalls
     #expect(records.map(\.status) == [.completed, .awaitingApproval])
     #expect(records.map(\.approvalSource) == [.automatic, nil])
     #expect(await processRunner.startedCount == 1)
-    #expect(controller.chatSession.turns.first?.status == .cancelled)
+    #expect(engine.chatSession.turns.first?.status == .cancelled)
 
     await processRunner.releaseAll()
   }
@@ -305,18 +305,18 @@ struct ChatSessionControllerWriteApprovalTests {
       ],
       [.chunk("Resumed the automation.")],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
       prompt: "create the file", in: workspace, sessionID: sessionID)
-    try await waitUntil { controller.hasPendingApproval }
+    try await waitUntil { engine.hasPendingApproval }
 
-    controller.enableAutomaticToolApproval(in: workspace)
+    engine.enableAutomaticToolApproval(in: workspace)
 
-    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
-    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
-    #expect(controller.chatSession.toolCalls.first?.approvalSource == .automatic)
+    try await waitUntil { engine.chatSession.turns.first?.status == .completed }
+    #expect(engine.chatSession.toolApprovalPolicy == .automatic)
+    #expect(engine.chatSession.toolCalls.first?.approvalSource == .automatic)
     #expect(
       FileManager.default.fileExists(
         atPath: workspace.rootURL.appending(path: "resumed.txt").path
@@ -348,31 +348,31 @@ struct ChatSessionControllerWriteApprovalTests {
           )),
       ]
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
       prompt: "create both files", in: workspace, sessionID: sessionID)
     try await waitUntil {
-      controller.chatSession.toolCalls.count == 2 && controller.hasPendingApproval
+      engine.chatSession.toolCalls.count == 2 && engine.hasPendingApproval
     }
 
     var didDisable = false
-    controller.setSessionChangeHandler {
+    engine.setSessionChangeHandler {
       guard !didDisable,
-        controller.chatSession.toolCalls.first?.status == .completed
+        engine.chatSession.toolCalls.first?.status == .completed
       else {
         return
       }
       didDisable = true
-      controller.disableAutomaticToolApproval()
+      engine.disableAutomaticToolApproval()
     }
 
-    controller.enableAutomaticToolApproval(in: workspace)
+    engine.enableAutomaticToolApproval(in: workspace)
 
-    try await waitUntil { !controller.isGenerating && didDisable }
-    let records = controller.chatSession.toolCalls
-    #expect(controller.chatSession.toolApprovalPolicy == .manual)
+    try await waitUntil { !engine.isGenerating && didDisable }
+    let records = engine.chatSession.toolCalls
+    #expect(engine.chatSession.toolApprovalPolicy == .manual)
     #expect(records.map(\.status) == [.completed, .awaitingApproval])
     #expect(records.map(\.approvalSource) == [.automatic, nil])
     #expect(
@@ -414,17 +414,17 @@ struct ChatSessionControllerWriteApprovalTests {
       interactionMode: .agent,
       toolApprovalPolicy: .automatic
     )
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
 
-    controller.loadSession(session)
+    engine.loadSession(session)
     await Task.yield()
 
-    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
-    #expect(controller.hasPendingApproval)
-    #expect(!controller.isGenerating)
+    #expect(engine.chatSession.toolApprovalPolicy == .automatic)
+    #expect(engine.hasPendingApproval)
+    #expect(!engine.isGenerating)
     #expect(
       !FileManager.default.fileExists(
         atPath: workspace.rootURL.appending(path: "must-wait.txt").path
@@ -450,25 +450,25 @@ struct ChatSessionControllerWriteApprovalTests {
       ],
       [.chunk("I will leave README.md unchanged.")],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(prompt: "update the readme", in: workspace, sessionID: sessionID)
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(prompt: "update the readme", in: workspace, sessionID: sessionID)
+    try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
+    let toolCallID = try #require(engine.chatSession.toolCalls.first?.id)
 
-    controller.denyToolCall(id: toolCallID)
-    try await waitUntil { !controller.isGenerating }
+    engine.denyToolCall(id: toolCallID)
+    try await waitUntil { !engine.isGenerating }
 
     let readmeURL = workspace.rootURL.appending(path: "README.md")
     #expect(try String(contentsOf: readmeURL, encoding: .utf8) == "project notes")
-    #expect(!controller.hasPendingApproval)
-    #expect(controller.chatSession.turns.first?.status == .completed)
-    #expect(controller.chatSession.toolCalls[0].status == .denied)
-    #expect(controller.chatSession.toolCalls[0].resultPreview?.affectedPaths == ["README.md"])
-    #expect(controller.chatSession.testMessages.count == 3)
-    #expect(controller.chatSession.testMessages[1].toolResult?.preview.status == .denied)
-    #expect(controller.chatSession.testMessages[2].content == "I will leave README.md unchanged.")
+    #expect(!engine.hasPendingApproval)
+    #expect(engine.chatSession.turns.first?.status == .completed)
+    #expect(engine.chatSession.toolCalls[0].status == .denied)
+    #expect(engine.chatSession.toolCalls[0].resultPreview?.affectedPaths == ["README.md"])
+    #expect(engine.chatSession.testMessages.count == 3)
+    #expect(engine.chatSession.testMessages[1].toolResult?.preview.status == .denied)
+    #expect(engine.chatSession.testMessages[2].content == "I will leave README.md unchanged.")
   }
 
   private func waitUntil(

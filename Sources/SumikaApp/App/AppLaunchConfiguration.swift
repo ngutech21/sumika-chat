@@ -228,7 +228,7 @@ enum AppLaunchConfiguration {
       initialOperationID: operationID
     )
     let initialConversationState = modelManagementController.conversationState
-    let chatController = ChatSessionController(
+    let conversationEngine = ConversationEngine(
       conversationModel: { [weak modelManagementController] in
         modelManagementController?.conversationState ?? initialConversationState
       },
@@ -250,10 +250,10 @@ enum AppLaunchConfiguration {
     )
     let modelManagementState = ModelManagementFeatureState(
       modelController: modelManagementController,
-      chatController: chatController
+      conversationEngine: conversationEngine
     )
     modelManagementController.setEventHandlers(
-      chatController.modelManagementEventHandlers(
+      conversationEngine.modelManagementEventHandlers(
         errorDidOccur: { [weak modelManagementState] message in
           modelManagementState?.handleModelRuntimeError(message)
         }
@@ -264,9 +264,10 @@ enum AppLaunchConfiguration {
       modelManagementState: modelManagementState,
       sessionCoordinator: ConversationSessionCoordinator(
         modelController: modelManagementController,
-        chatController: chatController
+        conversationEngine: conversationEngine
       ),
-      chatController: chatController
+      chatFeatureState: ChatFeatureState(engine: conversationEngine),
+      conversationEngine: conversationEngine
     )
   }
 
@@ -317,7 +318,8 @@ enum AppLaunchConfiguration {
 struct ConversationComposition {
   let modelManagementState: ModelManagementFeatureState
   let sessionCoordinator: ConversationSessionCoordinator
-  let chatController: ChatSessionController
+  let chatFeatureState: ChatFeatureState
+  let conversationEngine: ConversationEngine
 }
 
 private actor UITestWorkspaceStore: WorkspaceStoring {

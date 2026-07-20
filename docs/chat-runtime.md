@@ -9,8 +9,9 @@ auditability while being excluded from future model prompts.
 
 ```mermaid
 flowchart TD
-  A["User sends message"] --> B["ChatSessionController"]
-  B --> C["Start active turn"]
+  A["User sends message"] --> B["App intent"]
+  B --> CE["ConversationEngine"]
+  CE --> C["Start active turn"]
   C --> D["Emit turn + user + context + placeholder events"]
   D --> E["ChatWorkflowEventApplier updates ChatSession"]
   C --> F["ChatModelContextBuilder filters model context"]
@@ -45,11 +46,16 @@ flowchart TD
 
 ## Roles
 
-- `ChatSessionController` is the canonical live conversation owner. It owns the
+- `ConversationEngine` is the canonical live conversation owner. It owns the
   `ChatSession`, observable generation state, active task and `turnID`, frozen
   tool registry, workflow-event application, cancellation, pause, continuation,
   and finalization. These lifecycle facts are updated together instead of being
   synchronized through callbacks between peer modules.
+- `ChatFeatureState` is the smaller application-facing facade. It exposes
+  separate Composer, Transcript, and model-context-debug projections plus
+  explicit user operations. It does not expose session installation,
+  persistence snapshots, model coordination, tool-registry configuration, or
+  active-turn implementation state.
 - `ChatTurnExecutionCoordinator` is an internal implementation module behind
   that owner. It builds prompt plans, streams assistant output, and invokes
   `ToolLoopCoordinator`, but it does not own session or active-turn state.
@@ -89,7 +95,7 @@ flowchart TD
   stores only the resulting turns, turn items, and tool-call records.
 - `ContextUsageSnapshot` computes the byte-based token-usage estimate from the
   same derived model-facing projection used for generation;
-  `ChatSessionController` builds and publishes it directly.
+  `ConversationEngine` builds and publishes it directly.
 
 ## Turn Lifecycle
 

@@ -19,7 +19,7 @@ struct ContentView: View {
   }
 
   var body: some View {
-    let controller = appState.chatController
+    let chatState = appState.chatFeatureState
 
     NavigationSplitView {
       WorkspaceSidebar(
@@ -34,7 +34,7 @@ struct ContentView: View {
       )
       .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 460)
     } detail: {
-      detailContent(controller: controller)
+      detailContent(chatState: chatState)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .frame(minWidth: 880, minHeight: 560)
@@ -51,7 +51,7 @@ struct ContentView: View {
   }
 
   @ViewBuilder
-  private func detailContent(controller: ChatSessionController) -> some View {
+  private func detailContent(chatState: ChatFeatureState) -> some View {
     if let route = appState.route {
       switch route {
       case .models:
@@ -65,7 +65,7 @@ struct ContentView: View {
         WorkspaceRouteHost(
           activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
           activeSessionID: nil,
-          controller: appState.chatController,
+          chatState: chatState,
           modelManagementState: appState.modelManagementState,
           browserToolService: appState.browserToolService,
           appBehaviorSettings: appState.settingsState.appBehaviorSettings,
@@ -86,7 +86,7 @@ struct ContentView: View {
         WorkspaceRouteHost(
           activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
           activeSessionID: sessionID,
-          controller: appState.chatController,
+          chatState: chatState,
           modelManagementState: appState.modelManagementState,
           browserToolService: appState.browserToolService,
           appBehaviorSettings: appState.settingsState.appBehaviorSettings,
@@ -173,7 +173,7 @@ struct ContentView: View {
 private struct WorkspaceRouteHost: View {
   let activeWorkspaceContext: WorkspaceChatContext?
   let activeSessionID: ChatSession.ID?
-  let controller: ChatSessionController
+  let chatState: ChatFeatureState
   let modelManagementState: ModelManagementFeatureState
   let browserToolService: HTMLPreviewBrowserToolService
   let appBehaviorSettings: AppBehaviorSettings
@@ -193,7 +193,7 @@ private struct WorkspaceRouteHost: View {
   var body: some View {
     if let context = activeWorkspaceContext {
       WorkspaceChatView(
-        controller: controller,
+        chatState: chatState,
         context: context,
         sessionID: activeSessionID,
         modelManagementState: modelManagementState,

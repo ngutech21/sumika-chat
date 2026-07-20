@@ -65,7 +65,7 @@ flowchart TD
   ledger entries as structured assistant `tool_calls` plus matching `tool`
   result messages, so provider history keeps the native call/result relationship
   without making SwiftUI or tools parse provider syntax.
-- `ChatSessionController` currently owns the UI-free tool-loop lifecycle together
+- `ConversationEngine` owns the UI-free tool-loop lifecycle together
   with the canonical live `ChatSession` and active turn. Its internal
   `ChatTurnExecutionCoordinator` invokes `ToolLoopCoordinator`, applies
   `ChatWorkflowStep` continuations through workflow events, pauses on approval

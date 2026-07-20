@@ -3,7 +3,7 @@ import SumikaCore
 import SwiftUI
 
 struct WorkspaceChatView: View, Equatable {
-  let controller: ChatSessionController
+  let chatState: ChatFeatureState
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let modelManagementState: ModelManagementFeatureState
@@ -23,7 +23,7 @@ struct WorkspaceChatView: View, Equatable {
   @State private var previewState = WorkspacePreviewFeatureState()
 
   static func == (lhs: WorkspaceChatView, rhs: WorkspaceChatView) -> Bool {
-    ObjectIdentifier(lhs.controller) == ObjectIdentifier(rhs.controller)
+    ObjectIdentifier(lhs.chatState) == ObjectIdentifier(rhs.chatState)
       && lhs.context == rhs.context
       && lhs.sessionID == rhs.sessionID
       && ObjectIdentifier(lhs.modelManagementState)
@@ -49,7 +49,7 @@ struct WorkspaceChatView: View, Equatable {
 
     HStack(spacing: 0) {
       WorkspaceChatMainColumn(
-        controller: controller,
+        chatState: chatState,
         context: context,
         sessionID: sessionID,
         modelManagementState: modelManagementState,
@@ -74,7 +74,7 @@ struct WorkspaceChatView: View, Equatable {
 
       #if DEBUG
         WorkspaceDebugSlot(
-          controller: controller,
+          chatState: chatState,
           context: context,
           sessionID: sessionID,
           isModelContextDebugVisible: $isModelContextDebugVisible
@@ -101,7 +101,7 @@ struct WorkspaceChatView: View, Equatable {
 }
 
 private struct WorkspaceChatMainColumn: View, Equatable {
-  let controller: ChatSessionController
+  let chatState: ChatFeatureState
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let modelManagementState: ModelManagementFeatureState
@@ -118,7 +118,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
   @State private var composerHeight: CGFloat = 0
 
   static func == (lhs: WorkspaceChatMainColumn, rhs: WorkspaceChatMainColumn) -> Bool {
-    ObjectIdentifier(lhs.controller) == ObjectIdentifier(rhs.controller)
+    ObjectIdentifier(lhs.chatState) == ObjectIdentifier(rhs.chatState)
       && lhs.context == rhs.context
       && lhs.sessionID == rhs.sessionID
       && ObjectIdentifier(lhs.modelManagementState)
@@ -145,7 +145,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
 
       ZStack(alignment: .bottom) {
         ChatTranscriptHost(
-          controller: controller,
+          chatState: chatState,
           context: context,
           sessionID: sessionID,
           modelState: modelManagementState.state.modelState,
@@ -156,7 +156,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         WorkspaceChatComposerHost(
-          controller: controller,
+          chatState: chatState,
           modelManagementState: modelManagementState,
           context: context,
           sessionID: sessionID,
@@ -257,13 +257,13 @@ private struct WorkspacePreviewSlot: View, Equatable {
 }
 
 private struct WorkspaceDebugSlot: View, Equatable {
-  let controller: ChatSessionController
+  let chatState: ChatFeatureState
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   @Binding var isModelContextDebugVisible: Bool
 
   static func == (lhs: WorkspaceDebugSlot, rhs: WorkspaceDebugSlot) -> Bool {
-    ObjectIdentifier(lhs.controller) == ObjectIdentifier(rhs.controller)
+    ObjectIdentifier(lhs.chatState) == ObjectIdentifier(rhs.chatState)
       && lhs.context == rhs.context
       && lhs.sessionID == rhs.sessionID
       && lhs.isModelContextDebugVisible == rhs.isModelContextDebugVisible
@@ -277,7 +277,7 @@ private struct WorkspaceDebugSlot: View, Equatable {
 
     if isModelContextDebugVisible {
       ModelContextDebugHost(
-        controller: controller,
+        chatState: chatState,
         context: context,
         sessionID: sessionID,
         onClose: {

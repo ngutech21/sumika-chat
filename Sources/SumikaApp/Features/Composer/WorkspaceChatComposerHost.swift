@@ -3,7 +3,7 @@ import SumikaCore
 import SwiftUI
 
 struct WorkspaceChatComposerHost: View {
-  let controller: ChatSessionController
+  let chatState: ChatFeatureState
   let modelManagementState: ModelManagementFeatureState
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
@@ -39,8 +39,9 @@ struct WorkspaceChatComposerHost: View {
 
     let localDownloadedModels = downloadedModels
     let modelState = modelManagementState.state
-    let composerState = controller.composerSessionState
-    let isGenerating = controller.isGenerating
+    let presentation = chatState.composer
+    let composerState = presentation.session
+    let isGenerating = presentation.isGenerating
 
     ChatComposer(
       attachments: composerState.pendingAttachments,
@@ -53,37 +54,37 @@ struct WorkspaceChatComposerHost: View {
         interactionMode: composerState.interactionMode,
         reasoningEnabled: composerState.reasoningEnabled,
         toolApprovalPolicy: composerState.toolApprovalPolicy,
-        canChangeReasoning: controller.canChangeInteractionMode,
-        canEnableAutomaticToolApproval: controller.canEnableAutomaticToolApproval,
+        canChangeReasoning: presentation.canChangeInteractionMode,
+        canEnableAutomaticToolApproval: presentation.canEnableAutomaticToolApproval,
         servers: mcpServers,
         statuses: mcpServerStatuses,
         selectedServerIDs: composerState.selectedMCPServerIDs,
-        canChangeMCPSelection: controller.canChangeMCPServerSelection,
-        onSetReasoningEnabled: controller.setReasoningEnabled,
+        canChangeMCPSelection: presentation.canChangeMCPServerSelection,
+        onSetReasoningEnabled: chatState.setReasoningEnabled,
         onEnableAutomaticToolApproval: {
-          controller.enableAutomaticToolApproval(in: toolWorkspace)
+          chatState.enableAutomaticToolApproval(in: context, sessionID: sessionID)
         },
-        onDisableAutomaticToolApproval: controller.disableAutomaticToolApproval,
+        onDisableAutomaticToolApproval: chatState.disableAutomaticToolApproval,
         onSelectServerIDs: onSelectMCPServerIDs
       ),
       todoState: composerState.todoState,
-      contextUsage: controller.contextUsage,
+      contextUsage: presentation.contextUsage,
       canChangeModel: !localDownloadedModels.isEmpty && modelManagementState.canChangeModel,
-      canChangeInteractionMode: controller.canChangeInteractionMode,
+      canChangeInteractionMode: presentation.canChangeInteractionMode,
       canSend: modelManagementState.canSend,
       canRunLocalCommand: !isGenerating,
       isGenerating: isGenerating,
       errorMessage: presentedErrorMessage,
-      onSelectInteractionMode: controller.setInteractionMode,
+      onSelectInteractionMode: chatState.setInteractionMode,
       onSelectModel: selectModel(_:),
       onLoadModel: loadSelectedModel,
       onAddAttachments: chooseAttachments,
-      onDropAttachments: controller.addAttachments,
-      onRemoveAttachment: controller.removeAttachment,
+      onDropAttachments: chatState.addAttachments,
+      onRemoveAttachment: chatState.removeAttachment,
       speechInputController: speechInputController,
       onOpenAudioModels: onOpenAudioModels,
       onSend: onSend,
-      onCancel: controller.cancelGeneration
+      onCancel: chatState.cancelGeneration
     )
   }
 
@@ -91,15 +92,11 @@ struct WorkspaceChatComposerHost: View {
     modelManagementState.downloadedModels
   }
 
-  private var toolWorkspace: Workspace {
-    context.workspace(containing: sessionID ?? controller.sessionID)
-  }
-
   private var presentedErrorMessage: String? {
     composerErrorMessage
       ?? previewState.errorMessage
       ?? modelManagementState.errorMessage
-      ?? controller.errorMessage
+      ?? chatState.composer.errorMessage
   }
 
   private func composerSelectedModel(from downloadedModels: [ManagedModel]) -> ManagedModel {
@@ -175,7 +172,7 @@ struct WorkspaceChatComposerHost: View {
     panel.prompt = "Add"
 
     if panel.runModal() == .OK {
-      controller.addAttachments(from: panel.urls)
+      chatState.addAttachments(from: panel.urls)
     }
   }
 

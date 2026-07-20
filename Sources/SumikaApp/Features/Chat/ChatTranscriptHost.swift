@@ -2,7 +2,7 @@ import SumikaCore
 import SwiftUI
 
 struct ChatTranscriptHost: View {
-  let controller: ChatSessionController
+  let chatState: ChatFeatureState
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let modelState: ModelLoadState
@@ -16,37 +16,43 @@ struct ChatTranscriptHost: View {
       let _ = Self._printChanges()
     #endif
 
+    let presentation = chatState.transcript
     ChatTranscript(
-      turns: controller.turns,
+      turns: presentation.turns,
       modelState: modelState,
-      isGenerating: controller.isGenerating,
-      toolApprovalPolicy: controller.composerSessionState.toolApprovalPolicy,
+      isGenerating: presentation.isGenerating,
+      toolApprovalPolicy: presentation.toolApprovalPolicy,
       appBehaviorSettings: appBehaviorSettings,
       assistantSpeechService: assistantSpeechService,
       bottomContentInset: bottomContentInset,
       onApproveToolCall: { toolCallID in
-        controller.approveToolCall(id: toolCallID, in: toolWorkspace)
+        chatState.approveToolCall(id: toolCallID, in: context, sessionID: sessionID)
       },
       onApproveToolCallBatch: { anchorID in
-        controller.approveToolCallBatch(containing: anchorID, in: toolWorkspace)
+        chatState.approveToolCallBatch(
+          containing: anchorID,
+          in: context,
+          sessionID: sessionID
+        )
       },
       onResumeAutomaticApprovalBatch: { anchorID in
-        controller.resumeAutomaticApprovalBatch(containing: anchorID, in: toolWorkspace)
+        chatState.resumeAutomaticApprovalBatch(
+          containing: anchorID,
+          in: context,
+          sessionID: sessionID
+        )
       },
       onDenyToolCall: { toolCallID in
-        controller.denyToolCall(id: toolCallID)
+        chatState.denyToolCall(id: toolCallID)
       },
       onAnswerAskUser: { toolCallID, answer in
-        controller.answerAskUserToolCall(
+        chatState.answerAskUserToolCall(
           id: toolCallID,
           answer: answer,
-          in: toolWorkspace
+          in: context,
+          sessionID: sessionID
         )
       }
     )
-  }
-
-  private var toolWorkspace: Workspace {
-    context.workspace(containing: sessionID ?? controller.sessionID)
   }
 }

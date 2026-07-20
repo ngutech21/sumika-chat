@@ -7,7 +7,7 @@ import Observation
 
 @MainActor
 @Observable
-package final class ChatSessionController {
+package final class ConversationEngine {
   private(set) var chatSession: ChatSession {
     didSet {
       syncComposerSessionState()
@@ -15,7 +15,7 @@ package final class ChatSessionController {
   }
   package private(set) var composerSessionState = ChatComposerSessionState()
   package private(set) var modelContextDebugState = ModelContextDebugState()
-  package var contextUsage: ChatContextUsage?
+  package internal(set) var contextUsage: ChatContextUsage?
   package internal(set) var isGenerating = false
   package private(set) var errorMessage: String?
 
@@ -44,25 +44,25 @@ package final class ChatSessionController {
   #if canImport(OSLog)
     nonisolated private static let logger = Logger(
       subsystem: SumikaTelemetry.subsystem,
-      category: "ChatSessionController"
+      category: "ConversationEngine"
     )
   #endif
 
-  package func canSend(prompt: String) -> Bool {
+  func canSend(prompt: String) -> Bool {
     conversationModelState.loadState == .ready
       && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && !isGenerating
   }
 
-  package var hasPendingApproval: Bool {
+  var hasPendingApproval: Bool {
     chatSession.containsToolCall { $0.status == .awaitingApproval }
   }
 
-  package var hasPendingUserAnswer: Bool {
+  var hasPendingUserAnswer: Bool {
     chatSession.containsToolCall { $0.status == .awaitingUserAnswer }
   }
 
-  package var isInputBlocked: Bool {
+  var isInputBlocked: Bool {
     hasPendingApproval || hasPendingUserAnswer
   }
 
@@ -116,7 +116,7 @@ package final class ChatSessionController {
   }
 }
 
-extension ChatSessionController {
+extension ConversationEngine {
   private var conversationModelState: ConversationModelState {
     conversationModel()
   }
@@ -321,7 +321,7 @@ extension ChatSessionController {
     notifySessionDidChange()
   }
 
-  package func configureAgentTools(todoWriteEnabled: Bool) {
+  func configureAgentTools(todoWriteEnabled: Bool) {
     setAgentToolExecutorRegistry(
       ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: todoWriteEnabled)
     )
@@ -421,11 +421,6 @@ extension ChatSessionController {
     sessionID: ChatSession.ID
   ) -> Bool {
     sendMessage(prompt: prompt, workspace: workspace, sessionID: sessionID)
-  }
-
-  @discardableResult
-  package func sendMessage(prompt: String, in workspace: Workspace) -> Bool {
-    sendMessage(prompt: prompt, workspace: workspace, sessionID: workspace.sessions.first?.id)
   }
 
   private func sendMessage(
@@ -569,7 +564,7 @@ extension ChatSessionController {
     }
   }
 
-  package func clearChatHistory() {
+  func clearChatHistory() {
     transcriptMutator.clearTranscript(in: &chatSession)
     updateRuntimeCacheDebugSnapshot(nil)
     invalidateModelContextDebugDocument()
@@ -593,7 +588,7 @@ extension ChatSessionController {
     contextUsage = snapshot.estimatedUsage(isStale: false)
   }
 
-  package func updateContextUsage() async {
+  private func updateContextUsage() async {
     refreshContextUsage()
   }
 
@@ -1022,7 +1017,7 @@ extension ChatSessionController {
 
 }
 
-extension ChatSessionController {
+extension ConversationEngine {
   fileprivate func systemPrompt(toolPromptMode: ToolPromptMode) -> String {
     turnExecutionCoordinator.systemPrompt(
       session: chatSession,

@@ -8,6 +8,41 @@ import Testing
 @MainActor
 struct AppStateTests {
   @Test
+  func chatFacadeProjectsEngineStateAndRoutesUserOperations() async throws {
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspace.id,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
+    #expect(appState.chatFeatureState.transcript.turns.isEmpty)
+    #expect(appState.chatFeatureState.composer.session.interactionMode == .chat)
+
+    appState.chatFeatureState.setInteractionMode(.agent)
+
+    #expect(appState.chatFeatureState.composer.session.interactionMode == .agent)
+  }
+
+  @Test
   func modelManagementFacadeRoutesStateChangesThroughExplicitActions() async throws {
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
@@ -52,14 +87,14 @@ struct AppStateTests {
       appState.modelManagementState.errorMessage
         == "Download a model from Models first."
     )
-    #expect(appState.chatController.errorMessage == nil)
+    #expect(appState.chatFeatureState.composer.errorMessage == nil)
 
     appState.modelManagementState.performPrimaryAction()
 
     try await waitUntil {
       appState.modelManagementState.errorMessage == "No model downloader is configured."
     }
-    #expect(appState.chatController.errorMessage == nil)
+    #expect(appState.chatFeatureState.composer.errorMessage == nil)
   }
 
   @Test
@@ -107,8 +142,8 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
-    appState.chatController.refreshContextUsage()
-    let initialUsage = try #require(appState.chatController.contextUsage)
+    appState.chatFeatureState.refreshContextUsageForTesting()
+    let initialUsage = try #require(appState.chatFeatureState.composer.contextUsage)
 
     var updatedModeSettings = appState.modelManagementState.modeSettings
     updatedModeSettings.chat.systemPrompt += String(
@@ -118,7 +153,7 @@ struct AppStateTests {
 
     appState.modelManagementState.updateModeSettings(updatedModeSettings)
 
-    let refreshedUsage = try #require(appState.chatController.contextUsage)
+    let refreshedUsage = try #require(appState.chatFeatureState.composer.contextUsage)
     #expect(refreshedUsage.usedTokens > initialUsage.usedTokens)
 
     let selectedModel = appState.modelManagementState.state.selectedModel
@@ -226,10 +261,10 @@ struct AppStateTests {
         sessionID: targetSession.id
       )
     )
-    #expect(appState.chatController.sessionID == targetSession.id)
+    #expect(appState.chatFeatureState.transcript.sessionID == targetSession.id)
     #expect(appState.modelManagementState.state.selectedModel == selectedModel)
     #expect(
-      appState.chatController.sessionSnapshot().selectedModelID == selectedModel.id
+      appState.chatFeatureState.sessionSnapshotForTesting.selectedModelID == selectedModel.id
     )
   }
 
@@ -272,9 +307,9 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
 
-    #expect(appState.chatController.composerSessionState.interactionMode == .chat)
+    #expect(appState.chatFeatureState.composer.session.interactionMode == .chat)
 
-    appState.chatController.setInteractionMode(.agent)
+    appState.chatFeatureState.setInteractionMode(.agent)
 
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
       library.workspaces.first?
@@ -318,7 +353,7 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
 
-    appState.chatController.renameSession(to: "Unsaved title")
+    appState.renameSession(sessionID, title: "Unsaved title")
 
     await appState.prepareForTermination()
 
@@ -359,7 +394,7 @@ struct AppStateTests {
     }
 
     _ = appState.persistActiveSession()
-    appState.chatController.renameSession(to: "Final title")
+    appState.renameSession(sessionID, title: "Final title")
 
     await appState.prepareForTermination()
 
@@ -403,8 +438,11 @@ struct AppStateTests {
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
-    appState.chatController.sendMessage(
-      prompt: "Persist this", in: activeWorkspace, sessionID: activeSessionID)
+    appState.sendMessage(
+      prompt: "Persist this",
+      in: WorkspaceChatContext(workspace: activeWorkspace),
+      sessionID: activeSessionID
+    )
 
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
       let savedSession = library.workspaces.first?
@@ -682,11 +720,13 @@ struct AppStateTests {
     #expect(savedLibrary.activeWorkspaceID == nil)
     #expect(savedLibrary.activeSessionID == nil)
     #expect(FileManager.default.fileExists(atPath: markerURL.path(percentEncoded: false)))
-    #expect(appState.chatController.sessionID != sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID != sessionID)
     #expect(
-      appState.chatController.modeSettings.chat.systemPrompt != "Workspace private system prompt")
+      appState.modelManagementState.modeSettings.chat.systemPrompt
+        != "Workspace private system prompt"
+    )
     #expect(
-      appState.chatController.modeSettings.chat.generationSettings
+      appState.modelManagementState.modeSettings.chat.generationSettings
         != workspaceGenerationSettings)
   }
 
@@ -719,7 +759,7 @@ struct AppStateTests {
     }
 
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatController.sessionID == sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
   }
 
   @Test
@@ -752,7 +792,7 @@ struct AppStateTests {
 
     #expect(appState.route == .workspace(workspaceID))
     #expect(appState.workspaceState.activeSessionID == nil)
-    #expect(appState.chatController.sessionID != sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID != sessionID)
   }
 
   @Test
@@ -788,9 +828,8 @@ struct AppStateTests {
 
     #expect(appState.route == .models)
     #expect(appState.workspaceState.activeSessionID == sessionID)
-    #expect(appState.chatController.sessionID != sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID != sessionID)
 
-    appState.chatController.renameSession(to: "Placeholder Chat")
     let didPersist = appState.persistActiveSession()
 
     #expect(!didPersist)
@@ -830,7 +869,7 @@ struct AppStateTests {
     }
 
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatController.sessionID == sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
   }
 
   @Test
@@ -877,7 +916,7 @@ struct AppStateTests {
     #expect(workspaceRouteLibrary.activeWorkspaceID == secondWorkspaceID)
     #expect(appState.route == .workspace(secondWorkspaceID))
     #expect(appState.workspaceState.activeSessionID == nil)
-    #expect(appState.chatController.sessionID != secondSessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID != secondSessionID)
 
     appState.selectChat(workspaceID: secondWorkspaceID, sessionID: secondSessionID)
     let chatRouteLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
@@ -886,7 +925,7 @@ struct AppStateTests {
     }
     #expect(chatRouteLibrary.activeSessionID == secondSessionID)
     #expect(appState.route == .chat(workspaceID: secondWorkspaceID, sessionID: secondSessionID))
-    #expect(appState.chatController.sessionID == secondSessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == secondSessionID)
 
     let didSelectInvalidChat = appState.selectChat(
       workspaceID: firstWorkspaceID,
@@ -977,7 +1016,7 @@ struct AppStateTests {
     }
     #expect(savedLibrary.activeSessionID == sessionID)
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatController.sessionID == sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
   }
 
   @Test
@@ -1011,7 +1050,7 @@ struct AppStateTests {
     #expect(savedLibrary.activeWorkspaceID == workspaceID)
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
     #expect(appState.workspaceState.activeSessionID == sessionID)
-    #expect(appState.chatController.sessionID == sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
   }
 
   @Test
@@ -1061,7 +1100,7 @@ struct AppStateTests {
     }
     let sessionID = try #require(savedLibrary.activeSessionID)
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatController.sessionID == sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
   }
 
   @Test
@@ -1108,7 +1147,7 @@ struct AppStateTests {
     #expect(appState.route == .workspace(workspaceID))
     #expect(appState.workspaceState.activeSessionID == nil)
     #expect(appState.workspaceState.activeSession == nil)
-    #expect(appState.chatController.sessionID != replacementSessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID != replacementSessionID)
     #expect(
       appState.workspaceState.sidebarState.workspaces.first?.sessions.map(\.id)
         == [replacementSessionID])
@@ -1147,7 +1186,7 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
 
-    appState.chatController.renameSession(to: "Unsaved Active")
+    appState.renameSession(activeSessionID, title: "Unsaved Active")
     appState.deleteSession(deletedSessionID)
 
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
@@ -1159,7 +1198,7 @@ struct AppStateTests {
     #expect(savedSessions.contains { $0.id == deletedSessionID } == false)
     #expect(savedSessions.first { $0.id == activeSessionID }?.title == "Unsaved Active")
     #expect(appState.workspaceState.activeSessionID == activeSessionID)
-    #expect(appState.chatController.sessionID == activeSessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == activeSessionID)
   }
 
   @Test
@@ -1352,7 +1391,7 @@ struct AppStateTests {
       ),
       turnTracer: NoopTurnTracer()
     )
-    let controller = conversation.chatController
+    let chatFeatureState = conversation.chatFeatureState
 
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
@@ -1365,7 +1404,7 @@ struct AppStateTests {
     )
 
     #expect(appState.browserToolService === browserToolService)
-    #expect(appState.chatController === controller)
+    #expect(appState.chatFeatureState === chatFeatureState)
   }
 
   @Test
@@ -1420,17 +1459,20 @@ struct AppStateTests {
       throw AppStateTestFailure.missingWorkspace
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
-    appState.chatController.setInteractionMode(.agent)
+    appState.chatFeatureState.setInteractionMode(.agent)
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
-    appState.chatController.sendMessage(
-      prompt: "refresh the preview", in: workspace, sessionID: activeSessionID)
+    appState.sendMessage(
+      prompt: "refresh the preview",
+      in: WorkspaceChatContext(workspace: workspace),
+      sessionID: activeSessionID
+    )
 
     try await waitUntil {
-      !appState.chatController.isGenerating
+      !appState.chatFeatureState.transcript.isGenerating
     }
 
     #expect(await probe.refreshCount() == 1)
-    let toolCall = try #require(appState.chatController.toolCallsForAppStateTesting.first)
+    let toolCall = try #require(appState.chatFeatureState.toolCallsForAppStateTesting.first)
     #expect(toolCall.request.toolName == .browserRefresh)
     #expect(toolCall.status == .completed)
   }
@@ -1470,12 +1512,15 @@ struct AppStateTests {
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
-    appState.chatController.setInteractionMode(.agent)
-    appState.chatController.sendMessage(
-      prompt: "inspect the project", in: activeWorkspace, sessionID: activeSessionID)
+    appState.chatFeatureState.setInteractionMode(.agent)
+    appState.sendMessage(
+      prompt: "inspect the project",
+      in: WorkspaceChatContext(workspace: activeWorkspace),
+      sessionID: activeSessionID
+    )
 
     try await waitUntil {
-      !appState.chatController.isGenerating
+      !appState.chatFeatureState.transcript.isGenerating
     }
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
@@ -1529,12 +1574,15 @@ struct AppStateTests {
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
-    appState.chatController.setInteractionMode(.agent)
-    appState.chatController.sendMessage(
-      prompt: "inspect the project", in: activeWorkspace, sessionID: activeSessionID)
+    appState.chatFeatureState.setInteractionMode(.agent)
+    appState.sendMessage(
+      prompt: "inspect the project",
+      in: WorkspaceChatContext(workspace: activeWorkspace),
+      sessionID: activeSessionID
+    )
 
     try await waitUntil {
-      !appState.chatController.isGenerating
+      !appState.chatFeatureState.transcript.isGenerating
     }
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
@@ -1690,12 +1738,12 @@ struct AppStateTests {
 
     let activeWorkspace = try #require(appState.workspaceState.activeWorkspace)
     appState.modelManagementState.setModelLoadStateForTesting(.ready)
-    appState.chatController.sendMessage(
+    appState.sendMessage(
       prompt: "Use the first server",
-      in: activeWorkspace,
+      in: WorkspaceChatContext(workspace: activeWorkspace),
       sessionID: sessionID
     )
-    try await waitUntil { !appState.chatController.isGenerating }
+    try await waitUntil { !appState.chatFeatureState.transcript.isGenerating }
 
     appState.setSelectedMCPServerIDs([secondServer.id])
     try await waitUntil {
@@ -1705,12 +1753,12 @@ struct AppStateTests {
         && statuses.first(where: { $0.serverID == secondServer.id })?.state
           == .connected(toolCount: 1)
     }
-    appState.chatController.sendMessage(
+    appState.sendMessage(
       prompt: "Use the second server",
-      in: activeWorkspace,
+      in: WorkspaceChatContext(workspace: activeWorkspace),
       sessionID: sessionID
     )
-    try await waitUntil { !appState.chatController.isGenerating }
+    try await waitUntil { !appState.chatFeatureState.transcript.isGenerating }
 
     let capturedToolContexts = await runtime.capturedToolContexts
     let contexts = capturedToolContexts.compactMap { $0 }
@@ -1719,7 +1767,7 @@ struct AppStateTests {
     #expect(mcpToolNames(in: firstContext) == ["mcp__first__echo"])
     #expect(mcpToolNames(in: secondContext) == ["mcp__second__echo"])
     #expect(
-      appState.chatController.composerSessionState.selectedMCPServerIDs == [secondServer.id])
+      appState.chatFeatureState.composer.session.selectedMCPServerIDs == [secondServer.id])
     await appState.prepareForTermination()
   }
 
@@ -1760,12 +1808,12 @@ struct AppStateTests {
 
     try await waitUntil { !appState.workspaceState.isLoading }
     #expect(
-      appState.chatController.composerSessionState.selectedMCPServerIDs == [configuredServer.id])
+      appState.chatFeatureState.composer.session.selectedMCPServerIDs == [configuredServer.id])
 
     appState.updateMCPServers([])
     try await waitUntil {
       appState.settingsState.mcpServers.isEmpty
-        && appState.chatController.composerSessionState.selectedMCPServerIDs.isEmpty
+        && appState.chatFeatureState.composer.session.selectedMCPServerIDs.isEmpty
     }
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
       library.workspaces.first?.sessions.first?.selectedMCPServerIDs.isEmpty == true
@@ -2108,9 +2156,9 @@ private func waitUntil(
 
 private struct AppStateTestTimeoutError: Error {}
 
-extension ChatSessionController {
+extension ChatFeatureState {
   fileprivate var toolCallsForAppStateTesting: [ToolCallRecord] {
-    turns.flatMap(\.items).compactMap { item in
+    transcript.turns.flatMap(\.items).compactMap { item in
       guard case .tool(let record) = item else {
         return nil
       }

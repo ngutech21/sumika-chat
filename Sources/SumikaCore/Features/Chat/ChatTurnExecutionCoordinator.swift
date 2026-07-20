@@ -55,7 +55,7 @@ struct ChatTurnExecutionCoordinator {
     attachments: [ChatAttachment],
     workspace: Workspace?,
     interactionMode: WorkspaceInteractionMode,
-    conversation: ChatSessionController
+    conversation: ConversationEngine
   ) {
     let session = conversation.chatSession
     let focusedEvents = focusEventsForAttachments(
@@ -97,7 +97,7 @@ struct ChatTurnExecutionCoordinator {
   func streamAssistantReply(
     to assistantMessageID: UUID,
     runtime: ChatTurnRuntimeContext,
-    conversation: ChatSessionController,
+    conversation: ConversationEngine,
     interactionMode: WorkspaceInteractionMode,
     toolPromptMode: ToolPromptMode,
     turnToolRegistry: ToolRegistry,
@@ -269,7 +269,7 @@ struct ChatTurnExecutionCoordinator {
     turnID: ChatTurn.ID,
     interactionMode: WorkspaceInteractionMode,
     runtime: ChatTurnRuntimeContext,
-    conversation: ChatSessionController,
+    conversation: ConversationEngine,
     turnToolRegistry: ToolRegistry,
     stableInstructions: String,
     lastNativeToolCalls: [ChatRuntimeToolCall] = []
@@ -468,7 +468,7 @@ struct ChatTurnExecutionCoordinator {
   func applyToolFollowUpNoticeIfNeeded(
     toolPromptMode: ToolPromptMode,
     turnID: ChatTurn.ID,
-    conversation: ChatSessionController
+    conversation: ConversationEngine
   ) -> Bool {
     guard
       let update = toolFollowUpNoticePolicy.update(

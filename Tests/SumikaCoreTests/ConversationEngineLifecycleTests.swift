@@ -5,11 +5,11 @@ import Testing
 
 @Suite(.serialized)
 @MainActor
-struct ChatSessionLifecycleTests {
+struct ConversationEngineLifecycleTests {
   @Test
   func userTurnStreamsAssistantReplyAndCompletes() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello"])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(interactionMode: .chat),
       runtime: runtime
     )
@@ -39,7 +39,7 @@ struct ChatSessionLifecycleTests {
           ))
       ]
     ])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -72,7 +72,7 @@ struct ChatSessionLifecycleTests {
       ],
       [.chunk("Wrote index.html.")],
     ])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -112,7 +112,7 @@ struct ChatSessionLifecycleTests {
       ],
       [.chunk("I'll make the minimal fix.")],
     ])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -151,7 +151,7 @@ struct ChatSessionLifecycleTests {
       ],
       [.chunk("I will leave README.md unchanged.")],
     ])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -195,7 +195,7 @@ struct ChatSessionLifecycleTests {
       ],
       [.chunk("Applied the approved change and left the denied file untouched.")],
     ])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -267,7 +267,7 @@ struct ChatSessionLifecycleTests {
       ],
       [.chunk("Wrote both files.")],
     ])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -318,7 +318,7 @@ struct ChatSessionLifecycleTests {
       ],
       [.chunk("Ran both approved commands and reported the failure.")],
     ])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -362,7 +362,7 @@ struct ChatSessionLifecycleTests {
       ],
       [.chunk("Stopped after the blocked duplicate observation.")],
     ])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -415,7 +415,7 @@ struct ChatSessionLifecycleTests {
       ],
       [.chunk("Wrote only the approved file.")],
     ])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -449,7 +449,7 @@ struct ChatSessionLifecycleTests {
         .chunk("Here is the answer."),
       ]
     ])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(interactionMode: .chat),
       runtime: runtime
     )
@@ -474,7 +474,7 @@ struct ChatSessionLifecycleTests {
   @Test
   func cancelActiveTurnMarksTurnCancelledAndRemovesTransientPlaceholder() async throws {
     let runtime = ControlledStreamingRuntime(turns: [["partial"]], blockedCallIndexes: [0])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(interactionMode: .chat),
       runtime: runtime
     )
@@ -508,7 +508,7 @@ struct ChatSessionLifecycleTests {
       [.chunk("First response.")],
       [.chunk("Second response.")],
     ])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime,
       workspaceInstructionsLoader: loader
@@ -546,7 +546,7 @@ struct ChatSessionLifecycleTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let loader = WorkspaceInstructionsLoaderStub(result: .missing)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Reply."])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .chat),
       runtime: runtime,
       workspaceInstructionsLoader: loader
@@ -565,7 +565,7 @@ struct ChatSessionLifecycleTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let loader = WorkspaceInstructionsLoaderStub(result: .missing)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Reply."])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime,
       workspaceInstructionsLoader: loader
@@ -591,7 +591,7 @@ struct ChatSessionLifecycleTests {
       error: .invalidUTF8("AGENTS.md")
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Must not be requested."])
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime,
       workspaceInstructionsLoader: loader
@@ -624,7 +624,7 @@ struct ChatSessionLifecycleTests {
       turns: [["Cancelled"], ["Completed"]],
       blockedCallIndexes: [0]
     )
-    let harness = ChatSessionLifecycleHarness(
+    let harness = ConversationEngineLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime,
       workspaceInstructionsLoader: loader
@@ -658,17 +658,17 @@ struct ChatSessionLifecycleTests {
 }
 
 @MainActor
-private final class ChatSessionLifecycleHarness: @unchecked Sendable {
-  private let controller: ChatSessionController
+private final class ConversationEngineLifecycleHarness: @unchecked Sendable {
+  private let engine: ConversationEngine
   var finishCount = 0
   private var wasGenerating = false
 
   var session: ChatSession {
-    controller.chatSession
+    engine.chatSession
   }
 
   var errorMessages: [String] {
-    controller.errorMessage.map { [$0] } ?? []
+    engine.errorMessage.map { [$0] } ?? []
   }
 
   init(
@@ -676,14 +676,14 @@ private final class ChatSessionLifecycleHarness: @unchecked Sendable {
     runtime: any ChatModelRuntime,
     workspaceInstructionsLoader: any WorkspaceInstructionsLoading = WorkspaceInstructionsLoader()
   ) {
-    self.controller = ChatSessionController(
+    self.engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       chatSession: session,
       workspaceInstructionsLoader: workspaceInstructionsLoader
     )
-    controller.modelRuntime.modelState = .ready
-    controller.setSessionChangeHandler { [weak self] in
+    engine.modelRuntime.modelState = .ready
+    engine.setSessionChangeHandler { [weak self] in
       self?.recordLifecycleTransition()
     }
   }
@@ -694,37 +694,37 @@ private final class ChatSessionLifecycleHarness: @unchecked Sendable {
     sessionID: ChatSession.ID? = nil
   ) {
     if let workspace, let sessionID {
-      controller.sendMessage(prompt: prompt, in: workspace, sessionID: sessionID)
+      engine.sendMessage(prompt: prompt, in: workspace, sessionID: sessionID)
     } else {
-      controller.sendMessage(prompt: prompt)
+      engine.sendMessage(prompt: prompt)
     }
   }
 
   func approve(_ record: ToolCallRecord, in workspace: Workspace) {
-    controller.approveToolCall(id: record.id, in: workspace)
+    engine.approveToolCall(id: record.id, in: workspace)
   }
 
   func approveBatch(containing record: ToolCallRecord, in workspace: Workspace) {
-    controller.approveToolCallBatch(containing: record.id, in: workspace)
+    engine.approveToolCallBatch(containing: record.id, in: workspace)
   }
 
   func answer(_ record: ToolCallRecord, answer: String, in workspace: Workspace) {
-    controller.answerAskUserToolCall(id: record.id, answer: answer, in: workspace)
+    engine.answerAskUserToolCall(id: record.id, answer: answer, in: workspace)
   }
 
   func deny(_ record: ToolCallRecord) {
-    controller.denyToolCall(id: record.id)
+    engine.denyToolCall(id: record.id)
   }
 
   func cancel() {
-    controller.cancelGeneration()
+    engine.cancelGeneration()
   }
 
   private func recordLifecycleTransition() {
-    if wasGenerating, !controller.isGenerating {
+    if wasGenerating, !engine.isGenerating {
       finishCount += 1
     }
-    wasGenerating = controller.isGenerating
+    wasGenerating = engine.isGenerating
   }
 }
 

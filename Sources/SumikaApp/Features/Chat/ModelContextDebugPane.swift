@@ -3,7 +3,7 @@ import SumikaCore
 import SwiftUI
 
 struct ModelContextDebugHost: View {
-  let controller: ChatSessionController
+  let chatState: ChatFeatureState
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let onClose: () -> Void
@@ -14,18 +14,18 @@ struct ModelContextDebugHost: View {
       let _ = Self._printChanges()
     #endif
 
-    let debugState = controller.modelContextDebugState
+    let debugState = chatState.modelContextDebug.state
     ModelContextDebugPane(
       debugState: debugState,
       requestID: ModelContextDebugRequestID(
-        controllerID: ObjectIdentifier(controller),
+        controllerID: ObjectIdentifier(chatState),
         workspaceID: context.id,
         sessionID: sessionID,
         documentRevision: debugState.documentRevision
       ),
       makeDocument: {
-        try controller.modelContextDebugDocument(
-          workspace: context.workspace(containing: sessionID ?? controller.sessionID),
+        try chatState.modelContextDebugDocument(
+          in: context,
           sessionID: sessionID
         )
       },

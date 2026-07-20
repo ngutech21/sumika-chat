@@ -5,17 +5,17 @@ import Testing
 
 @Suite(.serialized)
 @MainActor
-struct ChatSessionControllerTests {
+struct ConversationEngineTests {
   @Test
-  func releasingControllerReleasesTestModelComposition() async throws {
+  func releasingEngineReleasesTestModelComposition() async throws {
     weak var modelController: ModelRuntimeController?
 
     do {
-      let controller = ChatSessionController(
+      let engine = ConversationEngine(
         runtime: ChatSessionFakeChatModelRuntime(),
         modelPath: "/tmp/model"
       )
-      modelController = controller.modelRuntime
+      modelController = engine.modelRuntime
       #expect(modelController != nil)
     }
 
@@ -26,26 +26,26 @@ struct ChatSessionControllerTests {
 
   @Test
   func canSendRequiresReadyModelNonEmptyPromptAndIdleGeneration() {
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
 
-    controller.modelRuntime.modelState = .ready
+    engine.modelRuntime.modelState = .ready
 
-    #expect(controller.canSend(prompt: "  hello  "))
+    #expect(engine.canSend(prompt: "  hello  "))
 
-    #expect(!controller.canSend(prompt: "   "))
+    #expect(!engine.canSend(prompt: "   "))
 
-    controller.isGenerating = true
-    #expect(!controller.canSend(prompt: "hello"))
+    engine.isGenerating = true
+    #expect(!engine.canSend(prompt: "hello"))
   }
 
   @Test
   func canSendIgnoresPendingToolInteractions() {
     let approvalRecord = makeToolCallRecord(status: .awaitingApproval)
     let askUserRecord = makeToolCallRecord(status: .awaitingUserAnswer)
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model",
       chatSession: ChatSession(turns: [
@@ -53,11 +53,11 @@ struct ChatSessionControllerTests {
         ChatTurn(status: .awaitingUserAnswer, items: [.tool(askUserRecord)]),
       ])
     )
-    controller.modelRuntime.modelState = .ready
+    engine.modelRuntime.modelState = .ready
 
-    #expect(controller.hasPendingApproval)
-    #expect(controller.hasPendingUserAnswer)
-    #expect(controller.canSend(prompt: "continue with a new instruction"))
+    #expect(engine.hasPendingApproval)
+    #expect(engine.hasPendingUserAnswer)
+    #expect(engine.canSend(prompt: "continue with a new instruction"))
   }
 
   @Test
@@ -66,7 +66,7 @@ struct ChatSessionControllerTests {
     let selectedServerID = UUID()
     let approvalRecord = makeToolCallRecord(status: .awaitingApproval)
     let sessionID = UUID()
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       chatSession: ChatSession(
@@ -78,33 +78,33 @@ struct ChatSessionControllerTests {
       )
     )
     let workspace = try makeWorkspace(sessionID: sessionID)
-    controller.modelRuntime.modelState = .ready
+    engine.modelRuntime.modelState = .ready
 
-    controller.reconcileSelectedMCPServerIDs(
+    engine.reconcileSelectedMCPServerIDs(
       [selectedServerID],
       agentToolExecutorRegistry: .readOnly
     )
 
-    #expect(controller.chatSession.selectedMCPServerIDs.isEmpty)
+    #expect(engine.chatSession.selectedMCPServerIDs.isEmpty)
     #expect(
-      controller.sendMessage(
+      engine.sendMessage(
         prompt: "continue with the updated tools",
         in: workspace,
         sessionID: sessionID
       )
     )
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
     let capturedToolContexts = await runtime.capturedToolContexts
     let toolContext = try #require(capturedToolContexts.first ?? nil)
     #expect(toolContext.registry.definition(for: .readFile) != nil)
     #expect(toolContext.registry.definition(for: .editFile) == nil)
-    #expect(controller.chatSession.selectedMCPServerIDs == [selectedServerID])
+    #expect(engine.chatSession.selectedMCPServerIDs == [selectedServerID])
   }
 
   @Test
   func composerSessionStateIgnoresTranscriptOnlyChanges() {
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model",
       chatSession: ChatSession(
@@ -117,11 +117,11 @@ struct ChatSessionControllerTests {
         interactionMode: .agent
       )
     )
-    let originalState = controller.composerSessionState
+    let originalState = engine.composerSessionState
 
-    controller.clearChatHistory()
+    engine.clearChatHistory()
 
-    #expect(controller.composerSessionState == originalState)
+    #expect(engine.composerSessionState == originalState)
   }
 
   @Test
@@ -132,7 +132,7 @@ struct ChatSessionControllerTests {
       TodoItem(id: "2", content: "Run tests", status: .pending),
     ])
     let mcpServerID = UUID()
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model",
       chatSession: ChatSession(
@@ -146,54 +146,54 @@ struct ChatSessionControllerTests {
       )
     )
 
-    #expect(controller.composerSessionState.pendingAttachments == [attachment])
-    #expect(controller.composerSessionState.activeAttachments == [attachment])
-    #expect(controller.composerSessionState.interactionMode == .chat)
-    #expect(controller.composerSessionState.toolApprovalPolicy == .manual)
-    #expect(controller.composerSessionState.selectedMCPServerIDs == [mcpServerID])
-    #expect(controller.composerSessionState.todoState == nil)
+    #expect(engine.composerSessionState.pendingAttachments == [attachment])
+    #expect(engine.composerSessionState.activeAttachments == [attachment])
+    #expect(engine.composerSessionState.interactionMode == .chat)
+    #expect(engine.composerSessionState.toolApprovalPolicy == .manual)
+    #expect(engine.composerSessionState.selectedMCPServerIDs == [mcpServerID])
+    #expect(engine.composerSessionState.todoState == nil)
 
-    controller.setInteractionMode(.agent)
-    controller.enableAutomaticToolApproval(
-      in: try makeWorkspace(sessionID: controller.sessionID)
+    engine.setInteractionMode(.agent)
+    engine.enableAutomaticToolApproval(
+      in: try makeWorkspace(sessionID: engine.sessionID)
     )
 
-    #expect(controller.composerSessionState.interactionMode == .agent)
-    #expect(controller.composerSessionState.toolApprovalPolicy == .automatic)
-    #expect(controller.composerSessionState.todoState == todoState)
+    #expect(engine.composerSessionState.interactionMode == .agent)
+    #expect(engine.composerSessionState.toolApprovalPolicy == .automatic)
+    #expect(engine.composerSessionState.todoState == todoState)
   }
 
   @Test
   func mcpServerSelectionIsAgentOnlyAndBlockedDuringGeneration() {
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
     let first = UUID()
     let second = UUID()
 
-    #expect(!controller.canChangeMCPServerSelection)
-    controller.setSelectedMCPServerIDs(
+    #expect(!engine.canChangeMCPServerSelection)
+    engine.setSelectedMCPServerIDs(
       [first],
       agentToolExecutorRegistry: .codingAgent
     )
-    #expect(controller.chatSession.selectedMCPServerIDs.isEmpty)
+    #expect(engine.chatSession.selectedMCPServerIDs.isEmpty)
 
-    controller.setInteractionMode(.agent)
-    #expect(controller.canChangeMCPServerSelection)
-    controller.setSelectedMCPServerIDs(
+    engine.setInteractionMode(.agent)
+    #expect(engine.canChangeMCPServerSelection)
+    engine.setSelectedMCPServerIDs(
       [first],
       agentToolExecutorRegistry: .codingAgent
     )
-    #expect(controller.chatSession.selectedMCPServerIDs == [first])
-    #expect(controller.composerSessionState.selectedMCPServerIDs == [first])
+    #expect(engine.chatSession.selectedMCPServerIDs == [first])
+    #expect(engine.composerSessionState.selectedMCPServerIDs == [first])
 
-    controller.isGenerating = true
-    controller.setSelectedMCPServerIDs(
+    engine.isGenerating = true
+    engine.setSelectedMCPServerIDs(
       [second],
       agentToolExecutorRegistry: .codingAgent
     )
-    #expect(controller.chatSession.selectedMCPServerIDs == [first])
+    #expect(engine.chatSession.selectedMCPServerIDs == [first])
   }
 
   @Test
@@ -218,17 +218,17 @@ struct ChatSessionControllerTests {
       toolApprovalPolicy: .automatic,
       selectedMCPServerIDs: [mcpServerID]
     )
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
 
-    controller.loadSession(session)
-    let snapshot = controller.sessionSnapshot()
+    engine.loadSession(session)
+    let snapshot = engine.sessionSnapshot()
 
-    #expect(controller.chatSession.focusedFileState == focusedFileState)
-    #expect(controller.chatSession.interactionMode == .agent)
-    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
+    #expect(engine.chatSession.focusedFileState == focusedFileState)
+    #expect(engine.chatSession.interactionMode == .agent)
+    #expect(engine.chatSession.toolApprovalPolicy == .automatic)
     #expect(snapshot.focusedFileState == focusedFileState)
     #expect(snapshot.interactionMode == .agent)
     #expect(snapshot.toolApprovalPolicy == .automatic)
@@ -237,7 +237,7 @@ struct ChatSessionControllerTests {
 
   @Test
   func sessionSnapshotCarriesLiveTodoState() {
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
@@ -250,22 +250,22 @@ struct ChatSessionControllerTests {
     ])
     let persisted = ChatSession(interactionMode: .agent, todoState: staleTodoState)
 
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
         id: persisted.id,
         interactionMode: .agent,
         todoState: liveTodoState
       ))
 
-    #expect(controller.sessionSnapshot().todoState == liveTodoState)
+    #expect(engine.sessionSnapshot().todoState == liveTodoState)
 
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
         id: persisted.id,
         interactionMode: .agent
       ))
 
-    #expect(controller.sessionSnapshot().todoState == nil)
+    #expect(engine.sessionSnapshot().todoState == nil)
   }
 
   @Test
@@ -288,13 +288,13 @@ struct ChatSessionControllerTests {
       ]),
       activeAttachmentContext: activeAttachmentContext
     )
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model",
       chatSession: liveSession
     )
 
-    let snapshot = controller.sessionSnapshot()
+    let snapshot = engine.sessionSnapshot()
     var expected = liveSession
     expected.selectedModelID = snapshot.selectedModelID
     expected.pendingAttachments = []
@@ -317,10 +317,10 @@ struct ChatSessionControllerTests {
       ),
       interactionMode: .agent
     )
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
 
-    controller.loadSession(session)
+    engine.loadSession(session)
 
     try await waitUntilAsync { await runtime.clearContextCount == 1 }
   }
@@ -337,10 +337,10 @@ struct ChatSessionControllerTests {
       ),
       interactionMode: .agent
     )
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .loading
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .loading
 
-    controller.loadSession(session)
+    engine.loadSession(session)
     await Task.yield()
 
     #expect(await runtime.clearContextCount == 0)
@@ -353,66 +353,66 @@ struct ChatSessionControllerTests {
       status: .completed,
       items: [.userMessage(UserTurnMessage(content: "old session"))]
     )
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       chatSession: ChatSession(turns: [originalTurn])
     )
     let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
-    controller.modelRuntime.modelState = .ready
-    controller.modelRuntime.selectedModelID = "gemma4-26b-qat-4bit"
-    controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
+    engine.modelRuntime.modelState = .ready
+    engine.modelRuntime.selectedModelID = "gemma4-26b-qat-4bit"
+    engine.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
 
-    controller.modelRuntime.selectModel(targetModel)
+    engine.modelRuntime.selectModel(targetModel)
 
     try await waitUntilAsync { await runtime.clearContextCount == 1 }
-    let snapshot = controller.sessionSnapshot()
-    #expect(controller.chatSession.turns == [originalTurn])
+    let snapshot = engine.sessionSnapshot()
+    #expect(engine.chatSession.turns == [originalTurn])
     #expect(snapshot.turns == [originalTurn])
     #expect(snapshot.selectedModelID == targetModel.id)
   }
 
   @Test
   func defaultsToChatInteractionMode() {
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
 
-    #expect(controller.chatSession.interactionMode == .chat)
+    #expect(engine.chatSession.interactionMode == .chat)
   }
 
   @Test
   func automaticApprovalIsAgentOnlyRetainedAcrossModeChangesAndDisablesImmediately() throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
 
-    #expect(!controller.canEnableAutomaticToolApproval)
-    controller.setInteractionMode(.agent)
-    #expect(controller.canEnableAutomaticToolApproval)
+    #expect(!engine.canEnableAutomaticToolApproval)
+    engine.setInteractionMode(.agent)
+    #expect(engine.canEnableAutomaticToolApproval)
 
-    controller.enableAutomaticToolApproval(in: workspace)
-    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
-    #expect(!controller.canEnableAutomaticToolApproval)
+    engine.enableAutomaticToolApproval(in: workspace)
+    #expect(engine.chatSession.toolApprovalPolicy == .automatic)
+    #expect(!engine.canEnableAutomaticToolApproval)
 
-    controller.setInteractionMode(.chat)
-    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
-    #expect(!controller.canEnableAutomaticToolApproval)
+    engine.setInteractionMode(.chat)
+    #expect(engine.chatSession.toolApprovalPolicy == .automatic)
+    #expect(!engine.canEnableAutomaticToolApproval)
 
-    controller.setInteractionMode(.agent)
-    #expect(controller.chatSession.toolApprovalPolicy == .automatic)
+    engine.setInteractionMode(.agent)
+    #expect(engine.chatSession.toolApprovalPolicy == .automatic)
 
-    controller.disableAutomaticToolApproval()
-    #expect(controller.chatSession.toolApprovalPolicy == .manual)
-    #expect(controller.canEnableAutomaticToolApproval)
+    engine.disableAutomaticToolApproval()
+    #expect(engine.chatSession.toolApprovalPolicy == .manual)
+    #expect(engine.canEnableAutomaticToolApproval)
 
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
-        id: controller.sessionID,
+        id: engine.sessionID,
         turns: [
           ChatTurn(
             status: .awaitingApproval,
@@ -421,11 +421,11 @@ struct ChatSessionControllerTests {
         ],
         interactionMode: .agent
       ))
-    #expect(controller.canEnableAutomaticToolApproval)
+    #expect(engine.canEnableAutomaticToolApproval)
 
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
-        id: controller.sessionID,
+        id: engine.sessionID,
         turns: [
           ChatTurn(
             status: .awaitingUserAnswer,
@@ -434,7 +434,7 @@ struct ChatSessionControllerTests {
         ],
         interactionMode: .agent
       ))
-    #expect(!controller.canEnableAutomaticToolApproval)
+    #expect(!engine.canEnableAutomaticToolApproval)
   }
 
   @Test
@@ -443,31 +443,31 @@ struct ChatSessionControllerTests {
       selectedModelID: "gemma4-12b-qat-4bit",
       interactionMode: .agent
     )
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
 
-    controller.loadSession(session)
+    engine.loadSession(session)
 
-    #expect(controller.modelRuntime.selectedModelID == "gemma4-12b-qat-4bit")
-    #expect(controller.chatSession.interactionMode == .agent)
-    #expect(controller.errorMessage == nil)
+    #expect(engine.modelRuntime.selectedModelID == "gemma4-12b-qat-4bit")
+    #expect(engine.chatSession.interactionMode == .agent)
+    #expect(engine.errorMessage == nil)
   }
 
   @Test
   func setInteractionModeAllowsExperimentalGemma4ToolModes() {
     let session = ChatSession(selectedModelID: "gemma4-12b-qat-4bit")
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
-    controller.loadSession(session)
+    engine.loadSession(session)
 
-    controller.setInteractionMode(.agent)
+    engine.setInteractionMode(.agent)
 
-    #expect(controller.chatSession.interactionMode == .agent)
-    #expect(controller.errorMessage == nil)
+    #expect(engine.chatSession.interactionMode == .agent)
+    #expect(engine.errorMessage == nil)
   }
 
   @Test
@@ -488,9 +488,9 @@ struct ChatSessionControllerTests {
       [.chunk("chat response")],
       [.chunk("agent response")],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.updateModeSettings(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.updateModeSettings(
       ChatModeSettingsSet(
         chat: ChatModeSettings(
           systemPrompt: "Chat mode prompt",
@@ -503,11 +503,11 @@ struct ChatSessionControllerTests {
       )
     )
 
-    #expect(controller.sendMessage(prompt: "hello"))
+    #expect(engine.sendMessage(prompt: "hello"))
     try await waitUntilAsync { await runtime.capturedGenerationSettings.count == 1 }
 
-    controller.setInteractionMode(.agent)
-    #expect(controller.sendMessage(prompt: "inspect"))
+    engine.setInteractionMode(.agent)
+    #expect(engine.sendMessage(prompt: "inspect"))
     try await waitUntilAsync { await runtime.capturedGenerationSettings.count == 2 }
 
     let prompts = await runtime.capturedSystemPrompts
@@ -522,7 +522,7 @@ struct ChatSessionControllerTests {
 
   @Test
   func setReasoningEnabledMutatesOnlyActiveModeSettings() {
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model",
       chatSession: ChatSession(
@@ -552,11 +552,11 @@ struct ChatSessionControllerTests {
       )
     )
 
-    controller.setReasoningEnabled(false)
+    engine.setReasoningEnabled(false)
 
-    #expect(!controller.chatSession.modeSettings.chat.generationSettings.reasoningEnabled)
-    #expect(controller.chatSession.modeSettings.agent.generationSettings.reasoningEnabled)
-    #expect(!controller.composerSessionState.reasoningEnabled)
+    #expect(!engine.chatSession.modeSettings.chat.generationSettings.reasoningEnabled)
+    #expect(engine.chatSession.modeSettings.agent.generationSettings.reasoningEnabled)
+    #expect(!engine.composerSessionState.reasoningEnabled)
   }
 
   @Test
@@ -570,21 +570,21 @@ struct ChatSessionControllerTests {
       ),
       interactionMode: .agent
     )
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
-    controller.loadSession(session)
+    engine.loadSession(session)
     let workspace = Workspace(
       name: "Project",
       rootURL: URL(filePath: "/tmp/project"),
-      sessions: [controller.chatSession]
+      sessions: [engine.chatSession]
     )
 
-    let unavailableDocument = try controller.modelContextDebugDocument()
-    let availableDocument = try controller.modelContextDebugDocument(
+    let unavailableDocument = try engine.modelContextDebugDocument()
+    let availableDocument = try engine.modelContextDebugDocument(
       workspace: workspace,
-      sessionID: controller.chatSession.id
+      sessionID: engine.chatSession.id
     )
 
     #expect(!unavailableDocument.systemPrompt.content.contains("Use available workspace tools"))
@@ -608,29 +608,29 @@ struct ChatSessionControllerTests {
       appendedMessageCount: 1
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"], debugSnapshot: snapshot)
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    let initialRevision = controller.modelContextDebugState.documentRevision
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    let initialRevision = engine.modelContextDebugState.documentRevision
 
-    controller.loadSession(ChatSession(selectedModelID: ManagedModelCatalog.defaultModelID))
+    engine.loadSession(ChatSession(selectedModelID: ManagedModelCatalog.defaultModelID))
 
-    #expect(controller.modelContextDebugState.documentRevision > initialRevision)
+    #expect(engine.modelContextDebugState.documentRevision > initialRevision)
 
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "hello")
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "hello")
 
-    try await waitUntil { controller.modelContextDebugState.runtimeCacheDebugSnapshot == snapshot }
+    try await waitUntil { engine.modelContextDebugState.runtimeCacheDebugSnapshot == snapshot }
 
-    let revisionAfterSend = controller.modelContextDebugState.documentRevision
-    controller.clearChatHistory()
+    let revisionAfterSend = engine.modelContextDebugState.documentRevision
+    engine.clearChatHistory()
 
-    #expect(controller.modelContextDebugState.runtimeCacheDebugSnapshot == nil)
-    #expect(controller.modelContextDebugState.documentRevision > revisionAfterSend)
+    #expect(engine.modelContextDebugState.runtimeCacheDebugSnapshot == nil)
+    #expect(engine.modelContextDebugState.documentRevision > revisionAfterSend)
   }
 
   @Test
   func sendMessageAllowsExperimentalGemma4PersistedToolMode() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["native mode response"])
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       chatSession: ChatSession(
@@ -638,83 +638,83 @@ struct ChatSessionControllerTests {
         interactionMode: .agent
       )
     )
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "inspect files")
-    try await waitUntil { !controller.isGenerating }
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "inspect files")
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(!controller.chatSession.turns.isEmpty)
-    #expect(controller.errorMessage == nil)
+    #expect(!engine.chatSession.turns.isEmpty)
+    #expect(engine.errorMessage == nil)
   }
 
   @Test
   func sendMessageNamesDefaultSessionFromFirstPrompt() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     let session = ChatSession(selectedModelID: ManagedModelCatalog.defaultModelID)
-    controller.loadSession(session)
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "  build   a snake game\nin python  ")
-    try await waitUntil { !controller.isGenerating }
+    engine.loadSession(session)
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "  build   a snake game\nin python  ")
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.chatSession.title == "build a snake game in python")
-    #expect(controller.sessionSnapshot().title == "build a snake game in python")
+    #expect(engine.chatSession.title == "build a snake game in python")
+    #expect(engine.sessionSnapshot().title == "build a snake game in python")
   }
 
   @Test
   func renameSessionNormalizesTitleAndNotifiesChange() {
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model"
     )
     var changeCount = 0
-    controller.setSessionChangeHandler {
+    engine.setSessionChangeHandler {
       changeCount += 1
     }
 
-    #expect(controller.renameSession(to: "  Manual title  "))
-    #expect(controller.chatSession.title == "Manual title")
+    #expect(engine.renameSession(to: "  Manual title  "))
+    #expect(engine.chatSession.title == "Manual title")
     #expect(changeCount == 1)
-    #expect(!controller.renameSession(to: "   "))
-    #expect(controller.chatSession.title == "Manual title")
+    #expect(!engine.renameSession(to: "   "))
+    #expect(engine.chatSession.title == "Manual title")
     #expect(changeCount == 1)
   }
 
   @Test
   func sendMessageDoesNotRenameManualTitle() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.loadSession(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.loadSession(
       ChatSession(
         title: "Manual title",
         selectedModelID: ManagedModelCatalog.defaultModelID
       )
     )
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "first prompt")
-    try await waitUntil { !controller.isGenerating }
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "first prompt")
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.chatSession.title == "Manual title")
+    #expect(engine.chatSession.title == "Manual title")
   }
 
   @Test
   func sendMessageDoesNotRenameExistingConversation() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["done"])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     let existingTurn = ChatTurn(
       status: .completed,
       items: [.userMessage(UserTurnMessage(content: "original prompt"))]
     )
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
         selectedModelID: ManagedModelCatalog.defaultModelID,
         turns: [existingTurn]
       )
     )
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "second prompt")
-    try await waitUntil { !controller.isGenerating }
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "second prompt")
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.chatSession.title == ChatSession.defaultTitle)
+    #expect(engine.chatSession.title == ChatSession.defaultTitle)
   }
 
   @Test
@@ -723,8 +723,8 @@ struct ChatSessionControllerTests {
       [.chunk("first answer")],
       [.chunk("second answer")],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.loadSession(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.loadSession(
       ChatSession(
         selectedModelID: "gemma4-12b-qat-4bit",
         modeSettings: testModeSettings(
@@ -732,15 +732,15 @@ struct ChatSessionControllerTests {
           generationSettings: .chatDefault
         )
       ))
-    controller.modelRuntime.modelState = .ready
+    engine.modelRuntime.modelState = .ready
 
-    controller.sendMessage(prompt: "first")
-    try await waitUntil { !controller.isGenerating }
+    engine.sendMessage(prompt: "first")
+    try await waitUntil { !engine.isGenerating }
 
-    controller.sendMessage(prompt: "second")
-    try await waitUntil { !controller.isGenerating }
+    engine.sendMessage(prompt: "second")
+    try await waitUntil { !engine.isGenerating }
 
-    let projection = ChatModelContextBuilder().transcript(from: controller.chatSession)
+    let projection = ChatModelContextBuilder().transcript(from: engine.chatSession)
     let userEntries = projection.entries.filter {
       $0.frozenContent.role == .user
     }
@@ -759,9 +759,9 @@ struct ChatSessionControllerTests {
   @Test
   func setInteractionModeClearsRuntimeContext() async throws {
     let runtime = CountingClearContextRuntime()
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
 
-    controller.setInteractionMode(.agent)
+    engine.setInteractionMode(.agent)
 
     try await waitUntilAsync { await runtime.clearContextCount == 1 }
   }
@@ -770,13 +770,13 @@ struct ChatSessionControllerTests {
   func sendMessageWaitsForPendingRuntimeContextClear() async throws {
     let runtime = DelayedClearContextRuntime()
     defer { Task { await runtime.releaseClearContext() } }
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
 
-    controller.setInteractionMode(.agent)
+    engine.setInteractionMode(.agent)
     try await waitUntilAsync { await runtime.didStartClearContext }
 
-    controller.sendMessage(prompt: "hello")
+    engine.sendMessage(prompt: "hello")
     await Task.yield()
 
     #expect(await runtime.streamReplyCount == 0)
@@ -784,7 +784,7 @@ struct ChatSessionControllerTests {
     await runtime.releaseClearContext()
 
     try await waitUntilAsync { await runtime.streamReplyCount == 1 }
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
   }
 
   @Test
@@ -796,40 +796,40 @@ struct ChatSessionControllerTests {
       content: "let value = 1"
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       chatSession: ChatSession(pendingAttachments: [attachment])
     )
-    controller.modelRuntime.modelState = .ready
+    engine.modelRuntime.modelState = .ready
 
-    controller.sendMessage(prompt: "Explain this")
+    engine.sendMessage(prompt: "Explain this")
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.chatSession.pendingAttachments.isEmpty)
-    #expect(controller.chatSession.testMessages.count == 2)
-    #expect(controller.chatSession.testMessages[0].kind == .user)
-    #expect(controller.chatSession.testMessages[0].content == "Explain this")
-    #expect(controller.chatSession.testMessages[0].attachments == [attachment])
-    #expect(controller.chatSession.testMessages[1].kind == .assistant)
-    #expect(controller.chatSession.testMessages[1].content == "hello world")
-    #expect(controller.chatSession.testMessages[1].deliveryStatus == .complete)
+    #expect(engine.chatSession.pendingAttachments.isEmpty)
+    #expect(engine.chatSession.testMessages.count == 2)
+    #expect(engine.chatSession.testMessages[0].kind == .user)
+    #expect(engine.chatSession.testMessages[0].content == "Explain this")
+    #expect(engine.chatSession.testMessages[0].attachments == [attachment])
+    #expect(engine.chatSession.testMessages[1].kind == .assistant)
+    #expect(engine.chatSession.testMessages[1].content == "hello world")
+    #expect(engine.chatSession.testMessages[1].deliveryStatus == .complete)
     #expect(
-      controller.chatSession.focusedFileState.activePath
+      engine.chatSession.focusedFileState.activePath
         == WorkspaceRelativePath(rawValue: "source.swift"))
-    #expect(controller.chatSession.focusedFileState.recentPaths.first?.source == .attachment)
+    #expect(engine.chatSession.focusedFileState.recentPaths.first?.source == .attachment)
     #expect(
-      controller.chatSession.focusedFileState.snapshots[
+      engine.chatSession.focusedFileState.snapshots[
         WorkspaceRelativePath(rawValue: "source.swift")]?.excerpt == "let value = 1")
-    #expect(controller.chatSession.turns.count == 1)
-    #expect(controller.chatSession.turns[0].status == .completed)
-    #expect(controller.chatSession.turns[0].modelContextPolicy == .included)
+    #expect(engine.chatSession.turns.count == 1)
+    #expect(engine.chatSession.turns[0].status == .completed)
+    #expect(engine.chatSession.turns[0].modelContextPolicy == .included)
     #expect(
-      controller.chatSession.turns[0].items.map(messageID)
-        == controller.chatSession.testMessages.map(\.id)
+      engine.chatSession.turns[0].items.map(messageID)
+        == engine.chatSession.testMessages.map(\.id)
     )
-    let generationMetrics = try #require(controller.chatSession.testMessages[1].generationMetrics)
+    let generationMetrics = try #require(engine.chatSession.testMessages[1].generationMetrics)
     #expect(generationMetrics.generatedTokenCount == 2)
     #expect(generationMetrics.tokensPerSecond == 100)
     #expect(generationMetrics.durationMs > 0)
@@ -839,7 +839,7 @@ struct ChatSessionControllerTests {
       capturedMessages.first?.contains(where: { message in
         message.role == .user && message.content.contains("Attached file: source.swift")
       }) == true)
-    let projection = ChatModelContextBuilder().transcript(from: controller.chatSession)
+    let projection = ChatModelContextBuilder().transcript(from: engine.chatSession)
     #expect(projection.entries.map(\.frozenContent.role) == [.user, .assistant])
     #expect(
       projection.entries[0].frozenContent.content.contains(
@@ -883,7 +883,7 @@ struct ChatSessionControllerTests {
       )
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["looks like a screenshot"])
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       chatSession: ChatSession(
@@ -891,114 +891,114 @@ struct ChatSessionControllerTests {
         pendingAttachments: [attachment]
       )
     )
-    controller.modelRuntime.modelState = .ready
+    engine.modelRuntime.modelState = .ready
 
-    controller.sendMessage(prompt: "What is in this screenshot?")
+    engine.sendMessage(prompt: "What is in this screenshot?")
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
     #expect(await runtime.capturedAttachments == [[attachment]])
-    #expect(controller.chatSession.pendingAttachments.isEmpty)
-    #expect(controller.chatSession.testMessages[0].attachments == [attachment])
+    #expect(engine.chatSession.pendingAttachments.isEmpty)
+    #expect(engine.chatSession.testMessages[0].attachments == [attachment])
   }
 
   @Test
   func cancelGenerationStopsControllerAndDropsTransientAssistantPlaceholder() async throws {
     let runtime = NonCooperativeStreamingRuntime(chunks: ["late reply"])
     defer { Task { await runtime.releaseChunks() } }
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "Cancel this")
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "Cancel this")
 
     try await waitUntilAsync { await runtime.didStartStreaming }
-    controller.cancelGeneration()
+    engine.cancelGeneration()
     await runtime.releaseChunks()
 
     try await waitUntilAsync { await runtime.didFinishStreaming }
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(!controller.isGenerating)
-    #expect(controller.chatSession.testMessages.count == 1)
-    #expect(controller.chatSession.testMessages.first?.kind == .user)
-    #expect(controller.chatSession.testMessages.first?.content == "Cancel this")
-    #expect(controller.chatSession.turns.count == 1)
-    #expect(controller.chatSession.turns[0].status == .cancelled)
-    #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
-    let persistedItems = controller.chatSession.turns[0].items
+    #expect(!engine.isGenerating)
+    #expect(engine.chatSession.testMessages.count == 1)
+    #expect(engine.chatSession.testMessages.first?.kind == .user)
+    #expect(engine.chatSession.testMessages.first?.content == "Cancel this")
+    #expect(engine.chatSession.turns.count == 1)
+    #expect(engine.chatSession.turns[0].status == .cancelled)
+    #expect(engine.chatSession.turns[0].modelContextPolicy == .excluded)
+    let persistedItems = engine.chatSession.turns[0].items
     #expect(persistedItems.count == 2)
-    #expect(persistedItems[0].messageID == controller.chatSession.testMessages[0].id)
+    #expect(persistedItems[0].messageID == engine.chatSession.testMessages[0].id)
     #expect(persistedItems[1].kindForTesting == .assistant)
     #expect(persistedItems[1].contentForTesting.isEmpty)
     #expect(persistedItems[1].deliveryStatusForTesting == .cancelled)
-    #expect(controller.errorMessage == nil)
+    #expect(engine.errorMessage == nil)
   }
 
   @Test
   func switchingSessionCancelsOldTurnBeforeApplyingNewModelAndSession() async throws {
     let runtime = NonCooperativeStreamingRuntime(chunks: ["late reply"])
     defer { Task { await runtime.releaseChunks() } }
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
     let targetSession = ChatSession(selectedModelID: targetModel.id)
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "Do not leak this reply")
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "Do not leak this reply")
 
     try await waitUntilAsync { await runtime.didStartStreaming }
 
     ConversationSessionCoordinator(
-      modelController: controller.modelRuntime,
-      chatController: controller
+      modelController: engine.modelRuntime,
+      conversationEngine: engine
     ).switchSession(to: targetSession)
 
-    #expect(!controller.isGenerating)
-    #expect(controller.modelRuntime.selectedModelID == targetModel.id)
-    #expect(controller.modelRuntime.modelState == .notLoaded)
-    #expect(controller.chatSession.id == targetSession.id)
-    #expect(controller.chatSession.turns.isEmpty)
+    #expect(!engine.isGenerating)
+    #expect(engine.modelRuntime.selectedModelID == targetModel.id)
+    #expect(engine.modelRuntime.modelState == .notLoaded)
+    #expect(engine.chatSession.id == targetSession.id)
+    #expect(engine.chatSession.turns.isEmpty)
 
     await runtime.releaseChunks()
     try await waitUntilAsync { await runtime.didFinishStreaming }
 
-    #expect(controller.chatSession.id == targetSession.id)
-    #expect(controller.chatSession.turns.isEmpty)
+    #expect(engine.chatSession.id == targetSession.id)
+    #expect(engine.chatSession.turns.isEmpty)
   }
 
   @Test
   func failedStreamWithPartialOutputDoesNotLeaveAssistantMessageStreaming() async throws {
     let runtime = PartialFailingStreamingRuntime(chunks: ["partial answer"])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "fail after partial output")
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "fail after partial output")
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.chatSession.turns.count == 1)
-    #expect(controller.chatSession.turns[0].status == .failed)
-    #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
-    #expect(controller.chatSession.testMessages.count == 2)
-    #expect(controller.chatSession.testMessages[1].kind == .assistant)
-    #expect(controller.chatSession.testMessages[1].content == "partial answer")
-    #expect(controller.chatSession.testMessages[1].deliveryStatus == .cancelled)
+    #expect(engine.chatSession.turns.count == 1)
+    #expect(engine.chatSession.turns[0].status == .failed)
+    #expect(engine.chatSession.turns[0].modelContextPolicy == .excluded)
+    #expect(engine.chatSession.testMessages.count == 2)
+    #expect(engine.chatSession.testMessages[1].kind == .assistant)
+    #expect(engine.chatSession.testMessages[1].content == "partial answer")
+    #expect(engine.chatSession.testMessages[1].deliveryStatus == .cancelled)
     #expect(
-      controller.errorMessage
+      engine.errorMessage
         == ChatSessionFakeChatModelRuntimeError.streamFailed.localizedDescription)
   }
 
   @Test
   func interruptedStreamDoesNotLeaveAssistantMessageStreaming() async throws {
     let runtime = InterruptedStreamingRuntime(chunks: [])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "stream ends without completion")
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "stream ends without completion")
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.chatSession.turns.count == 1)
-    #expect(controller.chatSession.turns[0].status == .failed)
-    #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
-    #expect(controller.chatSession.testMessages.count == 1)
-    #expect(controller.chatSession.testMessages[0].kind == .user)
-    #expect(controller.errorMessage == ChatGenerationError.streamInterrupted.localizedDescription)
+    #expect(engine.chatSession.turns.count == 1)
+    #expect(engine.chatSession.turns[0].status == .failed)
+    #expect(engine.chatSession.turns[0].modelContextPolicy == .excluded)
+    #expect(engine.chatSession.testMessages.count == 1)
+    #expect(engine.chatSession.testMessages[0].kind == .user)
+    #expect(engine.errorMessage == ChatGenerationError.streamInterrupted.localizedDescription)
   }
 
   @Test
@@ -1020,30 +1020,30 @@ struct ChatSessionControllerTests {
       blockedCallIndexes: [1]
     )
     defer { Task { await runtime.releaseStream(callIndex: 1) } }
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
       prompt: "read README.md before answering", in: workspace, sessionID: sessionID)
     try await waitUntilAsync { await runtime.startedStreamCount == 2 }
-    try await waitUntil { controller.chatSession.testMessages.contains { $0.kind == .toolResult } }
+    try await waitUntil { engine.chatSession.testMessages.contains { $0.kind == .toolResult } }
 
-    controller.cancelGeneration()
+    engine.cancelGeneration()
     await runtime.releaseStream(callIndex: 1)
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.chatSession.toolCalls.count == 1)
-    #expect(controller.chatSession.toolCalls[0].status == .completed)
+    #expect(engine.chatSession.toolCalls.count == 1)
+    #expect(engine.chatSession.toolCalls[0].status == .completed)
     let toolMessage = try #require(
-      controller.chatSession.testMessages.first { $0.kind == .toolResult })
+      engine.chatSession.testMessages.first { $0.kind == .toolResult })
     #expect(toolMessage.toolCall?.toolName == .readFile)
     #expect(toolMessage.toolResult?.toolName == .readFile)
-    #expect(controller.chatSession.turns.count == 1)
-    #expect(controller.chatSession.turns[0].status == .cancelled)
-    #expect(controller.chatSession.turns[0].modelContextPolicy == .excluded)
+    #expect(engine.chatSession.turns.count == 1)
+    #expect(engine.chatSession.turns[0].status == .cancelled)
+    #expect(engine.chatSession.turns[0].modelContextPolicy == .excluded)
 
-    controller.sendMessage(prompt: "are you there", in: workspace, sessionID: sessionID)
-    try await waitUntil { !controller.isGenerating }
+    engine.sendMessage(prompt: "are you there", in: workspace, sessionID: sessionID)
+    try await waitUntil { !engine.isGenerating }
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 3)
@@ -1066,26 +1066,26 @@ struct ChatSessionControllerTests {
         await runtime.releaseStream(callIndex: 1)
       }
     }
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "first")
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "first")
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
-    controller.cancelGeneration()
+    engine.cancelGeneration()
 
-    controller.sendMessage(prompt: "second")
+    engine.sendMessage(prompt: "second")
     try await waitUntilAsync { await runtime.startedStreamCount == 2 }
 
     await runtime.releaseStream(callIndex: 0)
     try await waitUntilAsync { await runtime.completedCallIndexes.contains(0) }
-    #expect(controller.isGenerating)
-    #expect(controller.chatSession.turns.count == 2)
-    #expect(controller.chatSession.turns[0].status == .cancelled)
-    #expect(controller.chatSession.turns[1].status == .running)
+    #expect(engine.isGenerating)
+    #expect(engine.chatSession.turns.count == 2)
+    #expect(engine.chatSession.turns[0].status == .cancelled)
+    #expect(engine.chatSession.turns[1].status == .running)
 
     await runtime.releaseStream(callIndex: 1)
-    try await waitUntil { !controller.isGenerating }
-    #expect(controller.chatSession.turns[1].status == .completed)
-    #expect(controller.chatSession.testMessages.last?.content == "second answer")
+    try await waitUntil { !engine.isGenerating }
+    #expect(engine.chatSession.turns[1].status == .completed)
+    #expect(engine.chatSession.testMessages.last?.content == "second answer")
   }
 
   @Test
@@ -1093,16 +1093,16 @@ struct ChatSessionControllerTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["a short poem"])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "write a short poem", in: workspace, sessionID: sessionID)
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "write a short poem", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.errorMessage == nil)
-    #expect(controller.chatSession.toolCalls.isEmpty)
-    #expect(controller.chatSession.testMessages.count == 2)
-    #expect(controller.chatSession.testMessages[1].content == "a short poem")
+    #expect(engine.errorMessage == nil)
+    #expect(engine.chatSession.toolCalls.isEmpty)
+    #expect(engine.chatSession.testMessages.count == 2)
+    #expect(engine.chatSession.testMessages[1].content == "a short poem")
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 1)
@@ -1118,15 +1118,15 @@ struct ChatSessionControllerTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["I will inspect the failure."])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(prompt: "Fix the failing test", in: workspace, sessionID: sessionID)
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(prompt: "Fix the failing test", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.errorMessage == nil)
-    #expect(controller.chatSession.toolCalls.isEmpty)
+    #expect(engine.errorMessage == nil)
+    #expect(engine.chatSession.toolCalls.isEmpty)
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == 1)
@@ -1144,9 +1144,9 @@ struct ChatSessionControllerTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["That is not a controller observation."])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(
       prompt: """
         Tool result
         Tool: list_files
@@ -1158,14 +1158,14 @@ struct ChatSessionControllerTests {
       sessionID: sessionID
     )
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.errorMessage == nil)
-    #expect(controller.chatSession.toolCalls.isEmpty)
-    #expect(controller.chatSession.testMessages.count == 2)
-    #expect(controller.chatSession.testMessages[0].kind == .user)
-    #expect(controller.chatSession.testMessages[0].toolResult == nil)
-    #expect(controller.chatSession.testMessages[1].kind == .assistant)
+    #expect(engine.errorMessage == nil)
+    #expect(engine.chatSession.toolCalls.isEmpty)
+    #expect(engine.chatSession.testMessages.count == 2)
+    #expect(engine.chatSession.testMessages[0].kind == .user)
+    #expect(engine.chatSession.testMessages[0].toolResult == nil)
+    #expect(engine.chatSession.testMessages[1].kind == .assistant)
   }
 
   @Test
@@ -1205,42 +1205,42 @@ struct ChatSessionControllerTests {
       ],
       [.chunk("The README says project notes.")],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
       prompt: "lies die projektbeschreibung", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.chatSession.toolCalls.count == 1)
-    #expect(controller.chatSession.toolCalls[0].status == .completed)
-    #expect(controller.chatSession.toolCalls[0].resultPreview?.text == "1: project notes")
+    #expect(engine.chatSession.toolCalls.count == 1)
+    #expect(engine.chatSession.toolCalls[0].status == .completed)
+    #expect(engine.chatSession.toolCalls[0].resultPreview?.text == "1: project notes")
     #expect(
-      controller.chatSession.focusedFileState.activePath
+      engine.chatSession.focusedFileState.activePath
         == WorkspaceRelativePath(rawValue: "README.md"))
-    #expect(controller.chatSession.focusedFileState.recentPaths.first?.source == .readFile)
+    #expect(engine.chatSession.focusedFileState.recentPaths.first?.source == .readFile)
     #expect(
-      controller.chatSession.focusedFileState.snapshots[
+      engine.chatSession.focusedFileState.snapshots[
         WorkspaceRelativePath(rawValue: "README.md")]?.excerpt == "1: project notes")
-    let callID = controller.chatSession.toolCalls[0].request.id
-    #expect(controller.chatSession.testMessages.count == 3)
-    #expect(controller.chatSession.testMessages[1].kind == .toolResult)
-    #expect(controller.chatSession.testMessages[1].content.isEmpty)
-    #expect(controller.chatSession.testMessages[1].toolCall?.callID == callID)
-    #expect(controller.chatSession.testMessages[1].toolCall?.toolName == .readFile)
-    #expect(controller.chatSession.testMessages[1].generationMetrics == nil)
+    let callID = engine.chatSession.toolCalls[0].request.id
+    #expect(engine.chatSession.testMessages.count == 3)
+    #expect(engine.chatSession.testMessages[1].kind == .toolResult)
+    #expect(engine.chatSession.testMessages[1].content.isEmpty)
+    #expect(engine.chatSession.testMessages[1].toolCall?.callID == callID)
+    #expect(engine.chatSession.testMessages[1].toolCall?.toolName == .readFile)
+    #expect(engine.chatSession.testMessages[1].generationMetrics == nil)
     #expect(
-      controller.chatSession.testMessages[1].toolCall?.arguments == [
+      engine.chatSession.testMessages[1].toolCall?.arguments == [
         ToolCallModelArgument(name: "path", value: "README.md")
       ]
     )
-    #expect(controller.chatSession.testMessages[1].toolResult?.callID == callID)
-    #expect(controller.chatSession.testMessages[1].toolResult?.toolName == .readFile)
-    #expect(controller.chatSession.testMessages[1].toolResult?.preview.status == .success)
-    #expect(controller.chatSession.testMessages[1].toolResult?.preview.text == "1: project notes")
-    #expect(controller.chatSession.testMessages[2].content == "The README says project notes.")
-    let projection = ChatModelContextBuilder().transcript(from: controller.chatSession)
+    #expect(engine.chatSession.testMessages[1].toolResult?.callID == callID)
+    #expect(engine.chatSession.testMessages[1].toolResult?.toolName == .readFile)
+    #expect(engine.chatSession.testMessages[1].toolResult?.preview.status == .success)
+    #expect(engine.chatSession.testMessages[1].toolResult?.preview.text == "1: project notes")
+    #expect(engine.chatSession.testMessages[2].content == "The README says project notes.")
+    let projection = ChatModelContextBuilder().transcript(from: engine.chatSession)
     #expect(
       projection.entries.map(\.frozenContent.role) == [
         .user, .assistant, .tool, .assistant,
@@ -1302,17 +1302,17 @@ struct ChatSessionControllerTests {
       ],
       [.chunk("The README says project notes.")],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.loadSession(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.loadSession(
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .agent
       ))
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "summarize the README", in: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "summarize the README", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
@@ -1324,10 +1324,10 @@ struct ChatSessionControllerTests {
     #expect(followUp.content.contains("\"tool\":\"read_file\""))
     #expect(followUp.content.contains("CONTENT:"))
     #expect(followUp.content.contains("1: project notes"))
-    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
+    let toolCallID = try #require(engine.chatSession.toolCalls.first?.id)
     #expect(
-      controller.chatSession.turnID(containingToolCall: toolCallID)
-        == controller.chatSession.turns.first?.id)
+      engine.chatSession.turnID(containingToolCall: toolCallID)
+        == engine.chatSession.turns.first?.id)
   }
 
   @Test
@@ -1361,23 +1361,23 @@ struct ChatSessionControllerTests {
         WebAccessSettings(policy: .allow, provider: .duckDuckGo)
       }
     )
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       toolOrchestrator: orchestrator
     )
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .agent
       ))
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(
       prompt: "read and summarize this article https://example.com/article", in: workspace,
       sessionID: sessionID)
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 2)
@@ -1389,10 +1389,10 @@ struct ChatSessionControllerTests {
     #expect(followUp.content.contains("\"tool\":\"web_fetch\""))
     #expect(followUp.content.contains("CONTENT:"))
     #expect(followUp.content.contains("Fetched fixture text."))
-    let toolCallID = try #require(controller.chatSession.toolCalls.first?.id)
+    let toolCallID = try #require(engine.chatSession.toolCalls.first?.id)
     #expect(
-      controller.chatSession.turnID(containingToolCall: toolCallID)
-        == controller.chatSession.turns.first?.id)
+      engine.chatSession.turnID(containingToolCall: toolCallID)
+        == engine.chatSession.turns.first?.id)
   }
 
   @Test
@@ -1416,24 +1416,24 @@ struct ChatSessionControllerTests {
         WebAccessSettings(policy: .allow, provider: .duckDuckGo)
       }
     )
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       toolOrchestrator: orchestrator
     )
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
       ))
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(
       prompt: "what is current in Swift concurrency?", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    let record = try #require(controller.chatSession.toolCalls.first)
+    let record = try #require(engine.chatSession.toolCalls.first)
     #expect(record.request.toolName == .webSearch)
     #expect(record.status == .completed)
     let capturedMessages = await runtime.capturedMessages
@@ -1460,7 +1460,7 @@ struct ChatSessionControllerTests {
     let runtime = ChatSessionFakeChatModelRuntime(
       eventTurns: toolTurns + [[.chunk("Final answer from the collected web results.")]]
     )
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       toolOrchestrator: ToolOrchestrator(
@@ -1471,21 +1471,21 @@ struct ChatSessionControllerTests {
         }
       )
     )
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
       ))
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(
       prompt: "research Swift concurrency", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.chatSession.turns.first?.status == .completed)
+    #expect(engine.chatSession.turns.first?.status == .completed)
     #expect(
-      controller.chatSession.testMessages.last?.content
+      engine.chatSession.testMessages.last?.content
         == "Final answer from the collected web results.")
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 1)
@@ -1518,27 +1518,27 @@ struct ChatSessionControllerTests {
         WebAccessSettings(policy: .allow, provider: .duckDuckGo)
       }
     )
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       toolOrchestrator: orchestrator
     )
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
       ))
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(
       prompt: "read and summarize this article https://example.com/article",
       in: workspace,
       sessionID: sessionID
     )
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    let record = try #require(controller.chatSession.toolCalls.first)
+    let record = try #require(engine.chatSession.toolCalls.first)
     #expect(record.request.toolName == .webFetch)
     #expect(record.status == .completed)
     let capturedMessages = await runtime.capturedMessages
@@ -1562,7 +1562,7 @@ struct ChatSessionControllerTests {
       ],
       [.chunk("I cannot read local files in Chat mode.")],
     ])
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       toolOrchestrator: ToolOrchestrator(
@@ -1572,18 +1572,18 @@ struct ChatSessionControllerTests {
         }
       )
     )
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
       ))
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "read README.md", in: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "read README.md", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    let record = try #require(controller.chatSession.toolCalls.first)
+    let record = try #require(engine.chatSession.toolCalls.first)
     #expect(record.request.toolName == .readFile)
     #expect(record.status == .failed)
     #expect(
@@ -1613,7 +1613,7 @@ struct ChatSessionControllerTests {
       ],
       [.chunk("Approved fetch completed.")],
     ])
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       toolOrchestrator: ToolOrchestrator(
@@ -1624,37 +1624,37 @@ struct ChatSessionControllerTests {
         }
       )
     )
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
       ))
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(
       prompt: "fetch https://example.com/article", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { controller.chatSession.turns.first?.status == .awaitingApproval }
-    let pending = try #require(controller.chatSession.toolCalls.first)
+    try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
+    let pending = try #require(engine.chatSession.toolCalls.first)
     #expect(pending.status == .awaitingApproval)
     #expect(pending.approvalPreview?.text.contains("Web fetch requires approval") == true)
 
-    controller.setInteractionMode(.agent)
-    #expect(controller.chatSession.interactionMode == .chat)
+    engine.setInteractionMode(.agent)
+    #expect(engine.chatSession.interactionMode == .chat)
 
-    controller.approveToolCall(id: pending.id, in: workspace)
-    try await waitUntil { !controller.isGenerating }
+    engine.approveToolCall(id: pending.id, in: workspace)
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.chatSession.toolCalls.count == 2)
-    #expect(controller.chatSession.toolCalls.first?.status == .completed)
-    let blockedRead = try #require(controller.chatSession.toolCalls.last)
+    #expect(engine.chatSession.toolCalls.count == 2)
+    #expect(engine.chatSession.toolCalls.first?.status == .completed)
+    let blockedRead = try #require(engine.chatSession.toolCalls.last)
     #expect(blockedRead.request.toolName == .readFile)
     #expect(blockedRead.status == .failed)
     #expect(
       blockedRead.resultPreview?.text.contains(
         "Tool is not available in the active registry: read_file."
       ) == true)
-    #expect(controller.chatSession.testMessages.last?.content == "Approved fetch completed.")
+    #expect(engine.chatSession.testMessages.last?.content == "Approved fetch completed.")
   }
 
   @Test
@@ -1671,7 +1671,7 @@ struct ChatSessionControllerTests {
       ],
       [.chunk("I cannot search because web access is disabled.")],
     ])
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       toolOrchestrator: ToolOrchestrator(
@@ -1682,18 +1682,18 @@ struct ChatSessionControllerTests {
         }
       )
     )
-    controller.loadSession(
+    engine.loadSession(
       ChatSession(
         id: sessionID,
         selectedModelID: "gemma4-12b-qat-4bit",
         interactionMode: .chat
       ))
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "search Swift concurrency", in: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "search Swift concurrency", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    let record = try #require(controller.chatSession.toolCalls.first)
+    let record = try #require(engine.chatSession.toolCalls.first)
     #expect(record.request.toolName == .webSearch)
     #expect(record.status == .denied)
   }
@@ -1734,22 +1734,22 @@ struct ChatSessionControllerTests {
           ))
       ]
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(
       prompt: "show the content of README.md", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
-    #expect(controller.errorMessage == nil)
-    #expect(controller.chatSession.toolCalls.count == 1)
-    #expect(controller.chatSession.testMessages.count == 3)
-    #expect(controller.chatSession.testMessages[1].kind == .toolResult)
-    #expect(controller.chatSession.testMessages[2].kind == .assistant)
-    #expect(controller.chatSession.testMessages[2].content.contains("Here is `README.md`:"))
-    #expect(controller.chatSession.testMessages[2].content.contains("1: project notes"))
-    let projection = ChatModelContextBuilder().transcript(from: controller.chatSession)
+    #expect(engine.errorMessage == nil)
+    #expect(engine.chatSession.toolCalls.count == 1)
+    #expect(engine.chatSession.testMessages.count == 3)
+    #expect(engine.chatSession.testMessages[1].kind == .toolResult)
+    #expect(engine.chatSession.testMessages[2].kind == .assistant)
+    #expect(engine.chatSession.testMessages[2].content.contains("Here is `README.md`:"))
+    #expect(engine.chatSession.testMessages[2].content.contains("1: project notes"))
+    let projection = ChatModelContextBuilder().transcript(from: engine.chatSession)
     #expect(
       projection.entries.map(\.frozenContent.role) == [
         .user, .assistant, .tool, .assistant,
@@ -1764,7 +1764,7 @@ struct ChatSessionControllerTests {
       projection.entries[3].frozenContent.content
         == "Displayed show_file result for README.md directly to the user.")
     #expect(!projection.entries[3].frozenContent.content.contains("1: project notes"))
-    #expect(controller.chatSession.focusedFileState == .empty)
+    #expect(engine.chatSession.focusedFileState == .empty)
 
     let capturedMessages = await runtime.capturedMessages
     #expect(capturedMessages.count == 1)
@@ -1810,23 +1810,23 @@ struct ChatSessionControllerTests {
       ],
       failingStreamReplyCalls: [1]
     )
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.sendMessage(prompt: "Read the README", in: workspace, sessionID: sessionID)
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.sendMessage(prompt: "Read the README", in: workspace, sessionID: sessionID)
 
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
 
     #expect(
-      controller.errorMessage
+      engine.errorMessage
         == ChatSessionFakeChatModelRuntimeError.streamFailed.localizedDescription)
-    #expect(controller.chatSession.testMessages.count == 2)
-    #expect(controller.chatSession.testMessages[1].toolCall?.toolName == .readFile)
-    #expect(controller.chatSession.testMessages[1].content.isEmpty)
-    #expect(controller.chatSession.testMessages[1].toolResult?.toolName == .readFile)
-    #expect(controller.chatSession.testMessages[1].kind == .toolResult)
+    #expect(engine.chatSession.testMessages.count == 2)
+    #expect(engine.chatSession.testMessages[1].toolCall?.toolName == .readFile)
+    #expect(engine.chatSession.testMessages[1].content.isEmpty)
+    #expect(engine.chatSession.testMessages[1].toolResult?.toolName == .readFile)
+    #expect(engine.chatSession.testMessages[1].kind == .toolResult)
     #expect(
-      !controller.chatSession.testMessages.contains { message in
+      !engine.chatSession.testMessages.contains { message in
         message.kind == .assistant && message.content.isEmpty
       })
   }
@@ -1836,38 +1836,38 @@ struct ChatSessionControllerTests {
     let runtime = ControlledContextUsageRuntime()
     var session = ChatSession()
     session.testMessages = [TestTranscriptMessage(userContent: "hello")]
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: "/tmp/model",
       chatSession: session
     )
-    controller.modelRuntime.modelState = .ready
+    engine.modelRuntime.modelState = .ready
 
-    controller.refreshContextUsage()
-    controller.refreshContextUsage()
+    engine.refreshContextUsage()
+    engine.refreshContextUsage()
     await Task.yield()
 
-    #expect(controller.contextUsage?.accuracy == .estimate)
-    #expect(controller.contextUsage?.isStale == false)
+    #expect(engine.contextUsage?.accuracy == .estimate)
+    #expect(engine.contextUsage?.isStale == false)
   }
 
   @Test
   func refreshContextUsageEstimatesWhileGeneratingWithoutDeferredTokenization() async throws {
     let runtime = ControlledStreamingRuntime(turns: [["done"]], blockedCallIndexes: [0])
     defer { Task { await runtime.releaseStream(callIndex: 0) } }
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.sendMessage(prompt: "Wait before answering")
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.sendMessage(prompt: "Wait before answering")
 
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
-    controller.refreshContextUsage()
+    engine.refreshContextUsage()
     await Task.yield()
 
-    #expect(controller.contextUsage?.accuracy == .estimate)
-    #expect(controller.contextUsage?.isStale == false)
+    #expect(engine.contextUsage?.accuracy == .estimate)
+    #expect(engine.contextUsage?.isStale == false)
 
     await runtime.releaseStream(callIndex: 0)
-    try await waitUntil { !controller.isGenerating }
+    try await waitUntil { !engine.isGenerating }
     try await Task.sleep(for: .milliseconds(50))
   }
 
@@ -1876,7 +1876,7 @@ struct ChatSessionControllerTests {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = DelayedClearContextRuntime()
     defer { Task { await runtime.releaseClearContext() } }
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false),
       chatSession: {
@@ -1885,47 +1885,47 @@ struct ChatSessionControllerTests {
         return session
       }()
     )
-    controller.modelRuntime.modelState = .ready
-    controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
+    engine.modelRuntime.modelState = .ready
+    engine.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
 
-    controller.clearChatHistory()
+    engine.clearChatHistory()
     try await waitUntilAsync { await runtime.didStartClearContext }
 
-    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
-    controller.modelRuntime.loadModel()
-    try await waitUntil { controller.contextUsage?.usedTokens != 12 }
+    engine.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
+    engine.modelRuntime.loadModel()
+    try await waitUntil { engine.contextUsage?.usedTokens != 12 }
 
     await runtime.releaseClearContext()
     try await waitUntilAsync { await runtime.didFinishClearContext }
-    try await waitUntil(timeout: .seconds(2)) { controller.modelRuntime.modelState == .ready }
+    try await waitUntil(timeout: .seconds(2)) { engine.modelRuntime.modelState == .ready }
 
-    #expect(controller.modelRuntime.modelState == .ready)
-    #expect(controller.contextUsage?.usedTokens != 12)
+    #expect(engine.modelRuntime.modelState == .ready)
+    #expect(engine.contextUsage?.usedTokens != 12)
   }
 
   @Test
   func staleAttachmentLoadDoesNotAppendAfterNewerAttachmentRequest() async throws {
     let loader = BlockingFirstAttachmentLoader()
     defer { loader.releaseFirstLoad() }
-    let controller = ChatSessionController(
+    let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
       modelPath: "/tmp/model",
       chatAttachmentLoader: loader
     )
 
-    controller.addAttachments(from: [URL(filePath: "/tmp/first.swift")])
+    engine.addAttachments(from: [URL(filePath: "/tmp/first.swift")])
     try await waitUntil { loader.startedCount == 1 }
 
-    controller.addAttachments(from: [URL(filePath: "/tmp/second.swift")])
+    engine.addAttachments(from: [URL(filePath: "/tmp/second.swift")])
     try await waitUntil {
-      controller.chatSession.pendingAttachments.map(\.displayName) == ["second.swift"]
+      engine.chatSession.pendingAttachments.map(\.displayName) == ["second.swift"]
     }
 
     loader.releaseFirstLoad()
     try await waitUntil { loader.completedCount == 2 }
     await Task.yield()
 
-    #expect(controller.chatSession.pendingAttachments.map(\.displayName) == ["second.swift"])
+    #expect(engine.chatSession.pendingAttachments.map(\.displayName) == ["second.swift"])
   }
 
   private func waitUntil(

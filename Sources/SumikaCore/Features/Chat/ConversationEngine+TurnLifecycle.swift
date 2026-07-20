@@ -7,7 +7,7 @@ enum ChatToolLoopLimits {
 // Turn execution stays in the canonical live-session owner so cancellation,
 // transcript application, and finalization cannot drift apart.
 @MainActor
-extension ChatSessionController {
+extension ConversationEngine {
   @discardableResult
   func startTurn(
     id turnID: ChatTurn.ID,
@@ -438,7 +438,7 @@ extension ChatSessionController {
 // Approval and denial first update their existing records, then cross the
 // derived batch barrier together. ask_user intentionally keeps its dedicated
 // single-call answer/resume path.
-extension ChatSessionController {
+extension ConversationEngine {
   private func resolveToolLoopOutcome(
     _ outcome: ChatToolLoopOutcome,
     in workspace: Workspace?,

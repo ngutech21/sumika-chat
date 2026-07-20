@@ -11,8 +11,9 @@ final class AppState {
   let assistantSpeechService: AssistantSpeechService
   let audioModelController: ComposerAudioModelController
   let composerSpeechInputController: ComposerSpeechInputController
+  let chatFeatureState: ChatFeatureState
   private(set) var route: AppRoute?
-  @ObservationIgnored let chatController: ChatSessionController
+  @ObservationIgnored private let conversationEngine: ConversationEngine
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
   @ObservationIgnored let mcpClientManager: MCPClientManager
   @ObservationIgnored private let conversationSessionCoordinator: ConversationSessionCoordinator
@@ -89,7 +90,8 @@ final class AppState {
   ) {
     self.modelSettingsStore = modelSettingsStore
     self.browserToolService = browserToolService
-    self.chatController = conversation.chatController
+    self.conversationEngine = conversation.conversationEngine
+    self.chatFeatureState = conversation.chatFeatureState
     self.modelManagementState = conversation.modelManagementState
     self.conversationSessionCoordinator = conversation.sessionCoordinator
     self.mcpClientManager = mcpClientManager
@@ -113,7 +115,7 @@ final class AppState {
       turnTracer: turnTracer
     )
 
-    self.chatController.setSessionChangeHandler { [weak self] in
+    self.conversationEngine.setSessionChangeHandler { [weak self] in
       self?.persistActiveSession()
       self?.reconcileMCPConnectionsIfNeeded()
     }
@@ -157,13 +159,14 @@ final class AppState {
     return sessionID
   }
 
+  @discardableResult
   func sendMessage(
     prompt: String,
     in context: WorkspaceChatContext,
     sessionID: ChatSession.ID?
   ) -> Bool {
     if let sessionID {
-      return chatController.sendMessage(
+      return conversationEngine.sendMessage(
         prompt: prompt,
         in: context.workspace(containing: sessionID),
         sessionID: sessionID
@@ -173,7 +176,7 @@ final class AppState {
     guard let createdSessionID = createSession(in: context.id) else {
       return false
     }
-    return chatController.sendMessage(
+    return conversationEngine.sendMessage(
       prompt: prompt,
       in: context.workspace(containing: createdSessionID),
       sessionID: createdSessionID
@@ -206,13 +209,13 @@ final class AppState {
     guard
       !workspaceState.isPersistenceBlocked,
       workspaceState.activeSessionID == sessionID,
-      chatController.sessionID == sessionID
+      conversationEngine.sessionID == sessionID
     else {
       workspaceState.renameSession(sessionID, title: title)
       return
     }
 
-    chatController.renameSession(to: title)
+    conversationEngine.renameSession(to: title)
   }
 
   @discardableResult
@@ -312,7 +315,7 @@ final class AppState {
 
   func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
     let selection = normalizedMCPServerSelection(serverIDs)
-    chatController.setSelectedMCPServerIDs(
+    conversationEngine.setSelectedMCPServerIDs(
       selection,
       agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
     )
@@ -325,9 +328,9 @@ final class AppState {
     settingsState.mcpServerStatuses = statuses
     mcpAgentToolExecutorGroups = agentToolExecutorGroups
     let selection = normalizedMCPServerSelection(
-      chatController.composerSessionState.selectedMCPServerIDs
+      conversationEngine.composerSessionState.selectedMCPServerIDs
     )
-    chatController.reconcileSelectedMCPServerIDs(
+    conversationEngine.reconcileSelectedMCPServerIDs(
       selection,
       agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
     )
@@ -337,8 +340,8 @@ final class AppState {
   /// tools (honoring the todo_write setting) plus dynamic executors from the
   /// connected MCP servers selected by the active session.
   private func refreshAgentToolRegistry() {
-    let selection = chatController.composerSessionState.selectedMCPServerIDs
-    chatController.setAgentToolExecutorRegistry(
+    let selection = conversationEngine.composerSessionState.selectedMCPServerIDs
+    conversationEngine.setAgentToolExecutorRegistry(
       agentToolExecutorRegistry(selectedServerIDs: selection)
     )
   }
@@ -362,11 +365,11 @@ final class AppState {
 
   private var activeMCPServerIDs: Set<UUID> {
     guard case .chat = route,
-      chatController.composerSessionState.interactionMode == .agent
+      conversationEngine.composerSessionState.interactionMode == .agent
     else {
       return []
     }
-    return Set(chatController.composerSessionState.selectedMCPServerIDs)
+    return Set(conversationEngine.composerSessionState.selectedMCPServerIDs)
   }
 
   private func reconcileMCPConnectionsIfNeeded(force: Bool = false) {
@@ -390,8 +393,8 @@ final class AppState {
 
   private func desiredMCPConnectionState() -> DesiredMCPState {
     guard case .chat(_, let sessionID) = route,
-      chatController.sessionID == sessionID,
-      chatController.composerSessionState.interactionMode == .agent,
+      conversationEngine.sessionID == sessionID,
+      conversationEngine.composerSessionState.interactionMode == .agent,
       let workspaceRootURL = workspaceState.activeWorkspace?.rootURL
     else {
       return DesiredMCPState(configs: settingsState.mcpServers)
@@ -400,7 +403,7 @@ final class AppState {
       configs: settingsState.mcpServers,
       activeSessionID: sessionID,
       selectedServerIDs: normalizedMCPServerSelection(
-        chatController.composerSessionState.selectedMCPServerIDs
+        conversationEngine.composerSessionState.selectedMCPServerIDs
       ),
       workspaceRootURL: workspaceRootURL
     )
@@ -438,13 +441,13 @@ final class AppState {
   func persistActiveSession() -> Bool {
     guard
       let activeSessionID = workspaceState.activeSessionID,
-      chatController.sessionID == activeSessionID
+      conversationEngine.sessionID == activeSessionID
     else {
       return false
     }
 
     workspaceState.persistActiveSessionSnapshot(
-      chatController.sessionSnapshot()
+      conversationEngine.sessionSnapshot()
     )
     return true
   }
@@ -469,7 +472,7 @@ final class AppState {
     }
     conversationSessionCoordinator.switchSession(to: session)
     let selection = normalizedMCPServerSelection(session.selectedMCPServerIDs)
-    chatController.reconcileSelectedMCPServerIDs(
+    conversationEngine.reconcileSelectedMCPServerIDs(
       selection,
       agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
     )
@@ -495,7 +498,7 @@ final class AppState {
     {
       return Self.defaultSessionFactory(
         selectedModelID: selectedModelID,
-        modeSettings: chatController.modeSettings
+        modeSettings: conversationEngine.modeSettings
       )
     }
 

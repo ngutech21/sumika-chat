@@ -3,7 +3,7 @@ import Foundation
 @testable import SumikaCore
 
 @MainActor
-private enum ChatSessionControllerTestModelRegistry {
+private enum ConversationEngineTestModelRegistry {
   private final class WeakModelControllerReference {
     weak var controller: ModelRuntimeController?
 
@@ -16,61 +16,27 @@ private enum ChatSessionControllerTestModelRegistry {
 
   static func register(
     _ modelController: ModelRuntimeController,
-    for chatController: ChatSessionController
+    for conversationEngine: ConversationEngine
   ) {
     controllers = controllers.filter { $0.value.controller != nil }
-    controllers[ObjectIdentifier(chatController)] = WeakModelControllerReference(modelController)
+    controllers[ObjectIdentifier(conversationEngine)] =
+      WeakModelControllerReference(modelController)
   }
 
-  static func modelController(for chatController: ChatSessionController) -> ModelRuntimeController {
-    guard let controller = controllers[ObjectIdentifier(chatController)]?.controller else {
-      preconditionFailure("Missing model controller for ChatSessionController test composition")
+  static func modelController(
+    for conversationEngine: ConversationEngine
+  ) -> ModelRuntimeController {
+    guard let controller = controllers[ObjectIdentifier(conversationEngine)]?.controller else {
+      preconditionFailure("Missing model controller for ConversationEngine test composition")
     }
     return controller
   }
 }
 
 @MainActor
-extension ChatSessionController {
+extension ConversationEngine {
   var modelRuntime: ModelRuntimeController {
-    ChatSessionControllerTestModelRegistry.modelController(for: self)
-  }
-
-  convenience init(
-    modelSettingsStore settingsStore: any ModelSettingsStoring,
-    modelDownloader downloader: any ModelDownloading = UnavailableModelDownloader(),
-    runtime: any ChatModelRuntime,
-    resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
-    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
-      ModelLifecycleCoordinator.defaultModelAvailability,
-    toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
-    chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
-    turnTracer: any TurnTracing = NoopTurnTracer()
-  ) {
-    let selectedModel = ManagedModelCatalog.defaultModel
-    let storedSettings = StoredModelSettings(
-      modeSettings: selectedModel.defaultModeSettings,
-      contextTokenLimit: selectedModel.defaultContextTokenLimit
-    )
-    self.init(
-      testSelectedModelID: selectedModel.id,
-      modelPath: selectedModel.localPath,
-      modelContextTokenLimit: storedSettings.contextTokenLimit,
-      chatSession: ChatSession(
-        turns: [],
-        pendingAttachments: [],
-        modeSettings: storedSettings.modeSettings
-      ),
-      modelSettingsStore: settingsStore,
-      modelDownloader: downloader,
-      runtime: runtime,
-      resourceMonitor: resourceMonitor,
-      modelAvailability: modelAvailability,
-      toolOrchestrator: toolOrchestrator,
-      chatAttachmentLoader: chatAttachmentLoader,
-      turnTracer: turnTracer
-    )
-    modelRuntime.loadPersistedModelSelection()
+    ConversationEngineTestModelRegistry.modelController(for: self)
   }
 
   convenience init(
@@ -156,7 +122,7 @@ extension ChatSessionController {
       chatAttachmentLoader: chatAttachmentLoader,
       turnTracer: turnTracer
     )
-    ChatSessionControllerTestModelRegistry.register(modelController, for: self)
+    ConversationEngineTestModelRegistry.register(modelController, for: self)
     modelController.setEventHandlers(
       modelManagementEventHandlers(errorDidOccur: { _ in })
     )
@@ -165,7 +131,7 @@ extension ChatSessionController {
   func loadSession(_ session: ChatSession) {
     ConversationSessionCoordinator(
       modelController: modelRuntime,
-      chatController: self
+      conversationEngine: self
     ).switchSession(to: session)
   }
 }
