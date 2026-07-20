@@ -84,7 +84,8 @@ extension ChatSessionController {
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     turnTracer: any TurnTracing = NoopTurnTracer(),
-    chatSession: ChatSession = ChatSession()
+    chatSession: ChatSession = ChatSession(),
+    workspaceInstructionsLoader: (any WorkspaceInstructionsLoading)? = nil
   ) {
     self.init(
       testSelectedModelID: chatSession.selectedModelID,
@@ -100,6 +101,9 @@ extension ChatSessionController {
       chatAttachmentLoader: chatAttachmentLoader,
       turnTracer: turnTracer
     )
+    if let workspaceInstructionsLoader {
+      self.workspaceInstructionsLoader = workspaceInstructionsLoader
+    }
   }
 
   private convenience init(

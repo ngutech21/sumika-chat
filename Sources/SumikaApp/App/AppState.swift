@@ -320,8 +320,10 @@ final class AppState {
   }
 
   private func refreshAfterMCPChange() async {
-    settingsState.mcpServerStatuses = await mcpClientManager.statuses()
-    mcpAgentToolExecutorGroups = await mcpClientManager.agentToolExecutorGroups()
+    let statuses = await mcpClientManager.statuses()
+    let agentToolExecutorGroups = await mcpClientManager.agentToolExecutorGroups()
+    settingsState.mcpServerStatuses = statuses
+    mcpAgentToolExecutorGroups = agentToolExecutorGroups
     let selection = normalizedMCPServerSelection(
       chatController.composerSessionState.selectedMCPServerIDs
     )

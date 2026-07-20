@@ -70,8 +70,6 @@ package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.updatedAt = updatedAt
   }
 
-  package static let defaultSession = ChatSession()
-
   package static func == (lhs: ChatSession, rhs: ChatSession) -> Bool {
     lhs.id == rhs.id
       && lhs.title == rhs.title

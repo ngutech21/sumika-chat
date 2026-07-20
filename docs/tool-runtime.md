@@ -9,7 +9,7 @@ or provider-specific payloads.
 
 ```mermaid
 flowchart TD
-  A["ChatTurnCoordinator receives native ChatRuntimeToolCall event"] --> B["ToolLoopCoordinator"]
+  A["Conversation lifecycle receives native ChatRuntimeToolCall event"] --> B["ToolLoopCoordinator"]
   B --> C["RawToolCallRequest(id, name, arguments)"]
   C --> D["ToolCallRequestValidator"]
   D --> E["ToolCallRequest(payload: ToolCallPayload)"]
@@ -65,10 +65,11 @@ flowchart TD
   ledger entries as structured assistant `tool_calls` plus matching `tool`
   result messages, so provider history keeps the native call/result relationship
   without making SwiftUI or tools parse provider syntax.
-- `ChatTurnCoordinator` owns the UI-free tool-loop lifecycle for a turn. It
-  invokes `ToolLoopCoordinator`, applies `ChatWorkflowStep` continuations via
-  emitted workflow events, pauses on approval or `ask_user`, and resumes through
-  approved, denied, or answered tool flows.
+- `ChatSessionController` currently owns the UI-free tool-loop lifecycle together
+  with the canonical live `ChatSession` and active turn. Its internal
+  `ChatTurnExecutionCoordinator` invokes `ToolLoopCoordinator`, applies
+  `ChatWorkflowStep` continuations through workflow events, pauses on approval
+  or `ask_user`, and resumes approved, denied, or answered tool flows.
 - `ChatSession.toolApprovalPolicy` is persisted per session and defaults to
   `manual`. It is effective only while that same session is in Agent mode;
   switching to Chat preserves the preference without enabling workspace tools,
@@ -103,7 +104,7 @@ flowchart TD
   an explicit `Resume automation` action for that batch.
 - `ToolResumeCoordinator` builds the workflow events for approved tool results,
   denied tool results, and answered `ask_user` receipts. It does not own async
-  execution; the active turn task stays in `ChatTurnCoordinator`.
+  execution; the active turn task stays with the canonical conversation owner.
 - An explicit user denial is stored as a normal result payload with
   `ToolFailureReason.userDenied`. Its stable model projection is non-success,
   `status: "denied"`, `kind: "user_denied"`, and the content

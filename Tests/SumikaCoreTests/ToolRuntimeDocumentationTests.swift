@@ -28,7 +28,7 @@ struct ToolRuntimeDocumentationTests {
     let documentation = try String(contentsOf: documentationURL, encoding: .utf8)
 
     #expect(documentation.contains("flowchart TD"))
-    #expect(documentation.contains("ChatTurnCoordinator"))
+    #expect(documentation.contains("canonical live conversation owner"))
     #expect(documentation.contains("ChatModelContextBuilder"))
     #expect(documentation.contains("## Cancellation Rules"))
     #expect(documentation.contains("Future independent prompts exclude those messages"))

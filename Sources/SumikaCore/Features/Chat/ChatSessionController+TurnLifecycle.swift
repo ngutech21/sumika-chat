@@ -4,59 +4,30 @@ enum ChatToolLoopLimits {
   static let defaultMaxToolLoopIterations = 8
 }
 
+// Turn execution stays in the canonical live-session owner so cancellation,
+// transcript application, and finalization cannot drift apart.
 @MainActor
-final class ChatTurnCoordinator {
-  private(set) var activeTurnID: ChatTurn.ID?
-  private var activeTask: Task<Void, Never>?
-  private var turnToolRegistries: [ChatTurn.ID: ToolRegistry] = [:]
-  private let executionCoordinator: ChatTurnExecutionCoordinator
-  private let workspaceInstructionsLoader: any WorkspaceInstructionsLoading
-  private let toolResumeCoordinator = ToolResumeCoordinator()
-  private let maxToolLoopIterations: Int
-
-  init(
-    focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer(),
-    modelContextBuilder: ChatModelContextBuilder = ChatModelContextBuilder(),
-    toolPromptPolicy: ToolPromptPolicy = ToolPromptPolicy(),
-    workspaceInstructionsLoader: any WorkspaceInstructionsLoading = WorkspaceInstructionsLoader(),
-    turnTracer: any TurnTracing = NoopTurnTracer(),
-    maxToolLoopIterations: Int = ChatToolLoopLimits.defaultMaxToolLoopIterations
-  ) {
-    self.executionCoordinator = ChatTurnExecutionCoordinator(
-      focusedFileReducer: focusedFileReducer,
-      modelContextBuilder: modelContextBuilder,
-      toolPromptPolicy: toolPromptPolicy,
-      turnTracer: turnTracer,
-      maxToolLoopIterations: maxToolLoopIterations
-    )
-    self.workspaceInstructionsLoader = workspaceInstructionsLoader
-    self.maxToolLoopIterations = maxToolLoopIterations
-  }
-
-  deinit {
-    activeTask?.cancel()
-  }
-
+extension ChatSessionController {
   @discardableResult
   func startTurn(
     id turnID: ChatTurn.ID,
     operation: @escaping @MainActor @Sendable (ChatTurn.ID) async -> Void
   ) -> ChatTurn.ID {
-    activeTask?.cancel()
+    activeTurnTask?.cancel()
     activeTurnID = turnID
-    activeTask = Task {
+    activeTurnTask = Task {
       await operation(turnID)
     }
     return turnID
   }
 
-  func cancelActiveTurn() -> ChatTurn.ID? {
+  private func takeActiveTurnForCancellation() -> ChatTurn.ID? {
     guard let activeTurnID else {
       return nil
     }
 
-    activeTask?.cancel()
-    activeTask = nil
+    activeTurnTask?.cancel()
+    activeTurnTask = nil
     self.activeTurnID = nil
     turnToolRegistries[activeTurnID] = nil
     return activeTurnID
@@ -67,7 +38,7 @@ final class ChatTurnCoordinator {
       return
     }
 
-    activeTask = nil
+    activeTurnTask = nil
     activeTurnID = nil
   }
 
@@ -82,17 +53,16 @@ final class ChatTurnCoordinator {
     sessionID: ChatSession.ID?,
     attachments: [ChatAttachment],
     runtime: ChatTurnRuntimeContext,
-    runtimeContextClearCoordinator: RuntimeContextClearCoordinator,
-    callbacks: ChatTurnCallbacks
+    runtimeContextClearCoordinator: RuntimeContextClearCoordinator
   ) -> ChatTurn.ID {
-    let interactionMode = callbacks.session().interactionMode
-    let toolProfile = executionCoordinator.activeToolProfile(
+    let interactionMode = chatSession.interactionMode
+    let toolProfile = turnExecutionCoordinator.activeToolProfile(
       workspace: workspace,
       sessionID: sessionID,
       interactionMode: interactionMode,
       selectedModel: runtime.selectedModel
     )
-    let initialToolPromptMode = executionCoordinator.toolPromptMode(
+    let initialToolPromptMode = turnExecutionCoordinator.toolPromptMode(
       for: toolProfile
     )
     let turnID = UUID()
@@ -101,7 +71,7 @@ final class ChatTurnCoordinator {
     let userMessageID = UUID()
     let assistantMessageID = UUID()
 
-    executionCoordinator.emitUserTurnStartEvents(
+    turnExecutionCoordinator.emitUserTurnStartEvents(
       prompt: prompt,
       turnID: turnID,
       userMessageID: userMessageID,
@@ -109,18 +79,18 @@ final class ChatTurnCoordinator {
       attachments: attachments,
       workspace: workspace,
       interactionMode: interactionMode,
-      callbacks: callbacks
+      conversation: self
     )
-    let stableInstructions = executionCoordinator.systemPrompt(
-      session: callbacks.session(),
+    let stableInstructions = turnExecutionCoordinator.systemPrompt(
+      session: chatSession,
       selectedModel: runtime.selectedModel,
       toolLoopCoordinator: runtime.toolLoopCoordinator,
       toolPromptMode: initialToolPromptMode,
       turnToolRegistry: turnToolRegistry
     )
-    callbacks.notifySessionDidChange()
+    notifySessionDidChange()
 
-    runTurnTask(turnID, callbacks: callbacks) { [weak self] turnID in
+    runTurnTask(turnID) { [weak self] turnID in
       guard let self else {
         return .stop
       }
@@ -133,28 +103,27 @@ final class ChatTurnCoordinator {
         }
         if let update = WorkspaceInstructionsPromptPolicy.update(
           for: loadResult,
-          in: callbacks.session()
+          in: chatSession
         ),
           let currentPromptContext = self.promptContext(
             for: userMessageID,
-            in: callbacks.session()
+            in: chatSession
           )
         {
-          callbacks.emitEvents([
+          self.applyWorkflowEvents([
             .userMessagePromptContextUpdated(
               messageID: userMessageID,
               promptContext: currentPromptContext.appendingWorkspaceInstructions(update)
             )
           ])
-          callbacks.notifySessionDidChange()
+          self.notifySessionDidChange()
         }
       }
-      callbacks.refreshContextUsage(initialToolPromptMode)
-      let generationResult = try await executionCoordinator.streamAssistantReply(
+      self.refreshContextUsage(toolPromptMode: initialToolPromptMode)
+      let generationResult = try await turnExecutionCoordinator.streamAssistantReply(
         to: assistantMessageID,
         runtime: runtime,
-        callbacks: callbacks,
-        isActive: self.isActive,
+        conversation: self,
         interactionMode: interactionMode,
         toolPromptMode: initialToolPromptMode,
         turnToolRegistry: turnToolRegistry,
@@ -166,17 +135,15 @@ final class ChatTurnCoordinator {
         return .stop
       }
       if toolProfile.allowsToolLoop {
-        try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
-        let toolLoopOutcome = try await executionCoordinator.runToolLoop(
+        try turnExecutionCoordinator.requireVisibleTextOrToolCall(generationResult)
+        let toolLoopOutcome = try await turnExecutionCoordinator.runToolLoop(
           workspace: workspace,
           sessionID: sessionID,
           lastAssistantMessageID: assistantMessageID,
           turnID: turnID,
           interactionMode: interactionMode,
           runtime: runtime,
-          callbacks: callbacks,
-          isActive: self.isActive,
-          finishTurn: self.finishTurn,
+          conversation: self,
           turnToolRegistry: turnToolRegistry,
           stableInstructions: stableInstructions,
           lastNativeToolCalls: generationResult.nativeToolCalls
@@ -185,11 +152,10 @@ final class ChatTurnCoordinator {
           toolLoopOutcome,
           in: workspace,
           turnID: turnID,
-          runtime: runtime,
-          callbacks: callbacks
+          runtime: runtime
         )
       }
-      try executionCoordinator.requireVisibleFinalResponse(generationResult)
+      try turnExecutionCoordinator.requireVisibleFinalResponse(generationResult)
       return .complete
     }
 
@@ -217,19 +183,18 @@ final class ChatTurnCoordinator {
     turnID: ChatTurn.ID,
     toolOrchestrator: ToolOrchestrator,
     approvalSource: ToolApprovalSource = .manual,
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks
+    runtime: ChatTurnRuntimeContext
   ) {
-    callbacks.emitEvents([
+    applyWorkflowEvents([
       .turnStatusChanged(
         turnID: turnID,
         status: .running,
         modelContextPolicy: nil
       )
     ])
-    callbacks.notifySessionDidChange()
+    notifySessionDidChange()
 
-    runTurnTask(turnID, callbacks: callbacks) { [weak self] turnID in
+    runTurnTask(turnID) { [weak self] turnID in
       guard let self else {
         return .stop
       }
@@ -240,8 +205,7 @@ final class ChatTurnCoordinator {
         turnID: turnID,
         toolOrchestrator: toolOrchestrator,
         approvalSource: approvalSource,
-        runtime: runtime,
-        callbacks: callbacks
+        runtime: runtime
       )
     }
   }
@@ -253,22 +217,21 @@ final class ChatTurnCoordinator {
     turnID: ChatTurn.ID,
     toolOrchestrator: ToolOrchestrator,
     approvalSource: ToolApprovalSource = .manual,
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks
+    runtime: ChatTurnRuntimeContext
   ) {
     guard !existingRecords.isEmpty else {
       return
     }
-    callbacks.emitEvents([
+    applyWorkflowEvents([
       .turnStatusChanged(
         turnID: turnID,
         status: .running,
         modelContextPolicy: nil
       )
     ])
-    callbacks.notifySessionDidChange()
+    notifySessionDidChange()
 
-    runTurnTask(turnID, callbacks: callbacks) { [weak self] turnID in
+    runTurnTask(turnID) { [weak self] turnID in
       guard let self else {
         return .stop
       }
@@ -279,8 +242,7 @@ final class ChatTurnCoordinator {
         turnID: turnID,
         toolOrchestrator: toolOrchestrator,
         approvalSource: approvalSource,
-        runtime: runtime,
-        callbacks: callbacks
+        runtime: runtime
       )
     }
   }
@@ -290,10 +252,9 @@ final class ChatTurnCoordinator {
     answer: String,
     in workspace: Workspace,
     turnID: ChatTurn.ID,
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks
+    runtime: ChatTurnRuntimeContext
   ) {
-    runTurnTask(turnID, callbacks: callbacks) { [weak self] turnID in
+    runTurnTask(turnID) { [weak self] turnID in
       guard let self else {
         return .stop
       }
@@ -302,8 +263,7 @@ final class ChatTurnCoordinator {
         answer: answer,
         in: workspace,
         turnID: turnID,
-        runtime: runtime,
-        callbacks: callbacks
+        runtime: runtime
       )
     }
   }
@@ -311,78 +271,42 @@ final class ChatTurnCoordinator {
   func denyToolCall(
     _ existingRecord: ToolCallRecord,
     turnID: ChatTurn.ID,
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks
+    runtime: ChatTurnRuntimeContext
   ) {
-    callbacks.emitEvents([
+    applyWorkflowEvents([
       .turnStatusChanged(
         turnID: turnID,
         status: .running,
         modelContextPolicy: nil
       )
     ])
-    callbacks.notifySessionDidChange()
+    notifySessionDidChange()
 
-    runTurnTask(turnID, callbacks: callbacks) { [weak self] turnID in
+    runTurnTask(turnID) { [weak self] turnID in
       guard let self else {
         return .stop
       }
       return try await self.resumeDeniedToolCall(
         existingRecord,
         turnID: turnID,
-        runtime: runtime,
-        callbacks: callbacks
+        runtime: runtime
       )
     }
   }
 
   @discardableResult
-  func cancelActiveTurn(
-    emitEvents: ChatWorkflowEventEmitter,
-    turnDidFinish: ChatTurnFinishedHandler,
-    notifySessionDidChange: ChatTurnNotifyHandler
-  ) -> Bool {
-    guard let turnID = cancelActiveTurn() else {
+  func cancelActiveTurn() -> Bool {
+    guard let turnID = takeActiveTurnForCancellation() else {
       return false
     }
 
-    emitEvents(cancelledTurnEvents(turnID))
-    turnDidFinish(turnID, .disabled)
-    notifySessionDidChange()
+    applyWorkflowEvents(cancelledTurnEvents(turnID))
+    finishGeneratingTurn(contextRefreshMode: .disabled)
     return true
-  }
-
-  func systemPrompt(
-    session: ChatSession,
-    selectedModel: ManagedModel,
-    toolLoopCoordinator: ToolLoopCoordinator,
-    toolPromptMode: ToolPromptMode
-  ) -> String {
-    executionCoordinator.systemPrompt(
-      session: session,
-      selectedModel: selectedModel,
-      toolLoopCoordinator: toolLoopCoordinator,
-      toolPromptMode: toolPromptMode
-    )
-  }
-
-  func currentToolPromptMode(
-    session: ChatSession,
-    workspace: Workspace?,
-    sessionID: ChatSession.ID?,
-    selectedModel: ManagedModel
-  ) -> ToolPromptMode {
-    executionCoordinator.currentToolPromptMode(
-      session: session,
-      workspace: workspace,
-      sessionID: sessionID,
-      selectedModel: selectedModel
-    )
   }
 
   private func runTurnTask(
     _ turnID: ChatTurn.ID,
-    callbacks: ChatTurnCallbacks,
     operation: @escaping @MainActor @Sendable (ChatTurn.ID) async throws -> ChatTurnTaskOutcome
   ) {
     startTurn(id: turnID) { [weak self] turnID in
@@ -393,65 +317,28 @@ final class ChatTurnCoordinator {
       do {
         switch try await operation(turnID) {
         case .complete:
-          self.completeTurn(
-            turnID,
-            emitEvents: callbacks.emitEvents,
-            turnDidFinish: callbacks.turnDidFinish,
-            notifySessionDidChange: callbacks.notifySessionDidChange
-          )
+          self.completeTurn(turnID)
         case .pause(let status):
-          self.pauseTurn(
-            turnID,
-            status: status,
-            emitEvents: callbacks.emitEvents,
-            turnDidFinish: callbacks.turnDidFinish,
-            notifySessionDidChange: callbacks.notifySessionDidChange
-          )
+          self.pauseTurn(turnID, status: status)
         case .stop:
           return
         case .fail(let cancelsStreaming):
-          self.failTurn(
-            turnID,
-            error: nil,
-            cancelsStreaming: cancelsStreaming,
-            emitEvents: callbacks.emitEvents,
-            setErrorMessage: callbacks.setErrorMessage,
-            turnDidFinish: callbacks.turnDidFinish,
-            notifySessionDidChange: callbacks.notifySessionDidChange
-          )
+          self.failTurn(turnID, error: nil, cancelsStreaming: cancelsStreaming)
         }
       } catch is CancellationError {
-        self.cancelTurn(
-          turnID,
-          emitEvents: callbacks.emitEvents,
-          turnDidFinish: callbacks.turnDidFinish,
-          notifySessionDidChange: callbacks.notifySessionDidChange
-        )
+        self.cancelTurn(turnID)
       } catch {
-        self.failTurn(
-          turnID,
-          error: error,
-          cancelsStreaming: true,
-          emitEvents: callbacks.emitEvents,
-          setErrorMessage: callbacks.setErrorMessage,
-          turnDidFinish: callbacks.turnDidFinish,
-          notifySessionDidChange: callbacks.notifySessionDidChange
-        )
+        self.failTurn(turnID, error: error, cancelsStreaming: true)
       }
     }
   }
 
-  private func completeTurn(
-    _ turnID: ChatTurn.ID,
-    emitEvents: ChatWorkflowEventEmitter,
-    turnDidFinish: ChatTurnFinishedHandler,
-    notifySessionDidChange: ChatTurnNotifyHandler
-  ) {
+  private func completeTurn(_ turnID: ChatTurn.ID) {
     guard isActive(turnID) else {
       return
     }
 
-    emitEvents([
+    applyWorkflowEvents([
       .turnStatusChanged(
         turnID: turnID,
         status: .completed,
@@ -460,22 +347,19 @@ final class ChatTurnCoordinator {
     ])
     turnToolRegistries[turnID] = nil
     finishTurn(turnID)
-    turnDidFinish(turnID, .disabled)
+    finishGeneratingTurn(contextRefreshMode: .disabled)
     notifySessionDidChange()
   }
 
   private func pauseTurn(
     _ turnID: ChatTurn.ID,
-    status: ChatTurnStatus,
-    emitEvents: ChatWorkflowEventEmitter,
-    turnDidFinish: ChatTurnFinishedHandler,
-    notifySessionDidChange: ChatTurnNotifyHandler
+    status: ChatTurnStatus
   ) {
     guard isActive(turnID) else {
       return
     }
 
-    emitEvents([
+    applyWorkflowEvents([
       .turnStatusChanged(
         turnID: turnID,
         status: status,
@@ -483,47 +367,38 @@ final class ChatTurnCoordinator {
       )
     ])
     finishTurn(turnID)
-    turnDidFinish(turnID, .disabled)
+    finishGeneratingTurn(contextRefreshMode: .disabled)
     notifySessionDidChange()
   }
 
-  private func cancelTurn(
-    _ turnID: ChatTurn.ID,
-    emitEvents: ChatWorkflowEventEmitter,
-    turnDidFinish: ChatTurnFinishedHandler,
-    notifySessionDidChange: ChatTurnNotifyHandler
-  ) {
+  private func cancelTurn(_ turnID: ChatTurn.ID) {
     guard isActive(turnID) else {
       return
     }
 
-    emitEvents(cancelledTurnEvents(turnID))
+    applyWorkflowEvents(cancelledTurnEvents(turnID))
     turnToolRegistries[turnID] = nil
     finishTurn(turnID)
-    turnDidFinish(turnID, .disabled)
+    finishGeneratingTurn(contextRefreshMode: .disabled)
     notifySessionDidChange()
   }
 
   private func failTurn(
     _ turnID: ChatTurn.ID,
     error: Error?,
-    cancelsStreaming: Bool,
-    emitEvents: ChatWorkflowEventEmitter,
-    setErrorMessage: ChatTurnErrorMessageHandler,
-    turnDidFinish: ChatTurnFinishedHandler,
-    notifySessionDidChange: ChatTurnNotifyHandler
+    cancelsStreaming: Bool
   ) {
     guard isActive(turnID) else {
       return
     }
 
-    emitEvents(failedTurnEvents(turnID, cancelsStreaming: cancelsStreaming))
+    applyWorkflowEvents(failedTurnEvents(turnID, cancelsStreaming: cancelsStreaming))
     if let error {
-      setErrorMessage(error.localizedDescription)
+      setConversationErrorMessage(error.localizedDescription)
     }
     turnToolRegistries[turnID] = nil
     finishTurn(turnID)
-    turnDidFinish(turnID, .disabled)
+    finishGeneratingTurn(contextRefreshMode: .disabled)
     notifySessionDidChange()
   }
 
@@ -563,13 +438,12 @@ final class ChatTurnCoordinator {
 // Approval and denial first update their existing records, then cross the
 // derived batch barrier together. ask_user intentionally keeps its dedicated
 // single-call answer/resume path.
-extension ChatTurnCoordinator {
+extension ChatSessionController {
   private func resolveToolLoopOutcome(
     _ outcome: ChatToolLoopOutcome,
     in workspace: Workspace?,
     turnID: ChatTurn.ID,
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks
+    runtime: ChatTurnRuntimeContext
   ) async throws -> ChatTurnTaskOutcome {
     switch outcome {
     case .complete:
@@ -583,7 +457,7 @@ extension ChatTurnCoordinator {
       guard let workspace else {
         return .fail(cancelsStreaming: false)
       }
-      let session = callbacks.session()
+      let session = chatSession
       guard session.interactionMode == .agent,
         session.toolApprovalPolicy == .automatic
       else {
@@ -597,14 +471,14 @@ extension ChatTurnCoordinator {
         return .fail(cancelsStreaming: false)
       }
 
-      callbacks.emitEvents([
+      applyWorkflowEvents([
         .turnStatusChanged(
           turnID: turnID,
           status: .running,
           modelContextPolicy: nil
         )
       ])
-      callbacks.notifySessionDidChange()
+      notifySessionDidChange()
       return try await resumeApprovedToolCalls(
         batch.pendingApprovalRecords,
         batchAnchorID: batch.anchorID,
@@ -612,8 +486,7 @@ extension ChatTurnCoordinator {
         turnID: turnID,
         toolOrchestrator: runtime.agentToolOrchestrator,
         approvalSource: .automatic,
-        runtime: runtime,
-        callbacks: callbacks
+        runtime: runtime
       )
     }
   }
@@ -625,8 +498,7 @@ extension ChatTurnCoordinator {
     turnID: ChatTurn.ID,
     toolOrchestrator: ToolOrchestrator,
     approvalSource: ToolApprovalSource,
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks
+    runtime: ChatTurnRuntimeContext
   ) async throws -> ChatTurnTaskOutcome {
     for requestedRecord in existingRecords {
       try Task.checkCancellation()
@@ -634,7 +506,7 @@ extension ChatTurnCoordinator {
         return .stop
       }
       if approvalSource == .automatic {
-        let session = callbacks.session()
+        let session = chatSession
         guard session.interactionMode == .agent,
           session.toolApprovalPolicy == .automatic
         else {
@@ -642,13 +514,12 @@ extension ChatTurnCoordinator {
             containing: batchAnchorID,
             in: workspace,
             turnID: turnID,
-            runtime: runtime,
-            callbacks: callbacks
+            runtime: runtime
           )
         }
       }
       guard
-        let liveRecord = callbacks.session().toolCallRecord(id: requestedRecord.id),
+        let liveRecord = chatSession.toolCallRecord(id: requestedRecord.id),
         liveRecord.status == .awaitingApproval
       else {
         continue
@@ -673,30 +544,29 @@ extension ChatTurnCoordinator {
         approvedRecord.approvalSource = approvalSource
       }
       guard isActive(turnID), !Task.isCancelled else {
-        callbacks.emitEvents([.toolCallUpdated(approvedRecord)])
-        callbacks.notifySessionDidChange()
+        applyWorkflowEvents([.toolCallUpdated(approvedRecord)])
+        notifySessionDidChange()
         return .stop
       }
       if approvedRecord.status == .awaitingApproval {
-        callbacks.emitEvents([.toolCallUpdated(approvedRecord)])
-        callbacks.notifySessionDidChange()
+        applyWorkflowEvents([.toolCallUpdated(approvedRecord)])
+        notifySessionDidChange()
         continue
       }
       let resumeResult = toolResumeCoordinator.approvedToolResult(
         record: approvedRecord,
-        focusedFileState: callbacks.session().focusedFileState,
+        focusedFileState: chatSession.focusedFileState,
         turnID: turnID
       )
-      callbacks.emitEvents(resumeResult.events)
-      callbacks.notifySessionDidChange()
+      applyWorkflowEvents(resumeResult.events)
+      notifySessionDidChange()
     }
 
     return try await continueAfterResolvedToolBatch(
       containing: batchAnchorID,
       in: workspace,
       turnID: turnID,
-      runtime: runtime,
-      callbacks: callbacks
+      runtime: runtime
     )
   }
 
@@ -705,8 +575,7 @@ extension ChatTurnCoordinator {
     answer: String,
     in workspace: Workspace,
     turnID: ChatTurn.ID,
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks
+    runtime: ChatTurnRuntimeContext
   ) async throws -> ChatTurnTaskOutcome {
     let resumeResult = toolResumeCoordinator.answeredAskUserTool(
       record: existingRecord,
@@ -717,14 +586,14 @@ extension ChatTurnCoordinator {
       return .stop
     }
 
-    callbacks.emitEvents(resumeResult.events)
-    let toolProfile = executionCoordinator.activeToolProfile(
+    applyWorkflowEvents(resumeResult.events)
+    let toolProfile = turnExecutionCoordinator.activeToolProfile(
       workspace: workspace,
       sessionID: existingRecord.request.sessionID,
-      interactionMode: callbacks.session().interactionMode,
+      interactionMode: chatSession.interactionMode,
       selectedModel: runtime.selectedModel
     )
-    guard let turn = callbacks.session().turns.first(where: { $0.id == turnID }) else {
+    guard let turn = chatSession.turns.first(where: { $0.id == turnID }) else {
       return .fail(cancelsStreaming: false)
     }
     let finalReason: ToolFollowUpFinalReason? =
@@ -736,13 +605,13 @@ extension ChatTurnCoordinator {
       default: resumeResult.followUpPromptMode,
       finalReason: finalReason
     )
-    executionCoordinator.applyToolFollowUpNoticeIfNeeded(
+    turnExecutionCoordinator.applyToolFollowUpNoticeIfNeeded(
       toolPromptMode: promptMode,
       turnID: turnID,
-      callbacks: callbacks
+      conversation: self
     )
-    callbacks.refreshContextUsage(promptMode)
-    callbacks.notifySessionDidChange()
+    refreshContextUsage(toolPromptMode: promptMode)
+    notifySessionDidChange()
 
     let turnToolRegistry = frozenToolRegistry(
       for: turnID,
@@ -752,15 +621,13 @@ extension ChatTurnCoordinator {
     let stableInstructions = stableInstructions(
       toolProfile: toolProfile,
       turnToolRegistry: turnToolRegistry,
-      runtime: runtime,
-      callbacks: callbacks
+      runtime: runtime
     )
-    let generationResult = try await executionCoordinator.streamAssistantReply(
+    let generationResult = try await turnExecutionCoordinator.streamAssistantReply(
       to: nextAssistantMessageID,
       runtime: runtime,
-      callbacks: callbacks,
-      isActive: self.isActive,
-      interactionMode: callbacks.session().interactionMode,
+      conversation: self,
+      interactionMode: chatSession.interactionMode,
       toolPromptMode: promptMode,
       turnToolRegistry: turnToolRegistry,
       stableInstructions: stableInstructions,
@@ -768,20 +635,18 @@ extension ChatTurnCoordinator {
       toolLoopIteration: turn.toolCallBatchCount
     )
     if promptMode.isFinal {
-      try executionCoordinator.requireVisibleFinalResponse(generationResult)
+      try turnExecutionCoordinator.requireVisibleFinalResponse(generationResult)
       return .complete
     }
-    try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
-    let toolLoopOutcome = try await executionCoordinator.runToolLoop(
+    try turnExecutionCoordinator.requireVisibleTextOrToolCall(generationResult)
+    let toolLoopOutcome = try await turnExecutionCoordinator.runToolLoop(
       workspace: workspace,
       sessionID: existingRecord.request.sessionID,
       lastAssistantMessageID: nextAssistantMessageID,
       turnID: turnID,
-      interactionMode: callbacks.session().interactionMode,
+      interactionMode: chatSession.interactionMode,
       runtime: runtime,
-      callbacks: callbacks,
-      isActive: self.isActive,
-      finishTurn: self.finishTurn,
+      conversation: self,
       turnToolRegistry: turnToolRegistry,
       stableInstructions: stableInstructions,
       lastNativeToolCalls: generationResult.nativeToolCalls
@@ -790,30 +655,27 @@ extension ChatTurnCoordinator {
       toolLoopOutcome,
       in: workspace,
       turnID: turnID,
-      runtime: runtime,
-      callbacks: callbacks
+      runtime: runtime
     )
   }
 
   private func resumeDeniedToolCall(
     _ existingRecord: ToolCallRecord,
     turnID: ChatTurn.ID,
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks
+    runtime: ChatTurnRuntimeContext
   ) async throws -> ChatTurnTaskOutcome {
     let resumeResult = toolResumeCoordinator.deniedTool(
       record: existingRecord,
       turnID: turnID
     )
-    callbacks.emitEvents(resumeResult.events)
-    callbacks.notifySessionDidChange()
+    applyWorkflowEvents(resumeResult.events)
+    notifySessionDidChange()
 
     return try await continueAfterResolvedToolBatch(
       containing: existingRecord.id,
       in: nil,
       turnID: turnID,
-      runtime: runtime,
-      callbacks: callbacks
+      runtime: runtime
     )
   }
 
@@ -821,10 +683,9 @@ extension ChatTurnCoordinator {
     containing toolCallID: ToolCallRecord.ID,
     in workspace: Workspace?,
     turnID: ChatTurn.ID,
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks
+    runtime: ChatTurnRuntimeContext
   ) async throws -> ChatTurnTaskOutcome {
-    guard let turn = callbacks.session().turns.first(where: { $0.id == turnID }),
+    guard let turn = chatSession.turns.first(where: { $0.id == turnID }),
       let batch = turn.toolCallBatch(containing: toolCallID)
     else {
       return .fail(cancelsStreaming: false)
@@ -843,15 +704,14 @@ extension ChatTurnCoordinator {
     let toolProfile = resolvedToolProfile(
       workspace: workspace,
       sessionID: firstRecord.request.sessionID,
-      runtime: runtime,
-      callbacks: callbacks
+      runtime: runtime
     )
     let promptMode = ToolFollowUpPromptPolicy.promptMode(
       for: toolProfile,
       finalReason: finalReason(batch, in: turn)
     )
     let nextAssistantMessageID = UUID()
-    callbacks.emitEvents([
+    applyWorkflowEvents([
       .assistantPlaceholderAppended(
         messageID: nextAssistantMessageID,
         turnID: turnID
@@ -862,13 +722,13 @@ extension ChatTurnCoordinator {
         modelContextPolicy: nil
       ),
     ])
-    executionCoordinator.applyToolFollowUpNoticeIfNeeded(
+    turnExecutionCoordinator.applyToolFollowUpNoticeIfNeeded(
       toolPromptMode: promptMode,
       turnID: turnID,
-      callbacks: callbacks
+      conversation: self
     )
-    callbacks.refreshContextUsage(promptMode)
-    callbacks.notifySessionDidChange()
+    refreshContextUsage(toolPromptMode: promptMode)
+    notifySessionDidChange()
 
     let turnToolRegistry = frozenToolRegistry(
       for: turnID,
@@ -878,15 +738,13 @@ extension ChatTurnCoordinator {
     let stableInstructions = stableInstructions(
       toolProfile: toolProfile,
       turnToolRegistry: turnToolRegistry,
-      runtime: runtime,
-      callbacks: callbacks
+      runtime: runtime
     )
-    let generationResult = try await executionCoordinator.streamAssistantReply(
+    let generationResult = try await turnExecutionCoordinator.streamAssistantReply(
       to: nextAssistantMessageID,
       runtime: runtime,
-      callbacks: callbacks,
-      isActive: self.isActive,
-      interactionMode: callbacks.session().interactionMode,
+      conversation: self,
+      interactionMode: chatSession.interactionMode,
       toolPromptMode: promptMode,
       turnToolRegistry: turnToolRegistry,
       stableInstructions: stableInstructions,
@@ -894,24 +752,22 @@ extension ChatTurnCoordinator {
       toolLoopIteration: turn.toolCallBatchCount
     )
     if promptMode.isFinal {
-      try executionCoordinator.requireVisibleFinalResponse(generationResult)
+      try turnExecutionCoordinator.requireVisibleFinalResponse(generationResult)
       return .complete
     }
 
     guard let workspace else {
       return .fail(cancelsStreaming: false)
     }
-    try executionCoordinator.requireVisibleTextOrToolCall(generationResult)
-    let toolLoopOutcome = try await executionCoordinator.runToolLoop(
+    try turnExecutionCoordinator.requireVisibleTextOrToolCall(generationResult)
+    let toolLoopOutcome = try await turnExecutionCoordinator.runToolLoop(
       workspace: workspace,
       sessionID: firstRecord.request.sessionID,
       lastAssistantMessageID: nextAssistantMessageID,
       turnID: turnID,
-      interactionMode: callbacks.session().interactionMode,
+      interactionMode: chatSession.interactionMode,
       runtime: runtime,
-      callbacks: callbacks,
-      isActive: self.isActive,
-      finishTurn: self.finishTurn,
+      conversation: self,
       turnToolRegistry: turnToolRegistry,
       stableInstructions: stableInstructions,
       lastNativeToolCalls: generationResult.nativeToolCalls
@@ -920,26 +776,24 @@ extension ChatTurnCoordinator {
       toolLoopOutcome,
       in: workspace,
       turnID: turnID,
-      runtime: runtime,
-      callbacks: callbacks
+      runtime: runtime
     )
   }
 
   private func resolvedToolProfile(
     workspace: Workspace?,
     sessionID: ChatSession.ID,
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks
+    runtime: ChatTurnRuntimeContext
   ) -> ToolExecutionProfile {
     if let workspace {
-      return executionCoordinator.activeToolProfile(
+      return turnExecutionCoordinator.activeToolProfile(
         workspace: workspace,
         sessionID: sessionID,
-        interactionMode: callbacks.session().interactionMode,
+        interactionMode: chatSession.interactionMode,
         selectedModel: runtime.selectedModel
       )
     }
-    return callbacks.session().interactionMode == .chat ? .chatWeb : .agent
+    return chatSession.interactionMode == .chat ? .chatWeb : .agent
   }
 
   private func finalReason(
@@ -984,14 +838,13 @@ extension ChatTurnCoordinator {
   private func stableInstructions(
     toolProfile: ToolExecutionProfile,
     turnToolRegistry: ToolRegistry,
-    runtime: ChatTurnRuntimeContext,
-    callbacks: ChatTurnCallbacks
+    runtime: ChatTurnRuntimeContext
   ) -> String {
-    executionCoordinator.systemPrompt(
-      session: callbacks.session(),
+    turnExecutionCoordinator.systemPrompt(
+      session: chatSession,
       selectedModel: runtime.selectedModel,
       toolLoopCoordinator: runtime.toolLoopCoordinator,
-      toolPromptMode: executionCoordinator.toolPromptMode(for: toolProfile),
+      toolPromptMode: turnExecutionCoordinator.toolPromptMode(for: toolProfile),
       turnToolRegistry: turnToolRegistry
     )
   }

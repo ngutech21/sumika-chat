@@ -8,7 +8,7 @@ import Observation
 @MainActor
 @Observable
 package final class ChatSessionController {
-  private(set) var chatSession = ChatSession.defaultSession {
+  private(set) var chatSession: ChatSession {
     didSet {
       syncComposerSessionState()
     }
@@ -16,7 +16,7 @@ package final class ChatSessionController {
   package private(set) var composerSessionState = ChatComposerSessionState()
   package private(set) var modelContextDebugState = ModelContextDebugState()
   package var contextUsage: ChatContextUsage?
-  package var isGenerating = false
+  package internal(set) var isGenerating = false
   package private(set) var errorMessage: String?
 
   @ObservationIgnored private let conversationModel: @MainActor () -> ConversationModelState
@@ -26,7 +26,13 @@ package final class ChatSessionController {
   @ObservationIgnored private var chatWebToolOrchestrator: ToolOrchestrator
   @ObservationIgnored private var toolLoopCoordinator: ToolLoopCoordinator
   @ObservationIgnored private let turnTracer: any TurnTracing
-  @ObservationIgnored private let chatTurnCoordinator: ChatTurnCoordinator
+  @ObservationIgnored var activeTurnID: ChatTurn.ID?
+  @ObservationIgnored var activeTurnTask: Task<Void, Never>?
+  @ObservationIgnored var turnToolRegistries: [ChatTurn.ID: ToolRegistry] = [:]
+  @ObservationIgnored let turnExecutionCoordinator: ChatTurnExecutionCoordinator
+  @ObservationIgnored var workspaceInstructionsLoader: any WorkspaceInstructionsLoading
+  @ObservationIgnored let toolResumeCoordinator = ToolResumeCoordinator()
+  @ObservationIgnored let maxToolLoopIterations: Int
   @ObservationIgnored private let modelContextBuilder = ChatModelContextBuilder()
   @ObservationIgnored private let attachmentCoordinator: ChatAttachmentCoordinator
   @ObservationIgnored private let transcriptMutator = ChatTranscriptMutator()
@@ -88,7 +94,11 @@ package final class ChatSessionController {
     self.runtimeContextClearCoordinator = runtimeContextClearCoordinator
     self.chatGenerationCoordinator = chatGenerationCoordinator
     self.turnTracer = turnTracer
-    self.chatTurnCoordinator = ChatTurnCoordinator(turnTracer: turnTracer)
+    self.turnExecutionCoordinator = ChatTurnExecutionCoordinator(
+      turnTracer: turnTracer
+    )
+    self.workspaceInstructionsLoader = WorkspaceInstructionsLoader()
+    self.maxToolLoopIterations = ChatToolLoopLimits.defaultMaxToolLoopIterations
     self.toolOrchestrator = toolOrchestrator
     self.chatWebToolOrchestrator = toolOrchestrator.replacingExecutorRegistry(.chatWeb)
     self.toolLoopCoordinator = ToolLoopCoordinator(
@@ -99,6 +109,10 @@ package final class ChatSessionController {
     self.attachmentCoordinator = ChatAttachmentCoordinator(loader: chatAttachmentLoader)
     self.chatSession = chatSession
     self.composerSessionState = Self.composerSessionState(for: chatSession)
+  }
+
+  deinit {
+    activeTurnTask?.cancel()
   }
 }
 
@@ -390,7 +404,7 @@ extension ChatSessionController {
     }
   }
 
-  private func finishGeneratingTurn(contextRefreshMode: ToolPromptMode = .disabled) {
+  func finishGeneratingTurn(contextRefreshMode: ToolPromptMode = .disabled) {
     isGenerating = false
     flushPendingContextUsageRefresh(defaultMode: contextRefreshMode)
   }
@@ -443,14 +457,13 @@ extension ChatSessionController {
     chatSession.focusedFileState.focusedAttachments = []
     isGenerating = true
 
-    chatTurnCoordinator.startUserTurn(
+    startUserTurn(
       prompt: prompt,
       workspace: workspace,
       sessionID: sessionID,
       attachments: sentAttachments,
       runtime: turnRuntimeContext(),
-      runtimeContextClearCoordinator: runtimeContextClearCoordinator,
-      callbacks: turnCallbacks()
+      runtimeContextClearCoordinator: runtimeContextClearCoordinator
     )
     return true
   }
@@ -546,13 +559,7 @@ extension ChatSessionController {
   }
 
   private func cancelGeneration(notify: Bool) {
-    let didCancel = chatTurnCoordinator.cancelActiveTurn(
-      emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
-      turnDidFinish: { [weak self] _, mode in
-        self?.finishGeneratingTurn(contextRefreshMode: mode)
-      },
-      notifySessionDidChange: {}
-    )
+    let didCancel = cancelActiveTurn()
     if !didCancel {
       isGenerating = false
       flushPendingContextUsageRefresh(defaultMode: .disabled)
@@ -596,7 +603,7 @@ extension ChatSessionController {
   ) throws -> ModelContextDebugDocument {
     let transcript = modelContextBuilder.transcript(
       from: chatSession,
-      includingTurnID: chatTurnCoordinator.activeTurnID
+      includingTurnID: activeTurnID
     )
     return try ModelContextDebugRenderer.render(
       transcript: transcript,
@@ -612,7 +619,7 @@ extension ChatSessionController {
     contextUsage = nil
   }
 
-  private func updateRuntimeCacheDebugSnapshot(_ snapshot: RuntimeCacheDebugSnapshot?) {
+  func updateRuntimeCacheDebugSnapshot(_ snapshot: RuntimeCacheDebugSnapshot?) {
     let nextState = ModelContextDebugState(
       runtimeCacheDebugSnapshot: snapshot,
       documentRevision: modelContextDebugState.documentRevision
@@ -678,7 +685,7 @@ extension ChatSessionController {
   private func contextUsageSnapshot(toolPromptMode: ToolPromptMode = .disabled)
     -> ContextUsageSnapshot
   {
-    let turnID = chatTurnCoordinator.activeTurnID
+    let turnID = activeTurnID
     let contextBuildStartedAt = Date()
     let transcript = modelContextBuilder.transcript(
       from: chatSession,
@@ -743,7 +750,7 @@ extension ChatSessionController {
     }
   }
 
-  private func notifySessionDidChange() {
+  func notifySessionDidChange() {
     onSessionDidChange?()
   }
 
@@ -801,13 +808,12 @@ extension ChatSessionController {
 
     isGenerating = true
     errorMessage = nil
-    chatTurnCoordinator.approveToolCall(
+    approveToolCall(
       existingRecord,
       in: workspace,
       turnID: turnID,
       toolOrchestrator: toolOrchestrator(for: existingRecord),
-      runtime: turnRuntimeContext(),
-      callbacks: turnCallbacks()
+      runtime: turnRuntimeContext()
     )
   }
 
@@ -832,14 +838,13 @@ extension ChatSessionController {
 
     isGenerating = true
     errorMessage = nil
-    chatTurnCoordinator.approveToolCallBatch(
+    approveToolCallBatch(
       pendingRecords,
       batchAnchorID: batch.anchorID,
       in: workspace,
       turnID: turnID,
       toolOrchestrator: toolOrchestrator(for: firstRecord),
-      runtime: turnRuntimeContext(),
-      callbacks: turnCallbacks()
+      runtime: turnRuntimeContext()
     )
   }
 
@@ -861,15 +866,14 @@ extension ChatSessionController {
 
     isGenerating = true
     errorMessage = nil
-    chatTurnCoordinator.approveToolCallBatch(
+    approveToolCallBatch(
       batch.pendingApprovalRecords,
       batchAnchorID: batch.anchorID,
       in: workspace,
       turnID: turnID,
       toolOrchestrator: toolOrchestrator(for: firstRecord),
       approvalSource: .automatic,
-      runtime: turnRuntimeContext(),
-      callbacks: turnCallbacks()
+      runtime: turnRuntimeContext()
     )
   }
 
@@ -926,13 +930,12 @@ extension ChatSessionController {
 
     isGenerating = true
     errorMessage = nil
-    chatTurnCoordinator.answerAskUserToolCall(
+    answerAskUserToolCall(
       existingRecord,
       answer: answer,
       in: workspace,
       turnID: turnID,
-      runtime: turnRuntimeContext(),
-      callbacks: turnCallbacks()
+      runtime: turnRuntimeContext()
     )
   }
 
@@ -953,11 +956,10 @@ extension ChatSessionController {
 
     isGenerating = true
     errorMessage = nil
-    chatTurnCoordinator.denyToolCall(
+    denyToolCall(
       existingRecord,
       turnID: turnID,
-      runtime: turnRuntimeContext(),
-      callbacks: turnCallbacks()
+      runtime: turnRuntimeContext()
     )
   }
 
@@ -972,39 +974,19 @@ extension ChatSessionController {
     )
   }
 
-  private func turnCallbacks() -> ChatTurnCallbacks {
-    ChatTurnCallbacks(
-      session: { [weak self] in self?.chatSession ?? .defaultSession },
-      emitEvents: { [weak self] events in self?.applyWorkflowEvents(events) },
-      setActiveToolPromptMode: { [weak self] mode in
-        guard let self else {
-          return
-        }
-        guard self.activeModelContextDebugToolPromptMode != mode else {
-          return
-        }
-        self.activeModelContextDebugToolPromptMode = mode
-        self.invalidateModelContextDebugDocument()
-      },
-      updateRuntimeCacheDebugSnapshot: { [weak self] snapshot in
-        self?.updateRuntimeCacheDebugSnapshot(snapshot)
-      },
-      refreshContextUsage: { [weak self] mode in
-        self?.refreshContextUsage(toolPromptMode: mode)
-      },
-      setErrorMessage: { [weak self] message in
-        self?.errorMessage = message
-      },
-      turnDidFinish: { [weak self] _, mode in
-        self?.finishGeneratingTurn(contextRefreshMode: mode)
-      },
-      notifySessionDidChange: { [weak self] in
-        self?.notifySessionDidChange()
-      }
-    )
+  func setActiveToolPromptMode(_ mode: ToolPromptMode?) {
+    guard activeModelContextDebugToolPromptMode != mode else {
+      return
+    }
+    activeModelContextDebugToolPromptMode = mode
+    invalidateModelContextDebugDocument()
   }
 
-  private func applyWorkflowEvents(_ events: [ChatWorkflowEvent]) {
+  func setConversationErrorMessage(_ message: String) {
+    errorMessage = message
+  }
+
+  func applyWorkflowEvents(_ events: [ChatWorkflowEvent]) {
     let diagnostics = workflowEventApplier.apply(events, to: &chatSession)
     if events.contains(where: \.affectsModelContextDebugDocument) {
       invalidateModelContextDebugDocument()
@@ -1042,7 +1024,7 @@ extension ChatSessionController {
 
 extension ChatSessionController {
   fileprivate func systemPrompt(toolPromptMode: ToolPromptMode) -> String {
-    chatTurnCoordinator.systemPrompt(
+    turnExecutionCoordinator.systemPrompt(
       session: chatSession,
       selectedModel: conversationModelState.selectedModel,
       toolLoopCoordinator: toolLoopCoordinator,
@@ -1054,13 +1036,13 @@ extension ChatSessionController {
     workspace: Workspace?,
     sessionID: ChatSession.ID?
   ) -> ToolPromptMode {
-    if chatTurnCoordinator.activeTurnID != nil,
+    if activeTurnID != nil,
       let activeModelContextDebugToolPromptMode
     {
       return activeModelContextDebugToolPromptMode
     }
 
-    return chatTurnCoordinator.currentToolPromptMode(
+    return turnExecutionCoordinator.currentToolPromptMode(
       session: chatSession,
       workspace: workspace,
       sessionID: sessionID,

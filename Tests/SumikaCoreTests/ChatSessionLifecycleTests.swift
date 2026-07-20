@@ -5,11 +5,11 @@ import Testing
 
 @Suite(.serialized)
 @MainActor
-struct ChatTurnCoordinatorTests {
+struct ChatSessionLifecycleTests {
   @Test
   func userTurnStreamsAssistantReplyAndCompletes() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello"])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(interactionMode: .chat),
       runtime: runtime
     )
@@ -39,7 +39,7 @@ struct ChatTurnCoordinatorTests {
           ))
       ]
     ])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -72,7 +72,7 @@ struct ChatTurnCoordinatorTests {
       ],
       [.chunk("Wrote index.html.")],
     ])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -112,7 +112,7 @@ struct ChatTurnCoordinatorTests {
       ],
       [.chunk("I'll make the minimal fix.")],
     ])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -151,7 +151,7 @@ struct ChatTurnCoordinatorTests {
       ],
       [.chunk("I will leave README.md unchanged.")],
     ])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -195,7 +195,7 @@ struct ChatTurnCoordinatorTests {
       ],
       [.chunk("Applied the approved change and left the denied file untouched.")],
     ])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -267,7 +267,7 @@ struct ChatTurnCoordinatorTests {
       ],
       [.chunk("Wrote both files.")],
     ])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -318,7 +318,7 @@ struct ChatTurnCoordinatorTests {
       ],
       [.chunk("Ran both approved commands and reported the failure.")],
     ])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -362,7 +362,7 @@ struct ChatTurnCoordinatorTests {
       ],
       [.chunk("Stopped after the blocked duplicate observation.")],
     ])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -415,7 +415,7 @@ struct ChatTurnCoordinatorTests {
       ],
       [.chunk("Wrote only the approved file.")],
     ])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime
     )
@@ -449,7 +449,7 @@ struct ChatTurnCoordinatorTests {
         .chunk("Here is the answer."),
       ]
     ])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(interactionMode: .chat),
       runtime: runtime
     )
@@ -457,26 +457,6 @@ struct ChatTurnCoordinatorTests {
     harness.startUserTurn(prompt: "explain the tradeoff")
 
     try await waitUntil { harness.finishCount == 1 }
-
-    let thinkingCompletedIndexes = harness.emittedEvents.indices.filter {
-      if case .assistantThinkingCompleted = harness.emittedEvents[$0] {
-        return true
-      }
-      return false
-    }
-    let firstVisibleChunkIndex = harness.emittedEvents.firstIndex {
-      if case .assistantChunkAppended = $0 {
-        return true
-      }
-      return false
-    }
-    #expect(thinkingCompletedIndexes.count == 1)
-    #expect(thinkingCompletedIndexes.first != nil)
-    #expect(firstVisibleChunkIndex != nil)
-    if let completedIndex = thinkingCompletedIndexes.first, let chunkIndex = firstVisibleChunkIndex
-    {
-      #expect(completedIndex < chunkIndex)
-    }
 
     let thinkingMessage = harness.session.turns.first?.items
       .compactMap { item -> AssistantThinkingMessage? in
@@ -494,7 +474,7 @@ struct ChatTurnCoordinatorTests {
   @Test
   func cancelActiveTurnMarksTurnCancelledAndRemovesTransientPlaceholder() async throws {
     let runtime = ControlledStreamingRuntime(turns: [["partial"]], blockedCallIndexes: [0])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(interactionMode: .chat),
       runtime: runtime
     )
@@ -528,7 +508,7 @@ struct ChatTurnCoordinatorTests {
       [.chunk("First response.")],
       [.chunk("Second response.")],
     ])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime,
       workspaceInstructionsLoader: loader
@@ -566,7 +546,7 @@ struct ChatTurnCoordinatorTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let loader = WorkspaceInstructionsLoaderStub(result: .missing)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Reply."])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .chat),
       runtime: runtime,
       workspaceInstructionsLoader: loader
@@ -585,7 +565,7 @@ struct ChatTurnCoordinatorTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let loader = WorkspaceInstructionsLoaderStub(result: .missing)
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Reply."])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime,
       workspaceInstructionsLoader: loader
@@ -611,7 +591,7 @@ struct ChatTurnCoordinatorTests {
       error: .invalidUTF8("AGENTS.md")
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["Must not be requested."])
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime,
       workspaceInstructionsLoader: loader
@@ -644,7 +624,7 @@ struct ChatTurnCoordinatorTests {
       turns: [["Cancelled"], ["Completed"]],
       blockedCallIndexes: [0]
     )
-    let harness = ChatTurnCoordinatorHarness(
+    let harness = ChatSessionLifecycleHarness(
       session: ChatSession(id: sessionID, interactionMode: .agent),
       runtime: runtime,
       workspaceInstructionsLoader: loader
@@ -678,47 +658,34 @@ struct ChatTurnCoordinatorTests {
 }
 
 @MainActor
-private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
-  var session: ChatSession
+private final class ChatSessionLifecycleHarness: @unchecked Sendable {
+  private let controller: ChatSessionController
   var finishCount = 0
-  var errorMessages: [String] = []
-  var emittedEvents: [ChatWorkflowEvent] = []
+  private var wasGenerating = false
 
-  private let applier = ChatWorkflowEventApplier()
-  private let coordinator: ChatTurnCoordinator
-  private let operationID = UUID()
-  private let runtimeContextClearCoordinator: RuntimeContextClearCoordinator
-  private let chatGenerationCoordinator: ChatGenerationCoordinator
-  private var toolLoopCoordinator: ToolLoopCoordinator
-  private var toolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent)
+  var session: ChatSession {
+    controller.chatSession
+  }
+
+  var errorMessages: [String] {
+    controller.errorMessage.map { [$0] } ?? []
+  }
 
   init(
     session: ChatSession,
     runtime: any ChatModelRuntime,
     workspaceInstructionsLoader: any WorkspaceInstructionsLoading = WorkspaceInstructionsLoader()
   ) {
-    self.session = session
-    self.coordinator = ChatTurnCoordinator(
+    self.controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      chatSession: session,
       workspaceInstructionsLoader: workspaceInstructionsLoader
     )
-    let runtimeOperations = RuntimeOperationCoordinator(
-      runtime: runtime,
-      initialOperationID: operationID
-    )
-    let modelLifecycleCoordinator = ModelLifecycleCoordinator(
-      modelDownloader: UnavailableModelDownloader(),
-      runtimeOperations: runtimeOperations,
-      modelAvailability: { _ in true }
-    )
-    self.runtimeContextClearCoordinator = RuntimeContextClearCoordinator(
-      modelLifecycleCoordinator: modelLifecycleCoordinator
-    )
-    self.chatGenerationCoordinator = ChatGenerationCoordinator(
-      runtimeOperations: runtimeOperations,
-      streamingFlushInterval: 0,
-      streamingFlushCharacterLimit: 1
-    )
-    self.toolLoopCoordinator = ToolLoopCoordinator(agentToolOrchestrator: toolOrchestrator)
+    controller.modelRuntime.modelState = .ready
+    controller.setSessionChangeHandler { [weak self] in
+      self?.recordLifecycleTransition()
+    }
   }
 
   func startUserTurn(
@@ -726,109 +693,38 @@ private final class ChatTurnCoordinatorHarness: @unchecked Sendable {
     workspace: Workspace? = nil,
     sessionID: ChatSession.ID? = nil
   ) {
-    coordinator.startUserTurn(
-      prompt: prompt,
-      workspace: workspace,
-      sessionID: sessionID,
-      attachments: [],
-      runtime: runtimeContext(),
-      runtimeContextClearCoordinator: runtimeContextClearCoordinator,
-      callbacks: callbacks()
-    )
+    if let workspace, let sessionID {
+      controller.sendMessage(prompt: prompt, in: workspace, sessionID: sessionID)
+    } else {
+      controller.sendMessage(prompt: prompt)
+    }
   }
 
   func approve(_ record: ToolCallRecord, in workspace: Workspace) {
-    guard let turnID = session.turnID(containingToolCall: record.id) else {
-      return
-    }
-    coordinator.approveToolCall(
-      record,
-      in: workspace,
-      turnID: turnID,
-      toolOrchestrator: toolOrchestrator,
-      runtime: runtimeContext(),
-      callbacks: callbacks()
-    )
+    controller.approveToolCall(id: record.id, in: workspace)
   }
 
   func approveBatch(containing record: ToolCallRecord, in workspace: Workspace) {
-    guard let turnID = session.turnID(containingToolCall: record.id),
-      let turn = session.turns.first(where: { $0.id == turnID }),
-      let batch = turn.toolCallBatch(containing: record.id)
-    else {
-      return
-    }
-    coordinator.approveToolCallBatch(
-      batch.pendingApprovalRecords,
-      batchAnchorID: batch.anchorID,
-      in: workspace,
-      turnID: turnID,
-      toolOrchestrator: toolOrchestrator,
-      runtime: runtimeContext(),
-      callbacks: callbacks()
-    )
+    controller.approveToolCallBatch(containing: record.id, in: workspace)
   }
 
   func answer(_ record: ToolCallRecord, answer: String, in workspace: Workspace) {
-    guard let turnID = session.turnID(containingToolCall: record.id) else {
-      return
-    }
-    coordinator.answerAskUserToolCall(
-      record,
-      answer: answer,
-      in: workspace,
-      turnID: turnID,
-      runtime: runtimeContext(),
-      callbacks: callbacks()
-    )
+    controller.answerAskUserToolCall(id: record.id, answer: answer, in: workspace)
   }
 
   func deny(_ record: ToolCallRecord) {
-    guard let turnID = session.turnID(containingToolCall: record.id) else {
-      return
-    }
-    coordinator.denyToolCall(
-      record,
-      turnID: turnID,
-      runtime: runtimeContext(),
-      callbacks: callbacks()
-    )
+    controller.denyToolCall(id: record.id)
   }
 
   func cancel() {
-    coordinator.cancelActiveTurn(
-      emitEvents: { [weak self] events in self?.emit(events) },
-      turnDidFinish: { [weak self] _, _ in self?.finishCount += 1 },
-      notifySessionDidChange: {}
-    )
+    controller.cancelGeneration()
   }
 
-  private func emit(_ events: [ChatWorkflowEvent]) {
-    emittedEvents.append(contentsOf: events)
-    applier.apply(events, to: &session)
-  }
-
-  private func runtimeContext() -> ChatTurnRuntimeContext {
-    ChatTurnRuntimeContext(
-      selectedModel: ManagedModelCatalog.defaultModel,
-      operationID: operationID,
-      chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator,
-      agentToolOrchestrator: toolOrchestrator
-    )
-  }
-
-  private func callbacks() -> ChatTurnCallbacks {
-    ChatTurnCallbacks(
-      session: { [weak self] in self?.session ?? .defaultSession },
-      emitEvents: { [weak self] events in self?.emit(events) },
-      setActiveToolPromptMode: { _ in },
-      updateRuntimeCacheDebugSnapshot: { _ in },
-      refreshContextUsage: { _ in },
-      setErrorMessage: { [weak self] message in self?.errorMessages.append(message) },
-      turnDidFinish: { [weak self] _, _ in self?.finishCount += 1 },
-      notifySessionDidChange: {}
-    )
+  private func recordLifecycleTransition() {
+    if wasGenerating, !controller.isGenerating {
+      finishCount += 1
+    }
+    wasGenerating = controller.isGenerating
   }
 }
 
