@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol MCPServersStoring: Sendable {
+package protocol MCPServersStoring: Sendable {
   func servers() async -> [MCPServerConfig]
   func save(servers: [MCPServerConfig]) async throws
 }
@@ -9,7 +9,7 @@ private enum MCPServersFileCodingKeys: String, CodingKey {
   case servers
 }
 
-public actor MCPServersStore: MCPServersStoring {
+package actor MCPServersStore: MCPServersStoring {
   private struct ServersFile: Codable {
     var servers: [MCPServerConfig]
 
@@ -25,7 +25,7 @@ public actor MCPServersStore: MCPServersStoring {
 
   private let settingsURL: URL
 
-  public init(
+  package init(
     settingsURL: URL = LocalModelDirectory.defaultBaseURL
       .deletingLastPathComponent()
       .appending(path: "mcp-servers.json", directoryHint: .notDirectory)
@@ -33,11 +33,11 @@ public actor MCPServersStore: MCPServersStoring {
     self.settingsURL = settingsURL
   }
 
-  public func servers() async -> [MCPServerConfig] {
+  package func servers() async -> [MCPServerConfig] {
     readServersFile().servers
   }
 
-  public func save(servers: [MCPServerConfig]) async throws {
+  package func save(servers: [MCPServerConfig]) async throws {
     try FileManager.default.createDirectory(
       at: settingsURL.deletingLastPathComponent(),
       withIntermediateDirectories: true

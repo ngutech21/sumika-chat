@@ -1,6 +1,6 @@
 import Foundation
 
-public enum MCPServerTransportConfiguration: Codable, Equatable, Sendable {
+package enum MCPServerTransportConfiguration: Codable, Equatable, Sendable {
   case stdio(
     command: String,
     arguments: [String],
@@ -21,7 +21,7 @@ public enum MCPServerTransportConfiguration: Codable, Equatable, Sendable {
     case endpoint
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(TransportType.self, forKey: .type) {
     case .stdio:
@@ -37,7 +37,7 @@ public enum MCPServerTransportConfiguration: Codable, Equatable, Sendable {
     }
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     switch self {
     case .stdio(let command, let arguments, let environment):
@@ -52,7 +52,7 @@ public enum MCPServerTransportConfiguration: Codable, Equatable, Sendable {
     }
   }
 
-  public static func validateStreamableHTTPEndpoint(_ endpoint: URL) throws {
+  package static func validateStreamableHTTPEndpoint(_ endpoint: URL) throws {
     guard endpoint.user == nil, endpoint.password == nil else {
       throw MCPServerEndpointError.embeddedCredentials
     }
@@ -75,7 +75,7 @@ public enum MCPServerTransportConfiguration: Codable, Equatable, Sendable {
     }
   }
 
-  public static func isLoopbackEndpoint(_ endpoint: URL) -> Bool {
+  package static func isLoopbackEndpoint(_ endpoint: URL) -> Bool {
     endpoint.scheme?.lowercased() == "http"
       && endpoint.host.map(isLoopbackHost) == true
   }
@@ -99,14 +99,14 @@ public enum MCPServerTransportConfiguration: Codable, Equatable, Sendable {
   }
 }
 
-public enum MCPServerEndpointError: LocalizedError, Equatable, Sendable {
+package enum MCPServerEndpointError: LocalizedError, Equatable, Sendable {
   case invalidURL
   case unsupportedScheme
   case insecureRemoteHTTP
   case embeddedCredentials
   case fragmentNotAllowed
 
-  public var errorDescription: String? {
+  package var errorDescription: String? {
     switch self {
     case .invalidURL:
       return "Enter an absolute MCP endpoint URL with a host."
@@ -123,13 +123,13 @@ public enum MCPServerEndpointError: LocalizedError, Equatable, Sendable {
 }
 
 /// User-configured external MCP server using stdio or Streamable HTTP.
-public struct MCPServerConfig: Codable, Identifiable, Equatable, Sendable {
-  public var id: UUID
-  public var name: String
-  public var transport: MCPServerTransportConfiguration
-  public var isEnabled: Bool
+package struct MCPServerConfig: Codable, Identifiable, Equatable, Sendable {
+  package var id: UUID
+  package var name: String
+  package var transport: MCPServerTransportConfiguration
+  package var isEnabled: Bool
 
-  public init(
+  package init(
     id: UUID = UUID(),
     name: String,
     transport: MCPServerTransportConfiguration,
@@ -142,7 +142,7 @@ public struct MCPServerConfig: Codable, Identifiable, Equatable, Sendable {
   }
 
   /// Convenience initializer for local stdio servers.
-  public init(
+  package init(
     id: UUID = UUID(),
     name: String,
     command: String,
@@ -168,7 +168,7 @@ public struct MCPServerConfig: Codable, Identifiable, Equatable, Sendable {
   /// back to `server` for names without alphanumeric characters. Uniqueness
   /// across configured servers is enforced where tool names are composed, not
   /// here.
-  public var slug: String {
+  package var slug: String {
     var result = ""
     var previousWasSeparator = true
     for character in name.lowercased() {

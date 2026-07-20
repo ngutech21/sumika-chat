@@ -5,16 +5,12 @@ import Foundation
 /// Qualified model-facing names for MCP tools: `mcp__<server-slug>__<tool>`.
 /// The prefix keeps external tools collision-free against built-in tool names
 /// and lets boundaries recognize MCP calls without a registry lookup.
-public enum MCPToolNaming {
-  public static let prefix = "mcp__"
+enum MCPToolNaming {
+  static let prefix = "mcp__"
   private static let separator = "__"
 
-  public static func qualifiedName(serverSlug: String, remoteToolName: String) -> ToolName {
+  static func qualifiedName(serverSlug: String, remoteToolName: String) -> ToolName {
     ToolName(rawValue: prefix + serverSlug + separator + remoteToolName)
-  }
-
-  public static func isQualified(_ name: ToolName) -> Bool {
-    name.rawValue.hasPrefix(prefix)
   }
 }
 
@@ -110,12 +106,12 @@ nonisolated extension MCPToolResult {
 // MARK: - Remote tool descriptor
 
 /// One tool as listed by a connected MCP server (`tools/list`).
-public struct MCPRemoteTool: Codable, Equatable, Sendable {
-  public var name: String
-  public var description: String
-  public var inputSchema: ToolArgumentValue?
+struct MCPRemoteTool: Codable, Equatable, Sendable {
+  var name: String
+  var description: String
+  var inputSchema: ToolArgumentValue?
 
-  public init(name: String, description: String, inputSchema: ToolArgumentValue? = nil) {
+  init(name: String, description: String, inputSchema: ToolArgumentValue? = nil) {
     self.name = name
     self.description = description
     self.inputSchema = inputSchema
@@ -124,7 +120,7 @@ public struct MCPRemoteTool: Codable, Equatable, Sendable {
 
 // MARK: - Client boundary
 
-public protocol MCPToolCalling: Sendable {
+protocol MCPToolCalling: Sendable {
   func callTool(
     serverID: UUID,
     connectionToken: UUID,

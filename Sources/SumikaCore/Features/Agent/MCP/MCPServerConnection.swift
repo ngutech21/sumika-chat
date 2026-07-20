@@ -5,7 +5,7 @@ import MCP
   import Darwin
 #endif
 
-public enum MCPClientError: LocalizedError, Equatable {
+enum MCPClientError: LocalizedError, Equatable {
   case notConnected
   case staleConnection
   case serverExited(detail: String?)
@@ -13,7 +13,7 @@ public enum MCPClientError: LocalizedError, Equatable {
   case protocolError(String)
   case serverError(code: Int, message: String)
 
-  public var errorDescription: String? {
+  var errorDescription: String? {
     switch self {
     case .notConnected:
       return "The MCP server is not connected."
@@ -38,7 +38,7 @@ public enum MCPClientError: LocalizedError, Equatable {
 ///
 /// Sumika owns stdio child processes and transport selection. The MCP SDK owns
 /// framing, JSON-RPC, lifecycle negotiation, roots dispatch, and typed requests.
-public actor MCPServerConnection {
+actor MCPServerConnection {
   typealias HTTPTransportFactory = @Sendable (URL) -> any Transport
 
   private enum Timeouts {
@@ -68,7 +68,7 @@ public actor MCPServerConnection {
   private var exitError: MCPClientError?
   private var isShuttingDown = false
 
-  public init(
+  init(
     config: MCPServerConfig,
     workspaceRootURL: URL,
     baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
@@ -109,7 +109,7 @@ public actor MCPServerConnection {
 
   /// Creates the configured transport, performs SDK-managed initialization,
   /// and returns the server's tools.
-  public func start() async throws -> [MCPRemoteTool] {
+  func start() async throws -> [MCPRemoteTool] {
     guard process == nil, client == nil else {
       throw MCPClientError.protocolError("Connection was already started.")
     }
@@ -152,7 +152,7 @@ public actor MCPServerConnection {
     }
   }
 
-  public func shutdown() async {
+  func shutdown() async {
     isShuttingDown = true
     let process = process
     let client = client
@@ -171,7 +171,7 @@ public actor MCPServerConnection {
 
   // MARK: - Requests
 
-  public func callTool(name: String, arguments: ToolCallArguments) async throws -> MCPToolResult {
+  func callTool(name: String, arguments: ToolCallArguments) async throws -> MCPToolResult {
     if let exitError {
       throw exitError
     }

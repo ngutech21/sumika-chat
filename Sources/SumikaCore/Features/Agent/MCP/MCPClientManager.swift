@@ -1,22 +1,20 @@
 import Foundation
 
-public struct MCPServerStatus: Equatable, Sendable, Identifiable {
-  public enum State: Equatable, Sendable {
+package struct MCPServerStatus: Equatable, Sendable, Identifiable {
+  package enum State: Equatable, Sendable {
     case disconnected
     case connecting
     case connected(toolCount: Int)
     case failed(message: String)
   }
 
-  public var id: UUID { serverID }
+  package var id: UUID { serverID }
 
-  public var serverID: UUID
-  public var serverName: String
-  public var state: State
+  package var serverID: UUID
+  package var state: State
 
-  public init(serverID: UUID, serverName: String, state: State) {
+  package init(serverID: UUID, state: State) {
     self.serverID = serverID
-    self.serverName = serverName
     self.state = state
   }
 }
@@ -49,7 +47,7 @@ extension MCPClientError {
 /// Loading configuration alone never starts connections. The manager reconciles
 /// explicit session/workspace scope and never reconnects a crashed server on
 /// its own.
-public actor MCPClientManager: MCPToolCalling {
+package actor MCPClientManager: MCPToolCalling {
   private struct ActiveServer {
     var config: MCPServerConfig
     var slug: String
@@ -75,10 +73,14 @@ public actor MCPClientManager: MCPToolCalling {
   private var activeScope: ActiveScope?
   private var selectedServerIDs: Set<UUID> = []
 
-  public init(
-    makeConnection: @escaping @Sendable (MCPServerConfig, URL) -> MCPServerConnection = {
+  package init() {
+    self.makeConnection = {
       MCPServerConnection(config: $0, workspaceRootURL: $1)
     }
+  }
+
+  init(
+    makeConnection: @escaping @Sendable (MCPServerConfig, URL) -> MCPServerConnection
   ) {
     self.makeConnection = makeConnection
   }
@@ -86,7 +88,7 @@ public actor MCPClientManager: MCPToolCalling {
   // MARK: - Configuration lifecycle
 
   /// Stores configuration without activating any server process.
-  public func applyConfiguration(_ configs: [MCPServerConfig]) async {
+  package func applyConfiguration(_ configs: [MCPServerConfig]) async {
     await reconcile(
       configs: configs,
       activeSessionID: nil,
@@ -96,7 +98,7 @@ public actor MCPClientManager: MCPToolCalling {
   }
 
   /// Reconciles configured servers with the one active Agent session.
-  public func reconcile(
+  package func reconcile(
     configs: [MCPServerConfig],
     activeSessionID: ChatSession.ID?,
     selectedServerIDs: [UUID],
@@ -172,7 +174,7 @@ public actor MCPClientManager: MCPToolCalling {
     }
   }
 
-  public func reconnect(serverID: UUID) async {
+  package func reconnect(serverID: UUID) async {
     guard let server = servers[serverID], server.config.isEnabled, server.isDesired else {
       return
     }
@@ -184,7 +186,7 @@ public actor MCPClientManager: MCPToolCalling {
     await connect(serverID: serverID)
   }
 
-  public func shutdownAll() async {
+  package func shutdownAll() async {
     for server in servers.values {
       await server.connection?.shutdown()
     }
@@ -200,7 +202,7 @@ public actor MCPClientManager: MCPToolCalling {
   }
 
   /// Starts an isolated connection for Settings, lists tools, then always stops it.
-  public func testConnection(
+  package func testConnection(
     config: MCPServerConfig,
     workspaceRootURL: URL
   ) async throws -> Int {
@@ -217,10 +219,10 @@ public actor MCPClientManager: MCPToolCalling {
 
   // MARK: - Projections
 
-  public func statuses() -> [MCPServerStatus] {
+  package func statuses() -> [MCPServerStatus] {
     serverOrder.compactMap { id in
       servers[id].map {
-        MCPServerStatus(serverID: id, serverName: $0.config.name, state: $0.state)
+        MCPServerStatus(serverID: id, state: $0.state)
       }
     }
   }
@@ -261,7 +263,7 @@ public actor MCPClientManager: MCPToolCalling {
 
   // MARK: - MCPToolCalling
 
-  public func callTool(
+  func callTool(
     serverID: UUID,
     connectionToken: UUID,
     name: String,

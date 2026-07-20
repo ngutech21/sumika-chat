@@ -1,6 +1,7 @@
 import Darwin
-import SumikaCore
 import XCTest
+
+@testable import SumikaCore
 
 final class SumikaUITests: XCTestCase {
   private let modelID = "gemma4-12b-qat-4bit"
