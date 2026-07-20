@@ -17,10 +17,10 @@ struct ChatTranscriptHost: View {
     #endif
 
     ChatTranscript(
-      turns: controller.chatSession.turns,
+      turns: controller.turns,
       modelState: modelState,
       isGenerating: controller.isGenerating,
-      toolApprovalPolicy: controller.chatSession.toolApprovalPolicy,
+      toolApprovalPolicy: controller.composerSessionState.toolApprovalPolicy,
       appBehaviorSettings: appBehaviorSettings,
       assistantSpeechService: assistantSpeechService,
       bottomContentInset: bottomContentInset,
@@ -47,6 +47,6 @@ struct ChatTranscriptHost: View {
   }
 
   private var toolWorkspace: Workspace {
-    context.workspace(containing: sessionID ?? controller.chatSession.id)
+    context.workspace(containing: sessionID ?? controller.sessionID)
   }
 }

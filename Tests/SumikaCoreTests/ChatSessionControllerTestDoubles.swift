@@ -83,13 +83,14 @@ extension ChatSessionController {
       ModelLifecycleCoordinator.defaultModelAvailability,
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
-    turnTracer: any TurnTracing = NoopTurnTracer()
+    turnTracer: any TurnTracing = NoopTurnTracer(),
+    chatSession: ChatSession = ChatSession()
   ) {
     self.init(
-      testSelectedModelID: ManagedModelCatalog.defaultModelID,
+      testSelectedModelID: chatSession.selectedModelID,
       modelPath: modelPath,
       modelContextTokenLimit: ManagedModelCatalog.defaultModel.defaultContextTokenLimit,
-      chatSession: .defaultSession,
+      chatSession: chatSession,
       modelSettingsStore: modelSettingsStore,
       modelDownloader: modelDownloader,
       runtime: runtime,

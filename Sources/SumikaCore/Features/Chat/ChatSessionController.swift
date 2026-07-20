@@ -8,7 +8,7 @@ import Observation
 @MainActor
 @Observable
 package final class ChatSessionController {
-  package var chatSession = ChatSession.defaultSession {
+  private(set) var chatSession = ChatSession.defaultSession {
     didSet {
       syncComposerSessionState()
     }
@@ -181,6 +181,14 @@ extension ChatSessionController {
 
   package func setSessionChangeHandler(_ handler: (@MainActor @Sendable () -> Void)?) {
     onSessionDidChange = handler
+  }
+
+  package var sessionID: ChatSession.ID {
+    chatSession.id
+  }
+
+  package var turns: [ChatTurn] {
+    chatSession.turns
   }
 
   package var modeSettings: ChatModeSettingsSet {

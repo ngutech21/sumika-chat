@@ -92,7 +92,7 @@ struct WorkspaceChatComposerHost: View {
   }
 
   private var toolWorkspace: Workspace {
-    context.workspace(containing: sessionID ?? controller.chatSession.id)
+    context.workspace(containing: sessionID ?? controller.sessionID)
   }
 
   private var presentedErrorMessage: String? {

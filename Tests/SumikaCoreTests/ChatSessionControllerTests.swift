@@ -43,17 +43,17 @@ struct ChatSessionControllerTests {
 
   @Test
   func canSendIgnoresPendingToolInteractions() {
-    let controller = ChatSessionController(
-      runtime: ChatSessionFakeChatModelRuntime(),
-      modelPath: "/tmp/model"
-    )
     let approvalRecord = makeToolCallRecord(status: .awaitingApproval)
     let askUserRecord = makeToolCallRecord(status: .awaitingUserAnswer)
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      chatSession: ChatSession(turns: [
+        ChatTurn(status: .awaitingApproval, items: [.tool(approvalRecord)]),
+        ChatTurn(status: .awaitingUserAnswer, items: [.tool(askUserRecord)]),
+      ])
+    )
     controller.modelRuntime.modelState = .ready
-    controller.chatSession.turns = [
-      ChatTurn(status: .awaitingApproval, items: [.tool(approvalRecord)]),
-      ChatTurn(status: .awaitingUserAnswer, items: [.tool(askUserRecord)]),
-    ]
 
     #expect(controller.hasPendingApproval)
     #expect(controller.hasPendingUserAnswer)
@@ -63,16 +63,22 @@ struct ChatSessionControllerTests {
   @Test
   func interruptingPendingInteractionAppliesQueuedAgentToolRegistry() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["new answer"])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     let selectedServerID = UUID()
     let approvalRecord = makeToolCallRecord(status: .awaitingApproval)
-    let sessionID = controller.chatSession.id
+    let sessionID = UUID()
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      chatSession: ChatSession(
+        id: sessionID,
+        turns: [
+          ChatTurn(status: .awaitingApproval, items: [.tool(approvalRecord)])
+        ],
+        interactionMode: .agent
+      )
+    )
     let workspace = try makeWorkspace(sessionID: sessionID)
     controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
-    controller.chatSession.turns = [
-      ChatTurn(status: .awaitingApproval, items: [.tool(approvalRecord)])
-    ]
 
     controller.reconcileSelectedMCPServerIDs(
       [selectedServerID],
@@ -100,40 +106,45 @@ struct ChatSessionControllerTests {
   func composerSessionStateIgnoresTranscriptOnlyChanges() {
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
-      modelPath: "/tmp/model"
+      modelPath: "/tmp/model",
+      chatSession: ChatSession(
+        turns: [
+          ChatTurn(
+            status: .completed,
+            items: [.userMessage(UserTurnMessage(content: "transcript-only change"))]
+          )
+        ],
+        interactionMode: .agent
+      )
     )
-    controller.chatSession.pendingAttachments = [makeAttachment(name: "notes.swift")]
-    controller.chatSession.interactionMode = .agent
     let originalState = controller.composerSessionState
 
-    controller.chatSession.turns.append(
-      ChatTurn(
-        status: .completed,
-        items: [.userMessage(UserTurnMessage(content: "transcript-only change"))]
-      ))
+    controller.clearChatHistory()
 
     #expect(controller.composerSessionState == originalState)
   }
 
   @Test
-  func composerSessionStateTracksComposerRelevantSessionFields() {
-    let controller = ChatSessionController(
-      runtime: ChatSessionFakeChatModelRuntime(),
-      modelPath: "/tmp/model"
-    )
+  func composerSessionStateTracksComposerRelevantSessionFields() throws {
     let attachment = makeAttachment(name: "screenshot.png", kind: .image)
     let todoState = TodoState(items: [
       TodoItem(id: "1", content: "Inspect files", status: .completed),
       TodoItem(id: "2", content: "Run tests", status: .pending),
     ])
     let mcpServerID = UUID()
-
-    controller.chatSession.pendingAttachments = [attachment]
-    controller.chatSession.activeAttachmentContext = ActiveAttachmentContext(
-      attachmentIDs: [attachment.id]
+    let controller = ChatSessionController(
+      runtime: ChatSessionFakeChatModelRuntime(),
+      modelPath: "/tmp/model",
+      chatSession: ChatSession(
+        pendingAttachments: [attachment],
+        interactionMode: .chat,
+        selectedMCPServerIDs: [mcpServerID],
+        todoState: todoState,
+        activeAttachmentContext: ActiveAttachmentContext(
+          attachmentIDs: [attachment.id]
+        )
+      )
     )
-    controller.chatSession.todoState = todoState
-    controller.chatSession.setSelectedMCPServerIDs([mcpServerID])
 
     #expect(controller.composerSessionState.pendingAttachments == [attachment])
     #expect(controller.composerSessionState.activeAttachments == [attachment])
@@ -142,8 +153,10 @@ struct ChatSessionControllerTests {
     #expect(controller.composerSessionState.selectedMCPServerIDs == [mcpServerID])
     #expect(controller.composerSessionState.todoState == nil)
 
-    controller.chatSession.interactionMode = .agent
-    controller.chatSession.toolApprovalPolicy = .automatic
+    controller.setInteractionMode(.agent)
+    controller.enableAutomaticToolApproval(
+      in: try makeWorkspace(sessionID: controller.sessionID)
+    )
 
     #expect(controller.composerSessionState.interactionMode == .agent)
     #expect(controller.composerSessionState.toolApprovalPolicy == .automatic)
@@ -237,12 +250,20 @@ struct ChatSessionControllerTests {
     ])
     let persisted = ChatSession(interactionMode: .agent, todoState: staleTodoState)
 
-    controller.loadSession(persisted)
-    controller.chatSession.todoState = liveTodoState
+    controller.loadSession(
+      ChatSession(
+        id: persisted.id,
+        interactionMode: .agent,
+        todoState: liveTodoState
+      ))
 
     #expect(controller.sessionSnapshot(updating: persisted).todoState == liveTodoState)
 
-    controller.chatSession.todoState = nil
+    controller.loadSession(
+      ChatSession(
+        id: persisted.id,
+        interactionMode: .agent
+      ))
 
     #expect(controller.sessionSnapshot(updating: persisted).todoState == nil)
   }
@@ -291,15 +312,18 @@ struct ChatSessionControllerTests {
   @Test
   func selectModelPreservesTranscriptAndClearsRuntimeContext() async throws {
     let runtime = CountingClearContextRuntime()
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     let originalTurn = ChatTurn(
       status: .completed,
       items: [.userMessage(UserTurnMessage(content: "old session"))]
     )
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      chatSession: ChatSession(turns: [originalTurn])
+    )
     let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
     controller.modelRuntime.modelState = .ready
     controller.modelRuntime.selectedModelID = "gemma4-26b-qat-4bit"
-    controller.chatSession.turns = [originalTurn]
     controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
 
     controller.modelRuntime.selectModel(targetModel)
@@ -349,20 +373,30 @@ struct ChatSessionControllerTests {
     #expect(controller.chatSession.toolApprovalPolicy == .manual)
     #expect(controller.canEnableAutomaticToolApproval)
 
-    controller.chatSession.turns = [
-      ChatTurn(
-        status: .awaitingApproval,
-        items: [.tool(makeToolCallRecord(status: .awaitingApproval))]
-      )
-    ]
+    controller.loadSession(
+      ChatSession(
+        id: controller.sessionID,
+        turns: [
+          ChatTurn(
+            status: .awaitingApproval,
+            items: [.tool(makeToolCallRecord(status: .awaitingApproval))]
+          )
+        ],
+        interactionMode: .agent
+      ))
     #expect(controller.canEnableAutomaticToolApproval)
 
-    controller.chatSession.turns = [
-      ChatTurn(
-        status: .awaitingUserAnswer,
-        items: [.tool(makeToolCallRecord(status: .awaitingUserAnswer))]
-      )
-    ]
+    controller.loadSession(
+      ChatSession(
+        id: controller.sessionID,
+        turns: [
+          ChatTurn(
+            status: .awaitingUserAnswer,
+            items: [.tool(makeToolCallRecord(status: .awaitingUserAnswer))]
+          )
+        ],
+        interactionMode: .agent
+      ))
     #expect(!controller.canEnableAutomaticToolApproval)
   }
 
@@ -419,14 +453,16 @@ struct ChatSessionControllerTests {
     ])
     let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
     controller.modelRuntime.modelState = .ready
-    controller.chatSession.modeSettings = ChatModeSettingsSet(
-      chat: ChatModeSettings(
-        systemPrompt: "Chat mode prompt",
-        generationSettings: chatSettings
-      ),
-      agent: ChatModeSettings(
-        systemPrompt: "Agent mode prompt",
-        generationSettings: agentSettings
+    controller.updateModeSettings(
+      ChatModeSettingsSet(
+        chat: ChatModeSettings(
+          systemPrompt: "Chat mode prompt",
+          generationSettings: chatSettings
+        ),
+        agent: ChatModeSettings(
+          systemPrompt: "Agent mode prompt",
+          generationSettings: agentSettings
+        )
       )
     )
 
@@ -451,32 +487,32 @@ struct ChatSessionControllerTests {
   func setReasoningEnabledMutatesOnlyActiveModeSettings() {
     let controller = ChatSessionController(
       runtime: ChatSessionFakeChatModelRuntime(),
-      modelPath: "/tmp/model"
-    )
-    controller.chatSession = ChatSession(
-      modeSettings: ChatModeSettingsSet(
-        chat: ChatModeSettings(
-          systemPrompt: "Chat mode prompt",
-          generationSettings: ChatGenerationSettings(
-            temperature: 1,
-            topP: 1,
-            topK: 0,
-            maxTokens: 256,
-            reasoningEnabled: true
+      modelPath: "/tmp/model",
+      chatSession: ChatSession(
+        modeSettings: ChatModeSettingsSet(
+          chat: ChatModeSettings(
+            systemPrompt: "Chat mode prompt",
+            generationSettings: ChatGenerationSettings(
+              temperature: 1,
+              topP: 1,
+              topK: 0,
+              maxTokens: 256,
+              reasoningEnabled: true
+            )
+          ),
+          agent: ChatModeSettings(
+            systemPrompt: "Agent mode prompt",
+            generationSettings: ChatGenerationSettings(
+              temperature: 0,
+              topP: 1,
+              topK: 0,
+              maxTokens: 256,
+              reasoningEnabled: true
+            )
           )
         ),
-        agent: ChatModeSettings(
-          systemPrompt: "Agent mode prompt",
-          generationSettings: ChatGenerationSettings(
-            temperature: 0,
-            topP: 1,
-            topK: 0,
-            maxTokens: 256,
-            reasoningEnabled: true
-          )
-        )
-      ),
-      interactionMode: .chat
+        interactionMode: .chat
+      )
     )
 
     controller.setReasoningEnabled(false)
@@ -557,9 +593,14 @@ struct ChatSessionControllerTests {
   @Test
   func sendMessageAllowsExperimentalGemma4PersistedToolMode() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["native mode response"])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.loadSession(ChatSession(selectedModelID: "gemma4-12b-qat-4bit"))
-    controller.chatSession.interactionMode = .agent
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      chatSession: ChatSession(
+        selectedModelID: "gemma4-12b-qat-4bit",
+        interactionMode: .agent
+      )
+    )
     controller.modelRuntime.modelState = .ready
     controller.sendMessage(prompt: "inspect files")
     try await waitUntil { !controller.isGenerating }
@@ -718,9 +759,12 @@ struct ChatSessionControllerTests {
       content: "let value = 1"
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      chatSession: ChatSession(pendingAttachments: [attachment])
+    )
     controller.modelRuntime.modelState = .ready
-    controller.chatSession.pendingAttachments = [attachment]
 
     controller.sendMessage(prompt: "Explain this")
 
@@ -802,10 +846,15 @@ struct ChatSessionControllerTests {
       )
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["looks like a screenshot"])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.loadSession(ChatSession(selectedModelID: "gemma4-12b-qat-4bit"))
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      chatSession: ChatSession(
+        selectedModelID: "gemma4-12b-qat-4bit",
+        pendingAttachments: [attachment]
+      )
+    )
     controller.modelRuntime.modelState = .ready
-    controller.chatSession.pendingAttachments = [attachment]
 
     controller.sendMessage(prompt: "What is in this screenshot?")
 
@@ -1748,9 +1797,14 @@ struct ChatSessionControllerTests {
   @Test
   func refreshContextUsagePublishesEstimateWithoutRuntimeTokenization() async throws {
     let runtime = ControlledContextUsageRuntime()
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
+    var session = ChatSession()
+    session.testMessages = [TestTranscriptMessage(userContent: "hello")]
+    let controller = ChatSessionController(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      chatSession: session
+    )
     controller.modelRuntime.modelState = .ready
-    controller.chatSession.testMessages = [TestTranscriptMessage(userContent: "hello")]
 
     controller.refreshContextUsage()
     controller.refreshContextUsage()
@@ -1787,11 +1841,15 @@ struct ChatSessionControllerTests {
     defer { Task { await runtime.releaseClearContext() } }
     let controller = ChatSessionController(
       runtime: runtime,
-      modelPath: modelDirectory.path(percentEncoded: false)
+      modelPath: modelDirectory.path(percentEncoded: false),
+      chatSession: {
+        var session = ChatSession()
+        session.testMessages = [TestTranscriptMessage(userContent: "old session")]
+        return session
+      }()
     )
     controller.modelRuntime.modelState = .ready
     controller.contextUsage = ChatContextUsage(usedTokens: 12, tokenLimit: 128)
-    controller.chatSession.testMessages = [TestTranscriptMessage(userContent: "old session")]
 
     controller.clearChatHistory()
     try await waitUntilAsync { await runtime.didStartClearContext }

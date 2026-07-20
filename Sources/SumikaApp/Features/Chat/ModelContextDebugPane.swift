@@ -25,7 +25,7 @@ struct ModelContextDebugHost: View {
       ),
       makeDocument: {
         try controller.modelContextDebugDocument(
-          workspace: context.workspace(containing: sessionID ?? controller.chatSession.id),
+          workspace: context.workspace(containing: sessionID ?? controller.sessionID),
           sessionID: sessionID
         )
       },

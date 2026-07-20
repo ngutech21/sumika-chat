@@ -206,7 +206,7 @@ final class AppState {
     guard
       !workspaceState.isPersistenceBlocked,
       workspaceState.activeSessionID == sessionID,
-      chatController.chatSession.id == sessionID
+      chatController.sessionID == sessionID
     else {
       workspaceState.renameSession(sessionID, title: title)
       return
@@ -322,7 +322,9 @@ final class AppState {
   private func refreshAfterMCPChange() async {
     settingsState.mcpServerStatuses = await mcpClientManager.statuses()
     mcpAgentToolExecutorGroups = await mcpClientManager.agentToolExecutorGroups()
-    let selection = normalizedMCPServerSelection(chatController.chatSession.selectedMCPServerIDs)
+    let selection = normalizedMCPServerSelection(
+      chatController.composerSessionState.selectedMCPServerIDs
+    )
     chatController.reconcileSelectedMCPServerIDs(
       selection,
       agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
@@ -333,7 +335,7 @@ final class AppState {
   /// tools (honoring the todo_write setting) plus dynamic executors from the
   /// connected MCP servers selected by the active session.
   private func refreshAgentToolRegistry() {
-    let selection = chatController.chatSession.selectedMCPServerIDs
+    let selection = chatController.composerSessionState.selectedMCPServerIDs
     chatController.setAgentToolExecutorRegistry(
       agentToolExecutorRegistry(selectedServerIDs: selection)
     )
@@ -357,10 +359,12 @@ final class AppState {
   }
 
   private var activeMCPServerIDs: Set<UUID> {
-    guard case .chat = route, chatController.chatSession.interactionMode == .agent else {
+    guard case .chat = route,
+      chatController.composerSessionState.interactionMode == .agent
+    else {
       return []
     }
-    return Set(chatController.chatSession.selectedMCPServerIDs)
+    return Set(chatController.composerSessionState.selectedMCPServerIDs)
   }
 
   private func reconcileMCPConnectionsIfNeeded(force: Bool = false) {
@@ -384,8 +388,8 @@ final class AppState {
 
   private func desiredMCPConnectionState() -> DesiredMCPState {
     guard case .chat(_, let sessionID) = route,
-      chatController.chatSession.id == sessionID,
-      chatController.chatSession.interactionMode == .agent,
+      chatController.sessionID == sessionID,
+      chatController.composerSessionState.interactionMode == .agent,
       let workspaceRootURL = workspaceState.activeWorkspace?.rootURL
     else {
       return DesiredMCPState(configs: settingsState.mcpServers)
@@ -394,7 +398,7 @@ final class AppState {
       configs: settingsState.mcpServers,
       activeSessionID: sessionID,
       selectedServerIDs: normalizedMCPServerSelection(
-        chatController.chatSession.selectedMCPServerIDs
+        chatController.composerSessionState.selectedMCPServerIDs
       ),
       workspaceRootURL: workspaceRootURL
     )
@@ -432,7 +436,7 @@ final class AppState {
   func persistActiveSession() -> Bool {
     guard
       let currentSession = workspaceState.activeSession,
-      chatController.chatSession.id == currentSession.id
+      chatController.sessionID == currentSession.id
     else {
       return false
     }
@@ -489,7 +493,7 @@ final class AppState {
     {
       return Self.defaultSessionFactory(
         selectedModelID: selectedModelID,
-        modeSettings: chatController.chatSession.modeSettings
+        modeSettings: chatController.modeSettings
       )
     }
 
