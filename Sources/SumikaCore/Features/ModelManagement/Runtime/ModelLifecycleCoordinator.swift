@@ -20,7 +20,7 @@ public struct ModelLifecycleCoordinator: Sendable {
   private let runtimeOperations: RuntimeOperationCoordinator
   private let modelAvailability: @Sendable (ManagedModel) -> Bool
 
-  public init(
+  init(
     modelDownloader: any ModelDownloading,
     runtimeOperations: RuntimeOperationCoordinator,
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool = Self.defaultModelAvailability

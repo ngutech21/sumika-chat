@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ModelFacingPromptRenderer {
-  public static func userPromptEntry(
+  package static func userPromptEntry(
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
     sourceMessageID: UUID? = nil,
@@ -34,7 +34,7 @@ public enum ModelFacingPromptRenderer {
     )
   }
 
-  public static func assistantOutputEntry(
+  package static func assistantOutputEntry(
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
     sourceMessageID: UUID? = nil,
@@ -49,7 +49,7 @@ public enum ModelFacingPromptRenderer {
     )
   }
 
-  public static func toolResultEntry(
+  package static func toolResultEntry(
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
     sourceMessageID: UUID? = nil,
@@ -181,7 +181,7 @@ enum ToolReceiptFactory {
 }
 
 public enum ToolReceiptRenderer {
-  public static func render(_ receipt: ToolReceipt) -> String {
+  package static func render(_ receipt: ToolReceipt) -> String {
     var lines = [
       "Tool receipt: \(receipt.toolName.rawValue)",
       "Call ID: \(receipt.callID.uuidString)",

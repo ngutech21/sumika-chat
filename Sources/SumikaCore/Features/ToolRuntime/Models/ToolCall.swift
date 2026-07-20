@@ -588,7 +588,7 @@ nonisolated extension ToolCallModelMessage {
       """
   }
 
-  public var modelContextRole: ModelContextRole {
+  package var modelContextRole: ModelContextRole {
     .assistant
   }
 

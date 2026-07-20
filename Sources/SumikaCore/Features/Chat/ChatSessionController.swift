@@ -79,7 +79,7 @@ public final class ChatSessionController {
       && !hasPendingUserAnswer
   }
 
-  public convenience init(
+  package convenience init(
     modelSettingsStore settingsStore: any ModelSettingsStoring,
     modelDownloader downloader: any ModelDownloading = UnavailableModelDownloader(),
     runtime: any ChatModelRuntime,

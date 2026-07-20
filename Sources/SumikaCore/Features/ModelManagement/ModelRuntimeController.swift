@@ -40,7 +40,7 @@ public final class ModelRuntimeController {
     modelState != .loading && !downloadState.isDownloading
   }
 
-  public init(
+  init(
     selectedModelID: ManagedModel.ID,
     modelPath: String,
     modelContextTokenLimit: Int,

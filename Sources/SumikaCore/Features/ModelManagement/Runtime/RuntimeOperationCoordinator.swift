@@ -1,25 +1,25 @@
 import Foundation
 
-public actor RuntimeOperationCoordinator {
+actor RuntimeOperationCoordinator {
   private let runtime: any ChatModelRuntime
   private var currentOperationID = UUID()
   private var activeUnloadTask: Task<Void, Never>?
   private var activeUnloadOperationID: UUID?
 
-  public init(runtime: any ChatModelRuntime, initialOperationID: UUID = UUID()) {
+  init(runtime: any ChatModelRuntime, initialOperationID: UUID = UUID()) {
     self.runtime = runtime
     self.currentOperationID = initialOperationID
   }
 
-  public func setCurrentOperation(_ operationID: UUID) {
+  func setCurrentOperation(_ operationID: UUID) {
     currentOperationID = operationID
   }
 
-  public func currentOperation() -> UUID {
+  func currentOperation() -> UUID {
     currentOperationID
   }
 
-  public func isCurrent(_ operationID: UUID) -> Bool {
+  func isCurrent(_ operationID: UUID) -> Bool {
     currentOperationID == operationID
   }
 
@@ -27,7 +27,7 @@ public actor RuntimeOperationCoordinator {
     try checkCurrent(operationID)
   }
 
-  public func load(configuration: ChatModelConfiguration, operationID: UUID) async throws {
+  func load(configuration: ChatModelConfiguration, operationID: UUID) async throws {
     if let activeUnloadTask {
       await activeUnloadTask.value
     }
@@ -37,7 +37,7 @@ public actor RuntimeOperationCoordinator {
     try checkCurrent(operationID)
   }
 
-  public func unload(operationID: UUID) async throws {
+  func unload(operationID: UUID) async throws {
     try checkCurrent(operationID)
     let unloadTask = Task {
       await runtime.unload()
@@ -52,13 +52,13 @@ public actor RuntimeOperationCoordinator {
     try checkCurrent(operationID)
   }
 
-  public func clearContext(operationID: UUID) async throws {
+  func clearContext(operationID: UUID) async throws {
     try checkCurrent(operationID)
     await runtime.clearContext()
     try checkCurrent(operationID)
   }
 
-  public func runtimeCacheDebugSnapshot(operationID: UUID) async throws
+  func runtimeCacheDebugSnapshot(operationID: UUID) async throws
     -> RuntimeCacheDebugSnapshot?
   {
     try checkCurrent(operationID)
@@ -67,14 +67,14 @@ public actor RuntimeOperationCoordinator {
     return snapshot
   }
 
-  public func generatedTokenCount(for text: String, operationID: UUID) async throws -> Int {
+  func generatedTokenCount(for text: String, operationID: UUID) async throws -> Int {
     try checkCurrent(operationID)
     let count = try await runtime.generatedTokenCount(for: text)
     try checkCurrent(operationID)
     return count
   }
 
-  public func streamReply(
+  func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,

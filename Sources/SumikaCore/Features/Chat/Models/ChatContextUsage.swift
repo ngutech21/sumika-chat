@@ -54,14 +54,14 @@ public struct ChatContextUsage: Equatable, Sendable {
 /// Point-in-time input for the context-usage estimate: the transcript, prompt,
 /// and attachments the next generation would send, plus the model state that
 /// gates whether an estimate is meaningful at all.
-public struct ContextUsageSnapshot: Sendable {
-  public let modelState: ModelLoadState
-  public let transcript: ModelPromptProjection
-  public let attachments: [ChatAttachment]
-  public let systemPrompt: String
-  public let contextTokenLimit: Int?
+package struct ContextUsageSnapshot: Sendable {
+  package let modelState: ModelLoadState
+  package let transcript: ModelPromptProjection
+  package let attachments: [ChatAttachment]
+  package let systemPrompt: String
+  package let contextTokenLimit: Int?
 
-  public init(
+  package init(
     modelState: ModelLoadState,
     transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
@@ -75,7 +75,7 @@ public struct ContextUsageSnapshot: Sendable {
     self.contextTokenLimit = contextTokenLimit
   }
 
-  public func estimatedUsage(isStale: Bool = true) -> ChatContextUsage {
+  package func estimatedUsage(isStale: Bool = true) -> ChatContextUsage {
     var byteCount = systemPrompt.utf8.count
     // `.fullHistory` projects every entry to its `frozenContent.content` verbatim,
     // so we sum the stored content directly instead of allocating a projected array.

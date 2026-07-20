@@ -19,7 +19,7 @@ public struct ChatModelContextBuilder: Sendable {
     self.focusedFileReusePolicy = focusedFileReusePolicy
   }
 
-  public func transcript(
+  package func transcript(
     from state: ChatSession,
     includingTurnID: ChatTurn.ID? = nil
   ) -> ModelPromptProjection {

@@ -54,7 +54,7 @@ public enum ModelContextDebugRole: String, Equatable, Sendable {
 }
 
 public enum ModelContextDebugRenderer {
-  public static func render(
+  package static func render(
     transcript: ModelPromptProjection,
     systemPrompt: String,
     projectionMode: ModelContextProjectionMode = .fullHistory
