@@ -27,6 +27,35 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
+  func stateProjectsModelManagementFactsWithoutExposingMutableStorage() async throws {
+    let downloadedModel = ManagedModelCatalog.defaultModel
+    let controller = await makeController(
+      modelAvailability: { $0.id == downloadedModel.id }
+    )
+    controller.refreshModelAvailability()
+
+    try await waitUntil {
+      controller.state.isModelDownloaded(downloadedModel)
+    }
+
+    let state = controller.state
+    #expect(state.availableModels == ManagedModelCatalog.models)
+    #expect(state.selectedModel == downloadedModel)
+    #expect(state.modelState == .notLoaded)
+    #expect(state.modelContextTokenLimit == downloadedModel.defaultContextTokenLimit)
+    #expect(state.canChangeModel)
+  }
+
+  @Test
+  func contextTokenLimitChangesThroughExplicitAction() async {
+    let controller = await makeController()
+
+    controller.setContextTokenLimit(12_288)
+
+    #expect(controller.state.modelContextTokenLimit == 12_288)
+  }
+
+  @Test
   func selectingModelPersistsSelectionAndPublishesSettings() async throws {
     let store = RuntimeFakeModelSettingsStore()
     let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))

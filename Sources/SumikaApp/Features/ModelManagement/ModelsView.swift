@@ -7,17 +7,11 @@ enum ModelsTab: String, CaseIterable, Hashable {
 }
 
 struct ModelsView: View {
-  @Bindable var modelRuntime: ModelRuntimeController
+  let modelManagementState: ModelManagementFeatureState
   @Bindable var audioModelController: ComposerAudioModelController
   @Binding var modeSettings: ChatModeSettingsSet
   @Binding var selectedTab: ModelsTab
   let errorMessage: String?
-  let canChangeModel: Bool
-  let onPrepareModelRuntimeAction:
-    (
-      _ cancelGeneration: Bool,
-      _ invalidateContext: Bool
-    ) -> Void
 
   var body: some View {
     VStack(spacing: 0) {
@@ -46,22 +40,22 @@ struct ModelsView: View {
   }
 
   private var textModelsForm: some View {
-    Form {
+    let state = modelManagementState.state
+
+    return Form {
       Section {
-        ForEach(modelRuntime.availableModels) { model in
+        ForEach(state.availableModels) { model in
           ManagedModelRow(
             model: model,
-            isSelected: modelRuntime.selectedModelID == model.id,
-            isActive: modelRuntime.selectedModelID == model.id
-              && modelRuntime.modelState == .ready,
-            isDownloaded: modelRuntime.isModelDownloaded(model),
-            downloadState: modelRuntime.selectedModelID == model.id
-              ? modelRuntime.downloadState : .idle,
-            canSelect: canChangeModel,
+            isSelected: state.selectedModel.id == model.id,
+            isActive: state.selectedModel.id == model.id
+              && state.modelState == .ready,
+            isDownloaded: state.isModelDownloaded(model),
+            downloadState: state.selectedModel.id == model.id
+              ? state.downloadState : .idle,
+            canSelect: modelManagementState.canChangeModel,
             onSelect: {
-              let isChangingModel = modelRuntime.selectedModelID != model.id
-              onPrepareModelRuntimeAction(false, isChangingModel)
-              modelRuntime.selectModel(model)
+              modelManagementState.selectModel(model)
             }
           )
         }
@@ -71,27 +65,16 @@ struct ModelsView: View {
 
       Section {
         CurrentModelSummary(
-          model: modelRuntime.selectedModel,
-          modelState: modelRuntime.modelState,
-          downloadState: effectiveDownloadState,
-          actionTitle: currentModelActionTitle,
-          actionSystemImage: currentModelActionSystemImage,
-          isActionDisabled: isCurrentModelActionDisabled,
-          onAction: {
-            if shouldDownloadSelectedModel {
-              onPrepareModelRuntimeAction(false, false)
-              modelRuntime.downloadSelectedModel()
-            } else if modelRuntime.modelState == .ready {
-              onPrepareModelRuntimeAction(true, true)
-              modelRuntime.unloadModel()
-            } else {
-              onPrepareModelRuntimeAction(false, true)
-              modelRuntime.loadSelectedModel()
-            }
-          }
+          model: state.selectedModel,
+          modelState: state.modelState,
+          downloadState: modelManagementState.effectiveDownloadState,
+          actionTitle: modelManagementState.primaryAction.title,
+          actionSystemImage: modelManagementState.primaryAction.systemImage,
+          isActionDisabled: modelManagementState.isPrimaryActionDisabled,
+          onAction: modelManagementState.performPrimaryAction
         )
 
-        if case .downloading(let progress) = modelRuntime.downloadState {
+        if case .downloading(let progress) = state.downloadState {
           DownloadProgressView(progress: progress)
         }
 
@@ -109,17 +92,22 @@ struct ModelsView: View {
       Section {
         DisclosureGroup {
           ModelRuntimeStatus(
-            modelState: modelRuntime.modelState,
-            downloadState: effectiveDownloadState,
-            processUsage: modelRuntime.processUsage
+            modelState: state.modelState,
+            downloadState: modelManagementState.effectiveDownloadState,
+            processUsage: state.processUsage
           )
 
           ModelAdvancedSettings(
-            model: modelRuntime.selectedModel,
+            model: state.selectedModel,
             modeSettings: $modeSettings,
-            contextTokenLimit: $modelRuntime.modelContextTokenLimit,
-            canChangeContextTokenLimit: modelRuntime.modelState == .notLoaded,
-            generationConfigPreset: modelRuntime.modelGenerationConfigPreset
+            contextTokenLimit: Binding(
+              get: { modelManagementState.state.modelContextTokenLimit },
+              set: { limit in
+                modelManagementState.setContextTokenLimit(limit)
+              }
+            ),
+            canChangeContextTokenLimit: state.modelState == .notLoaded,
+            generationConfigPreset: state.modelGenerationConfigPreset
           )
         } label: {
           HStack(spacing: 12) {
@@ -168,44 +156,6 @@ struct ModelsView: View {
     .formStyle(.grouped)
   }
 
-  private var effectiveDownloadState: ModelDownloadState {
-    if modelRuntime.isModelDownloaded(modelRuntime.selectedModel),
-      !modelRuntime.downloadState.isDownloading
-    {
-      return .downloaded
-    }
-
-    return modelRuntime.downloadState
-  }
-
-  private var shouldDownloadSelectedModel: Bool {
-    !modelRuntime.isModelDownloaded(modelRuntime.selectedModel)
-  }
-
-  private var currentModelActionTitle: String {
-    if shouldDownloadSelectedModel {
-      return "Download"
-    }
-
-    return modelRuntime.modelState == .ready ? "Unload" : "Load"
-  }
-
-  private var currentModelActionSystemImage: String {
-    if shouldDownloadSelectedModel {
-      return "square.and.arrow.down"
-    }
-
-    return modelRuntime.modelState == .ready ? "eject" : "play.fill"
-  }
-
-  private var isCurrentModelActionDisabled: Bool {
-    if shouldDownloadSelectedModel {
-      return !canChangeModel || modelRuntime.downloadState.isDownloading
-    }
-
-    return modelRuntime.modelState == .loading
-      || modelRuntime.downloadState.isDownloading
-  }
 }
 
 private struct AudioModelRow: View {

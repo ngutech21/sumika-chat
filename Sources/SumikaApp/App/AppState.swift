@@ -6,6 +6,7 @@ import SumikaCore
 @Observable
 final class AppState {
   let workspaceState: WorkspaceFeatureState
+  let modelManagementState: ModelManagementFeatureState
   let settingsState: SettingsFeatureState
   let assistantSpeechService: AssistantSpeechService
   let audioModelController: ComposerAudioModelController
@@ -82,6 +83,7 @@ final class AppState {
     self.modelSettingsStore = modelSettingsStore
     self.browserToolService = browserToolService
     self.chatController = chatController
+    self.modelManagementState = ModelManagementFeatureState(chatController: chatController)
     self.mcpClientManager = mcpClientManager
     self.assistantSpeechService = assistantSpeechService
     self.audioModelController = audioModelController
@@ -437,8 +439,7 @@ final class AppState {
   }
 
   func startModelRuntimeServices() {
-    chatController.modelRuntime.prepareDefaultModelDirectory()
-    chatController.modelRuntime.startResourceMonitoring()
+    modelManagementState.startRuntimeServices()
     audioModelController.refreshAvailability()
     routeToModelsIfNoTextModelIsDownloaded()
     attemptAutoloadLastModelIfReady()
@@ -499,11 +500,12 @@ final class AppState {
   }
 
   private func makeDefaultSessionFactory() -> DefaultChatSessionFactory {
-    if chatController.modelRuntime.selectedModelID != ManagedModelCatalog.defaultModelID
+    let selectedModelID = modelManagementState.state.selectedModel.id
+    if selectedModelID != ManagedModelCatalog.defaultModelID
       || defaultSessionModelID == ManagedModelCatalog.defaultModelID
     {
       return Self.defaultSessionFactory(
-        selectedModelID: chatController.modelRuntime.selectedModelID,
+        selectedModelID: selectedModelID,
         modeSettings: chatController.chatSession.modeSettings
       )
     }
@@ -580,11 +582,7 @@ final class AppState {
   }
 
   private func routeToModelsIfNoTextModelIsDownloaded() {
-    let modelRuntime = chatController.modelRuntime
-    let hasDownloadedModel = modelRuntime.availableModels.contains {
-      modelRuntime.isModelDownloaded($0)
-    }
-    if !hasDownloadedModel {
+    if modelManagementState.downloadedModels.isEmpty {
       persistActiveSession()
       route = .models
       routeWasAutomaticMissingModelRedirect = true
@@ -595,14 +593,14 @@ final class AppState {
   private func attemptAutoloadLastModelIfReady() {
     guard settingsState.appBehaviorSettings.autoloadLastModel,
       !didAttemptAutoloadLastModel,
-      chatController.modelRuntime.modelState == .notLoaded,
-      chatController.modelRuntime.isSelectedModelDownloaded()
+      modelManagementState.state.modelState == .notLoaded,
+      modelManagementState.isSelectedModelDownloaded()
     else {
       return
     }
 
     didAttemptAutoloadLastModel = true
-    chatController.modelRuntime.loadSelectedModel()
+    modelManagementState.loadSelectedModelForStartup()
   }
 
 }

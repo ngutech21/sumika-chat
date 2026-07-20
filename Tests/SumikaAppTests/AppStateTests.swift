@@ -1,12 +1,36 @@
 import Foundation
-import SumikaCore
 import Testing
 
 @testable import SumikaApp
+@testable import SumikaCore
 
 @Suite(.serialized)
 @MainActor
 struct AppStateTests {
+  @Test
+  func modelManagementFacadeRoutesStateChangesThroughExplicitActions() async throws {
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime(),
+      modelAvailability: { _ in false }
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
+    appState.modelManagementState.selectModel(targetModel)
+    appState.modelManagementState.setContextTokenLimit(12_288)
+
+    #expect(appState.modelManagementState.state.selectedModel == targetModel)
+    #expect(appState.modelManagementState.state.modelContextTokenLimit == 12_288)
+    #expect(appState.modelManagementState.primaryAction == .download)
+  }
+
   @Test
   func interactionModeChangePersistsActiveSession() async throws {
     let workspaceID = UUID()

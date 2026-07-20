@@ -6,6 +6,7 @@ struct WorkspaceChatView: View, Equatable {
   let controller: ChatSessionController
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
+  let modelManagementState: ModelManagementFeatureState
   let browserToolService: HTMLPreviewBrowserToolService
   let appBehaviorSettings: AppBehaviorSettings
   let mcpServers: [MCPServerConfig]
@@ -25,6 +26,8 @@ struct WorkspaceChatView: View, Equatable {
     ObjectIdentifier(lhs.controller) == ObjectIdentifier(rhs.controller)
       && lhs.context == rhs.context
       && lhs.sessionID == rhs.sessionID
+      && ObjectIdentifier(lhs.modelManagementState)
+        == ObjectIdentifier(rhs.modelManagementState)
       && ObjectIdentifier(lhs.browserToolService) == ObjectIdentifier(rhs.browserToolService)
       && lhs.appBehaviorSettings == rhs.appBehaviorSettings
       && lhs.mcpServers == rhs.mcpServers
@@ -49,6 +52,7 @@ struct WorkspaceChatView: View, Equatable {
         controller: controller,
         context: context,
         sessionID: sessionID,
+        modelManagementState: modelManagementState,
         appBehaviorSettings: appBehaviorSettings,
         mcpServers: mcpServers,
         mcpServerStatuses: mcpServerStatuses,
@@ -100,6 +104,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
   let controller: ChatSessionController
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
+  let modelManagementState: ModelManagementFeatureState
   let appBehaviorSettings: AppBehaviorSettings
   let mcpServers: [MCPServerConfig]
   let mcpServerStatuses: [MCPServerStatus]
@@ -116,6 +121,8 @@ private struct WorkspaceChatMainColumn: View, Equatable {
     ObjectIdentifier(lhs.controller) == ObjectIdentifier(rhs.controller)
       && lhs.context == rhs.context
       && lhs.sessionID == rhs.sessionID
+      && ObjectIdentifier(lhs.modelManagementState)
+        == ObjectIdentifier(rhs.modelManagementState)
       && lhs.appBehaviorSettings == rhs.appBehaviorSettings
       && lhs.mcpServers == rhs.mcpServers
       && lhs.mcpServerStatuses == rhs.mcpServerStatuses
@@ -141,6 +148,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
           controller: controller,
           context: context,
           sessionID: sessionID,
+          modelState: modelManagementState.state.modelState,
           appBehaviorSettings: appBehaviorSettings,
           assistantSpeechService: assistantSpeechService,
           bottomContentInset: composerHeight
@@ -149,6 +157,7 @@ private struct WorkspaceChatMainColumn: View, Equatable {
 
         WorkspaceChatComposerHost(
           controller: controller,
+          modelManagementState: modelManagementState,
           context: context,
           sessionID: sessionID,
           mcpServers: mcpServers,

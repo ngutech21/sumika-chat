@@ -5,6 +5,7 @@ struct ChatTranscriptHost: View {
   let controller: ChatSessionController
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
+  let modelState: ModelLoadState
   let appBehaviorSettings: AppBehaviorSettings
   let assistantSpeechService: AssistantSpeechService
   var bottomContentInset: CGFloat = 0
@@ -17,7 +18,7 @@ struct ChatTranscriptHost: View {
 
     ChatTranscript(
       turns: controller.chatSession.turns,
-      modelState: controller.modelRuntime.modelState,
+      modelState: modelState,
       isGenerating: controller.isGenerating,
       toolApprovalPolicy: controller.chatSession.toolApprovalPolicy,
       appBehaviorSettings: appBehaviorSettings,

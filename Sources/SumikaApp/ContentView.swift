@@ -24,7 +24,7 @@ struct ContentView: View {
     NavigationSplitView {
       WorkspaceSidebar(
         sidebarState: appState.workspaceState.sidebarState,
-        modelRuntime: appState.chatController.modelRuntime,
+        processUsage: appState.modelManagementState.state.processUsage,
         selection: routeSelection,
         onAddWorkspace: chooseWorkspace,
         onCreateSession: createSession,
@@ -57,6 +57,7 @@ struct ContentView: View {
       case .models:
         ModelsRouteHost(
           controller: controller,
+          modelManagementState: appState.modelManagementState,
           audioModelController: appState.audioModelController,
           selectedTab: $modelsTab,
           onPersistActiveSession: { _ = appState.persistActiveSession() }
@@ -66,6 +67,7 @@ struct ContentView: View {
           activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
           activeSessionID: nil,
           controller: appState.chatController,
+          modelManagementState: appState.modelManagementState,
           browserToolService: appState.browserToolService,
           appBehaviorSettings: appState.settingsState.appBehaviorSettings,
           mcpServers: appState.settingsState.mcpServers,
@@ -86,6 +88,7 @@ struct ContentView: View {
           activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
           activeSessionID: sessionID,
           controller: appState.chatController,
+          modelManagementState: appState.modelManagementState,
           browserToolService: appState.browserToolService,
           appBehaviorSettings: appState.settingsState.appBehaviorSettings,
           mcpServers: appState.settingsState.mcpServers,
@@ -170,40 +173,34 @@ struct ContentView: View {
 
 private struct ModelsRouteHost: View {
   let controller: ChatSessionController
+  let modelManagementState: ModelManagementFeatureState
   let audioModelController: ComposerAudioModelController
   @Binding var selectedTab: ModelsTab
   let onPersistActiveSession: () -> Void
 
   var body: some View {
     ModelsView(
-      modelRuntime: controller.modelRuntime,
+      modelManagementState: modelManagementState,
       audioModelController: audioModelController,
       modeSettings: Binding(
         get: { controller.chatSession.modeSettings },
         set: { controller.chatSession.modeSettings = $0 }
       ),
       selectedTab: $selectedTab,
-      errorMessage: controller.errorMessage,
-      canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
-      onPrepareModelRuntimeAction: { cancelGeneration, invalidateContext in
-        controller.prepareForModelRuntimeAction(
-          cancelGeneration: cancelGeneration,
-          invalidateContext: invalidateContext
-        )
-      }
+      errorMessage: modelManagementState.errorMessage
     )
     .onChange(of: controller.chatSession.modeSettings) {
       controller.refreshContextUsage()
       saveSelectedModelSettings()
       onPersistActiveSession()
     }
-    .onChange(of: controller.modelRuntime.modelContextTokenLimit) {
+    .onChange(of: modelManagementState.state.modelContextTokenLimit) {
       saveSelectedModelSettings()
     }
   }
 
   private func saveSelectedModelSettings() {
-    controller.modelRuntime.saveSelectedModelSettings(
+    modelManagementState.saveSelectedModelSettings(
       modeSettings: controller.chatSession.modeSettings
     )
   }
@@ -213,6 +210,7 @@ private struct WorkspaceRouteHost: View {
   let activeWorkspaceContext: WorkspaceChatContext?
   let activeSessionID: ChatSession.ID?
   let controller: ChatSessionController
+  let modelManagementState: ModelManagementFeatureState
   let browserToolService: HTMLPreviewBrowserToolService
   let appBehaviorSettings: AppBehaviorSettings
   let mcpServers: [MCPServerConfig]
@@ -234,6 +232,7 @@ private struct WorkspaceRouteHost: View {
         controller: controller,
         context: context,
         sessionID: activeSessionID,
+        modelManagementState: modelManagementState,
         browserToolService: browserToolService,
         appBehaviorSettings: appBehaviorSettings,
         mcpServers: mcpServers,

@@ -4,16 +4,16 @@ import Observation
 @MainActor
 @Observable
 package final class ModelRuntimeController {
-  package var availableModels = ManagedModelCatalog.models
-  package var selectedModelID: ManagedModel.ID
-  package var downloadState: ModelDownloadState = .idle
-  package var downloadProgress: Double?
-  package var modelPath: String
-  package var modelState: ModelLoadState = .notLoaded
-  package var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
-  package var modelGenerationConfigPreset: ChatGenerationConfigPreset?
-  package var processUsage: ProcessResourceUsage?
-  package var modelAvailabilitySnapshot: [ManagedModel.ID: Bool] = [:]
+  package internal(set) var availableModels = ManagedModelCatalog.models
+  package internal(set) var selectedModelID: ManagedModel.ID
+  package internal(set) var downloadState: ModelDownloadState = .idle
+  package internal(set) var downloadProgress: Double?
+  package internal(set) var modelPath: String
+  package internal(set) var modelState: ModelLoadState = .notLoaded
+  package internal(set) var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
+  package internal(set) var modelGenerationConfigPreset: ChatGenerationConfigPreset?
+  package internal(set) var processUsage: ProcessResourceUsage?
+  package internal(set) var modelAvailabilitySnapshot: [ManagedModel.ID: Bool] = [:]
 
   @ObservationIgnored private let runtimeOperations: RuntimeOperationCoordinator
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
@@ -38,6 +38,24 @@ package final class ModelRuntimeController {
 
   package var canChangeModel: Bool {
     modelState != .loading && !downloadState.isDownloading
+  }
+
+  package var state: ModelManagementState {
+    ModelManagementState(
+      availableModels: availableModels,
+      selectedModel: selectedModel,
+      downloadedModelIDs: Set(
+        modelAvailabilitySnapshot.compactMap { modelID, isDownloaded in
+          isDownloaded ? modelID : nil
+        }
+      ),
+      downloadState: downloadState,
+      modelState: modelState,
+      modelContextTokenLimit: modelContextTokenLimit,
+      modelGenerationConfigPreset: modelGenerationConfigPreset,
+      processUsage: processUsage,
+      canChangeModel: canChangeModel
+    )
   }
 
   init(
@@ -116,6 +134,10 @@ package final class ModelRuntimeController {
     modelPath = url.path(percentEncoded: false)
     modelState = .notLoaded
     refreshModelGenerationConfigPreset()
+  }
+
+  package func setContextTokenLimit(_ limit: Int) {
+    modelContextTokenLimit = limit
   }
 
   package func selectModel(_ model: ManagedModel) {

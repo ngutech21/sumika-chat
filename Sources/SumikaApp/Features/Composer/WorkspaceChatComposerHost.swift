@@ -4,6 +4,7 @@ import SwiftUI
 
 struct WorkspaceChatComposerHost: View {
   let controller: ChatSessionController
+  let modelManagementState: ModelManagementFeatureState
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let mcpServers: [MCPServerConfig]
@@ -36,6 +37,7 @@ struct WorkspaceChatComposerHost: View {
     #endif
 
     let localDownloadedModels = downloadedModels
+    let modelState = modelManagementState.state
     let composerState = controller.composerSessionState
     let isGenerating = controller.isGenerating
 
@@ -44,7 +46,7 @@ struct WorkspaceChatComposerHost: View {
       activeAttachments: composerState.activeAttachments,
       availableModels: localDownloadedModels,
       selectedModel: composerSelectedModel(from: localDownloadedModels),
-      modelState: controller.modelRuntime.modelState,
+      modelState: modelState.modelState,
       interactionMode: composerState.interactionMode,
       sessionOptionsConfiguration: ChatComposerOptions.Configuration(
         interactionMode: composerState.interactionMode,
@@ -65,10 +67,9 @@ struct WorkspaceChatComposerHost: View {
       ),
       todoState: composerState.todoState,
       contextUsage: controller.contextUsage,
-      canChangeModel: !localDownloadedModels.isEmpty && !isGenerating
-        && controller.modelRuntime.canChangeModel,
+      canChangeModel: !localDownloadedModels.isEmpty && modelManagementState.canChangeModel,
       canChangeInteractionMode: controller.canChangeInteractionMode,
-      canSend: controller.modelRuntime.modelState == .ready && !isGenerating,
+      canSend: modelManagementState.canSend,
       canRunLocalCommand: !isGenerating,
       isGenerating: isGenerating,
       errorMessage: controller.errorMessage,
@@ -86,7 +87,7 @@ struct WorkspaceChatComposerHost: View {
   }
 
   private var downloadedModels: [ManagedModel] {
-    controller.modelRuntime.availableModels.filter { controller.modelRuntime.isModelDownloaded($0) }
+    modelManagementState.downloadedModels
   }
 
   private var toolWorkspace: Workspace {
@@ -94,35 +95,20 @@ struct WorkspaceChatComposerHost: View {
   }
 
   private func composerSelectedModel(from downloadedModels: [ManagedModel]) -> ManagedModel {
-    if downloadedModels.contains(controller.modelRuntime.selectedModel) {
-      return controller.modelRuntime.selectedModel
+    let selectedModel = modelManagementState.state.selectedModel
+    if downloadedModels.contains(selectedModel) {
+      return selectedModel
     }
 
-    return downloadedModels.first ?? controller.modelRuntime.selectedModel
+    return downloadedModels.first ?? selectedModel
   }
 
   private func selectModel(_ model: ManagedModel) {
-    guard !controller.isGenerating, controller.modelRuntime.canChangeModel else {
-      return
-    }
-
-    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
-    controller.modelRuntime.selectModel(model)
+    modelManagementState.selectConversationModel(model)
   }
 
   private func loadSelectedModel() {
-    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
-    guard !downloadedModels.isEmpty else {
-      controller.errorMessage = "Download a model from Models first."
-      return
-    }
-
-    if !downloadedModels.contains(controller.modelRuntime.selectedModel),
-      let downloadedModel = downloadedModels.first
-    {
-      controller.modelRuntime.selectModel(downloadedModel)
-    }
-    controller.modelRuntime.loadSelectedModel()
+    modelManagementState.loadAvailableModelForConversation()
   }
 
   private func handleLocalSlashCommand(_ draft: String) -> LocalSlashCommandResult {
