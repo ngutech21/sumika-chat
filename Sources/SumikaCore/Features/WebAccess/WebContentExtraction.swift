@@ -5,13 +5,13 @@ import SwiftSoup
   import FoundationNetworking
 #endif
 
-public struct WebPageExtractionRequest: Equatable, Sendable {
-  public var url: URL
-  public var maxBytes: Int
-  public var timeoutSeconds: Int
-  public var maxRedirects: Int
+struct WebPageExtractionRequest: Equatable, Sendable {
+  var url: URL
+  var maxBytes: Int
+  var timeoutSeconds: Int
+  var maxRedirects: Int
 
-  public init(
+  init(
     url: URL,
     maxBytes: Int = WebAccessLimits.maxFetchBytes,
     timeoutSeconds: Int = WebAccessLimits.fetchTimeoutSeconds,
@@ -23,7 +23,7 @@ public struct WebPageExtractionRequest: Equatable, Sendable {
     self.maxRedirects = maxRedirects
   }
 
-  public init(_ request: WebFetchRequest) {
+  init(_ request: WebFetchRequest) {
     self.init(
       url: request.url,
       maxBytes: request.maxBytes,
@@ -33,17 +33,17 @@ public struct WebPageExtractionRequest: Equatable, Sendable {
   }
 }
 
-public protocol WebPageExtracting: Sendable {
+protocol WebPageExtracting: Sendable {
   func extract(_ request: WebPageExtractionRequest) async -> WebFetchToolResult
 }
 
-public struct BuiltInWebPageExtractor: WebPageExtracting {
+struct BuiltInWebPageExtractor: WebPageExtracting {
   private let httpClient: any WebHTTPClient
   private let urlValidator: WebURLValidator
   private let hostResolver: any WebHostResolving
   private let htmlExtractor: SwiftSoupMainContentExtractor
 
-  public init(
+  init(
     httpClient: any WebHTTPClient = URLSessionWebHTTPClient(),
     urlValidator: WebURLValidator = WebURLValidator(),
     hostResolver: any WebHostResolving = SystemWebHostResolver(),
@@ -55,7 +55,7 @@ public struct BuiltInWebPageExtractor: WebPageExtracting {
     self.htmlExtractor = htmlExtractor
   }
 
-  public func extract(_ request: WebPageExtractionRequest) async -> WebFetchToolResult {
+  func extract(_ request: WebPageExtractionRequest) async -> WebFetchToolResult {
     if let error = urlValidator.validatePublicHTTPURL(request.url) {
       return .failed(
         url: request.url.absoluteString, provider: .builtIn, finalURL: nil,
@@ -197,7 +197,7 @@ public struct BuiltInWebPageExtractor: WebPageExtracting {
   }
 }
 
-public struct SwiftSoupMainContentExtractor: Sendable {
+struct SwiftSoupMainContentExtractor: Sendable {
   private static let boilerplateSelector = [
     "script",
     "style",
@@ -219,9 +219,7 @@ public struct SwiftSoupMainContentExtractor: Sendable {
   private static let positivePattern = #"article|content|post|entry|main|story"#
   private static let negativePattern = #"nav|footer|sidebar|comment|related|promo|ad|share"#
 
-  public init() {}
-
-  public func extractText(fromHTML html: String, baseURL: URL) -> String {
+  func extractText(fromHTML html: String, baseURL: URL) -> String {
     do {
       let document = try SwiftSoup.parse(html, baseURL.absoluteString)
       try document.select(Self.boilerplateSelector).remove()

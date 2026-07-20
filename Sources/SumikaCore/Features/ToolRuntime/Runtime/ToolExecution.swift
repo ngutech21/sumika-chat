@@ -600,8 +600,48 @@ package struct ToolOrchestrator: Sendable {
 
   package init(
     executorRegistry: ToolExecutorRegistry = .readOnly,
-    webSearcher: any WebSearching = DefaultWebSearchService(),
+    browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
+    webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
+      .disabled
+    }
+  ) {
+    self.init(
+      executorRegistry: executorRegistry,
+      validator: ToolCallRequestValidator(),
+      readTracker: ReadFileReadTracker(),
+      latestCommandResultStore: LatestCommandResultStore(),
+      webSearcher: DefaultWebSearchService(),
+      webFetcher: DefaultWebFetchService(),
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: webAccessSettingsProvider
+    )
+  }
+
+  init(
+    executorRegistry: ToolExecutorRegistry = .readOnly,
+    webSearcher: any WebSearching,
     webFetcher: any WebFetching = DefaultWebFetchService(),
+    browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
+    webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
+      .disabled
+    }
+  ) {
+    self.init(
+      executorRegistry: executorRegistry,
+      validator: ToolCallRequestValidator(),
+      readTracker: ReadFileReadTracker(),
+      latestCommandResultStore: LatestCommandResultStore(),
+      webSearcher: webSearcher,
+      webFetcher: webFetcher,
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: webAccessSettingsProvider
+    )
+  }
+
+  init(
+    executorRegistry: ToolExecutorRegistry = .readOnly,
+    webFetcher: any WebFetching,
+    webSearcher: any WebSearching = DefaultWebSearchService(),
     browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
     webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
       .disabled

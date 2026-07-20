@@ -8,12 +8,12 @@ import Foundation
   import Darwin
 #endif
 
-public enum WebAccessPolicy: String, Codable, CaseIterable, Equatable, Sendable {
+package enum WebAccessPolicy: String, Codable, CaseIterable, Equatable, Sendable {
   case off
   case askEachTime
   case allow
 
-  public var displayName: String {
+  package var displayName: String {
     switch self {
     case .off:
       "Off"
@@ -53,14 +53,14 @@ public enum WebFetchProvider: String, Codable, CaseIterable, Equatable, Sendable
   }
 }
 
-public struct WebAccessSettings: Codable, Equatable, Sendable {
-  public var policy: WebAccessPolicy
-  public var provider: WebSearchProvider
-  public var searxngBaseURL: String
-  public var fetchProvider: WebFetchProvider
-  public var firecrawlBaseURL: String
+package struct WebAccessSettings: Codable, Equatable, Sendable {
+  package var policy: WebAccessPolicy
+  package var provider: WebSearchProvider
+  package var searxngBaseURL: String
+  package var fetchProvider: WebFetchProvider
+  package var firecrawlBaseURL: String
 
-  public init(
+  package init(
     policy: WebAccessPolicy = .off,
     provider: WebSearchProvider = .duckDuckGo,
     searxngBaseURL: String = "",
@@ -74,7 +74,7 @@ public struct WebAccessSettings: Codable, Equatable, Sendable {
     self.firecrawlBaseURL = firecrawlBaseURL
   }
 
-  public static let disabled = WebAccessSettings()
+  package static let disabled = WebAccessSettings()
 
   private enum CodingKeys: String, CodingKey {
     case policy
@@ -84,7 +84,7 @@ public struct WebAccessSettings: Codable, Equatable, Sendable {
     case firecrawlBaseURL
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     policy = try container.decodeIfPresent(WebAccessPolicy.self, forKey: .policy, default: .off)
     provider = try container.decodeIfPresent(
@@ -109,7 +109,7 @@ public struct WebAccessSettings: Codable, Equatable, Sendable {
     )
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(policy, forKey: .policy)
     try container.encode(provider, forKey: .provider)
@@ -119,7 +119,7 @@ public struct WebAccessSettings: Codable, Equatable, Sendable {
   }
 }
 
-public protocol WebAccessSettingsStoring: Sendable {
+package protocol WebAccessSettingsStoring: Sendable {
   func settings() async -> WebAccessSettings
   func save(settings: WebAccessSettings) async throws
 }
@@ -128,7 +128,7 @@ private enum WebAccessSettingsFileCodingKeys: String, CodingKey {
   case settings
 }
 
-public actor WebAccessSettingsStore: WebAccessSettingsStoring {
+package actor WebAccessSettingsStore: WebAccessSettingsStoring {
   private struct SettingsFile: Codable {
     var settings: WebAccessSettings
 
@@ -148,7 +148,7 @@ public actor WebAccessSettingsStore: WebAccessSettingsStoring {
 
   private let settingsURL: URL
 
-  public init(
+  package init(
     settingsURL: URL = LocalModelDirectory.defaultBaseURL
       .deletingLastPathComponent()
       .appending(path: "web-access-settings.json", directoryHint: .notDirectory)
@@ -156,11 +156,11 @@ public actor WebAccessSettingsStore: WebAccessSettingsStoring {
     self.settingsURL = settingsURL
   }
 
-  public func settings() async -> WebAccessSettings {
+  package func settings() async -> WebAccessSettings {
     readSettingsFile().settings
   }
 
-  public func save(settings: WebAccessSettings) async throws {
+  package func save(settings: WebAccessSettings) async throws {
     try FileManager.default.createDirectory(
       at: settingsURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
@@ -184,26 +184,20 @@ public actor WebAccessSettingsStore: WebAccessSettingsStoring {
   }
 }
 
-public struct WebSearchRequest: Equatable, Sendable {
-  public var query: String
-  public var maxResults: Int
-  public var settings: WebAccessSettings
-
-  public init(query: String, maxResults: Int, settings: WebAccessSettings) {
-    self.query = query
-    self.maxResults = maxResults
-    self.settings = settings
-  }
+struct WebSearchRequest: Equatable, Sendable {
+  var query: String
+  var maxResults: Int
+  var settings: WebAccessSettings
 }
 
-public struct WebFetchRequest: Equatable, Sendable {
-  public var url: URL
-  public var maxBytes: Int
-  public var timeoutSeconds: Int
-  public var maxRedirects: Int
-  public var settings: WebAccessSettings
+struct WebFetchRequest: Equatable, Sendable {
+  var url: URL
+  var maxBytes: Int
+  var timeoutSeconds: Int
+  var maxRedirects: Int
+  var settings: WebAccessSettings
 
-  public init(
+  init(
     url: URL,
     maxBytes: Int = WebAccessLimits.maxFetchBytes,
     timeoutSeconds: Int = WebAccessLimits.fetchTimeoutSeconds,
@@ -218,26 +212,26 @@ public struct WebFetchRequest: Equatable, Sendable {
   }
 }
 
-public protocol WebSearching: Sendable {
+protocol WebSearching: Sendable {
   func search(_ request: WebSearchRequest) async -> WebSearchToolResult
 }
 
-public protocol WebFetching: Sendable {
+protocol WebFetching: Sendable {
   func fetch(_ request: WebFetchRequest) async -> WebFetchToolResult
 }
 
-public enum WebAccessLimits {
-  public static let maxQueryCharacters = 300
-  public static let defaultSearchResultCount = 5
-  public static let maxSearchResultCount = 10
-  public static let maxSearchObservationResults = 5
-  public static let maxSearchHTTPBytes = 512 * 1024
-  public static let maxFetchBytes = 128 * 1024
-  public static let maxFetchObservationCharacters = 12_000
-  public static let fetchTimeoutSeconds = 15
-  public static let maxRedirects = 4
+enum WebAccessLimits {
+  static let maxQueryCharacters = 300
+  static let defaultSearchResultCount = 5
+  static let maxSearchResultCount = 10
+  static let maxSearchObservationResults = 5
+  static let maxSearchHTTPBytes = 512 * 1024
+  static let maxFetchBytes = 128 * 1024
+  static let maxFetchObservationCharacters = 12_000
+  static let fetchTimeoutSeconds = 15
+  static let maxRedirects = 4
 
-  public static func cappedQuery(_ query: String) -> (String, Bool) {
+  static func cappedQuery(_ query: String) -> (String, Bool) {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmed.count > maxQueryCharacters else {
       return (trimmed, false)
@@ -245,16 +239,16 @@ public enum WebAccessLimits {
     return (String(trimmed.prefix(maxQueryCharacters)), true)
   }
 
-  public static func cappedResultCount(_ count: Int?) -> Int {
+  static func cappedResultCount(_ count: Int?) -> Int {
     min(max(count ?? defaultSearchResultCount, 1), maxSearchResultCount)
   }
 
-  public static func cappedFetchBytes(_ maxBytes: Int?) -> Int {
+  static func cappedFetchBytes(_ maxBytes: Int?) -> Int {
     min(max(maxBytes ?? maxFetchBytes, 1), maxFetchBytes)
   }
 }
 
-public enum WebAccessError: LocalizedError, Equatable, Sendable {
+enum WebAccessError: LocalizedError, Equatable, Sendable {
   case disabled
   case invalidQuery
   case invalidURL(String)
@@ -269,7 +263,7 @@ public enum WebAccessError: LocalizedError, Equatable, Sendable {
   case invalidResponseEncoding
   case requestFailed(String)
 
-  public var errorDescription: String? {
+  var errorDescription: String? {
     switch self {
     case .disabled:
       "Web access is disabled."
@@ -301,22 +295,20 @@ public enum WebAccessError: LocalizedError, Equatable, Sendable {
   }
 }
 
-public struct WebURLValidator: Sendable {
-  public init() {}
-
-  public func validatePublicHTTPURL(_ url: URL) -> WebAccessError? {
+struct WebURLValidator: Sendable {
+  func validatePublicHTTPURL(_ url: URL) -> WebAccessError? {
     validateHTTPURL(url, profile: .publicWebURL)
   }
 
-  public func validateConfiguredSearchProviderHTTPURL(_ url: URL) -> WebAccessError? {
+  func validateConfiguredSearchProviderHTTPURL(_ url: URL) -> WebAccessError? {
     validateConfiguredWebProviderHTTPURL(url)
   }
 
-  public func validateConfiguredWebProviderHTTPURL(_ url: URL) -> WebAccessError? {
+  func validateConfiguredWebProviderHTTPURL(_ url: URL) -> WebAccessError? {
     validateHTTPURL(url, profile: .configuredWebProviderURL)
   }
 
-  public func validateHTTPURL(
+  func validateHTTPURL(
     _ url: URL,
     profile: WebURLValidationProfile
   ) -> WebAccessError? {
@@ -338,7 +330,7 @@ public struct WebURLValidator: Sendable {
     return validatePublicHost(host)
   }
 
-  public func validatePublicHost(_ host: String) -> WebAccessError? {
+  func validatePublicHost(_ host: String) -> WebAccessError? {
     guard !normalizedPublicHost(host) else {
       return .blockedHost(host)
     }
@@ -350,7 +342,7 @@ public struct WebURLValidator: Sendable {
     return nil
   }
 
-  public func isLocalOrPrivateHost(_ host: String) -> Bool {
+  func isLocalOrPrivateHost(_ host: String) -> Bool {
     normalizedPublicHost(host) || WebAddressClassifier.isPrivateOrLocal(host)
   }
 
@@ -363,7 +355,7 @@ public struct WebURLValidator: Sendable {
   }
 }
 
-public enum WebURLValidationProfile: Sendable {
+enum WebURLValidationProfile: Sendable {
   case publicWebURL
   case configuredWebProviderURL
 }
@@ -402,7 +394,7 @@ private struct IPv4Address: Equatable {
   }
 }
 
-public protocol WebHTTPClient: Sendable {
+protocol WebHTTPClient: Sendable {
   func data(
     for request: URLRequest,
     maxRedirects: Int,
@@ -410,27 +402,12 @@ public protocol WebHTTPClient: Sendable {
   ) async throws -> (Data, URLResponse)
 }
 
-extension WebHTTPClient {
-  public func data(
-    for request: URLRequest,
-    maxRedirects: Int
-  ) async throws -> (Data, URLResponse) {
-    try await data(
-      for: request,
-      maxRedirects: maxRedirects,
-      validationProfile: .publicWebURL
-    )
-  }
-}
-
-public protocol WebHostResolving: Sendable {
+protocol WebHostResolving: Sendable {
   func addresses(for host: String) async throws -> [String]
 }
 
-public struct SystemWebHostResolver: WebHostResolving {
-  public init() {}
-
-  public func addresses(for host: String) async throws -> [String] {
+struct SystemWebHostResolver: WebHostResolving {
+  func addresses(for host: String) async throws -> [String] {
     #if canImport(Darwin)
       return try await Task.detached {
         var hints = addrinfo()
@@ -510,7 +487,7 @@ public struct SystemWebHostResolver: WebHostResolving {
 }
 
 extension URLSession: WebHTTPClient {
-  public func data(
+  func data(
     for request: URLRequest,
     maxRedirects: Int,
     validationProfile: WebURLValidationProfile = .publicWebURL
@@ -523,12 +500,12 @@ extension URLSession: WebHTTPClient {
   }
 }
 
-public struct URLSessionWebHTTPClient: WebHTTPClient {
+struct URLSessionWebHTTPClient: WebHTTPClient {
   private let session: URLSession
   private let urlValidator: WebURLValidator
   private let hostResolver: any WebHostResolving
 
-  public init(
+  init(
     session: URLSession = .shared,
     urlValidator: WebURLValidator = WebURLValidator(),
     hostResolver: any WebHostResolving = SystemWebHostResolver()
@@ -538,7 +515,7 @@ public struct URLSessionWebHTTPClient: WebHTTPClient {
     self.hostResolver = hostResolver
   }
 
-  public func data(
+  func data(
     for request: URLRequest,
     maxRedirects: Int,
     validationProfile: WebURLValidationProfile = .publicWebURL
@@ -669,12 +646,12 @@ private final class WebHTTPClientTaskDelegate: NSObject, URLSessionTaskDelegate,
   }
 }
 
-public struct DefaultWebSearchService: WebSearching {
+struct DefaultWebSearchService: WebSearching {
   private let httpClient: any WebHTTPClient
   private let urlValidator: WebURLValidator
   private let hostResolver: any WebHostResolving
 
-  public init(
+  init(
     httpClient: any WebHTTPClient = URLSessionWebHTTPClient(),
     urlValidator: WebURLValidator = WebURLValidator(),
     hostResolver: any WebHostResolving = SystemWebHostResolver()
@@ -684,7 +661,7 @@ public struct DefaultWebSearchService: WebSearching {
     self.hostResolver = hostResolver
   }
 
-  public func search(_ request: WebSearchRequest) async -> WebSearchToolResult {
+  func search(_ request: WebSearchRequest) async -> WebSearchToolResult {
     let (query, queryTruncated) = WebAccessLimits.cappedQuery(request.query)
     guard !query.isEmpty else {
       return .failed(
@@ -842,11 +819,11 @@ public struct DefaultWebSearchService: WebSearching {
   }
 }
 
-public struct DefaultWebFetchService: WebFetching {
+struct DefaultWebFetchService: WebFetching {
   private let builtInExtractor: any WebPageExtracting
   private let firecrawlFetcher: any WebFetching
 
-  public init(
+  init(
     httpClient: any WebHTTPClient = URLSessionWebHTTPClient(),
     urlValidator: WebURLValidator = WebURLValidator(),
     hostResolver: any WebHostResolving = SystemWebHostResolver()
@@ -863,12 +840,12 @@ public struct DefaultWebFetchService: WebFetching {
     )
   }
 
-  public init(extractor: any WebPageExtracting) {
+  init(extractor: any WebPageExtracting) {
     self.builtInExtractor = extractor
     self.firecrawlFetcher = FirecrawlWebFetchService()
   }
 
-  public func fetch(_ request: WebFetchRequest) async -> WebFetchToolResult {
+  func fetch(_ request: WebFetchRequest) async -> WebFetchToolResult {
     switch request.settings.fetchProvider {
     case .builtIn:
       return await builtInExtractor.extract(WebPageExtractionRequest(request))
@@ -911,12 +888,12 @@ private struct FirecrawlScrapeResponse: Decodable {
   var message: String?
 }
 
-public struct FirecrawlWebFetchService: WebFetching {
+struct FirecrawlWebFetchService: WebFetching {
   private let httpClient: any WebHTTPClient
   private let urlValidator: WebURLValidator
   private let hostResolver: any WebHostResolving
 
-  public init(
+  init(
     httpClient: any WebHTTPClient = URLSessionWebHTTPClient(),
     urlValidator: WebURLValidator = WebURLValidator(),
     hostResolver: any WebHostResolving = SystemWebHostResolver()
@@ -926,7 +903,7 @@ public struct FirecrawlWebFetchService: WebFetching {
     self.hostResolver = hostResolver
   }
 
-  public func fetch(_ request: WebFetchRequest) async -> WebFetchToolResult {
+  func fetch(_ request: WebFetchRequest) async -> WebFetchToolResult {
     if let error = urlValidator.validatePublicHTTPURL(request.url) {
       return .failed(
         url: request.url.absoluteString, provider: .firecrawl, finalURL: nil,
@@ -1225,7 +1202,7 @@ enum WebAddressClassifier {
   }
 }
 
-public struct DuckDuckGoHTMLSearchParser: Sendable {
+struct DuckDuckGoHTMLSearchParser: Sendable {
   private static let snippetAnchorRegex = compiledRegex(
     #"<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>"#,
     options: [.dotMatchesLineSeparators]
@@ -1239,9 +1216,7 @@ public struct DuckDuckGoHTMLSearchParser: Sendable {
     options: [.dotMatchesLineSeparators]
   )
 
-  public init() {}
-
-  public func parse(html: String, maxResults: Int) -> [WebSearchResult] {
+  func parse(html: String, maxResults: Int) -> [WebSearchResult] {
     let blocks = html.components(separatedBy: "result__body")
     return blocks.compactMap(parseResultBlock(_:)).prefix(maxResults).map(\.self)
   }
@@ -1280,7 +1255,7 @@ public struct DuckDuckGoHTMLSearchParser: Sendable {
   }
 }
 
-public struct SearXNGJSONSearchParser: Sendable {
+struct SearXNGJSONSearchParser: Sendable {
   private struct Response: Decodable {
     var results: [ResultItem]
   }
@@ -1291,9 +1266,7 @@ public struct SearXNGJSONSearchParser: Sendable {
     var content: String?
   }
 
-  public init() {}
-
-  public func parse(data: Data, maxResults: Int) throws -> [WebSearchResult] {
+  func parse(data: Data, maxResults: Int) throws -> [WebSearchResult] {
     let response = try JSONDecoder().decode(Response.self, from: data)
     return response.results.compactMap { item in
       guard
@@ -1313,7 +1286,7 @@ public struct SearXNGJSONSearchParser: Sendable {
   }
 }
 
-public enum WebTextExtractor {
+enum WebTextExtractor {
   private static let scriptRegex = compiledRegex(#"(?is)<script\b[^>]*>.*?</script>"#)
   private static let styleRegex = compiledRegex(#"(?is)<style\b[^>]*>.*?</style>"#)
   private static let lineBreakRegex = compiledRegex(#"(?i)<br\s*/?>"#)
@@ -1322,14 +1295,14 @@ public enum WebTextExtractor {
   private static let horizontalWhitespaceRegex = compiledRegex(#"[ \t\r\f]+"#)
   private static let excessBlankLineRegex = compiledRegex(#"\n\s*\n\s*\n+"#)
 
-  public static func extractText(from rawText: String, contentType: String?) -> String {
+  static func extractText(from rawText: String, contentType: String?) -> String {
     guard let contentType, contentType.lowercased().contains("html") else {
       return collapseWhitespace(rawText)
     }
     return plainText(fromHTMLFragment: rawText)
   }
 
-  public static func plainText(fromHTMLFragment html: String) -> String {
+  static func plainText(fromHTMLFragment html: String) -> String {
     var text = html
     text = replacingMatches(of: scriptRegex, in: text, with: " ")
     text = replacingMatches(of: styleRegex, in: text, with: " ")
