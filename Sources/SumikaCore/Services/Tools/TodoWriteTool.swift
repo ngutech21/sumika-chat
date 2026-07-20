@@ -202,8 +202,8 @@ extension TodoWriteInput {
   }
 }
 
-public struct TodoWriteToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<TodoWriteInput>(
+struct TodoWriteToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<TodoWriteInput>(
     definition: ToolDefinition.todoWrite,
     decodeArguments: TodoWriteInput.decodeToolArguments,
     makePayload: ToolCallPayload.todoWrite,
@@ -218,9 +218,7 @@ public struct TodoWriteToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: TodoWriteInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -233,7 +231,7 @@ public struct TodoWriteToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: TodoWriteInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: TodoWriteInput, context: ToolContext) async -> ToolResultPayload {
     _ = context
     do {
       try TodoWriteInput.validateItems(input.items)

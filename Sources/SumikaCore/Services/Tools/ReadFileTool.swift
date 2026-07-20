@@ -192,8 +192,8 @@ extension ReadFileInput {
   }
 }
 
-public struct ReadFileToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<ReadFileInput>(
+struct ReadFileToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<ReadFileInput>(
     definition: ToolDefinition.readFile,
     decodeArguments: ReadFileInput.decodeToolArguments,
     makePayload: ToolCallPayload.readFile,
@@ -210,11 +210,11 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
 
   private let maxBytes: Int
 
-  public init(maxBytes: Int = 40 * 1024) {
+  init(maxBytes: Int = 40 * 1024) {
     self.maxBytes = maxBytes
   }
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: ReadFileInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -236,7 +236,7 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
     var relativePath: WorkspaceRelativePath?
     var output: ToolTextOutput?

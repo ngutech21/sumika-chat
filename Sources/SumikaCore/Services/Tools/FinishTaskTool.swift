@@ -114,8 +114,8 @@ private enum FinishTaskToolArguments {
   }
 }
 
-public struct FinishTaskToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<FinishTaskInput>(
+struct FinishTaskToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<FinishTaskInput>(
     definition: ToolDefinition.finishTask,
     decodeArguments: FinishTaskToolArguments.decode,
     makePayload: ToolCallPayload.finishTask,
@@ -130,9 +130,7 @@ public struct FinishTaskToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: FinishTaskInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -145,7 +143,7 @@ public struct FinishTaskToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: FinishTaskInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: FinishTaskInput, context: ToolContext) async -> ToolResultPayload {
     _ = context
     do {
       try FinishTaskToolArguments.validate(input)

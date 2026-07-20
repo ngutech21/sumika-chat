@@ -81,8 +81,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct WebSearchToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<WebSearchInput>(
+struct WebSearchToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<WebSearchInput>(
     definition: ToolDefinition.webSearch,
     makePayload: ToolCallPayload.webSearch,
     extractInput: { payload in
@@ -103,9 +103,7 @@ public struct WebSearchToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: WebSearchInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -113,7 +111,7 @@ public struct WebSearchToolExecutor: TypedToolExecutor {
     return webPermissionEvaluation(context.webAccessSettings)
   }
 
-  public func previewApproval(
+  func previewApproval(
     _ input: WebSearchInput,
     context: ToolContext
   ) async -> ToolResultPreview? {
@@ -132,7 +130,7 @@ public struct WebSearchToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: WebSearchInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: WebSearchInput, context: ToolContext) async -> ToolResultPayload {
     guard context.webAccessSettings.policy != .off else {
       return .webSearch(.failed(query: input.query, reason: .permissionDenied))
     }

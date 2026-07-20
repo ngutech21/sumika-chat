@@ -164,8 +164,8 @@ private enum AskUserToolArguments {
   }
 }
 
-public struct AskUserToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<AskUserInput>(
+struct AskUserToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<AskUserInput>(
     definition: ToolDefinition.askUser,
     decodeArguments: AskUserToolArguments.decode,
     makePayload: ToolCallPayload.askUser,
@@ -180,9 +180,7 @@ public struct AskUserToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: AskUserInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -195,7 +193,7 @@ public struct AskUserToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: AskUserInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: AskUserInput, context: ToolContext) async -> ToolResultPayload {
     _ = input
     _ = context
     return .failure(

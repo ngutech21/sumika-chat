@@ -1,16 +1,16 @@
 import Foundation
 
-public struct ToolContext: Sendable {
-  public let workspace: Workspace
-  public let sessionID: ChatSession.ID?
-  public let readTracker: ReadFileReadTracker?
-  public let latestCommandResultStore: LatestCommandResultStore?
-  public let webAccessSettings: WebAccessSettings
-  public let webSearcher: any WebSearching
-  public let webFetcher: any WebFetching
-  public let browserToolService: any BrowserToolServing
+struct ToolContext: Sendable {
+  let workspace: Workspace
+  let sessionID: ChatSession.ID?
+  let readTracker: ReadFileReadTracker?
+  let latestCommandResultStore: LatestCommandResultStore?
+  let webAccessSettings: WebAccessSettings
+  let webSearcher: any WebSearching
+  let webFetcher: any WebFetching
+  let browserToolService: any BrowserToolServing
 
-  public init(
+  init(
     workspace: Workspace,
     sessionID: ChatSession.ID? = nil,
     readTracker: ReadFileReadTracker? = nil,
@@ -119,7 +119,7 @@ enum ToolResultFailureMapper {
   }
 }
 
-public protocol TypedToolExecutor: Sendable {
+protocol TypedToolExecutor: Sendable {
   associatedtype Input: Decodable & Sendable
 
   static var codec: ToolCodec<Input> { get }
@@ -130,15 +130,7 @@ public protocol TypedToolExecutor: Sendable {
 }
 
 extension TypedToolExecutor {
-  public static var definition: ToolDefinition {
-    codec.definition
-  }
-
-  public static func input(from payload: ToolCallPayload) throws -> Input {
-    try codec.input(from: payload)
-  }
-
-  public func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview? {
+  func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview? {
     nil
   }
 }
@@ -147,7 +139,7 @@ extension TypedToolExecutor {
 /// static requirement. Dynamic tools such as MCP server tools are only known
 /// at runtime, so their definitions cannot be compile-time constants. They run
 /// through the same permission/approval/result state machine as typed tools.
-public protocol DynamicToolExecutor: Sendable {
+protocol DynamicToolExecutor: Sendable {
   associatedtype Input: Decodable & Sendable
 
   var codec: ToolCodec<Input> { get }
@@ -158,7 +150,7 @@ public protocol DynamicToolExecutor: Sendable {
 }
 
 extension DynamicToolExecutor {
-  public func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview? {
+  func previewApproval(_ input: Input, context: ToolContext) async -> ToolResultPreview? {
     nil
   }
 }
@@ -183,8 +175,8 @@ private struct TypedExecutorAdapter<T: TypedToolExecutor>: DynamicToolExecutor {
   }
 }
 
-public struct AnyToolExecutor: Sendable {
-  public let definition: ToolDefinition
+package struct AnyToolExecutor: Sendable {
+  package let definition: ToolDefinition
   /// Present only for dynamic executors: lets the request validator decode
   /// raw arguments for tools without a built-in codec catalog entry.
   let dynamicCodec: AnyToolCodec?
@@ -192,11 +184,11 @@ public struct AnyToolExecutor: Sendable {
   private let approvedRunHandler:
     @Sendable (ToolCallRequest, ToolPermissionEvaluation?, ToolContext) async -> ToolCallRecord
 
-  public init<T: TypedToolExecutor>(_ tool: T) {
+  init<T: TypedToolExecutor>(_ tool: T) {
     self.init(executor: TypedExecutorAdapter(tool: tool), dynamicCodec: nil)
   }
 
-  public init<T: DynamicToolExecutor>(dynamic tool: T) {
+  init<T: DynamicToolExecutor>(dynamic tool: T) {
     self.init(executor: tool, dynamicCodec: AnyToolCodec(tool.codec))
   }
 
@@ -218,11 +210,11 @@ public struct AnyToolExecutor: Sendable {
     }
   }
 
-  public func run(_ request: ToolCallRequest, context: ToolContext) async -> ToolCallRecord {
+  func run(_ request: ToolCallRequest, context: ToolContext) async -> ToolCallRecord {
     await runHandler(request, context)
   }
 
-  public func runApproved(
+  func runApproved(
     _ request: ToolCallRequest,
     approvedEvaluation: ToolPermissionEvaluation? = nil,
     context: ToolContext
@@ -458,7 +450,7 @@ public struct AnyToolExecutor: Sendable {
   }
 }
 
-public struct ToolExecutorRegistry: Sendable {
+package struct ToolExecutorRegistry: Sendable {
   private static let chatWebExecutors = [
     AnyToolExecutor(WebSearchToolExecutor()),
     AnyToolExecutor(WebFetchToolExecutor()),
@@ -501,20 +493,20 @@ public struct ToolExecutorRegistry: Sendable {
     return executors
   }
 
-  public static let chatWeb = ToolExecutorRegistry(chatWebExecutors)
+  package static let chatWeb = ToolExecutorRegistry(chatWebExecutors)
 
-  public static let readOnly = ToolExecutorRegistry(readOnlyExecutors)
+  package static let readOnly = ToolExecutorRegistry(readOnlyExecutors)
 
-  public static let codingAgent = codingAgentRegistry(todoWriteEnabled: true)
+  package static let codingAgent = codingAgentRegistry(todoWriteEnabled: true)
 
-  public static func codingAgentRegistry(todoWriteEnabled: Bool) -> ToolExecutorRegistry {
+  package static func codingAgentRegistry(todoWriteEnabled: Bool) -> ToolExecutorRegistry {
     ToolExecutorRegistry(codingAgentExecutors(todoWriteEnabled: todoWriteEnabled))
   }
 
   private let orderedExecutors: [AnyToolExecutor]
   private let executorsByName: [ToolName: AnyToolExecutor]
 
-  public init(_ executors: [AnyToolExecutor] = []) {
+  package init(_ executors: [AnyToolExecutor] = []) {
     orderedExecutors = executors
     executorsByName = Dictionary(
       uniqueKeysWithValues: executors.map { executor in
@@ -522,29 +514,29 @@ public struct ToolExecutorRegistry: Sendable {
       })
   }
 
-  public init(executors: [ToolName: AnyToolExecutor]) {
+  package init(executors: [ToolName: AnyToolExecutor]) {
     self.init(
       executors.sorted { lhs, rhs in
         lhs.key.rawValue.localizedStandardCompare(rhs.key.rawValue) == .orderedAscending
       }.map(\.value))
   }
 
-  public var toolRegistry: ToolRegistry {
+  package var toolRegistry: ToolRegistry {
     ToolRegistry(tools: orderedExecutors.map(\.definition))
   }
 
-  public var definitions: [ToolDefinition] {
+  package var definitions: [ToolDefinition] {
     orderedExecutors.map(\.definition)
   }
 
-  public func executor(for toolName: ToolName) -> AnyToolExecutor? {
+  func executor(for toolName: ToolName) -> AnyToolExecutor? {
     executorsByName[toolName]
   }
 
   /// Codecs of dynamic executors in this registry, keyed by tool name. The
   /// request validator uses these to decode tools that have no entry in the
   /// built-in codec catalog.
-  public var dynamicCodecs: [ToolName: AnyToolCodec] {
+  var dynamicCodecs: [ToolName: AnyToolCodec] {
     var codecs: [ToolName: AnyToolCodec] = [:]
     for executor in orderedExecutors {
       if let codec = executor.dynamicCodec {
@@ -558,7 +550,7 @@ public struct ToolExecutorRegistry: Sendable {
   /// names win over additions, and duplicate names within `additional` keep
   /// their first occurrence, so composed registries never crash the
   /// unique-name index.
-  public func merging(_ additional: [AnyToolExecutor]) -> ToolExecutorRegistry {
+  package func merging(_ additional: [AnyToolExecutor]) -> ToolExecutorRegistry {
     var executors = orderedExecutors
     var seenNames = Set(executors.map(\.definition.name))
     for executor in additional where !seenNames.contains(executor.definition.name) {
@@ -569,12 +561,12 @@ public struct ToolExecutorRegistry: Sendable {
   }
 }
 
-public enum ToolInputDecodingError: LocalizedError, Equatable {
+enum ToolInputDecodingError: LocalizedError, Equatable {
   case unknownArguments([String])
   case payloadMismatch(expected: String, actual: String)
   case inputExtractionFailed(toolName: String)
 
-  public var errorDescription: String? {
+  var errorDescription: String? {
     switch self {
     case .unknownArguments(let arguments):
       "Unknown argument(s): \(arguments.joined(separator: ", "))."
@@ -586,8 +578,8 @@ public enum ToolInputDecodingError: LocalizedError, Equatable {
   }
 }
 
-public enum ToolInputDecoder {
-  public static func decode<Input: Decodable>(
+enum ToolInputDecoder {
+  static func decode<Input: Decodable>(
     _ inputType: Input.Type,
     from arguments: ToolCallArguments
   ) throws -> Input {
@@ -596,7 +588,7 @@ public enum ToolInputDecoder {
   }
 }
 
-public struct ToolOrchestrator: Sendable {
+package struct ToolOrchestrator: Sendable {
   private let executorRegistry: ToolExecutorRegistry
   private let validator: ToolCallRequestValidator
   private let readTracker: ReadFileReadTracker
@@ -606,17 +598,58 @@ public struct ToolOrchestrator: Sendable {
   private let browserToolService: any BrowserToolServing
   private let webAccessSettingsProvider: @Sendable () async -> WebAccessSettings
 
-  public init(
+  package init(
     executorRegistry: ToolExecutorRegistry = .readOnly,
-    validator: ToolCallRequestValidator = ToolCallRequestValidator(),
-    readTracker: ReadFileReadTracker = ReadFileReadTracker(),
-    latestCommandResultStore: LatestCommandResultStore = LatestCommandResultStore(),
     webSearcher: any WebSearching = DefaultWebSearchService(),
     webFetcher: any WebFetching = DefaultWebFetchService(),
     browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
     webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
       .disabled
     }
+  ) {
+    self.init(
+      executorRegistry: executorRegistry,
+      validator: ToolCallRequestValidator(),
+      readTracker: ReadFileReadTracker(),
+      latestCommandResultStore: LatestCommandResultStore(),
+      webSearcher: webSearcher,
+      webFetcher: webFetcher,
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: webAccessSettingsProvider
+    )
+  }
+
+  init(
+    executorRegistry: ToolExecutorRegistry = .readOnly,
+    latestCommandResultStore: LatestCommandResultStore,
+    webSearcher: any WebSearching = DefaultWebSearchService(),
+    webFetcher: any WebFetching = DefaultWebFetchService(),
+    browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
+    webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
+      .disabled
+    }
+  ) {
+    self.init(
+      executorRegistry: executorRegistry,
+      validator: ToolCallRequestValidator(),
+      readTracker: ReadFileReadTracker(),
+      latestCommandResultStore: latestCommandResultStore,
+      webSearcher: webSearcher,
+      webFetcher: webFetcher,
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: webAccessSettingsProvider
+    )
+  }
+
+  private init(
+    executorRegistry: ToolExecutorRegistry,
+    validator: ToolCallRequestValidator,
+    readTracker: ReadFileReadTracker,
+    latestCommandResultStore: LatestCommandResultStore,
+    webSearcher: any WebSearching,
+    webFetcher: any WebFetching,
+    browserToolService: any BrowserToolServing,
+    webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings
   ) {
     self.executorRegistry = executorRegistry
     self.validator = validator
@@ -628,11 +661,11 @@ public struct ToolOrchestrator: Sendable {
     self.webAccessSettingsProvider = webAccessSettingsProvider
   }
 
-  public var toolRegistry: ToolRegistry {
+  var toolRegistry: ToolRegistry {
     executorRegistry.toolRegistry
   }
 
-  public func replacingExecutorRegistry(_ executorRegistry: ToolExecutorRegistry)
+  func replacingExecutorRegistry(_ executorRegistry: ToolExecutorRegistry)
     -> ToolOrchestrator
   {
     ToolOrchestrator(
@@ -647,7 +680,7 @@ public struct ToolOrchestrator: Sendable {
     )
   }
 
-  public func execute(request rawRequest: RawToolCallRequest, workspace: Workspace) async
+  func execute(request rawRequest: RawToolCallRequest, workspace: Workspace) async
     -> ToolCallRecord
   {
     let request = validator.validate(
@@ -658,7 +691,7 @@ public struct ToolOrchestrator: Sendable {
     return await executeValidated(request: request, workspace: workspace, isApproved: false)
   }
 
-  public func executeApproved(request: ToolCallRequest, workspace: Workspace) async
+  func executeApproved(request: ToolCallRequest, workspace: Workspace) async
     -> ToolCallRecord
   {
     let request = validator.validate(
@@ -674,7 +707,7 @@ public struct ToolOrchestrator: Sendable {
     )
   }
 
-  public func executeApproved(
+  func executeApproved(
     request: ToolCallRequest,
     approvedEvaluation: ToolPermissionEvaluation,
     workspace: Workspace
@@ -692,7 +725,7 @@ public struct ToolOrchestrator: Sendable {
     )
   }
 
-  public func executeApproved(request rawRequest: RawToolCallRequest, workspace: Workspace) async
+  func executeApproved(request rawRequest: RawToolCallRequest, workspace: Workspace) async
     -> ToolCallRecord
   {
     let request = validator.validate(

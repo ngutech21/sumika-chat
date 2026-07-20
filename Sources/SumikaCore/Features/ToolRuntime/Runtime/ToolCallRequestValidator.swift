@@ -1,9 +1,7 @@
 import Foundation
 
-public struct ToolCallRequestValidator: Sendable {
-  public init() {}
-
-  public func validate(
+struct ToolCallRequestValidator: Sendable {
+  func validate(
     _ rawRequest: RawToolCallRequest,
     registry: ToolRegistry,
     dynamicCodecs: [ToolName: AnyToolCodec] = [:]

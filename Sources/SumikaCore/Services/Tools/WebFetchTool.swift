@@ -111,8 +111,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct WebFetchToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<WebFetchInput>(
+struct WebFetchToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<WebFetchInput>(
     definition: ToolDefinition.webFetch,
     makePayload: ToolCallPayload.webFetch,
     extractInput: { payload in
@@ -135,9 +135,9 @@ public struct WebFetchToolExecutor: TypedToolExecutor {
 
   private let urlValidator = WebURLValidator()
 
-  public init() {}
+  init() {}
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: WebFetchInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -158,7 +158,7 @@ public struct WebFetchToolExecutor: TypedToolExecutor {
     return webPermissionEvaluation(context.webAccessSettings)
   }
 
-  public func previewApproval(
+  func previewApproval(
     _ input: WebFetchInput,
     context: ToolContext
   ) async -> ToolResultPreview? {
@@ -172,7 +172,7 @@ public struct WebFetchToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: WebFetchInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: WebFetchInput, context: ToolContext) async -> ToolResultPayload {
     guard context.webAccessSettings.policy != .off else {
       return .webFetch(
         .failed(

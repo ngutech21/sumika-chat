@@ -121,8 +121,8 @@ extension BrowserRefreshInput {
   }
 }
 
-public struct BrowserRefreshToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<BrowserRefreshInput>(
+struct BrowserRefreshToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<BrowserRefreshInput>(
     definition: ToolDefinition.browserRefresh,
     decodeArguments: BrowserRefreshInput.decodeToolArguments,
     makePayload: ToolCallPayload.browserRefresh,
@@ -137,9 +137,7 @@ public struct BrowserRefreshToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: BrowserRefreshInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -152,7 +150,7 @@ public struct BrowserRefreshToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: BrowserRefreshInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: BrowserRefreshInput, context: ToolContext) async -> ToolResultPayload {
     .browserRefresh(await context.browserToolService.refresh(input))
   }
 }

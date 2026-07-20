@@ -214,8 +214,8 @@ extension BrowserInspectInput {
   }
 }
 
-public struct BrowserInspectToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<BrowserInspectInput>(
+struct BrowserInspectToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<BrowserInspectInput>(
     definition: ToolDefinition.browserInspect,
     decodeArguments: BrowserInspectInput.decodeToolArguments,
     makePayload: ToolCallPayload.browserInspect,
@@ -230,9 +230,7 @@ public struct BrowserInspectToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: BrowserInspectInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -245,7 +243,7 @@ public struct BrowserInspectToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: BrowserInspectInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: BrowserInspectInput, context: ToolContext) async -> ToolResultPayload {
     .browserInspect(await context.browserToolService.inspect(input))
   }
 }

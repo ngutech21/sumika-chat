@@ -1,19 +1,19 @@
 import Foundation
 
-public enum ToolNameRepairMethod: String, Codable, Equatable, Sendable {
+enum ToolNameRepairMethod: String, Codable, Equatable, Sendable {
   case caseFold
   case separator
   case camelCase
 
 }
 
-public enum ToolNameResolution: Equatable, Sendable {
+enum ToolNameResolution: Equatable, Sendable {
   case exact(ToolName)
   case repaired(original: String, canonical: ToolName, method: ToolNameRepairMethod)
   case unknown(original: String)
   case ambiguous(original: String, candidates: [ToolName])
 
-  public var canonicalToolName: ToolName? {
+  var canonicalToolName: ToolName? {
     switch self {
     case .exact(let toolName):
       toolName
@@ -25,9 +25,9 @@ public enum ToolNameResolution: Equatable, Sendable {
   }
 }
 
-public struct ToolNameResolver: Sendable {
+struct ToolNameResolver: Sendable {
 
-  public func resolve(_ rawName: String, registry: ToolRegistry) -> ToolNameResolution {
+  func resolve(_ rawName: String, registry: ToolRegistry) -> ToolNameResolution {
     let original = rawName
     let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
     let exact = ToolName(rawValue: trimmed)

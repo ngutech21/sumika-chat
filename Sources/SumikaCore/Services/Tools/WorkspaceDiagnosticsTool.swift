@@ -54,8 +54,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<WorkspaceDiagnosticsInput>(
+struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<WorkspaceDiagnosticsInput>(
     definition: ToolDefinition.workspaceDiagnostics,
     makePayload: ToolCallPayload.workspaceDiagnostics,
     extractInput: { payload in
@@ -76,9 +76,7 @@ public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: WorkspaceDiagnosticsInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -90,7 +88,7 @@ public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(
+  func run(
     _ input: WorkspaceDiagnosticsInput,
     context: ToolContext
   ) async -> ToolResultPayload {

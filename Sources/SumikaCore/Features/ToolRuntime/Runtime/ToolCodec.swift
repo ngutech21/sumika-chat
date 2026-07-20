@@ -1,13 +1,13 @@
 import Foundation
 
-public struct ToolCodec<Input: Decodable & Sendable>: Sendable {
-  public let definition: ToolDefinition
+struct ToolCodec<Input: Decodable & Sendable>: Sendable {
+  let definition: ToolDefinition
 
   private let decodeArgumentsHandler: @Sendable (ToolCallArguments) throws -> Input
   private let makePayloadHandler: @Sendable (Input) -> ToolCallPayload
   private let extractInputHandler: @Sendable (ToolCallPayload) throws -> Input
 
-  public init(
+  init(
     definition: ToolDefinition,
     decodeArguments: @escaping @Sendable (ToolCallArguments) throws -> Input,
     makePayload: @escaping @Sendable (Input) -> ToolCallPayload,
@@ -19,7 +19,7 @@ public struct ToolCodec<Input: Decodable & Sendable>: Sendable {
     extractInputHandler = extractInput
   }
 
-  public init(
+  init(
     definition: ToolDefinition,
     makePayload: @escaping @Sendable (Input) -> ToolCallPayload,
     extractInput: @escaping @Sendable (ToolCallPayload) throws -> Input,
@@ -37,41 +37,37 @@ public struct ToolCodec<Input: Decodable & Sendable>: Sendable {
     )
   }
 
-  public func decodeArguments(_ arguments: ToolCallArguments) throws -> Input {
+  func decodeArguments(_ arguments: ToolCallArguments) throws -> Input {
     try decodeArgumentsHandler(arguments)
   }
 
-  public func payload(from arguments: ToolCallArguments) throws -> ToolCallPayload {
+  func payload(from arguments: ToolCallArguments) throws -> ToolCallPayload {
     try makePayloadHandler(decodeArguments(arguments))
   }
 
-  public func makePayload(_ input: Input) -> ToolCallPayload {
-    makePayloadHandler(input)
-  }
-
-  public func input(from payload: ToolCallPayload) throws -> Input {
+  func input(from payload: ToolCallPayload) throws -> Input {
     try extractInputHandler(payload)
   }
 }
 
-public struct AnyToolCodec: Sendable {
-  public let definition: ToolDefinition
+struct AnyToolCodec: Sendable {
+  let definition: ToolDefinition
   private let payloadHandler: @Sendable (ToolCallArguments) throws -> ToolCallPayload
 
-  public init<Input: Decodable & Sendable>(_ codec: ToolCodec<Input>) {
+  init<Input: Decodable & Sendable>(_ codec: ToolCodec<Input>) {
     definition = codec.definition
     payloadHandler = { arguments in
       try codec.payload(from: arguments)
     }
   }
 
-  public func payload(from arguments: ToolCallArguments) throws -> ToolCallPayload {
+  func payload(from arguments: ToolCallArguments) throws -> ToolCallPayload {
     try payloadHandler(arguments)
   }
 }
 
-public enum ToolCodecCatalog {
-  public static let builtIn: [AnyToolCodec] = [
+enum ToolCodecCatalog {
+  static let builtIn: [AnyToolCodec] = [
     AnyToolCodec(ReadFileToolExecutor.codec),
     AnyToolCodec(ShowFileToolExecutor.codec),
     AnyToolCodec(ListFilesToolExecutor.codec),
@@ -96,7 +92,7 @@ public enum ToolCodecCatalog {
       (codec.definition.name, codec)
     })
 
-  public static func builtInCodec(for toolName: ToolName) -> AnyToolCodec? {
+  static func builtInCodec(for toolName: ToolName) -> AnyToolCodec? {
     builtInByName[toolName]
   }
 }

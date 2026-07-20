@@ -108,8 +108,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct EditFileToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<EditFileInput>(
+struct EditFileToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<EditFileInput>(
     definition: ToolDefinition.editFile,
     makePayload: ToolCallPayload.editFile,
     extractInput: { payload in
@@ -129,9 +129,7 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: EditFileInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -153,7 +151,7 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func previewApproval(_ input: EditFileInput, context: ToolContext) async
+  func previewApproval(_ input: EditFileInput, context: ToolContext) async
     -> ToolResultPreview?
   {
     var resolvedURL: URL?
@@ -173,7 +171,7 @@ public struct EditFileToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: EditFileInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: EditFileInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {

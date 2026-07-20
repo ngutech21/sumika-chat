@@ -382,7 +382,7 @@ extension ChatSessionController {
     )
   }
 
-  public func setAgentToolExecutorRegistry(_ executorRegistry: ToolExecutorRegistry) {
+  package func setAgentToolExecutorRegistry(_ executorRegistry: ToolExecutorRegistry) {
     guard !isGenerating, !isInputBlocked else {
       pendingAgentToolExecutorRegistry = executorRegistry
       return
@@ -390,7 +390,7 @@ extension ChatSessionController {
     applyAgentToolExecutorRegistry(executorRegistry, shouldRefreshContext: true)
   }
 
-  public func setSelectedMCPServerIDs(
+  package func setSelectedMCPServerIDs(
     _ serverIDs: [UUID],
     agentToolExecutorRegistry: ToolExecutorRegistry
   ) {
@@ -404,7 +404,7 @@ extension ChatSessionController {
   /// user action this may run in Chat mode, but it is deferred across an
   /// active generation or unresolved interaction so validated calls keep the
   /// registry that created them.
-  public func reconcileSelectedMCPServerIDs(
+  package func reconcileSelectedMCPServerIDs(
     _ serverIDs: [UUID],
     agentToolExecutorRegistry: ToolExecutorRegistry
   ) {

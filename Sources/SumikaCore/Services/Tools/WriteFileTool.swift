@@ -52,8 +52,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct WriteFileToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<WriteFileInput>(
+struct WriteFileToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<WriteFileInput>(
     definition: ToolDefinition.writeFile,
     makePayload: ToolCallPayload.writeFile,
     extractInput: { payload in
@@ -70,9 +70,7 @@ public struct WriteFileToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: WriteFileInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -94,7 +92,7 @@ public struct WriteFileToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: WriteFileInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: WriteFileInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {

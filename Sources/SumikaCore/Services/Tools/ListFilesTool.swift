@@ -51,8 +51,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct ListFilesToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<ListFilesInput>(
+struct ListFilesToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<ListFilesInput>(
     definition: ToolDefinition.listFiles,
     makePayload: ToolCallPayload.listFiles,
     extractInput: { payload in
@@ -73,7 +73,7 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
   private let maxEntries: Int
   private let skippedNames: Set<String>
 
-  public init(
+  init(
     maxDepth: Int = 0,
     maxEntries: Int = 300,
     skippedNames: Set<String> = [
@@ -85,7 +85,7 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
     self.skippedNames = skippedNames
   }
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: ListFilesInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -107,7 +107,7 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: ListFilesInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: ListFilesInput, context: ToolContext) async -> ToolResultPayload {
     let path = input.path ?? "."
     var resolvedURL: URL?
 

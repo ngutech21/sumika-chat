@@ -22,11 +22,11 @@ public struct MCPServerStatus: Equatable, Sendable, Identifiable {
 }
 
 /// Connected dynamic tool executors grouped by their stable server identity.
-public struct MCPAgentToolExecutorGroup: Sendable {
-  public var serverID: UUID
-  public var executors: [AnyToolExecutor]
+package struct MCPAgentToolExecutorGroup: Sendable {
+  package var serverID: UUID
+  package var executors: [AnyToolExecutor]
 
-  public init(serverID: UUID, executors: [AnyToolExecutor]) {
+  package init(serverID: UUID, executors: [AnyToolExecutor]) {
     self.serverID = serverID
     self.executors = executors
   }
@@ -227,12 +227,12 @@ public actor MCPClientManager: MCPToolCalling {
 
   /// Dynamic executors for every tool on every connected server, in stable
   /// configuration order.
-  public func agentToolExecutors() -> [AnyToolExecutor] {
+  package func agentToolExecutors() -> [AnyToolExecutor] {
     agentToolExecutorGroups().flatMap(\.executors)
   }
 
   /// Dynamic executors grouped by server, in stable configuration order.
-  public func agentToolExecutorGroups() -> [MCPAgentToolExecutorGroup] {
+  package func agentToolExecutorGroups() -> [MCPAgentToolExecutorGroup] {
     serverOrder.compactMap { id -> MCPAgentToolExecutorGroup? in
       guard let server = servers[id], case .connected = server.state else {
         return nil

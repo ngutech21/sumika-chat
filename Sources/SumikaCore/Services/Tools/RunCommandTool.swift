@@ -222,8 +222,8 @@ extension RunCommandInput {
   }
 }
 
-public struct RunCommandToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<RunCommandInput>(
+struct RunCommandToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<RunCommandInput>(
     definition: ToolDefinition.runCommand,
     decodeArguments: RunCommandInput.decodeToolArguments,
     makePayload: ToolCallPayload.runCommand,
@@ -238,8 +238,8 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
     }
   )
 
-  public static let minimumTimeoutSeconds = 1
-  public static let maximumTimeoutSeconds = 120
+  static let minimumTimeoutSeconds = 1
+  static let maximumTimeoutSeconds = 120
 
   private let bashExecutableURL: URL
   private let environment: [String: String]
@@ -248,7 +248,7 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
   private let outputRefGenerator: @Sendable () -> String
   private let processRunner: any CommandProcessRunning
 
-  public init(
+  init(
     bashExecutableURL: URL = URL(filePath: "/bin/bash"),
     environment: [String: String] = ProcessInfo.processInfo.environment,
     pathPrefixDirectories: [URL] = [
@@ -271,7 +271,7 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
     self.processRunner = processRunner
   }
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: RunCommandInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -293,7 +293,7 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func previewApproval(
+  func previewApproval(
     _ input: RunCommandInput,
     context: ToolContext
   ) async -> ToolResultPreview? {
@@ -309,7 +309,7 @@ public struct RunCommandToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: RunCommandInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: RunCommandInput, context: ToolContext) async -> ToolResultPayload {
     do {
       return try await context.workspace.withAsyncSecurityScopedAccess {
         let workspaceRoot = try context.workspace.resolveAllowedPath(".")

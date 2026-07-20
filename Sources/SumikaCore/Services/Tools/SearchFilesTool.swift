@@ -65,8 +65,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct SearchFilesToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<SearchFilesInput>(
+struct SearchFilesToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<SearchFilesInput>(
     definition: ToolDefinition.searchFiles,
     makePayload: ToolCallPayload.searchFiles,
     extractInput: { payload in
@@ -88,7 +88,7 @@ public struct SearchFilesToolExecutor: TypedToolExecutor {
   private let maxFileBytes: Int
   private let skippedNames: Set<String>
 
-  public init(
+  init(
     maxMatches: Int = 200,
     maxSnippetLength: Int = 240,
     maxFileBytes: Int = 2 * 1024 * 1024,
@@ -100,7 +100,7 @@ public struct SearchFilesToolExecutor: TypedToolExecutor {
     self.skippedNames = skippedNames
   }
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: SearchFilesInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -122,7 +122,7 @@ public struct SearchFilesToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: SearchFilesInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: SearchFilesInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {

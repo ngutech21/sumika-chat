@@ -139,17 +139,17 @@ public protocol MCPToolCalling: Sendable {
 /// built at runtime from `tools/list` results; the codec carries the qualified
 /// definition so validation, approval, and execution reuse the standard tool
 /// runtime state machine.
-public struct MCPToolExecutor: DynamicToolExecutor {
+struct MCPToolExecutor: DynamicToolExecutor {
   /// Server-provided descriptions are untrusted prompt input; cap them before
   /// they reach the model-facing tool schema.
   static let maxDescriptionLength = 600
 
-  public let codec: ToolCodec<MCPToolInput>
+  let codec: ToolCodec<MCPToolInput>
   private let serverID: UUID
   private let connectionToken: UUID
   private let client: any MCPToolCalling
 
-  public init(
+  init(
     serverID: UUID,
     connectionToken: UUID,
     serverName: String,
@@ -198,7 +198,7 @@ public struct MCPToolExecutor: DynamicToolExecutor {
     self.client = client
   }
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: MCPToolInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -210,7 +210,7 @@ public struct MCPToolExecutor: DynamicToolExecutor {
     )
   }
 
-  public func previewApproval(
+  func previewApproval(
     _ input: MCPToolInput,
     context: ToolContext
   ) async -> ToolResultPreview? {
@@ -226,7 +226,7 @@ public struct MCPToolExecutor: DynamicToolExecutor {
     )
   }
 
-  public func run(_ input: MCPToolInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: MCPToolInput, context: ToolContext) async -> ToolResultPayload {
     do {
       let result = try await client.callTool(
         serverID: serverID,

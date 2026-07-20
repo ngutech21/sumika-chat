@@ -58,8 +58,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct GlobFilesToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<GlobFilesInput>(
+struct GlobFilesToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<GlobFilesInput>(
     definition: ToolDefinition.globFiles,
     makePayload: ToolCallPayload.globFiles,
     extractInput: { payload in
@@ -79,7 +79,7 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
   private let maxResults: Int
   private let skippedNames: Set<String>
 
-  public init(
+  init(
     maxResults: Int = 300,
     skippedNames: Set<String> = WorkspaceFileEnumeration.skippedNames
   ) {
@@ -87,7 +87,7 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
     self.skippedNames = skippedNames
   }
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: GlobFilesInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -109,7 +109,7 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: GlobFilesInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: GlobFilesInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {
