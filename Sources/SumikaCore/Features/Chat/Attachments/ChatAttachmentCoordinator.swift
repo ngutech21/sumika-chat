@@ -1,13 +1,13 @@
 import Foundation
 
-public enum ChatAttachmentEvent: Equatable, Sendable {
+enum ChatAttachmentEvent: Equatable, Sendable {
   case appendAttachments([ChatAttachment])
   case removeAttachment(ChatAttachment.ID)
   case error(String)
 }
 
 @MainActor
-public final class ChatAttachmentCoordinator {
+final class ChatAttachmentCoordinator {
   private let loader: any ChatAttachmentLoading
   private let loadQueue = DispatchQueue(
     label: "chat.sumika.chat-attachments.load",
@@ -17,7 +17,7 @@ public final class ChatAttachmentCoordinator {
   private var loadTask: Task<Void, Never>?
   private var loadRequestID = UUID()
 
-  public init(loader: any ChatAttachmentLoading) {
+  init(loader: any ChatAttachmentLoading) {
     self.loader = loader
   }
 
@@ -25,7 +25,7 @@ public final class ChatAttachmentCoordinator {
     loadTask?.cancel()
   }
 
-  public func addAttachments(
+  func addAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment],
     onEvent: @escaping @MainActor @Sendable (ChatAttachmentEvent) -> Void
@@ -105,7 +105,7 @@ public final class ChatAttachmentCoordinator {
       && fileName.hasSuffix(".png")
   }
 
-  public func removeAttachment(
+  func removeAttachment(
     id: ChatAttachment.ID,
     onEvent: @MainActor @Sendable (ChatAttachmentEvent) -> Void
   ) {

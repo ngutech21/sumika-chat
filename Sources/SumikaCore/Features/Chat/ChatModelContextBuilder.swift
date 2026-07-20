@@ -1,10 +1,10 @@
 import Foundation
 
-public struct ChatModelContextBuilder: Sendable {
+package struct ChatModelContextBuilder: Sendable {
   private let promptContextSelector: any CurrentPromptContextSelecting
   private let focusedFileReusePolicy: FocusedFilePromptReusePolicy
 
-  public init(
+  package init(
     promptContextSelector: any CurrentPromptContextSelecting = CurrentPromptContextSelector()
   ) {
     self.promptContextSelector = promptContextSelector
@@ -252,7 +252,7 @@ public struct ChatModelContextBuilder: Sendable {
     entries.append(entry)
   }
 
-  public func currentPromptContext(
+  package func currentPromptContext(
     userInput: String,
     mode: WorkspaceInteractionMode,
     focusedFileState: FocusedFileState,

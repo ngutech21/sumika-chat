@@ -1,15 +1,15 @@
 import Foundation
 
 @MainActor
-public final class RuntimeContextClearCoordinator {
+final class RuntimeContextClearCoordinator {
   private let modelLifecycleCoordinator: ModelLifecycleCoordinator
   private var pendingClear: PendingRuntimeContextClear?
 
-  public init(modelLifecycleCoordinator: ModelLifecycleCoordinator) {
+  init(modelLifecycleCoordinator: ModelLifecycleCoordinator) {
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
   }
 
-  public func clear(
+  func clear(
     operationID: UUID,
     onCompletion: @escaping @MainActor (Error?) -> Void
   ) {
@@ -37,7 +37,7 @@ public final class RuntimeContextClearCoordinator {
     }
   }
 
-  public func awaitPendingClear() async throws {
+  func awaitPendingClear() async throws {
     guard let pendingClear else {
       return
     }

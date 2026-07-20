@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ModelFacingPromptRenderer {
+package enum ModelFacingPromptRenderer {
   package static func userPromptEntry(
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
@@ -94,7 +94,7 @@ public enum ModelFacingPromptRenderer {
     )
   }
 
-  public static func userContent(
+  package static func userContent(
     _ content: String,
     workspaceInstructions: [String] = [],
     systemContext: [String]
@@ -123,19 +123,19 @@ public enum ModelFacingPromptRenderer {
     return sections.joined(separator: "\n\n")
   }
 
-  public static func systemInstructionContent(_ systemContext: String) -> String {
+  package static func systemInstructionContent(_ systemContext: String) -> String {
     """
     System instructions:
     \(systemContext)
     """
   }
 
-  public static func normalizedSystemPrompt(_ systemPrompt: String) -> String? {
+  package static func normalizedSystemPrompt(_ systemPrompt: String) -> String? {
     let effectiveSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
     return effectiveSystemPrompt.isEmpty ? nil : effectiveSystemPrompt
   }
 
-  public static func normalizedSystemContext(_ systemContext: [String]) -> [String] {
+  package static func normalizedSystemContext(_ systemContext: [String]) -> [String] {
     systemContext
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
@@ -180,8 +180,8 @@ enum ToolReceiptFactory {
   }
 }
 
-public enum ToolReceiptRenderer {
-  package static func render(_ receipt: ToolReceipt) -> String {
+enum ToolReceiptRenderer {
+  static func render(_ receipt: ToolReceipt) -> String {
     var lines = [
       "Tool receipt: \(receipt.toolName.rawValue)",
       "Call ID: \(receipt.callID.uuidString)",
@@ -209,8 +209,8 @@ public enum ToolReceiptRenderer {
   }
 }
 
-public enum ToolModelObservationRenderer {
-  public static func render(
+enum ToolModelObservationRenderer {
+  static func render(
     _ projection: ToolResultProjection,
     callID _: UUID,
     modelFollowUpNotice: String? = nil
