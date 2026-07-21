@@ -1,31 +1,31 @@
-public struct WebSearchInput: Codable, Equatable, Sendable {
-  public var query: String
-  public var maxResults: Int?
+package struct WebSearchInput: Codable, Equatable, Sendable {
+  package var query: String
+  package var maxResults: Int?
 
-  public init(query: String, maxResults: Int? = nil) {
+  package init(query: String, maxResults: Int? = nil) {
     self.query = query
     self.maxResults = maxResults
   }
 }
 
-public struct WebSearchResult: Codable, Equatable, Sendable {
-  public var title: String
-  public var url: String
-  public var snippet: String?
+package struct WebSearchResult: Codable, Equatable, Sendable {
+  package var title: String
+  package var url: String
+  package var snippet: String?
 
-  public init(title: String, url: String, snippet: String? = nil) {
+  package init(title: String, url: String, snippet: String? = nil) {
     self.title = title
     self.url = url
     self.snippet = snippet
   }
 }
 
-public enum WebSearchToolResult: Codable, Equatable, Sendable {
+package enum WebSearchToolResult: Codable, Equatable, Sendable {
   case success(
     query: String, provider: WebSearchProvider, results: [WebSearchResult], truncated: Bool)
   case failed(query: String, reason: ToolFailureReason)
 
-  public init(
+  package init(
     query: String,
     provider: WebSearchProvider,
     results: [WebSearchResult],
@@ -57,7 +57,7 @@ nonisolated extension WebSearchToolResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let webSearch = ToolDefinition(
+  package static let webSearch = ToolDefinition(
     name: .webSearch,
     description: "Search public web pages without sending workspace contents.",
     parameters: [
@@ -81,8 +81,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct WebSearchToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<WebSearchInput>(
+struct WebSearchToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<WebSearchInput>(
     definition: ToolDefinition.webSearch,
     makePayload: ToolCallPayload.webSearch,
     extractInput: { payload in
@@ -103,9 +103,7 @@ public struct WebSearchToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: WebSearchInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -113,7 +111,7 @@ public struct WebSearchToolExecutor: TypedToolExecutor {
     return webPermissionEvaluation(context.webAccessSettings)
   }
 
-  public func previewApproval(
+  func previewApproval(
     _ input: WebSearchInput,
     context: ToolContext
   ) async -> ToolResultPreview? {
@@ -132,7 +130,7 @@ public struct WebSearchToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: WebSearchInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: WebSearchInput, context: ToolContext) async -> ToolResultPayload {
     guard context.webAccessSettings.policy != .off else {
       return .webSearch(.failed(query: input.query, reason: .permissionDenied))
     }

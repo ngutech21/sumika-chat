@@ -1,5 +1,5 @@
 nonisolated extension ToolDefinition {
-  public static let showFile = ToolDefinition(
+  package static let showFile = ToolDefinition(
     name: .showFile,
     description:
       "Show a workspace file directly to the user without loading its contents into your model context. Use only when the user wants to view/open the file, not when you need to reason about its contents.",
@@ -29,8 +29,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct ShowFileToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<ReadFileInput>(
+struct ShowFileToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<ReadFileInput>(
     definition: ToolDefinition.showFile,
     decodeArguments: ReadFileInput.decodeToolArguments,
     makePayload: ToolCallPayload.showFile,
@@ -47,18 +47,18 @@ public struct ShowFileToolExecutor: TypedToolExecutor {
 
   private let readFileExecutor: ReadFileToolExecutor
 
-  public init(maxBytes: Int = 40 * 1024) {
+  init(maxBytes: Int = 40 * 1024) {
     readFileExecutor = ReadFileToolExecutor(maxBytes: maxBytes)
   }
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: ReadFileInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
     readFileExecutor.evaluatePermission(input, context: context)
   }
 
-  public func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
     await readFileExecutor.run(input, context: context)
   }
 }

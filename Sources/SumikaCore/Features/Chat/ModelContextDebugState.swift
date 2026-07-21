@@ -1,8 +1,8 @@
-public struct ModelContextDebugState: Equatable, Sendable {
-  public var runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
-  public var documentRevision: Int
+package struct ModelContextDebugState: Equatable, Sendable {
+  package var runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot?
+  package var documentRevision: Int
 
-  public init(
+  package init(
     runtimeCacheDebugSnapshot: RuntimeCacheDebugSnapshot? = nil,
     documentRevision: Int = 0
   ) {

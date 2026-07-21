@@ -1,12 +1,12 @@
 import Foundation
 
-public struct FocusedFileState: Codable, Equatable, Sendable {
-  public var activePath: WorkspaceRelativePath?
-  public var recentPaths: [FocusedPath]
-  public var snapshots: [WorkspaceRelativePath: FocusedFileSnapshot]
-  public var focusedAttachments: [AttachmentID]
+package struct FocusedFileState: Codable, Equatable, Sendable {
+  package var activePath: WorkspaceRelativePath?
+  package var recentPaths: [FocusedPath]
+  package var snapshots: [WorkspaceRelativePath: FocusedFileSnapshot]
+  package var focusedAttachments: [AttachmentID]
 
-  public init(
+  package init(
     activePath: WorkspaceRelativePath? = nil,
     recentPaths: [FocusedPath] = [],
     snapshots: [WorkspaceRelativePath: FocusedFileSnapshot] = [:],
@@ -18,7 +18,7 @@ public struct FocusedFileState: Codable, Equatable, Sendable {
     self.focusedAttachments = focusedAttachments
   }
 
-  public static let empty = FocusedFileState()
+  package static let empty = FocusedFileState()
 
   private enum CodingKeys: String, CodingKey {
     case activePath
@@ -27,7 +27,7 @@ public struct FocusedFileState: Codable, Equatable, Sendable {
     case focusedAttachments
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     activePath = try container.decodeIfPresent(WorkspaceRelativePath.self, forKey: .activePath)
     recentPaths = try container.decodeLossyArray([FocusedPath].self, forKey: .recentPaths)
@@ -43,7 +43,7 @@ public struct FocusedFileState: Codable, Equatable, Sendable {
     )
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encodeIfPresent(activePath, forKey: .activePath)
     try container.encode(recentPaths, forKey: .recentPaths)
@@ -52,13 +52,13 @@ public struct FocusedFileState: Codable, Equatable, Sendable {
   }
 }
 
-public struct FocusedPath: Codable, Equatable, Sendable {
-  public var path: WorkspaceRelativePath
-  public var source: FocusedPathSource
-  public var confidence: FocusConfidence
-  public var updatedAt: Date
+package struct FocusedPath: Codable, Equatable, Sendable {
+  package var path: WorkspaceRelativePath
+  package var source: FocusedPathSource
+  package var confidence: FocusConfidence
+  package var updatedAt: Date
 
-  public init(
+  package init(
     path: WorkspaceRelativePath,
     source: FocusedPathSource,
     confidence: FocusConfidence,
@@ -71,26 +71,26 @@ public struct FocusedPath: Codable, Equatable, Sendable {
   }
 }
 
-public enum FocusedPathSource: String, Codable, Equatable, Sendable {
+package enum FocusedPathSource: String, Codable, Equatable, Sendable {
   case readFile
   case writeFile
   case editFile
   case attachment
 }
 
-public enum FocusConfidence: String, Codable, Equatable, Sendable {
+package enum FocusConfidence: String, Codable, Equatable, Sendable {
   case active
   case recent
   case ambiguous
 }
 
-public struct FocusedFileSnapshot: Codable, Equatable, Sendable {
-  public var contentHash: String
-  public var excerpt: String?
-  public var fullContentAvailable: Bool
-  public var updatedAt: Date
+package struct FocusedFileSnapshot: Codable, Equatable, Sendable {
+  package var contentHash: String
+  package var excerpt: String?
+  package var fullContentAvailable: Bool
+  package var updatedAt: Date
 
-  public init(
+  package init(
     contentHash: String,
     excerpt: String?,
     fullContentAvailable: Bool,

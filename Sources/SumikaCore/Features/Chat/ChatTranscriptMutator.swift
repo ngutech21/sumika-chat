@@ -1,9 +1,7 @@
 import Foundation
 
-public struct ChatTranscriptMutator: Sendable {
-  public init() {}
-
-  public func appendUserMessage(
+struct ChatTranscriptMutator: Sendable {
+  func appendUserMessage(
     _ content: String,
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
@@ -24,7 +22,7 @@ public struct ChatTranscriptMutator: Sendable {
     )
   }
 
-  public func appendAssistantPlaceholder(
+  func appendAssistantPlaceholder(
     id: UUID,
     turnID: ChatTurn.ID? = nil,
     to state: inout ChatSession
@@ -38,7 +36,7 @@ public struct ChatTranscriptMutator: Sendable {
     )
   }
 
-  public func updateUserMessagePromptContext(
+  func updateUserMessagePromptContext(
     _ promptContext: CurrentPromptContext,
     for messageID: UUID,
     in state: inout ChatSession
@@ -48,7 +46,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func appendAssistantMessage(
+  func appendAssistantMessage(
     _ content: String,
     id: UUID = UUID(),
     turnID: ChatTurn.ID? = nil,
@@ -69,7 +67,7 @@ public struct ChatTranscriptMutator: Sendable {
     )
   }
 
-  public func appendAssistantThinkingPlaceholder(
+  func appendAssistantThinkingPlaceholder(
     id: UUID,
     turnID: ChatTurn.ID? = nil,
     to state: inout ChatSession
@@ -83,13 +81,13 @@ public struct ChatTranscriptMutator: Sendable {
     )
   }
 
-  public func appendChunk(_ chunk: String, to messageID: UUID, in state: inout ChatSession) {
+  func appendChunk(_ chunk: String, to messageID: UUID, in state: inout ChatSession) {
     updateTurn(containingMessageID: messageID, in: &state) { turn in
       turn.appendAssistantChunk(chunk, to: messageID)
     }
   }
 
-  public func appendThinkingChunk(
+  func appendThinkingChunk(
     _ chunk: String,
     to messageID: UUID,
     in state: inout ChatSession
@@ -99,7 +97,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func updateGenerationMetrics(
+  func updateGenerationMetrics(
     _ metrics: ChatGenerationMetrics?,
     for messageID: UUID,
     in state: inout ChatSession
@@ -109,7 +107,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func updateDeliveryStatus(
+  func updateDeliveryStatus(
     _ status: AssistantTurnMessage.DeliveryStatus,
     for messageID: UUID,
     in state: inout ChatSession
@@ -119,7 +117,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func updateThinkingDeliveryStatus(
+  func updateThinkingDeliveryStatus(
     _ status: AssistantThinkingMessage.DeliveryStatus,
     for messageID: UUID,
     in state: inout ChatSession
@@ -129,7 +127,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func annotateToolCall(
+  func annotateToolCall(
     _ toolCall: ToolCallModelMessage,
     for messageID: UUID,
     in state: inout ChatSession
@@ -145,7 +143,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func appendToolResult(
+  func appendToolResult(
     _ toolResult: ToolResultModelMessage,
     turnID: ChatTurn.ID? = nil,
     to state: inout ChatSession
@@ -158,7 +156,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func recordToolCall(
+  func recordToolCall(
     _ record: ToolCallRecord,
     turnID: ChatTurn.ID,
     in state: inout ChatSession
@@ -168,7 +166,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func updateToolCallRecord(
+  func updateToolCallRecord(
     _ record: ToolCallRecord,
     in state: inout ChatSession
   ) {
@@ -180,7 +178,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func removeTransientAssistantPlaceholders(from state: inout ChatSession) {
+  func removeTransientAssistantPlaceholders(from state: inout ChatSession) {
     for turnID in state.turns.map(\.id) {
       updateTurn(turnID, in: &state) { turn in
         turn.cancelEmptyStreamingAssistantPlaceholders()
@@ -188,7 +186,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func markStreamingAssistantMessagesCancelled(
+  func markStreamingAssistantMessagesCancelled(
     inTurn turnID: ChatTurn.ID,
     in state: inout ChatSession
   ) {
@@ -197,18 +195,18 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func clearTranscript(in state: inout ChatSession) {
+  func clearTranscript(in state: inout ChatSession) {
     state.turns.removeAll()
     state.pendingAttachments.removeAll()
     state.focusedFileState = .empty
     state.todoState = nil
   }
 
-  public func appendTurn(_ turn: ChatTurn, to state: inout ChatSession) {
+  func appendTurn(_ turn: ChatTurn, to state: inout ChatSession) {
     state.turns.append(turn)
   }
 
-  public func appendItem(
+  func appendItem(
     _ item: ChatTurnItem,
     toTurn turnID: ChatTurn.ID?,
     in state: inout ChatSession
@@ -218,7 +216,7 @@ public struct ChatTranscriptMutator: Sendable {
     }
   }
 
-  public func updateTurnStatus(
+  func updateTurnStatus(
     _ status: ChatTurnStatus,
     modelContextPolicy: ChatTurnModelContextPolicy? = nil,
     for turnID: ChatTurn.ID,

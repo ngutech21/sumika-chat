@@ -360,7 +360,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
-				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=complete";
+				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=complete -package-name sumika_chat";
 				PRODUCT_BUNDLE_IDENTIFIER = "chat.sumika.hosted-tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
@@ -389,7 +389,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
-				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=complete";
+				OTHER_SWIFT_FLAGS = "$(inherited) -strict-concurrency=complete -package-name sumika_chat";
 				PRODUCT_BUNDLE_IDENTIFIER = "chat.sumika.hosted-tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;

@@ -13,7 +13,8 @@ network access is available or desirable.
 Follow the existing layout:
 
 - Core logic: `Sources/SumikaCore/`
-- Core tests: `Tests/SumikaCoreTests/`
+- Core unit tests: `Tests/SumikaCoreTests/`
+- Core package-interface integration tests: `Tests/SumikaCoreIntegrationTests/`
 - macOS app/UI/platform: `Sources/SumikaApp/`
 - MLX runtime: `Sources/SumikaRuntimeMLX/`
 - App tests: `Tests/SumikaAppTests/`

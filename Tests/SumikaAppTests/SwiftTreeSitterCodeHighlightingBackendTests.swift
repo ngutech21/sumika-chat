@@ -1,8 +1,8 @@
 import Foundation
-import SumikaCore
 import Testing
 
 @testable import SumikaApp
+@testable import SumikaCore
 
 struct TreeSitterCodeHighlightingBackendTests {
   @Test

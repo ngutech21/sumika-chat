@@ -1,3 +1,3 @@
-public enum SumikaTelemetry {
-  public static let subsystem = "chat.sumika"
+internal enum SumikaTelemetry {
+  package static let subsystem = "chat.sumika"
 }

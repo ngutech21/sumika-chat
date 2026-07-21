@@ -117,7 +117,7 @@ flowchart TD
 ### ChatGenerationConfigPreset
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ChatModelConfiguration.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ChatModelConfiguration.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -130,7 +130,7 @@ Properties:
 ### ChatGenerationSettings
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ChatGenerationSettings.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/ChatGenerationSettings.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -148,7 +148,7 @@ Properties:
 ### ChatModelConfiguration
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ChatModelConfiguration.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ChatModelConfiguration.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -165,7 +165,7 @@ Relations:
 ### ContextBudget
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -175,7 +175,7 @@ Properties:
 ### DuplicateToolCallResult
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -194,7 +194,7 @@ Relations:
 ### FunctionToolSchema
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolDefinition.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolDefinition.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -212,7 +212,7 @@ Relations:
 ### InvalidToolCallReason
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Error`, `Sendable`
 
 Cases:
@@ -232,7 +232,7 @@ Cases:
 ### InvalidToolInput
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -249,7 +249,7 @@ Relations:
 ### InvalidToolResult
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -264,12 +264,12 @@ Relations:
 ### LocalModelDirectory
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ChatModelConfiguration.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ChatModelConfiguration.swift`
 
 ### MCPServerConfig
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/MCPServerConfig.swift`
+- Source: `Sources/SumikaCore/Features/Agent/MCP/Models/MCPServerConfig.swift`
 - Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
 - Summary: User-configured external MCP server using stdio or Streamable HTTP.
 
@@ -287,7 +287,7 @@ Relations:
 ### MCPServerEndpointError
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/MCPServerConfig.swift`
+- Source: `Sources/SumikaCore/Features/Agent/MCP/Models/MCPServerConfig.swift`
 - Conforms to: `Equatable`, `LocalizedError`, `Sendable`
 
 Cases:
@@ -301,7 +301,7 @@ Cases:
 ### MCPServerTransportConfiguration
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/MCPServerConfig.swift`
+- Source: `Sources/SumikaCore/Features/Agent/MCP/Models/MCPServerConfig.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
@@ -312,7 +312,7 @@ Cases:
 ### ManagedModel
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ManagedModel.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
 - Conforms to: `Equatable`, `Identifiable`, `Sendable`
 
 Properties:
@@ -342,7 +342,7 @@ Relations:
 ### ManagedModelCatalog
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ManagedModel.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
 
 Properties:
 
@@ -355,7 +355,7 @@ Relations:
 ### ManagedModelStability
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ManagedModel.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Cases:
@@ -366,7 +366,7 @@ Cases:
 ### MissingPathSuggestion
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -382,7 +382,7 @@ Relations:
 ### ModelDownloadState
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ModelRuntimeState.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ModelRuntimeState.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Cases:
@@ -395,7 +395,7 @@ Cases:
 ### ModelLoadState
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ModelRuntimeState.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ModelRuntimeState.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Cases:
@@ -408,7 +408,7 @@ Cases:
 ### NoopTurnTracer
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `TurnTracing`
 
 Relations:
@@ -418,12 +418,12 @@ Relations:
 ### ProcessResourceCalculator
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ProcessResourceUsage.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ProcessResourceUsage.swift`
 
 ### ProcessResourceSample
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ProcessResourceUsage.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ProcessResourceUsage.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -434,7 +434,7 @@ Properties:
 ### ProcessResourceUsage
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ProcessResourceUsage.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ProcessResourceUsage.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -445,7 +445,7 @@ Properties:
 ### ProjectionLimit
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -460,7 +460,7 @@ Relations:
 ### ProjectionLimitResult
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -471,7 +471,7 @@ Properties:
 ### ProjectionLimitStrategy
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Cases:
@@ -483,12 +483,12 @@ Cases:
 ### ProjectionLimiter
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 
 ### PromptContextExcerpt
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -499,7 +499,7 @@ Properties:
 ### PromptContextTruncation
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -510,7 +510,7 @@ Cases:
 ### RawToolCallRequest
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
 
 Properties:
@@ -532,7 +532,7 @@ Relations:
 ### ReadKey
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Hashable`, `Sendable`
 
 Properties:
@@ -547,7 +547,7 @@ Relations:
 ### ReasoningTraceFormat
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ManagedModel.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Cases:
@@ -559,7 +559,7 @@ Cases:
 ### RecoveryHint
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
@@ -577,12 +577,12 @@ Relations:
 ### RuntimeToolCallID
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 
 ### SearchFileMatch
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -598,7 +598,7 @@ Relations:
 ### ToolApprovalPolicy
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolApproval.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolApproval.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -609,7 +609,7 @@ Cases:
 ### ToolApprovalSource
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolApproval.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolApproval.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -620,7 +620,7 @@ Cases:
 ### ToolArgumentTrace
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -633,7 +633,7 @@ Properties:
 ### ToolArgumentValue
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
@@ -648,7 +648,7 @@ Cases:
 ### ToolCallArguments
 
 - Kind: `typealias`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Aliased type: `[String: ToolArgumentValue]`
 
 Relations:
@@ -658,7 +658,7 @@ Relations:
 ### ToolCallModelArgument
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
 
 Properties:
@@ -669,7 +669,7 @@ Properties:
 ### ToolCallModelMessage
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -688,7 +688,7 @@ Relations:
 ### ToolCallParseOutput
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -704,7 +704,7 @@ Relations:
 ### ToolCallPayload
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
@@ -736,7 +736,7 @@ Relations:
 ### ToolCallRecord
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
 
 Properties:
@@ -757,7 +757,7 @@ Relations:
 ### ToolCallRequest
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
 
 Properties:
@@ -773,7 +773,7 @@ Relations:
 ### ToolCallState
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
@@ -795,7 +795,7 @@ Relations:
 ### ToolCallStatus
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -812,7 +812,7 @@ Cases:
 ### ToolCallingPolicy
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ManagedModel.swift`
+- Source: `Sources/SumikaCore/Features/ModelManagement/Models/ManagedModel.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -823,7 +823,7 @@ Properties:
 ### ToolCapability
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolDefinition.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolDefinition.swift`
 - Conforms to: `Codable`, `Equatable`, `Hashable`, `Sendable`, `String`
 
 Cases:
@@ -837,7 +837,7 @@ Cases:
 ### ToolDefinition
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolDefinition.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolDefinition.swift`
 - Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
 
 Properties:
@@ -860,7 +860,7 @@ Relations:
 ### ToolDisplayPayload
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Cases:
@@ -882,7 +882,7 @@ Relations:
 ### ToolFailure
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -902,7 +902,7 @@ Relations:
 ### ToolFailureReason
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
@@ -930,7 +930,7 @@ Relations:
 ### ToolJSONSchemaObject
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolDefinition.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolDefinition.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -947,7 +947,7 @@ Relations:
 ### ToolJSONSchemaProperty
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolDefinition.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolDefinition.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -969,7 +969,7 @@ Relations:
 ### ToolModelObservation
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -989,7 +989,7 @@ Relations:
 ### ToolName
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Hashable`, `RawRepresentable`, `Sendable`
 
 Properties:
@@ -999,7 +999,7 @@ Properties:
 ### ToolObservationBlock
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
@@ -1026,7 +1026,7 @@ Relations:
 ### ToolParameterDefinition
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolDefinition.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolDefinition.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1051,7 +1051,7 @@ Relations:
 ### ToolParameterValueType
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolDefinition.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolDefinition.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -1066,7 +1066,7 @@ Cases:
 ### ToolPermissionDecision
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -1078,7 +1078,7 @@ Cases:
 ### ToolPermissionEvaluation
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1098,7 +1098,7 @@ Relations:
 ### ToolRegistry
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolDefinition.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolDefinition.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -1112,7 +1112,7 @@ Relations:
 ### ToolResultModelMessage
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1129,7 +1129,7 @@ Relations:
 ### ToolResultModelMetadata
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -1150,7 +1150,7 @@ Relations:
 ### ToolResultModelMetadataField
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -1165,7 +1165,7 @@ Relations:
 ### ToolResultModelMetadataValue
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Cases:
@@ -1179,7 +1179,7 @@ Cases:
 ### ToolResultPayload
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
@@ -1214,7 +1214,7 @@ Relations:
 ### ToolResultPreview
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1234,7 +1234,7 @@ Relations:
 ### ToolResultProjection
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -1252,7 +1252,7 @@ Relations:
 ### ToolResultProjectionPolicy
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 - Conforms to: `Equatable`, `Sendable`
 
 Properties:
@@ -1270,12 +1270,12 @@ Relations:
 ### ToolResultProjector
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolResultProjection.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolResultProjection.swift`
 
 ### ToolResultStatus
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -1287,7 +1287,7 @@ Cases:
 ### ToolRiskLevel
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -1299,7 +1299,7 @@ Cases:
 ### ToolTextOutput
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1311,7 +1311,7 @@ Properties:
 ### TurnTraceContext
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 
 Properties:
 
@@ -1324,7 +1324,7 @@ Relations:
 ### TurnTraceEvent
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1373,7 +1373,7 @@ Relations:
 ### TurnTraceMetadata
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `Sendable`
 
 Properties:
@@ -1391,7 +1391,7 @@ Relations:
 ### TurnTracePhase
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `CaseIterable`, `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -1412,13 +1412,13 @@ Cases:
 ### TurnTracing
 
 - Kind: `protocol`
-- Source: `Sources/SumikaCore/Models/TurnTraceEvent.swift`
+- Source: `Sources/SumikaCore/Observability/TurnTraceEvent.swift`
 - Conforms to: `Sendable`
 
 ### Workspace
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/Workspace.swift`
+- Source: `Sources/SumikaCore/Features/Workspace/Models/Workspace.swift`
 - Conforms to: `Codable`, `Equatable`, `Identifiable`, `Sendable`
 
 Properties:
@@ -1434,7 +1434,7 @@ Properties:
 ### WorkspaceDiagnostic
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1455,7 +1455,7 @@ Relations:
 ### WorkspaceDiagnosticSeverity
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -1467,7 +1467,7 @@ Cases:
 ### WorkspaceDiagnosticSource
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -1477,7 +1477,7 @@ Cases:
 ### WorkspaceFileEntry
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1493,7 +1493,7 @@ Relations:
 ### WorkspaceFileKind
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`, `String`
 
 Cases:
@@ -1504,7 +1504,7 @@ Cases:
 ### WorkspaceInstructionsPromptContext
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Cases:
@@ -1520,7 +1520,7 @@ Relations:
 ### WorkspaceInstructionsRemoval
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1534,7 +1534,7 @@ Relations:
 ### WorkspaceInstructionsSnapshot
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/PromptContext.swift`
+- Source: `Sources/SumikaCore/Features/Chat/Models/PromptContext.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1555,7 +1555,7 @@ Relations:
 ### WorkspaceLibrary
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/Workspace.swift`
+- Source: `Sources/SumikaCore/Features/Workspace/Models/Workspace.swift`
 - Conforms to: `Codable`, `Equatable`, `Sendable`
 
 Properties:
@@ -1571,7 +1571,7 @@ Relations:
 ### WorkspacePathResolutionError
 
 - Kind: `enum`
-- Source: `Sources/SumikaCore/Models/Workspace.swift`
+- Source: `Sources/SumikaCore/Features/Workspace/Models/Workspace.swift`
 - Conforms to: `Equatable`, `LocalizedError`
 
 Cases:
@@ -1583,7 +1583,7 @@ Cases:
 ### WorkspaceRelativePath
 
 - Kind: `struct`
-- Source: `Sources/SumikaCore/Models/ToolCall.swift`
+- Source: `Sources/SumikaCore/Features/ToolRuntime/Models/ToolCall.swift`
 - Conforms to: `Codable`, `Equatable`, `Hashable`, `RawRepresentable`, `Sendable`
 
 Properties:

@@ -3,16 +3,16 @@ import Foundation
 /// A provider-neutral, normalized message payload. Source-entry provenance is
 /// retained for prompt accounting but is intentionally excluded from equality:
 /// internal entry IDs must not change provider-prefix identity.
-public struct ProviderPromptMessage: Sendable {
-  public let role: String
-  public let content: String
-  public let toolCalls: [ProviderToolCall]
-  public let toolCallID: String?
-  public let imageSignatures: [String]
-  public let sourceEntryIDs: [UUID]
-  public let sourceContentByteRanges: [ProviderPromptSourceContentByteRange]
+package struct ProviderPromptMessage: Sendable {
+  package let role: String
+  package let content: String
+  package let toolCalls: [ProviderToolCall]
+  package let toolCallID: String?
+  package let imageSignatures: [String]
+  package let sourceEntryIDs: [UUID]
+  package let sourceContentByteRanges: [ProviderPromptSourceContentByteRange]
 
-  public init(
+  package init(
     role: String,
     content: String,
     toolCalls: [ProviderToolCall] = [],
@@ -30,14 +30,14 @@ public struct ProviderPromptMessage: Sendable {
     self.sourceContentByteRanges = sourceContentByteRanges
   }
 
-  public var hasToolMetadata: Bool {
+  package var hasToolMetadata: Bool {
     !toolCalls.isEmpty || toolCallID != nil
   }
 
   /// Exact size of the normalized provider payload represented by this
   /// message. Image signatures and source provenance are runtime metadata, not
   /// textual provider fields, and therefore do not contribute bytes.
-  public var projectedPayloadByteCount: Int {
+  package var projectedPayloadByteCount: Int {
     role.utf8.count
       + content.utf8.count
       + (toolCallID?.utf8.count ?? 0)
@@ -45,18 +45,18 @@ public struct ProviderPromptMessage: Sendable {
   }
 }
 
-public struct ProviderPromptSourceContentByteRange: Equatable, Sendable {
-  public let sourceEntryID: UUID
-  public let contentByteRange: Range<Int>
+package struct ProviderPromptSourceContentByteRange: Equatable, Sendable {
+  package let sourceEntryID: UUID
+  package let contentByteRange: Range<Int>
 
-  public init(sourceEntryID: UUID, contentByteRange: Range<Int>) {
+  package init(sourceEntryID: UUID, contentByteRange: Range<Int>) {
     self.sourceEntryID = sourceEntryID
     self.contentByteRange = contentByteRange
   }
 }
 
 extension ProviderPromptMessage: Equatable {
-  public static func == (lhs: ProviderPromptMessage, rhs: ProviderPromptMessage) -> Bool {
+  package static func == (lhs: ProviderPromptMessage, rhs: ProviderPromptMessage) -> Bool {
     lhs.role == rhs.role
       && lhs.content == rhs.content
       && lhs.toolCalls == rhs.toolCalls
@@ -65,12 +65,12 @@ extension ProviderPromptMessage: Equatable {
   }
 }
 
-public struct ProviderToolCall: Equatable, Sendable {
-  public let id: String?
-  public let name: String
-  public let arguments: ToolCallArguments
+package struct ProviderToolCall: Equatable, Sendable {
+  package let id: String?
+  package let name: String
+  package let arguments: ToolCallArguments
 
-  public init(id: String?, name: String, arguments: ToolCallArguments) {
+  package init(id: String?, name: String, arguments: ToolCallArguments) {
     self.id = id
     self.name = name
     self.arguments = arguments
@@ -79,7 +79,7 @@ public struct ProviderToolCall: Equatable, Sendable {
   /// Canonical representation used only for provider byte accounting. The
   /// sorted-key encoding prevents dictionary iteration order from changing the
   /// result.
-  public var canonicalPayloadJSON: String {
+  package var canonicalPayloadJSON: String {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
     do {
@@ -119,12 +119,12 @@ private struct CanonicalProviderToolCallPayload: Encodable {
   }
 }
 
-public struct ProviderPromptByteLedgerEntry: Equatable, Sendable {
-  public let messageIndex: Int
-  public let sourceEntryIDs: [UUID]
-  public let payloadByteRange: Range<Int>
+package struct ProviderPromptByteLedgerEntry: Equatable, Sendable {
+  package let messageIndex: Int
+  package let sourceEntryIDs: [UUID]
+  package let payloadByteRange: Range<Int>
 
-  public init(
+  package init(
     messageIndex: Int,
     sourceEntryIDs: [UUID],
     payloadByteRange: Range<Int>
@@ -135,22 +135,22 @@ public struct ProviderPromptByteLedgerEntry: Equatable, Sendable {
   }
 }
 
-public struct ProviderPromptSourcePayloadByteRange: Equatable, Sendable {
-  public let sourceEntryID: UUID
-  public let payloadByteRange: Range<Int>
+package struct ProviderPromptSourcePayloadByteRange: Equatable, Sendable {
+  package let sourceEntryID: UUID
+  package let payloadByteRange: Range<Int>
 
-  public init(sourceEntryID: UUID, payloadByteRange: Range<Int>) {
+  package init(sourceEntryID: UUID, payloadByteRange: Range<Int>) {
     self.sourceEntryID = sourceEntryID
     self.payloadByteRange = payloadByteRange
   }
 }
 
-public struct ProviderPromptByteLedger: Equatable, Sendable {
-  public let entries: [ProviderPromptByteLedgerEntry]
-  public let sourcePayloadByteRanges: [ProviderPromptSourcePayloadByteRange]
-  public let totalByteCount: Int
+package struct ProviderPromptByteLedger: Equatable, Sendable {
+  package let entries: [ProviderPromptByteLedgerEntry]
+  package let sourcePayloadByteRanges: [ProviderPromptSourcePayloadByteRange]
+  package let totalByteCount: Int
 
-  public init(messages: [ProviderPromptMessage]) {
+  package init(messages: [ProviderPromptMessage]) {
     var offset = 0
     var sourceRanges: [ProviderPromptSourcePayloadByteRange] = []
     entries = messages.enumerated().map { index, message in
@@ -198,7 +198,7 @@ public struct ProviderPromptByteLedger: Equatable, Sendable {
   /// Counts provider bytes between the source payload spans. Content ranges
   /// preserve bytes that sit inside a role-merged message, including the exact
   /// `\n\n` separators, while role and tool metadata remain counted once.
-  public func interveningByteCount(
+  package func interveningByteCount(
     afterSourceEntryID anchorID: UUID,
     beforeSourceEntryID candidateID: UUID
   ) -> Int? {
@@ -216,16 +216,16 @@ public struct ProviderPromptByteLedger: Equatable, Sendable {
   }
 }
 
-public struct ProviderPromptProjection: Equatable, Sendable {
-  public let messages: [ProviderPromptMessage]
-  public let byteLedger: ProviderPromptByteLedger
+package struct ProviderPromptProjection: Equatable, Sendable {
+  package let messages: [ProviderPromptMessage]
+  package let byteLedger: ProviderPromptByteLedger
 
-  public init(messages: [ProviderPromptMessage]) {
+  package init(messages: [ProviderPromptMessage]) {
     self.messages = messages
     self.byteLedger = ProviderPromptByteLedger(messages: messages)
   }
 
-  public static func normalized(
+  package static func normalized(
     from transcript: ModelPromptProjection,
     entryRange: Range<Int>? = nil,
     dropsTrailingUser: Bool = false
@@ -238,7 +238,7 @@ public struct ProviderPromptProjection: Equatable, Sendable {
     )
   }
 
-  public static func normalized(
+  package static func normalized(
     from entries: ArraySlice<ProjectedModelContextEntry>,
     dropsTrailingUser: Bool = false
   ) -> ProviderPromptProjection {
@@ -248,18 +248,18 @@ public struct ProviderPromptProjection: Equatable, Sendable {
     )
   }
 
-  public static func generationSegments(
+  package static func generationSegments(
     from transcript: ModelPromptProjection
   ) -> ProviderPromptGenerationSegments? {
     ProviderPromptProjector.generationSegments(from: transcript)
   }
 }
 
-public struct ProviderPromptGenerationSegments: Equatable, Sendable {
-  public let history: ProviderPromptProjection
-  public let prompt: ProviderPromptProjection
+package struct ProviderPromptGenerationSegments: Equatable, Sendable {
+  package let history: ProviderPromptProjection
+  package let prompt: ProviderPromptProjection
 
-  public init(history: ProviderPromptProjection, prompt: ProviderPromptProjection) {
+  package init(history: ProviderPromptProjection, prompt: ProviderPromptProjection) {
     self.history = history
     self.prompt = prompt
   }

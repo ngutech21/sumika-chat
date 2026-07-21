@@ -1,8 +1,8 @@
-public struct ChatModeSettings: Codable, Equatable, Sendable {
-  public var systemPrompt: String
-  public var generationSettings: ChatGenerationSettings
+package struct ChatModeSettings: Codable, Equatable, Sendable {
+  package var systemPrompt: String
+  package var generationSettings: ChatGenerationSettings
 
-  public init(
+  package init(
     systemPrompt: String,
     generationSettings: ChatGenerationSettings
   ) {
@@ -15,7 +15,7 @@ public struct ChatModeSettings: Codable, Equatable, Sendable {
     case generationSettings
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     try self.init(
       from: container,
@@ -42,18 +42,18 @@ public struct ChatModeSettings: Codable, Equatable, Sendable {
     )
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(systemPrompt, forKey: .systemPrompt)
     try container.encode(generationSettings, forKey: .generationSettings)
   }
 }
 
-public struct ChatModeSettingsSet: Codable, Equatable, Sendable {
-  public var chat: ChatModeSettings
-  public var agent: ChatModeSettings
+package struct ChatModeSettingsSet: Codable, Equatable, Sendable {
+  package var chat: ChatModeSettings
+  package var agent: ChatModeSettings
 
-  public init(
+  package init(
     chat: ChatModeSettings,
     agent: ChatModeSettings
   ) {
@@ -66,14 +66,14 @@ public struct ChatModeSettingsSet: Codable, Equatable, Sendable {
     case agent
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let defaults = Self.defaultSettings
     chat = try Self.decodeSettings(from: container, forKey: .chat, default: defaults.chat)
     agent = try Self.decodeSettings(from: container, forKey: .agent, default: defaults.agent)
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(chat, forKey: .chat)
     try container.encode(agent, forKey: .agent)
@@ -94,7 +94,7 @@ public struct ChatModeSettingsSet: Codable, Equatable, Sendable {
     return try ChatModeSettings(from: nestedContainer, default: defaultSettings)
   }
 
-  public subscript(mode: WorkspaceInteractionMode) -> ChatModeSettings {
+  package subscript(mode: WorkspaceInteractionMode) -> ChatModeSettings {
     get {
       switch mode {
       case .chat:
@@ -113,7 +113,7 @@ public struct ChatModeSettingsSet: Codable, Equatable, Sendable {
     }
   }
 
-  public static let defaultSettings = ChatModeSettingsSet(
+  package static let defaultSettings = ChatModeSettingsSet(
     chat: ChatModeSettings(
       systemPrompt: ChatPromptDefaults.chatSystemPrompt,
       generationSettings: .chatDefault

@@ -1,12 +1,273 @@
 import Foundation
-import SumikaCore
 import Testing
 
 @testable import SumikaApp
+@testable import SumikaCore
 
 @Suite(.serialized)
 @MainActor
 struct AppStateTests {
+  @Test
+  func chatFacadeProjectsEngineStateAndRoutesUserOperations() async throws {
+    let sessionID = UUID()
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [ChatSession(id: sessionID)]
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspace.id,
+          activeSessionID: sessionID
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
+    #expect(appState.chatFeatureState.transcript.turns.isEmpty)
+    #expect(appState.chatFeatureState.composer.session.interactionMode == .chat)
+
+    appState.chatFeatureState.setInteractionMode(.agent)
+
+    #expect(appState.chatFeatureState.composer.session.interactionMode == .agent)
+  }
+
+  @Test
+  func modelManagementFacadeRoutesStateChangesThroughExplicitActions() async throws {
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime(),
+      modelAvailability: { _ in false }
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    let targetModel = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
+    appState.modelManagementState.selectModel(targetModel)
+    appState.modelManagementState.updateContextTokenLimit(12_288)
+
+    #expect(appState.modelManagementState.state.selectedModel == targetModel)
+    #expect(appState.modelManagementState.state.modelContextTokenLimit == 12_288)
+    #expect(appState.modelManagementState.primaryAction == .download)
+  }
+
+  @Test
+  func modelManagementErrorsStayOnModelManagementState() async throws {
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime(),
+      modelAvailability: { _ in false }
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    appState.modelManagementState.loadAvailableModelForConversation()
+
+    #expect(
+      appState.modelManagementState.errorMessage
+        == "Download a model from Models first."
+    )
+    #expect(appState.chatFeatureState.composer.errorMessage == nil)
+
+    appState.modelManagementState.performPrimaryAction()
+
+    try await waitUntil {
+      appState.modelManagementState.errorMessage == "No model downloader is configured."
+    }
+    #expect(appState.chatFeatureState.composer.errorMessage == nil)
+  }
+
+  @Test
+  func updatingModeSettingsRefreshesAndPersistsActiveSession() async throws {
+    let workspaceID = UUID()
+    let sessionID = UUID()
+    let otherSessionID = UUID()
+    let session = ChatSession(
+      id: sessionID,
+      selectedModelID: ManagedModelCatalog.defaultModelID,
+      modeSettings: testModeSettings(
+        systemPrompt: "Initial prompt",
+        generationSettings: .chatDefault
+      )
+    )
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [
+        session,
+        ChatSession(
+          id: otherSessionID,
+          selectedModelID: ManagedModelCatalog.defaultModelID
+        ),
+      ]
+    )
+    let workspaceStore = InMemoryWorkspaceStore(
+      initialLibrary: WorkspaceLibrary(
+        workspaces: [workspace],
+        activeWorkspaceID: workspaceID,
+        activeSessionID: sessionID
+      )
+    )
+    let modelSettingsStore = InMemoryModelSettingsStore()
+    let appState = AppState(
+      workspaceStore: workspaceStore,
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
+    appState.chatFeatureState.refreshContextUsageForTesting()
+    let initialUsage = try #require(appState.chatFeatureState.composer.contextUsage)
+
+    var updatedModeSettings = appState.modelManagementState.modeSettings
+    updatedModeSettings.chat.systemPrompt += String(
+      repeating: " Additional context.",
+      count: 100
+    )
+
+    appState.modelManagementState.updateModeSettings(updatedModeSettings)
+
+    let refreshedUsage = try #require(appState.chatFeatureState.composer.contextUsage)
+    #expect(refreshedUsage.usedTokens > initialUsage.usedTokens)
+
+    let selectedModel = appState.modelManagementState.state.selectedModel
+    try await waitUntil {
+      await modelSettingsStore.settings(for: selectedModel).modeSettings
+        == updatedModeSettings
+    }
+    let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
+      library.workspaces.first?
+        .sessions.first(where: { $0.id == sessionID })?
+        .modeSettings == updatedModeSettings
+    }
+    let savedSession = try #require(
+      savedLibrary.workspaces.first?
+        .sessions.first(where: { $0.id == sessionID })
+    )
+    #expect(savedSession.modeSettings == updatedModeSettings)
+
+    #expect(
+      appState.selectChat(
+        workspaceID: workspaceID,
+        sessionID: otherSessionID
+      )
+    )
+    #expect(
+      appState.selectChat(
+        workspaceID: workspaceID,
+        sessionID: sessionID
+      )
+    )
+    #expect(appState.modelManagementState.modeSettings == updatedModeSettings)
+  }
+
+  @Test
+  func updatingContextLimitPersistsCurrentModeSettings() async throws {
+    let modelSettingsStore = InMemoryModelSettingsStore()
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
+      modelSettingsStore: modelSettingsStore,
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+    }
+
+    let selectedModel = appState.modelManagementState.state.selectedModel
+    let currentModeSettings = appState.modelManagementState.modeSettings
+    let contextTokenLimit = 12_288
+
+    appState.modelManagementState.updateContextTokenLimit(contextTokenLimit)
+
+    try await waitUntil {
+      let settings = await modelSettingsStore.settings(for: selectedModel)
+      return settings.contextTokenLimit == contextTokenLimit
+        && settings.modeSettings == currentModeSettings
+    }
+    let storedSettings = await modelSettingsStore.settings(for: selectedModel)
+
+    #expect(appState.modelManagementState.state.modelContextTokenLimit == contextTokenLimit)
+    #expect(storedSettings.contextTokenLimit == contextTokenLimit)
+    #expect(storedSettings.modeSettings == currentModeSettings)
+    #expect(appState.modelManagementState.modeSettings == currentModeSettings)
+  }
+
+  @Test
+  func selectingSessionAppliesItsModelThroughModelManagement() async throws {
+    let workspaceID = UUID()
+    let initialSession = ChatSession(selectedModelID: ManagedModelCatalog.defaultModelID)
+    let selectedModel = try #require(
+      ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit")
+    )
+    let targetSession = ChatSession(selectedModelID: selectedModel.id)
+    let workspace = Workspace(
+      id: workspaceID,
+      name: "Project",
+      rootURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+      sessions: [initialSession, targetSession]
+    )
+    let appState = AppState(
+      workspaceStore: InMemoryWorkspaceStore(
+        initialLibrary: WorkspaceLibrary(
+          workspaces: [workspace],
+          activeWorkspaceID: workspaceID,
+          activeSessionID: initialSession.id
+        )
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      mcpServersStore: InMemoryMCPServersStore(),
+      runtime: AppStateTestRuntime()
+    )
+
+    try await waitUntil {
+      !appState.workspaceState.isLoading
+        && appState.modelManagementState.state.selectedModel.id
+          == ManagedModelCatalog.defaultModelID
+    }
+
+    #expect(
+      appState.selectChat(
+        workspaceID: workspaceID,
+        sessionID: targetSession.id
+      )
+    )
+    #expect(appState.chatFeatureState.transcript.sessionID == targetSession.id)
+    #expect(appState.modelManagementState.state.selectedModel == selectedModel)
+    #expect(
+      appState.chatFeatureState.sessionSnapshotForTesting.selectedModelID == selectedModel.id
+    )
+  }
+
   @Test
   func interactionModeChangePersistsActiveSession() async throws {
     let workspaceID = UUID()
@@ -46,9 +307,9 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
 
-    #expect(appState.chatController.chatSession.interactionMode == .chat)
+    #expect(appState.chatFeatureState.composer.session.interactionMode == .chat)
 
-    appState.chatController.setInteractionMode(.agent)
+    appState.chatFeatureState.setInteractionMode(.agent)
 
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
       library.workspaces.first?
@@ -92,7 +353,7 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
 
-    appState.chatController.chatSession.title = "Unsaved title"
+    appState.renameSession(sessionID, title: "Unsaved title")
 
     await appState.prepareForTermination()
 
@@ -133,7 +394,7 @@ struct AppStateTests {
     }
 
     _ = appState.persistActiveSession()
-    appState.chatController.chatSession.title = "Final title"
+    appState.renameSession(sessionID, title: "Final title")
 
     await appState.prepareForTermination()
 
@@ -176,9 +437,12 @@ struct AppStateTests {
       throw AppStateTestFailure.missingWorkspace
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
-    appState.chatController.modelRuntime.modelState = .ready
-    appState.chatController.sendMessage(
-      prompt: "Persist this", in: activeWorkspace, sessionID: activeSessionID)
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
+    appState.sendMessage(
+      prompt: "Persist this",
+      in: WorkspaceChatContext(workspace: activeWorkspace),
+      sessionID: activeSessionID
+    )
 
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
       let savedSession = library.workspaces.first?
@@ -456,10 +720,13 @@ struct AppStateTests {
     #expect(savedLibrary.activeWorkspaceID == nil)
     #expect(savedLibrary.activeSessionID == nil)
     #expect(FileManager.default.fileExists(atPath: markerURL.path(percentEncoded: false)))
-    #expect(appState.chatController.chatSession.id != sessionID)
-    #expect(appState.chatController.chatSession.systemPrompt != "Workspace private system prompt")
+    #expect(appState.chatFeatureState.transcript.sessionID != sessionID)
     #expect(
-      appState.chatController.chatSession.generationSettings
+      appState.modelManagementState.modeSettings.chat.systemPrompt
+        != "Workspace private system prompt"
+    )
+    #expect(
+      appState.modelManagementState.modeSettings.chat.generationSettings
         != workspaceGenerationSettings)
   }
 
@@ -492,7 +759,7 @@ struct AppStateTests {
     }
 
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatController.chatSession.id == sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
   }
 
   @Test
@@ -525,7 +792,7 @@ struct AppStateTests {
 
     #expect(appState.route == .workspace(workspaceID))
     #expect(appState.workspaceState.activeSessionID == nil)
-    #expect(appState.chatController.chatSession.id != sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID != sessionID)
   }
 
   @Test
@@ -561,9 +828,8 @@ struct AppStateTests {
 
     #expect(appState.route == .models)
     #expect(appState.workspaceState.activeSessionID == sessionID)
-    #expect(appState.chatController.chatSession.id != sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID != sessionID)
 
-    appState.chatController.chatSession.title = "Placeholder Chat"
     let didPersist = appState.persistActiveSession()
 
     #expect(!didPersist)
@@ -603,7 +869,7 @@ struct AppStateTests {
     }
 
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatController.chatSession.id == sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
   }
 
   @Test
@@ -650,7 +916,7 @@ struct AppStateTests {
     #expect(workspaceRouteLibrary.activeWorkspaceID == secondWorkspaceID)
     #expect(appState.route == .workspace(secondWorkspaceID))
     #expect(appState.workspaceState.activeSessionID == nil)
-    #expect(appState.chatController.chatSession.id != secondSessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID != secondSessionID)
 
     appState.selectChat(workspaceID: secondWorkspaceID, sessionID: secondSessionID)
     let chatRouteLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
@@ -659,7 +925,7 @@ struct AppStateTests {
     }
     #expect(chatRouteLibrary.activeSessionID == secondSessionID)
     #expect(appState.route == .chat(workspaceID: secondWorkspaceID, sessionID: secondSessionID))
-    #expect(appState.chatController.chatSession.id == secondSessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == secondSessionID)
 
     let didSelectInvalidChat = appState.selectChat(
       workspaceID: firstWorkspaceID,
@@ -700,7 +966,6 @@ struct AppStateTests {
 
     appState.renameSession(sessionID, title: "huhu")
     #expect(appState.workspaceState.activeSession?.title == "huhu")
-    #expect(appState.chatController.chatSession.title == "huhu")
 
     appState.selectWorkspace(workspaceID)
 
@@ -751,7 +1016,7 @@ struct AppStateTests {
     }
     #expect(savedLibrary.activeSessionID == sessionID)
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatController.chatSession.id == sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
   }
 
   @Test
@@ -785,7 +1050,7 @@ struct AppStateTests {
     #expect(savedLibrary.activeWorkspaceID == workspaceID)
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
     #expect(appState.workspaceState.activeSessionID == sessionID)
-    #expect(appState.chatController.chatSession.id == sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
   }
 
   @Test
@@ -816,7 +1081,7 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
     let context = try #require(appState.workspaceState.activeWorkspaceContext)
-    appState.chatController.modelRuntime.modelState = .ready
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
 
     let didSend = appState.sendMessage(prompt: "Create a chat", in: context, sessionID: nil)
 
@@ -835,7 +1100,7 @@ struct AppStateTests {
     }
     let sessionID = try #require(savedLibrary.activeSessionID)
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatController.chatSession.id == sessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
   }
 
   @Test
@@ -882,7 +1147,7 @@ struct AppStateTests {
     #expect(appState.route == .workspace(workspaceID))
     #expect(appState.workspaceState.activeSessionID == nil)
     #expect(appState.workspaceState.activeSession == nil)
-    #expect(appState.chatController.chatSession.title != "Replacement")
+    #expect(appState.chatFeatureState.transcript.sessionID != replacementSessionID)
     #expect(
       appState.workspaceState.sidebarState.workspaces.first?.sessions.map(\.id)
         == [replacementSessionID])
@@ -921,7 +1186,7 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
 
-    appState.chatController.chatSession.title = "Unsaved Active"
+    appState.renameSession(activeSessionID, title: "Unsaved Active")
     appState.deleteSession(deletedSessionID)
 
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
@@ -933,25 +1198,32 @@ struct AppStateTests {
     #expect(savedSessions.contains { $0.id == deletedSessionID } == false)
     #expect(savedSessions.first { $0.id == activeSessionID }?.title == "Unsaved Active")
     #expect(appState.workspaceState.activeSessionID == activeSessionID)
-    #expect(appState.chatController.chatSession.id == activeSessionID)
+    #expect(appState.chatFeatureState.transcript.sessionID == activeSessionID)
   }
 
   @Test
   func autoloadLastModelDefaultsOffAndDoesNotLoadOnStartup() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()
-    let controller = ChatSessionController(
+    let webAccessSettingsStore = InMemoryWebAccessSettingsStore()
+    let browserToolService = HTMLPreviewBrowserToolService()
+    let sumika = AppLaunchConfiguration.makeSumika(
       modelSettingsStore: modelSettingsStore,
-      runtime: AppStateTestRuntime()
+      runtime: AppStateTestRuntime(),
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: {
+        await webAccessSettingsStore.settings()
+      },
+      turnTracer: NoopTurnTracer()
     )
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
       modelSettingsStore: modelSettingsStore,
-      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: InMemoryMCPServersStore(),
-      browserToolService: HTMLPreviewBrowserToolService(),
-      chatController: controller,
+      browserToolService: browserToolService,
+      sumika: sumika,
       turnTracer: NoopTurnTracer()
     )
 
@@ -962,7 +1234,7 @@ struct AppStateTests {
 
     #expect(appState.settingsState.appBehaviorSettings == AppBehaviorSettings())
     #expect(!appState.settingsState.appBehaviorSettings.todoWriteToolEnabled)
-    #expect(controller.modelRuntime.modelState == .notLoaded)
+    #expect(appState.modelManagementState.state.modelState == .notLoaded)
   }
 
   @Test
@@ -993,7 +1265,7 @@ struct AppStateTests {
     }
     #expect(appState.settingsState.appBehaviorSettings == updated)
     #expect(await runtime.loadCount() == 0)
-    #expect(appState.chatController.modelRuntime.modelState == .notLoaded)
+    #expect(appState.modelManagementState.state.modelState == .notLoaded)
   }
 
   @Test
@@ -1034,7 +1306,7 @@ struct AppStateTests {
     appState.startModelRuntimeServices()
 
     try await waitUntil {
-      appState.chatController.modelRuntime.modelState == .ready
+      appState.modelManagementState.state.modelState == .ready
     }
 
     #expect(appState.settingsState.appBehaviorSettings.autoloadLastModel)
@@ -1064,7 +1336,7 @@ struct AppStateTests {
     appState.startModelRuntimeServices()
 
     #expect(appState.settingsState.appBehaviorSettings.autoloadLastModel)
-    #expect(appState.chatController.modelRuntime.modelState == .notLoaded)
+    #expect(appState.modelManagementState.state.modelState == .notLoaded)
     #expect(await runtime.loadCount() == 0)
   }
 
@@ -1095,31 +1367,37 @@ struct AppStateTests {
     appState.startModelRuntimeServices()
 
     #expect(appState.settingsState.appBehaviorSettings.autoloadLastModel)
-    #expect(appState.chatController.modelRuntime.modelState == .notLoaded)
+    #expect(appState.modelManagementState.state.modelState == .notLoaded)
     #expect(await runtime.loadCount() == 0)
   }
 
   @Test
-  func injectedControllerUsesSuppliedBrowserToolService() async throws {
+  func injectedSumikaUsesSuppliedBrowserToolService() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
+    let webAccessSettingsStore = InMemoryWebAccessSettingsStore()
     let browserToolService = HTMLPreviewBrowserToolService()
-    let controller = ChatSessionController(
+    let sumika = AppLaunchConfiguration.makeSumika(
       modelSettingsStore: modelSettingsStore,
-      runtime: AppStateTestRuntime()
+      runtime: AppStateTestRuntime(),
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: {
+        await webAccessSettingsStore.settings()
+      },
+      turnTracer: NoopTurnTracer()
     )
 
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
       modelSettingsStore: modelSettingsStore,
-      webAccessSettingsStore: InMemoryWebAccessSettingsStore(),
+      webAccessSettingsStore: webAccessSettingsStore,
       mcpServersStore: InMemoryMCPServersStore(),
       browserToolService: browserToolService,
-      chatController: controller,
+      sumika: sumika,
       turnTracer: NoopTurnTracer()
     )
 
     #expect(appState.browserToolService === browserToolService)
-    #expect(appState.chatController === controller)
+    #expect(appState.chatFeatureState.transcript.sessionID == sumika.conversation.state.sessionID)
   }
 
   @Test
@@ -1174,17 +1452,20 @@ struct AppStateTests {
       throw AppStateTestFailure.missingWorkspace
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
-    appState.chatController.setInteractionMode(.agent)
-    appState.chatController.modelRuntime.modelState = .ready
-    appState.chatController.sendMessage(
-      prompt: "refresh the preview", in: workspace, sessionID: activeSessionID)
+    appState.chatFeatureState.setInteractionMode(.agent)
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
+    appState.sendMessage(
+      prompt: "refresh the preview",
+      in: WorkspaceChatContext(workspace: workspace),
+      sessionID: activeSessionID
+    )
 
     try await waitUntil {
-      !appState.chatController.isGenerating
+      !appState.chatFeatureState.transcript.isGenerating
     }
 
     #expect(await probe.refreshCount() == 1)
-    let toolCall = try #require(appState.chatController.chatSession.toolCalls.first)
+    let toolCall = try #require(appState.chatFeatureState.toolCallsForAppStateTesting.first)
     #expect(toolCall.request.toolName == .browserRefresh)
     #expect(toolCall.status == .completed)
   }
@@ -1223,13 +1504,16 @@ struct AppStateTests {
       throw AppStateTestFailure.missingWorkspace
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
-    appState.chatController.modelRuntime.modelState = .ready
-    appState.chatController.setInteractionMode(.agent)
-    appState.chatController.sendMessage(
-      prompt: "inspect the project", in: activeWorkspace, sessionID: activeSessionID)
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
+    appState.chatFeatureState.setInteractionMode(.agent)
+    appState.sendMessage(
+      prompt: "inspect the project",
+      in: WorkspaceChatContext(workspace: activeWorkspace),
+      sessionID: activeSessionID
+    )
 
     try await waitUntil {
-      !appState.chatController.isGenerating
+      !appState.chatFeatureState.transcript.isGenerating
     }
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
@@ -1282,13 +1566,16 @@ struct AppStateTests {
       throw AppStateTestFailure.missingWorkspace
     }
     let activeSessionID = try #require(appState.workspaceState.activeSessionID)
-    appState.chatController.modelRuntime.modelState = .ready
-    appState.chatController.setInteractionMode(.agent)
-    appState.chatController.sendMessage(
-      prompt: "inspect the project", in: activeWorkspace, sessionID: activeSessionID)
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
+    appState.chatFeatureState.setInteractionMode(.agent)
+    appState.sendMessage(
+      prompt: "inspect the project",
+      in: WorkspaceChatContext(workspace: activeWorkspace),
+      sessionID: activeSessionID
+    )
 
     try await waitUntil {
-      !appState.chatController.isGenerating
+      !appState.chatFeatureState.transcript.isGenerating
     }
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
@@ -1443,13 +1730,13 @@ struct AppStateTests {
       }?.state == .connected(toolCount: 1))
 
     let activeWorkspace = try #require(appState.workspaceState.activeWorkspace)
-    appState.chatController.modelRuntime.modelState = .ready
-    appState.chatController.sendMessage(
+    appState.modelManagementState.setModelLoadStateForTesting(.ready)
+    appState.sendMessage(
       prompt: "Use the first server",
-      in: activeWorkspace,
+      in: WorkspaceChatContext(workspace: activeWorkspace),
       sessionID: sessionID
     )
-    try await waitUntil { !appState.chatController.isGenerating }
+    try await waitUntil { !appState.chatFeatureState.transcript.isGenerating }
 
     appState.setSelectedMCPServerIDs([secondServer.id])
     try await waitUntil {
@@ -1459,12 +1746,12 @@ struct AppStateTests {
         && statuses.first(where: { $0.serverID == secondServer.id })?.state
           == .connected(toolCount: 1)
     }
-    appState.chatController.sendMessage(
+    appState.sendMessage(
       prompt: "Use the second server",
-      in: activeWorkspace,
+      in: WorkspaceChatContext(workspace: activeWorkspace),
       sessionID: sessionID
     )
-    try await waitUntil { !appState.chatController.isGenerating }
+    try await waitUntil { !appState.chatFeatureState.transcript.isGenerating }
 
     let capturedToolContexts = await runtime.capturedToolContexts
     let contexts = capturedToolContexts.compactMap { $0 }
@@ -1472,7 +1759,8 @@ struct AppStateTests {
     let secondContext = try #require(contexts.dropFirst().first)
     #expect(mcpToolNames(in: firstContext) == ["mcp__first__echo"])
     #expect(mcpToolNames(in: secondContext) == ["mcp__second__echo"])
-    #expect(appState.chatController.chatSession.selectedMCPServerIDs == [secondServer.id])
+    #expect(
+      appState.chatFeatureState.composer.session.selectedMCPServerIDs == [secondServer.id])
     await appState.prepareForTermination()
   }
 
@@ -1512,12 +1800,13 @@ struct AppStateTests {
     )
 
     try await waitUntil { !appState.workspaceState.isLoading }
-    #expect(appState.chatController.chatSession.selectedMCPServerIDs == [configuredServer.id])
+    #expect(
+      appState.chatFeatureState.composer.session.selectedMCPServerIDs == [configuredServer.id])
 
     appState.updateMCPServers([])
     try await waitUntil {
       appState.settingsState.mcpServers.isEmpty
-        && appState.chatController.chatSession.selectedMCPServerIDs.isEmpty
+        && appState.chatFeatureState.composer.session.selectedMCPServerIDs.isEmpty
     }
     let savedLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
       library.workspaces.first?.sessions.first?.selectedMCPServerIDs.isEmpty == true
@@ -1859,6 +2148,17 @@ private func waitUntil(
 }
 
 private struct AppStateTestTimeoutError: Error {}
+
+extension ChatFeatureState {
+  fileprivate var toolCallsForAppStateTesting: [ToolCallRecord] {
+    transcript.turns.flatMap(\.items).compactMap { item in
+      guard case .tool(let record) = item else {
+        return nil
+      }
+      return record
+    }
+  }
+}
 
 extension ChatSession {
   fileprivate var transcriptTextForAppStateTesting: [String] {

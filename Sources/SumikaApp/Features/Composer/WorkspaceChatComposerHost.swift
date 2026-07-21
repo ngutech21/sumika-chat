@@ -3,7 +3,8 @@ import SumikaCore
 import SwiftUI
 
 struct WorkspaceChatComposerHost: View {
-  let controller: ChatSessionController
+  let chatState: ChatFeatureState
+  let modelManagementState: ModelManagementFeatureState
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let mcpServers: [MCPServerConfig]
@@ -15,6 +16,7 @@ struct WorkspaceChatComposerHost: View {
   let onOpenAudioModels: () -> Void
 
   private static let slashCommandParser = SlashCommandParser()
+  @State private var composerErrorMessage: String?
 
   private var onSend: (String) -> Bool {
     { submittedDraft in
@@ -36,119 +38,124 @@ struct WorkspaceChatComposerHost: View {
     #endif
 
     let localDownloadedModels = downloadedModels
-    let composerState = controller.composerSessionState
-    let isGenerating = controller.isGenerating
+    let modelState = modelManagementState.state
+    let presentation = chatState.composer
+    let composerState = presentation.session
+    let isGenerating = presentation.isGenerating
 
     ChatComposer(
       attachments: composerState.pendingAttachments,
       activeAttachments: composerState.activeAttachments,
       availableModels: localDownloadedModels,
       selectedModel: composerSelectedModel(from: localDownloadedModels),
-      modelState: controller.modelRuntime.modelState,
+      modelState: modelState.modelState,
       interactionMode: composerState.interactionMode,
       sessionOptionsConfiguration: ChatComposerOptions.Configuration(
         interactionMode: composerState.interactionMode,
         reasoningEnabled: composerState.reasoningEnabled,
         toolApprovalPolicy: composerState.toolApprovalPolicy,
-        canChangeReasoning: controller.canChangeInteractionMode,
-        canEnableAutomaticToolApproval: controller.canEnableAutomaticToolApproval,
+        canChangeReasoning: presentation.canChangeInteractionMode,
+        canEnableAutomaticToolApproval: presentation.canEnableAutomaticToolApproval,
         servers: mcpServers,
         statuses: mcpServerStatuses,
         selectedServerIDs: composerState.selectedMCPServerIDs,
-        canChangeMCPSelection: controller.canChangeMCPServerSelection,
-        onSetReasoningEnabled: controller.setReasoningEnabled,
+        canChangeMCPSelection: presentation.canChangeMCPServerSelection,
+        onSetReasoningEnabled: chatState.setReasoningEnabled,
         onEnableAutomaticToolApproval: {
-          controller.enableAutomaticToolApproval(in: toolWorkspace)
+          chatState.enableAutomaticToolApproval(in: context, sessionID: sessionID)
         },
-        onDisableAutomaticToolApproval: controller.disableAutomaticToolApproval,
+        onDisableAutomaticToolApproval: chatState.disableAutomaticToolApproval,
         onSelectServerIDs: onSelectMCPServerIDs
       ),
       todoState: composerState.todoState,
-      contextUsage: controller.contextUsage,
-      canChangeModel: !localDownloadedModels.isEmpty && !isGenerating
-        && controller.modelRuntime.canChangeModel,
-      canChangeInteractionMode: controller.canChangeInteractionMode,
-      canSend: controller.modelRuntime.modelState == .ready && !isGenerating,
+      contextUsage: presentation.contextUsage,
+      canChangeModel: !localDownloadedModels.isEmpty && modelManagementState.canChangeModel,
+      canChangeInteractionMode: presentation.canChangeInteractionMode,
+      canSend: modelManagementState.canSend,
       canRunLocalCommand: !isGenerating,
       isGenerating: isGenerating,
-      errorMessage: controller.errorMessage,
-      onSelectInteractionMode: controller.setInteractionMode,
+      errorMessage: presentedErrorMessage,
+      onSelectInteractionMode: chatState.setInteractionMode,
       onSelectModel: selectModel(_:),
       onLoadModel: loadSelectedModel,
       onAddAttachments: chooseAttachments,
-      onDropAttachments: controller.addAttachments,
-      onRemoveAttachment: controller.removeAttachment,
+      onDropAttachments: chatState.addAttachments,
+      onRemoveAttachment: chatState.removeAttachment,
       speechInputController: speechInputController,
       onOpenAudioModels: onOpenAudioModels,
       onSend: onSend,
-      onCancel: controller.cancelGeneration
+      onCancel: chatState.cancelGeneration
     )
   }
 
   private var downloadedModels: [ManagedModel] {
-    controller.modelRuntime.availableModels.filter { controller.modelRuntime.isModelDownloaded($0) }
+    modelManagementState.downloadedModels
   }
 
-  private var toolWorkspace: Workspace {
-    context.workspace(containing: sessionID ?? controller.chatSession.id)
+  private var presentedErrorMessage: String? {
+    composerErrorMessage
+      ?? previewState.errorMessage
+      ?? modelManagementState.errorMessage
+      ?? chatState.composer.errorMessage
   }
 
   private func composerSelectedModel(from downloadedModels: [ManagedModel]) -> ManagedModel {
-    if downloadedModels.contains(controller.modelRuntime.selectedModel) {
-      return controller.modelRuntime.selectedModel
+    let selectedModel = modelManagementState.state.selectedModel
+    if downloadedModels.contains(selectedModel) {
+      return selectedModel
     }
 
-    return downloadedModels.first ?? controller.modelRuntime.selectedModel
+    return downloadedModels.first ?? selectedModel
   }
 
   private func selectModel(_ model: ManagedModel) {
-    guard !controller.isGenerating, controller.modelRuntime.canChangeModel else {
-      return
-    }
-
-    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
-    controller.modelRuntime.selectModel(model)
+    clearLocalPresentationErrors()
+    modelManagementState.selectConversationModel(model)
   }
 
   private func loadSelectedModel() {
-    controller.prepareForModelRuntimeAction(cancelGeneration: false, invalidateContext: true)
-    guard !downloadedModels.isEmpty else {
-      controller.errorMessage = "Download a model from Models first."
-      return
-    }
-
-    if !downloadedModels.contains(controller.modelRuntime.selectedModel),
-      let downloadedModel = downloadedModels.first
-    {
-      controller.modelRuntime.selectModel(downloadedModel)
-    }
-    controller.modelRuntime.loadSelectedModel()
+    clearLocalPresentationErrors()
+    modelManagementState.loadAvailableModelForConversation()
   }
 
   private func handleLocalSlashCommand(_ draft: String) -> LocalSlashCommandResult {
     let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmedDraft.hasPrefix("/") else {
+      clearLocalPresentationErrors()
       return .notHandled
     }
 
     let name = String(trimmedDraft.dropFirst().prefix { !$0.isWhitespace })
     guard let descriptor = SlashCommandRegistry.descriptor(named: name) else {
       // Unknown command text: leave it for the normal send path.
+      clearLocalPresentationErrors()
       return .notHandled
     }
 
     guard let command = Self.slashCommandParser.parse(trimmedDraft) else {
-      controller.errorMessage = descriptor.usage
+      previewState.clearError()
+      composerErrorMessage = descriptor.usage
       return .handled(shouldClearDraft: false)
     }
 
+    composerErrorMessage = nil
     switch command {
     case .preview(let path):
-      guard runPreviewCommand(path: path) else {
+      guard
+        previewState.showHTMLPreview(
+          path: path,
+          in: context.workspaceWithoutSessions
+        )
+      else {
         return .handled(shouldClearDraft: false)
       }
     case .show(let path):
-      guard runShowCommand(path: path) else {
+      guard
+        previewState.showFilePreview(
+          path: path,
+          in: context.workspaceWithoutSessions
+        )
+      else {
         return .handled(shouldClearDraft: false)
       }
     }
@@ -165,30 +172,13 @@ struct WorkspaceChatComposerHost: View {
     panel.prompt = "Add"
 
     if panel.runModal() == .OK {
-      controller.addAttachments(from: panel.urls)
+      chatState.addAttachments(from: panel.urls)
     }
   }
 
-  private func runPreviewCommand(path: String) -> Bool {
-    do {
-      try previewState.showHTMLPreview(path: path, in: context.workspaceWithoutSessions)
-      controller.errorMessage = nil
-      return true
-    } catch {
-      controller.errorMessage = error.localizedDescription
-      return false
-    }
-  }
-
-  private func runShowCommand(path: String) -> Bool {
-    do {
-      try previewState.showFilePreview(path: path, in: context.workspaceWithoutSessions)
-      controller.errorMessage = nil
-      return true
-    } catch {
-      controller.errorMessage = error.localizedDescription
-      return false
-    }
+  private func clearLocalPresentationErrors() {
+    composerErrorMessage = nil
+    previewState.clearError()
   }
 
   private enum LocalSlashCommandResult {

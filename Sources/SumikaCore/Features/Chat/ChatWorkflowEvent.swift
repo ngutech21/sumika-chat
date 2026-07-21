@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ChatWorkflowEvent: Equatable, Sendable {
+enum ChatWorkflowEvent: Equatable, Sendable {
   case turnAppended(ChatTurn)
   case userMessageAppended(
     content: String,
@@ -66,7 +66,7 @@ public enum ChatWorkflowEvent: Equatable, Sendable {
   case transientAssistantPlaceholdersRemoved
 }
 
-public enum ChatWorkflowContinuation: Equatable, Sendable {
+enum ChatWorkflowContinuation: Equatable, Sendable {
   case none
   case awaitingApproval
   case awaitingUserAnswer
@@ -82,50 +82,32 @@ public enum ChatWorkflowContinuation: Equatable, Sendable {
   case stopTurn
 }
 
-public struct ChatWorkflowStep: Equatable, Sendable {
-  public let events: [ChatWorkflowEvent]
-  public let continuation: ChatWorkflowContinuation
-
-  public init(
-    events: [ChatWorkflowEvent],
-    continuation: ChatWorkflowContinuation
-  ) {
-    self.events = events
-    self.continuation = continuation
-  }
+struct ChatWorkflowStep: Equatable, Sendable {
+  let events: [ChatWorkflowEvent]
+  let continuation: ChatWorkflowContinuation
 }
 
-public enum ChatWorkflowMissingTargetKind: String, Equatable, Sendable {
+enum ChatWorkflowMissingTargetKind: String, Equatable, Sendable {
   case message
   case turn
   case toolCall
 }
 
-public struct ChatWorkflowEventApplicationDiagnostic: Equatable, Sendable {
-  public var event: ChatWorkflowEvent
-  public var missingTargetKind: ChatWorkflowMissingTargetKind
-  public var missingTargetID: UUID
-
-  public init(
-    event: ChatWorkflowEvent,
-    missingTargetKind: ChatWorkflowMissingTargetKind,
-    missingTargetID: UUID
-  ) {
-    self.event = event
-    self.missingTargetKind = missingTargetKind
-    self.missingTargetID = missingTargetID
-  }
+struct ChatWorkflowEventApplicationDiagnostic: Equatable, Sendable {
+  var event: ChatWorkflowEvent
+  var missingTargetKind: ChatWorkflowMissingTargetKind
+  var missingTargetID: UUID
 }
 
-public struct ChatWorkflowEventApplier: Sendable {
+struct ChatWorkflowEventApplier: Sendable {
   private let mutator: ChatTranscriptMutator
 
-  public init(mutator: ChatTranscriptMutator = ChatTranscriptMutator()) {
+  init(mutator: ChatTranscriptMutator = ChatTranscriptMutator()) {
     self.mutator = mutator
   }
 
   @discardableResult
-  public func apply(
+  func apply(
     _ events: [ChatWorkflowEvent],
     to state: inout ChatSession
   ) -> [ChatWorkflowEventApplicationDiagnostic] {
@@ -137,7 +119,7 @@ public struct ChatWorkflowEventApplier: Sendable {
   }
 
   @discardableResult
-  public func apply(
+  func apply(
     _ event: ChatWorkflowEvent,
     to state: inout ChatSession
   ) -> [ChatWorkflowEventApplicationDiagnostic] {

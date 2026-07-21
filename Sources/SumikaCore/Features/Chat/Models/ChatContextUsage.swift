@@ -2,18 +2,18 @@
 // swiftlint:disable:next unused_import
 import Foundation
 
-public enum ChatContextUsageAccuracy: String, Equatable, Sendable {
+package enum ChatContextUsageAccuracy: String, Equatable, Sendable {
   case estimate
   case exact
 }
 
-public struct ChatContextUsage: Equatable, Sendable {
-  public let usedTokens: Int
-  public let tokenLimit: Int?
-  public let accuracy: ChatContextUsageAccuracy
-  public let isStale: Bool
+package struct ChatContextUsage: Equatable, Sendable {
+  package let usedTokens: Int
+  package let tokenLimit: Int?
+  package let accuracy: ChatContextUsageAccuracy
+  package let isStale: Bool
 
-  public init(
+  package init(
     usedTokens: Int,
     tokenLimit: Int?,
     accuracy: ChatContextUsageAccuracy = .exact,
@@ -25,7 +25,7 @@ public struct ChatContextUsage: Equatable, Sendable {
     self.isStale = isStale
   }
 
-  public var availableTokens: Int? {
+  package var availableTokens: Int? {
     guard let tokenLimit else {
       return nil
     }
@@ -33,7 +33,7 @@ public struct ChatContextUsage: Equatable, Sendable {
     return max(tokenLimit - usedTokens, 0)
   }
 
-  public var summary: String {
+  package var summary: String {
     let prefix = accuracy == .estimate ? "~" : ""
     guard let tokenLimit else {
       return "\(prefix)\(usedTokens) tokens"
@@ -42,7 +42,7 @@ public struct ChatContextUsage: Equatable, Sendable {
     return "\(prefix)\(usedTokens)/\(tokenLimit) tokens"
   }
 
-  public var fraction: Double? {
+  package var fraction: Double? {
     guard let tokenLimit, tokenLimit > 0 else {
       return nil
     }
@@ -54,14 +54,14 @@ public struct ChatContextUsage: Equatable, Sendable {
 /// Point-in-time input for the context-usage estimate: the transcript, prompt,
 /// and attachments the next generation would send, plus the model state that
 /// gates whether an estimate is meaningful at all.
-public struct ContextUsageSnapshot: Sendable {
-  public let modelState: ModelLoadState
-  public let transcript: ModelPromptProjection
-  public let attachments: [ChatAttachment]
-  public let systemPrompt: String
-  public let contextTokenLimit: Int?
+package struct ContextUsageSnapshot: Sendable {
+  package let modelState: ModelLoadState
+  package let transcript: ModelPromptProjection
+  package let attachments: [ChatAttachment]
+  package let systemPrompt: String
+  package let contextTokenLimit: Int?
 
-  public init(
+  package init(
     modelState: ModelLoadState,
     transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
@@ -75,7 +75,7 @@ public struct ContextUsageSnapshot: Sendable {
     self.contextTokenLimit = contextTokenLimit
   }
 
-  public func estimatedUsage(isStale: Bool = true) -> ChatContextUsage {
+  package func estimatedUsage(isStale: Bool = true) -> ChatContextUsage {
     var byteCount = systemPrompt.utf8.count
     // `.fullHistory` projects every entry to its `frozenContent.content` verbatim,
     // so we sum the stored content directly instead of allocating a projected array.

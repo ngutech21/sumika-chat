@@ -1,7 +1,7 @@
 import Foundation
 
-public struct TodoWriteInput: Codable, Equatable, Sendable {
-  public let items: [TodoItem]
+package struct TodoWriteInput: Codable, Equatable, Sendable {
+  package let items: [TodoItem]
 
   private struct DynamicCodingKey: CodingKey {
     let stringValue: String
@@ -18,11 +18,11 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
     }
   }
 
-  public init(items: [TodoItem]) {
+  package init(items: [TodoItem]) {
     self.items = items
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     guard let numberedItems = try Self.decodeNumberedItems(from: decoder) else {
       throw DecodingError.dataCorrupted(
         DecodingError.Context(
@@ -33,7 +33,7 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
     items = numberedItems
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     try Self.validateItems(items)
 
     var container = encoder.container(keyedBy: DynamicCodingKey.self)
@@ -44,7 +44,7 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
     }
   }
 
-  public static func validateItems(_ items: [TodoItem]) throws {
+  package static func validateItems(_ items: [TodoItem]) throws {
     try TodoStateValidator().validate(items)
 
     for item in items {
@@ -145,7 +145,7 @@ public struct TodoWriteInput: Codable, Equatable, Sendable {
   }
 }
 
-public enum TodoWriteResult: Codable, Equatable, Sendable {
+package enum TodoWriteResult: Codable, Equatable, Sendable {
   case success
   case failed(reason: ToolFailureReason)
 }
@@ -162,7 +162,7 @@ nonisolated extension TodoWriteResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let todoWrite = ToolDefinition(
+  package static let todoWrite = ToolDefinition(
     name: .todoWrite,
     description:
       "Create or update the Agent's compact todo plan for multi-step work. Send the full current plan in one call, not one call per item.",
@@ -202,8 +202,8 @@ extension TodoWriteInput {
   }
 }
 
-public struct TodoWriteToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<TodoWriteInput>(
+struct TodoWriteToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<TodoWriteInput>(
     definition: ToolDefinition.todoWrite,
     decodeArguments: TodoWriteInput.decodeToolArguments,
     makePayload: ToolCallPayload.todoWrite,
@@ -218,9 +218,7 @@ public struct TodoWriteToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: TodoWriteInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -233,7 +231,7 @@ public struct TodoWriteToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: TodoWriteInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: TodoWriteInput, context: ToolContext) async -> ToolResultPayload {
     _ = context
     do {
       try TodoWriteInput.validateItems(input.items)

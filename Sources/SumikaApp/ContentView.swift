@@ -19,12 +19,12 @@ struct ContentView: View {
   }
 
   var body: some View {
-    let controller = appState.chatController
+    let chatState = appState.chatFeatureState
 
     NavigationSplitView {
       WorkspaceSidebar(
         sidebarState: appState.workspaceState.sidebarState,
-        modelRuntime: appState.chatController.modelRuntime,
+        processUsage: appState.modelManagementState.state.processUsage,
         selection: routeSelection,
         onAddWorkspace: chooseWorkspace,
         onCreateSession: createSession,
@@ -34,7 +34,7 @@ struct ContentView: View {
       )
       .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 460)
     } detail: {
-      detailContent(controller: controller)
+      detailContent(chatState: chatState)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .frame(minWidth: 880, minHeight: 560)
@@ -51,21 +51,22 @@ struct ContentView: View {
   }
 
   @ViewBuilder
-  private func detailContent(controller: ChatSessionController) -> some View {
+  private func detailContent(chatState: ChatFeatureState) -> some View {
     if let route = appState.route {
       switch route {
       case .models:
-        ModelsRouteHost(
-          controller: controller,
+        ModelsView(
+          modelManagementState: appState.modelManagementState,
           audioModelController: appState.audioModelController,
           selectedTab: $modelsTab,
-          onPersistActiveSession: { _ = appState.persistActiveSession() }
+          errorMessage: appState.modelManagementState.errorMessage
         )
       case .workspace:
         WorkspaceRouteHost(
           activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
           activeSessionID: nil,
-          controller: appState.chatController,
+          chatState: chatState,
+          modelManagementState: appState.modelManagementState,
           browserToolService: appState.browserToolService,
           appBehaviorSettings: appState.settingsState.appBehaviorSettings,
           mcpServers: appState.settingsState.mcpServers,
@@ -85,7 +86,8 @@ struct ContentView: View {
         WorkspaceRouteHost(
           activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
           activeSessionID: sessionID,
-          controller: appState.chatController,
+          chatState: chatState,
+          modelManagementState: appState.modelManagementState,
           browserToolService: appState.browserToolService,
           appBehaviorSettings: appState.settingsState.appBehaviorSettings,
           mcpServers: appState.settingsState.mcpServers,
@@ -168,51 +170,11 @@ struct ContentView: View {
   ContentView(appState: AppLaunchConfiguration.makeAppState())
 }
 
-private struct ModelsRouteHost: View {
-  let controller: ChatSessionController
-  let audioModelController: ComposerAudioModelController
-  @Binding var selectedTab: ModelsTab
-  let onPersistActiveSession: () -> Void
-
-  var body: some View {
-    ModelsView(
-      modelRuntime: controller.modelRuntime,
-      audioModelController: audioModelController,
-      modeSettings: Binding(
-        get: { controller.chatSession.modeSettings },
-        set: { controller.chatSession.modeSettings = $0 }
-      ),
-      selectedTab: $selectedTab,
-      errorMessage: controller.errorMessage,
-      canChangeModel: !controller.isGenerating && controller.modelRuntime.canChangeModel,
-      onPrepareModelRuntimeAction: { cancelGeneration, invalidateContext in
-        controller.prepareForModelRuntimeAction(
-          cancelGeneration: cancelGeneration,
-          invalidateContext: invalidateContext
-        )
-      }
-    )
-    .onChange(of: controller.chatSession.modeSettings) {
-      controller.refreshContextUsage()
-      saveSelectedModelSettings()
-      onPersistActiveSession()
-    }
-    .onChange(of: controller.modelRuntime.modelContextTokenLimit) {
-      saveSelectedModelSettings()
-    }
-  }
-
-  private func saveSelectedModelSettings() {
-    controller.modelRuntime.saveSelectedModelSettings(
-      modeSettings: controller.chatSession.modeSettings
-    )
-  }
-}
-
 private struct WorkspaceRouteHost: View {
   let activeWorkspaceContext: WorkspaceChatContext?
   let activeSessionID: ChatSession.ID?
-  let controller: ChatSessionController
+  let chatState: ChatFeatureState
+  let modelManagementState: ModelManagementFeatureState
   let browserToolService: HTMLPreviewBrowserToolService
   let appBehaviorSettings: AppBehaviorSettings
   let mcpServers: [MCPServerConfig]
@@ -231,9 +193,10 @@ private struct WorkspaceRouteHost: View {
   var body: some View {
     if let context = activeWorkspaceContext {
       WorkspaceChatView(
-        controller: controller,
+        chatState: chatState,
         context: context,
         sessionID: activeSessionID,
+        modelManagementState: modelManagementState,
         browserToolService: browserToolService,
         appBehaviorSettings: appBehaviorSettings,
         mcpServers: mcpServers,

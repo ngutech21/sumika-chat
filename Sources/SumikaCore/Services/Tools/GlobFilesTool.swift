@@ -1,17 +1,17 @@
 import Foundation
 
-public struct GlobFilesInput: Codable, Equatable, Sendable {
-  public let pattern: String
-  public let path: String?
+package struct GlobFilesInput: Codable, Equatable, Sendable {
+  package let pattern: String
+  package let path: String?
 }
 
-public struct GlobFilesResult: Codable, Equatable, Sendable {
-  public var root: WorkspaceRelativePath
-  public var pattern: String
-  public var matches: [WorkspaceRelativePath]
-  public var truncated: Bool
+package struct GlobFilesResult: Codable, Equatable, Sendable {
+  package var root: WorkspaceRelativePath
+  package var pattern: String
+  package var matches: [WorkspaceRelativePath]
+  package var truncated: Bool
 
-  public init(
+  package init(
     root: WorkspaceRelativePath,
     pattern: String,
     matches: [WorkspaceRelativePath],
@@ -37,7 +37,7 @@ nonisolated extension GlobFilesResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let globFiles = ToolDefinition(
+  package static let globFiles = ToolDefinition(
     name: .globFiles,
     description:
       "Find workspace files by glob pattern. Use this when the target path or file type is unknown but a filename pattern is known.",
@@ -58,8 +58,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct GlobFilesToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<GlobFilesInput>(
+struct GlobFilesToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<GlobFilesInput>(
     definition: ToolDefinition.globFiles,
     makePayload: ToolCallPayload.globFiles,
     extractInput: { payload in
@@ -79,7 +79,7 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
   private let maxResults: Int
   private let skippedNames: Set<String>
 
-  public init(
+  init(
     maxResults: Int = 300,
     skippedNames: Set<String> = WorkspaceFileEnumeration.skippedNames
   ) {
@@ -87,7 +87,7 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
     self.skippedNames = skippedNames
   }
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: GlobFilesInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -109,7 +109,7 @@ public struct GlobFilesToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: GlobFilesInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: GlobFilesInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {

@@ -1,14 +1,14 @@
 import Foundation
 
-public struct WorkspaceDiffInput: Codable, Equatable, Sendable {
-  public let path: String?
+package struct WorkspaceDiffInput: Codable, Equatable, Sendable {
+  package let path: String?
 
-  public init(path: String? = nil) {
+  package init(path: String? = nil) {
     self.path = path
   }
 }
 
-public enum WorkspaceDiffResult: Codable, Equatable, Sendable {
+package enum WorkspaceDiffResult: Codable, Equatable, Sendable {
   case success(path: WorkspaceRelativePath?, content: ToolTextOutput)
   case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
 }
@@ -34,7 +34,7 @@ nonisolated extension WorkspaceDiffResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let workspaceDiff = ToolDefinition(
+  package static let workspaceDiff = ToolDefinition(
     name: .workspaceDiff,
     description: "Show current Git status and diff.",
     parameters: [
@@ -49,8 +49,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<WorkspaceDiffInput>(
+struct WorkspaceDiffToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<WorkspaceDiffInput>(
     definition: ToolDefinition.workspaceDiff,
     makePayload: ToolCallPayload.workspaceDiff,
     extractInput: { payload in
@@ -85,7 +85,7 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
   private let maxBytes: Int
   private let timeoutSeconds: Int
 
-  public init(
+  init(
     gitExecutableURL: URL? = nil,
     directGitExecutableURLs: [URL]? = nil,
     gitEnvironment: [String: String] = ProcessInfo.processInfo.environment,
@@ -103,7 +103,7 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     self.timeoutSeconds = timeoutSeconds
   }
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: WorkspaceDiffInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -125,7 +125,7 @@ public struct WorkspaceDiffToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: WorkspaceDiffInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: WorkspaceDiffInput, context: ToolContext) async -> ToolResultPayload {
     var scopedPath: WorkspaceRelativePath?
 
     do {

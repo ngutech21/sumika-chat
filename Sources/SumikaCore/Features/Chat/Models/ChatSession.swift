@@ -1,12 +1,12 @@
 import Foundation
 
-public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
-  public static let defaultTitle = "New Session"
+package struct ChatSession: Codable, Identifiable, Equatable, Sendable {
+  package static let defaultTitle = "New Session"
 
-  public let id: UUID
-  public var title: String
-  public var selectedModelID: ManagedModel.ID
-  public var toolCalls: [ToolCallRecord] {
+  package let id: UUID
+  package var title: String
+  package var selectedModelID: ManagedModel.ID
+  package var toolCalls: [ToolCallRecord] {
     turns.flatMap(\.items).compactMap { item in
       guard case .tool(let record) = item else {
         return nil
@@ -14,31 +14,31 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
       return record
     }
   }
-  public internal(set) var turns: [ChatTurn]
-  public var focusedFileState: FocusedFileState
-  public var modeSettings: ChatModeSettingsSet
-  public var activeModeSettings: ChatModeSettings {
+  package internal(set) var turns: [ChatTurn]
+  package var focusedFileState: FocusedFileState
+  package var modeSettings: ChatModeSettingsSet
+  package var activeModeSettings: ChatModeSettings {
     get { modeSettings[interactionMode] }
     set { modeSettings[interactionMode] = newValue }
   }
-  public var systemPrompt: String {
+  package var systemPrompt: String {
     get { activeModeSettings.systemPrompt }
     set { activeModeSettings.systemPrompt = newValue }
   }
-  public var generationSettings: ChatGenerationSettings {
+  package var generationSettings: ChatGenerationSettings {
     get { activeModeSettings.generationSettings }
     set { activeModeSettings.generationSettings = newValue }
   }
-  public var interactionMode: WorkspaceInteractionMode
-  public var toolApprovalPolicy: ToolApprovalPolicy
-  public private(set) var selectedMCPServerIDs: [UUID]
-  public var todoState: TodoState?
-  public var pendingAttachments: [ChatAttachment]
-  public var activeAttachmentContext: ActiveAttachmentContext
-  public var createdAt: Date
-  public var updatedAt: Date
+  package var interactionMode: WorkspaceInteractionMode
+  package var toolApprovalPolicy: ToolApprovalPolicy
+  package private(set) var selectedMCPServerIDs: [UUID]
+  package var todoState: TodoState?
+  package var pendingAttachments: [ChatAttachment]
+  package var activeAttachmentContext: ActiveAttachmentContext
+  package var createdAt: Date
+  package var updatedAt: Date
 
-  public init(
+  package init(
     id: UUID = UUID(),
     title: String = ChatSession.defaultTitle,
     selectedModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID,
@@ -70,9 +70,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     self.updatedAt = updatedAt
   }
 
-  public static let defaultSession = ChatSession()
-
-  public static func == (lhs: ChatSession, rhs: ChatSession) -> Bool {
+  package static func == (lhs: ChatSession, rhs: ChatSession) -> Bool {
     lhs.id == rhs.id
       && lhs.title == rhs.title
       && lhs.selectedModelID == rhs.selectedModelID
@@ -104,7 +102,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     case updatedAt
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
     title = try container.decodeIfPresent(String.self, forKey: .title, default: Self.defaultTitle)
@@ -154,7 +152,7 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt, default: createdAt)
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(id, forKey: .id)
     try container.encode(title, forKey: .title)
@@ -183,17 +181,17 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     }
   }
 
-  public func turnID(containingToolCall toolCallID: ToolCallRecord.ID) -> ChatTurn.ID? {
+  package func turnID(containingToolCall toolCallID: ToolCallRecord.ID) -> ChatTurn.ID? {
     turns.first { turn in
       turn.containsToolCall(id: toolCallID)
     }?.id
   }
 
-  public func toolCallRecord(id: ToolCallRecord.ID) -> ToolCallRecord? {
+  package func toolCallRecord(id: ToolCallRecord.ID) -> ToolCallRecord? {
     turns.lazy.compactMap { $0.toolCallRecord(id: id) }.first
   }
 
-  public mutating func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
+  package mutating func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
     selectedMCPServerIDs = Self.uniqueIDsPreservingOrder(serverIDs)
   }
 

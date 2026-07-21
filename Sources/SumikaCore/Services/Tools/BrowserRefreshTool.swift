@@ -1,17 +1,17 @@
 import Foundation
 
-public struct BrowserRefreshInput: Codable, Equatable, Sendable {
-  public var hard: Bool?
+package struct BrowserRefreshInput: Codable, Equatable, Sendable {
+  package var hard: Bool?
 
   private enum CodingKeys: String, CodingKey {
     case hard
   }
 
-  public init(hard: Bool? = nil) {
+  package init(hard: Bool? = nil) {
     self.hard = hard
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     hard = try Self.decodeOptionalBool(from: container, forKey: .hard)
   }
@@ -40,13 +40,13 @@ public struct BrowserRefreshInput: Codable, Equatable, Sendable {
   }
 }
 
-public enum BrowserToolInputValidationError: LocalizedError, Equatable {
+internal enum BrowserToolInputValidationError: LocalizedError, Equatable {
   case invalidBooleanArgument(String)
   case invalidIntegerArgument(String)
   case invalidMaxLength
   case emptySelector
 
-  public var errorDescription: String? {
+  package var errorDescription: String? {
     switch self {
     case .invalidBooleanArgument(let name):
       "browser tool argument \(name) must be true or false."
@@ -60,7 +60,7 @@ public enum BrowserToolInputValidationError: LocalizedError, Equatable {
   }
 }
 
-public enum BrowserRefreshResult: Codable, Equatable, Sendable {
+package enum BrowserRefreshResult: Codable, Equatable, Sendable {
   case success(path: WorkspaceRelativePath?, url: String?, hard: Bool)
   case failed(reason: ToolFailureReason)
 }
@@ -82,7 +82,7 @@ nonisolated extension BrowserRefreshResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let browserRefresh = ToolDefinition(
+  package static let browserRefresh = ToolDefinition(
     name: .browserRefresh,
     description: "Reload the current HTML preview page.",
     parameters: [
@@ -121,8 +121,8 @@ extension BrowserRefreshInput {
   }
 }
 
-public struct BrowserRefreshToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<BrowserRefreshInput>(
+struct BrowserRefreshToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<BrowserRefreshInput>(
     definition: ToolDefinition.browserRefresh,
     decodeArguments: BrowserRefreshInput.decodeToolArguments,
     makePayload: ToolCallPayload.browserRefresh,
@@ -137,9 +137,7 @@ public struct BrowserRefreshToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: BrowserRefreshInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -152,7 +150,7 @@ public struct BrowserRefreshToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: BrowserRefreshInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: BrowserRefreshInput, context: ToolContext) async -> ToolResultPayload {
     .browserRefresh(await context.browserToolService.refresh(input))
   }
 }

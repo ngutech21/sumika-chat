@@ -1,11 +1,11 @@
 import Foundation
 
-public enum WorkspaceFileEnumeration {
-  public static let skippedNames: Set<String> = [
+internal enum WorkspaceFileEnumeration {
+  package static let skippedNames: Set<String> = [
     ".git", "DerivedData", ".build", "build", ".swiftpm", "node_modules",
   ]
 
-  public static func enumerateFiles(
+  package static func enumerateFiles(
     at rootURL: URL,
     relativeTo relativeRootURL: URL? = nil,
     skippedNames: Set<String>,
@@ -79,14 +79,14 @@ public enum WorkspaceFileEnumeration {
   }
 }
 
-public struct GlobPatternMatcher {
+internal struct GlobPatternMatcher {
   private let regex: NSRegularExpression
 
-  public init(pattern: String) throws {
+  package init(pattern: String) throws {
     regex = try NSRegularExpression(pattern: Self.regularExpressionPattern(for: pattern))
   }
 
-  public func matches(_ value: String) -> Bool {
+  package func matches(_ value: String) -> Bool {
     let range = NSRange(value.startIndex..<value.endIndex, in: value)
     return regex.firstMatch(in: value, range: range) != nil
   }
@@ -126,16 +126,16 @@ public struct GlobPatternMatcher {
   }
 }
 
-public struct SearchPattern {
+internal struct SearchPattern {
   private let regex: NSRegularExpression?
   private let literal: String
 
-  public init(pattern: String) {
+  package init(pattern: String) {
     regex = try? NSRegularExpression(pattern: pattern)
     literal = pattern
   }
 
-  public func matches(_ line: String) -> Bool {
+  package func matches(_ line: String) -> Bool {
     if let regex {
       return regex.firstMatch(in: line, range: NSRange(line.startIndex..<line.endIndex, in: line))
         != nil

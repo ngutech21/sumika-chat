@@ -9,8 +9,9 @@ auditability while being excluded from future model prompts.
 
 ```mermaid
 flowchart TD
-  A["User sends message"] --> B["ChatSessionController"]
-  B --> C["ChatTurnCoordinator.startUserTurn(...)"]
+  A["User sends message"] --> B["App intent"]
+  B --> CE["ConversationEngine"]
+  CE --> C["Start active turn"]
   C --> D["Emit turn + user + context + placeholder events"]
   D --> E["ChatWorkflowEventApplier updates ChatSession"]
   C --> F["ChatModelContextBuilder filters model context"]
@@ -32,9 +33,9 @@ flowchart TD
   U -- "no" --> I
   K -- "yes" --> R["Mark turn awaitingApproval"]
   R --> S["User approves or denies"]
-  S -- "approve" --> T["ChatTurnCoordinator.approveToolCall(...)"]
+  S -- "approve" --> T["Resume approved tool call"]
   T --> Q
-  S -- "deny" --> Z["ChatTurnCoordinator.denyToolCall(...)"]
+  S -- "deny" --> Z["Resume denied tool call"]
   Z --> ZF["Stream one tools-free final follow-up"]
   ZF --> I
   C --> M{"User cancels active turn?"}
@@ -45,17 +46,19 @@ flowchart TD
 
 ## Roles
 
-- `ChatSessionController` is the SwiftUI-facing state adapter. It owns observable
-  draft, transcript, context usage, and error state. It delegates turn start,
-  cancellation, approval, denial, and `ask_user` answers to
-  `ChatTurnCoordinator`, applies emitted `ChatWorkflowEvent` values, and mirrors
-  finished or paused turns back into UI state.
-- `ChatTurnCoordinator` is the UI-free turn loop runner. It owns the active
-  chat-turn task and `turnID`, builds start/resume event sequences, streams
-  assistant chunks, runs `ToolLoopCoordinator`, handles approval/denial/answer
-  resumes through `ToolResumeCoordinator`, and emits completion/cancel/failure
-  events. It gates completion so stale async work from a cancelled or replaced
-  turn cannot reset current UI state.
+- `ConversationEngine` is the canonical live conversation owner. It owns the
+  `ChatSession`, observable generation state, active task and `turnID`, frozen
+  tool registry, workflow-event application, cancellation, pause, continuation,
+  and finalization. These lifecycle facts are updated together instead of being
+  synchronized through callbacks between peer modules.
+- `ChatFeatureState` is the smaller application-facing facade. It exposes
+  separate Composer, Transcript, and model-context-debug projections plus
+  explicit user operations. It does not expose session installation,
+  persistence snapshots, model coordination, tool-registry configuration, or
+  active-turn implementation state.
+- `ChatTurnExecutionCoordinator` is an internal implementation module behind
+  that owner. It builds prompt plans, streams assistant output, and invokes
+  `ToolLoopCoordinator`, but it does not own session or active-turn state.
 - `ChatTurn` is the persisted turn audit record. Its canonical state is the
   turn status, model-context policy, and ordered `ChatTurnItem` values.
   Membership is append-only: items are not deleted or duplicated into parallel
@@ -76,7 +79,7 @@ flowchart TD
   `modelContextPolicy` is `.excluded`, except while that same turn is actively
   generating its direct follow-up response.
 - `ChatGenerationCoordinator` streams model events into assistant chunks,
-  native tool-call events, and metrics. `ChatTurnCoordinator` converts the
+  native tool-call events, and metrics. The conversation owner converts the
   stream callbacks into `ChatWorkflowEvent` values. Native tool calls are
   carried as structured stream events rather than parsed from assistant text.
 - `ToolLoopCoordinator` handles model-emitted native tool actions. Read-only tools run
@@ -85,23 +88,23 @@ flowchart TD
   result. Text that merely looks like an old tool protocol is normal assistant
   prose and is not reparsed as a tool call.
 - `ToolResumeCoordinator` builds the structured event sequences for approved
-  tools, denied tools, and answered `ask_user` calls. The turn coordinator owns
-  the async continuation that follows those events.
+  tools, denied tools, and answered `ask_user` calls. The conversation owner
+  owns the async continuation that follows those events.
 - `ChatWorkflowEventApplier` applies typed workflow events to `ChatSession`
   using `ChatTranscriptMutator`. These events are not persisted; persistence
   stores only the resulting turns, turn items, and tool-call records.
 - `ContextUsageSnapshot` computes the byte-based token-usage estimate from the
   same derived model-facing projection used for generation;
-  `ChatSessionController` builds and publishes it directly.
+  `ConversationEngine` builds and publishes it directly.
 
 ## Turn Lifecycle
 
 1. `sendMessage` validates UI-facing state, clears the draft and pending
-   attachments, then calls `ChatTurnCoordinator.startUserTurn`.
-2. `ChatTurnCoordinator` computes the current prompt context, then emits events
+   attachments, then starts the active turn.
+2. The conversation owner computes the current prompt context, then emits events
    that create a `ChatTurn` with status `.running`, append the user message with
    its frozen `promptContext`, and append the assistant placeholder.
-3. `ChatTurnCoordinator` starts the async operation for that turn.
+3. The same owner starts the async operation for that turn.
 4. Initial generation streams into the assistant placeholder.
 5. If the assistant output is an allowed tool call, `ToolLoopCoordinator` returns
    a `ChatWorkflowStep`. The turn coordinator emits its events, then follows the
@@ -136,7 +139,7 @@ flowchart TD
 6. If the tool call requires approval, workflow events record the call and mark
    the turn `.awaitingApproval`; active generation ends until the user approves
    or denies the call.
-7. Approval delegates to `ChatTurnCoordinator.approveToolCall`, which executes
+7. Approval resumes the active conversation lifecycle, which executes
    the same validated tool request and appends a real tool
    result. Successful `write_file` and `edit_file` approvals resume the normal
    tool loop just like other successful tools. Another generated mutation is a
@@ -162,13 +165,12 @@ flowchart TD
    sessions; the final/no-tools guidance is profile-aware — agent sessions get the
    workspace wording, chat (web) sessions get web wording with no file/workspace
    references.
-8. Answering `ask_user` delegates to
-   `ChatTurnCoordinator.answerAskUserToolCall`, appends the compact answer
+8. Answering `ask_user` appends the compact answer
    receipt, and resumes generation plus the normal tool loop.
    `finish_task(status:summary:)` is not a pause: all three valid statuses
    (`done`, `blocked`, and `needs_user`) complete the current turn, while the
    status remains available as structured completion metadata.
-9. Denial delegates to `ChatTurnCoordinator.denyToolCall`, appends a denied
+9. Denial appends a denied
    tool result, performs no local side effect, and streams one final no-tools
    assistant response so the model can acknowledge the denial.
 10. A successful turn is marked `.completed`.
@@ -409,8 +411,9 @@ stays outside SwiftUI.
    and apply them through `ChatWorkflowEventApplier`. Use `ChatTranscriptMutator`
    directly only for primitive transcript operations that are not part of a
    workflow transition.
-3. Put UI-free async loop behavior in `ChatTurnCoordinator`. UI facades should
-   provide existing state and callbacks, not duplicate the loop.
+3. Put UI-free async loop behavior behind the canonical conversation owner.
+   Internal implementation modules receive that owner directly instead of
+   reconstructing session and lifecycle state through callback bundles.
 4. Gate async mutations with the active `turnID`.
 5. Use `ChatModelContextBuilder` for generation and context-usage projections.
 6. Add tests for cancelled turns, stale async results, persistence defaults, and

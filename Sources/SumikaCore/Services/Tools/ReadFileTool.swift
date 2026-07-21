@@ -1,12 +1,12 @@
 import Foundation
 
-public enum ReadFileTrackedResult: Equatable, Sendable {
+package enum ReadFileTrackedResult: Equatable, Sendable {
   case success
   case unchanged
   case repeatedReadWarning(count: Int)
 }
 
-public actor ReadFileReadTracker {
+internal actor ReadFileReadTracker {
   private struct ReadStamp: Sendable {
     var content: ToolTextOutput
     var consecutiveReadCount: Int
@@ -15,9 +15,9 @@ public actor ReadFileReadTracker {
   private var stamps: [ReadKey: ReadStamp] = [:]
   private var lastReadKey: ReadKey?
 
-  public init() {}
+  package init() {}
 
-  public func record(readKey: ReadKey, content: ToolTextOutput) -> ReadFileTrackedResult {
+  package func record(readKey: ReadKey, content: ToolTextOutput) -> ReadFileTrackedResult {
     defer {
       lastReadKey = readKey
     }
@@ -43,10 +43,10 @@ public actor ReadFileReadTracker {
   }
 }
 
-public struct ReadFileInput: Codable, Equatable, Sendable {
-  public let path: String
-  public let offset: Int?
-  public let limit: Int?
+package struct ReadFileInput: Codable, Equatable, Sendable {
+  package let path: String
+  package let offset: Int?
+  package let limit: Int?
 
   private enum CodingKeys: String, CodingKey {
     case path
@@ -54,13 +54,13 @@ public struct ReadFileInput: Codable, Equatable, Sendable {
     case limit
   }
 
-  public init(path: String, offset: Int? = nil, limit: Int? = nil) {
+  package init(path: String, offset: Int? = nil, limit: Int? = nil) {
     self.path = path
     self.offset = offset
     self.limit = limit
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     path = try container.decode(String.self, forKey: .path)
     offset = try Self.decodeOptionalInt(from: container, forKey: .offset)
@@ -104,7 +104,7 @@ public struct ReadFileInput: Codable, Equatable, Sendable {
   }
 }
 
-public enum ReadFileResult: Codable, Equatable, Sendable {
+package enum ReadFileResult: Codable, Equatable, Sendable {
   case success(path: WorkspaceRelativePath, content: ToolTextOutput)
   case unchanged(path: WorkspaceRelativePath, readKey: ReadKey)
   case repeatedReadWarning(path: WorkspaceRelativePath, count: Int)
@@ -145,7 +145,7 @@ nonisolated extension ReadFileResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let readFile = ToolDefinition(
+  package static let readFile = ToolDefinition(
     name: .readFile,
     description:
       "Read a workspace text file into your context to inspect, explain, summarize, reason about, or edit it. Use this before editing an existing file unless the exact current content is already visible.",
@@ -192,8 +192,8 @@ extension ReadFileInput {
   }
 }
 
-public struct ReadFileToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<ReadFileInput>(
+struct ReadFileToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<ReadFileInput>(
     definition: ToolDefinition.readFile,
     decodeArguments: ReadFileInput.decodeToolArguments,
     makePayload: ToolCallPayload.readFile,
@@ -210,11 +210,11 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
 
   private let maxBytes: Int
 
-  public init(maxBytes: Int = 40 * 1024) {
+  init(maxBytes: Int = 40 * 1024) {
     self.maxBytes = maxBytes
   }
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: ReadFileInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -236,7 +236,7 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: ReadFileInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
     var relativePath: WorkspaceRelativePath?
     var output: ToolTextOutput?
@@ -371,9 +371,9 @@ public struct ReadFileToolExecutor: TypedToolExecutor {
 }
 
 nonisolated private struct ReadFilePreviewAccumulator {
-  public let startLine: Int
-  public let maxLines: Int?
-  public let previewByteLimit: Int
+  package let startLine: Int
+  package let maxLines: Int?
+  package let previewByteLimit: Int
 
   private var lineBuffer = Data()
   private var outputLines: [String] = []
@@ -381,17 +381,17 @@ nonisolated private struct ReadFilePreviewAccumulator {
   private var truncated = false
   private(set) var shouldStop = false
 
-  public init(startLine: Int, maxLines: Int?, previewByteLimit: Int) {
+  package init(startLine: Int, maxLines: Int?, previewByteLimit: Int) {
     self.startLine = startLine
     self.maxLines = maxLines
     self.previewByteLimit = previewByteLimit
   }
 
-  public var hasBufferedLine: Bool {
+  package var hasBufferedLine: Bool {
     !lineBuffer.isEmpty
   }
 
-  public var result: (content: String?, truncated: Bool) {
+  package var result: (content: String?, truncated: Bool) {
     (outputLines.joined(separator: "\n"), truncated)
   }
 
@@ -515,11 +515,11 @@ nonisolated private struct ReadFilePreviewAccumulator {
   }
 }
 
-public enum ReadFileInputValidationError: LocalizedError {
+internal enum ReadFileInputValidationError: LocalizedError {
   case invalidOffset
   case invalidLimit
 
-  public var errorDescription: String? {
+  package var errorDescription: String? {
     switch self {
     case .invalidOffset:
       "read_file offset must be greater than or equal to 1."

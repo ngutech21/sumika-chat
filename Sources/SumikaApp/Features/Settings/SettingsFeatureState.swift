@@ -12,9 +12,8 @@ final class SettingsFeatureState {
   var webAccessSettings = WebAccessSettings.disabled
   var appBehaviorSettings = AppBehaviorSettings()
   var mcpServers: [MCPServerConfig] = []
-  /// Mirrored from `MCPClientManager` after every configuration change or
-  /// reconnect so the settings UI can render connection state without
-  /// reaching into the actor.
+  /// Updated by the Agent feature after configuration changes or reconnects so
+  /// the settings UI can render connection state without reaching into Core.
   var mcpServerStatuses: [MCPServerStatus] = []
   var mcpServerTestFeedback: MCPServerTestFeedback?
   var errorMessage: String?

@@ -8,6 +8,7 @@ final class WorkspacePreviewFeatureState {
   var htmlPreview: HTMLPreviewState?
   var filePreview: FilePreviewState?
   var htmlPreviewRequestID = UUID()
+  private(set) var errorMessage: String?
 
   @ObservationIgnored private let htmlPreviewResolver: HTMLPreviewResolver
   @ObservationIgnored private let filePreviewResolver: FilePreviewResolver
@@ -24,15 +25,35 @@ final class WorkspacePreviewFeatureState {
     htmlPreview != nil || filePreview != nil
   }
 
-  func showHTMLPreview(path: String, in workspace: Workspace) throws {
-    htmlPreview = try htmlPreviewResolver.resolve(path: path, in: workspace)
-    htmlPreviewRequestID = UUID()
-    filePreview = nil
+  @discardableResult
+  func showHTMLPreview(path: String, in workspace: Workspace) -> Bool {
+    do {
+      htmlPreview = try htmlPreviewResolver.resolve(path: path, in: workspace)
+      htmlPreviewRequestID = UUID()
+      filePreview = nil
+      errorMessage = nil
+      return true
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
+    }
   }
 
-  func showFilePreview(path: String, in workspace: Workspace) throws {
-    filePreview = try filePreviewResolver.resolve(path: path, in: workspace)
-    htmlPreview = nil
+  @discardableResult
+  func showFilePreview(path: String, in workspace: Workspace) -> Bool {
+    do {
+      filePreview = try filePreviewResolver.resolve(path: path, in: workspace)
+      htmlPreview = nil
+      errorMessage = nil
+      return true
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
+    }
+  }
+
+  func clearError() {
+    errorMessage = nil
   }
 
   func closeHTMLPreview() {

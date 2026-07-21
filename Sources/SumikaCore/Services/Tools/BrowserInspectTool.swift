@@ -1,11 +1,11 @@
 import Foundation
 
-public struct BrowserInspectInput: Codable, Equatable, Sendable {
-  public static let defaultMaxLength = 4000
+package struct BrowserInspectInput: Codable, Equatable, Sendable {
+  package static let defaultMaxLength = 4000
 
-  public var selector: String?
-  public var maxLength: Int?
-  public var includeHTML: Bool?
+  package var selector: String?
+  package var maxLength: Int?
+  package var includeHTML: Bool?
 
   private enum CodingKeys: String, CodingKey {
     case selector
@@ -13,13 +13,13 @@ public struct BrowserInspectInput: Codable, Equatable, Sendable {
     case includeHTML = "includeHtml"
   }
 
-  public init(selector: String? = nil, maxLength: Int? = nil, includeHTML: Bool? = nil) {
+  package init(selector: String? = nil, maxLength: Int? = nil, includeHTML: Bool? = nil) {
     self.selector = selector
     self.maxLength = maxLength
     self.includeHTML = includeHTML
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     selector = try container.decodeIfPresent(String.self, forKey: .selector)
     maxLength = try Self.decodeOptionalInt(from: container, forKey: .maxLength)
@@ -35,19 +35,19 @@ public struct BrowserInspectInput: Codable, Equatable, Sendable {
     }
   }
 
-  public var resolvedMaxLength: Int {
+  package var resolvedMaxLength: Int {
     maxLength ?? Self.defaultMaxLength
   }
 
-  public var resolvedSelector: String? {
+  package var resolvedSelector: String? {
     Self.normalizedSelector(selector)
   }
 
-  public var resolvedIncludeHTML: Bool {
+  package var resolvedIncludeHTML: Bool {
     includeHTML ?? false
   }
 
-  public static func normalizedSelector(_ selector: String?) -> String? {
+  package static func normalizedSelector(_ selector: String?) -> String? {
     guard var normalized = selector?.trimmingCharacters(in: .whitespacesAndNewlines),
       !normalized.isEmpty
     else {
@@ -113,7 +113,7 @@ public struct BrowserInspectInput: Codable, Equatable, Sendable {
   }
 }
 
-public enum BrowserInspectResult: Codable, Equatable, Sendable {
+package enum BrowserInspectResult: Codable, Equatable, Sendable {
   case success(
     path: WorkspaceRelativePath?,
     title: String,
@@ -160,7 +160,7 @@ nonisolated extension BrowserInspectResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let browserInspect = ToolDefinition(
+  package static let browserInspect = ToolDefinition(
     name: .browserInspect,
     description: "Inspect text or HTML from the current HTML preview page.",
     parameters: [
@@ -214,8 +214,8 @@ extension BrowserInspectInput {
   }
 }
 
-public struct BrowserInspectToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<BrowserInspectInput>(
+struct BrowserInspectToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<BrowserInspectInput>(
     definition: ToolDefinition.browserInspect,
     decodeArguments: BrowserInspectInput.decodeToolArguments,
     makePayload: ToolCallPayload.browserInspect,
@@ -230,9 +230,7 @@ public struct BrowserInspectToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: BrowserInspectInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -245,7 +243,7 @@ public struct BrowserInspectToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: BrowserInspectInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: BrowserInspectInput, context: ToolContext) async -> ToolResultPayload {
     .browserInspect(await context.browserToolService.inspect(input))
   }
 }

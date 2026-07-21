@@ -1,6 +1,6 @@
 import Foundation
 
-public struct WorkspacePathSuggestionResolver: Sendable {
+internal struct WorkspacePathSuggestionResolver: Sendable {
   private struct Candidate: Sendable {
     var path: WorkspaceRelativePath
     var score: Double
@@ -10,7 +10,7 @@ public struct WorkspacePathSuggestionResolver: Sendable {
   private let maxScannedFiles: Int
   private let skippedNames: Set<String>
 
-  public init(
+  package init(
     maxScannedFiles: Int = 1_000,
     skippedNames: Set<String> = WorkspaceFileEnumeration.skippedNames
   ) {
@@ -18,7 +18,7 @@ public struct WorkspacePathSuggestionResolver: Sendable {
     self.skippedNames = skippedNames
   }
 
-  public func suggestions(
+  package func suggestions(
     forMissingPath inputPath: String,
     workspace: Workspace,
     maxSuggestions: Int = 5

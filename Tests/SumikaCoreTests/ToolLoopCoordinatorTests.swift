@@ -11,7 +11,7 @@ struct ToolLoopCoordinatorTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let assistantMessageID = UUID()
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -35,7 +35,7 @@ struct ToolLoopCoordinatorTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let callID = UUID()
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -60,7 +60,7 @@ struct ToolLoopCoordinatorTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     let callID = UUID()
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -115,7 +115,7 @@ struct ToolLoopCoordinatorTests {
           )))
     )
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -164,9 +164,8 @@ struct ToolLoopCoordinatorTests {
           )))
     )
     let orchestrator = CountingToolOrchestrator()
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -246,9 +245,8 @@ struct ToolLoopCoordinatorTests {
           )))
     )
     let orchestrator = CountingToolOrchestrator()
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -276,9 +274,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator()
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -315,9 +312,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator()
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -347,9 +343,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator()
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -409,9 +404,8 @@ struct ToolLoopCoordinatorTests {
           )))
     )
     let orchestrator = CountingToolOrchestrator(tools: [.listFiles])
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -442,9 +436,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator(tools: [.listFiles])
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -505,9 +498,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator(tools: [.listFiles])
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -550,9 +542,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator(tools: [.listFiles])
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -587,7 +578,8 @@ struct ToolLoopCoordinatorTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
 
     let globOrchestrator = CountingToolOrchestrator(tools: [.globFiles])
-    let globResult = try await ToolLoopCoordinator(agentToolOrchestrator: globOrchestrator).run(
+    let globResult = try await runToolLoop(
+      using: globOrchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -604,7 +596,8 @@ struct ToolLoopCoordinatorTests {
     #expect(isDuplicate(toolCallRecords(from: globResult).last))
 
     let searchOrchestrator = CountingToolOrchestrator(tools: [.searchFiles])
-    let searchResult = try await ToolLoopCoordinator(agentToolOrchestrator: searchOrchestrator).run(
+    let searchResult = try await runToolLoop(
+      using: searchOrchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -621,7 +614,8 @@ struct ToolLoopCoordinatorTests {
     #expect(isDuplicate(toolCallRecords(from: searchResult).last))
 
     let diffOrchestrator = CountingToolOrchestrator(tools: [.workspaceDiff])
-    let diffResult = try await ToolLoopCoordinator(agentToolOrchestrator: diffOrchestrator).run(
+    let diffResult = try await runToolLoop(
+      using: diffOrchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -641,7 +635,8 @@ struct ToolLoopCoordinatorTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
 
     let globOrchestrator = CountingToolOrchestrator(tools: [.globFiles])
-    let globResult = try await ToolLoopCoordinator(agentToolOrchestrator: globOrchestrator).run(
+    let globResult = try await runToolLoop(
+      using: globOrchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -658,7 +653,8 @@ struct ToolLoopCoordinatorTests {
     #expect(!isDuplicate(toolCallRecords(from: globResult).last))
 
     let searchOrchestrator = CountingToolOrchestrator(tools: [.searchFiles])
-    let searchResult = try await ToolLoopCoordinator(agentToolOrchestrator: searchOrchestrator).run(
+    let searchResult = try await runToolLoop(
+      using: searchOrchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -687,7 +683,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -718,7 +714,8 @@ struct ToolLoopCoordinatorTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
 
     let writeOrchestrator = CountingToolOrchestrator(tools: [.readFile, .writeFile])
-    let writeResult = try await ToolLoopCoordinator(agentToolOrchestrator: writeOrchestrator).run(
+    let writeResult = try await runToolLoop(
+      using: writeOrchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -736,7 +733,8 @@ struct ToolLoopCoordinatorTests {
     #expect(!isDuplicate(toolCallRecords(from: writeResult).last))
 
     let editOrchestrator = CountingToolOrchestrator(tools: [.readFile, .editFile])
-    let editResult = try await ToolLoopCoordinator(agentToolOrchestrator: editOrchestrator).run(
+    let editResult = try await runToolLoop(
+      using: editOrchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -758,9 +756,8 @@ struct ToolLoopCoordinatorTests {
     #expect(!isDuplicate(toolCallRecords(from: editResult).last))
 
     let commandOrchestrator = CountingToolOrchestrator(tools: [.readFile, .runCommand])
-    let commandResult = try await ToolLoopCoordinator(
-      agentToolOrchestrator: commandOrchestrator
-    ).run(
+    let commandResult = try await runToolLoop(
+      using: commandOrchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -778,9 +775,8 @@ struct ToolLoopCoordinatorTests {
     #expect(!isDuplicate(toolCallRecords(from: commandResult).last))
 
     let otherWriteOrchestrator = CountingToolOrchestrator(tools: [.readFile, .writeFile])
-    let otherWriteResult = try await ToolLoopCoordinator(
-      agentToolOrchestrator: otherWriteOrchestrator
-    ).run(
+    let otherWriteResult = try await runToolLoop(
+      using: otherWriteOrchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -803,9 +799,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator(tools: [.runCommand])
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -853,7 +848,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -874,7 +869,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -895,16 +890,16 @@ struct ToolLoopCoordinatorTests {
   func chatWebProfileExecutesWebSearchOnly() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let coordinator = ToolLoopCoordinator(
-      chatWebToolOrchestrator: ToolOrchestrator(
-        executorRegistry: .chatWeb,
-        webSearcher: FakeSearchService(),
-        webAccessSettingsProvider: {
-          WebAccessSettings(policy: .allow, provider: .duckDuckGo)
-        }
-      ))
+    let orchestrator = ToolOrchestrator(
+      executorRegistry: .chatWeb,
+      webSearcher: FakeSearchService(),
+      webAccessSettingsProvider: {
+        WebAccessSettings(policy: .allow, provider: .duckDuckGo)
+      }
+    )
 
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -929,7 +924,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
+      using: ToolOrchestrator(executorRegistry: .chatWeb),
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -955,7 +951,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -978,7 +974,7 @@ struct ToolLoopCoordinatorTests {
     let oldText = "project notes"
     let newText = "updated project notes"
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1017,7 +1013,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1051,7 +1047,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1087,7 +1083,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let questionResult = try await ToolLoopCoordinator().run(
+    let questionResult = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1108,7 +1104,7 @@ struct ToolLoopCoordinatorTests {
     #expect(toolCallRecord(from: questionResult)?.approvalSource == nil)
     #expect(questionResult?.continuation == .awaitingUserAnswer)
 
-    let deniedResult = try await ToolLoopCoordinator().run(
+    let deniedResult = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1133,7 +1129,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1178,7 +1174,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1206,7 +1202,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1227,7 +1223,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(workspace: workspace, sessionID: sessionID, nativeToolCalls: [])
     )
 
@@ -1239,7 +1235,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1271,7 +1267,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1298,7 +1294,7 @@ struct ToolLoopCoordinatorTests {
       let workspace = try makeWorkspace(sessionID: sessionID)
       let summary = "Finished with status \(status.rawValue)."
 
-      let result = try await ToolLoopCoordinator().run(
+      let result = try await runToolLoop(
         request(
           workspace: workspace,
           sessionID: sessionID,
@@ -1335,9 +1331,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator(tools: [.readFile, .finishTask])
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1385,9 +1380,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator(tools: [.askUser, .writeFile])
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1434,9 +1428,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator(tools: [.writeFile, .editFile])
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1480,7 +1473,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1503,12 +1496,12 @@ struct ToolLoopCoordinatorTests {
   func workspaceDiffDisplaysDirectlyWithoutModelFollowUp() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let coordinator = ToolLoopCoordinator(
-      agentToolOrchestrator: WorkspaceDiffToolOrchestrator(
-        content: ToolTextOutput(text: "diff --git a/README.md b/README.md")
-      ))
+    let orchestrator = WorkspaceDiffToolOrchestrator(
+      content: ToolTextOutput(text: "diff --git a/README.md b/README.md")
+    )
 
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1534,7 +1527,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1561,9 +1554,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator(tools: [.writeFile])
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1589,9 +1581,8 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let orchestrator = CountingToolOrchestrator(tools: [.editFile])
-    let coordinator = ToolLoopCoordinator(agentToolOrchestrator: orchestrator)
-
-    let result = try await coordinator.run(
+    let result = try await runToolLoop(
+      using: orchestrator,
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1618,7 +1609,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1643,7 +1634,7 @@ struct ToolLoopCoordinatorTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
 
-    let result = try await ToolLoopCoordinator().run(
+    let result = try await runToolLoop(
       request(
         workspace: workspace,
         sessionID: sessionID,
@@ -1665,6 +1656,14 @@ struct ToolLoopCoordinatorTests {
     #expect(toolCallRecord(from: result)?.status == .completed)
     #expect(completedToolResult(from: result)?.preview.text == "Plan updated.")
     #expect(todoStateChanged(from: result)?.items.map(\.content) == ["Inspect files", "Run tests"])
+  }
+
+  private func runToolLoop(
+    using toolOrchestrator: any ToolOrchestrating = ToolOrchestrator.agent(
+      todoWriteEnabled: true),
+    _ request: ToolLoopRequest
+  ) async throws -> ChatWorkflowStep? {
+    try await ToolLoopCoordinator().run(request, using: toolOrchestrator)
   }
 
   private func request(
@@ -1702,7 +1701,6 @@ struct ToolLoopCoordinatorTests {
       assistantMessageID: assistantMessageID,
       items: items,
       interactionMode: interactionMode,
-      toolProfile: toolProfile,
       followUpPromptMode: followUpPromptMode,
       toolCallingPolicy: toolCallingPolicy,
       nativeToolCalls: nativeToolCalls,

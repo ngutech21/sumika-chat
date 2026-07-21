@@ -1,9 +1,9 @@
 import Foundation
 
-public enum ChatSessionTitleGenerator {
-  public static let maximumLength = 48
+enum ChatSessionTitleGenerator {
+  static let maximumLength = 48
 
-  public static func title(fromFirstPrompt prompt: String) -> String {
+  static func title(fromFirstPrompt prompt: String) -> String {
     let normalized =
       prompt
       .components(separatedBy: .whitespacesAndNewlines)

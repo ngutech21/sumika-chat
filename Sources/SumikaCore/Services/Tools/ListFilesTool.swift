@@ -1,15 +1,15 @@
 import Foundation
 
-public struct ListFilesInput: Codable, Equatable, Sendable {
-  public let path: String?
+package struct ListFilesInput: Codable, Equatable, Sendable {
+  package let path: String?
 }
 
-public struct ListFilesResult: Codable, Equatable, Sendable {
-  public var root: WorkspaceRelativePath
-  public var entries: [WorkspaceFileEntry]
-  public var truncated: Bool
+package struct ListFilesResult: Codable, Equatable, Sendable {
+  package var root: WorkspaceRelativePath
+  package var entries: [WorkspaceFileEntry]
+  package var truncated: Bool
 
-  public init(
+  package init(
     root: WorkspaceRelativePath,
     entries: [WorkspaceFileEntry],
     truncated: Bool = false
@@ -35,7 +35,7 @@ nonisolated extension ListFilesResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let listFiles = ToolDefinition(
+  package static let listFiles = ToolDefinition(
     name: .listFiles,
     description:
       "List files and folders in a workspace-relative directory. Use this to explore project structure before choosing a path.",
@@ -51,8 +51,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct ListFilesToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<ListFilesInput>(
+struct ListFilesToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<ListFilesInput>(
     definition: ToolDefinition.listFiles,
     makePayload: ToolCallPayload.listFiles,
     extractInput: { payload in
@@ -73,7 +73,7 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
   private let maxEntries: Int
   private let skippedNames: Set<String>
 
-  public init(
+  init(
     maxDepth: Int = 0,
     maxEntries: Int = 300,
     skippedNames: Set<String> = [
@@ -85,7 +85,7 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
     self.skippedNames = skippedNames
   }
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: ListFilesInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -107,7 +107,7 @@ public struct ListFilesToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: ListFilesInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: ListFilesInput, context: ToolContext) async -> ToolResultPayload {
     let path = input.path ?? "."
     var resolvedURL: URL?
 

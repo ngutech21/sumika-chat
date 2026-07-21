@@ -61,49 +61,49 @@ struct SemanticAgentLoopTests {
           ))
       ],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
 
-    controller.sendMessage(
+    engine.sendMessage(
       prompt: "Create, inspect, update, and verify flow.txt.",
       in: workspace,
       sessionID: sessionID
     )
 
     try await waitUntil {
-      controller.chatSession.toolCalls.count == 1 && controller.hasPendingApproval
+      engine.chatSession.toolCalls.count == 1 && engine.hasPendingApproval
     }
-    controller.approveToolCall(
-      id: try #require(controller.chatSession.toolCalls.last?.id),
+    engine.approveToolCall(
+      id: try #require(engine.chatSession.toolCalls.last?.id),
       in: workspace
     )
 
     try await waitUntil {
-      controller.chatSession.toolCalls.count == 3 && controller.hasPendingApproval
+      engine.chatSession.toolCalls.count == 3 && engine.hasPendingApproval
     }
-    controller.approveToolCall(
-      id: try #require(controller.chatSession.toolCalls.last?.id),
+    engine.approveToolCall(
+      id: try #require(engine.chatSession.toolCalls.last?.id),
       in: workspace
     )
 
     try await waitUntil {
-      controller.chatSession.toolCalls.count == 4 && controller.hasPendingApproval
+      engine.chatSession.toolCalls.count == 4 && engine.hasPendingApproval
     }
-    controller.approveToolCall(
-      id: try #require(controller.chatSession.toolCalls.last?.id),
+    engine.approveToolCall(
+      id: try #require(engine.chatSession.toolCalls.last?.id),
       in: workspace
     )
 
-    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
+    try await waitUntil { engine.chatSession.turns.first?.status == .completed }
 
     #expect(
-      controller.chatSession.toolCalls.map(\.request.toolName)
+      engine.chatSession.toolCalls.map(\.request.toolName)
         == [.writeFile, .readFile, .editFile, .runCommand, .finishTask]
     )
-    #expect(controller.chatSession.toolCalls.allSatisfy { $0.status == .completed })
+    #expect(engine.chatSession.toolCalls.allSatisfy { $0.status == .completed })
     #expect(
-      controller.chatSession.testMessages.last?.content
+      engine.chatSession.testMessages.last?.content
         == "Completed and verified the full workflow."
     )
     #expect(
@@ -154,29 +154,29 @@ struct SemanticAgentLoopTests {
           ))
       ],
     ])
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
 
-    controller.sendMessage(
+    engine.sendMessage(
       prompt: "Create first.txt and second.txt.",
       in: workspace,
       sessionID: sessionID
     )
 
     try await waitUntil {
-      controller.chatSession.toolCalls.count == 1 && controller.hasPendingApproval
+      engine.chatSession.toolCalls.count == 1 && engine.hasPendingApproval
     }
-    controller.approveToolCall(
-      id: try #require(controller.chatSession.toolCalls.last?.id),
+    engine.approveToolCall(
+      id: try #require(engine.chatSession.toolCalls.last?.id),
       in: workspace
     )
 
     try await waitUntil {
-      controller.chatSession.toolCalls.count == 2 && controller.hasPendingApproval
+      engine.chatSession.toolCalls.count == 2 && engine.hasPendingApproval
     }
-    #expect(controller.chatSession.toolCalls[0].status == .completed)
-    #expect(controller.chatSession.toolCalls[1].status == .awaitingApproval)
+    #expect(engine.chatSession.toolCalls[0].status == .completed)
+    #expect(engine.chatSession.toolCalls[1].status == .awaitingApproval)
     #expect(
       FileManager.default.fileExists(
         atPath: workspace.rootURL.appending(path: "first.txt").path(percentEncoded: false)
@@ -188,17 +188,17 @@ struct SemanticAgentLoopTests {
       )
     )
 
-    controller.approveToolCall(
-      id: try #require(controller.chatSession.toolCalls.last?.id),
+    engine.approveToolCall(
+      id: try #require(engine.chatSession.toolCalls.last?.id),
       in: workspace
     )
-    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
+    try await waitUntil { engine.chatSession.turns.first?.status == .completed }
 
     #expect(
-      controller.chatSession.toolCalls.map(\.request.toolName)
+      engine.chatSession.toolCalls.map(\.request.toolName)
         == [.writeFile, .writeFile, .finishTask]
     )
-    #expect(controller.chatSession.testMessages.last?.content == "Created both files.")
+    #expect(engine.chatSession.testMessages.last?.content == "Created both files.")
 
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == 3)
@@ -226,11 +226,11 @@ struct SemanticAgentLoopTests {
       .chunk("Stopped after the turn-wide tool batch budget was exhausted.")
     ])
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: eventTurns)
-    let controller = ChatSessionController(runtime: runtime, modelPath: "/tmp/model")
-    controller.modelRuntime.modelState = .ready
-    controller.setInteractionMode(.agent)
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
 
-    controller.sendMessage(
+    engine.sendMessage(
       prompt: "Create the numbered files.",
       in: workspace,
       sessionID: sessionID
@@ -238,20 +238,20 @@ struct SemanticAgentLoopTests {
 
     for expectedCount in 1...budget {
       try await waitUntil {
-        controller.chatSession.toolCalls.count == expectedCount
-          && controller.hasPendingApproval
+        engine.chatSession.toolCalls.count == expectedCount
+          && engine.hasPendingApproval
       }
-      controller.approveToolCall(
-        id: try #require(controller.chatSession.toolCalls.last?.id),
+      engine.approveToolCall(
+        id: try #require(engine.chatSession.toolCalls.last?.id),
         in: workspace
       )
     }
 
-    try await waitUntil { controller.chatSession.turns.first?.status == .completed }
+    try await waitUntil { engine.chatSession.turns.first?.status == .completed }
 
-    #expect(controller.chatSession.turns.first?.toolCallBatchCount == budget)
-    #expect(controller.chatSession.toolCalls.count == budget)
-    #expect(controller.chatSession.toolCalls.allSatisfy { $0.status == .completed })
+    #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget)
+    #expect(engine.chatSession.toolCalls.count == budget)
+    #expect(engine.chatSession.toolCalls.allSatisfy { $0.status == .completed })
 
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 1)

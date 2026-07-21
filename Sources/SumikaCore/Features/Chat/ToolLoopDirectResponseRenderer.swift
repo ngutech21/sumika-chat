@@ -14,7 +14,7 @@ enum ToolLoopDirectResponseRenderer {
     }
 
     switch record.resultPayload {
-    case .finishTask(.success) where request.toolProfile == .agent:
+    case .finishTask(.success):
       guard case .finishTask(let input) = record.request.payload else {
         return nil
       }
@@ -150,9 +150,7 @@ enum ToolLoopDirectResponseRenderer {
   }
 
   private static func shouldRespondDirectlyToListFiles(_ request: ToolLoopRequest) -> Bool {
-    guard request.interactionMode == .agent,
-      let userContent = latestUserRequestContent(for: request)
-    else {
+    guard let userContent = latestUserRequestContent(for: request) else {
       return false
     }
     return isDirectListFilesRequest(userContent)

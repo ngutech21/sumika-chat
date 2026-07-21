@@ -1,5 +1,5 @@
-public enum ChatPromptDefaults {
-  public static let chatSystemPrompt = [
+internal enum ChatPromptDefaults {
+  package static let chatSystemPrompt = [
     "You are Sumika, a concise local-first assistant on the user's Mac.",
     "Be conversational, practical, and clear.",
     "Help the user explore ideas, understand code, and plan small reviewable steps.",
@@ -8,7 +8,7 @@ public enum ChatPromptDefaults {
     "Clarify only when blocked or unsafe.",
   ].joined(separator: "\n")
 
-  public static let agentSystemPrompt = [
+  package static let agentSystemPrompt = [
     "You are Sumika, a concise local-first assistant on the user's Mac.",
     "Use small, focused, reviewable steps.",
     "Follow project conventions; inspect before assuming.",

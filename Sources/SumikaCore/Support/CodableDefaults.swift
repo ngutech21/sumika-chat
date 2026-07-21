@@ -9,22 +9,22 @@ import Synchronization
 /// Install an instance under `CodingUserInfoKey.decodeDiagnostics` in
 /// `JSONDecoder.userInfo` before decoding. Decoders without an installed
 /// collector behave as before.
-public final class DecodeDiagnostics: Sendable {
-  public struct DroppedElement: Equatable, Sendable {
-    public let typeName: String
-    public let codingPath: String
-    public let message: String
+internal final class DecodeDiagnostics: Sendable {
+  package struct DroppedElement: Equatable, Sendable {
+    package let typeName: String
+    package let codingPath: String
+    package let message: String
   }
 
   private let storage = Mutex<[DroppedElement]>([])
 
-  public init() {}
+  package init() {}
 
-  public var droppedElements: [DroppedElement] {
+  package var droppedElements: [DroppedElement] {
     storage.withLock { $0 }
   }
 
-  public var summaries: [String] {
+  package var summaries: [String] {
     droppedElements.map { element in
       "\(element.typeName) at \(element.codingPath): \(element.message)"
     }
@@ -46,7 +46,7 @@ public final class DecodeDiagnostics: Sendable {
 }
 
 extension CodingUserInfoKey {
-  public static var decodeDiagnostics: CodingUserInfoKey {
+  package static var decodeDiagnostics: CodingUserInfoKey {
     guard let key = CodingUserInfoKey(rawValue: "chat.sumika.decode-diagnostics") else {
       preconditionFailure("Static coding user info key must be representable.")
     }

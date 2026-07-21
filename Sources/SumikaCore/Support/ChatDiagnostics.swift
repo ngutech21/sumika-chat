@@ -2,21 +2,21 @@
   import OSLog
 #endif
 
-public enum ChatDiagnostics {
-  public enum Category: String {
+package enum ChatDiagnostics {
+  package enum Category: String {
     case generation = "ChatGeneration"
     case transcript = "ChatTranscript"
   }
 
-  public struct Metadata: Sendable {
+  package struct Metadata: Sendable {
     fileprivate let summary: String
 
-    public init(_ summary: String) {
+    package init(_ summary: String) {
       self.summary = summary
     }
   }
 
-  public struct Interval {
+  package struct Interval {
     #if DEBUG && canImport(OSLog)
       fileprivate let category: Category
       fileprivate let name: StaticString
@@ -32,7 +32,7 @@ public enum ChatDiagnostics {
     #endif
   }
 
-  public static func beginInterval(
+  package static func beginInterval(
     _ name: StaticString,
     category: Category
   ) -> Interval {
@@ -44,7 +44,7 @@ public enum ChatDiagnostics {
     #endif
   }
 
-  public static func beginInterval(
+  package static func beginInterval(
     _ name: StaticString,
     category: Category,
     metadata: @autoclosure () -> Metadata
@@ -62,14 +62,14 @@ public enum ChatDiagnostics {
     #endif
   }
 
-  public static func endInterval(_ interval: Interval) {
+  package static func endInterval(_ interval: Interval) {
     #if DEBUG && canImport(OSLog)
       signposter(for: interval.category).endInterval(interval.name, interval.state)
     #endif
   }
 
   @discardableResult
-  public static func measure<T>(
+  package static func measure<T>(
     _ name: StaticString,
     category: Category,
     _ operation: () throws -> T
@@ -86,7 +86,7 @@ public enum ChatDiagnostics {
   }
 
   @discardableResult
-  public static func measure<T>(
+  package static func measure<T>(
     _ name: StaticString,
     category: Category,
     metadata: @autoclosure () -> Metadata,

@@ -1,11 +1,11 @@
 import Foundation
 
-public struct WriteFileInput: Codable, Equatable, Sendable {
-  public let path: String
-  public let content: String
+package struct WriteFileInput: Codable, Equatable, Sendable {
+  package let path: String
+  package let content: String
 }
 
-public enum WriteFileResult: Codable, Equatable, Sendable {
+package enum WriteFileResult: Codable, Equatable, Sendable {
   case success(path: WorkspaceRelativePath, bytesWritten: Int)
   case failed(path: WorkspaceRelativePath?, reason: ToolFailureReason)
 }
@@ -29,7 +29,7 @@ nonisolated extension WriteFileResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let writeFile = ToolDefinition(
+  package static let writeFile = ToolDefinition(
     name: .writeFile,
     description:
       "Create a new workspace text file or intentionally replace an entire small file. Prefer edit_file for targeted changes to existing files.",
@@ -52,8 +52,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct WriteFileToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<WriteFileInput>(
+struct WriteFileToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<WriteFileInput>(
     definition: ToolDefinition.writeFile,
     makePayload: ToolCallPayload.writeFile,
     extractInput: { payload in
@@ -70,9 +70,7 @@ public struct WriteFileToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: WriteFileInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -94,7 +92,7 @@ public struct WriteFileToolExecutor: TypedToolExecutor {
     }
   }
 
-  public func run(_ input: WriteFileInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: WriteFileInput, context: ToolContext) async -> ToolResultPayload {
     var resolvedURL: URL?
     do {
       return try context.workspace.withSecurityScopedAccess {

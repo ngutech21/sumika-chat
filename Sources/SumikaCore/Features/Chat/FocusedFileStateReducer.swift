@@ -3,11 +3,11 @@
 import Crypto
 import Foundation
 
-public struct FocusedFileStateReducer: Sendable {
-  public let maxRecentPaths: Int
-  public let maxSnapshotCharacters: Int
+struct FocusedFileStateReducer: Sendable {
+  let maxRecentPaths: Int
+  let maxSnapshotCharacters: Int
 
-  public init(
+  init(
     maxRecentPaths: Int = 8,
     maxSnapshotCharacters: Int = 4_000
   ) {
@@ -15,7 +15,7 @@ public struct FocusedFileStateReducer: Sendable {
     self.maxSnapshotCharacters = maxSnapshotCharacters
   }
 
-  public func applyingToolResult(
+  func applyingToolResult(
     _ payload: ToolResultPayload?,
     request: ToolCallRequest,
     to state: FocusedFileState,
@@ -79,7 +79,7 @@ public struct FocusedFileStateReducer: Sendable {
     }
   }
 
-  public func applyingAttachments(
+  func applyingAttachments(
     _ attachments: [ChatAttachment],
     workspace: Workspace?,
     to state: FocusedFileState,

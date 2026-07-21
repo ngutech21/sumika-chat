@@ -1,8 +1,8 @@
 import Foundation
 import MLXLMCommon
-import SumikaCore
 import Testing
 
+@testable import SumikaCore
 @testable import SumikaRuntimeMLX
 
 #if canImport(SumikaTestSupport)

@@ -1,8 +1,8 @@
 import Foundation
 
-public actor LatestCommandResultStore {
-  public static let defaultMaxOutputRefsPerSession = 4
-  public static let defaultMaxOutputBytesPerSession = 2 * 1024 * 1024
+internal actor LatestCommandResultStore {
+  package static let defaultMaxOutputRefsPerSession = 4
+  package static let defaultMaxOutputBytesPerSession = 2 * 1024 * 1024
 
   private struct Key: Hashable, Sendable {
     var workspaceID: Workspace.ID
@@ -15,7 +15,7 @@ public actor LatestCommandResultStore {
   private var outputs: [Key: [String: CommandOutputRecord]] = [:]
   private var outputOrder: [Key: [String]] = [:]
 
-  public init(
+  package init(
     maxOutputRefsPerSession: Int = LatestCommandResultStore.defaultMaxOutputRefsPerSession,
     maxOutputBytesPerSession: Int = LatestCommandResultStore.defaultMaxOutputBytesPerSession
   ) {
@@ -23,11 +23,11 @@ public actor LatestCommandResultStore {
     self.maxOutputBytesPerSession = max(maxOutputBytesPerSession, 1)
   }
 
-  public func result(workspaceID: Workspace.ID, sessionID: ChatSession.ID) -> RunCommandResult? {
+  package func result(workspaceID: Workspace.ID, sessionID: ChatSession.ID) -> RunCommandResult? {
     results[Key(workspaceID: workspaceID, sessionID: sessionID)]
   }
 
-  public func record(
+  package func record(
     _ result: RunCommandResult,
     workspaceID: Workspace.ID,
     sessionID: ChatSession.ID
@@ -35,7 +35,7 @@ public actor LatestCommandResultStore {
     results[Key(workspaceID: workspaceID, sessionID: sessionID)] = result
   }
 
-  public func record(
+  package func record(
     _ result: RunCommandResult,
     output: CommandOutputRecord,
     workspaceID: Workspace.ID,
@@ -50,7 +50,7 @@ public actor LatestCommandResultStore {
     pruneOutputs(for: key)
   }
 
-  public func output(
+  package func output(
     outputRef: String,
     workspaceID: Workspace.ID,
     sessionID: ChatSession.ID
@@ -82,30 +82,30 @@ public actor LatestCommandResultStore {
   }
 }
 
-public struct CommandOutputRecord: Equatable, Sendable {
-  public var outputRef: String
-  public var stdout: String
-  public var stderr: String
+internal struct CommandOutputRecord: Equatable, Sendable {
+  package var outputRef: String
+  package var stdout: String
+  package var stderr: String
 
-  public init(outputRef: String, stdout: String, stderr: String) {
+  package init(outputRef: String, stdout: String, stderr: String) {
     self.outputRef = outputRef
     self.stdout = stdout
     self.stderr = stderr
   }
 
-  public var byteCount: Int {
+  package var byteCount: Int {
     outputRef.utf8.count + stdout.utf8.count + stderr.utf8.count
   }
 }
 
-public struct CommandProcessRequest: Equatable, Sendable {
-  public var executableURL: URL
-  public var arguments: [String]
-  public var environment: [String: String]
-  public var workingDirectoryURL: URL
-  public var timeoutSeconds: Int
+internal struct CommandProcessRequest: Equatable, Sendable {
+  package var executableURL: URL
+  package var arguments: [String]
+  package var environment: [String: String]
+  package var workingDirectoryURL: URL
+  package var timeoutSeconds: Int
 
-  public init(
+  package init(
     executableURL: URL,
     arguments: [String],
     environment: [String: String],
@@ -120,15 +120,15 @@ public struct CommandProcessRequest: Equatable, Sendable {
   }
 }
 
-public struct CommandProcessResult: Equatable, Sendable {
-  public var exitCode: Int32?
-  public var durationMs: Int
-  public var stdout: String
-  public var stderr: String
-  public var timedOut: Bool
-  public var cancelled: Bool
+internal struct CommandProcessResult: Equatable, Sendable {
+  package var exitCode: Int32?
+  package var durationMs: Int
+  package var stdout: String
+  package var stderr: String
+  package var timedOut: Bool
+  package var cancelled: Bool
 
-  public init(
+  package init(
     exitCode: Int32?,
     durationMs: Int,
     stdout: String,
@@ -145,7 +145,7 @@ public struct CommandProcessResult: Equatable, Sendable {
   }
 }
 
-public protocol CommandProcessRunning: Sendable {
+internal protocol CommandProcessRunning: Sendable {
   func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult
 }
 
@@ -212,11 +212,12 @@ private final class PipeDataCollector: @unchecked Sendable {
   }
 }
 
-public actor DefaultCommandProcessRunner: CommandProcessRunning {
-  public init() {}
+internal actor DefaultCommandProcessRunner: CommandProcessRunning {
+  internal init() {}
 
-  public nonisolated func run(_ request: CommandProcessRequest) async throws -> CommandProcessResult
-  {
+  internal nonisolated func run(
+    _ request: CommandProcessRequest
+  ) async throws -> CommandProcessResult {
     try await runCommandProcess(request)
   }
 }

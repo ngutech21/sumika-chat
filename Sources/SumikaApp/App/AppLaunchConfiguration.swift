@@ -153,8 +153,7 @@ enum AppLaunchConfiguration {
   private static func makeConfiguredAppState(
     modelDownloader: any ModelDownloading,
     runtime: any ChatModelRuntime,
-    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
-      ModelLifecycleCoordinator.defaultModelAvailability,
+    modelAvailability: (@Sendable (ManagedModel) -> Bool)? = nil,
     turnTracer: any TurnTracing,
     workspaceStore: any WorkspaceStoring = WorkspaceStore(),
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
@@ -163,18 +162,15 @@ enum AppLaunchConfiguration {
     mcpServersStore: any MCPServersStoring = MCPServersStore()
   ) -> AppState {
     let browserToolService = HTMLPreviewBrowserToolService()
-    let chatController = ChatSessionController(
+    let sumika = makeSumika(
       modelSettingsStore: modelSettingsStore,
       modelDownloader: modelDownloader,
       runtime: runtime,
       modelAvailability: modelAvailability,
-      toolOrchestrator: ToolOrchestrator(
-        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false),
-        browserToolService: browserToolService,
-        webAccessSettingsProvider: {
-          await webAccessSettingsStore.settings()
-        }
-      ),
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: {
+        await webAccessSettingsStore.settings()
+      },
       turnTracer: turnTracer
     )
 
@@ -185,9 +181,45 @@ enum AppLaunchConfiguration {
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: mcpServersStore,
       browserToolService: browserToolService,
-      chatController: chatController,
+      sumika: sumika,
       turnTracer: turnTracer
     )
+  }
+
+  @MainActor
+  static func makeSumika(
+    modelSettingsStore: any ModelSettingsStoring,
+    modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
+    runtime: any ChatModelRuntime,
+    modelAvailability: (@Sendable (ManagedModel) -> Bool)? = nil,
+    browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
+    webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
+      .disabled
+    },
+    turnTracer: any TurnTracing
+  ) -> Sumika {
+    let selectedModel = ManagedModelCatalog.defaultModel
+    let storedSettings = StoredModelSettings(
+      modeSettings: selectedModel.defaultModeSettings,
+      contextTokenLimit: selectedModel.defaultContextTokenLimit
+    )
+    let sumika = Sumika(
+      configuration: Sumika.Configuration(
+        initialModel: selectedModel,
+        initialModelSettings: storedSettings
+      ),
+      dependencies: Sumika.Dependencies(
+        runtime: runtime,
+        modelSettingsStore: modelSettingsStore,
+        modelDownloader: modelDownloader,
+        modelAvailability: modelAvailability,
+        browserToolService: browserToolService,
+        webAccessSettingsProvider: webAccessSettingsProvider,
+        turnTracer: turnTracer
+      )
+    )
+    sumika.models.loadPersistedModelSelection()
+    return sumika
   }
 
   nonisolated private static func makeUnitTestHostModelSettingsStore(

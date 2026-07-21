@@ -3,7 +3,7 @@ import SwiftUI
 
 struct WorkspaceSidebar: View {
   let sidebarState: WorkspaceSidebarState
-  let modelRuntime: ModelRuntimeController
+  let processUsage: ProcessResourceUsage?
   @Binding var selection: AppRoute?
   let onAddWorkspace: () -> Void
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
@@ -37,7 +37,7 @@ struct WorkspaceSidebar: View {
       .accessibilityIdentifier("sidebar.workspaceList")
 
       SidebarRuntimeFooter(
-        modelRuntime: modelRuntime,
+        processUsage: processUsage,
         onAddWorkspace: onAddWorkspace
       )
     }
@@ -239,7 +239,7 @@ struct WorkspaceSidebar: View {
 }
 
 private struct SidebarRuntimeFooter: View {
-  let modelRuntime: ModelRuntimeController
+  let processUsage: ProcessResourceUsage?
   let onAddWorkspace: () -> Void
 
   var body: some View {
@@ -264,7 +264,7 @@ private struct SidebarRuntimeFooter: View {
       .accessibilityLabel("Settings")
       .accessibilityIdentifier("sidebar.settingsButton")
 
-      ModelRuntimeFooter(processUsage: modelRuntime.processUsage)
+      ModelRuntimeFooter(processUsage: processUsage)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     .frame(maxWidth: .infinity, alignment: .leading)

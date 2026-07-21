@@ -1,18 +1,18 @@
 import Foundation
 
-public struct WorkspaceDiagnosticsInput: Codable, Equatable, Sendable {
-  public var outputRef: String
+package struct WorkspaceDiagnosticsInput: Codable, Equatable, Sendable {
+  package var outputRef: String
 
-  public init(outputRef: String) {
+  package init(outputRef: String) {
     self.outputRef = outputRef
   }
 }
 
-public struct WorkspaceDiagnosticsResult: Codable, Equatable, Sendable {
-  public var outputRef: String
-  public var diagnostics: [WorkspaceDiagnostic]
+package struct WorkspaceDiagnosticsResult: Codable, Equatable, Sendable {
+  package var outputRef: String
+  package var diagnostics: [WorkspaceDiagnostic]
 
-  public init(outputRef: String, diagnostics: [WorkspaceDiagnostic]) {
+  package init(outputRef: String, diagnostics: [WorkspaceDiagnostic]) {
     self.outputRef = outputRef
     self.diagnostics = diagnostics
   }
@@ -37,7 +37,7 @@ nonisolated extension WorkspaceDiagnosticsResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let workspaceDiagnostics = ToolDefinition(
+  package static let workspaceDiagnostics = ToolDefinition(
     name: .workspaceDiagnostics,
     description:
       "Extract compiler, linter, and test diagnostics from a previous run_command outputRef. Use after build, test, lint, or typecheck commands to get structured file/line/column errors before editing.",
@@ -54,8 +54,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<WorkspaceDiagnosticsInput>(
+struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<WorkspaceDiagnosticsInput>(
     definition: ToolDefinition.workspaceDiagnostics,
     makePayload: ToolCallPayload.workspaceDiagnostics,
     extractInput: { payload in
@@ -76,9 +76,7 @@ public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
     }
   )
 
-  public init() {}
-
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: WorkspaceDiagnosticsInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -90,7 +88,7 @@ public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(
+  func run(
     _ input: WorkspaceDiagnosticsInput,
     context: ToolContext
   ) async -> ToolResultPayload {
@@ -129,7 +127,10 @@ public struct WorkspaceDiagnosticsToolExecutor: TypedToolExecutor {
     )
   }
 
-  public static func parseDiagnostics(text: String, workspace: Workspace) -> [WorkspaceDiagnostic] {
+  internal static func parseDiagnostics(
+    text: String,
+    workspace: Workspace
+  ) -> [WorkspaceDiagnostic] {
     text.split(whereSeparator: \.isNewline).compactMap { line in
       parseDiagnosticLine(String(line), workspace: workspace)
     }

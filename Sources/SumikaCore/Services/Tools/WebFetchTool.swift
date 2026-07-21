@@ -1,16 +1,16 @@
 import Foundation
 
-public struct WebFetchInput: Codable, Equatable, Sendable {
-  public var url: String
-  public var maxBytes: Int?
+package struct WebFetchInput: Codable, Equatable, Sendable {
+  package var url: String
+  package var maxBytes: Int?
 
-  public init(url: String, maxBytes: Int? = nil) {
+  package init(url: String, maxBytes: Int? = nil) {
     self.url = url
     self.maxBytes = maxBytes
   }
 }
 
-public enum WebFetchToolResult: Codable, Equatable, Sendable {
+package enum WebFetchToolResult: Codable, Equatable, Sendable {
   case success(
     url: String,
     provider: WebFetchProvider?,
@@ -27,7 +27,7 @@ public enum WebFetchToolResult: Codable, Equatable, Sendable {
     reason: ToolFailureReason
   )
 
-  public init(
+  package init(
     url: String,
     provider: WebFetchProvider?,
     finalURL: String,
@@ -87,7 +87,7 @@ nonisolated extension WebFetchToolResult {
 }
 
 nonisolated extension ToolDefinition {
-  public static let webFetch = ToolDefinition(
+  package static let webFetch = ToolDefinition(
     name: .webFetch,
     description: "Fetch public text content from an http or https URL.",
     parameters: [
@@ -111,8 +111,8 @@ nonisolated extension ToolDefinition {
   )
 }
 
-public struct WebFetchToolExecutor: TypedToolExecutor {
-  public static let codec = ToolCodec<WebFetchInput>(
+struct WebFetchToolExecutor: TypedToolExecutor {
+  static let codec = ToolCodec<WebFetchInput>(
     definition: ToolDefinition.webFetch,
     makePayload: ToolCallPayload.webFetch,
     extractInput: { payload in
@@ -135,9 +135,9 @@ public struct WebFetchToolExecutor: TypedToolExecutor {
 
   private let urlValidator = WebURLValidator()
 
-  public init() {}
+  init() {}
 
-  public func evaluatePermission(
+  func evaluatePermission(
     _ input: WebFetchInput,
     context: ToolContext
   ) -> ToolPermissionEvaluation {
@@ -158,7 +158,7 @@ public struct WebFetchToolExecutor: TypedToolExecutor {
     return webPermissionEvaluation(context.webAccessSettings)
   }
 
-  public func previewApproval(
+  func previewApproval(
     _ input: WebFetchInput,
     context: ToolContext
   ) async -> ToolResultPreview? {
@@ -172,7 +172,7 @@ public struct WebFetchToolExecutor: TypedToolExecutor {
     )
   }
 
-  public func run(_ input: WebFetchInput, context: ToolContext) async -> ToolResultPayload {
+  func run(_ input: WebFetchInput, context: ToolContext) async -> ToolResultPayload {
     guard context.webAccessSettings.policy != .off else {
       return .webFetch(
         .failed(

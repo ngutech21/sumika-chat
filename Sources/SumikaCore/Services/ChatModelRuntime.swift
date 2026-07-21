@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol ChatModelRuntime: Sendable {
+package protocol ChatModelRuntime: Sendable {
   func load(configuration: ChatModelConfiguration) async throws
   func unload() async
   func clearContext() async
@@ -14,18 +14,18 @@ public protocol ChatModelRuntime: Sendable {
   ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error>
 }
 
-public enum ChatModelStreamEvent: Sendable {
+package enum ChatModelStreamEvent: Sendable {
   case chunk(String)
   case thinkingChunk(String)
   case toolCall(ChatRuntimeToolCall)
   case completed(ChatGenerationMetrics?)
 }
 
-public struct ChatRuntimeToolContext: Equatable, Sendable {
-  public var registry: ToolRegistry
-  public var cacheSystemPrompt: String?
+package struct ChatRuntimeToolContext: Equatable, Sendable {
+  package var registry: ToolRegistry
+  package var cacheSystemPrompt: String?
 
-  public init(
+  package init(
     registry: ToolRegistry,
     cacheSystemPrompt: String? = nil
   ) {
@@ -34,13 +34,13 @@ public struct ChatRuntimeToolContext: Equatable, Sendable {
   }
 }
 
-public struct ChatRuntimePromptPlan: Equatable, Sendable {
-  public let stableInstructions: String
-  public let transientInstructions: [String]
-  public let toolContext: ChatRuntimeToolContext?
-  public let cacheIdentityInstructions: String
+package struct ChatRuntimePromptPlan: Equatable, Sendable {
+  package let stableInstructions: String
+  package let transientInstructions: [String]
+  package let toolContext: ChatRuntimeToolContext?
+  package let cacheIdentityInstructions: String
 
-  public init(
+  package init(
     stableInstructions: String,
     transientInstructions: [String] = [],
     toolContext: ChatRuntimeToolContext? = nil,
@@ -56,12 +56,12 @@ public struct ChatRuntimePromptPlan: Equatable, Sendable {
   }
 }
 
-public struct ChatRuntimeToolCall: Equatable, Sendable {
-  public var id: String?
-  public var name: String
-  public var arguments: ToolCallArguments
+package struct ChatRuntimeToolCall: Equatable, Sendable {
+  package var id: String?
+  package var name: String
+  package var arguments: ToolCallArguments
 
-  public init(
+  package init(
     id: String? = nil,
     name: String,
     arguments: ToolCallArguments = [:]
@@ -73,11 +73,11 @@ public struct ChatRuntimeToolCall: Equatable, Sendable {
 }
 
 extension ChatModelRuntime {
-  public func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
+  package func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
     nil
   }
 
-  public func generatedTokenCount(for text: String) async throws -> Int {
+  package func generatedTokenCount(for text: String) async throws -> Int {
     text.split(whereSeparator: \.isWhitespace).count
   }
 }

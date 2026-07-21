@@ -3,7 +3,7 @@
 import Crypto
 import Foundation
 
-public enum CurrentPromptContext: Codable, Equatable, Sendable {
+package enum CurrentPromptContext: Codable, Equatable, Sendable {
   case empty(ContextBudget)
   case selected(CurrentPromptContextSelection)
 
@@ -18,7 +18,7 @@ public enum CurrentPromptContext: Codable, Equatable, Sendable {
     case selected
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
     case .empty:
@@ -30,7 +30,7 @@ public enum CurrentPromptContext: Codable, Equatable, Sendable {
     }
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     switch self {
     case .empty(let budget):
@@ -42,7 +42,7 @@ public enum CurrentPromptContext: Codable, Equatable, Sendable {
     }
   }
 
-  public var workspaceInstructions: [WorkspaceInstructionsPromptContext] {
+  package var workspaceInstructions: [WorkspaceInstructionsPromptContext] {
     guard case .selected(let selection) = self else {
       return []
     }
@@ -54,7 +54,7 @@ public enum CurrentPromptContext: Codable, Equatable, Sendable {
     }
   }
 
-  public func appendingWorkspaceInstructions(
+  package func appendingWorkspaceInstructions(
     _ workspaceInstructions: WorkspaceInstructionsPromptContext
   ) -> CurrentPromptContext {
     let budget: ContextBudget
@@ -85,7 +85,7 @@ public enum CurrentPromptContext: Codable, Equatable, Sendable {
     )
   }
 
-  public func removingWorkspaceInstructions() -> CurrentPromptContext {
+  package func removingWorkspaceInstructions() -> CurrentPromptContext {
     guard case .selected(let selection) = self else {
       return self
     }
@@ -104,10 +104,10 @@ public enum CurrentPromptContext: Codable, Equatable, Sendable {
   }
 }
 
-public struct CurrentPromptContextSelection: Codable, Equatable, Sendable {
-  public let blocks: NonEmptyPromptContextBlocks
-  public let budget: ContextBudget
-  public let truncation: PromptContextTruncation
+package struct CurrentPromptContextSelection: Codable, Equatable, Sendable {
+  package let blocks: NonEmptyPromptContextBlocks
+  package let budget: ContextBudget
+  package let truncation: PromptContextTruncation
 
   private init(
     blocks: NonEmptyPromptContextBlocks,
@@ -132,10 +132,10 @@ public struct CurrentPromptContextSelection: Codable, Equatable, Sendable {
   }
 }
 
-public struct NonEmptyPromptContextBlocks: Codable, Equatable, Sendable {
+package struct NonEmptyPromptContextBlocks: Codable, Equatable, Sendable {
   private let storage: [PromptContextBlock]
 
-  public var values: [PromptContextBlock] {
+  package var values: [PromptContextBlock] {
     storage
   }
 
@@ -150,7 +150,7 @@ public struct NonEmptyPromptContextBlocks: Codable, Equatable, Sendable {
     return NonEmptyPromptContextBlocks(values)
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.singleValueContainer()
     let values = try container.decode([PromptContextBlock].self)
     guard let blocks = Self.make(values) else {
@@ -162,13 +162,13 @@ public struct NonEmptyPromptContextBlocks: Codable, Equatable, Sendable {
     self = blocks
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.singleValueContainer()
     try container.encode(storage)
   }
 }
 
-public enum PromptContextBlock: Codable, Equatable, Sendable {
+package enum PromptContextBlock: Codable, Equatable, Sendable {
   case attachedFile(AttachedFilePromptContext)
   case focusedFile(FocusedFilePromptContext)
   case ambiguousRecentFiles(AmbiguousRecentFilesPromptContext)
@@ -189,7 +189,7 @@ public enum PromptContextBlock: Codable, Equatable, Sendable {
     case workspaceInstructions
   }
 
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
     case .attachedFile:
@@ -217,7 +217,7 @@ public enum PromptContextBlock: Codable, Equatable, Sendable {
     }
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     switch self {
     case .attachedFile(let context):
@@ -236,12 +236,12 @@ public enum PromptContextBlock: Codable, Equatable, Sendable {
   }
 }
 
-public struct AttachedFilePromptContext: Codable, Equatable, Sendable {
-  public let path: WorkspaceRelativePath
-  public let displayName: String
-  public let contentHash: String
-  public let excerpt: PromptContextExcerpt?
-  public let isEmpty: Bool
+package struct AttachedFilePromptContext: Codable, Equatable, Sendable {
+  package let path: WorkspaceRelativePath
+  package let displayName: String
+  package let contentHash: String
+  package let excerpt: PromptContextExcerpt?
+  package let isEmpty: Bool
 
   private init(
     path: WorkspaceRelativePath,
@@ -274,14 +274,14 @@ public struct AttachedFilePromptContext: Codable, Equatable, Sendable {
   }
 }
 
-public struct FocusedFilePromptContext: Codable, Equatable, Sendable {
-  public let path: WorkspaceRelativePath
-  public let source: FocusedPathSource?
-  public let contentHash: String?
-  public let excerpt: PromptContextExcerpt?
-  public let fullContentAvailable: Bool
+package struct FocusedFilePromptContext: Codable, Equatable, Sendable {
+  package let path: WorkspaceRelativePath
+  package let source: FocusedPathSource?
+  package let contentHash: String?
+  package let excerpt: PromptContextExcerpt?
+  package let fullContentAvailable: Bool
 
-  public var isReuseEligible: Bool {
+  package var isReuseEligible: Bool {
     guard source == .readFile,
       fullContentAvailable,
       let contentHash,
@@ -325,13 +325,13 @@ public struct FocusedFilePromptContext: Codable, Equatable, Sendable {
   }
 }
 
-public enum FocusedFilePromptPresentation: Equatable, Sendable {
+package enum FocusedFilePromptPresentation: Equatable, Sendable {
   case full
   case compactReuse
 }
 
-public struct AmbiguousRecentFilesPromptContext: Codable, Equatable, Sendable {
-  public let paths: NonEmptyWorkspaceRelativePaths
+package struct AmbiguousRecentFilesPromptContext: Codable, Equatable, Sendable {
+  package let paths: NonEmptyWorkspaceRelativePaths
 
   private init(paths: NonEmptyWorkspaceRelativePaths) {
     self.paths = paths
@@ -344,10 +344,10 @@ public struct AmbiguousRecentFilesPromptContext: Codable, Equatable, Sendable {
   }
 }
 
-public struct NonEmptyWorkspaceRelativePaths: Equatable, Sendable {
+package struct NonEmptyWorkspaceRelativePaths: Equatable, Sendable {
   private let storage: [WorkspaceRelativePath]
 
-  public var values: [WorkspaceRelativePath] {
+  package var values: [WorkspaceRelativePath] {
     storage
   }
 
@@ -366,7 +366,7 @@ public struct NonEmptyWorkspaceRelativePaths: Equatable, Sendable {
 }
 
 extension NonEmptyWorkspaceRelativePaths: Codable {
-  public init(from decoder: Decoder) throws {
+  package init(from decoder: Decoder) throws {
     let container = try decoder.singleValueContainer()
     let values = try container.decode([WorkspaceRelativePath].self)
     guard let paths = Self.make(values) else {
@@ -378,15 +378,15 @@ extension NonEmptyWorkspaceRelativePaths: Codable {
     self = paths
   }
 
-  public func encode(to encoder: Encoder) throws {
+  package func encode(to encoder: Encoder) throws {
     var container = encoder.singleValueContainer()
     try container.encode(storage)
   }
 }
 
-public struct RenderedCurrentPromptContext: Equatable, Sendable {
-  public let renderedBlocks: [String]
-  public let consumedContext: CurrentPromptContext
+package struct RenderedCurrentPromptContext: Equatable, Sendable {
+  package let renderedBlocks: [String]
+  package let consumedContext: CurrentPromptContext
 
   fileprivate init(
     renderedBlocks: [String],
@@ -397,7 +397,7 @@ public struct RenderedCurrentPromptContext: Equatable, Sendable {
   }
 }
 
-public protocol CurrentPromptContextSelecting: Sendable {
+internal protocol CurrentPromptContextSelecting: Sendable {
   func selectContext(
     userInput: String,
     mode: WorkspaceInteractionMode,
@@ -408,10 +408,10 @@ public protocol CurrentPromptContextSelecting: Sendable {
   ) -> CurrentPromptContext
 }
 
-public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
-  public init() {}
+internal struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
+  package init() {}
 
-  public func selectContext(
+  package func selectContext(
     userInput _: String,
     mode _: WorkspaceInteractionMode,
     focusedFileState: FocusedFileState,
@@ -591,8 +591,8 @@ public struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
   }
 }
 
-public enum CurrentPromptContextRenderer {
-  public static func renderedContext(
+internal enum CurrentPromptContextRenderer {
+  package static func renderedContext(
     _ context: CurrentPromptContext,
     focusedFilePresentation: FocusedFilePromptPresentation = .full
   )
@@ -607,7 +607,7 @@ public enum CurrentPromptContextRenderer {
     )
   }
 
-  public static func render(
+  package static func render(
     _ context: CurrentPromptContext,
     focusedFilePresentation: FocusedFilePromptPresentation = .full
   ) -> [String] {
@@ -621,7 +621,7 @@ public enum CurrentPromptContextRenderer {
     }
   }
 
-  public static func renderWorkspaceInstructions(
+  package static func renderWorkspaceInstructions(
     _ context: CurrentPromptContext
   ) -> [String] {
     guard case .selected(let selection) = context else {
@@ -635,7 +635,7 @@ public enum CurrentPromptContextRenderer {
     }
   }
 
-  public static func renderSupportingContext(
+  package static func renderSupportingContext(
     _ context: CurrentPromptContext,
     focusedFilePresentation: FocusedFilePromptPresentation = .full
   ) -> [String] {
