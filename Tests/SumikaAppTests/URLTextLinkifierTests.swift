@@ -63,23 +63,7 @@ struct URLTextLinkifierTests {
     #expect(links.isEmpty)
   }
 
-  @Test
-  func attributedStringPreservesVisibleTextAndAppliesLinkAttribute() {
-    let text = "Read https://example.com/path?q=1."
-
-    let attributedText = URLTextLinkifier.attributedString(for: text)
-
-    #expect(String(attributedText.characters) == text)
-    #expect(linkURLs(in: attributedText) == ["https://example.com/path?q=1"])
-  }
-
   private func linkTexts(in text: String, links: [DetectedURLTextLink]) -> [String] {
     links.map { String(text[$0.range]) }
-  }
-
-  private func linkURLs(in attributedText: AttributedString) -> [String] {
-    attributedText.runs.compactMap { run in
-      run.link?.absoluteString
-    }
   }
 }

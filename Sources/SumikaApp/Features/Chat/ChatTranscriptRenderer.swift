@@ -162,7 +162,6 @@ final class ChatTranscriptRenderer {
       return RenderedChatTurnItem(
         id: id,
         item: input.item,
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [],
         renderRevision: renderRevision,
@@ -173,7 +172,6 @@ final class ChatTranscriptRenderer {
       return RenderedChatTurnItem(
         id: id,
         item: input.item,
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [],
         renderRevision: renderRevision,
@@ -188,7 +186,6 @@ final class ChatTranscriptRenderer {
       return RenderedChatTurnItem(
         id: id,
         item: input.item,
-        toolCallRecord: nil,
         generationMetrics: input.generationMetrics,
         assistantRenderBlocks: blocks,
         assistantSpokenText: Self.spokenText(for: message, blocks: blocks),
@@ -196,11 +193,10 @@ final class ChatTranscriptRenderer {
         toolBatchPresentation: nil
       )
 
-    case .tool(let record):
+    case .tool:
       return RenderedChatTurnItem(
         id: id,
         item: input.item,
-        toolCallRecord: record,
         generationMetrics: input.generationMetrics,
         assistantRenderBlocks: [],
         renderRevision: renderRevision,
@@ -336,7 +332,6 @@ struct ToolApprovalBatchPresentation: Equatable {
 struct RenderedChatTurnItem: Identifiable, Equatable {
   let id: String
   let item: ChatTurnItem
-  let toolCallRecord: ToolCallRecord?
   let generationMetrics: ChatGenerationMetrics?
   let assistantRenderBlocks: [AssistantRenderBlock]
   let assistantSpokenText: String?
@@ -346,7 +341,6 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
   init(
     id: String,
     item: ChatTurnItem,
-    toolCallRecord: ToolCallRecord?,
     generationMetrics: ChatGenerationMetrics?,
     assistantRenderBlocks: [AssistantRenderBlock],
     assistantSpokenText: String? = nil,
@@ -355,7 +349,6 @@ struct RenderedChatTurnItem: Identifiable, Equatable {
   ) {
     self.id = id
     self.item = item
-    self.toolCallRecord = toolCallRecord
     self.generationMetrics = generationMetrics
     self.assistantRenderBlocks = assistantRenderBlocks
     self.assistantSpokenText = assistantSpokenText

@@ -63,11 +63,4 @@ final class WorkspacePreviewFeatureState {
   func closeFilePreview() {
     filePreview = nil
   }
-
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  func closeAll() {
-    htmlPreview = nil
-    filePreview = nil
-  }
 }

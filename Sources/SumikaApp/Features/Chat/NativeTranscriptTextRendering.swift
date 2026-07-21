@@ -49,12 +49,6 @@ struct NativeMarkdownTableCell {
 }
 
 enum NativeTranscriptMarkdownRenderer {
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  static func attributedString(for markdown: String) -> NSAttributedString {
-    flattenedAttributedString(for: blocks(for: markdown))
-  }
-
   static func blocks(for markdown: String) -> [NativeMarkdownBlock] {
     renderMarkdown(markdown)
   }
@@ -71,72 +65,11 @@ enum NativeTranscriptMarkdownRenderer {
     return attributedString
   }
 
-  static func attributedString(for table: NativeMarkdownTable) -> NSAttributedString {
-    let result = NSMutableAttributedString()
-    appendTableRow(table.header, to: result, isHeader: true)
-    for row in table.rows {
-      if result.length > 0 {
-        result.append(NSAttributedString(string: "\n"))
-      }
-      appendTableRow(row, to: result, isHeader: false)
-    }
-    return result
-  }
-
   private static func renderMarkdown(_ markdown: String) -> [NativeMarkdownBlock] {
     let source = markdown.isEmpty ? " " : markdown
     let document = Document(parsing: source)
     let renderer = NativeTranscriptMarkdownASTRenderer()
     return renderer.renderBlocks(document)
-  }
-
-  private static func flattenedAttributedString(
-    for blocks: [NativeMarkdownBlock]
-  ) -> NSAttributedString {
-    let result = NSMutableAttributedString()
-    for (index, block) in blocks.enumerated() {
-      if index > 0 {
-        result.append(NSAttributedString(string: "\n"))
-      }
-      switch block {
-      case .text(let attributedString):
-        result.append(attributedString)
-      case .table(let table):
-        result.append(attributedString(for: table))
-      }
-    }
-    if result.length == 0 {
-      result.append(linkifiedPlainText(" "))
-    }
-    return result
-  }
-
-  private static func appendTableRow(
-    _ row: [NativeMarkdownTableCell],
-    to result: NSMutableAttributedString,
-    isHeader: Bool
-  ) {
-    for (index, cell) in row.enumerated() {
-      if index > 0 {
-        result.append(
-          NSAttributedString(
-            string: " | ",
-            attributes: [
-              .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
-              .foregroundColor: NSColor.secondaryLabelColor,
-            ]
-          ))
-      }
-      let cellText = NSMutableAttributedString(attributedString: cell.attributedString)
-      if isHeader {
-        cellText.addAttribute(
-          .font,
-          value: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
-          range: NSRange(location: 0, length: cellText.length)
-        )
-      }
-      result.append(cellText)
-    }
   }
 
   static func applyLinks(to attributedString: NSMutableAttributedString, sourceText: String) {

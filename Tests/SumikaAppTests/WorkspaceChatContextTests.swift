@@ -6,16 +6,15 @@ import Testing
 
 struct WorkspaceChatContextTests {
   @Test
-  func contextKeepsWorkspaceRouteMetadataWithoutCopyingSessions() {
+  func contextKeepsOnlyWorkspaceRouteMetadata() {
     let workspaceID = UUID()
-    let bookmarkData = Data([1, 2, 3])
     let rootURL = URL(filePath: "/tmp/project")
     let context = WorkspaceChatContext(
       workspace: Workspace(
         id: workspaceID,
         name: "Project",
         rootURL: rootURL,
-        bookmarkData: bookmarkData,
+        bookmarkData: Data([1, 2, 3]),
         sessions: [
           ChatSession(id: UUID(), title: "Persisted")
         ]
@@ -25,6 +24,5 @@ struct WorkspaceChatContextTests {
     #expect(context.id == workspaceID)
     #expect(context.name == "Project")
     #expect(context.rootURL == rootURL)
-    #expect(context.bookmarkData == bookmarkData)
   }
 }

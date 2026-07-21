@@ -60,7 +60,6 @@ struct CodeHighlightingTests {
 
     #expect(result?.highlightedCode.code == "print(\"hi\")")
     #expect(result?.highlightedCode.spans.map(\.range.upperBound).max() == 11)
-    #expect(result?.cacheHit == false)
     #expect(await backend.requestedCodes() == ["print(\"hi\")"])
   }
 
@@ -71,7 +70,7 @@ struct CodeHighlightingTests {
     let blockID = CodeHighlightBlockID(rawValue: "block-1")
     let code = #"{"name":"value"}"#
 
-    let first = await highlighter.highlight(
+    _ = await highlighter.highlight(
       CodeHighlightRequest(
         blockID: blockID,
         version: 1,
@@ -80,7 +79,7 @@ struct CodeHighlightingTests {
         isClosed: true
       )
     )
-    let second = await highlighter.highlight(
+    _ = await highlighter.highlight(
       CodeHighlightRequest(
         blockID: blockID,
         version: 2,
@@ -90,8 +89,6 @@ struct CodeHighlightingTests {
       )
     )
 
-    #expect(first?.cacheHit == false)
-    #expect(second?.cacheHit == true)
     #expect(await backend.requestedCodes() == [code])
   }
 
@@ -194,8 +191,7 @@ private actor ControlledCodeHighlightingBackend: CodeHighlightingBackend {
       spans: [
         HighlightSpan(
           range: HighlightTextRange(location: 0, length: code.utf16.count),
-          style: .keyword,
-          captureName: "keyword"
+          style: .keyword
         )
       ]
     )
@@ -256,8 +252,7 @@ private actor SpyCodeHighlightingBackend: CodeHighlightingBackend {
       spans: [
         HighlightSpan(
           range: HighlightTextRange(location: 0, length: code.utf16.count),
-          style: .keyword,
-          captureName: "keyword"
+          style: .keyword
         )
       ]
     )

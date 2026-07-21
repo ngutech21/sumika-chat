@@ -33,7 +33,7 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
 
-    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
+    #expect(appState.workspaceState.activeSessionID == sessionID)
     #expect(appState.chatFeatureState.transcript.turns.isEmpty)
     #expect(appState.chatFeatureState.composer.session.interactionMode == .chat)
 
@@ -262,7 +262,7 @@ struct AppStateTests {
         sessionID: targetSession.id
       )
     )
-    #expect(appState.chatFeatureState.transcript.sessionID == targetSession.id)
+    #expect(appState.workspaceState.activeSessionID == targetSession.id)
     #expect(
       appState.modelManagementState.state.selectedModel.id == ManagedModelCatalog.defaultModelID)
     #expect(appState.chatFeatureState.sessionSnapshotForTesting == nil)
@@ -717,7 +717,6 @@ struct AppStateTests {
     #expect(savedLibrary.activeWorkspaceID == nil)
     #expect(savedLibrary.activeSessionID == nil)
     #expect(FileManager.default.fileExists(atPath: markerURL.path(percentEncoded: false)))
-    #expect(appState.chatFeatureState.transcript.sessionID != sessionID)
     #expect(
       appState.modelManagementState.modeSettings.chat.systemPrompt
         != "Workspace private system prompt"
@@ -756,7 +755,7 @@ struct AppStateTests {
     }
 
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
+    #expect(appState.workspaceState.activeSessionID == sessionID)
   }
 
   @Test
@@ -789,7 +788,6 @@ struct AppStateTests {
 
     #expect(appState.route == .workspace(workspaceID))
     #expect(appState.workspaceState.activeSessionID == nil)
-    #expect(appState.chatFeatureState.transcript.sessionID != sessionID)
   }
 
   @Test
@@ -825,7 +823,6 @@ struct AppStateTests {
 
     #expect(appState.route == .models)
     #expect(appState.workspaceState.activeSessionID == sessionID)
-    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
 
     #expect(appState.workspaceState.activeSession?.title == "Persisted Chat")
   }
@@ -863,7 +860,7 @@ struct AppStateTests {
     }
 
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
+    #expect(appState.workspaceState.activeSessionID == sessionID)
   }
 
   @Test
@@ -910,7 +907,6 @@ struct AppStateTests {
     #expect(workspaceRouteLibrary.activeWorkspaceID == secondWorkspaceID)
     #expect(appState.route == .workspace(secondWorkspaceID))
     #expect(appState.workspaceState.activeSessionID == nil)
-    #expect(appState.chatFeatureState.transcript.sessionID != secondSessionID)
 
     appState.selectChat(workspaceID: secondWorkspaceID, sessionID: secondSessionID)
     let chatRouteLibrary = try await waitForSavedLibrary(in: workspaceStore) { library in
@@ -919,7 +915,7 @@ struct AppStateTests {
     }
     #expect(chatRouteLibrary.activeSessionID == secondSessionID)
     #expect(appState.route == .chat(workspaceID: secondWorkspaceID, sessionID: secondSessionID))
-    #expect(appState.chatFeatureState.transcript.sessionID == secondSessionID)
+    #expect(appState.workspaceState.activeSessionID == secondSessionID)
 
     let didSelectInvalidChat = appState.selectChat(
       workspaceID: firstWorkspaceID,
@@ -1010,7 +1006,7 @@ struct AppStateTests {
     }
     #expect(savedLibrary.activeSessionID == sessionID)
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
+    #expect(appState.workspaceState.activeSessionID == sessionID)
   }
 
   @Test
@@ -1043,7 +1039,6 @@ struct AppStateTests {
     #expect(savedLibrary.activeWorkspaceID == workspaceID)
     #expect(appState.route == .workspace(workspaceID))
     #expect(appState.workspaceState.activeSessionID == nil)
-    #expect(appState.chatFeatureState.transcript.sessionID == nil)
   }
 
   @Test
@@ -1092,7 +1087,7 @@ struct AppStateTests {
     }
     let sessionID = try #require(savedLibrary.activeSessionID)
     #expect(appState.route == .chat(workspaceID: workspaceID, sessionID: sessionID))
-    #expect(appState.chatFeatureState.transcript.sessionID == sessionID)
+    #expect(appState.workspaceState.activeSessionID == sessionID)
   }
 
   @Test
@@ -1139,7 +1134,6 @@ struct AppStateTests {
     #expect(appState.route == .workspace(workspaceID))
     #expect(appState.workspaceState.activeSessionID == nil)
     #expect(appState.workspaceState.activeSession == nil)
-    #expect(appState.chatFeatureState.transcript.sessionID != replacementSessionID)
     #expect(
       appState.workspaceState.sidebarState.workspaces.first?.sessions.map(\.id)
         == [replacementSessionID])
@@ -1190,7 +1184,6 @@ struct AppStateTests {
     #expect(savedSessions.contains { $0.id == deletedSessionID } == false)
     #expect(savedSessions.first { $0.id == activeSessionID }?.title == "Unsaved Active")
     #expect(appState.workspaceState.activeSessionID == activeSessionID)
-    #expect(appState.chatFeatureState.transcript.sessionID == activeSessionID)
   }
 
   @Test
@@ -1390,7 +1383,7 @@ struct AppStateTests {
 
     #expect(appState.browserToolService === browserToolService)
     #expect(
-      appState.chatFeatureState.transcript.sessionID
+      appState.workspaceState.activeSessionID
         == sumika.conversation.state.active?.sessionID
     )
   }

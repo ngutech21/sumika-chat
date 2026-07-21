@@ -12,8 +12,4 @@ nonisolated extension AssistantTurnMessage {
   public var assistantPlaceholderTitle: String {
     "Generating"
   }
-
-  public var assistantPlaceholderSystemImage: String {
-    "sparkles"
-  }
 }

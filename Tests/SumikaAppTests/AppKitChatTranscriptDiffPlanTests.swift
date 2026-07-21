@@ -1542,8 +1542,7 @@ struct AppKitChatTranscriptDiffPlanTests {
       spans: [
         HighlightSpan(
           range: HighlightTextRange(location: 0, length: 3),
-          style: .keyword,
-          captureName: "keyword"
+          style: .keyword
         )
       ]
     )
@@ -2002,7 +2001,6 @@ private func nativeUserRow(
       RenderedChatTurnItem(
         id: id,
         item: .userMessage(UserTurnMessage(content: content, attachments: attachments)),
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [],
         renderRevision: revision
@@ -2024,7 +2022,6 @@ private func nativeAssistantRow(
         item: .assistantMessage(
           AssistantTurnMessage(content: "Answer", attachments: attachments)
         ),
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [
           .paragraph(.init(id: .init(rawValue: "answer"), text: "Answer"))
@@ -2047,7 +2044,6 @@ private func nativeThinkingRow(
         item: .assistantThinking(
           AssistantThinkingMessage(content: "Inspecting the prompt.")
         ),
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [],
         renderRevision: revision
@@ -2069,7 +2065,6 @@ private func nativeStreamingThinkingRow(
         item: .assistantThinking(
           AssistantThinkingMessage(content: content, deliveryStatus: .streaming)
         ),
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [],
         renderRevision: revision
@@ -2098,7 +2093,6 @@ private func nativeCompletedThinkingRow(
             completedAt: completedAt
           )
         ),
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [],
         renderRevision: revision
@@ -2118,7 +2112,6 @@ private func nativeAssistantCodeRow(
       RenderedChatTurnItem(
         id: id,
         item: .assistantMessage(AssistantTurnMessage(content: code)),
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [
           .codeBlock(
@@ -2147,7 +2140,6 @@ private func nativeAssistantMarkdownRow(
       RenderedChatTurnItem(
         id: id,
         item: .assistantMessage(AssistantTurnMessage(content: markdown)),
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [
           .paragraph(.init(id: .init(rawValue: "markdown"), text: markdown))
@@ -2172,7 +2164,6 @@ private func nativeStreamingAssistantRow(
         item: .assistantMessage(
           AssistantTurnMessage(content: content, deliveryStatus: .streaming)
         ),
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [],
         renderRevision: revision
@@ -2195,7 +2186,6 @@ private func nativeStreamingBlocksAssistantRow(
         item: .assistantMessage(
           AssistantTurnMessage(content: content, deliveryStatus: .streaming)
         ),
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: AssistantRenderBlockParser().parse(content),
         renderRevision: revision
@@ -2217,7 +2207,6 @@ private func nativeToolRow(
       RenderedChatTurnItem(
         id: id,
         item: .tool(record),
-        toolCallRecord: record,
         generationMetrics: generationMetrics,
         assistantRenderBlocks: [],
         renderRevision: revision,

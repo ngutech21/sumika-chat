@@ -14,10 +14,11 @@ struct WorkspaceChatView: View, Equatable {
   let mcpServerStatuses: [MCPServerStatus]
   let assistantSpeechService: AssistantSpeechService
   let speechInputController: ComposerSpeechInputController
-  let workspaceChatActions: WorkspaceChatActions
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
+  let onOpenWorkspaceInFinder: () -> Void
+  let onOpenWorkspaceInVisualStudioCode: () -> Void
   let onSendMessage: (String) -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
@@ -38,7 +39,6 @@ struct WorkspaceChatView: View, Equatable {
         == ObjectIdentifier(rhs.assistantSpeechService)
       && ObjectIdentifier(lhs.speechInputController)
         == ObjectIdentifier(rhs.speechInputController)
-      && ObjectIdentifier(lhs.workspaceChatActions) == ObjectIdentifier(rhs.workspaceChatActions)
       && lhs.isModelContextDebugVisible == rhs.isModelContextDebugVisible
       && lhs.isWorkspaceTerminalVisible == rhs.isWorkspaceTerminalVisible
   }
@@ -90,8 +90,9 @@ struct WorkspaceChatView: View, Equatable {
       WorkspaceChatToolbar(
         workspaceID: context.id,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
-        workspaceChatActions: workspaceChatActions,
-        onCreateSession: onCreateSession
+        onCreateSession: onCreateSession,
+        onOpenWorkspaceInFinder: onOpenWorkspaceInFinder,
+        onOpenWorkspaceInVisualStudioCode: onOpenWorkspaceInVisualStudioCode
       )
     }
     .onDisappear {
@@ -294,8 +295,9 @@ private struct WorkspaceDebugSlot: View, Equatable {
 private struct WorkspaceChatToolbar: ToolbarContent {
   let workspaceID: Workspace.ID
   @Binding var isWorkspaceTerminalVisible: Bool
-  let workspaceChatActions: WorkspaceChatActions
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
+  let onOpenWorkspaceInFinder: () -> Void
+  let onOpenWorkspaceInVisualStudioCode: () -> Void
 
   var body: some ToolbarContent {
     ToolbarItemGroup(placement: .primaryAction) {
@@ -311,7 +313,7 @@ private struct WorkspaceChatToolbar: ToolbarContent {
 
     ToolbarItemGroup(placement: .primaryAction) {
       Menu {
-        Button(action: workspaceChatActions.openWorkspaceInVisualStudioCode) {
+        Button(action: onOpenWorkspaceInVisualStudioCode) {
           Label {
             Text("Open in VS Code")
           } icon: {
@@ -319,7 +321,7 @@ private struct WorkspaceChatToolbar: ToolbarContent {
           }
         }
 
-        Button(action: workspaceChatActions.openWorkspaceInFinder) {
+        Button(action: onOpenWorkspaceInFinder) {
           Label {
             Text("Reveal in Finder")
           } icon: {

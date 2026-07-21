@@ -189,7 +189,6 @@ private func stabilityUserRow(id: String, revision: Int) -> NativeTranscriptRow 
       RenderedChatTurnItem(
         id: id,
         item: .userMessage(UserTurnMessage(content: "Please explain the workspace.")),
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [],
         renderRevision: revision
@@ -211,7 +210,6 @@ private func stabilityThinkingRow(
         item: .assistantThinking(
           AssistantThinkingMessage(content: content, deliveryStatus: .streaming)
         ),
-        toolCallRecord: nil,
         generationMetrics: nil,
         assistantRenderBlocks: [],
         renderRevision: revision

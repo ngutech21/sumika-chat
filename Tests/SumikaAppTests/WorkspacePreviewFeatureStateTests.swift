@@ -84,7 +84,7 @@ struct WorkspacePreviewFeatureStateTests {
     #expect(state.htmlPreview == nil)
     #expect(state.filePreview != nil)
 
-    state.closeAll()
+    state.closeFilePreview()
     #expect(!state.isVisible)
   }
 

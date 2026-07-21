@@ -4,23 +4,6 @@ public enum URLTextLinkifier {
   private static let urlDetectionRegex: NSRegularExpression? =
     try? NSRegularExpression(pattern: #"https?://[^\s<>\"]+"#)
 
-  public static func attributedString(for text: String) -> AttributedString {
-    var attributedText = AttributedString(text)
-
-    for link in links(in: text) {
-      guard
-        let lowerBound = AttributedString.Index(link.range.lowerBound, within: attributedText),
-        let upperBound = AttributedString.Index(link.range.upperBound, within: attributedText)
-      else {
-        continue
-      }
-
-      attributedText[lowerBound..<upperBound].link = link.url
-    }
-
-    return attributedText
-  }
-
   public static func links(in text: String) -> [DetectedURLTextLink] {
     guard !text.isEmpty else {
       return []

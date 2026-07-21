@@ -172,7 +172,7 @@ struct ChatTranscriptRendererTests {
         "\(turnID.uuidString):tool:\(invalidID.uuidString)",
         "\(turnID.uuidString):tool:\(failedID.uuidString)",
       ])
-    #expect(items.map { $0.toolCallRecord?.status } == [.failed, .failed])
+    #expect(items.compactMap { toolCallRecord(in: $0) }.map(\.status) == [.failed, .failed])
   }
 
   @Test
@@ -537,7 +537,7 @@ struct ChatTranscriptRendererTests {
     #expect(items.count == 2)
     #expect(items[0].generationMetrics == metrics)
     #expect(items[0].renderRevision != initialAssistantRevision)
-    #expect(items[1].toolCallRecord?.status == .completed)
+    #expect(toolCallRecord(in: items[1])?.status == .completed)
     #expect(items[1].generationMetrics == metrics)
     #expect(items[1].renderRevision != initialToolRevision)
   }
@@ -1116,6 +1116,13 @@ private func makeInvalidFinishTaskRecord(id: UUID) -> ToolCallRecord {
       )
     )
   )
+}
+
+private func toolCallRecord(in item: RenderedChatTurnItem) -> ToolCallRecord? {
+  guard case .tool(let record) = item.item else {
+    return nil
+  }
+  return record
 }
 
 private func toolCallState(

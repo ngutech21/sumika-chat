@@ -9,14 +9,10 @@ struct ContentView: View {
   @State private var modelsTab = ModelsTab.text
   @State private var appState: AppState
   @State private var processResourceMonitor = ProcessResourceMonitor()
-  @State private var workspaceChatActions: WorkspaceChatActions
 
   @MainActor
   init(appState: AppState) {
     _appState = State(initialValue: appState)
-    _workspaceChatActions = State(
-      initialValue: WorkspaceChatActions(workspaceState: appState.workspaceState)
-    )
   }
 
   var body: some View {
@@ -77,11 +73,13 @@ struct ContentView: View {
           mcpServerStatuses: appState.settingsState.mcpServerStatuses,
           assistantSpeechService: appState.assistantSpeechService,
           speechInputController: appState.composerSpeechInputController,
-          workspaceChatActions: workspaceChatActions,
           isModelContextDebugVisible: modelContextDebugVisibilityBinding,
           isWorkspaceTerminalVisible: $isTerminalVisible,
           onAddWorkspace: chooseWorkspace,
           onCreateSession: createSession,
+          onOpenWorkspaceInFinder: appState.workspaceState.openActiveWorkspaceInFinder,
+          onOpenWorkspaceInVisualStudioCode: appState.workspaceState
+            .openActiveWorkspaceInVisualStudioCode,
           onSendMessage: appState.sendMessage,
           onSelectMCPServerIDs: appState.setSelectedMCPServerIDs,
           onOpenAudioModels: openAudioModels
@@ -99,11 +97,13 @@ struct ContentView: View {
           mcpServerStatuses: appState.settingsState.mcpServerStatuses,
           assistantSpeechService: appState.assistantSpeechService,
           speechInputController: appState.composerSpeechInputController,
-          workspaceChatActions: workspaceChatActions,
           isModelContextDebugVisible: modelContextDebugVisibilityBinding,
           isWorkspaceTerminalVisible: $isTerminalVisible,
           onAddWorkspace: chooseWorkspace,
           onCreateSession: createSession,
+          onOpenWorkspaceInFinder: appState.workspaceState.openActiveWorkspaceInFinder,
+          onOpenWorkspaceInVisualStudioCode: appState.workspaceState
+            .openActiveWorkspaceInVisualStudioCode,
           onSendMessage: appState.sendMessage,
           onSelectMCPServerIDs: appState.setSelectedMCPServerIDs,
           onOpenAudioModels: openAudioModels
@@ -187,11 +187,12 @@ private struct WorkspaceRouteHost: View {
   let mcpServerStatuses: [MCPServerStatus]
   let assistantSpeechService: AssistantSpeechService
   let speechInputController: ComposerSpeechInputController
-  let workspaceChatActions: WorkspaceChatActions
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
   let onAddWorkspace: () -> Void
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
+  let onOpenWorkspaceInFinder: () -> Void
+  let onOpenWorkspaceInVisualStudioCode: () -> Void
   let onSendMessage: (String) -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
@@ -210,10 +211,11 @@ private struct WorkspaceRouteHost: View {
         mcpServerStatuses: mcpServerStatuses,
         assistantSpeechService: assistantSpeechService,
         speechInputController: speechInputController,
-        workspaceChatActions: workspaceChatActions,
         isModelContextDebugVisible: $isModelContextDebugVisible,
         isWorkspaceTerminalVisible: $isWorkspaceTerminalVisible,
         onCreateSession: onCreateSession,
+        onOpenWorkspaceInFinder: onOpenWorkspaceInFinder,
+        onOpenWorkspaceInVisualStudioCode: onOpenWorkspaceInVisualStudioCode,
         onSendMessage: onSendMessage,
         onSelectMCPServerIDs: onSelectMCPServerIDs,
         onOpenAudioModels: onOpenAudioModels

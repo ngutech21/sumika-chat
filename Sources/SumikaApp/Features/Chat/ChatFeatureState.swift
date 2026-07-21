@@ -13,7 +13,6 @@ struct ChatComposerPresentation: Equatable {
 }
 
 struct ChatTranscriptPresentation: Equatable {
-  let sessionID: ChatSession.ID?
   let turns: [ChatTurn]
   let isGenerating: Bool
   let toolApprovalPolicy: ToolApprovalPolicy
@@ -73,7 +72,6 @@ final class ChatFeatureState {
     let selectedActiveState = selectedActiveConversationState
     let session = workspaceState.activeSession
     return ChatTranscriptPresentation(
-      sessionID: session?.id,
       turns: selectedActiveState?.turns ?? session?.turns ?? [],
       isGenerating: selectedActiveState?.isGenerating == true,
       toolApprovalPolicy: selectedActiveState?.composer.toolApprovalPolicy

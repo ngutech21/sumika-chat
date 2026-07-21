@@ -9,27 +9,6 @@ nonisolated protocol CodeHighlightingBackend: Sendable {
   ) async throws -> HighlightedCode
 }
 
-nonisolated extension CodeLanguage {
-  var displayName: String {
-    switch self {
-    case .bash:
-      "Bash"
-    case .css:
-      "CSS"
-    case .html:
-      "HTML"
-    case .javascript:
-      "JavaScript"
-    case .json:
-      "JSON"
-    case .python:
-      "Python"
-    case .typescript:
-      "TypeScript"
-    }
-  }
-}
-
 nonisolated struct HighlightedCode: Equatable, Sendable {
   var code: String
   var language: CodeLanguage?
@@ -43,7 +22,6 @@ nonisolated struct HighlightedCode: Equatable, Sendable {
 nonisolated struct HighlightSpan: Equatable, Sendable {
   var range: HighlightTextRange
   var style: CodeHighlightStyle
-  var captureName: String
 }
 
 nonisolated struct HighlightTextRange: Equatable, Sendable {
@@ -151,7 +129,6 @@ nonisolated struct CodeHighlightResult: Equatable, Sendable {
   var blockID: CodeHighlightBlockID
   var version: Int
   var highlightedCode: HighlightedCode
-  var cacheHit: Bool
 }
 
 actor StreamingCodeHighlighter {
@@ -177,8 +154,7 @@ actor StreamingCodeHighlighter {
     guard !request.code.isEmpty, request.language != nil else {
       return currentResult(
         for: request,
-        highlightedCode: .plain(code: request.code, language: request.language),
-        cacheHit: false
+        highlightedCode: .plain(code: request.code, language: request.language)
       )
     }
 
@@ -190,7 +166,7 @@ actor StreamingCodeHighlighter {
         highlighterVersion: highlighterVersion
       )
       if let cachedHighlight = cache[cacheKey] {
-        return currentResult(for: request, highlightedCode: cachedHighlight, cacheHit: true)
+        return currentResult(for: request, highlightedCode: cachedHighlight)
       }
 
       let highlightedCode = await highlightCode(
@@ -199,14 +175,13 @@ actor StreamingCodeHighlighter {
         theme: request.theme
       )
       cache[cacheKey] = highlightedCode
-      return currentResult(for: request, highlightedCode: highlightedCode, cacheHit: false)
+      return currentResult(for: request, highlightedCode: highlightedCode)
     }
 
     guard let stablePrefixEndIndex = request.code.lastStableLineEndIndex else {
       return currentResult(
         for: request,
-        highlightedCode: .plain(code: request.code, language: request.language),
-        cacheHit: false
+        highlightedCode: .plain(code: request.code, language: request.language)
       )
     }
 
@@ -232,7 +207,7 @@ actor StreamingCodeHighlighter {
       spans: highlightedPrefix.spans
     )
 
-    return currentResult(for: request, highlightedCode: highlightedCode, cacheHit: false)
+    return currentResult(for: request, highlightedCode: highlightedCode)
   }
 
   private func highlightCode(
@@ -249,8 +224,7 @@ actor StreamingCodeHighlighter {
 
   private func currentResult(
     for request: CodeHighlightRequest,
-    highlightedCode: HighlightedCode,
-    cacheHit: Bool
+    highlightedCode: HighlightedCode
   ) -> CodeHighlightResult? {
     guard isCurrent(request) else {
       return nil
@@ -259,8 +233,7 @@ actor StreamingCodeHighlighter {
     return CodeHighlightResult(
       blockID: request.blockID,
       version: request.version,
-      highlightedCode: highlightedCode,
-      cacheHit: cacheHit
+      highlightedCode: highlightedCode
     )
   }
 

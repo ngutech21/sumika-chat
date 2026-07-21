@@ -98,8 +98,7 @@ actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
       return source.originalRanges(for: namedRange.range).map { originalRange in
         HighlightSpan(
           range: originalRange,
-          style: style,
-          captureName: namedRange.name
+          style: style
         )
       }
     }
@@ -171,8 +170,7 @@ actor SwiftTreeSitterCodeHighlightingBackend: CodeHighlightingBackend {
       source.originalRanges(for: match.range).map { originalRange in
         HighlightSpan(
           range: originalRange,
-          style: .number,
-          captureName: "number.dimension"
+          style: .number
         )
       }
     }

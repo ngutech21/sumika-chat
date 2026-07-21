@@ -8,13 +8,15 @@ import Testing
 struct NativeTranscriptTextRenderingTests {
   @Test
   func markdownRendererStylesInlineMarkdownAndLists() {
-    let rendered = NativeTranscriptMarkdownRenderer.attributedString(
-      for: """
-        # Title
-        - **bold**
-        - *italic*
-        `code`
-        """
+    let rendered = combinedTextBlocks(
+      NativeTranscriptMarkdownRenderer.blocks(
+        for: """
+          # Title
+          - **bold**
+          - *italic*
+          `code`
+          """
+      )
     )
 
     #expect(rendered.string.contains("Title"))
@@ -31,8 +33,10 @@ struct NativeTranscriptTextRenderingTests {
 
   @Test
   func markdownRendererAddsLinkAttributes() {
-    let rendered = NativeTranscriptMarkdownRenderer.attributedString(
-      for: "[Sumika](https://example.com) and https://sumika.local"
+    let rendered = combinedTextBlocks(
+      NativeTranscriptMarkdownRenderer.blocks(
+        for: "[Sumika](https://example.com) and https://sumika.local"
+      )
     )
 
     #expect(rendered.hasLink(inText: "Sumika"))
@@ -43,8 +47,10 @@ struct NativeTranscriptTextRenderingTests {
 
   @Test
   func malformedMarkdownRemainsReadableAndPlainLinksStillWork() {
-    let rendered = NativeTranscriptMarkdownRenderer.attributedString(
-      for: "[broken](http:// and https://sumika.local"
+    let rendered = combinedTextBlocks(
+      NativeTranscriptMarkdownRenderer.blocks(
+        for: "[broken](http:// and https://sumika.local"
+      )
     )
 
     #expect(rendered.string.contains("[broken](http://"))
@@ -53,34 +59,19 @@ struct NativeTranscriptTextRenderingTests {
 
   @Test
   func markdownRendererHandlesNestedOrderedAndUnorderedLists() {
-    let rendered = NativeTranscriptMarkdownRenderer.attributedString(
-      for: """
-        1. Parent
-           - Child
-        2. Next
-        """
+    let rendered = combinedTextBlocks(
+      NativeTranscriptMarkdownRenderer.blocks(
+        for: """
+          1. Parent
+             - Child
+          2. Next
+          """
+      )
     )
 
     #expect(rendered.string.contains("1. Parent"))
     #expect(rendered.string.contains("  • Child"))
     #expect(rendered.string.contains("2. Next"))
-  }
-
-  @Test
-  func markdownRendererKeepsTablesReadableAndStylesHeader() {
-    let rendered = NativeTranscriptMarkdownRenderer.attributedString(
-      for: """
-        | Name | Value |
-        | --- | --- |
-        | Model | Gemma |
-        | State | Ready |
-        """
-    )
-
-    #expect(rendered.string.contains("Name | Value"))
-    #expect(rendered.string.contains("Model | Gemma"))
-    #expect(rendered.string.contains("State | Ready"))
-    #expect(rendered.hasFontTrait(.boldFontMask, inText: "Name"))
   }
 
   @Test
@@ -169,8 +160,8 @@ struct NativeTranscriptTextRenderingTests {
 
   @Test
   func markdownRendererKeepsBlockQuotesReadable() {
-    let rendered = NativeTranscriptMarkdownRenderer.attributedString(
-      for: "> quoted **text**"
+    let rendered = combinedTextBlocks(
+      NativeTranscriptMarkdownRenderer.blocks(for: "> quoted **text**")
     )
 
     #expect(rendered.string.contains("> quoted text"))
@@ -199,13 +190,11 @@ struct NativeTranscriptTextRenderingTests {
       spans: [
         HighlightSpan(
           range: HighlightTextRange(location: 0, length: 3),
-          style: .keyword,
-          captureName: "keyword"
+          style: .keyword
         ),
         HighlightSpan(
           range: HighlightTextRange(location: 12, length: 4),
-          style: .string,
-          captureName: "string"
+          style: .string
         ),
       ]
     )
@@ -229,8 +218,7 @@ struct NativeTranscriptTextRenderingTests {
       CodeHighlightResult(
         blockID: CodeHighlightBlockID(rawValue: "row#block"),
         version: firstKey.version,
-        highlightedCode: .plain(code: "let old = 1", language: .javascript),
-        cacheHit: false
+        highlightedCode: .plain(code: "let old = 1", language: .javascript)
       ),
       for: firstKey,
       rowID: "row",
@@ -256,8 +244,7 @@ struct NativeTranscriptTextRenderingTests {
       CodeHighlightResult(
         blockID: CodeHighlightBlockID(rawValue: "first-row#block"),
         version: firstKey.version,
-        highlightedCode: .plain(code: "let first = 1", language: .javascript),
-        cacheHit: false
+        highlightedCode: .plain(code: "let first = 1", language: .javascript)
       ),
       for: firstKey,
       rowID: "first-row",
@@ -267,8 +254,7 @@ struct NativeTranscriptTextRenderingTests {
       CodeHighlightResult(
         blockID: CodeHighlightBlockID(rawValue: "second-row#block"),
         version: secondKey.version,
-        highlightedCode: .plain(code: "let second = 2", language: .javascript),
-        cacheHit: false
+        highlightedCode: .plain(code: "let second = 2", language: .javascript)
       ),
       for: secondKey,
       rowID: "second-row",
@@ -297,8 +283,7 @@ struct NativeTranscriptTextRenderingTests {
       CodeHighlightResult(
         blockID: CodeHighlightBlockID(rawValue: "row#block"),
         version: key.version,
-        highlightedCode: .plain(code: "let value = 1", language: .javascript),
-        cacheHit: false
+        highlightedCode: .plain(code: "let value = 1", language: .javascript)
       ),
       for: key,
       rowID: "row",
@@ -322,8 +307,7 @@ struct NativeTranscriptTextRenderingTests {
       CodeHighlightResult(
         blockID: CodeHighlightBlockID(rawValue: "row#block"),
         version: key.version,
-        highlightedCode: .plain(code: "let value = 1", language: .javascript),
-        cacheHit: false
+        highlightedCode: .plain(code: "let value = 1", language: .javascript)
       ),
       for: key,
       rowID: "row",
@@ -344,6 +328,20 @@ private func codeBlock(id: String, code: String) -> AssistantRenderBlock.CodeBlo
     text: code,
     isClosed: true
   )
+}
+
+private func combinedTextBlocks(_ blocks: [NativeMarkdownBlock]) -> NSAttributedString {
+  let result = NSMutableAttributedString()
+  for block in blocks {
+    guard case .text(let attributedString) = block else {
+      continue
+    }
+    if result.length > 0 {
+      result.append(NSAttributedString(string: "\n"))
+    }
+    result.append(attributedString)
+  }
+  return result
 }
 
 private func tableBlock(in blocks: [NativeMarkdownBlock]) throws -> NativeMarkdownTable {
