@@ -272,7 +272,7 @@ private struct SidebarRuntimeFooter: View {
       .accessibilityLabel("Settings")
       .accessibilityIdentifier("sidebar.settingsButton")
 
-      ModelRuntimeFooter(processUsage: processUsage)
+      ProcessResourceFooter(processUsage: processUsage)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     .frame(maxWidth: .infinity, alignment: .leading)

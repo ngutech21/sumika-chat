@@ -233,7 +233,6 @@ struct CurrentModelSummary: View {
 struct ModelRuntimeStatus: View {
   let modelState: ModelLoadState
   let downloadState: ModelDownloadState
-  let processUsage: ProcessResourceUsage?
 
   var body: some View {
     Group {
@@ -245,12 +244,6 @@ struct ModelRuntimeStatus: View {
       LabeledContent("Download") {
         Label(downloadState.label, systemImage: "arrow.down.circle")
           .foregroundStyle(downloadTint)
-      }
-
-      LabeledContent("Memory") {
-        Text(processUsage?.memorySummary ?? "Measuring")
-          .foregroundStyle(.secondary)
-          .monospacedDigit()
       }
     }
   }

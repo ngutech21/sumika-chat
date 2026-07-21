@@ -116,7 +116,6 @@ struct AgentCompositionIntegrationTests {
         runtime: runtime,
         modelSettingsStore: modelSettingsStore,
         modelDownloader: UnavailableModelDownloader(),
-        resourceMonitor: ProcessResourceMonitor(),
         modelAvailability: { _ in true }
       )
     )

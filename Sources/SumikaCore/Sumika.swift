@@ -35,7 +35,6 @@ package final class Sumika {
     let runtime: any ChatModelRuntime
     let modelSettingsStore: any ModelSettingsStoring
     let modelDownloader: any ModelDownloading
-    let resourceMonitor: any ProcessResourceMonitoring
     let modelAvailability: @Sendable (ManagedModel) -> Bool
     let browserToolService: any BrowserToolServing
     let webAccessSettingsProvider: @Sendable () async -> WebAccessSettings
@@ -46,7 +45,6 @@ package final class Sumika {
       runtime: any ChatModelRuntime,
       modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
       modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
-      resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
       modelAvailability: (@Sendable (ManagedModel) -> Bool)? = nil,
       browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
       webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
@@ -58,7 +56,6 @@ package final class Sumika {
       self.runtime = runtime
       self.modelSettingsStore = modelSettingsStore
       self.modelDownloader = modelDownloader
-      self.resourceMonitor = resourceMonitor
       self.modelAvailability =
         modelAvailability ?? ModelLifecycleCoordinator.defaultModelAvailability
       self.browserToolService = browserToolService
@@ -94,7 +91,6 @@ package final class Sumika {
       modelSettingsStore: dependencies.modelSettingsStore,
       runtimeOperations: runtimeOperations,
       modelLifecycleCoordinator: modelLifecycle,
-      resourceMonitor: dependencies.resourceMonitor,
       initialOperationID: operationID
     )
     let initialConversationModelState = modelController.conversationState

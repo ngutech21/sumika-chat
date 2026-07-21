@@ -42,7 +42,6 @@ extension ConversationEngine {
 
   convenience init(
     runtime: any ChatModelRuntime,
-    resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
     modelPath: String,
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
     modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
@@ -62,7 +61,6 @@ extension ConversationEngine {
       modelSettingsStore: modelSettingsStore,
       modelDownloader: modelDownloader,
       runtime: runtime,
-      resourceMonitor: resourceMonitor,
       modelAvailability: modelAvailability,
       toolOrchestrator: toolOrchestrator,
       chatAttachmentLoader: chatAttachmentLoader,
@@ -81,7 +79,6 @@ extension ConversationEngine {
     modelSettingsStore: any ModelSettingsStoring,
     modelDownloader: any ModelDownloading,
     runtime: any ChatModelRuntime,
-    resourceMonitor: any ProcessResourceMonitoring,
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
     toolOrchestrator: ToolOrchestrator,
     chatAttachmentLoader: any ChatAttachmentLoading,
@@ -104,7 +101,6 @@ extension ConversationEngine {
       modelSettingsStore: modelSettingsStore,
       runtimeOperations: runtimeOperations,
       modelLifecycleCoordinator: modelLifecycleCoordinator,
-      resourceMonitor: resourceMonitor,
       initialOperationID: operationID
     )
     self.init(

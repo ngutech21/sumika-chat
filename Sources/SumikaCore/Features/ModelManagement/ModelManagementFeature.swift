@@ -36,7 +36,6 @@ package final class ModelManagementFeature {
 
   package func startRuntimeServices() {
     modelController.prepareDefaultModelDirectory()
-    modelController.startResourceMonitoring()
   }
 
   package func selectModel(_ model: ManagedModel) {

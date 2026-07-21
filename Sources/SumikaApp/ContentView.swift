@@ -8,6 +8,7 @@ struct ContentView: View {
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible = false
   @State private var modelsTab = ModelsTab.text
   @State private var appState: AppState
+  @State private var processResourceMonitor = ProcessResourceMonitor()
   @State private var workspaceChatActions: WorkspaceChatActions
 
   @MainActor
@@ -25,7 +26,7 @@ struct ContentView: View {
       WorkspaceSidebar(
         sidebarState: appState.workspaceState.sidebarState,
         busySessionID: chatState.busySessionID,
-        processUsage: appState.modelManagementState.state.processUsage,
+        processUsage: processResourceMonitor.usage,
         selection: routeSelection,
         onAddWorkspace: chooseWorkspace,
         onCreateSession: createSession,
@@ -40,6 +41,7 @@ struct ContentView: View {
     }
     .frame(minWidth: 880, minHeight: 560)
     .onAppear {
+      processResourceMonitor.start()
       appState.startModelRuntimeServices()
     }
     .modifier(
