@@ -218,9 +218,6 @@ enum AppLaunchConfiguration {
         turnTracer: turnTracer
       )
     )
-    let session = ChatSession();
-    
-    
     sumika.models.loadPersistedModelSelection()
     return sumika
   }
