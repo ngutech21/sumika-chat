@@ -1,4 +1,4 @@
-// Crypto is used directly; the analyzer compiler log does not attribute it reliably.
+// Crypto is used directly here; the analyzer compiler log does not attribute it reliably.
 // swiftlint:disable:next unused_import
 import Crypto
 import Foundation

@@ -3,7 +3,7 @@ import Testing
 
 @testable import SumikaCore
 
-struct WorkspaceInstructionsLoaderTests {
+struct AgentWorkspaceInstructionsLoaderTests {
   @Test
   func fileSelectionPrefersExactCaseAndRejectsAmbiguousFallbacks() throws {
     #expect(
