@@ -122,6 +122,11 @@ let package = Package(
       resources: [.process("Fixtures")],
       swiftSettings: concurrencyChecking
     ),
+    .testTarget(
+      name: "SumikaCoreIntegrationTests",
+      dependencies: ["SumikaCore"],
+      swiftSettings: concurrencyChecking
+    ),
     .target(
       name: "SumikaTestSupport",
       path: "Tests/SumikaTestSupport",

@@ -133,7 +133,7 @@ generate-sparkle-appcast:
 test: test-core test-app
 
 test-core:
-    {{swift}} test --no-parallel -q -Xswiftc -warnings-as-errors --filter 'SumikaCoreTests|DataModelGeneratorTests'
+    {{swift}} test --no-parallel -q -Xswiftc -warnings-as-errors --filter 'SumikaCoreTests|SumikaCoreIntegrationTests|DataModelGeneratorTests'
 
 prompt-cost:
     SUMIKA_PRINT_PROMPT_COST=1 {{swift}} test --no-parallel --filter PromptCostRegressionTests
