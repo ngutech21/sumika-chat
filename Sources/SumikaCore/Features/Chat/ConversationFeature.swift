@@ -65,11 +65,6 @@ package final class ConversationFeature {
   }
 
   @discardableResult
-  package func sendMessage(prompt: String) -> Bool {
-    engine.sendMessage(prompt: prompt)
-  }
-
-  @discardableResult
   package func sendMessage(
     prompt: String,
     in workspace: Workspace,

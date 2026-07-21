@@ -134,6 +134,24 @@ extension ConversationEngine {
       conversationEngine: self
     ).switchSession(to: session)
   }
+
+  @discardableResult
+  func sendMessageInTestWorkspace(prompt: String) -> Bool {
+    let session = chatSession
+    return sendMessage(
+      prompt: prompt,
+      in: makeConversationTestWorkspace(containing: session),
+      sessionID: session.id
+    )
+  }
+}
+
+func makeConversationTestWorkspace(containing session: ChatSession) -> Workspace {
+  Workspace(
+    name: "Test Workspace",
+    rootURL: URL(filePath: "/tmp/sumika-test-workspace"),
+    sessions: [session]
+  )
 }
 
 actor NonCooperativeStreamingRuntime: ChatModelRuntime {

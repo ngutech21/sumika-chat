@@ -9,12 +9,14 @@ struct ConversationEngineLifecycleTests {
   @Test
   func userTurnStreamsAssistantReplyAndCompletes() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello"])
+    let session = ChatSession(interactionMode: .chat)
+    let workspace = makeConversationTestWorkspace(containing: session)
     let harness = ConversationEngineLifecycleHarness(
-      session: ChatSession(interactionMode: .chat),
+      session: session,
       runtime: runtime
     )
 
-    harness.startUserTurn(prompt: "say hello")
+    harness.startUserTurn(prompt: "say hello", workspace: workspace, sessionID: session.id)
 
     try await waitUntil { harness.finishCount == 1 }
 
@@ -449,12 +451,18 @@ struct ConversationEngineLifecycleTests {
         .chunk("Here is the answer."),
       ]
     ])
+    let session = ChatSession(interactionMode: .chat)
+    let workspace = makeConversationTestWorkspace(containing: session)
     let harness = ConversationEngineLifecycleHarness(
-      session: ChatSession(interactionMode: .chat),
+      session: session,
       runtime: runtime
     )
 
-    harness.startUserTurn(prompt: "explain the tradeoff")
+    harness.startUserTurn(
+      prompt: "explain the tradeoff",
+      workspace: workspace,
+      sessionID: session.id
+    )
 
     try await waitUntil { harness.finishCount == 1 }
 
@@ -474,12 +482,14 @@ struct ConversationEngineLifecycleTests {
   @Test
   func cancelActiveTurnMarksTurnCancelledAndRemovesTransientPlaceholder() async throws {
     let runtime = ControlledStreamingRuntime(turns: [["partial"]], blockedCallIndexes: [0])
+    let session = ChatSession(interactionMode: .chat)
+    let workspace = makeConversationTestWorkspace(containing: session)
     let harness = ConversationEngineLifecycleHarness(
-      session: ChatSession(interactionMode: .chat),
+      session: session,
       runtime: runtime
     )
 
-    harness.startUserTurn(prompt: "wait")
+    harness.startUserTurn(prompt: "wait", workspace: workspace, sessionID: session.id)
     try await waitUntilAsync { await runtime.startedStreamCount == 1 }
 
     harness.cancel()
@@ -690,14 +700,10 @@ private final class ConversationEngineLifecycleHarness: @unchecked Sendable {
 
   func startUserTurn(
     prompt: String,
-    workspace: Workspace? = nil,
-    sessionID: ChatSession.ID? = nil
+    workspace: Workspace,
+    sessionID: ChatSession.ID
   ) {
-    if let workspace, let sessionID {
-      engine.sendMessage(prompt: prompt, in: workspace, sessionID: sessionID)
-    } else {
-      engine.sendMessage(prompt: prompt)
-    }
+    engine.sendMessage(prompt: prompt, in: workspace, sessionID: sessionID)
   }
 
   func approve(_ record: ToolCallRecord, in workspace: Workspace) {

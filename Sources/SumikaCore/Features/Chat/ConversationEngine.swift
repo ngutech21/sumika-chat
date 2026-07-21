@@ -443,11 +443,6 @@ extension ConversationEngine {
   }
 
   @discardableResult
-  func sendMessage(prompt: String) -> Bool {
-    sendMessage(prompt: prompt, workspace: nil, sessionID: nil)
-  }
-
-  @discardableResult
   func sendMessage(
     prompt: String,
     in workspace: Workspace,
@@ -458,8 +453,8 @@ extension ConversationEngine {
 
   private func sendMessage(
     prompt rawPrompt: String,
-    workspace: Workspace?,
-    sessionID: ChatSession.ID?
+    workspace: Workspace,
+    sessionID: ChatSession.ID
   ) -> Bool {
     let prompt = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
     guard canSend(prompt: rawPrompt) else { return false }
