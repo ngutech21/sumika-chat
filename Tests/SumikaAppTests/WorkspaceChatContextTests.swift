@@ -6,9 +6,8 @@ import Testing
 
 struct WorkspaceChatContextTests {
   @Test
-  func workspaceContainingSessionKeepsRouteMetadataWithoutPersistedSessions() {
+  func contextKeepsWorkspaceRouteMetadataWithoutCopyingSessions() {
     let workspaceID = UUID()
-    let sessionID = UUID()
     let bookmarkData = Data([1, 2, 3])
     let rootURL = URL(filePath: "/tmp/project")
     let context = WorkspaceChatContext(
@@ -23,12 +22,9 @@ struct WorkspaceChatContextTests {
       )
     )
 
-    let bridgedWorkspace = context.workspace(containing: sessionID)
-
-    #expect(bridgedWorkspace.id == workspaceID)
-    #expect(bridgedWorkspace.name == "Project")
-    #expect(bridgedWorkspace.rootURL == rootURL)
-    #expect(bridgedWorkspace.bookmarkData == bookmarkData)
-    #expect(bridgedWorkspace.sessions.map(\.id) == [sessionID])
+    #expect(context.id == workspaceID)
+    #expect(context.name == "Project")
+    #expect(context.rootURL == rootURL)
+    #expect(context.bookmarkData == bookmarkData)
   }
 }

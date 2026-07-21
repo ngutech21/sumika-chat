@@ -72,10 +72,6 @@ package struct WorkspaceLibraryController {
     return library.workspaces.first { $0.id == activeWorkspaceID }
   }
 
-  package var activeWorkspaceID: Workspace.ID? {
-    library.activeWorkspaceID
-  }
-
   package var activeSession: ChatSession? {
     guard
       let activeWorkspace,
@@ -108,19 +104,18 @@ package struct WorkspaceLibraryController {
     }
 
     let currentDate = now()
-    let session = makeDefaultSession(createdAt: currentDate, updatedAt: currentDate)
     let workspace = Workspace(
       name: name,
       rootURL: normalizedRootURL,
       bookmarkData: bookmarkData,
-      sessions: [session],
+      sessions: [],
       createdAt: currentDate,
       updatedAt: currentDate
     )
 
     library.workspaces.append(workspace)
     library.activeWorkspaceID = workspace.id
-    library.activeSessionID = session.id
+    library.activeSessionID = nil
     return workspace.id
   }
 
@@ -266,15 +261,41 @@ package struct WorkspaceLibraryController {
     }
   }
 
-  package mutating func persistActiveSessionSnapshot(_ snapshot: ChatSession) {
-    guard
-      let workspaceIndex = activeWorkspaceIndex,
-      let sessionIndex = activeSessionIndex(in: workspaceIndex)
+  package mutating func persistSessionSnapshot(
+    _ snapshot: ChatSession,
+    in workspaceID: Workspace.ID
+  ) {
+    guard let workspaceIndex = library.workspaces.firstIndex(where: { $0.id == workspaceID }),
+      let sessionIndex = library.workspaces[workspaceIndex].sessions.firstIndex(where: {
+        $0.id == snapshot.id
+      })
     else {
       return
     }
 
     library.workspaces[workspaceIndex].sessions[sessionIndex] = snapshot
+  }
+
+  @discardableResult
+  package mutating func retainSelectedMCPServerIDs(_ availableServerIDs: Set<UUID>) -> Bool {
+    var didChange = false
+    for workspaceIndex in library.workspaces.indices {
+      for sessionIndex in library.workspaces[workspaceIndex].sessions.indices {
+        let selection = library.workspaces[workspaceIndex].sessions[sessionIndex]
+          .selectedMCPServerIDs
+          .filter(availableServerIDs.contains)
+        guard
+          selection
+            != library.workspaces[workspaceIndex].sessions[sessionIndex].selectedMCPServerIDs
+        else {
+          continue
+        }
+        library.workspaces[workspaceIndex].sessions[sessionIndex]
+          .setSelectedMCPServerIDs(selection)
+        didChange = true
+      }
+    }
+    return didChange
   }
 
   private func makeDefaultSession(createdAt: Date, updatedAt: Date) -> ChatSession {
@@ -307,15 +328,5 @@ package struct WorkspaceLibraryController {
 
   private var activeWorkspaceIndex: Int? {
     workspaceIndex(for: library.activeWorkspaceID)
-  }
-
-  private func activeSessionIndex(in workspaceIndex: Int) -> Int? {
-    guard let activeSessionID = library.activeSessionID else {
-      return nil
-    }
-
-    return library.workspaces[workspaceIndex].sessions.firstIndex {
-      $0.id == activeSessionID
-    }
   }
 }

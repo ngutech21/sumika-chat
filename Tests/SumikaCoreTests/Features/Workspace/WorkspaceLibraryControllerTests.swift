@@ -41,7 +41,7 @@ struct WorkspaceLibraryControllerTests {
   }
 
   @Test
-  func addNewWorkspaceSelectsCreatedDefaultSession() throws {
+  func addNewWorkspaceDoesNotCreateSessionUntilRequested() throws {
     var controller = makeController(library: WorkspaceLibrary())
 
     let addedWorkspaceID = controller.addWorkspace(
@@ -50,12 +50,12 @@ struct WorkspaceLibraryControllerTests {
     )
     let workspaceID = try #require(addedWorkspaceID)
     let workspace = try #require(controller.library.workspaces.first)
-    let session = try #require(workspace.sessions.first)
 
     #expect(workspace.id == workspaceID)
+    #expect(workspace.sessions.isEmpty)
     #expect(controller.library.activeWorkspaceID == workspaceID)
-    #expect(controller.library.activeSessionID == session.id)
-    #expect(controller.activeSession?.id == session.id)
+    #expect(controller.library.activeSessionID == nil)
+    #expect(controller.activeSession == nil)
   }
 
   @Test
@@ -304,7 +304,7 @@ struct WorkspaceLibraryControllerTests {
   }
 
   @Test
-  func persistActiveSessionSnapshotDoesNotChangeWorkspaceTimestamp() throws {
+  func persistSessionSnapshotDoesNotChangeWorkspaceTimestamp() throws {
     let workspaceUpdatedAt = Date(timeIntervalSinceReferenceDate: 10)
     let persistedAt = Date(timeIntervalSinceReferenceDate: 40)
     let workspaceID = fixedUUID("00000000-0000-0000-0000-000000000401")
@@ -331,7 +331,7 @@ struct WorkspaceLibraryControllerTests {
     snapshot.title = "Persisted"
     snapshot.interactionMode = .agent
 
-    controller.persistActiveSessionSnapshot(snapshot)
+    controller.persistSessionSnapshot(snapshot, in: workspaceID)
 
     let savedWorkspace = try #require(controller.activeWorkspace)
     let savedActiveSession = try #require(controller.activeSession)
@@ -342,6 +342,33 @@ struct WorkspaceLibraryControllerTests {
     #expect(savedActiveSession.title == "Persisted")
     #expect(savedActiveSession.interactionMode == .agent)
     #expect(savedOtherSession == otherSession)
+  }
+
+  @Test
+  func retainingMCPServerIDsPrunesDeletedServersAcrossSessions() throws {
+    let retainedServerID = UUID()
+    let deletedServerID = UUID()
+    let firstSession = ChatSession(
+      selectedMCPServerIDs: [retainedServerID, deletedServerID]
+    )
+    let secondSession = ChatSession(selectedMCPServerIDs: [deletedServerID])
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: URL(filePath: "/tmp/project", directoryHint: .isDirectory),
+      sessions: [firstSession, secondSession]
+    )
+    var controller = makeController(
+      library: WorkspaceLibrary(workspaces: [workspace])
+    )
+
+    let didChange = controller.retainSelectedMCPServerIDs([retainedServerID])
+
+    #expect(didChange)
+    let sessions = try #require(controller.library.workspaces.first?.sessions)
+    #expect(sessions[0].selectedMCPServerIDs == [retainedServerID])
+    #expect(sessions[1].selectedMCPServerIDs.isEmpty)
+    let didChangeAgain = controller.retainSelectedMCPServerIDs([retainedServerID])
+    #expect(!didChangeAgain)
   }
 
   private func makeController(

@@ -24,10 +24,7 @@ struct ModelContextDebugHost: View {
         documentRevision: debugState.documentRevision
       ),
       makeDocument: {
-        try chatState.modelContextDebugDocument(
-          in: context,
-          sessionID: sessionID
-        )
+        try chatState.modelContextDebugDocument()
       },
       onClose: onClose
     )

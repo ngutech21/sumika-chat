@@ -11,6 +11,7 @@ final class ModelRuntimeController {
   var modelPath: String
   var modelState: ModelLoadState = .notLoaded
   var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
+  var selectedModeSettings = ManagedModelCatalog.defaultModel.defaultModeSettings
   var modelGenerationConfigPreset: ChatGenerationConfigPreset?
   var processUsage: ProcessResourceUsage?
   var modelAvailabilitySnapshot: [ManagedModel.ID: Bool] = [:]
@@ -71,6 +72,7 @@ final class ModelRuntimeController {
     selectedModelID: ManagedModel.ID,
     modelPath: String,
     modelContextTokenLimit: Int,
+    selectedModeSettings: ChatModeSettingsSet? = nil,
     modelSettingsStore: any ModelSettingsStoring,
     runtimeOperations: RuntimeOperationCoordinator,
     modelLifecycleCoordinator: ModelLifecycleCoordinator,
@@ -80,6 +82,8 @@ final class ModelRuntimeController {
     self.selectedModelID = selectedModelID
     self.modelPath = modelPath
     self.modelContextTokenLimit = modelContextTokenLimit
+    self.selectedModeSettings =
+      selectedModeSettings ?? ManagedModelCatalog.defaultModel.defaultModeSettings
     self.modelSettingsStore = modelSettingsStore
     self.runtimeOperations = runtimeOperations
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
@@ -179,6 +183,7 @@ final class ModelRuntimeController {
         return
       }
       modelContextTokenLimit = settings.contextTokenLimit
+      selectedModeSettings = settings.modeSettings
       refreshModelGenerationConfigPreset()
       onModelDidChange?(settings)
     }
@@ -207,6 +212,7 @@ final class ModelRuntimeController {
         return
       }
       modelContextTokenLimit = settings.contextTokenLimit
+      selectedModeSettings = settings.modeSettings
       refreshModelGenerationConfigPreset()
     }
 
@@ -277,6 +283,7 @@ final class ModelRuntimeController {
   }
 
   func saveSelectedModelSettings(modeSettings: ChatModeSettingsSet) {
+    selectedModeSettings = modeSettings
     let settings = StoredModelSettings(
       modeSettings: modeSettings,
       contextTokenLimit: modelContextTokenLimit
@@ -334,6 +341,7 @@ final class ModelRuntimeController {
       self.selectedModelID = selectedModel.id
       modelPath = selectedModel.localPath
       modelContextTokenLimit = settings.contextTokenLimit
+      selectedModeSettings = settings.modeSettings
       refreshModelGenerationConfigPreset()
       if notifyModelDidChange {
         onModelDidChange?(settings)

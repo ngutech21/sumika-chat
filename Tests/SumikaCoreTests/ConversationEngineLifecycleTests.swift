@@ -10,7 +10,7 @@ struct ConversationEngineLifecycleTests {
   func userTurnStreamsAssistantReplyAndCompletes() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello"])
     let session = ChatSession(interactionMode: .chat)
-    let workspace = makeConversationTestWorkspace(containing: session)
+    let workspace = try makeConversationTestWorkspace(containing: session)
     let harness = ConversationEngineLifecycleHarness(
       session: session,
       runtime: runtime
@@ -452,7 +452,7 @@ struct ConversationEngineLifecycleTests {
       ]
     ])
     let session = ChatSession(interactionMode: .chat)
-    let workspace = makeConversationTestWorkspace(containing: session)
+    let workspace = try makeConversationTestWorkspace(containing: session)
     let harness = ConversationEngineLifecycleHarness(
       session: session,
       runtime: runtime
@@ -483,7 +483,7 @@ struct ConversationEngineLifecycleTests {
   func cancelActiveTurnMarksTurnCancelledAndRemovesTransientPlaceholder() async throws {
     let runtime = ControlledStreamingRuntime(turns: [["partial"]], blockedCallIndexes: [0])
     let session = ChatSession(interactionMode: .chat)
-    let workspace = makeConversationTestWorkspace(containing: session)
+    let workspace = try makeConversationTestWorkspace(containing: session)
     let harness = ConversationEngineLifecycleHarness(
       session: session,
       runtime: runtime
@@ -581,15 +581,17 @@ struct ConversationEngineLifecycleTests {
       workspaceInstructionsLoader: loader
     )
 
-    harness.startUserTurn(
-      prompt: "Agent",
-      workspace: workspace,
-      sessionID: UUID()
-    )
-    try await waitUntil { harness.finishCount == 1 }
+    #expect(
+      !harness.startUserTurn(
+        prompt: "Agent",
+        workspace: workspace,
+        sessionID: UUID()
+      ))
 
+    #expect(harness.finishCount == 0)
+    #expect(harness.errorMessages == ["The active chat session does not belong to the workspace."])
     #expect(await loader.loadCount == 0)
-    #expect(await runtime.capturedMessages.count == 1)
+    #expect(await runtime.capturedMessages.isEmpty)
   }
 
   @Test
@@ -698,11 +700,12 @@ private final class ConversationEngineLifecycleHarness: @unchecked Sendable {
     }
   }
 
+  @discardableResult
   func startUserTurn(
     prompt: String,
     workspace: Workspace,
     sessionID: ChatSession.ID
-  ) {
+  ) -> Bool {
     engine.sendMessage(prompt: prompt, in: workspace, sessionID: sessionID)
   }
 

@@ -18,6 +18,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("Wrote both files.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "write both files", in: workspace, sessionID: sessionID)
@@ -103,6 +104,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("Finished the remaining writes.")]
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.loadSession(decoded)
 
@@ -136,6 +138,7 @@ struct ConversationEngineToolLoopTests {
       runtime: initialRuntime,
       modelPath: "/tmp/model"
     )
+    try initialController.loadSession(from: workspace, sessionID: sessionID)
     initialController.modelRuntime.modelState = .ready
     initialController.setInteractionMode(.agent)
     initialController.sendMessage(
@@ -154,6 +157,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("Finished at the tool batch limit.")]
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.loadSession(reloadedSession)
     let pendingRecord = try #require(
@@ -200,6 +204,7 @@ struct ConversationEngineToolLoopTests {
         ]
     )
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(
@@ -232,6 +237,7 @@ struct ConversationEngineToolLoopTests {
         + [[.chunk("Tool limit reached. I stopped after the recorded file listings.")]]
     )
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(
@@ -296,6 +302,7 @@ struct ConversationEngineToolLoopTests {
       eventTurns: listFileEventTurns(count: budget) + [[]]
     )
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(
@@ -353,6 +360,7 @@ struct ConversationEngineToolLoopTests {
         executorRegistry: .codingAgentRegistry(todoWriteEnabled: true)
       )
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "run a failing command", in: workspace, sessionID: sessionID)
@@ -413,6 +421,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("The command keeps failing; please run it yourself.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "stage the changes", in: workspace, sessionID: sessionID)
@@ -454,6 +463,7 @@ struct ConversationEngineToolLoopTests {
       [.thinkingChunk("I am reasoning but not answering.")]
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "answer visibly", in: workspace, sessionID: sessionID)
@@ -483,6 +493,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("Continuing after the duplicate observation.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect the project", in: workspace, sessionID: sessionID)
@@ -539,6 +550,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("README contains project notes.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect README", in: workspace, sessionID: sessionID)
@@ -572,6 +584,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("UNEXPECTED_SECOND_GENERATION")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "finish the task", in: workspace, sessionID: sessionID)
@@ -626,6 +639,7 @@ struct ConversationEngineToolLoopTests {
       ],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "finish the task", in: workspace, sessionID: sessionID)
@@ -676,6 +690,7 @@ struct ConversationEngineToolLoopTests {
       ],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect and finish", in: workspace, sessionID: sessionID)
@@ -733,6 +748,7 @@ struct ConversationEngineToolLoopTests {
         ]
     )
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect and finish", in: workspace, sessionID: sessionID)
@@ -771,6 +787,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("I will answer from the existing README content.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect README", in: workspace, sessionID: sessionID)
@@ -833,6 +850,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("I will read Sources/App.swift next.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
@@ -879,6 +897,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("I will stop listing and read a file.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
@@ -926,6 +945,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("I read the source file.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
@@ -975,6 +995,7 @@ struct ConversationEngineToolLoopTests {
         .unchanged(path: appPath, readKey: ReadKey(path: appPath))
       )
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
@@ -1017,6 +1038,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("The file was missing.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
@@ -1067,6 +1089,7 @@ struct ConversationEngineToolLoopTests {
         .repeatedReadWarning(path: WorkspaceRelativePath(rawValue: "Sources/App.swift"), count: 4)
       )
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
@@ -1104,6 +1127,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("Continuing after the duplicate listing.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
@@ -1144,6 +1168,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("I found Swift files.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect the app sources", in: workspace, sessionID: sessionID)
@@ -1173,6 +1198,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("The project contains README.md.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect the project", in: workspace, sessionID: sessionID)
@@ -1206,6 +1232,7 @@ struct ConversationEngineToolLoopTests {
     ])
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: eventTurns)
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(
@@ -1245,6 +1272,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("Continuing with the plan.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
@@ -1306,6 +1334,7 @@ struct ConversationEngineToolLoopTests {
         executorRegistry: .codingAgentRegistry(todoWriteEnabled: false)
       )
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
@@ -1360,6 +1389,7 @@ struct ConversationEngineToolLoopTests {
         executorRegistry: .codingAgentRegistry(todoWriteEnabled: false)
       )
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
@@ -1425,6 +1455,7 @@ struct ConversationEngineToolLoopTests {
         executorRegistry: .codingAgentRegistry(todoWriteEnabled: true)
       )
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "make a focused change", in: workspace, sessionID: sessionID)
@@ -1481,6 +1512,7 @@ struct ConversationEngineToolLoopTests {
       modelPath: "/tmp/model",
       chatSession: ChatSession(id: sessionID, interactionMode: .agent)
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.reconcileAgentTools(
       todoWriteEnabled: true,
@@ -1530,6 +1562,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("I'll make the minimal fix.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "implement the feature", in: workspace, sessionID: sessionID)
@@ -1562,7 +1595,7 @@ struct ConversationEngineToolLoopTests {
   }
 
   @Test
-  func sendingNewMessageInterruptsPendingAskUserWithoutResumingOldTurn() async throws {
+  func sendingNewMessageDoesNotInterruptPendingAskUser() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
@@ -1580,44 +1613,24 @@ struct ConversationEngineToolLoopTests {
       [.chunk("I will follow the new instruction.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "implement the feature", in: workspace, sessionID: sessionID)
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingUserAnswer }
-    let record = try #require(engine.chatSession.toolCalls.first)
-
-    engine.sendMessage(
-      prompt: "ignore that question and use the broader refactor", in: workspace,
-      sessionID: sessionID)
-
-    try await waitUntil {
-      engine.chatSession.turns.count == 2 && !engine.isGenerating
-    }
-
-    #expect(engine.chatSession.turns[0].status == .cancelled)
-    #expect(engine.chatSession.turns[0].modelContextPolicy == .excluded)
-    #expect(engine.chatSession.toolCalls.first?.status == .cancelled)
-    #expect(engine.chatSession.turns[1].status == .completed)
     #expect(
-      engine.chatSession.testMessages.last?.content == "I will follow the new instruction.")
+      !engine.sendMessage(
+        prompt: "ignore that question and use the broader refactor",
+        in: workspace,
+        sessionID: sessionID
+      ))
 
-    engine.answerAskUserToolCall(id: record.id, answer: "Minimal fix", in: workspace)
-    await Task.yield()
-
-    #expect(engine.chatSession.toolCalls.first?.status == .cancelled)
-    #expect(engine.chatSession.turns[0].status == .cancelled)
+    #expect(engine.chatSession.turns.count == 1)
+    #expect(engine.chatSession.turns[0].status == .awaitingUserAnswer)
+    #expect(engine.chatSession.toolCalls.first?.status == .awaitingUserAnswer)
 
     let capturedMessages = await runtime.capturedMessages
-    #expect(capturedMessages.count == 2)
-    #expect(
-      capturedMessages[1].contains { message in
-        message.role == .user
-          && message.content.contains("ignore that question and use the broader refactor")
-      })
-    #expect(
-      !capturedMessages[1].contains { message in
-        message.role == .user && message.content.contains("User answered:")
-      })
+    #expect(capturedMessages.count == 1)
   }
 
   @Test
@@ -1646,6 +1659,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("The file contains project notes.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(
@@ -1694,6 +1708,7 @@ struct ConversationEngineToolLoopTests {
       [.chunk("Second answer.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
@@ -1728,6 +1743,7 @@ struct ConversationEngineToolLoopTests {
       modelPath: "/tmp/model",
       toolOrchestrator: allowedRunCommandOrchestrator(exitCode: 0)
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "check status", in: workspace, sessionID: sessionID)
@@ -1778,6 +1794,7 @@ struct ConversationEngineToolLoopTests {
       modelPath: "/tmp/model",
       toolOrchestrator: allowedRunCommandOrchestrator(exitCode: 0)
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "commit the project", in: workspace, sessionID: sessionID)
@@ -1808,6 +1825,7 @@ struct ConversationEngineToolLoopTests {
       modelPath: "/tmp/model",
       toolOrchestrator: allowedRunCommandOrchestrator(exitCode: 1)
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "check status", in: workspace, sessionID: sessionID)
@@ -1853,6 +1871,7 @@ struct ConversationEngineToolLoopTests {
       modelPath: "/tmp/model",
       toolOrchestrator: allowedRunCommandOrchestrator(exitCode: 1)
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "commit the project", in: workspace, sessionID: sessionID)
@@ -1889,6 +1908,7 @@ struct ConversationEngineToolLoopTests {
       modelPath: "/tmp/model",
       toolOrchestrator: allowedRunCommandOrchestrator(exitCode: 0)
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect git state", in: workspace, sessionID: sessionID)
@@ -1930,6 +1950,7 @@ struct ConversationEngineToolLoopTests {
         ])
       )
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "inspect the workspace", in: workspace, sessionID: sessionID)

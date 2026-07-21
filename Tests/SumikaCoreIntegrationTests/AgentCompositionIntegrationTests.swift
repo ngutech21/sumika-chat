@@ -6,6 +6,68 @@ import Testing
 @MainActor
 struct AgentCompositionIntegrationTests {
   @Test
+  func conversationRequiresValidatedActivationAndPublishesFinalSnapshot() throws {
+    let testRoot = FileManager.default.temporaryDirectory.appending(
+      path: "sumika-core-conversation-state-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    defer { try? FileManager.default.removeItem(at: testRoot) }
+
+    let sumika = Sumika(
+      dependencies: Sumika.Dependencies(
+        runtime: AgentCompositionRuntime(),
+        modelSettingsStore: ModelSettingsStore(
+          settingsURL: testRoot.appending(path: "model-settings.json")
+        )
+      )
+    )
+    #expect(sumika.conversation.state == .inactive)
+    #expect(throws: ConversationIntentError.inactive) {
+      try sumika.conversation.sendMessage(prompt: "Not active")
+    }
+
+    let session = ChatSession(title: "Original")
+    let secondSession = ChatSession(title: "Second")
+    let workspace = Workspace(
+      name: "Project",
+      rootURL: testRoot,
+      sessions: [session, secondSession]
+    )
+    let foreignSessionID = UUID()
+    #expect(
+      throws: ConversationIntentError.sessionNotFound(
+        workspaceID: workspace.id,
+        sessionID: foreignSessionID
+      )
+    ) {
+      try sumika.conversation.activate(sessionID: foreignSessionID, in: workspace)
+    }
+
+    var publishedSnapshots: [(Workspace.ID, ChatSession)] = []
+    sumika.conversation.setSessionChangeHandler { workspaceID, snapshot in
+      publishedSnapshots.append((workspaceID, snapshot))
+    }
+    try sumika.conversation.activate(sessionID: session.id, in: workspace)
+    #expect(sumika.conversation.state.active?.workspaceID == workspace.id)
+    #expect(sumika.conversation.state.active?.sessionID == session.id)
+    _ = try sumika.conversation.renameSession(to: "Renamed")
+
+    try sumika.conversation.activate(sessionID: secondSession.id, in: workspace)
+
+    #expect(sumika.conversation.state.active?.sessionID == secondSession.id)
+    #expect(publishedSnapshots.last?.0 == workspace.id)
+    #expect(publishedSnapshots.last?.1.id == session.id)
+    #expect(publishedSnapshots.last?.1.title == "Renamed")
+
+    sumika.conversation.deactivate()
+
+    #expect(sumika.conversation.state == .inactive)
+    #expect(sumika.conversation.snapshot() == nil)
+    #expect(publishedSnapshots.last?.0 == workspace.id)
+    #expect(publishedSnapshots.last?.1.id == secondSession.id)
+  }
+
+  @Test
   func corePackageBuildsAndRunsAgentWithoutAppOrMLXTargets() async throws {
     let testRoot = FileManager.default.temporaryDirectory.appending(
       path: "sumika-core-agent-composition-\(UUID().uuidString)",
@@ -46,7 +108,6 @@ struct AgentCompositionIntegrationTests {
     )
     let sumika = Sumika(
       configuration: Sumika.Configuration(
-        initialSession: session,
         initialModel: selectedModel,
         modelPath: modelDirectory.path(percentEncoded: false),
         initialModelSettings: settings
@@ -71,20 +132,17 @@ struct AgentCompositionIntegrationTests {
       rootURL: workspaceDirectory,
       sessions: [session]
     )
-    #expect(
-      sumika.conversation.sendMessage(
-        prompt: "Read README.md and report what it contains.",
-        in: workspace,
-        sessionID: session.id
-      )
+    try sumika.conversation.activate(sessionID: session.id, in: workspace)
+    try sumika.conversation.sendMessage(
+      prompt: "Read README.md and report what it contains."
     )
 
     try await waitUntil {
-      !sumika.conversation.state.isGenerating
-        && sumika.conversation.snapshot().turns.last?.status == .completed
+      sumika.conversation.state.active?.activity == .idle
+        && sumika.conversation.snapshot()?.turns.last?.status == .completed
     }
 
-    let snapshot = sumika.conversation.snapshot()
+    let snapshot = try #require(sumika.conversation.snapshot())
     #expect(snapshot.interactionMode == .agent)
     #expect(
       snapshot.toolCalls.map(\.request.toolName) == [.readFile, .finishTask]

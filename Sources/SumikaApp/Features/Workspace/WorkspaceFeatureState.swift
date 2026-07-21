@@ -41,6 +41,16 @@ final class WorkspaceFeatureState {
     workspaceLibraryController.activeSession
   }
 
+  func workspace(
+    id workspaceID: Workspace.ID,
+    containing sessionID: ChatSession.ID
+  ) -> Workspace? {
+    library.workspaces.first { workspace in
+      workspace.id == workspaceID
+        && workspace.sessions.contains { $0.id == sessionID }
+    }
+  }
+
   private var workspaceLibraryController: WorkspaceLibraryController
   @ObservationIgnored private let workspaceStore: any WorkspaceStoring
   @ObservationIgnored private let workspaceOpener: any WorkspaceOpening
@@ -184,11 +194,24 @@ final class WorkspaceFeatureState {
     return wasActiveWorkspace ? .changed(activeSessionID) : .unchanged
   }
 
-  func persistActiveSessionSnapshot(_ snapshot: ChatSession) {
+  func persistSessionSnapshot(
+    _ snapshot: ChatSession,
+    in workspaceID: Workspace.ID
+  ) {
     guard !isPersistenceBlocked else {
       return
     }
-    workspaceLibraryController.persistActiveSessionSnapshot(snapshot)
+    workspaceLibraryController.persistSessionSnapshot(snapshot, in: workspaceID)
+    syncWorkspaceProjections()
+    saveLibrary()
+  }
+
+  func retainSelectedMCPServerIDs(_ availableServerIDs: Set<UUID>) {
+    guard !isPersistenceBlocked,
+      workspaceLibraryController.retainSelectedMCPServerIDs(availableServerIDs)
+    else {
+      return
+    }
     syncWorkspaceProjections()
     saveLibrary()
   }

@@ -62,6 +62,7 @@ struct SemanticAgentLoopTests {
       ],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
@@ -155,6 +156,7 @@ struct SemanticAgentLoopTests {
       ],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 
@@ -227,6 +229,7 @@ struct SemanticAgentLoopTests {
     ])
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: eventTurns)
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
 

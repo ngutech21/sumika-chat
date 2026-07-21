@@ -99,7 +99,15 @@ flowchart TD
 
 ## Turn Lifecycle
 
-1. `sendMessage` validates UI-facing state, clears the draft and pending
+The app owns workspace/session selection. Core binds at most one validated
+conversation with `activate(sessionID:in:)`; selecting another chat in the UI
+does not switch or cancel that binding. Conversation intents do not repeat
+workspace or session identifiers. `deactivate()` publishes the final identified
+session snapshot for app-owned persistence and returns Core to its inactive
+state.
+
+1. `sendMessage` requires an active conversation, validates UI-facing state,
+   clears the draft and pending
    attachments, then starts the active turn.
 2. The conversation owner computes the current prompt context, then emits events
    that create a `ChatTurn` with status `.running`, append the user message with

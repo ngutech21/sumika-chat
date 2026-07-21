@@ -23,15 +23,15 @@ package final class ModelManagementFeature {
   }
 
   package var modeSettings: ChatModeSettingsSet {
-    conversationEngine.modeSettings
+    conversationEngine.activeModeSettings ?? modelController.selectedModeSettings
   }
 
   package var canChangeModel: Bool {
-    !conversationEngine.isGenerating && state.canChangeModel
+    !conversationEngine.activity.isBusy && state.canChangeModel
   }
 
   package var canSend: Bool {
-    state.modelState == .ready && !conversationEngine.isGenerating
+    state.modelState == .ready && !conversationEngine.activity.isBusy
   }
 
   package func startRuntimeServices() {
@@ -83,9 +83,7 @@ package final class ModelManagementFeature {
   }
 
   package func updateModeSettings(_ modeSettings: ChatModeSettingsSet) {
-    guard conversationEngine.updateModeSettings(modeSettings) else {
-      return
-    }
+    _ = conversationEngine.updateModeSettings(modeSettings)
     modelController.saveSelectedModelSettings(modeSettings: modeSettings)
   }
 

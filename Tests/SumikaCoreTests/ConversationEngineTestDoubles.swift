@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 @testable import SumikaCore
 
@@ -117,10 +118,19 @@ extension ConversationEngine {
         runtimeOperations: runtimeOperations,
         turnTracer: turnTracer
       ),
-      chatSession: chatSession,
       toolOrchestrator: toolOrchestrator,
       chatAttachmentLoader: chatAttachmentLoader,
       turnTracer: turnTracer
+    )
+    installConversation(
+      chatSession,
+      in: Workspace(
+        name: "Test Workspace",
+        rootURL: FileManager.default.temporaryDirectory,
+        sessions: [chatSession]
+      ),
+      modelRuntimeWasReset: false,
+      prepareRuntimeContext: false
     )
     ConversationEngineTestModelRegistry.register(modelController, for: self)
     modelController.setEventHandlers(
@@ -129,27 +139,58 @@ extension ConversationEngine {
   }
 
   func loadSession(_ session: ChatSession) {
-    ConversationSessionCoordinator(
-      modelController: modelRuntime,
-      conversationEngine: self
-    ).switchSession(to: session)
+    let workspace = Workspace(
+      name: "Test Workspace",
+      rootURL: FileManager.default.temporaryDirectory,
+      sessions: [session]
+    )
+    let model =
+      ManagedModelCatalog.model(id: session.selectedModelID)
+      ?? ManagedModelCatalog.defaultModel
+    let didResetModelRuntime = modelRuntime.applySessionModel(model)
+    installConversation(
+      session,
+      in: workspace,
+      modelRuntimeWasReset: didResetModelRuntime
+    )
+  }
+
+  func loadSession(
+    from workspace: Workspace,
+    sessionID: ChatSession.ID
+  ) throws {
+    if activeSessionID == sessionID {
+      updateActiveWorkspace(workspace)
+      return
+    }
+    let session = try #require(workspace.sessions.first { $0.id == sessionID })
+    let model =
+      ManagedModelCatalog.model(id: session.selectedModelID)
+      ?? ManagedModelCatalog.defaultModel
+    let didResetModelRuntime = modelRuntime.applySessionModel(model)
+    installConversation(
+      session,
+      in: workspace,
+      modelRuntimeWasReset: didResetModelRuntime
+    )
   }
 
   @discardableResult
-  func sendMessageInTestWorkspace(prompt: String) -> Bool {
-    let session = chatSession
-    return sendMessage(
-      prompt: prompt,
-      in: makeConversationTestWorkspace(containing: session),
-      sessionID: session.id
-    )
+  func sendMessageInTestWorkspace(prompt: String) throws -> Bool {
+    try sendMessage(prompt: prompt)
+    return true
   }
 }
 
-func makeConversationTestWorkspace(containing session: ChatSession) -> Workspace {
-  Workspace(
+func makeConversationTestWorkspace(containing session: ChatSession) throws -> Workspace {
+  let rootURL = FileManager.default.temporaryDirectory.appending(
+    path: "sumika-conversation-tests-\(UUID().uuidString)",
+    directoryHint: .isDirectory
+  )
+  try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+  return Workspace(
     name: "Test Workspace",
-    rootURL: URL(filePath: "/tmp/sumika-test-workspace"),
+    rootURL: rootURL,
     sessions: [session]
   )
 }

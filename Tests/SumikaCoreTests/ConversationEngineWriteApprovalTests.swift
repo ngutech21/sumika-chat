@@ -23,6 +23,7 @@ struct ConversationEngineWriteApprovalTests {
       ]
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(
@@ -42,7 +43,7 @@ struct ConversationEngineWriteApprovalTests {
   }
 
   @Test
-  func pendingApprovalDoesNotBlockCanSend() async throws {
+  func pendingApprovalBlocksCanSend() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
@@ -58,6 +59,7 @@ struct ConversationEngineWriteApprovalTests {
       ]
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(
@@ -65,11 +67,11 @@ struct ConversationEngineWriteApprovalTests {
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
 
     #expect(engine.hasPendingApproval)
-    #expect(engine.canSend(prompt: "skip that and explain the current state"))
+    #expect(!engine.canSend(prompt: "skip that and explain the current state"))
   }
 
   @Test
-  func sendingNewMessageInterruptsPendingApprovalWithoutResumingOldTurn() async throws {
+  func sendingNewMessageDoesNotInterruptPendingApproval() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
@@ -86,47 +88,27 @@ struct ConversationEngineWriteApprovalTests {
       [.chunk("I will explain the current state instead.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(
       prompt: "create a html file in the current folder", in: workspace, sessionID: sessionID)
     try await waitUntil { engine.chatSession.turns.first?.status == .awaitingApproval }
-    let toolCallID = try #require(engine.chatSession.toolCalls.first?.id)
-
-    engine.sendMessage(
-      prompt: "skip that and explain the current state", in: workspace, sessionID: sessionID)
-
-    try await waitUntil {
-      engine.chatSession.turns.count == 2 && !engine.isGenerating
-    }
+    #expect(
+      !engine.sendMessage(
+        prompt: "skip that and explain the current state",
+        in: workspace,
+        sessionID: sessionID
+      ))
 
     let outputURL = workspace.rootURL.appending(path: "movies.html")
     #expect(!FileManager.default.fileExists(atPath: outputURL.path(percentEncoded: false)))
-    #expect(engine.chatSession.turns[0].status == .cancelled)
-    #expect(engine.chatSession.turns[0].modelContextPolicy == .excluded)
-    #expect(engine.chatSession.toolCalls.first?.status == .denied)
-    #expect(engine.chatSession.toolCalls.first?.resultPreview?.status == .denied)
-    #expect(engine.chatSession.turns[1].status == .completed)
-    #expect(
-      engine.chatSession.testMessages.last?.content
-        == "I will explain the current state instead.")
-
-    engine.approveToolCall(id: toolCallID, in: workspace)
-    await Task.yield()
-
-    #expect(engine.chatSession.toolCalls.first?.status == .denied)
-    #expect(engine.chatSession.turns[0].status == .cancelled)
+    #expect(engine.chatSession.turns.count == 1)
+    #expect(engine.chatSession.turns[0].status == .awaitingApproval)
+    #expect(engine.chatSession.toolCalls.first?.status == .awaitingApproval)
 
     let capturedMessages = await runtime.capturedMessages
-    #expect(capturedMessages.count == 2)
-    #expect(
-      capturedMessages[1].contains { message in
-        message.role == .user && message.content.contains("skip that and explain the current state")
-      })
-    #expect(
-      !capturedMessages[1].contains { message in
-        message.role == .user && message.content.contains("create a html file")
-      })
+    #expect(capturedMessages.count == 1)
   }
 
   @Test
@@ -148,6 +130,7 @@ struct ConversationEngineWriteApprovalTests {
       [.chunk("Updated movies.html.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(
@@ -217,6 +200,7 @@ struct ConversationEngineWriteApprovalTests {
       [.chunk("Updated automatic.txt.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.enableAutomaticToolApproval(in: workspace)
@@ -258,6 +242,7 @@ struct ConversationEngineWriteApprovalTests {
         ])
       )
     )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.enableAutomaticToolApproval(in: workspace)
@@ -306,6 +291,7 @@ struct ConversationEngineWriteApprovalTests {
       [.chunk("Resumed the automation.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(
@@ -349,6 +335,7 @@ struct ConversationEngineWriteApprovalTests {
       ]
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(
@@ -451,6 +438,7 @@ struct ConversationEngineWriteApprovalTests {
       [.chunk("I will leave README.md unchanged.")],
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
     engine.sendMessage(prompt: "update the readme", in: workspace, sessionID: sessionID)
