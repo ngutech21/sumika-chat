@@ -25,8 +25,6 @@ package enum ModelFacingPromptRenderer {
           prompt: prompt,
           attachmentNames: attachments.map(\.displayName),
           imageSignatures: attachments.filter { $0.kind == .image }.map(\.contentSignature),
-          workspaceInstructions: normalizedSystemContext(workspaceInstructions),
-          systemContext: normalizedSystemContext(systemContext),
           currentPromptContext: currentPromptContext
         )
       ),

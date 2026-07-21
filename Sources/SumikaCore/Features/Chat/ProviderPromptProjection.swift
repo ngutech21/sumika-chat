@@ -120,17 +120,9 @@ private struct CanonicalProviderToolCallPayload: Encodable {
 }
 
 package struct ProviderPromptByteLedgerEntry: Equatable, Sendable {
-  package let messageIndex: Int
-  package let sourceEntryIDs: [UUID]
   package let payloadByteRange: Range<Int>
 
-  package init(
-    messageIndex: Int,
-    sourceEntryIDs: [UUID],
-    payloadByteRange: Range<Int>
-  ) {
-    self.messageIndex = messageIndex
-    self.sourceEntryIDs = sourceEntryIDs
+  package init(payloadByteRange: Range<Int>) {
     self.payloadByteRange = payloadByteRange
   }
 }
@@ -153,7 +145,7 @@ package struct ProviderPromptByteLedger: Equatable, Sendable {
   package init(messages: [ProviderPromptMessage]) {
     var offset = 0
     var sourceRanges: [ProviderPromptSourcePayloadByteRange] = []
-    entries = messages.enumerated().map { index, message in
+    entries = messages.map { message in
       let start = offset
       offset += message.projectedPayloadByteCount
       let messageRange = start..<offset
@@ -185,11 +177,7 @@ package struct ProviderPromptByteLedger: Equatable, Sendable {
             payloadByteRange: messageRange
           ))
       }
-      return ProviderPromptByteLedgerEntry(
-        messageIndex: index,
-        sourceEntryIDs: message.sourceEntryIDs,
-        payloadByteRange: start..<offset
-      )
+      return ProviderPromptByteLedgerEntry(payloadByteRange: messageRange)
     }
     sourcePayloadByteRanges = sourceRanges
     totalByteCount = offset
