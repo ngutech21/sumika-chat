@@ -23,12 +23,11 @@ package final class ConversationEngine {
   @ObservationIgnored private let runtimeContextClearCoordinator: RuntimeContextClearCoordinator
   @ObservationIgnored private let chatGenerationCoordinator: ChatGenerationCoordinator
   @ObservationIgnored private var toolOrchestrator: ToolOrchestrator
-  @ObservationIgnored private var chatWebToolOrchestrator: ToolOrchestrator
-  @ObservationIgnored private var toolLoopCoordinator: ToolLoopCoordinator
+  @ObservationIgnored private let toolLoopCoordinator: ToolLoopCoordinator
   @ObservationIgnored private let turnTracer: any TurnTracing
   @ObservationIgnored var activeTurnID: ChatTurn.ID?
   @ObservationIgnored var activeTurnTask: Task<Void, Never>?
-  @ObservationIgnored var turnToolRegistries: [ChatTurn.ID: ToolRegistry] = [:]
+  @ObservationIgnored var turnToolOrchestrators: [ChatTurn.ID: ToolOrchestrator] = [:]
   @ObservationIgnored let turnExecutionCoordinator: ChatTurnExecutionCoordinator
   @ObservationIgnored var workspaceInstructionsLoader: any WorkspaceInstructionsLoading
   @ObservationIgnored let toolResumeCoordinator = ToolResumeCoordinator()
@@ -101,10 +100,7 @@ package final class ConversationEngine {
     self.workspaceInstructionsLoader = WorkspaceInstructionsLoader()
     self.maxToolLoopIterations = ChatToolLoopLimits.defaultMaxToolLoopIterations
     self.toolOrchestrator = toolOrchestrator
-    self.chatWebToolOrchestrator = toolOrchestrator.replacingExecutorRegistry(.chatWeb)
     self.toolLoopCoordinator = ToolLoopCoordinator(
-      chatWebToolOrchestrator: chatWebToolOrchestrator,
-      agentToolOrchestrator: toolOrchestrator,
       turnTracer: turnTracer
     )
     self.attachmentCoordinator = ChatAttachmentCoordinator(loader: chatAttachmentLoader)
@@ -400,12 +396,6 @@ extension ConversationEngine {
     shouldRefreshContext: Bool
   ) {
     toolOrchestrator = toolOrchestrator.replacingExecutorRegistry(executorRegistry)
-    chatWebToolOrchestrator = toolOrchestrator.replacingExecutorRegistry(.chatWeb)
-    toolLoopCoordinator = ToolLoopCoordinator(
-      chatWebToolOrchestrator: chatWebToolOrchestrator,
-      agentToolOrchestrator: toolOrchestrator,
-      turnTracer: turnTracer
-    )
     invalidateModelContextDebugDocument()
     if shouldRefreshContext {
       clearRuntimeContextForReuse()
@@ -548,6 +538,9 @@ extension ConversationEngine {
       return
     }
 
+    for turnID in interruptedTurnIDs {
+      turnToolOrchestrators[turnID] = nil
+    }
     events.append(.transientAssistantPlaceholdersRemoved)
     applyWorkflowEvents(events)
   }
@@ -848,7 +841,7 @@ extension ConversationEngine {
       existingRecord,
       in: workspace,
       turnID: turnID,
-      toolOrchestrator: toolOrchestrator(for: existingRecord),
+      toolOrchestrator: toolOrchestrator(for: existingRecord, turnID: turnID),
       runtime: turnRuntimeContext()
     )
   }
@@ -879,7 +872,7 @@ extension ConversationEngine {
       batchAnchorID: batch.anchorID,
       in: workspace,
       turnID: turnID,
-      toolOrchestrator: toolOrchestrator(for: firstRecord),
+      toolOrchestrator: toolOrchestrator(for: firstRecord, turnID: turnID),
       runtime: turnRuntimeContext()
     )
   }
@@ -907,7 +900,7 @@ extension ConversationEngine {
       batchAnchorID: batch.anchorID,
       in: workspace,
       turnID: turnID,
-      toolOrchestrator: toolOrchestrator(for: firstRecord),
+      toolOrchestrator: toolOrchestrator(for: firstRecord, turnID: turnID),
       approvalSource: .automatic,
       runtime: turnRuntimeContext()
     )
@@ -922,14 +915,35 @@ extension ConversationEngine {
     return nil
   }
 
-  private func toolOrchestrator(for record: ToolCallRecord) -> ToolOrchestrator {
-    guard chatSession.interactionMode == .chat else {
-      return toolOrchestrator
+  private func toolOrchestrator(
+    for record: ToolCallRecord,
+    turnID: ChatTurn.ID
+  ) -> ToolOrchestrator {
+    if let frozenOrchestrator = turnToolOrchestrators[turnID] {
+      return frozenOrchestrator
     }
-    switch record.request.toolName {
-    case .webSearch, .webFetch:
-      return chatWebToolOrchestrator
-    default:
+    let profile: ToolExecutionProfile =
+      if chatSession.interactionMode == .chat,
+        record.request.toolName == .webSearch || record.request.toolName == .webFetch
+      {
+        .chatWeb
+      } else {
+        .agent
+      }
+    let selectedOrchestrator = effectiveToolOrchestrator(for: profile) ?? toolOrchestrator
+    turnToolOrchestrators[turnID] = selectedOrchestrator
+    return selectedOrchestrator
+  }
+
+  func effectiveToolOrchestrator(
+    for profile: ToolExecutionProfile
+  ) -> ToolOrchestrator? {
+    switch profile {
+    case .disabled:
+      return nil
+    case .chatWeb:
+      return toolOrchestrator.replacingExecutorRegistry(.chatWeb)
+    case .agent:
       return toolOrchestrator
     }
   }
@@ -1005,8 +1019,7 @@ extension ConversationEngine {
       selectedModel: modelState.selectedModel,
       operationID: modelState.operationID,
       chatGenerationCoordinator: chatGenerationCoordinator,
-      toolLoopCoordinator: toolLoopCoordinator,
-      agentToolOrchestrator: toolOrchestrator
+      toolLoopCoordinator: toolLoopCoordinator
     )
   }
 
@@ -1063,9 +1076,22 @@ extension ConversationEngine {
     turnExecutionCoordinator.systemPrompt(
       session: chatSession,
       selectedModel: conversationModelState.selectedModel,
-      toolLoopCoordinator: toolLoopCoordinator,
-      toolPromptMode: toolPromptMode
+      toolPromptMode: toolPromptMode,
+      toolRegistry: effectiveToolRegistry(for: toolPromptMode)
     )
+  }
+
+  private func effectiveToolRegistry(for promptMode: ToolPromptMode) -> ToolRegistry {
+    let profile: ToolExecutionProfile
+    switch promptMode {
+    case .chatWeb, .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal:
+      profile = .chatWeb
+    case .enabled(true), .afterToolResultCanContinue, .afterToolResultFinal:
+      profile = .agent
+    case .disabled, .enabled(false):
+      profile = .disabled
+    }
+    return effectiveToolOrchestrator(for: profile)?.toolRegistry ?? ToolRegistry(tools: [])
   }
 
   private func modelContextDebugToolPromptMode(

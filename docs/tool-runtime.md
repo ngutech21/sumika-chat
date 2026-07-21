@@ -67,9 +67,11 @@ flowchart TD
   without making SwiftUI or tools parse provider syntax.
 - `ConversationEngine` owns the UI-free tool-loop lifecycle together
   with the canonical live `ChatSession` and active turn. Its internal
-  `ChatTurnExecutionCoordinator` invokes `ToolLoopCoordinator`, applies
-  `ChatWorkflowStep` continuations through workflow events, pauses on approval
-  or `ask_user`, and resumes approved, denied, or answered tool flows.
+  `ChatTurnExecutionCoordinator` invokes `ToolLoopCoordinator` with the one
+  orchestrator already selected and frozen by the Engine for that turn. The
+  shared Tool Loop does not select between Chat Web and Agent orchestrators. It
+  applies `ChatWorkflowStep` continuations through workflow events, pauses on
+  approval or `ask_user`, and resumes approved, denied, or answered tool flows.
 - `ChatSession.toolApprovalPolicy` is persisted per session and defaults to
   `manual`. It is effective only while that same session is in Agent mode;
   switching to Chat preserves the preference without enabling workspace tools,
@@ -500,7 +502,8 @@ declarations.
   session or selection changes, server connect/disconnect/reconnect, and
   todo-write setting changes. `ConversationEngine` installs or defers the
   matching selection and registry together so an active or paused turn keeps
-  its frozen tools. Chat (web) sessions never expose MCP tools, and user
+  its frozen tools. Updating the Agent registry does not reconstruct the shared
+  Tool Loop. Chat (web) sessions never expose MCP tools, and user
   selection changes are blocked during generation or unresolved
   approval/user-input interactions.
 - Each regular server connection has a non-persisted token captured by its
@@ -508,13 +511,15 @@ declarations.
   that token. Execution first compares the executor token with the manager's
   current token and fails with `staleConnection` on a mismatch; an old executor
   can never fall through to a replacement connection.
-- A logical turn captures its profile-specific `ToolRegistry` once. Initial
-  prompt rendering, runtime tool context, native-call parsing, duplicate checks,
-  execution, and every model follow-up use that same registry. Registry changes
-  during generation or an approval pause apply to the next turn; the snapshot is
-  runtime-only and is never persisted. Changing selection still changes the next
-  tool-schema cache identity and clears reusable runtime context. `turn_trace`
-  records selected server IDs and the active MCP tool count on prompt rendering.
+- A logical turn captures its profile-specific orchestrator once and derives
+  its `ToolRegistry` from that frozen value. Initial prompt rendering, runtime
+  tool context, native-call parsing, duplicate checks, execution, approval
+  resumption, and every model follow-up therefore use the same implementation
+  and registry. Registry changes during generation or an approval pause apply
+  to the next turn; the snapshot is runtime-only and is never persisted.
+  Changing selection still changes the next tool-schema cache identity and
+  clears reusable runtime context. `turn_trace` records selected server IDs and
+  the active MCP tool count on prompt rendering.
 - Server-provided tool descriptions are untrusted prompt input and are capped
   before entering definitions. MCP results are untrusted tool output: the
   model observation is a capped summary block, and `is_error` results project

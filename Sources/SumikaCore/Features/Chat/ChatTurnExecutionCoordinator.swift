@@ -6,7 +6,6 @@ struct ChatTurnRuntimeContext {
   let operationID: UUID
   let chatGenerationCoordinator: ChatGenerationCoordinator
   let toolLoopCoordinator: ToolLoopCoordinator
-  let agentToolOrchestrator: ToolOrchestrator
 }
 
 enum ChatTurnTaskOutcome {
@@ -270,7 +269,7 @@ struct ChatTurnExecutionCoordinator {
     interactionMode: WorkspaceInteractionMode,
     runtime: ChatTurnRuntimeContext,
     conversation: ConversationEngine,
-    turnToolRegistry: ToolRegistry,
+    turnToolOrchestrator: ToolOrchestrator,
     stableInstructions: String,
     lastNativeToolCalls: [ChatRuntimeToolCall] = []
   ) async throws -> ChatToolLoopOutcome {
@@ -287,6 +286,7 @@ struct ChatTurnExecutionCoordinator {
     var currentAssistantMessageID = lastAssistantMessageID
     var currentNativeToolCalls = lastNativeToolCalls
     let toolCallingPolicy = runtime.selectedModel.toolCallingPolicy
+    let turnToolRegistry = turnToolOrchestrator.toolRegistry
 
     while !currentNativeToolCalls.isEmpty {
       let consumedBatchCount = toolCallBatchCount(
@@ -313,12 +313,10 @@ struct ChatTurnExecutionCoordinator {
             items: conversation.chatSession.turns.flatMap(\.items),
             focusedFileState: conversation.chatSession.focusedFileState,
             interactionMode: interactionMode,
-            toolProfile: toolProfile,
             followUpPromptMode: followUpPromptMode,
             toolLoopIteration: toolLoopIteration,
             toolCallingPolicy: toolCallingPolicy,
             nativeToolCalls: currentNativeToolCalls,
-            toolRegistry: turnToolRegistry,
             approvalPolicyProvider: {
               let session = await conversation.chatSession
               guard session.interactionMode == .agent else {
@@ -326,7 +324,8 @@ struct ChatTurnExecutionCoordinator {
               }
               return session.toolApprovalPolicy
             }
-          )
+          ),
+          using: turnToolOrchestrator
         )
       else {
         return .complete
@@ -490,17 +489,13 @@ extension ChatTurnExecutionCoordinator {
   func systemPrompt(
     session: ChatSession,
     selectedModel: ManagedModel,
-    toolLoopCoordinator: ToolLoopCoordinator,
     toolPromptMode: ToolPromptMode,
-    turnToolRegistry: ToolRegistry? = nil
+    toolRegistry: ToolRegistry
   ) -> String {
-    let registry =
-      turnToolRegistry
-      ?? toolRegistry(for: toolPromptMode, toolLoopCoordinator: toolLoopCoordinator)
     return toolPromptPolicy.systemPrompt(
       basePrompt: session.systemPrompt,
       mode: toolPromptMode,
-      toolRegistry: registry,
+      toolRegistry: toolRegistry,
       toolCallingPolicy: selectedModel.toolCallingPolicy
     )
   }
@@ -594,20 +589,6 @@ extension ChatTurnExecutionCoordinator {
     session: ChatSession
   ) -> Int {
     session.turns.first(where: { $0.id == turnID })?.toolCallBatchCount ?? 0
-  }
-
-  private func toolRegistry(
-    for toolPromptMode: ToolPromptMode,
-    toolLoopCoordinator: ToolLoopCoordinator
-  ) -> ToolRegistry {
-    switch toolPromptMode {
-    case .chatWeb, .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal:
-      return toolLoopCoordinator.toolRegistry(for: .chatWeb)
-    case .enabled(true), .afterToolResultCanContinue, .afterToolResultFinal:
-      return toolLoopCoordinator.toolRegistry
-    case .disabled, .enabled(false):
-      return ToolRegistry(tools: [])
-    }
   }
 
   private func focusEventsForAttachments(

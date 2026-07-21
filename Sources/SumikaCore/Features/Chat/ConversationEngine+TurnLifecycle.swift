@@ -29,7 +29,7 @@ extension ConversationEngine {
     activeTurnTask?.cancel()
     activeTurnTask = nil
     self.activeTurnID = nil
-    turnToolRegistries[activeTurnID] = nil
+    turnToolOrchestrators[activeTurnID] = nil
     return activeTurnID
   }
 
@@ -66,8 +66,11 @@ extension ConversationEngine {
       for: toolProfile
     )
     let turnID = UUID()
-    let turnToolRegistry = runtime.toolLoopCoordinator.toolRegistry(for: toolProfile)
-    turnToolRegistries[turnID] = turnToolRegistry
+    let turnToolOrchestrator = effectiveToolOrchestrator(for: toolProfile)
+    if let turnToolOrchestrator {
+      turnToolOrchestrators[turnID] = turnToolOrchestrator
+    }
+    let turnToolRegistry = turnToolOrchestrator?.toolRegistry ?? ToolRegistry(tools: [])
     let userMessageID = UUID()
     let assistantMessageID = UUID()
 
@@ -84,9 +87,8 @@ extension ConversationEngine {
     let stableInstructions = turnExecutionCoordinator.systemPrompt(
       session: chatSession,
       selectedModel: runtime.selectedModel,
-      toolLoopCoordinator: runtime.toolLoopCoordinator,
       toolPromptMode: initialToolPromptMode,
-      turnToolRegistry: turnToolRegistry
+      toolRegistry: turnToolRegistry
     )
     notifySessionDidChange()
 
@@ -134,7 +136,7 @@ extension ConversationEngine {
       guard self.isActive(turnID) else {
         return .stop
       }
-      if toolProfile.allowsToolLoop {
+      if toolProfile.allowsToolLoop, let turnToolOrchestrator {
         try turnExecutionCoordinator.requireVisibleTextOrToolCall(generationResult)
         let toolLoopOutcome = try await turnExecutionCoordinator.runToolLoop(
           workspace: workspace,
@@ -144,7 +146,7 @@ extension ConversationEngine {
           interactionMode: interactionMode,
           runtime: runtime,
           conversation: self,
-          turnToolRegistry: turnToolRegistry,
+          turnToolOrchestrator: turnToolOrchestrator,
           stableInstructions: stableInstructions,
           lastNativeToolCalls: generationResult.nativeToolCalls
         )
@@ -345,7 +347,7 @@ extension ConversationEngine {
         modelContextPolicy: nil
       )
     ])
-    turnToolRegistries[turnID] = nil
+    turnToolOrchestrators[turnID] = nil
     finishTurn(turnID)
     finishGeneratingTurn(contextRefreshMode: .disabled)
     notifySessionDidChange()
@@ -377,7 +379,7 @@ extension ConversationEngine {
     }
 
     applyWorkflowEvents(cancelledTurnEvents(turnID))
-    turnToolRegistries[turnID] = nil
+    turnToolOrchestrators[turnID] = nil
     finishTurn(turnID)
     finishGeneratingTurn(contextRefreshMode: .disabled)
     notifySessionDidChange()
@@ -396,7 +398,7 @@ extension ConversationEngine {
     if let error {
       setConversationErrorMessage(error.localizedDescription)
     }
-    turnToolRegistries[turnID] = nil
+    turnToolOrchestrators[turnID] = nil
     finishTurn(turnID)
     finishGeneratingTurn(contextRefreshMode: .disabled)
     notifySessionDidChange()
@@ -479,12 +481,20 @@ extension ConversationEngine {
         )
       ])
       notifySessionDidChange()
+      guard
+        let turnToolOrchestrator = frozenToolOrchestrator(
+          for: turnID,
+          toolProfile: .agent
+        )
+      else {
+        return .fail(cancelsStreaming: false)
+      }
       return try await resumeApprovedToolCalls(
         batch.pendingApprovalRecords,
         batchAnchorID: batch.anchorID,
         in: workspace,
         turnID: turnID,
-        toolOrchestrator: runtime.agentToolOrchestrator,
+        toolOrchestrator: turnToolOrchestrator,
         approvalSource: .automatic,
         runtime: runtime
       )
@@ -613,11 +623,15 @@ extension ConversationEngine {
     refreshContextUsage(toolPromptMode: promptMode)
     notifySessionDidChange()
 
-    let turnToolRegistry = frozenToolRegistry(
-      for: turnID,
-      toolProfile: toolProfile,
-      runtime: runtime
-    )
+    guard
+      let turnToolOrchestrator = frozenToolOrchestrator(
+        for: turnID,
+        toolProfile: toolProfile
+      )
+    else {
+      return .fail(cancelsStreaming: false)
+    }
+    let turnToolRegistry = turnToolOrchestrator.toolRegistry
     let stableInstructions = stableInstructions(
       toolProfile: toolProfile,
       turnToolRegistry: turnToolRegistry,
@@ -647,7 +661,7 @@ extension ConversationEngine {
       interactionMode: chatSession.interactionMode,
       runtime: runtime,
       conversation: self,
-      turnToolRegistry: turnToolRegistry,
+      turnToolOrchestrator: turnToolOrchestrator,
       stableInstructions: stableInstructions,
       lastNativeToolCalls: generationResult.nativeToolCalls
     )
@@ -730,11 +744,11 @@ extension ConversationEngine {
     refreshContextUsage(toolPromptMode: promptMode)
     notifySessionDidChange()
 
-    let turnToolRegistry = frozenToolRegistry(
+    let turnToolOrchestrator = frozenToolOrchestrator(
       for: turnID,
-      toolProfile: toolProfile,
-      runtime: runtime
+      toolProfile: toolProfile
     )
+    let turnToolRegistry = turnToolOrchestrator?.toolRegistry ?? ToolRegistry(tools: [])
     let stableInstructions = stableInstructions(
       toolProfile: toolProfile,
       turnToolRegistry: turnToolRegistry,
@@ -759,6 +773,9 @@ extension ConversationEngine {
     guard let workspace else {
       return .fail(cancelsStreaming: false)
     }
+    guard let turnToolOrchestrator else {
+      return .fail(cancelsStreaming: false)
+    }
     try turnExecutionCoordinator.requireVisibleTextOrToolCall(generationResult)
     let toolLoopOutcome = try await turnExecutionCoordinator.runToolLoop(
       workspace: workspace,
@@ -768,7 +785,7 @@ extension ConversationEngine {
       interactionMode: chatSession.interactionMode,
       runtime: runtime,
       conversation: self,
-      turnToolRegistry: turnToolRegistry,
+      turnToolOrchestrator: turnToolOrchestrator,
       stableInstructions: stableInstructions,
       lastNativeToolCalls: generationResult.nativeToolCalls
     )
@@ -843,22 +860,22 @@ extension ConversationEngine {
     turnExecutionCoordinator.systemPrompt(
       session: chatSession,
       selectedModel: runtime.selectedModel,
-      toolLoopCoordinator: runtime.toolLoopCoordinator,
       toolPromptMode: turnExecutionCoordinator.toolPromptMode(for: toolProfile),
-      turnToolRegistry: turnToolRegistry
+      toolRegistry: turnToolRegistry
     )
   }
 
-  private func frozenToolRegistry(
+  private func frozenToolOrchestrator(
     for turnID: ChatTurn.ID,
-    toolProfile: ToolExecutionProfile,
-    runtime: ChatTurnRuntimeContext
-  ) -> ToolRegistry {
-    if let registry = turnToolRegistries[turnID] {
-      return registry
+    toolProfile: ToolExecutionProfile
+  ) -> ToolOrchestrator? {
+    if let orchestrator = turnToolOrchestrators[turnID] {
+      return orchestrator
     }
-    let registry = runtime.toolLoopCoordinator.toolRegistry(for: toolProfile)
-    turnToolRegistries[turnID] = registry
-    return registry
+    guard let orchestrator = effectiveToolOrchestrator(for: toolProfile) else {
+      return nil
+    }
+    turnToolOrchestrators[turnID] = orchestrator
+    return orchestrator
   }
 }

@@ -1456,6 +1456,62 @@ struct ConversationEngineToolLoopTests {
   }
 
   @Test
+  func removingMCPToolDuringGenerationKeepsPausedTurnOrchestratorFrozen() async throws {
+    let sessionID = UUID()
+    let serverID = UUID()
+    let toolName = MCPToolNaming.qualifiedName(serverSlug: "frozen", remoteToolName: "echo")
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    let client = RecordingMCPToolClient()
+    let runtime = ControlledStreamingRuntime(
+      eventTurns: [
+        [
+          .toolCall(
+            ChatRuntimeToolCall(
+              name: toolName.rawValue,
+              arguments: ["value": .string("hello")]
+            ))
+        ],
+        [.chunk("MCP call completed.")],
+      ],
+      blockedCallIndexes: [0]
+    )
+    defer { Task { await runtime.releaseStream(callIndex: 0) } }
+    let engine = ConversationEngine(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      chatSession: ChatSession(id: sessionID, interactionMode: .agent)
+    )
+    engine.modelRuntime.modelState = .ready
+    engine.reconcileAgentTools(
+      todoWriteEnabled: true,
+      mcpExecutorGroups: [
+        makeMCPExecutorGroup(serverID: serverID, serverSlug: "frozen", client: client)
+      ],
+      selectedMCPServerIDs: [serverID]
+    )
+
+    engine.sendMessage(prompt: "call the MCP tool", in: workspace, sessionID: sessionID)
+    try await waitUntilAsync { await runtime.startedStreamCount == 1 }
+
+    engine.configureAgentTools(todoWriteEnabled: true, mcpExecutorGroups: [])
+    await runtime.releaseStream(callIndex: 0)
+
+    try await waitUntil { engine.hasPendingApproval && !engine.isGenerating }
+    let pendingRecord = try #require(engine.chatSession.toolCalls.first)
+    engine.approveToolCall(id: pendingRecord.id, in: workspace)
+
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(await client.callCount == 1)
+    let completedRecord = try #require(engine.chatSession.toolCalls.first)
+    #expect(completedRecord.request.toolName == toolName)
+    #expect(completedRecord.status == .completed)
+    let capturedToolContexts = await runtime.capturedToolContexts.compactMap { $0 }
+    #expect(capturedToolContexts.count == 2)
+    #expect(capturedToolContexts.allSatisfy { $0.registry.definition(for: toolName) != nil })
+  }
+
+  @Test
   func askUserPausesThenAnswerResumesSameTurn() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
@@ -2112,6 +2168,31 @@ struct ConversationEngineToolLoopTests {
     )
   }
 
+  private func makeMCPExecutorGroup(
+    serverID: UUID,
+    serverSlug: String,
+    client: any MCPToolCalling
+  ) -> MCPAgentToolExecutorGroup {
+    MCPAgentToolExecutorGroup(
+      serverID: serverID,
+      executors: [
+        AnyToolExecutor(
+          dynamic: MCPToolExecutor(
+            serverID: serverID,
+            connectionToken: UUID(),
+            serverName: serverSlug,
+            serverSlug: serverSlug,
+            remoteTool: MCPRemoteTool(
+              name: "echo",
+              description: "Echo a value."
+            ),
+            client: client
+          )
+        )
+      ]
+    )
+  }
+
   private func listFileEventTurns(count: Int) -> [[ChatModelStreamEvent]] {
     (0..<count).map { index in
       let path = index == 0 ? "." : "dir-\(index)"
@@ -2147,6 +2228,28 @@ struct ConversationEngineToolLoopTests {
           )
         )
       ]
+    )
+  }
+}
+
+private actor RecordingMCPToolClient: MCPToolCalling {
+  private(set) var callCount = 0
+
+  func callTool(
+    serverID: UUID,
+    connectionToken: UUID,
+    name: String,
+    arguments: ToolCallArguments
+  ) async throws -> MCPToolResult {
+    _ = serverID
+    _ = connectionToken
+    _ = arguments
+    callCount += 1
+    return MCPToolResult(
+      serverName: "frozen",
+      remoteToolName: name,
+      content: [.text("ok")],
+      isError: false
     )
   }
 }

@@ -45,6 +45,17 @@ enum ToolPromptMode: Equatable, Sendable {
       return .disabled
     }
   }
+
+  var finalMode: ToolPromptMode {
+    switch self {
+    case .chatWeb, .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal:
+      return .afterChatWebToolResultFinal
+    case .enabled(true), .afterToolResultCanContinue, .afterToolResultFinal:
+      return .afterToolResultFinal
+    case .disabled, .enabled(false):
+      return .disabled
+    }
+  }
 }
 
 /// Why a tool follow-up must run without exposing another tool schema.
@@ -69,6 +80,16 @@ enum ToolFollowUpPromptPolicy {
       return ToolPromptMode.finalMode(for: toolProfile)
     }
     return defaultMode ?? ToolPromptMode.continuationMode(for: toolProfile)
+  }
+
+  static func promptMode(
+    default defaultMode: ToolPromptMode,
+    finalReason: ToolFollowUpFinalReason?
+  ) -> ToolPromptMode {
+    guard finalReason != nil else {
+      return defaultMode
+    }
+    return defaultMode.finalMode
   }
 }
 
