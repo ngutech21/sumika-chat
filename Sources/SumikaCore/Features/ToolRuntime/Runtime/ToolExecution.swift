@@ -555,7 +555,7 @@ enum ToolInputDecoder {
   }
 }
 
-package struct ToolOrchestrator: Sendable {
+struct ToolOrchestrator: Sendable {
   let executorRegistry: ToolExecutorRegistry
   private let validator: ToolCallRequestValidator
   private let readTracker: ReadFileReadTracker
@@ -565,7 +565,7 @@ package struct ToolOrchestrator: Sendable {
   private let browserToolService: any BrowserToolServing
   private let webAccessSettingsProvider: @Sendable () async -> WebAccessSettings
 
-  package init(
+  init(
     browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
     webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
       .disabled

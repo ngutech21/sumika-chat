@@ -7,17 +7,17 @@ import Observation
 
 @MainActor
 @Observable
-package final class ConversationEngine {
+final class ConversationEngine {
   private(set) var chatSession: ChatSession {
     didSet {
       syncComposerSessionState()
     }
   }
-  package private(set) var composerSessionState = ChatComposerSessionState()
-  package private(set) var modelContextDebugState = ModelContextDebugState()
-  package internal(set) var contextUsage: ChatContextUsage?
-  package internal(set) var isGenerating = false
-  package private(set) var errorMessage: String?
+  private(set) var composerSessionState = ChatComposerSessionState()
+  private(set) var modelContextDebugState = ModelContextDebugState()
+  var contextUsage: ChatContextUsage?
+  var isGenerating = false
+  private(set) var errorMessage: String?
 
   @ObservationIgnored private let conversationModel: @MainActor () -> ConversationModelState
   @ObservationIgnored private let runtimeContextClearCoordinator: RuntimeContextClearCoordinator
@@ -66,28 +66,30 @@ package final class ConversationEngine {
     hasPendingApproval || hasPendingUserAnswer
   }
 
-  package var canChangeInteractionMode: Bool {
+  var canChangeInteractionMode: Bool {
     !isGenerating && !isInputBlocked
   }
 
-  package var canChangeMCPServerSelection: Bool {
+  var canChangeMCPServerSelection: Bool {
     chatSession.interactionMode == .agent && canChangeInteractionMode
   }
 
-  package var canEnableAutomaticToolApproval: Bool {
+  var canEnableAutomaticToolApproval: Bool {
     chatSession.interactionMode == .agent
       && chatSession.toolApprovalPolicy == .manual
       && !isGenerating
       && !hasPendingUserAnswer
   }
 
-  package init(
+  init(
     conversationModel: @escaping @MainActor () -> ConversationModelState,
     runtimeContextClearCoordinator: RuntimeContextClearCoordinator,
     chatGenerationCoordinator: ChatGenerationCoordinator,
     chatSession: ChatSession = ChatSession(),
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator.agent(todoWriteEnabled: true),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
+    workspaceInstructionsLoader: any WorkspaceInstructionsLoading =
+      WorkspaceInstructionsLoader(),
     turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
     self.conversationModel = conversationModel
@@ -97,7 +99,7 @@ package final class ConversationEngine {
     self.turnExecutionCoordinator = ChatTurnExecutionCoordinator(
       turnTracer: turnTracer
     )
-    self.workspaceInstructionsLoader = WorkspaceInstructionsLoader()
+    self.workspaceInstructionsLoader = workspaceInstructionsLoader
     self.maxToolLoopIterations = ChatToolLoopLimits.defaultMaxToolLoopIterations
     self.toolOrchestrator = toolOrchestrator
     self.toolLoopCoordinator = ToolLoopCoordinator(
@@ -118,7 +120,7 @@ extension ConversationEngine {
     conversationModel()
   }
 
-  package func modelManagementEventHandlers(
+  func modelManagementEventHandlers(
     errorDidOccur: @escaping @MainActor (String) -> Void
   ) -> ModelManagementEventHandlers {
     ModelManagementEventHandlers(
@@ -190,24 +192,24 @@ extension ConversationEngine {
     return todoState
   }
 
-  package func setSessionChangeHandler(_ handler: (@MainActor @Sendable () -> Void)?) {
+  func setSessionChangeHandler(_ handler: (@MainActor @Sendable () -> Void)?) {
     onSessionDidChange = handler
   }
 
-  package var sessionID: ChatSession.ID {
+  var sessionID: ChatSession.ID {
     chatSession.id
   }
 
-  package var turns: [ChatTurn] {
+  var turns: [ChatTurn] {
     chatSession.turns
   }
 
-  package var modeSettings: ChatModeSettingsSet {
+  var modeSettings: ChatModeSettingsSet {
     chatSession.modeSettings
   }
 
   @discardableResult
-  package func updateModeSettings(_ modeSettings: ChatModeSettingsSet) -> Bool {
+  func updateModeSettings(_ modeSettings: ChatModeSettingsSet) -> Bool {
     guard chatSession.modeSettings != modeSettings else {
       return false
     }
@@ -219,7 +221,7 @@ extension ConversationEngine {
   }
 
   @discardableResult
-  package func renameSession(to title: String) -> Bool {
+  func renameSession(to title: String) -> Bool {
     let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedTitle.isEmpty else {
       return false
@@ -252,7 +254,7 @@ extension ConversationEngine {
     }
   }
 
-  package func sessionSnapshot() -> ChatSession {
+  func sessionSnapshot() -> ChatSession {
     var snapshot = chatSession
     snapshot.selectedModelID = conversationModelState.selectedModel.id
     snapshot.pendingAttachments = []
@@ -260,7 +262,7 @@ extension ConversationEngine {
     return snapshot
   }
 
-  package func setInteractionMode(_ mode: WorkspaceInteractionMode) {
+  func setInteractionMode(_ mode: WorkspaceInteractionMode) {
     guard canChangeInteractionMode, chatSession.interactionMode != mode else {
       return
     }
@@ -278,7 +280,7 @@ extension ConversationEngine {
     notifySessionDidChange()
   }
 
-  package func setReasoningEnabled(_ isEnabled: Bool) {
+  func setReasoningEnabled(_ isEnabled: Bool) {
     guard canChangeInteractionMode, chatSession.generationSettings.reasoningEnabled != isEnabled
     else {
       return
@@ -293,7 +295,7 @@ extension ConversationEngine {
     notifySessionDidChange()
   }
 
-  package func enableAutomaticToolApproval(in workspace: Workspace) {
+  func enableAutomaticToolApproval(in workspace: Workspace) {
     guard canEnableAutomaticToolApproval else {
       return
     }
@@ -308,7 +310,7 @@ extension ConversationEngine {
     resumeAutomaticApprovalBatch(containing: batchAnchorID, in: workspace)
   }
 
-  package func disableAutomaticToolApproval() {
+  func disableAutomaticToolApproval() {
     guard chatSession.toolApprovalPolicy != .manual else {
       return
     }
@@ -318,7 +320,7 @@ extension ConversationEngine {
     notifySessionDidChange()
   }
 
-  package func configureAgentTools(
+  func configureAgentTools(
     todoWriteEnabled: Bool,
     mcpExecutorGroups: [MCPAgentToolExecutorGroup] = []
   ) {
@@ -335,7 +337,7 @@ extension ConversationEngine {
   /// Reconciles connected MCP contributions and persisted selection as one
   /// Core operation so the matching registry is installed or deferred with
   /// the selection that produced it.
-  package func reconcileAgentTools(
+  func reconcileAgentTools(
     todoWriteEnabled: Bool,
     mcpExecutorGroups: [MCPAgentToolExecutorGroup],
     selectedMCPServerIDs: [UUID]
@@ -355,7 +357,7 @@ extension ConversationEngine {
     applyAgentToolExecutorRegistry(executorRegistry, shouldRefreshContext: true)
   }
 
-  package func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
+  func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
     guard canChangeMCPServerSelection else {
       return
     }
@@ -366,7 +368,7 @@ extension ConversationEngine {
   /// user action this may run in Chat mode, but it is deferred across an
   /// active generation or unresolved interaction so validated calls keep the
   /// registry that created them.
-  package func reconcileSelectedMCPServerIDs(_ serverIDs: [UUID]) {
+  func reconcileSelectedMCPServerIDs(_ serverIDs: [UUID]) {
     let executorRegistry = configuredAgentToolExecutorRegistry(
       selectedMCPServerIDs: serverIDs
     )
@@ -378,7 +380,7 @@ extension ConversationEngine {
     applySelectedMCPServerIDs(serverIDs)
   }
 
-  package func prepareForModelRuntimeAction(
+  func prepareForModelRuntimeAction(
     cancelGeneration shouldCancelGeneration: Bool,
     invalidateContext shouldInvalidateContext: Bool
   ) {
@@ -441,12 +443,12 @@ extension ConversationEngine {
   }
 
   @discardableResult
-  package func sendMessage(prompt: String) -> Bool {
+  func sendMessage(prompt: String) -> Bool {
     sendMessage(prompt: prompt, workspace: nil, sessionID: nil)
   }
 
   @discardableResult
-  package func sendMessage(
+  func sendMessage(
     prompt: String,
     in workspace: Workspace,
     sessionID: ChatSession.ID
@@ -579,7 +581,7 @@ extension ConversationEngine {
     chatSession.title = ChatSessionTitleGenerator.title(fromFirstPrompt: prompt)
   }
 
-  package func cancelGeneration() {
+  func cancelGeneration() {
     cancelGeneration(notify: true)
   }
 
@@ -609,7 +611,7 @@ extension ConversationEngine {
     refreshContextUsage()
   }
 
-  package func refreshContextUsage() {
+  func refreshContextUsage() {
     refreshContextUsage(toolPromptMode: .disabled)
   }
 
@@ -626,7 +628,7 @@ extension ConversationEngine {
     refreshContextUsage()
   }
 
-  package func modelContextDebugDocument(
+  func modelContextDebugDocument(
     workspace: Workspace? = nil,
     sessionID: ChatSession.ID? = nil
   ) throws -> ModelContextDebugDocument {
@@ -751,14 +753,14 @@ extension ConversationEngine {
     )
   }
 
-  package func addAttachments(from urls: [URL]) {
+  func addAttachments(from urls: [URL]) {
     attachmentCoordinator.addAttachments(
       from: urls,
       existingAttachments: chatSession.pendingAttachments,
       onEvent: handleAttachmentEvent(_:))
   }
 
-  package func removeAttachment(id: ChatAttachment.ID) {
+  func removeAttachment(id: ChatAttachment.ID) {
     attachmentCoordinator.removeAttachment(id: id, onEvent: handleAttachmentEvent(_:))
   }
 
@@ -820,7 +822,7 @@ extension ConversationEngine {
     }
   }
 
-  package func approveToolCall(id toolCallID: ToolCallRecord.ID, in workspace: Workspace) {
+  func approveToolCall(id toolCallID: ToolCallRecord.ID, in workspace: Workspace) {
     guard !isGenerating else {
       return
     }
@@ -846,7 +848,7 @@ extension ConversationEngine {
     )
   }
 
-  package func approveToolCallBatch(
+  func approveToolCallBatch(
     containing batchAnchorID: ToolCallRecord.ID,
     in workspace: Workspace
   ) {
@@ -877,7 +879,7 @@ extension ConversationEngine {
     )
   }
 
-  package func resumeAutomaticApprovalBatch(
+  func resumeAutomaticApprovalBatch(
     containing batchAnchorID: ToolCallRecord.ID,
     in workspace: Workspace
   ) {
@@ -948,7 +950,7 @@ extension ConversationEngine {
     }
   }
 
-  package func answerAskUserToolCall(
+  func answerAskUserToolCall(
     id toolCallID: ToolCallRecord.ID,
     answer rawAnswer: String,
     in workspace: Workspace
@@ -989,7 +991,7 @@ extension ConversationEngine {
     )
   }
 
-  package func denyToolCall(id toolCallID: ToolCallRecord.ID) {
+  func denyToolCall(id toolCallID: ToolCallRecord.ID) {
     guard !isGenerating else {
       return
     }

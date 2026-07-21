@@ -1,13 +1,13 @@
 import Foundation
 
-package struct DownloadModelResult: Sendable {
-  package let localPath: String
+struct DownloadModelResult: Sendable {
+  let localPath: String
 }
 
-package enum LocalModelDirectoryError: LocalizedError {
+enum LocalModelDirectoryError: LocalizedError {
   case notFound(String)
 
-  package var errorDescription: String? {
+  var errorDescription: String? {
     switch self {
     case .notFound(let path):
       "Model directory does not exist: \(path)"
@@ -15,12 +15,12 @@ package enum LocalModelDirectoryError: LocalizedError {
   }
 }
 
-package struct ModelLifecycleCoordinator: Sendable {
+struct ModelLifecycleCoordinator: Sendable {
   private let modelDownloader: any ModelDownloading
   private let runtimeOperations: RuntimeOperationCoordinator
   private let modelAvailability: @Sendable (ManagedModel) -> Bool
 
-  package init(
+  init(
     modelDownloader: any ModelDownloading,
     runtimeOperations: RuntimeOperationCoordinator,
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool = Self.defaultModelAvailability
@@ -30,18 +30,18 @@ package struct ModelLifecycleCoordinator: Sendable {
     self.modelAvailability = modelAvailability
   }
 
-  package func ensureDefaultModelDirectoryExists() throws -> URL {
+  func ensureDefaultModelDirectoryExists() throws -> URL {
     try LocalModelDirectory.ensureDefaultBaseDirectoryExists()
   }
 
-  package func modelAvailabilitySnapshot(for models: [ManagedModel]) -> [ManagedModel.ID: Bool] {
+  func modelAvailabilitySnapshot(for models: [ManagedModel]) -> [ManagedModel.ID: Bool] {
     Dictionary(
       uniqueKeysWithValues: models.map { model in
         (model.id, isModelDownloaded(model))
       })
   }
 
-  package func download(
+  func download(
     model: ManagedModel,
     progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
   ) async throws -> DownloadModelResult {
@@ -49,7 +49,7 @@ package struct ModelLifecycleCoordinator: Sendable {
     return DownloadModelResult(localPath: model.localPath)
   }
 
-  package func loadModel(
+  func loadModel(
     from directoryURL: URL,
     requestedContextTokenLimit: Int,
     supportsImageInput: Bool,
@@ -71,11 +71,11 @@ package struct ModelLifecycleCoordinator: Sendable {
     try await runtimeOperations.load(configuration: configuration, operationID: operationID)
   }
 
-  package func unloadModel(operationID: UUID) async throws {
+  func unloadModel(operationID: UUID) async throws {
     try await runtimeOperations.unload(operationID: operationID)
   }
 
-  package func clearContext(operationID: UUID) async throws {
+  func clearContext(operationID: UUID) async throws {
     try await runtimeOperations.clearContext(operationID: operationID)
   }
 
@@ -83,7 +83,7 @@ package struct ModelLifecycleCoordinator: Sendable {
     modelAvailability(model)
   }
 
-  package static func defaultModelAvailability(_ model: ManagedModel) -> Bool {
+  static func defaultModelAvailability(_ model: ManagedModel) -> Bool {
     let modelDirectory = model.localDirectoryURL
     let configURL = modelDirectory.appending(path: "config.json", directoryHint: .notDirectory)
     var isDirectory: ObjCBool = false

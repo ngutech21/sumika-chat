@@ -4,24 +4,22 @@ import SumikaCore
 @MainActor
 @Observable
 final class ModelManagementFeatureState {
-  @ObservationIgnored private let modelController: ModelRuntimeController
-  private let conversationEngine: ConversationEngine
-  private(set) var errorMessage: String?
+  @ObservationIgnored private let models: ModelManagementFeature
 
-  init(
-    modelController: ModelRuntimeController,
-    conversationEngine: ConversationEngine
-  ) {
-    self.modelController = modelController
-    self.conversationEngine = conversationEngine
+  init(models: ModelManagementFeature) {
+    self.models = models
   }
 
   var state: ModelManagementState {
-    modelController.state
+    models.state
   }
 
   var modeSettings: ChatModeSettingsSet {
-    conversationEngine.modeSettings
+    models.modeSettings
+  }
+
+  var errorMessage: String? {
+    models.errorMessage
   }
 
   var downloadedModels: [ManagedModel] {
@@ -29,11 +27,11 @@ final class ModelManagementFeatureState {
   }
 
   var canChangeModel: Bool {
-    !conversationEngine.isGenerating && state.canChangeModel
+    models.canChangeModel
   }
 
   var canSend: Bool {
-    state.modelState == .ready && !conversationEngine.isGenerating
+    models.canSend
   }
 
   var effectiveDownloadState: ModelDownloadState {
@@ -64,118 +62,53 @@ final class ModelManagementFeatureState {
   }
 
   func startRuntimeServices() {
-    modelController.prepareDefaultModelDirectory()
-    modelController.startResourceMonitoring()
+    models.startRuntimeServices()
   }
 
   func selectModel(_ model: ManagedModel) {
-    selectModel(
-      model,
-      shouldInvalidateContext: state.selectedModel.id != model.id
-    )
+    models.selectModel(model)
   }
 
   func selectConversationModel(_ model: ManagedModel) {
-    selectModel(model, shouldInvalidateContext: true)
-  }
-
-  private func selectModel(
-    _ model: ManagedModel,
-    shouldInvalidateContext: Bool
-  ) {
-    guard canChangeModel else {
-      return
-    }
-
-    errorMessage = nil
-    conversationEngine.prepareForModelRuntimeAction(
-      cancelGeneration: false,
-      invalidateContext: shouldInvalidateContext
-    )
-    modelController.selectModel(model)
+    models.selectConversationModel(model)
   }
 
   func performPrimaryAction() {
-    errorMessage = nil
     switch primaryAction {
     case .download:
-      conversationEngine.prepareForModelRuntimeAction(
-        cancelGeneration: false,
-        invalidateContext: false
-      )
-      modelController.downloadSelectedModel()
+      models.downloadSelectedModel()
     case .load:
-      conversationEngine.prepareForModelRuntimeAction(
-        cancelGeneration: false,
-        invalidateContext: true
-      )
-      modelController.loadSelectedModel()
+      models.loadSelectedModel()
     case .unload:
-      conversationEngine.prepareForModelRuntimeAction(
-        cancelGeneration: true,
-        invalidateContext: true
-      )
-      modelController.unloadModel()
+      models.unloadModel()
     }
   }
 
   func loadAvailableModelForConversation() {
-    errorMessage = nil
-    conversationEngine.prepareForModelRuntimeAction(
-      cancelGeneration: false,
-      invalidateContext: true
-    )
-    guard let availableModel = preferredDownloadedModel else {
-      errorMessage = "Download a model from Models first."
-      return
-    }
-
-    if state.selectedModel.id != availableModel.id {
-      modelController.selectModel(availableModel)
-    }
-    modelController.loadSelectedModel()
+    _ = models.loadAvailableModelForConversation()
   }
 
   func updateModeSettings(_ modeSettings: ChatModeSettingsSet) {
-    guard conversationEngine.updateModeSettings(modeSettings) else {
-      return
-    }
-    modelController.saveSelectedModelSettings(modeSettings: modeSettings)
+    models.updateModeSettings(modeSettings)
   }
 
   func updateContextTokenLimit(_ limit: Int) {
-    guard state.modelContextTokenLimit != limit else {
-      return
-    }
-    modelController.setContextTokenLimit(limit)
-    modelController.saveSelectedModelSettings(modeSettings: modeSettings)
+    models.updateContextTokenLimit(limit)
   }
 
   func isSelectedModelDownloaded() -> Bool {
-    modelController.isSelectedModelDownloaded()
+    models.isSelectedModelDownloaded()
   }
 
   func loadSelectedModelForStartup() {
-    modelController.loadSelectedModel()
-  }
-
-  func handleModelRuntimeError(_ message: String) {
-    errorMessage = message
-  }
-
-  private var preferredDownloadedModel: ManagedModel? {
-    if state.isModelDownloaded(state.selectedModel) {
-      return state.selectedModel
-    }
-
-    return downloadedModels.first
+    models.loadSelectedModel()
   }
 }
 
 #if DEBUG
   extension ModelManagementFeatureState {
     func setModelLoadStateForTesting(_ state: ModelLoadState) {
-      modelController.setModelLoadStateForTesting(state)
+      models.setModelLoadStateForTesting(state)
     }
   }
 #endif

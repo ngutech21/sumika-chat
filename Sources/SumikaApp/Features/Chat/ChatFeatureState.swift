@@ -26,66 +26,68 @@ struct ChatModelContextDebugPresentation: Equatable {
 @MainActor
 @Observable
 final class ChatFeatureState {
-  @ObservationIgnored private let engine: ConversationEngine
+  @ObservationIgnored private let conversation: ConversationFeature
 
-  init(engine: ConversationEngine) {
-    self.engine = engine
+  init(conversation: ConversationFeature) {
+    self.conversation = conversation
   }
 
   var composer: ChatComposerPresentation {
-    ChatComposerPresentation(
-      session: engine.composerSessionState,
-      isGenerating: engine.isGenerating,
-      contextUsage: engine.contextUsage,
-      errorMessage: engine.errorMessage,
-      canChangeInteractionMode: engine.canChangeInteractionMode,
-      canChangeMCPServerSelection: engine.canChangeMCPServerSelection,
-      canEnableAutomaticToolApproval: engine.canEnableAutomaticToolApproval
+    let state = conversation.state
+    return ChatComposerPresentation(
+      session: state.composer,
+      isGenerating: state.isGenerating,
+      contextUsage: state.contextUsage,
+      errorMessage: state.errorMessage,
+      canChangeInteractionMode: state.canChangeInteractionMode,
+      canChangeMCPServerSelection: state.canChangeMCPServerSelection,
+      canEnableAutomaticToolApproval: state.canEnableAutomaticToolApproval
     )
   }
 
   var transcript: ChatTranscriptPresentation {
-    ChatTranscriptPresentation(
-      sessionID: engine.sessionID,
-      turns: engine.turns,
-      isGenerating: engine.isGenerating,
-      toolApprovalPolicy: engine.composerSessionState.toolApprovalPolicy
+    let state = conversation.state
+    return ChatTranscriptPresentation(
+      sessionID: state.sessionID,
+      turns: state.turns,
+      isGenerating: state.isGenerating,
+      toolApprovalPolicy: state.composer.toolApprovalPolicy
     )
   }
 
   var modelContextDebug: ChatModelContextDebugPresentation {
-    ChatModelContextDebugPresentation(state: engine.modelContextDebugState)
+    ChatModelContextDebugPresentation(state: conversation.state.modelContextDebug)
   }
 
   func setInteractionMode(_ mode: WorkspaceInteractionMode) {
-    engine.setInteractionMode(mode)
+    conversation.setInteractionMode(mode)
   }
 
   func setReasoningEnabled(_ isEnabled: Bool) {
-    engine.setReasoningEnabled(isEnabled)
+    conversation.setReasoningEnabled(isEnabled)
   }
 
   func enableAutomaticToolApproval(
     in context: WorkspaceChatContext,
     sessionID: ChatSession.ID?
   ) {
-    engine.enableAutomaticToolApproval(in: toolWorkspace(in: context, sessionID: sessionID))
+    conversation.enableAutomaticToolApproval(in: toolWorkspace(in: context, sessionID: sessionID))
   }
 
   func disableAutomaticToolApproval() {
-    engine.disableAutomaticToolApproval()
+    conversation.disableAutomaticToolApproval()
   }
 
   func addAttachments(from urls: [URL]) {
-    engine.addAttachments(from: urls)
+    conversation.addAttachments(from: urls)
   }
 
   func removeAttachment(id: ChatAttachment.ID) {
-    engine.removeAttachment(id: id)
+    conversation.removeAttachment(id: id)
   }
 
   func cancelGeneration() {
-    engine.cancelGeneration()
+    conversation.cancelGeneration()
   }
 
   func approveToolCall(
@@ -93,7 +95,7 @@ final class ChatFeatureState {
     in context: WorkspaceChatContext,
     sessionID: ChatSession.ID?
   ) {
-    engine.approveToolCall(
+    conversation.approveToolCall(
       id: toolCallID,
       in: toolWorkspace(in: context, sessionID: sessionID)
     )
@@ -104,7 +106,7 @@ final class ChatFeatureState {
     in context: WorkspaceChatContext,
     sessionID: ChatSession.ID?
   ) {
-    engine.approveToolCallBatch(
+    conversation.approveToolCallBatch(
       containing: batchAnchorID,
       in: toolWorkspace(in: context, sessionID: sessionID)
     )
@@ -115,14 +117,14 @@ final class ChatFeatureState {
     in context: WorkspaceChatContext,
     sessionID: ChatSession.ID?
   ) {
-    engine.resumeAutomaticApprovalBatch(
+    conversation.resumeAutomaticApprovalBatch(
       containing: batchAnchorID,
       in: toolWorkspace(in: context, sessionID: sessionID)
     )
   }
 
   func denyToolCall(id toolCallID: ToolCallRecord.ID) {
-    engine.denyToolCall(id: toolCallID)
+    conversation.denyToolCall(id: toolCallID)
   }
 
   func answerAskUserToolCall(
@@ -131,7 +133,7 @@ final class ChatFeatureState {
     in context: WorkspaceChatContext,
     sessionID: ChatSession.ID?
   ) {
-    engine.answerAskUserToolCall(
+    conversation.answerAskUserToolCall(
       id: toolCallID,
       answer: answer,
       in: toolWorkspace(in: context, sessionID: sessionID)
@@ -142,8 +144,8 @@ final class ChatFeatureState {
     in context: WorkspaceChatContext,
     sessionID: ChatSession.ID?
   ) throws -> ModelContextDebugDocument {
-    try engine.modelContextDebugDocument(
-      workspace: context.workspace(containing: sessionID ?? engine.sessionID),
+    try conversation.modelContextDebugDocument(
+      workspace: context.workspace(containing: sessionID ?? conversation.state.sessionID),
       sessionID: sessionID
     )
   }
@@ -152,16 +154,16 @@ final class ChatFeatureState {
     in context: WorkspaceChatContext,
     sessionID: ChatSession.ID?
   ) -> Workspace {
-    context.workspace(containing: sessionID ?? engine.sessionID)
+    context.workspace(containing: sessionID ?? conversation.state.sessionID)
   }
 
   #if DEBUG
     func refreshContextUsageForTesting() {
-      engine.refreshContextUsage()
+      conversation.refreshContextUsageForTesting()
     }
 
     var sessionSnapshotForTesting: ChatSession {
-      engine.sessionSnapshot()
+      conversation.snapshot()
     }
   #endif
 }

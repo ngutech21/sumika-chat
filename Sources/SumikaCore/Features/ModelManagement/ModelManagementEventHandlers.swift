@@ -1,10 +1,10 @@
-package struct ModelManagementEventHandlers {
+struct ModelManagementEventHandlers {
   let modelDidChange: @MainActor (StoredModelSettings) -> Void
   let runtimeDidReset: @MainActor () -> Void
   let contextUsageShouldRefresh: @MainActor () async -> Void
   let errorDidOccur: @MainActor (String) -> Void
 
-  package init(
+  init(
     modelDidChange: @escaping @MainActor (StoredModelSettings) -> Void,
     runtimeDidReset: @escaping @MainActor () -> Void,
     contextUsageShouldRefresh: @escaping @MainActor () async -> Void,

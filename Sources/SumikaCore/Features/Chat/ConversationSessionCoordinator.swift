@@ -1,11 +1,11 @@
 import Foundation
 
 @MainActor
-package final class ConversationSessionCoordinator {
+final class ConversationSessionCoordinator {
   private let modelController: ModelRuntimeController
   private let conversationEngine: ConversationEngine
 
-  package init(
+  init(
     modelController: ModelRuntimeController,
     conversationEngine: ConversationEngine
   ) {
@@ -13,7 +13,7 @@ package final class ConversationSessionCoordinator {
     self.conversationEngine = conversationEngine
   }
 
-  package func switchSession(to session: ChatSession) {
+  func switchSession(to session: ChatSession) {
     conversationEngine.cancelGenerationForSessionSwitch()
 
     let model =

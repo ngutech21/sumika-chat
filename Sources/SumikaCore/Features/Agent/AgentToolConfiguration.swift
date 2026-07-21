@@ -56,7 +56,7 @@ extension ToolExecutorRegistry {
 }
 
 extension ToolOrchestrator {
-  package static func agent(
+  static func agent(
     todoWriteEnabled: Bool,
     browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
     webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {

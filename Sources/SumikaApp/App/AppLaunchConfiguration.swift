@@ -153,8 +153,7 @@ enum AppLaunchConfiguration {
   private static func makeConfiguredAppState(
     modelDownloader: any ModelDownloading,
     runtime: any ChatModelRuntime,
-    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
-      ModelLifecycleCoordinator.defaultModelAvailability,
+    modelAvailability: (@Sendable (ManagedModel) -> Bool)? = nil,
     turnTracer: any TurnTracing,
     workspaceStore: any WorkspaceStoring = WorkspaceStore(),
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
@@ -163,18 +162,15 @@ enum AppLaunchConfiguration {
     mcpServersStore: any MCPServersStoring = MCPServersStore()
   ) -> AppState {
     let browserToolService = HTMLPreviewBrowserToolService()
-    let conversation = makeConversationComposition(
+    let sumika = makeSumika(
       modelSettingsStore: modelSettingsStore,
       modelDownloader: modelDownloader,
       runtime: runtime,
       modelAvailability: modelAvailability,
-      toolOrchestrator: ToolOrchestrator.agent(
-        todoWriteEnabled: false,
-        browserToolService: browserToolService,
-        webAccessSettingsProvider: {
-          await webAccessSettingsStore.settings()
-        }
-      ),
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: {
+        await webAccessSettingsStore.settings()
+      },
       turnTracer: turnTracer
     )
 
@@ -185,90 +181,48 @@ enum AppLaunchConfiguration {
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: mcpServersStore,
       browserToolService: browserToolService,
-      conversation: conversation,
+      sumika: sumika,
       turnTracer: turnTracer
     )
   }
 
   @MainActor
-  static func makeConversationComposition(
+  static func makeSumika(
     modelSettingsStore: any ModelSettingsStoring,
     modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
     runtime: any ChatModelRuntime,
-    resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
-    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
-      ModelLifecycleCoordinator.defaultModelAvailability,
-    toolOrchestrator: ToolOrchestrator,
-    chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
+    modelAvailability: (@Sendable (ManagedModel) -> Bool)? = nil,
+    browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
+    webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
+      .disabled
+    },
     turnTracer: any TurnTracing
-  ) -> ConversationComposition {
+  ) -> Sumika {
     let selectedModel = ManagedModelCatalog.defaultModel
     let storedSettings = StoredModelSettings(
       modeSettings: selectedModel.defaultModeSettings,
       contextTokenLimit: selectedModel.defaultContextTokenLimit
     )
-    let operationID = UUID()
-    let runtimeOperations = RuntimeOperationCoordinator(
-      runtime: runtime,
-      initialOperationID: operationID
-    )
-    let modelLifecycleCoordinator = ModelLifecycleCoordinator(
-      modelDownloader: modelDownloader,
-      runtimeOperations: runtimeOperations,
-      modelAvailability: modelAvailability
-    )
-    let modelManagementController = ModelRuntimeController(
-      selectedModelID: selectedModel.id,
-      modelPath: selectedModel.localPath,
-      modelContextTokenLimit: storedSettings.contextTokenLimit,
-      modelSettingsStore: modelSettingsStore,
-      runtimeOperations: runtimeOperations,
-      modelLifecycleCoordinator: modelLifecycleCoordinator,
-      resourceMonitor: resourceMonitor,
-      initialOperationID: operationID
-    )
-    let initialConversationState = modelManagementController.conversationState
-    let conversationEngine = ConversationEngine(
-      conversationModel: { [weak modelManagementController] in
-        modelManagementController?.conversationState ?? initialConversationState
-      },
-      runtimeContextClearCoordinator: RuntimeContextClearCoordinator(
-        modelLifecycleCoordinator: modelLifecycleCoordinator
+    let sumika = Sumika(
+      configuration: Sumika.Configuration(
+        initialModel: selectedModel,
+        initialModelSettings: storedSettings
       ),
-      chatGenerationCoordinator: ChatGenerationCoordinator(
-        runtimeOperations: runtimeOperations,
+      dependencies: Sumika.Dependencies(
+        runtime: runtime,
+        modelSettingsStore: modelSettingsStore,
+        modelDownloader: modelDownloader,
+        modelAvailability: modelAvailability,
+        browserToolService: browserToolService,
+        webAccessSettingsProvider: webAccessSettingsProvider,
         turnTracer: turnTracer
-      ),
-      chatSession: ChatSession(
-        turns: [],
-        pendingAttachments: [],
-        modeSettings: storedSettings.modeSettings
-      ),
-      toolOrchestrator: toolOrchestrator,
-      chatAttachmentLoader: chatAttachmentLoader,
-      turnTracer: turnTracer
-    )
-    let modelManagementState = ModelManagementFeatureState(
-      modelController: modelManagementController,
-      conversationEngine: conversationEngine
-    )
-    modelManagementController.setEventHandlers(
-      conversationEngine.modelManagementEventHandlers(
-        errorDidOccur: { [weak modelManagementState] message in
-          modelManagementState?.handleModelRuntimeError(message)
-        }
       )
     )
-    modelManagementController.loadPersistedModelSelection()
-    return ConversationComposition(
-      modelManagementState: modelManagementState,
-      sessionCoordinator: ConversationSessionCoordinator(
-        modelController: modelManagementController,
-        conversationEngine: conversationEngine
-      ),
-      chatFeatureState: ChatFeatureState(engine: conversationEngine),
-      conversationEngine: conversationEngine
-    )
+    let session = ChatSession();
+    
+    
+    sumika.models.loadPersistedModelSelection()
+    return sumika
   }
 
   nonisolated private static func makeUnitTestHostModelSettingsStore(
@@ -313,13 +267,6 @@ enum AppLaunchConfiguration {
       activeSessionID: session.id
     )
   }
-}
-
-struct ConversationComposition {
-  let modelManagementState: ModelManagementFeatureState
-  let sessionCoordinator: ConversationSessionCoordinator
-  let chatFeatureState: ChatFeatureState
-  let conversationEngine: ConversationEngine
 }
 
 private actor UITestWorkspaceStore: WorkspaceStoring {

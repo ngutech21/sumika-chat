@@ -3,17 +3,17 @@ import Observation
 
 @MainActor
 @Observable
-package final class ModelRuntimeController {
-  package internal(set) var availableModels = ManagedModelCatalog.models
-  package internal(set) var selectedModelID: ManagedModel.ID
-  package internal(set) var downloadState: ModelDownloadState = .idle
-  package internal(set) var downloadProgress: Double?
-  package internal(set) var modelPath: String
-  package internal(set) var modelState: ModelLoadState = .notLoaded
-  package internal(set) var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
-  package internal(set) var modelGenerationConfigPreset: ChatGenerationConfigPreset?
-  package internal(set) var processUsage: ProcessResourceUsage?
-  package internal(set) var modelAvailabilitySnapshot: [ManagedModel.ID: Bool] = [:]
+final class ModelRuntimeController {
+  var availableModels = ManagedModelCatalog.models
+  var selectedModelID: ManagedModel.ID
+  var downloadState: ModelDownloadState = .idle
+  var downloadProgress: Double?
+  var modelPath: String
+  var modelState: ModelLoadState = .notLoaded
+  var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
+  var modelGenerationConfigPreset: ChatGenerationConfigPreset?
+  var processUsage: ProcessResourceUsage?
+  var modelAvailabilitySnapshot: [ManagedModel.ID: Bool] = [:]
 
   @ObservationIgnored private let runtimeOperations: RuntimeOperationCoordinator
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
@@ -32,15 +32,15 @@ package final class ModelRuntimeController {
   @ObservationIgnored var onContextUsageShouldRefresh: (@MainActor () async -> Void)?
   @ObservationIgnored var onError: (@MainActor (String) -> Void)?
 
-  package var selectedModel: ManagedModel {
+  var selectedModel: ManagedModel {
     availableModels.first { $0.id == selectedModelID } ?? ManagedModelCatalog.defaultModel
   }
 
-  package var canChangeModel: Bool {
+  var canChangeModel: Bool {
     modelState != .loading && !downloadState.isDownloading
   }
 
-  package var state: ModelManagementState {
+  var state: ModelManagementState {
     ModelManagementState(
       availableModels: availableModels,
       selectedModel: selectedModel,
@@ -58,7 +58,7 @@ package final class ModelRuntimeController {
     )
   }
 
-  package var conversationState: ConversationModelState {
+  var conversationState: ConversationModelState {
     ConversationModelState(
       selectedModel: selectedModel,
       loadState: modelState,
@@ -67,7 +67,7 @@ package final class ModelRuntimeController {
     )
   }
 
-  package init(
+  init(
     selectedModelID: ManagedModel.ID,
     modelPath: String,
     modelContextTokenLimit: Int,
@@ -89,7 +89,7 @@ package final class ModelRuntimeController {
     refreshModelAvailability()
   }
 
-  package func setEventHandlers(_ handlers: ModelManagementEventHandlers) {
+  func setEventHandlers(_ handlers: ModelManagementEventHandlers) {
     onModelDidChange = handlers.modelDidChange
     onRuntimeDidReset = handlers.runtimeDidReset
     onContextUsageShouldRefresh = handlers.contextUsageShouldRefresh
@@ -102,21 +102,17 @@ package final class ModelRuntimeController {
     resourceMonitorTask?.cancel()
   }
 
-  package func currentOperationID() -> UUID {
+  func currentOperationID() -> UUID {
     modelOperationID
   }
 
   #if DEBUG
-    package func setModelLoadStateForTesting(_ state: ModelLoadState) {
+    func setModelLoadStateForTesting(_ state: ModelLoadState) {
       modelState = state
     }
   #endif
 
-  package func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
-    try? await runtimeOperations.runtimeCacheDebugSnapshot(operationID: modelOperationID)
-  }
-
-  package func prepareDefaultModelDirectory() {
+  func prepareDefaultModelDirectory() {
     let lifecycleCoordinator = modelLifecycleCoordinator
     Task {
       do {
@@ -136,7 +132,7 @@ package final class ModelRuntimeController {
     }
   }
 
-  package func startResourceMonitoring() {
+  func startResourceMonitoring() {
     guard resourceMonitorTask == nil else {
       return
     }
@@ -152,17 +148,17 @@ package final class ModelRuntimeController {
     }
   }
 
-  package func setModelDirectory(_ url: URL) {
+  func setModelDirectory(_ url: URL) {
     modelPath = url.path(percentEncoded: false)
     modelState = .notLoaded
     refreshModelGenerationConfigPreset()
   }
 
-  package func setContextTokenLimit(_ limit: Int) {
+  func setContextTokenLimit(_ limit: Int) {
     modelContextTokenLimit = limit
   }
 
-  package func selectModel(_ model: ManagedModel) {
+  func selectModel(_ model: ManagedModel) {
     guard canChangeModel, selectedModelID != model.id else {
       return
     }
@@ -221,18 +217,18 @@ package final class ModelRuntimeController {
     return shouldUnloadRuntime
   }
 
-  package func isModelDownloaded(_ model: ManagedModel) -> Bool {
+  func isModelDownloaded(_ model: ManagedModel) -> Bool {
     modelAvailabilitySnapshot[model.id] ?? false
   }
 
-  package func isSelectedModelDownloaded() -> Bool {
+  func isSelectedModelDownloaded() -> Bool {
     let model = selectedModel
     let isDownloaded = modelLifecycleCoordinator.isModelDownloaded(model)
     modelAvailabilitySnapshot[model.id] = isDownloaded
     return isDownloaded
   }
 
-  package func refreshModelAvailability() {
+  func refreshModelAvailability() {
     let models = availableModels
     let lifecycleCoordinator = modelLifecycleCoordinator
     Task {
@@ -243,7 +239,7 @@ package final class ModelRuntimeController {
     }
   }
 
-  package func downloadSelectedModel() {
+  func downloadSelectedModel() {
     guard !downloadState.isDownloading else {
       return
     }
@@ -280,7 +276,7 @@ package final class ModelRuntimeController {
     }
   }
 
-  package func saveSelectedModelSettings(modeSettings: ChatModeSettingsSet) {
+  func saveSelectedModelSettings(modeSettings: ChatModeSettingsSet) {
     let settings = StoredModelSettings(
       modeSettings: modeSettings,
       contextTokenLimit: modelContextTokenLimit
@@ -296,7 +292,7 @@ package final class ModelRuntimeController {
     }
   }
 
-  package func saveSelectedModelSettings(
+  func saveSelectedModelSettings(
     systemPrompt: String,
     generationSettings: ChatGenerationSettings
   ) {
@@ -322,7 +318,7 @@ package final class ModelRuntimeController {
     }
   }
 
-  package func loadPersistedModelSelection(notifyModelDidChange: Bool = false) {
+  func loadPersistedModelSelection(notifyModelDidChange: Bool = false) {
     Task { [modelSettingsStore] in
       let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
       let selectedModelID = await modelSettingsStore.selectedModelID(
@@ -345,13 +341,13 @@ package final class ModelRuntimeController {
     }
   }
 
-  package func loadSelectedModel() {
+  func loadSelectedModel() {
     modelPath = selectedModel.localPath
     refreshModelGenerationConfigPreset()
     loadModel()
   }
 
-  package func loadModel() {
+  func loadModel() {
     guard !downloadState.isDownloading else {
       return
     }
@@ -409,7 +405,7 @@ package final class ModelRuntimeController {
     }
   }
 
-  package func unloadModel() {
+  func unloadModel() {
     let operationID = UUID()
     modelOperationID = operationID
     loadTask?.cancel()

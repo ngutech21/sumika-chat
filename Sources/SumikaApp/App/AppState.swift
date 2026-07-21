@@ -13,17 +13,12 @@ final class AppState {
   let composerSpeechInputController: ComposerSpeechInputController
   let chatFeatureState: ChatFeatureState
   private(set) var route: AppRoute?
-  @ObservationIgnored private let conversationEngine: ConversationEngine
+  @ObservationIgnored private let sumika: Sumika
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
-  @ObservationIgnored let mcpClientManager: MCPClientManager
-  @ObservationIgnored private let conversationSessionCoordinator: ConversationSessionCoordinator
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
   @ObservationIgnored private var defaultSessionModeSettings =
     ManagedModelCatalog.defaultModel.defaultModeSettings
-  @ObservationIgnored private var mcpAgentToolExecutorGroups: [MCPAgentToolExecutorGroup] = []
-  @ObservationIgnored private var mcpMutationTask: Task<Void, Never>?
-  @ObservationIgnored private var desiredMCPState: DesiredMCPState?
   @ObservationIgnored private var didAttemptAutoloadLastModel = false
   @ObservationIgnored private var routeWasAutomaticMissingModelRedirect = false
 
@@ -34,25 +29,21 @@ final class AppState {
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
     mcpServersStore: any MCPServersStoring = MCPServersStore(),
     runtime: any ChatModelRuntime,
-    modelAvailability: @escaping @Sendable (ManagedModel) -> Bool =
-      ModelLifecycleCoordinator.defaultModelAvailability,
+    modelAvailability: (@Sendable (ManagedModel) -> Bool)? = nil,
     turnTracer: any TurnTracing = NoopTurnTracer(),
     workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService(),
     assistantSpeechService: AssistantSpeechService = AssistantSpeechService(),
     audioModelController: ComposerAudioModelController = ComposerAudioModelController()
   ) {
     let browserToolService = HTMLPreviewBrowserToolService()
-    let conversation = AppLaunchConfiguration.makeConversationComposition(
+    let sumika = AppLaunchConfiguration.makeSumika(
       modelSettingsStore: modelSettingsStore,
       runtime: runtime,
       modelAvailability: modelAvailability,
-      toolOrchestrator: ToolOrchestrator.agent(
-        todoWriteEnabled: false,
-        browserToolService: browserToolService,
-        webAccessSettingsProvider: {
-          await webAccessSettingsStore.settings()
-        }
-      ),
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: {
+        await webAccessSettingsStore.settings()
+      },
       turnTracer: turnTracer
     )
     self.init(
@@ -68,7 +59,7 @@ final class AppState {
         audioModelController: audioModelController
       ),
       browserToolService: browserToolService,
-      conversation: conversation,
+      sumika: sumika,
       turnTracer: turnTracer
     )
   }
@@ -79,22 +70,19 @@ final class AppState {
     webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
     mcpServersStore: any MCPServersStoring = MCPServersStore(),
-    mcpClientManager: MCPClientManager = MCPClientManager(),
     workspaceOpener: any WorkspaceOpening = MacWorkspaceOpenService(),
     assistantSpeechService: AssistantSpeechService = AssistantSpeechService(),
     audioModelController: ComposerAudioModelController = ComposerAudioModelController(),
     composerSpeechInputController: ComposerSpeechInputController? = nil,
     browserToolService: HTMLPreviewBrowserToolService,
-    conversation: ConversationComposition,
+    sumika: Sumika,
     turnTracer: any TurnTracing
   ) {
     self.modelSettingsStore = modelSettingsStore
     self.browserToolService = browserToolService
-    self.conversationEngine = conversation.conversationEngine
-    self.chatFeatureState = conversation.chatFeatureState
-    self.modelManagementState = conversation.modelManagementState
-    self.conversationSessionCoordinator = conversation.sessionCoordinator
-    self.mcpClientManager = mcpClientManager
+    self.sumika = sumika
+    self.chatFeatureState = ChatFeatureState(conversation: sumika.conversation)
+    self.modelManagementState = ModelManagementFeatureState(models: sumika.models)
     self.assistantSpeechService = assistantSpeechService
     self.audioModelController = audioModelController
     self.composerSpeechInputController =
@@ -115,9 +103,12 @@ final class AppState {
       turnTracer: turnTracer
     )
 
-    self.conversationEngine.setSessionChangeHandler { [weak self] in
-      self?.persistActiveSession()
+    self.sumika.conversation.setSessionChangeHandler { [weak self] session in
+      self?.persistActiveSession(session)
       self?.reconcileMCPConnectionsIfNeeded()
+    }
+    self.sumika.agent.setStatusChangeHandler { [weak self] statuses in
+      self?.settingsState.mcpServerStatuses = statuses
     }
     self.audioModelController.onSelectionChanged = { [weak self] modelID in
       guard let self else {
@@ -166,7 +157,7 @@ final class AppState {
     sessionID: ChatSession.ID?
   ) -> Bool {
     if let sessionID {
-      return conversationEngine.sendMessage(
+      return sumika.conversation.sendMessage(
         prompt: prompt,
         in: context.workspace(containing: sessionID),
         sessionID: sessionID
@@ -176,7 +167,7 @@ final class AppState {
     guard let createdSessionID = createSession(in: context.id) else {
       return false
     }
-    return conversationEngine.sendMessage(
+    return sumika.conversation.sendMessage(
       prompt: prompt,
       in: context.workspace(containing: createdSessionID),
       sessionID: createdSessionID
@@ -209,13 +200,13 @@ final class AppState {
     guard
       !workspaceState.isPersistenceBlocked,
       workspaceState.activeSessionID == sessionID,
-      conversationEngine.sessionID == sessionID
+      sumika.conversation.state.sessionID == sessionID
     else {
       workspaceState.renameSession(sessionID, title: title)
       return
     }
 
-    conversationEngine.renameSession(to: title)
+    sumika.conversation.renameSession(to: title)
   }
 
   @discardableResult
@@ -285,62 +276,35 @@ final class AppState {
       return
     }
     let isActiveServer = activeMCPServerIDs.contains(serverID)
-    let previousMutation = mcpMutationTask
-    mcpMutationTask = Task {
-      await previousMutation?.value
-      if isActiveServer {
-        await self.mcpClientManager.reconnect(serverID: serverID)
-        await self.refreshAfterMCPChange()
-        let status = await self.mcpClientManager.statuses().first { $0.serverID == serverID }
+    sumika.agent.testServer(
+      server: config,
+      workspaceRootURL: workspaceRootURL,
+      reconnectActiveServer: isActiveServer
+    ) { [weak self] result in
+      guard let self else {
+        return
+      }
+      switch result {
+      case .success(.activeConnection(let state)):
         self.settingsState.mcpServerTestFeedback = MCPServerTestFeedback(
-          message: Self.mcpTestMessage(serverName: config.name, state: status?.state)
+          message: Self.mcpTestMessage(serverName: config.name, state: state)
         )
-      } else {
-        do {
-          let toolCount = try await self.mcpClientManager.testConnection(
-            config: config,
-            workspaceRootURL: workspaceRootURL
-          )
-          self.settingsState.mcpServerTestFeedback = MCPServerTestFeedback(
-            message: Self.mcpTestSuccessMessage(serverName: config.name, toolCount: toolCount)
-          )
-        } catch {
-          self.settingsState.mcpServerTestFeedback = MCPServerTestFeedback(
-            message: "\(config.name) failed: \(error.localizedDescription)"
-          )
-        }
+      case .success(.isolatedConnection(let toolCount)):
+        self.settingsState.mcpServerTestFeedback = MCPServerTestFeedback(
+          message: Self.mcpTestSuccessMessage(serverName: config.name, toolCount: toolCount)
+        )
+      case .failure(let error):
+        self.settingsState.mcpServerTestFeedback = MCPServerTestFeedback(
+          message: "\(config.name) failed: \(error.localizedDescription)"
+        )
       }
     }
   }
 
   func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
     let selection = normalizedMCPServerSelection(serverIDs)
-    conversationEngine.setSelectedMCPServerIDs(selection)
+    sumika.agent.setSelectedMCPServerIDs(selection)
     reconcileMCPConnectionsIfNeeded()
-  }
-
-  private func refreshAfterMCPChange() async {
-    let statuses = await mcpClientManager.statuses()
-    let agentToolExecutorGroups = await mcpClientManager.agentToolExecutorGroups()
-    settingsState.mcpServerStatuses = statuses
-    mcpAgentToolExecutorGroups = agentToolExecutorGroups
-    let selection = normalizedMCPServerSelection(
-      conversationEngine.composerSessionState.selectedMCPServerIDs
-    )
-    conversationEngine.reconcileAgentTools(
-      todoWriteEnabled: settingsState.appBehaviorSettings.todoWriteToolEnabled,
-      mcpExecutorGroups: mcpAgentToolExecutorGroups,
-      selectedMCPServerIDs: selection
-    )
-  }
-
-  /// Supplies current settings and connected MCP contributions to Core. The
-  /// Agent feature owns registry membership and composition.
-  private func refreshAgentToolRegistry() {
-    conversationEngine.configureAgentTools(
-      todoWriteEnabled: settingsState.appBehaviorSettings.todoWriteToolEnabled,
-      mcpExecutorGroups: mcpAgentToolExecutorGroups
-    )
   }
 
   private func normalizedMCPServerSelection(_ serverIDs: [UUID]) -> [UUID] {
@@ -349,46 +313,33 @@ final class AppState {
   }
 
   private var activeMCPServerIDs: Set<UUID> {
+    let conversation = sumika.conversation.state
     guard case .chat = route,
-      conversationEngine.composerSessionState.interactionMode == .agent
+      conversation.composer.interactionMode == .agent
     else {
       return []
     }
-    return Set(conversationEngine.composerSessionState.selectedMCPServerIDs)
+    return Set(conversation.composer.selectedMCPServerIDs)
   }
 
   private func reconcileMCPConnectionsIfNeeded(force: Bool = false) {
-    let state = desiredMCPConnectionState()
-    guard force || desiredMCPState != state else {
-      return
-    }
-    desiredMCPState = state
-    let previousTask = mcpMutationTask
-    mcpMutationTask = Task { [mcpClientManager] in
-      await previousTask?.value
-      await mcpClientManager.reconcile(
-        configs: state.configs,
-        activeSessionID: state.activeSessionID,
-        selectedServerIDs: state.selectedServerIDs,
-        workspaceRootURL: state.workspaceRootURL
-      )
-      await self.refreshAfterMCPChange()
-    }
+    sumika.agent.reconcile(desiredAgentConnectionConfiguration(), force: force)
   }
 
-  private func desiredMCPConnectionState() -> DesiredMCPState {
+  private func desiredAgentConnectionConfiguration() -> AgentConnectionConfiguration {
+    let conversation = sumika.conversation.state
     guard case .chat(_, let sessionID) = route,
-      conversationEngine.sessionID == sessionID,
-      conversationEngine.composerSessionState.interactionMode == .agent,
+      conversation.sessionID == sessionID,
+      conversation.composer.interactionMode == .agent,
       let workspaceRootURL = workspaceState.activeWorkspace?.rootURL
     else {
-      return DesiredMCPState(configs: settingsState.mcpServers)
+      return AgentConnectionConfiguration(servers: settingsState.mcpServers)
     }
-    return DesiredMCPState(
-      configs: settingsState.mcpServers,
+    return AgentConnectionConfiguration(
+      servers: settingsState.mcpServers,
       activeSessionID: sessionID,
       selectedServerIDs: normalizedMCPServerSelection(
-        conversationEngine.composerSessionState.selectedMCPServerIDs
+        conversation.composer.selectedMCPServerIDs
       ),
       workspaceRootURL: workspaceRootURL
     )
@@ -424,16 +375,19 @@ final class AppState {
 
   @discardableResult
   func persistActiveSession() -> Bool {
+    persistActiveSession(sumika.conversation.snapshot())
+  }
+
+  @discardableResult
+  private func persistActiveSession(_ session: ChatSession) -> Bool {
     guard
       let activeSessionID = workspaceState.activeSessionID,
-      conversationEngine.sessionID == activeSessionID
+      session.id == activeSessionID
     else {
       return false
     }
 
-    workspaceState.persistActiveSessionSnapshot(
-      conversationEngine.sessionSnapshot()
-    )
+    workspaceState.persistActiveSessionSnapshot(session)
     return true
   }
 
@@ -444,8 +398,7 @@ final class AppState {
   func prepareForTermination() async {
     persistActiveSession()
     await workspaceState.flushPendingSaves()
-    await mcpMutationTask?.value
-    await mcpClientManager.shutdownAll()
+    await sumika.agent.prepareForTermination()
   }
 
   private func loadRouteSession() {
@@ -455,14 +408,14 @@ final class AppState {
     } else {
       session = emptySessionForNoActiveWorkspace()
     }
-    conversationSessionCoordinator.switchSession(to: session)
+    sumika.conversation.activate(session)
     let selection = normalizedMCPServerSelection(session.selectedMCPServerIDs)
-    conversationEngine.reconcileSelectedMCPServerIDs(selection)
+    sumika.agent.reconcileSelectedMCPServerIDs(selection)
     reconcileMCPConnectionsIfNeeded()
   }
 
   private func applyAppBehaviorSettings(_ settings: AppBehaviorSettings) {
-    refreshAgentToolRegistry()
+    sumika.agent.updateConfiguration(todoWriteEnabled: settings.todoWriteToolEnabled)
     audioModelController.applyPersistedSelection(settings.speechInputAudioModelID)
     if !settings.assistantSpeechEnabled {
       assistantSpeechService.stop()
@@ -480,7 +433,7 @@ final class AppState {
     {
       return Self.defaultSessionFactory(
         selectedModelID: selectedModelID,
-        modeSettings: conversationEngine.modeSettings
+        modeSettings: sumika.conversation.state.modeSettings
       )
     }
 
@@ -520,8 +473,7 @@ final class AppState {
       await settingsState.load()
 
       applyAppBehaviorSettings(settingsState.appBehaviorSettings)
-      await mcpClientManager.applyConfiguration(settingsState.mcpServers)
-      settingsState.mcpServerStatuses = await mcpClientManager.statuses()
+      await sumika.agent.loadServerConfiguration(settingsState.mcpServers)
       defaultSessionModelID = selectedModel.id
       defaultSessionModeSettings = settings.modeSettings
       let defaultSessionFactory = self.makeDefaultSessionFactory()
@@ -577,25 +529,6 @@ final class AppState {
     modelManagementState.loadSelectedModelForStartup()
   }
 
-}
-
-private struct DesiredMCPState: Equatable {
-  var configs: [MCPServerConfig]
-  var activeSessionID: ChatSession.ID?
-  var selectedServerIDs: [UUID]
-  var workspaceRootURL: URL?
-
-  init(
-    configs: [MCPServerConfig],
-    activeSessionID: ChatSession.ID? = nil,
-    selectedServerIDs: [UUID] = [],
-    workspaceRootURL: URL? = nil
-  ) {
-    self.configs = configs
-    self.activeSessionID = activeSessionID
-    self.selectedServerIDs = selectedServerIDs
-    self.workspaceRootURL = workspaceRootURL
-  }
 }
 
 extension AppRoute {

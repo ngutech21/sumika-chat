@@ -31,16 +31,6 @@ struct AgentCompositionIntegrationTests {
     }
 
     let runtime = AgentCompositionRuntime()
-    let operationID = UUID()
-    let runtimeOperations = RuntimeOperationCoordinator(
-      runtime: runtime,
-      initialOperationID: operationID
-    )
-    let modelLifecycle = ModelLifecycleCoordinator(
-      modelDownloader: UnavailableModelDownloader(),
-      runtimeOperations: runtimeOperations,
-      modelAvailability: { _ in true }
-    )
     let selectedModel = ManagedModelCatalog.defaultModel
     let settings = StoredModelSettings(
       modeSettings: selectedModel.defaultModeSettings,
@@ -49,43 +39,31 @@ struct AgentCompositionIntegrationTests {
     let modelSettingsStore = ModelSettingsStore(
       settingsURL: testRoot.appending(path: "model-settings.json", directoryHint: .notDirectory)
     )
-    let modelController = ModelRuntimeController(
-      selectedModelID: selectedModel.id,
-      modelPath: modelDirectory.path(percentEncoded: false),
-      modelContextTokenLimit: settings.contextTokenLimit,
-      modelSettingsStore: modelSettingsStore,
-      runtimeOperations: runtimeOperations,
-      modelLifecycleCoordinator: modelLifecycle,
-      resourceMonitor: ProcessResourceMonitor(),
-      initialOperationID: operationID
-    )
     let session = ChatSession(
       selectedModelID: selectedModel.id,
       modeSettings: settings.modeSettings,
       interactionMode: .agent
     )
-    let engine = ConversationEngine(
-      conversationModel: { [modelController] in
-        modelController.conversationState
-      },
-      runtimeContextClearCoordinator: RuntimeContextClearCoordinator(
-        modelLifecycleCoordinator: modelLifecycle
+    let sumika = Sumika(
+      configuration: Sumika.Configuration(
+        initialSession: session,
+        initialModel: selectedModel,
+        modelPath: modelDirectory.path(percentEncoded: false),
+        initialModelSettings: settings
       ),
-      chatGenerationCoordinator: ChatGenerationCoordinator(
-        runtimeOperations: runtimeOperations
-      ),
-      chatSession: session
+      dependencies: Sumika.Dependencies(
+        runtime: runtime,
+        modelSettingsStore: modelSettingsStore,
+        modelDownloader: UnavailableModelDownloader(),
+        resourceMonitor: ProcessResourceMonitor(),
+        modelAvailability: { _ in true }
+      )
     )
-    engine.configureAgentTools(todoWriteEnabled: true)
-    modelController.setEventHandlers(
-      engine.modelManagementEventHandlers { message in
-        Issue.record("Unexpected model runtime error: \(message)")
-      }
-    )
+    sumika.agent.updateConfiguration(todoWriteEnabled: true)
 
-    modelController.loadModel()
+    sumika.models.loadSelectedModel()
     try await waitUntil {
-      modelController.modelState == .ready
+      sumika.models.state.modelState == .ready
     }
 
     let workspace = Workspace(
@@ -94,7 +72,7 @@ struct AgentCompositionIntegrationTests {
       sessions: [session]
     )
     #expect(
-      engine.sendMessage(
+      sumika.conversation.sendMessage(
         prompt: "Read README.md and report what it contains.",
         in: workspace,
         sessionID: session.id
@@ -102,10 +80,11 @@ struct AgentCompositionIntegrationTests {
     )
 
     try await waitUntil {
-      !engine.isGenerating && engine.sessionSnapshot().turns.last?.status == .completed
+      !sumika.conversation.state.isGenerating
+        && sumika.conversation.snapshot().turns.last?.status == .completed
     }
 
-    let snapshot = engine.sessionSnapshot()
+    let snapshot = sumika.conversation.snapshot()
     #expect(snapshot.interactionMode == .agent)
     #expect(
       snapshot.toolCalls.map(\.request.toolName) == [.readFile, .finishTask]

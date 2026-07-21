@@ -20,7 +20,7 @@ package struct MCPServerStatus: Equatable, Sendable, Identifiable {
 }
 
 /// Connected dynamic tool executors grouped by their stable server identity.
-package struct MCPAgentToolExecutorGroup: Sendable {
+struct MCPAgentToolExecutorGroup: Sendable {
   let serverID: UUID
   let executors: [AnyToolExecutor]
 }
@@ -42,7 +42,7 @@ extension MCPClientError {
 /// Loading configuration alone never starts connections. The manager reconciles
 /// explicit session/workspace scope and never reconnects a crashed server on
 /// its own.
-package actor MCPClientManager: MCPToolCalling {
+actor MCPClientManager: MCPToolCalling {
   private struct ActiveServer {
     var config: MCPServerConfig
     var slug: String
@@ -68,7 +68,7 @@ package actor MCPClientManager: MCPToolCalling {
   private var activeScope: ActiveScope?
   private var selectedServerIDs: Set<UUID> = []
 
-  package init() {
+  init() {
     self.makeConnection = {
       MCPServerConnection(config: $0, workspaceRootURL: $1)
     }
@@ -83,7 +83,7 @@ package actor MCPClientManager: MCPToolCalling {
   // MARK: - Configuration lifecycle
 
   /// Stores configuration without activating any server process.
-  package func applyConfiguration(_ configs: [MCPServerConfig]) async {
+  func applyConfiguration(_ configs: [MCPServerConfig]) async {
     await reconcile(
       configs: configs,
       activeSessionID: nil,
@@ -93,7 +93,7 @@ package actor MCPClientManager: MCPToolCalling {
   }
 
   /// Reconciles configured servers with the one active Agent session.
-  package func reconcile(
+  func reconcile(
     configs: [MCPServerConfig],
     activeSessionID: ChatSession.ID?,
     selectedServerIDs: [UUID],
@@ -169,7 +169,7 @@ package actor MCPClientManager: MCPToolCalling {
     }
   }
 
-  package func reconnect(serverID: UUID) async {
+  func reconnect(serverID: UUID) async {
     guard let server = servers[serverID], server.config.isEnabled, server.isDesired else {
       return
     }
@@ -181,7 +181,7 @@ package actor MCPClientManager: MCPToolCalling {
     await connect(serverID: serverID)
   }
 
-  package func shutdownAll() async {
+  func shutdownAll() async {
     for server in servers.values {
       await server.connection?.shutdown()
     }
@@ -197,7 +197,7 @@ package actor MCPClientManager: MCPToolCalling {
   }
 
   /// Starts an isolated connection for Settings, lists tools, then always stops it.
-  package func testConnection(
+  func testConnection(
     config: MCPServerConfig,
     workspaceRootURL: URL
   ) async throws -> Int {
@@ -214,7 +214,7 @@ package actor MCPClientManager: MCPToolCalling {
 
   // MARK: - Projections
 
-  package func statuses() -> [MCPServerStatus] {
+  func statuses() -> [MCPServerStatus] {
     serverOrder.compactMap { id in
       servers[id].map {
         MCPServerStatus(serverID: id, state: $0.state)
@@ -229,7 +229,7 @@ package actor MCPClientManager: MCPToolCalling {
   }
 
   /// Dynamic executors grouped by server, in stable configuration order.
-  package func agentToolExecutorGroups() -> [MCPAgentToolExecutorGroup] {
+  func agentToolExecutorGroups() -> [MCPAgentToolExecutorGroup] {
     serverOrder.compactMap { id -> MCPAgentToolExecutorGroup? in
       guard let server = servers[id], case .connected = server.state else {
         return nil

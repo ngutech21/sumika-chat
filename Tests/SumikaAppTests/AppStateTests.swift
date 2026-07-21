@@ -1207,16 +1207,13 @@ struct AppStateTests {
     let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()
     let webAccessSettingsStore = InMemoryWebAccessSettingsStore()
     let browserToolService = HTMLPreviewBrowserToolService()
-    let conversation = AppLaunchConfiguration.makeConversationComposition(
+    let sumika = AppLaunchConfiguration.makeSumika(
       modelSettingsStore: modelSettingsStore,
       runtime: AppStateTestRuntime(),
-      toolOrchestrator: ToolOrchestrator.agent(
-        todoWriteEnabled: false,
-        browserToolService: browserToolService,
-        webAccessSettingsProvider: {
-          await webAccessSettingsStore.settings()
-        }
-      ),
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: {
+        await webAccessSettingsStore.settings()
+      },
       turnTracer: NoopTurnTracer()
     )
     let appState = AppState(
@@ -1226,7 +1223,7 @@ struct AppStateTests {
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: InMemoryMCPServersStore(),
       browserToolService: browserToolService,
-      conversation: conversation,
+      sumika: sumika,
       turnTracer: NoopTurnTracer()
     )
 
@@ -1375,23 +1372,19 @@ struct AppStateTests {
   }
 
   @Test
-  func injectedControllerUsesSuppliedBrowserToolService() async throws {
+  func injectedSumikaUsesSuppliedBrowserToolService() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let webAccessSettingsStore = InMemoryWebAccessSettingsStore()
     let browserToolService = HTMLPreviewBrowserToolService()
-    let conversation = AppLaunchConfiguration.makeConversationComposition(
+    let sumika = AppLaunchConfiguration.makeSumika(
       modelSettingsStore: modelSettingsStore,
       runtime: AppStateTestRuntime(),
-      toolOrchestrator: ToolOrchestrator.agent(
-        todoWriteEnabled: false,
-        browserToolService: browserToolService,
-        webAccessSettingsProvider: {
-          await webAccessSettingsStore.settings()
-        }
-      ),
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: {
+        await webAccessSettingsStore.settings()
+      },
       turnTracer: NoopTurnTracer()
     )
-    let chatFeatureState = conversation.chatFeatureState
 
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
@@ -1399,12 +1392,12 @@ struct AppStateTests {
       webAccessSettingsStore: webAccessSettingsStore,
       mcpServersStore: InMemoryMCPServersStore(),
       browserToolService: browserToolService,
-      conversation: conversation,
+      sumika: sumika,
       turnTracer: NoopTurnTracer()
     )
 
     #expect(appState.browserToolService === browserToolService)
-    #expect(appState.chatFeatureState === chatFeatureState)
+    #expect(appState.chatFeatureState.transcript.sessionID == sumika.conversation.state.sessionID)
   }
 
   @Test
