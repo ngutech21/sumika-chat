@@ -92,8 +92,7 @@ struct ModelsView: View {
         DisclosureGroup {
           ModelRuntimeStatus(
             modelState: state.modelState,
-            downloadState: modelManagementState.effectiveDownloadState,
-            processUsage: state.processUsage
+            downloadState: modelManagementState.effectiveDownloadState
           )
 
           ModelAdvancedSettings(

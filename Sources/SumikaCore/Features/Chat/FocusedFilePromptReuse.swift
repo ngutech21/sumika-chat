@@ -145,8 +145,6 @@ enum FocusedFilePromptReusePlanner {
       prompt: userPrompt.prompt,
       attachmentNames: userPrompt.attachmentNames,
       imageSignatures: userPrompt.imageSignatures,
-      workspaceInstructions: workspaceInstructions,
-      systemContext: systemContext,
       currentPromptContext: currentPromptContext
     )
     guard

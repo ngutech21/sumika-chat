@@ -1491,22 +1491,6 @@ package struct ToolResultModelMessage: Codable, Equatable, Sendable {
     self.toolName = toolName
     self.payload = payload
   }
-
-  package init(record: ToolCallRecord) {
-    self.init(
-      callID: record.id,
-      toolName: record.request.toolName,
-      payload: record.resultPayload
-        ?? .failure(
-          ToolFailure(
-            toolName: record.request.toolName,
-            path: nil,
-            reason: .executionError(
-              "Tool result unavailable for \(record.request.toolName.rawValue)."
-            )
-          ))
-    )
-  }
 }
 
 nonisolated extension ToolResultModelMessage {

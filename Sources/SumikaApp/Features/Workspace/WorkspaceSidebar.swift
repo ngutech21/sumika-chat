@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WorkspaceSidebar: View {
   let sidebarState: WorkspaceSidebarState
+  let busySessionID: ChatSession.ID?
   let processUsage: ProcessResourceUsage?
   @Binding var selection: AppRoute?
   let onAddWorkspace: () -> Void
@@ -145,24 +146,31 @@ struct WorkspaceSidebar: View {
   ) -> some View {
     let route = AppRoute.chat(workspaceID: workspaceID, sessionID: session.id)
 
-    return Text(session.displayTitle)
-      .lineLimit(1)
-      .truncationMode(.tail)
-      .tag(route)
-      .accessibilityIdentifier("sidebar.sessionLink")
-      .accessibilityValue(selection == route ? "Selected" : "")
-      .contextMenu {
-        Button("Rename Chat") {
-          sessionBeingRenamed = session
-          renameTitle = session.title
-        }
-
-        Divider()
-
-        Button("Remove Chat", role: .destructive) {
-          sessionPendingDeletion = session
-        }
+    return HStack(spacing: 6) {
+      Text(session.displayTitle)
+        .lineLimit(1)
+        .truncationMode(.tail)
+      if busySessionID == session.id {
+        ProgressView()
+          .controlSize(.mini)
+          .accessibilityLabel("Chat operation in progress")
       }
+    }
+    .tag(route)
+    .accessibilityIdentifier("sidebar.sessionLink")
+    .accessibilityValue(selection == route ? "Selected" : "")
+    .contextMenu {
+      Button("Rename Chat") {
+        sessionBeingRenamed = session
+        renameTitle = session.title
+      }
+
+      Divider()
+
+      Button("Remove Chat", role: .destructive) {
+        sessionPendingDeletion = session
+      }
+    }
   }
 
   private func isExpanded(_ workspaceID: Workspace.ID) -> Bool {
@@ -264,7 +272,7 @@ private struct SidebarRuntimeFooter: View {
       .accessibilityLabel("Settings")
       .accessibilityIdentifier("sidebar.settingsButton")
 
-      ModelRuntimeFooter(processUsage: processUsage)
+      ProcessResourceFooter(processUsage: processUsage)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     .frame(maxWidth: .infinity, alignment: .leading)

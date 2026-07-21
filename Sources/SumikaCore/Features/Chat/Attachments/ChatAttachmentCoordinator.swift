@@ -25,6 +25,12 @@ final class ChatAttachmentCoordinator {
     loadTask?.cancel()
   }
 
+  func cancelLoading() {
+    loadRequestID = UUID()
+    loadTask?.cancel()
+    loadTask = nil
+  }
+
   func addAttachments(
     from urls: [URL],
     existingAttachments: [ChatAttachment],

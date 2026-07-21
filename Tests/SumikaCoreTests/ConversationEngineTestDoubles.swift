@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 @testable import SumikaCore
 
@@ -41,7 +42,6 @@ extension ConversationEngine {
 
   convenience init(
     runtime: any ChatModelRuntime,
-    resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
     modelPath: String,
     modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
     modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
@@ -61,7 +61,6 @@ extension ConversationEngine {
       modelSettingsStore: modelSettingsStore,
       modelDownloader: modelDownloader,
       runtime: runtime,
-      resourceMonitor: resourceMonitor,
       modelAvailability: modelAvailability,
       toolOrchestrator: toolOrchestrator,
       chatAttachmentLoader: chatAttachmentLoader,
@@ -80,7 +79,6 @@ extension ConversationEngine {
     modelSettingsStore: any ModelSettingsStoring,
     modelDownloader: any ModelDownloading,
     runtime: any ChatModelRuntime,
-    resourceMonitor: any ProcessResourceMonitoring,
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool,
     toolOrchestrator: ToolOrchestrator,
     chatAttachmentLoader: any ChatAttachmentLoading,
@@ -103,7 +101,6 @@ extension ConversationEngine {
       modelSettingsStore: modelSettingsStore,
       runtimeOperations: runtimeOperations,
       modelLifecycleCoordinator: modelLifecycleCoordinator,
-      resourceMonitor: resourceMonitor,
       initialOperationID: operationID
     )
     self.init(
@@ -117,10 +114,19 @@ extension ConversationEngine {
         runtimeOperations: runtimeOperations,
         turnTracer: turnTracer
       ),
-      chatSession: chatSession,
       toolOrchestrator: toolOrchestrator,
       chatAttachmentLoader: chatAttachmentLoader,
       turnTracer: turnTracer
+    )
+    installConversation(
+      chatSession,
+      in: Workspace(
+        name: "Test Workspace",
+        rootURL: FileManager.default.temporaryDirectory,
+        sessions: [chatSession]
+      ),
+      modelRuntimeWasReset: false,
+      prepareRuntimeContext: false
     )
     ConversationEngineTestModelRegistry.register(modelController, for: self)
     modelController.setEventHandlers(
@@ -129,11 +135,60 @@ extension ConversationEngine {
   }
 
   func loadSession(_ session: ChatSession) {
-    ConversationSessionCoordinator(
-      modelController: modelRuntime,
-      conversationEngine: self
-    ).switchSession(to: session)
+    let workspace = Workspace(
+      name: "Test Workspace",
+      rootURL: FileManager.default.temporaryDirectory,
+      sessions: [session]
+    )
+    let model =
+      ManagedModelCatalog.model(id: session.selectedModelID)
+      ?? ManagedModelCatalog.defaultModel
+    let didResetModelRuntime = modelRuntime.applySessionModel(model)
+    installConversation(
+      session,
+      in: workspace,
+      modelRuntimeWasReset: didResetModelRuntime
+    )
   }
+
+  func loadSession(
+    from workspace: Workspace,
+    sessionID: ChatSession.ID
+  ) throws {
+    if activeSessionID == sessionID {
+      updateActiveWorkspace(workspace)
+      return
+    }
+    let session = try #require(workspace.sessions.first { $0.id == sessionID })
+    let model =
+      ManagedModelCatalog.model(id: session.selectedModelID)
+      ?? ManagedModelCatalog.defaultModel
+    let didResetModelRuntime = modelRuntime.applySessionModel(model)
+    installConversation(
+      session,
+      in: workspace,
+      modelRuntimeWasReset: didResetModelRuntime
+    )
+  }
+
+  @discardableResult
+  func sendMessageInTestWorkspace(prompt: String) throws -> Bool {
+    try sendMessage(prompt: prompt)
+    return true
+  }
+}
+
+func makeConversationTestWorkspace(containing session: ChatSession) throws -> Workspace {
+  let rootURL = FileManager.default.temporaryDirectory.appending(
+    path: "sumika-conversation-tests-\(UUID().uuidString)",
+    directoryHint: .isDirectory
+  )
+  try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+  return Workspace(
+    name: "Test Workspace",
+    rootURL: rootURL,
+    sessions: [session]
+  )
 }
 
 actor NonCooperativeStreamingRuntime: ChatModelRuntime {

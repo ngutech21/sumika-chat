@@ -4,14 +4,13 @@ import SwiftUI
 
 struct WorkspaceChatComposerHost: View {
   let chatState: ChatFeatureState
+  let workspace: Workspace
   let modelManagementState: ModelManagementFeatureState
-  let context: WorkspaceChatContext
-  let sessionID: ChatSession.ID?
   let mcpServers: [MCPServerConfig]
   let mcpServerStatuses: [MCPServerStatus]
   let previewState: WorkspacePreviewFeatureState
   let speechInputController: ComposerSpeechInputController
-  let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
+  let onSendMessage: (String) -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
 
@@ -27,7 +26,7 @@ struct WorkspaceChatComposerHost: View {
         break
       }
 
-      return onSendMessage(submittedDraft, context, sessionID)
+      return onSendMessage(submittedDraft)
     }
   }
 
@@ -61,9 +60,7 @@ struct WorkspaceChatComposerHost: View {
         selectedServerIDs: composerState.selectedMCPServerIDs,
         canChangeMCPSelection: presentation.canChangeMCPServerSelection,
         onSetReasoningEnabled: chatState.setReasoningEnabled,
-        onEnableAutomaticToolApproval: {
-          chatState.enableAutomaticToolApproval(in: context, sessionID: sessionID)
-        },
+        onEnableAutomaticToolApproval: chatState.enableAutomaticToolApproval,
         onDisableAutomaticToolApproval: chatState.disableAutomaticToolApproval,
         onSelectServerIDs: onSelectMCPServerIDs
       ),
@@ -110,6 +107,9 @@ struct WorkspaceChatComposerHost: View {
 
   private func selectModel(_ model: ManagedModel) {
     clearLocalPresentationErrors()
+    guard chatState.activateSelectedConversation() else {
+      return
+    }
     modelManagementState.selectConversationModel(model)
   }
 
@@ -144,7 +144,7 @@ struct WorkspaceChatComposerHost: View {
       guard
         previewState.showHTMLPreview(
           path: path,
-          in: context.workspaceWithoutSessions
+          in: workspace
         )
       else {
         return .handled(shouldClearDraft: false)
@@ -153,7 +153,7 @@ struct WorkspaceChatComposerHost: View {
       guard
         previewState.showFilePreview(
           path: path,
-          in: context.workspaceWithoutSessions
+          in: workspace
         )
       else {
         return .handled(shouldClearDraft: false)

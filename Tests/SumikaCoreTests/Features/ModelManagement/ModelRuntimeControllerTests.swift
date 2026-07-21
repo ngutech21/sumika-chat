@@ -394,7 +394,6 @@ struct ModelRuntimeControllerTests {
       modelSettingsStore: modelSettingsStore,
       runtimeOperations: runtimeOperations,
       modelLifecycleCoordinator: lifecycleCoordinator,
-      resourceMonitor: RuntimeControllerFakeResourceMonitor(),
       initialOperationID: UUID()
     )
   }
@@ -633,11 +632,5 @@ private actor RuntimeControllerDelayedUnloadRuntime: ChatModelRuntime {
     return AsyncThrowingStream { continuation in
       continuation.finish()
     }
-  }
-}
-
-private struct RuntimeControllerFakeResourceMonitor: ProcessResourceMonitoring {
-  func currentUsage() async -> ProcessResourceUsage? {
-    ProcessResourceUsage(memoryBytes: 0, cpuPercent: 0)
   }
 }

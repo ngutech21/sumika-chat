@@ -81,7 +81,6 @@ final class AppState {
     self.modelSettingsStore = modelSettingsStore
     self.browserToolService = browserToolService
     self.sumika = sumika
-    self.chatFeatureState = ChatFeatureState(conversation: sumika.conversation)
     self.modelManagementState = ModelManagementFeatureState(models: sumika.models)
     self.assistantSpeechService = assistantSpeechService
     self.audioModelController = audioModelController
@@ -93,7 +92,7 @@ final class AppState {
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: mcpServersStore
     )
-    self.workspaceState = WorkspaceFeatureState(
+    let workspaceState = WorkspaceFeatureState(
       workspaceStore: workspaceStore,
       workspaceOpener: workspaceOpener,
       defaultSessionFactory: Self.defaultSessionFactory(
@@ -102,9 +101,20 @@ final class AppState {
       ),
       turnTracer: turnTracer
     )
+    self.workspaceState = workspaceState
+    self.chatFeatureState = ChatFeatureState(
+      conversation: sumika.conversation,
+      workspaceState: workspaceState
+    )
 
-    self.sumika.conversation.setSessionChangeHandler { [weak self] session in
-      self?.persistActiveSession(session)
+    self.chatFeatureState.setConversationActivator { [weak self] workspaceID, sessionID in
+      guard let self else {
+        throw ConversationIntentError.inactive
+      }
+      _ = try self.activateConversation(workspaceID: workspaceID, sessionID: sessionID)
+    }
+    self.sumika.conversation.setSessionChangeHandler { [weak self] workspaceID, session in
+      self?.persistSession(session, in: workspaceID)
       self?.reconcileMCPConnectionsIfNeeded()
     }
     self.sumika.agent.setStatusChangeHandler { [weak self] statuses in
@@ -123,20 +133,17 @@ final class AppState {
 
   @discardableResult
   func addWorkspace(from url: URL) -> Workspace.ID? {
-    persistActiveSession()
     refreshDefaultSessionFactory()
     let change = workspaceState.addWorkspace(from: url)
     guard change.selectionChanged, let workspaceID = workspaceState.activeWorkspace?.id else {
       return nil
     }
     route = routeFromWorkspaceSelection()
-    loadRouteSession()
     return workspaceID
   }
 
   @discardableResult
   func createSession(in workspaceID: Workspace.ID? = nil) -> ChatSession.ID? {
-    persistActiveSession()
     refreshDefaultSessionFactory()
     let change = workspaceState.createSession(in: workspaceID)
     guard
@@ -146,32 +153,25 @@ final class AppState {
       return nil
     }
     route = .chat(workspaceID: activeWorkspaceID, sessionID: sessionID)
-    loadRouteSession()
     return sessionID
   }
 
   @discardableResult
-  func sendMessage(
-    prompt: String,
-    in context: WorkspaceChatContext,
-    sessionID: ChatSession.ID?
-  ) -> Bool {
-    if let sessionID {
-      return sumika.conversation.sendMessage(
-        prompt: prompt,
-        in: context.workspace(containing: sessionID),
-        sessionID: sessionID
+  func sendMessage(prompt: String) -> Bool {
+    do {
+      guard let workspaceID = workspaceState.activeWorkspace?.id else {
+        throw ConversationIntentError.inactive
+      }
+      _ = try activateConversation(
+        workspaceID: workspaceID,
+        sessionID: workspaceState.activeSessionID
       )
-    }
-
-    guard let createdSessionID = createSession(in: context.id) else {
+      try sumika.conversation.sendMessage(prompt: prompt)
+      return true
+    } catch {
+      workspaceState.errorMessage = error.localizedDescription
       return false
     }
-    return sumika.conversation.sendMessage(
-      prompt: prompt,
-      in: context.workspace(containing: createdSessionID),
-      sessionID: createdSessionID
-    )
   }
 
   func navigate(to requestedRoute: AppRoute?) {
@@ -190,52 +190,52 @@ final class AppState {
   }
 
   func selectModels() {
-    persistActiveSession()
     route = .models
     routeWasAutomaticMissingModelRedirect = false
     reconcileMCPConnectionsIfNeeded()
   }
 
   func renameSession(_ sessionID: ChatSession.ID, title: String) {
-    guard
-      !workspaceState.isPersistenceBlocked,
-      workspaceState.activeSessionID == sessionID,
-      sumika.conversation.state.sessionID == sessionID
-    else {
+    guard !workspaceState.isPersistenceBlocked else {
+      return
+    }
+    guard sumika.conversation.state.active?.sessionID == sessionID else {
       workspaceState.renameSession(sessionID, title: title)
       return
     }
 
-    sumika.conversation.renameSession(to: title)
+    _ = try? sumika.conversation.renameSession(to: title)
   }
 
   @discardableResult
   func selectWorkspace(_ workspaceID: Workspace.ID) -> Bool {
-    persistActiveSession()
     let change = workspaceState.selectWorkspace(workspaceID)
     guard change.selectionChanged else {
       return false
     }
     route = .workspace(workspaceID)
-    loadRouteSession()
     return true
   }
 
   @discardableResult
   func selectChat(workspaceID: Workspace.ID, sessionID: ChatSession.ID) -> Bool {
-    persistActiveSession()
     let change = workspaceState.selectChat(workspaceID: workspaceID, sessionID: sessionID)
     guard change.selectionChanged else {
       return false
     }
     route = .chat(workspaceID: workspaceID, sessionID: sessionID)
-    loadRouteSession()
     return true
   }
 
   func deleteSession(_ sessionID: ChatSession.ID) {
     let currentRoute = route
-    persistActiveSession()
+    if let active = sumika.conversation.state.active, active.sessionID == sessionID {
+      guard !active.activity.isBusy else {
+        workspaceState.errorMessage = "Wait for the active chat operation to finish."
+        return
+      }
+      sumika.conversation.deactivate()
+    }
     refreshDefaultSessionFactory()
     _ = workspaceState.deleteSession(sessionID)
 
@@ -243,18 +243,22 @@ final class AppState {
       routedSessionID == sessionID
     {
       route = routeAfterRemovingActiveChat(in: workspaceID)
-      loadRouteSession()
     }
   }
 
   func removeWorkspace(_ workspaceID: Workspace.ID) {
     let currentRoute = route
-    persistActiveSession()
+    if let active = sumika.conversation.state.active, active.workspaceID == workspaceID {
+      guard !active.activity.isBusy else {
+        workspaceState.errorMessage = "Wait for the active chat operation to finish."
+        return
+      }
+      sumika.conversation.deactivate()
+    }
     _ = workspaceState.removeWorkspace(workspaceID)
 
     if currentRoute?.workspaceID == workspaceID {
       route = routeFromWorkspaceSelection()
-      loadRouteSession()
     }
   }
 
@@ -265,6 +269,13 @@ final class AppState {
 
   func updateMCPServers(_ servers: [MCPServerConfig]) {
     settingsState.updateMCPServers(servers)
+    let availableServerIDs = Set(servers.map(\.id))
+    workspaceState.retainSelectedMCPServerIDs(availableServerIDs)
+    if let active = sumika.conversation.state.active {
+      sumika.agent.reconcileSelectedMCPServerIDs(
+        active.composer.selectedMCPServerIDs.filter(availableServerIDs.contains)
+      )
+    }
     reconcileMCPConnectionsIfNeeded(force: true)
   }
 
@@ -303,6 +314,18 @@ final class AppState {
 
   func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
     let selection = normalizedMCPServerSelection(serverIDs)
+    guard let workspaceID = workspaceState.activeWorkspace?.id else {
+      return
+    }
+    do {
+      _ = try activateConversation(
+        workspaceID: workspaceID,
+        sessionID: workspaceState.activeSessionID
+      )
+    } catch {
+      workspaceState.errorMessage = error.localizedDescription
+      return
+    }
     sumika.agent.setSelectedMCPServerIDs(selection)
     reconcileMCPConnectionsIfNeeded()
   }
@@ -313,13 +336,7 @@ final class AppState {
   }
 
   private var activeMCPServerIDs: Set<UUID> {
-    let conversation = sumika.conversation.state
-    guard case .chat = route,
-      conversation.composer.interactionMode == .agent
-    else {
-      return []
-    }
-    return Set(conversation.composer.selectedMCPServerIDs)
+    Set(desiredAgentConnectionConfiguration().selectedServerIDs)
   }
 
   private func reconcileMCPConnectionsIfNeeded(force: Bool = false) {
@@ -327,11 +344,28 @@ final class AppState {
   }
 
   private func desiredAgentConnectionConfiguration() -> AgentConnectionConfiguration {
-    let conversation = sumika.conversation.state
+    if let active = sumika.conversation.state.active, active.activity.isBusy {
+      guard active.composer.interactionMode == .agent,
+        let workspace = workspaceState.library.workspaces.first(where: {
+          $0.id == active.workspaceID
+        })
+      else {
+        return AgentConnectionConfiguration(servers: settingsState.mcpServers)
+      }
+      return AgentConnectionConfiguration(
+        servers: settingsState.mcpServers,
+        activeSessionID: active.sessionID,
+        selectedServerIDs: normalizedMCPServerSelection(
+          active.composer.selectedMCPServerIDs
+        ),
+        workspaceRootURL: workspace.rootURL
+      )
+    }
+
     guard case .chat(_, let sessionID) = route,
-      conversation.sessionID == sessionID,
-      conversation.composer.interactionMode == .agent,
-      let workspaceRootURL = workspaceState.activeWorkspace?.rootURL
+      let workspace = workspaceState.activeWorkspace,
+      let session = workspace.sessions.first(where: { $0.id == sessionID }),
+      session.interactionMode == .agent
     else {
       return AgentConnectionConfiguration(servers: settingsState.mcpServers)
     }
@@ -339,9 +373,9 @@ final class AppState {
       servers: settingsState.mcpServers,
       activeSessionID: sessionID,
       selectedServerIDs: normalizedMCPServerSelection(
-        conversation.composer.selectedMCPServerIDs
+        session.selectedMCPServerIDs
       ),
-      workspaceRootURL: workspaceRootURL
+      workspaceRootURL: workspace.rootURL
     )
   }
 
@@ -374,20 +408,15 @@ final class AppState {
   }
 
   @discardableResult
-  func persistActiveSession() -> Bool {
-    persistActiveSession(sumika.conversation.snapshot())
-  }
-
-  @discardableResult
-  private func persistActiveSession(_ session: ChatSession) -> Bool {
-    guard
-      let activeSessionID = workspaceState.activeSessionID,
-      session.id == activeSessionID
-    else {
+  private func persistSession(
+    _ session: ChatSession,
+    in workspaceID: Workspace.ID
+  ) -> Bool {
+    guard workspaceState.workspace(id: workspaceID, containing: session.id) != nil else {
       return false
     }
 
-    workspaceState.persistActiveSessionSnapshot(session)
+    workspaceState.persistSessionSnapshot(session, in: workspaceID)
     return true
   }
 
@@ -396,22 +425,43 @@ final class AppState {
   /// tasks would otherwise die with the process — and terminates spawned MCP
   /// server processes so they do not outlive the app.
   func prepareForTermination() async {
-    persistActiveSession()
+    sumika.conversation.deactivate()
     await workspaceState.flushPendingSaves()
     await sumika.agent.prepareForTermination()
   }
 
-  private func loadRouteSession() {
-    let session: ChatSession
-    if case .chat = route, let activeSession = workspaceState.activeSession {
-      session = activeSession
+  @discardableResult
+  private func activateConversation(
+    workspaceID: Workspace.ID,
+    sessionID requestedSessionID: ChatSession.ID?
+  ) throws -> ChatSession.ID {
+    let sessionID: ChatSession.ID
+    if let requestedSessionID {
+      sessionID = requestedSessionID
+    } else if let selectedSessionID = workspaceState.activeSessionID,
+      workspaceState.workspace(id: workspaceID, containing: selectedSessionID) != nil
+    {
+      sessionID = selectedSessionID
+    } else if let createdSessionID = createSession(in: workspaceID) {
+      sessionID = createdSessionID
     } else {
-      session = emptySessionForNoActiveWorkspace()
+      throw ConversationIntentError.sessionCreationFailed(workspaceID: workspaceID)
     }
-    sumika.conversation.activate(session)
-    let selection = normalizedMCPServerSelection(session.selectedMCPServerIDs)
+
+    guard let workspace = workspaceState.workspace(id: workspaceID, containing: sessionID) else {
+      throw ConversationIntentError.sessionNotFound(
+        workspaceID: workspaceID,
+        sessionID: sessionID
+      )
+    }
+
+    try sumika.conversation.activate(sessionID: sessionID, in: workspace)
+    let selection = normalizedMCPServerSelection(
+      workspace.sessions.first(where: { $0.id == sessionID })?.selectedMCPServerIDs ?? []
+    )
     sumika.agent.reconcileSelectedMCPServerIDs(selection)
     reconcileMCPConnectionsIfNeeded()
+    return sessionID
   }
 
   private func applyAppBehaviorSettings(_ settings: AppBehaviorSettings) {
@@ -433,7 +483,7 @@ final class AppState {
     {
       return Self.defaultSessionFactory(
         selectedModelID: selectedModelID,
-        modeSettings: sumika.conversation.state.modeSettings
+        modeSettings: modelManagementState.modeSettings
       )
     }
 
@@ -454,14 +504,6 @@ final class AppState {
     )
   }
 
-  private func emptySessionForNoActiveWorkspace() -> ChatSession {
-    Self.defaultSessionFactory(
-      selectedModelID: defaultSessionModelID,
-      modeSettings: defaultSessionModeSettings
-    )
-    .makeSession()
-  }
-
   private func loadStoredLibrary() {
     Task { [modelSettingsStore] in
       let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
@@ -478,11 +520,14 @@ final class AppState {
       defaultSessionModeSettings = settings.modeSettings
       let defaultSessionFactory = self.makeDefaultSessionFactory()
       await self.workspaceState.loadLibrary(defaultSessionFactory: defaultSessionFactory)
+      self.workspaceState.retainSelectedMCPServerIDs(
+        Set(self.settingsState.mcpServers.map(\.id))
+      )
       if self.route != .models || self.routeWasAutomaticMissingModelRedirect {
         self.route = self.routeFromWorkspaceSelection()
         self.routeWasAutomaticMissingModelRedirect = false
       }
-      self.loadRouteSession()
+      self.reconcileMCPConnectionsIfNeeded()
       self.attemptAutoloadLastModelIfReady()
     }
   }
@@ -509,7 +554,6 @@ final class AppState {
 
   private func routeToModelsIfNoTextModelIsDownloaded() {
     if modelManagementState.downloadedModels.isEmpty {
-      persistActiveSession()
       route = .models
       routeWasAutomaticMissingModelRedirect = true
       reconcileMCPConnectionsIfNeeded()

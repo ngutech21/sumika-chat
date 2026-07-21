@@ -13,7 +13,7 @@ struct ChatComposerPresentation: Equatable {
 }
 
 struct ChatTranscriptPresentation: Equatable {
-  let sessionID: ChatSession.ID
+  let sessionID: ChatSession.ID?
   let turns: [ChatTurn]
   let isGenerating: Bool
   let toolApprovalPolicy: ToolApprovalPolicy
@@ -26,64 +26,127 @@ struct ChatModelContextDebugPresentation: Equatable {
 @MainActor
 @Observable
 final class ChatFeatureState {
-  @ObservationIgnored private let conversation: ConversationFeature
+  typealias ConversationActivator = @MainActor (Workspace.ID, ChatSession.ID?) throws -> Void
 
-  init(conversation: ConversationFeature) {
+  @ObservationIgnored private let conversation: ConversationFeature
+  @ObservationIgnored private let workspaceState: WorkspaceFeatureState
+  @ObservationIgnored private var activateConversation: ConversationActivator?
+  private var intentErrorMessage: String?
+
+  init(
+    conversation: ConversationFeature,
+    workspaceState: WorkspaceFeatureState
+  ) {
     self.conversation = conversation
+    self.workspaceState = workspaceState
+  }
+
+  func setConversationActivator(_ activator: @escaping ConversationActivator) {
+    activateConversation = activator
   }
 
   var composer: ChatComposerPresentation {
-    let state = conversation.state
+    let selectedActiveState = selectedActiveConversationState
+    let sessionState = selectedActiveState?.composer ?? selectedComposerState
+    let anotherConversationIsBusy = isAnotherConversationBusy
+
     return ChatComposerPresentation(
-      session: state.composer,
-      isGenerating: state.isGenerating,
-      contextUsage: state.contextUsage,
-      errorMessage: state.errorMessage,
-      canChangeInteractionMode: state.canChangeInteractionMode,
-      canChangeMCPServerSelection: state.canChangeMCPServerSelection,
-      canEnableAutomaticToolApproval: state.canEnableAutomaticToolApproval
+      session: sessionState,
+      isGenerating: selectedActiveState?.isGenerating == true,
+      contextUsage: selectedActiveState?.contextUsage,
+      errorMessage: intentErrorMessage
+        ?? (anotherConversationIsBusy ? "Another chat operation is still active." : nil)
+          ?? selectedActiveState?.errorMessage,
+      canChangeInteractionMode: !anotherConversationIsBusy
+        && (selectedActiveState?.canChangeInteractionMode ?? true),
+      canChangeMCPServerSelection: !anotherConversationIsBusy
+        && sessionState.interactionMode == .agent
+        && (selectedActiveState?.canChangeMCPServerSelection ?? true),
+      canEnableAutomaticToolApproval: !anotherConversationIsBusy
+        && sessionState.interactionMode == .agent
+        && sessionState.toolApprovalPolicy == .manual
+        && (selectedActiveState?.canEnableAutomaticToolApproval ?? true)
     )
   }
 
   var transcript: ChatTranscriptPresentation {
-    let state = conversation.state
+    let selectedActiveState = selectedActiveConversationState
+    let session = workspaceState.activeSession
     return ChatTranscriptPresentation(
-      sessionID: state.sessionID,
-      turns: state.turns,
-      isGenerating: state.isGenerating,
-      toolApprovalPolicy: state.composer.toolApprovalPolicy
+      sessionID: session?.id,
+      turns: selectedActiveState?.turns ?? session?.turns ?? [],
+      isGenerating: selectedActiveState?.isGenerating == true,
+      toolApprovalPolicy: selectedActiveState?.composer.toolApprovalPolicy
+        ?? session?.toolApprovalPolicy
+        ?? .manual
     )
   }
 
   var modelContextDebug: ChatModelContextDebugPresentation {
-    ChatModelContextDebugPresentation(state: conversation.state.modelContextDebug)
+    ChatModelContextDebugPresentation(
+      state: selectedActiveConversationState?.modelContextDebug ?? ModelContextDebugState()
+    )
+  }
+
+  var busySessionID: ChatSession.ID? {
+    guard let active = conversation.state.active, active.activity.isBusy else {
+      return nil
+    }
+    return active.sessionID
+  }
+
+  @discardableResult
+  func activateSelectedConversation() -> Bool {
+    do {
+      guard let activateConversation else {
+        throw ConversationIntentError.inactive
+      }
+      guard let workspaceID = workspaceState.activeWorkspace?.id else {
+        throw ConversationIntentError.inactive
+      }
+      try activateConversation(workspaceID, workspaceState.activeSessionID)
+      intentErrorMessage = nil
+      return true
+    } catch {
+      intentErrorMessage = error.localizedDescription
+      return false
+    }
   }
 
   func setInteractionMode(_ mode: WorkspaceInteractionMode) {
-    conversation.setInteractionMode(mode)
+    performIntent {
+      try conversation.setInteractionMode(mode)
+    }
   }
 
   func setReasoningEnabled(_ isEnabled: Bool) {
-    conversation.setReasoningEnabled(isEnabled)
+    performIntent {
+      try conversation.setReasoningEnabled(isEnabled)
+    }
   }
 
-  func enableAutomaticToolApproval(
-    in context: WorkspaceChatContext,
-    sessionID: ChatSession.ID?
-  ) {
-    conversation.enableAutomaticToolApproval(in: toolWorkspace(in: context, sessionID: sessionID))
+  func enableAutomaticToolApproval() {
+    performIntent {
+      try conversation.enableAutomaticToolApproval()
+    }
   }
 
   func disableAutomaticToolApproval() {
-    conversation.disableAutomaticToolApproval()
+    performIntent {
+      try conversation.disableAutomaticToolApproval()
+    }
   }
 
   func addAttachments(from urls: [URL]) {
-    conversation.addAttachments(from: urls)
+    performIntent {
+      try conversation.addAttachments(from: urls)
+    }
   }
 
   func removeAttachment(id: ChatAttachment.ID) {
-    conversation.removeAttachment(id: id)
+    performIntent {
+      try conversation.removeAttachment(id: id)
+    }
   }
 
   func cancelGeneration() {
@@ -91,70 +154,99 @@ final class ChatFeatureState {
   }
 
   func approveToolCall(
-    id toolCallID: ToolCallRecord.ID,
-    in context: WorkspaceChatContext,
-    sessionID: ChatSession.ID?
+    id toolCallID: ToolCallRecord.ID
   ) {
-    conversation.approveToolCall(
-      id: toolCallID,
-      in: toolWorkspace(in: context, sessionID: sessionID)
-    )
+    performIntent {
+      try conversation.approveToolCall(id: toolCallID)
+    }
   }
 
   func approveToolCallBatch(
-    containing batchAnchorID: ToolCallRecord.ID,
-    in context: WorkspaceChatContext,
-    sessionID: ChatSession.ID?
+    containing batchAnchorID: ToolCallRecord.ID
   ) {
-    conversation.approveToolCallBatch(
-      containing: batchAnchorID,
-      in: toolWorkspace(in: context, sessionID: sessionID)
-    )
+    performIntent {
+      try conversation.approveToolCallBatch(containing: batchAnchorID)
+    }
   }
 
   func resumeAutomaticApprovalBatch(
-    containing batchAnchorID: ToolCallRecord.ID,
-    in context: WorkspaceChatContext,
-    sessionID: ChatSession.ID?
+    containing batchAnchorID: ToolCallRecord.ID
   ) {
-    conversation.resumeAutomaticApprovalBatch(
-      containing: batchAnchorID,
-      in: toolWorkspace(in: context, sessionID: sessionID)
-    )
+    performIntent {
+      try conversation.resumeAutomaticApprovalBatch(containing: batchAnchorID)
+    }
   }
 
-  func denyToolCall(id toolCallID: ToolCallRecord.ID) {
-    conversation.denyToolCall(id: toolCallID)
+  func denyToolCall(
+    id toolCallID: ToolCallRecord.ID
+  ) {
+    performIntent {
+      try conversation.denyToolCall(id: toolCallID)
+    }
   }
 
   func answerAskUserToolCall(
     id toolCallID: ToolCallRecord.ID,
-    answer: String,
-    in context: WorkspaceChatContext,
-    sessionID: ChatSession.ID?
+    answer: String
   ) {
-    conversation.answerAskUserToolCall(
-      id: toolCallID,
-      answer: answer,
-      in: toolWorkspace(in: context, sessionID: sessionID)
+    performIntent {
+      try conversation.answerAskUserToolCall(id: toolCallID, answer: answer)
+    }
+  }
+
+  func modelContextDebugDocument() throws -> ModelContextDebugDocument {
+    guard activateSelectedConversation() else {
+      throw ConversationIntentError.inactive
+    }
+    return try conversation.modelContextDebugDocument()
+  }
+
+  private var selectedActiveConversationState: ActiveConversationState? {
+    guard let active = conversation.state.active,
+      active.workspaceID == workspaceState.activeWorkspace?.id,
+      active.sessionID == workspaceState.activeSessionID
+    else {
+      return nil
+    }
+    return active
+  }
+
+  private var isAnotherConversationBusy: Bool {
+    guard let active = conversation.state.active, active.activity.isBusy else {
+      return false
+    }
+    return active.workspaceID != workspaceState.activeWorkspace?.id
+      || active.sessionID != workspaceState.activeSessionID
+  }
+
+  private var selectedComposerState: ChatComposerSessionState {
+    guard let session = workspaceState.activeSession else {
+      return ChatComposerSessionState()
+    }
+    let activeAttachmentIDs = Set(session.activeAttachmentContext.attachmentIDs)
+    return ChatComposerSessionState(
+      pendingAttachments: session.pendingAttachments,
+      activeAttachments: session.pendingAttachments.filter {
+        activeAttachmentIDs.contains($0.id)
+      },
+      interactionMode: session.interactionMode,
+      toolApprovalPolicy: session.toolApprovalPolicy,
+      selectedMCPServerIDs: session.selectedMCPServerIDs,
+      reasoningEnabled: session.generationSettings.reasoningEnabled,
+      todoState: session.interactionMode == .agent ? session.todoState : nil
     )
   }
 
-  func modelContextDebugDocument(
-    in context: WorkspaceChatContext,
-    sessionID: ChatSession.ID?
-  ) throws -> ModelContextDebugDocument {
-    try conversation.modelContextDebugDocument(
-      workspace: context.workspace(containing: sessionID ?? conversation.state.sessionID),
-      sessionID: sessionID
-    )
-  }
-
-  private func toolWorkspace(
-    in context: WorkspaceChatContext,
-    sessionID: ChatSession.ID?
-  ) -> Workspace {
-    context.workspace(containing: sessionID ?? conversation.state.sessionID)
+  private func performIntent(_ intent: () throws -> Void) {
+    guard activateSelectedConversation() else {
+      return
+    }
+    do {
+      try intent()
+      intentErrorMessage = nil
+    } catch {
+      intentErrorMessage = error.localizedDescription
+    }
   }
 
   #if DEBUG
@@ -162,7 +254,7 @@ final class ChatFeatureState {
       conversation.refreshContextUsageForTesting()
     }
 
-    var sessionSnapshotForTesting: ChatSession {
+    var sessionSnapshotForTesting: ChatSession? {
       conversation.snapshot()
     }
   #endif

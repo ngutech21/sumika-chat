@@ -11,21 +11,16 @@ final class ModelRuntimeController {
   var modelPath: String
   var modelState: ModelLoadState = .notLoaded
   var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
+  var selectedModeSettings = ManagedModelCatalog.defaultModel.defaultModeSettings
   var modelGenerationConfigPreset: ChatGenerationConfigPreset?
-  var processUsage: ProcessResourceUsage?
   var modelAvailabilitySnapshot: [ManagedModel.ID: Bool] = [:]
 
   @ObservationIgnored private let runtimeOperations: RuntimeOperationCoordinator
   @ObservationIgnored private let modelLifecycleCoordinator: ModelLifecycleCoordinator
-  @ObservationIgnored private let resourceMonitor: any ProcessResourceMonitoring
   @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private var loadTask: Task<Void, Never>?
   @ObservationIgnored private var downloadTask: Task<Void, Never>?
   @ObservationIgnored private var modelOperationID: UUID
-  @ObservationIgnored private var resourceMonitorTask: Task<Void, Never>?
-  private static let resourceMonitorInterval: Duration = .seconds(5)
-  private static let resourceMemoryPublishThresholdBytes: UInt64 = 16 * 1024 * 1024
-  private static let resourceCPUPublishThreshold = 1.0
 
   @ObservationIgnored var onModelDidChange: (@MainActor (StoredModelSettings) -> Void)?
   @ObservationIgnored var onRuntimeDidReset: (@MainActor () -> Void)?
@@ -53,7 +48,6 @@ final class ModelRuntimeController {
       modelState: modelState,
       modelContextTokenLimit: modelContextTokenLimit,
       modelGenerationConfigPreset: modelGenerationConfigPreset,
-      processUsage: processUsage,
       canChangeModel: canChangeModel
     )
   }
@@ -71,19 +65,20 @@ final class ModelRuntimeController {
     selectedModelID: ManagedModel.ID,
     modelPath: String,
     modelContextTokenLimit: Int,
+    selectedModeSettings: ChatModeSettingsSet? = nil,
     modelSettingsStore: any ModelSettingsStoring,
     runtimeOperations: RuntimeOperationCoordinator,
     modelLifecycleCoordinator: ModelLifecycleCoordinator,
-    resourceMonitor: any ProcessResourceMonitoring,
     initialOperationID: UUID
   ) {
     self.selectedModelID = selectedModelID
     self.modelPath = modelPath
     self.modelContextTokenLimit = modelContextTokenLimit
+    self.selectedModeSettings =
+      selectedModeSettings ?? ManagedModelCatalog.defaultModel.defaultModeSettings
     self.modelSettingsStore = modelSettingsStore
     self.runtimeOperations = runtimeOperations
     self.modelLifecycleCoordinator = modelLifecycleCoordinator
-    self.resourceMonitor = resourceMonitor
     self.modelOperationID = initialOperationID
     refreshModelGenerationConfigPreset()
     refreshModelAvailability()
@@ -99,7 +94,6 @@ final class ModelRuntimeController {
   deinit {
     loadTask?.cancel()
     downloadTask?.cancel()
-    resourceMonitorTask?.cancel()
   }
 
   func currentOperationID() -> UUID {
@@ -128,22 +122,6 @@ final class ModelRuntimeController {
         refreshModelAvailability()
       } catch {
         onError?(error.localizedDescription)
-      }
-    }
-  }
-
-  func startResourceMonitoring() {
-    guard resourceMonitorTask == nil else {
-      return
-    }
-
-    resourceMonitorTask = Task {
-      while !Task.isCancelled {
-        let usage = await resourceMonitor.currentUsage()
-        if shouldPublishResourceUsage(usage) {
-          processUsage = usage
-        }
-        try? await Task.sleep(for: Self.resourceMonitorInterval)
       }
     }
   }
@@ -179,6 +157,7 @@ final class ModelRuntimeController {
         return
       }
       modelContextTokenLimit = settings.contextTokenLimit
+      selectedModeSettings = settings.modeSettings
       refreshModelGenerationConfigPreset()
       onModelDidChange?(settings)
     }
@@ -207,6 +186,7 @@ final class ModelRuntimeController {
         return
       }
       modelContextTokenLimit = settings.contextTokenLimit
+      selectedModeSettings = settings.modeSettings
       refreshModelGenerationConfigPreset()
     }
 
@@ -277,6 +257,7 @@ final class ModelRuntimeController {
   }
 
   func saveSelectedModelSettings(modeSettings: ChatModeSettingsSet) {
+    selectedModeSettings = modeSettings
     let settings = StoredModelSettings(
       modeSettings: modeSettings,
       contextTokenLimit: modelContextTokenLimit
@@ -334,6 +315,7 @@ final class ModelRuntimeController {
       self.selectedModelID = selectedModel.id
       modelPath = selectedModel.localPath
       modelContextTokenLimit = settings.contextTokenLimit
+      selectedModeSettings = settings.modeSettings
       refreshModelGenerationConfigPreset()
       if notifyModelDidChange {
         onModelDidChange?(settings)
@@ -462,21 +444,4 @@ final class ModelRuntimeController {
     return min(max(fraction, 0), 1)
   }
 
-  private func shouldPublishResourceUsage(_ usage: ProcessResourceUsage?) -> Bool {
-    guard let currentUsage = processUsage else {
-      return usage != nil
-    }
-    guard let usage else {
-      return true
-    }
-
-    let memoryDelta =
-      currentUsage.memoryBytes > usage.memoryBytes
-      ? currentUsage.memoryBytes - usage.memoryBytes
-      : usage.memoryBytes - currentUsage.memoryBytes
-    let cpuDelta = abs(currentUsage.cpuPercent - usage.cpuPercent)
-
-    return memoryDelta >= Self.resourceMemoryPublishThresholdBytes
-      || cpuDelta >= Self.resourceCPUPublishThreshold
-  }
 }

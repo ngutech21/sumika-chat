@@ -6,7 +6,6 @@ package struct ModelManagementState: Equatable, Sendable {
   package let modelState: ModelLoadState
   package let modelContextTokenLimit: Int
   package let modelGenerationConfigPreset: ChatGenerationConfigPreset?
-  package let processUsage: ProcessResourceUsage?
   package let canChangeModel: Bool
 
   package func isModelDownloaded(_ model: ManagedModel) -> Bool {

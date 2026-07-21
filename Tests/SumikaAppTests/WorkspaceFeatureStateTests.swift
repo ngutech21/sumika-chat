@@ -157,7 +157,7 @@ struct WorkspaceFeatureStateTests {
   }
 
   @Test
-  func persistActiveSessionSnapshotUpdatesOnlyActiveSession() async throws {
+  func persistSessionSnapshotUpdatesOnlyIdentifiedSession() async throws {
     let activeSessionID = UUID()
     let otherSessionID = UUID()
     let workspaceID = UUID()
@@ -197,7 +197,7 @@ struct WorkspaceFeatureStateTests {
         )
       ]
     )
-    state.persistActiveSessionSnapshot(snapshot)
+    state.persistSessionSnapshot(snapshot, in: workspaceID)
 
     #expect(state.activeWorkspaceContext == contextBeforePersist)
     #expect(state.activeSessionID == activeSessionIDBeforePersist)
@@ -213,7 +213,7 @@ struct WorkspaceFeatureStateTests {
   }
 
   @Test
-  func persistActiveSessionSnapshotDoesNotChangeSidebarStateForTurnOnlyUpdates() async throws {
+  func persistSessionSnapshotDoesNotChangeSidebarStateForTurnOnlyUpdates() async throws {
     let activeSessionID = UUID()
     let workspaceID = UUID()
     let workspace = Workspace(
@@ -249,13 +249,13 @@ struct WorkspaceFeatureStateTests {
         )
       ]
     )
-    state.persistActiveSessionSnapshot(snapshot)
+    state.persistSessionSnapshot(snapshot, in: workspaceID)
 
     #expect(state.sidebarState == sidebarStateBeforePersist)
   }
 
   @Test
-  func persistActiveSessionSnapshotUpdatesSidebarStateWhenTitleChanges() async throws {
+  func persistSessionSnapshotUpdatesSidebarStateWhenTitleChanges() async throws {
     let activeSessionID = UUID()
     let workspaceID = UUID()
     let workspace = Workspace(
@@ -290,7 +290,7 @@ struct WorkspaceFeatureStateTests {
         )
       ]
     )
-    state.persistActiveSessionSnapshot(snapshot)
+    state.persistSessionSnapshot(snapshot, in: workspaceID)
 
     #expect(state.sidebarState.workspaces.first?.sessions.first?.title == "Saved Active")
   }
@@ -371,7 +371,10 @@ struct WorkspaceFeatureStateTests {
     let createChange = state.createSession(in: workspaceID)
     let selectionChange = state.selectWorkspace(workspaceID)
     state.renameSession(sessionID, title: "Must not change")
-    state.persistActiveSessionSnapshot(ChatSession(id: sessionID, title: "Must not save"))
+    state.persistSessionSnapshot(
+      ChatSession(id: sessionID, title: "Must not save"),
+      in: workspaceID
+    )
 
     #expect(state.isPersistenceBlocked)
     #expect(state.errorMessage?.contains("invalid") == true)

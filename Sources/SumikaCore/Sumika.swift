@@ -7,36 +7,27 @@ import Foundation
 @MainActor
 package final class Sumika {
   package struct Configuration: Sendable {
-    let initialSession: ChatSession
     let initialModel: ManagedModel
     let modelPath: String
     let initialModelSettings: StoredModelSettings
 
     package init(
-      initialSession: ChatSession? = nil,
       initialModel: ManagedModel? = nil,
       modelPath: String? = nil,
       initialModelSettings: StoredModelSettings? = nil
     ) {
       let model =
         initialModel
-        ?? initialSession.flatMap { ManagedModelCatalog.model(id: $0.selectedModelID) }
         ?? ManagedModelCatalog.defaultModel
       let settings =
         initialModelSettings
         ?? StoredModelSettings(
-          modeSettings: initialSession?.modeSettings ?? model.defaultModeSettings,
+          modeSettings: model.defaultModeSettings,
           contextTokenLimit: model.defaultContextTokenLimit
         )
       self.initialModel = model
       self.modelPath = modelPath ?? model.localPath
       self.initialModelSettings = settings
-      self.initialSession =
-        initialSession
-        ?? ChatSession(
-          selectedModelID: model.id,
-          modeSettings: settings.modeSettings
-        )
     }
   }
 
@@ -44,7 +35,6 @@ package final class Sumika {
     let runtime: any ChatModelRuntime
     let modelSettingsStore: any ModelSettingsStoring
     let modelDownloader: any ModelDownloading
-    let resourceMonitor: any ProcessResourceMonitoring
     let modelAvailability: @Sendable (ManagedModel) -> Bool
     let browserToolService: any BrowserToolServing
     let webAccessSettingsProvider: @Sendable () async -> WebAccessSettings
@@ -55,7 +45,6 @@ package final class Sumika {
       runtime: any ChatModelRuntime,
       modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
       modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
-      resourceMonitor: any ProcessResourceMonitoring = ProcessResourceMonitor(),
       modelAvailability: (@Sendable (ManagedModel) -> Bool)? = nil,
       browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
       webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
@@ -67,7 +56,6 @@ package final class Sumika {
       self.runtime = runtime
       self.modelSettingsStore = modelSettingsStore
       self.modelDownloader = modelDownloader
-      self.resourceMonitor = resourceMonitor
       self.modelAvailability =
         modelAvailability ?? ModelLifecycleCoordinator.defaultModelAvailability
       self.browserToolService = browserToolService
@@ -99,10 +87,10 @@ package final class Sumika {
       selectedModelID: configuration.initialModel.id,
       modelPath: configuration.modelPath,
       modelContextTokenLimit: configuration.initialModelSettings.contextTokenLimit,
+      selectedModeSettings: configuration.initialModelSettings.modeSettings,
       modelSettingsStore: dependencies.modelSettingsStore,
       runtimeOperations: runtimeOperations,
       modelLifecycleCoordinator: modelLifecycle,
-      resourceMonitor: dependencies.resourceMonitor,
       initialOperationID: operationID
     )
     let initialConversationModelState = modelController.conversationState
@@ -117,7 +105,6 @@ package final class Sumika {
         runtimeOperations: runtimeOperations,
         turnTracer: dependencies.turnTracer
       ),
-      chatSession: configuration.initialSession,
       toolOrchestrator: ToolOrchestrator.agent(
         todoWriteEnabled: false,
         browserToolService: dependencies.browserToolService,

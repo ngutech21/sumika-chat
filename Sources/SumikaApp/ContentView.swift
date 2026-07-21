@@ -8,6 +8,7 @@ struct ContentView: View {
   @AppStorage("workspaceChat.isTerminalVisible") private var isTerminalVisible = false
   @State private var modelsTab = ModelsTab.text
   @State private var appState: AppState
+  @State private var processResourceMonitor = ProcessResourceMonitor()
   @State private var workspaceChatActions: WorkspaceChatActions
 
   @MainActor
@@ -24,7 +25,8 @@ struct ContentView: View {
     NavigationSplitView {
       WorkspaceSidebar(
         sidebarState: appState.workspaceState.sidebarState,
-        processUsage: appState.modelManagementState.state.processUsage,
+        busySessionID: chatState.busySessionID,
+        processUsage: processResourceMonitor.usage,
         selection: routeSelection,
         onAddWorkspace: chooseWorkspace,
         onCreateSession: createSession,
@@ -39,6 +41,7 @@ struct ContentView: View {
     }
     .frame(minWidth: 880, minHeight: 560)
     .onAppear {
+      processResourceMonitor.start()
       appState.startModelRuntimeServices()
     }
     .modifier(
@@ -63,6 +66,7 @@ struct ContentView: View {
         )
       case .workspace:
         WorkspaceRouteHost(
+          activeWorkspace: appState.workspaceState.activeWorkspace,
           activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
           activeSessionID: nil,
           chatState: chatState,
@@ -84,6 +88,7 @@ struct ContentView: View {
         )
       case .chat(_, let sessionID):
         WorkspaceRouteHost(
+          activeWorkspace: appState.workspaceState.activeWorkspace,
           activeWorkspaceContext: appState.workspaceState.activeWorkspaceContext,
           activeSessionID: sessionID,
           chatState: chatState,
@@ -171,6 +176,7 @@ struct ContentView: View {
 }
 
 private struct WorkspaceRouteHost: View {
+  let activeWorkspace: Workspace?
   let activeWorkspaceContext: WorkspaceChatContext?
   let activeSessionID: ChatSession.ID?
   let chatState: ChatFeatureState
@@ -186,14 +192,15 @@ private struct WorkspaceRouteHost: View {
   @Binding var isWorkspaceTerminalVisible: Bool
   let onAddWorkspace: () -> Void
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
-  let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
+  let onSendMessage: (String) -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
 
   var body: some View {
-    if let context = activeWorkspaceContext {
+    if let workspace = activeWorkspace, let context = activeWorkspaceContext {
       WorkspaceChatView(
         chatState: chatState,
+        workspace: workspace,
         context: context,
         sessionID: activeSessionID,
         modelManagementState: modelManagementState,

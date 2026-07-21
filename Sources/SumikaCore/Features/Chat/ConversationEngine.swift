@@ -8,8 +8,24 @@ import Observation
 @MainActor
 @Observable
 final class ConversationEngine {
-  private(set) var chatSession: ChatSession {
-    didSet {
+  private struct ActiveConversation {
+    var workspace: Workspace
+    var session: ChatSession
+  }
+
+  private var activeConversation: ActiveConversation?
+  var chatSession: ChatSession {
+    get {
+      guard let session = activeConversation?.session else {
+        preconditionFailure("ConversationEngine requires an active conversation")
+      }
+      return session
+    }
+    set {
+      guard activeConversation != nil else {
+        preconditionFailure("ConversationEngine requires an active conversation")
+      }
+      activeConversation?.session = newValue
       syncComposerSessionState()
     }
   }
@@ -17,6 +33,7 @@ final class ConversationEngine {
   private(set) var modelContextDebugState = ModelContextDebugState()
   var contextUsage: ChatContextUsage?
   var isGenerating = false
+  private(set) var isLoadingAttachments = false
   private(set) var errorMessage: String?
 
   @ObservationIgnored private let conversationModel: @MainActor () -> ConversationModelState
@@ -36,7 +53,8 @@ final class ConversationEngine {
   @ObservationIgnored private let attachmentCoordinator: ChatAttachmentCoordinator
   @ObservationIgnored private let transcriptMutator = ChatTranscriptMutator()
   @ObservationIgnored private let workflowEventApplier = ChatWorkflowEventApplier()
-  @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
+  @ObservationIgnored private var onSessionDidChange:
+    (@MainActor @Sendable (Workspace.ID, ChatSession) -> Void)?
   @ObservationIgnored private var agentToolConfiguration: AgentToolConfiguration?
   @ObservationIgnored private var pendingAgentToolExecutorRegistry: ToolExecutorRegistry?
   @ObservationIgnored private var pendingSelectedMCPServerIDs: [UUID]?
@@ -49,17 +67,26 @@ final class ConversationEngine {
   #endif
 
   func canSend(prompt: String) -> Bool {
-    conversationModelState.loadState == .ready
+    hasActiveConversation
+      && conversationModelState.loadState == .ready
       && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && !isGenerating
+      && !isInputBlocked
+      && !isLoadingAttachments
   }
 
   var hasPendingApproval: Bool {
-    chatSession.containsToolCall { $0.status == .awaitingApproval }
+    guard hasActiveConversation else {
+      return false
+    }
+    return chatSession.containsToolCall { $0.status == .awaitingApproval }
   }
 
   var hasPendingUserAnswer: Bool {
-    chatSession.containsToolCall { $0.status == .awaitingUserAnswer }
+    guard hasActiveConversation else {
+      return false
+    }
+    return chatSession.containsToolCall { $0.status == .awaitingUserAnswer }
   }
 
   var isInputBlocked: Bool {
@@ -67,15 +94,16 @@ final class ConversationEngine {
   }
 
   var canChangeInteractionMode: Bool {
-    !isGenerating && !isInputBlocked
+    hasActiveConversation && !activity.isBusy
   }
 
   var canChangeMCPServerSelection: Bool {
-    chatSession.interactionMode == .agent && canChangeInteractionMode
+    hasActiveConversation && chatSession.interactionMode == .agent && canChangeInteractionMode
   }
 
   var canEnableAutomaticToolApproval: Bool {
-    chatSession.interactionMode == .agent
+    hasActiveConversation
+      && chatSession.interactionMode == .agent
       && chatSession.toolApprovalPolicy == .manual
       && !isGenerating
       && !hasPendingUserAnswer
@@ -85,7 +113,6 @@ final class ConversationEngine {
     conversationModel: @escaping @MainActor () -> ConversationModelState,
     runtimeContextClearCoordinator: RuntimeContextClearCoordinator,
     chatGenerationCoordinator: ChatGenerationCoordinator,
-    chatSession: ChatSession = ChatSession(),
     toolOrchestrator: ToolOrchestrator = ToolOrchestrator.agent(todoWriteEnabled: true),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     workspaceInstructionsLoader: any WorkspaceInstructionsLoading =
@@ -106,8 +133,6 @@ final class ConversationEngine {
       turnTracer: turnTracer
     )
     self.attachmentCoordinator = ChatAttachmentCoordinator(loader: chatAttachmentLoader)
-    self.chatSession = chatSession
-    self.composerSessionState = Self.composerSessionState(for: chatSession)
   }
 
   deinit {
@@ -118,6 +143,57 @@ final class ConversationEngine {
 extension ConversationEngine {
   private var conversationModelState: ConversationModelState {
     conversationModel()
+  }
+
+  var hasActiveConversation: Bool {
+    activeConversation != nil
+  }
+
+  var activeWorkspaceID: Workspace.ID? {
+    activeConversation?.workspace.id
+  }
+
+  var activeSessionID: ChatSession.ID? {
+    activeConversation?.session.id
+  }
+
+  var activeWorkspace: Workspace? {
+    activeConversation?.workspace
+  }
+
+  var activity: ConversationActivity {
+    if hasPendingApproval {
+      return .awaitingApproval
+    }
+    if hasPendingUserAnswer {
+      return .awaitingUserAnswer
+    }
+    if isGenerating || isLoadingAttachments {
+      return .working
+    }
+    return .idle
+  }
+
+  var busyError: ConversationIntentError {
+    guard let workspaceID = activeWorkspaceID,
+      let sessionID = activeSessionID
+    else {
+      return .inactive
+    }
+    return .busy(workspaceID: workspaceID, sessionID: sessionID)
+  }
+
+  func matches(workspaceID: Workspace.ID, sessionID: ChatSession.ID) -> Bool {
+    activeWorkspaceID == workspaceID && activeSessionID == sessionID
+  }
+
+  func updateActiveWorkspace(_ workspace: Workspace) {
+    guard let sessionID = activeSessionID,
+      workspace.sessions.contains(where: { $0.id == sessionID })
+    else {
+      return
+    }
+    activeConversation?.workspace = workspace
   }
 
   func modelManagementEventHandlers(
@@ -139,11 +215,15 @@ extension ConversationEngine {
 
   private func handleModelDidChange(_ settings: StoredModelSettings) {
     disableUnsupportedInteractionModeIfNeeded()
-    chatSession.modeSettings = settings.modeSettings
+    if hasActiveConversation {
+      chatSession.modeSettings = settings.modeSettings
+    }
     updateRuntimeCacheDebugSnapshot(nil)
     invalidateModelContextDebugDocument()
     invalidateContextUsage()
-    notifySessionDidChange()
+    if hasActiveConversation {
+      notifySessionDidChange()
+    }
 
     clearRuntimeContextForReuse()
     refreshContextUsage()
@@ -155,7 +235,9 @@ extension ConversationEngine {
   }
 
   private func syncComposerSessionState() {
-    let nextState = Self.composerSessionState(for: chatSession)
+    let nextState =
+      activeConversation.map { Self.composerSessionState(for: $0.session) }
+      ?? ChatComposerSessionState()
     guard composerSessionState != nextState else {
       return
     }
@@ -192,8 +274,16 @@ extension ConversationEngine {
     return todoState
   }
 
-  func setSessionChangeHandler(_ handler: (@MainActor @Sendable () -> Void)?) {
+  func setSessionChangeHandler(
+    _ handler: (@MainActor @Sendable (Workspace.ID, ChatSession) -> Void)?
+  ) {
     onSessionDidChange = handler
+  }
+
+  func setSessionChangeHandler(
+    _ handler: @escaping @MainActor @Sendable () -> Void
+  ) {
+    onSessionDidChange = { _, _ in handler() }
   }
 
   var sessionID: ChatSession.ID {
@@ -204,13 +294,13 @@ extension ConversationEngine {
     chatSession.turns
   }
 
-  var modeSettings: ChatModeSettingsSet {
-    chatSession.modeSettings
+  var activeModeSettings: ChatModeSettingsSet? {
+    activeConversation?.session.modeSettings
   }
 
   @discardableResult
   func updateModeSettings(_ modeSettings: ChatModeSettingsSet) -> Bool {
-    guard chatSession.modeSettings != modeSettings else {
+    guard hasActiveConversation, chatSession.modeSettings != modeSettings else {
       return false
     }
 
@@ -222,6 +312,9 @@ extension ConversationEngine {
 
   @discardableResult
   func renameSession(to title: String) -> Bool {
+    guard hasActiveConversation else {
+      return false
+    }
     let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedTitle.isEmpty else {
       return false
@@ -232,17 +325,24 @@ extension ConversationEngine {
     return true
   }
 
-  func installSession(
+  func installConversation(
     _ session: ChatSession,
-    modelRuntimeWasReset: Bool
+    in workspace: Workspace,
+    modelRuntimeWasReset: Bool,
+    prepareRuntimeContext: Bool = true
   ) {
     errorMessage = nil
     contextUsage = nil
     updateRuntimeCacheDebugSnapshot(nil)
-    chatSession = session
-    chatSession.pendingAttachments = []
+    activeConversation = ActiveConversation(workspace: workspace, session: session)
+    syncComposerSessionState()
+    applyConfiguredAgentToolsForActiveSession()
     disableUnsupportedInteractionModeIfNeeded()
     invalidateModelContextDebugDocument()
+
+    guard prepareRuntimeContext else {
+      return
+    }
 
     if modelRuntimeWasReset {
       invalidateContextUsage()
@@ -262,8 +362,42 @@ extension ConversationEngine {
     return snapshot
   }
 
+  func activeSessionSnapshot() -> ChatSession? {
+    guard hasActiveConversation else {
+      return nil
+    }
+    return sessionSnapshot()
+  }
+
+  func publishSessionSnapshot() {
+    guard let workspaceID = activeWorkspaceID,
+      let snapshot = activeSessionSnapshot()
+    else {
+      return
+    }
+    onSessionDidChange?(workspaceID, snapshot)
+  }
+
+  func deactivate() {
+    guard hasActiveConversation else {
+      return
+    }
+    cancelGeneration(notify: false)
+    attachmentCoordinator.cancelLoading()
+    isLoadingAttachments = false
+    publishSessionSnapshot()
+    activeConversation = nil
+    composerSessionState = ChatComposerSessionState()
+    contextUsage = nil
+    errorMessage = nil
+    updateRuntimeCacheDebugSnapshot(nil)
+    invalidateModelContextDebugDocument()
+    clearRuntimeContextForReuse()
+  }
+
   func setInteractionMode(_ mode: WorkspaceInteractionMode) {
-    guard canChangeInteractionMode, chatSession.interactionMode != mode else {
+    guard hasActiveConversation, canChangeInteractionMode, chatSession.interactionMode != mode
+    else {
       return
     }
     let selectedModel = conversationModelState.selectedModel
@@ -281,7 +415,8 @@ extension ConversationEngine {
   }
 
   func setReasoningEnabled(_ isEnabled: Bool) {
-    guard canChangeInteractionMode, chatSession.generationSettings.reasoningEnabled != isEnabled
+    guard hasActiveConversation, canChangeInteractionMode,
+      chatSession.generationSettings.reasoningEnabled != isEnabled
     else {
       return
     }
@@ -295,7 +430,7 @@ extension ConversationEngine {
     notifySessionDidChange()
   }
 
-  func enableAutomaticToolApproval(in workspace: Workspace) {
+  func enableAutomaticToolApproval() {
     guard canEnableAutomaticToolApproval else {
       return
     }
@@ -307,11 +442,16 @@ extension ConversationEngine {
     guard let batchAnchorID = latestPendingApprovalBatchAnchorID else {
       return
     }
-    resumeAutomaticApprovalBatch(containing: batchAnchorID, in: workspace)
+    resumeAutomaticApprovalBatch(containing: batchAnchorID)
+  }
+
+  func enableAutomaticToolApproval(in workspace: Workspace) {
+    activeConversation?.workspace = workspace
+    enableAutomaticToolApproval()
   }
 
   func disableAutomaticToolApproval() {
-    guard chatSession.toolApprovalPolicy != .manual else {
+    guard hasActiveConversation, chatSession.toolApprovalPolicy != .manual else {
       return
     }
 
@@ -328,6 +468,9 @@ extension ConversationEngine {
       todoWriteEnabled: todoWriteEnabled,
       mcpExecutorGroups: mcpExecutorGroups
     )
+    guard hasActiveConversation else {
+      return
+    }
     let selectedServerIDs = pendingSelectedMCPServerIDs ?? chatSession.selectedMCPServerIDs
     setAgentToolExecutorRegistry(
       configuredAgentToolExecutorRegistry(selectedMCPServerIDs: selectedServerIDs)
@@ -346,7 +489,21 @@ extension ConversationEngine {
       todoWriteEnabled: todoWriteEnabled,
       mcpExecutorGroups: mcpExecutorGroups
     )
+    guard hasActiveConversation else {
+      return
+    }
     reconcileSelectedMCPServerIDs(selectedMCPServerIDs)
+  }
+
+  private func applyConfiguredAgentToolsForActiveSession() {
+    guard hasActiveConversation else {
+      return
+    }
+    let selectedServerIDs = chatSession.selectedMCPServerIDs
+    applyAgentToolExecutorRegistry(
+      configuredAgentToolExecutorRegistry(selectedMCPServerIDs: selectedServerIDs),
+      shouldRefreshContext: false
+    )
   }
 
   private func setAgentToolExecutorRegistry(_ executorRegistry: ToolExecutorRegistry) {
@@ -369,6 +526,9 @@ extension ConversationEngine {
   /// active generation or unresolved interaction so validated calls keep the
   /// registry that created them.
   func reconcileSelectedMCPServerIDs(_ serverIDs: [UUID]) {
+    guard hasActiveConversation else {
+      return
+    }
     let executorRegistry = configuredAgentToolExecutorRegistry(
       selectedMCPServerIDs: serverIDs
     )
@@ -387,8 +547,10 @@ extension ConversationEngine {
     if shouldCancelGeneration {
       cancelGeneration()
     }
-    errorMessage = nil
-    if shouldInvalidateContext {
+    if hasActiveConversation {
+      errorMessage = nil
+    }
+    if shouldInvalidateContext, hasActiveConversation {
       invalidateContextUsage()
     }
   }
@@ -408,6 +570,9 @@ extension ConversationEngine {
   private func applySelectedMCPServerIDs(
     _ serverIDs: [UUID]
   ) {
+    guard hasActiveConversation else {
+      return
+    }
     let selectionChanged = chatSession.selectedMCPServerIDs != serverIDs
     chatSession.setSelectedMCPServerIDs(serverIDs)
     applyAgentToolExecutorRegistry(
@@ -442,42 +607,36 @@ extension ConversationEngine {
     flushPendingContextUsageRefresh(defaultMode: contextRefreshMode)
   }
 
-  @discardableResult
-  func sendMessage(prompt: String) -> Bool {
-    sendMessage(prompt: prompt, workspace: nil, sessionID: nil)
-  }
-
-  @discardableResult
-  func sendMessage(
-    prompt: String,
-    in workspace: Workspace,
-    sessionID: ChatSession.ID
-  ) -> Bool {
-    sendMessage(prompt: prompt, workspace: workspace, sessionID: sessionID)
-  }
-
-  private func sendMessage(
-    prompt rawPrompt: String,
-    workspace: Workspace?,
-    sessionID: ChatSession.ID?
-  ) -> Bool {
+  func sendMessage(prompt rawPrompt: String) throws {
+    guard let workspace = activeWorkspace,
+      let sessionID = activeSessionID
+    else {
+      throw ConversationIntentError.inactive
+    }
     let prompt = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard canSend(prompt: rawPrompt) else { return false }
+    guard !prompt.isEmpty else {
+      throw ConversationIntentError.emptyPrompt
+    }
+    guard conversationModelState.loadState == .ready else {
+      throw ConversationIntentError.modelNotReady
+    }
+    guard !activity.isBusy else {
+      throw busyError
+    }
     let selectedModel = conversationModelState.selectedModel
     guard selectedModel.supports(interactionMode: chatSession.interactionMode) else {
       errorMessage = unsupportedInteractionModeMessage(for: selectedModel)
-      return false
+      throw ConversationIntentError.unsupportedInteractionMode
     }
     let attachmentsForTurn = attachmentsForCurrentTurn()
     guard selectedModel.supportsImageInput || !attachmentsForTurn.hasImages
     else {
       errorMessage = unsupportedImageInputMessage(for: selectedModel)
-      return false
+      throw ConversationIntentError.unsupportedImageInput
     }
 
     let sentAttachments = attachmentsForTurn
     updateDefaultSessionTitleIfNeeded(fromFirstPrompt: prompt)
-    interruptPendingToolInteractionsForNewUserMessage()
     applyPendingAgentToolExecutorRegistry(shouldRefreshContext: false)
     errorMessage = nil
     chatSession.pendingAttachments.removeAll()
@@ -493,82 +652,30 @@ extension ConversationEngine {
       runtime: turnRuntimeContext(),
       runtimeContextClearCoordinator: runtimeContextClearCoordinator
     )
-    return true
   }
 
-  private func interruptPendingToolInteractionsForNewUserMessage() {
-    var events: [ChatWorkflowEvent] = []
-    var interruptedTurnIDs: [ChatTurn.ID] = []
-
-    for turn in chatSession.turns {
-      var didInterruptTurn = false
-      for item in turn.items {
-        guard case .tool(let record) = item else {
-          continue
-        }
-
-        switch record.status {
-        case .awaitingApproval:
-          let deniedRecord = deniedInterruptedToolCall(record)
-          events.append(.toolCallUpdated(deniedRecord))
-          events.append(.toolResultAppended(toolResultMessage(for: deniedRecord), turnID: turn.id))
-          didInterruptTurn = true
-        case .awaitingUserAnswer:
-          var cancelledRecord = record
-          cancelledRecord.state = .cancelled
-          events.append(.toolCallUpdated(cancelledRecord))
-          didInterruptTurn = true
-        case .pending, .running, .completed, .denied, .failed, .cancelled:
-          continue
-        }
-      }
-
-      guard didInterruptTurn else {
-        continue
-      }
-      interruptedTurnIDs.append(turn.id)
-      events.append(
-        .turnStatusChanged(
-          turnID: turn.id,
-          status: .cancelled,
-          modelContextPolicy: .excluded
-        ))
-      events.append(.streamingAssistantMessagesCancelled(turnID: turn.id))
+  /// Internal compatibility seam for focused engine tests. Package callers use
+  /// `ConversationFeature.activate` followed by `sendMessage(prompt:)`.
+  @discardableResult
+  func sendMessage(
+    prompt: String,
+    in workspace: Workspace,
+    sessionID: ChatSession.ID
+  ) -> Bool {
+    guard activeSessionID == sessionID,
+      workspace.sessions.contains(where: { $0.id == sessionID })
+    else {
+      errorMessage = "The active chat session does not belong to the workspace."
+      return false
     }
-
-    guard !interruptedTurnIDs.isEmpty else {
-      return
+    activeConversation?.workspace = workspace
+    do {
+      try sendMessage(prompt: prompt)
+      return true
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
     }
-
-    for turnID in interruptedTurnIDs {
-      turnToolOrchestrators[turnID] = nil
-    }
-    events.append(.transientAssistantPlaceholdersRemoved)
-    applyWorkflowEvents(events)
-  }
-
-  private func deniedInterruptedToolCall(_ record: ToolCallRecord) -> ToolCallRecord {
-    var deniedRecord = record
-    deniedRecord.state = .denied(interruptedToolFailurePayload(for: record))
-    return deniedRecord
-  }
-
-  private func toolResultMessage(for record: ToolCallRecord) -> ToolResultModelMessage {
-    ToolResultModelMessage(
-      callID: record.id,
-      toolName: record.request.toolName,
-      payload: record.resultPayload ?? interruptedToolFailurePayload(for: record)
-    )
-  }
-
-  private func interruptedToolFailurePayload(for record: ToolCallRecord) -> ToolResultPayload {
-    .failure(
-      ToolFailure(
-        toolName: record.request.toolName,
-        path: record.evaluation.firstModelFacingPath,
-        reason: .permissionDenied,
-        recovery: .askUser(message: "Tool call interrupted by a new user message.")
-      ))
   }
 
   private func updateDefaultSessionTitleIfNeeded(fromFirstPrompt prompt: String) {
@@ -582,11 +689,10 @@ extension ConversationEngine {
   }
 
   func cancelGeneration() {
+    guard hasActiveConversation else {
+      return
+    }
     cancelGeneration(notify: true)
-  }
-
-  func cancelGenerationForSessionSwitch() {
-    cancelGeneration(notify: false)
   }
 
   private func cancelGeneration(notify: Bool) {
@@ -601,6 +707,9 @@ extension ConversationEngine {
   }
 
   func clearChatHistory() {
+    guard hasActiveConversation else {
+      return
+    }
     transcriptMutator.clearTranscript(in: &chatSession)
     updateRuntimeCacheDebugSnapshot(nil)
     invalidateModelContextDebugDocument()
@@ -612,10 +721,18 @@ extension ConversationEngine {
   }
 
   func refreshContextUsage() {
+    guard hasActiveConversation else {
+      contextUsage = nil
+      return
+    }
     refreshContextUsage(toolPromptMode: .disabled)
   }
 
   func refreshContextUsage(toolPromptMode: ToolPromptMode) {
+    guard hasActiveConversation else {
+      contextUsage = nil
+      return
+    }
     let snapshot = contextUsageSnapshot(toolPromptMode: toolPromptMode)
     guard snapshot.modelState == .ready else {
       contextUsage = nil
@@ -632,6 +749,11 @@ extension ConversationEngine {
     workspace: Workspace? = nil,
     sessionID: ChatSession.ID? = nil
   ) throws -> ModelContextDebugDocument {
+    guard hasActiveConversation else {
+      throw ConversationIntentError.inactive
+    }
+    let workspace = workspace ?? activeWorkspace
+    let sessionID = sessionID ?? activeSessionID
     let transcript = modelContextBuilder.transcript(
       from: chatSession,
       includingTurnID: activeTurnID
@@ -754,6 +876,10 @@ extension ConversationEngine {
   }
 
   func addAttachments(from urls: [URL]) {
+    guard hasActiveConversation, !isGenerating, !isInputBlocked else {
+      return
+    }
+    isLoadingAttachments = true
     attachmentCoordinator.addAttachments(
       from: urls,
       existingAttachments: chatSession.pendingAttachments,
@@ -761,10 +887,17 @@ extension ConversationEngine {
   }
 
   func removeAttachment(id: ChatAttachment.ID) {
+    guard hasActiveConversation, !activity.isBusy else {
+      return
+    }
     attachmentCoordinator.removeAttachment(id: id, onEvent: handleAttachmentEvent(_:))
   }
 
   private func handleAttachmentEvent(_ event: ChatAttachmentEvent) {
+    guard hasActiveConversation else {
+      return
+    }
+    isLoadingAttachments = false
     switch event {
     case .appendAttachments(let attachments):
       chatSession.pendingAttachments.append(contentsOf: attachments)
@@ -779,10 +912,11 @@ extension ConversationEngine {
     case .error(let message):
       errorMessage = message
     }
+    notifySessionDidChange()
   }
 
   func notifySessionDidChange() {
-    onSessionDidChange?()
+    publishSessionSnapshot()
   }
 
   private func traceTurnPhase(
@@ -822,7 +956,10 @@ extension ConversationEngine {
     }
   }
 
-  func approveToolCall(id toolCallID: ToolCallRecord.ID, in workspace: Workspace) {
+  func approveToolCall(id toolCallID: ToolCallRecord.ID) {
+    guard let workspace = activeWorkspace else {
+      return
+    }
     guard !isGenerating else {
       return
     }
@@ -848,10 +985,17 @@ extension ConversationEngine {
     )
   }
 
+  func approveToolCall(id toolCallID: ToolCallRecord.ID, in workspace: Workspace) {
+    activeConversation?.workspace = workspace
+    approveToolCall(id: toolCallID)
+  }
+
   func approveToolCallBatch(
-    containing batchAnchorID: ToolCallRecord.ID,
-    in workspace: Workspace
+    containing batchAnchorID: ToolCallRecord.ID
   ) {
+    guard let workspace = activeWorkspace else {
+      return
+    }
     guard !isGenerating else {
       return
     }
@@ -879,10 +1023,20 @@ extension ConversationEngine {
     )
   }
 
-  func resumeAutomaticApprovalBatch(
+  func approveToolCallBatch(
     containing batchAnchorID: ToolCallRecord.ID,
     in workspace: Workspace
   ) {
+    activeConversation?.workspace = workspace
+    approveToolCallBatch(containing: batchAnchorID)
+  }
+
+  func resumeAutomaticApprovalBatch(
+    containing batchAnchorID: ToolCallRecord.ID
+  ) {
+    guard let workspace = activeWorkspace else {
+      return
+    }
     guard !isGenerating,
       chatSession.interactionMode == .agent,
       chatSession.toolApprovalPolicy == .automatic,
@@ -952,9 +1106,11 @@ extension ConversationEngine {
 
   func answerAskUserToolCall(
     id toolCallID: ToolCallRecord.ID,
-    answer rawAnswer: String,
-    in workspace: Workspace
+    answer rawAnswer: String
   ) {
+    guard let workspace = activeWorkspace else {
+      return
+    }
     guard !isGenerating else {
       return
     }
@@ -989,6 +1145,15 @@ extension ConversationEngine {
       turnID: turnID,
       runtime: turnRuntimeContext()
     )
+  }
+
+  func answerAskUserToolCall(
+    id toolCallID: ToolCallRecord.ID,
+    answer: String,
+    in workspace: Workspace
+  ) {
+    activeConversation?.workspace = workspace
+    answerAskUserToolCall(id: toolCallID, answer: answer)
   }
 
   func denyToolCall(id toolCallID: ToolCallRecord.ID) {
@@ -1115,6 +1280,9 @@ extension ConversationEngine {
   }
 
   private func disableUnsupportedInteractionModeIfNeeded() {
+    guard hasActiveConversation else {
+      return
+    }
     let selectedModel = conversationModelState.selectedModel
     guard !selectedModel.supports(interactionMode: chatSession.interactionMode) else {
       return

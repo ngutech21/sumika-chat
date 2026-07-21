@@ -23,17 +23,6 @@ package struct ModelPromptProjection: Equatable, Sendable {
       )
     }
   }
-
-  /// The raw prompt text of the original user prompt in the given turn.
-  package func originalUserPromptText(forTurn turnID: ChatTurn.ID) -> String? {
-    for entry in entries {
-      guard entry.turnID == turnID, case .userPrompt(let context) = entry.body else {
-        continue
-      }
-      return context.prompt
-    }
-    return nil
-  }
 }
 
 package enum ModelContextProjectionMode: String, Equatable, Sendable {
@@ -136,23 +125,17 @@ package struct UserPromptContext: Equatable, Sendable {
   /// Carried through the projection so later history renderings reproduce the
   /// exact identity of what was prefilled into the runtime KV cache.
   package let imageSignatures: [String]
-  package let workspaceInstructions: [String]
-  package let systemContext: [String]
   package let currentPromptContext: CurrentPromptContext?
 
   package init(
     prompt: String,
     attachmentNames: [String] = [],
     imageSignatures: [String] = [],
-    workspaceInstructions: [String] = [],
-    systemContext: [String] = [],
     currentPromptContext: CurrentPromptContext? = nil
   ) {
     self.prompt = prompt
     self.attachmentNames = attachmentNames
     self.imageSignatures = imageSignatures
-    self.workspaceInstructions = workspaceInstructions
-    self.systemContext = systemContext
     self.currentPromptContext = currentPromptContext
   }
 }

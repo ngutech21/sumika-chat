@@ -17,10 +17,6 @@ package struct ChatModelConfiguration: Equatable, Sendable {
     self.supportsImageInput = supportsImageInput
     self.reasoningTraceFormat = reasoningTraceFormat
   }
-
-  package var displayPath: String {
-    localModelDirectory.path(percentEncoded: false)
-  }
 }
 
 package struct ChatGenerationConfigPreset: Equatable, Sendable {
@@ -64,8 +60,6 @@ package struct ChatGenerationConfigPreset: Equatable, Sendable {
 }
 
 package enum LocalModelDirectory {
-  package static let defaultModelName = ManagedModelCatalog.defaultModel.localDirectoryName
-
   package static var defaultBaseURL: URL {
     let applicationSupportURL = FileManager.default.urls(
       for: .applicationSupportDirectory,
@@ -76,10 +70,6 @@ package enum LocalModelDirectory {
       applicationSupportURL
       .appending(path: "Sumika", directoryHint: .isDirectory)
       .appending(path: "Models", directoryHint: .isDirectory)
-  }
-
-  package static var defaultModelURL: URL {
-    defaultBaseURL.appending(path: defaultModelName, directoryHint: .isDirectory)
   }
 
   package static func ensureDefaultBaseDirectoryExists() throws -> URL {

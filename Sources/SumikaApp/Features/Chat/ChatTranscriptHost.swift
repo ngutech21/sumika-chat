@@ -3,8 +3,6 @@ import SwiftUI
 
 struct ChatTranscriptHost: View {
   let chatState: ChatFeatureState
-  let context: WorkspaceChatContext
-  let sessionID: ChatSession.ID?
   let modelState: ModelLoadState
   let appBehaviorSettings: AppBehaviorSettings
   let assistantSpeechService: AssistantSpeechService
@@ -26,21 +24,13 @@ struct ChatTranscriptHost: View {
       assistantSpeechService: assistantSpeechService,
       bottomContentInset: bottomContentInset,
       onApproveToolCall: { toolCallID in
-        chatState.approveToolCall(id: toolCallID, in: context, sessionID: sessionID)
+        chatState.approveToolCall(id: toolCallID)
       },
       onApproveToolCallBatch: { anchorID in
-        chatState.approveToolCallBatch(
-          containing: anchorID,
-          in: context,
-          sessionID: sessionID
-        )
+        chatState.approveToolCallBatch(containing: anchorID)
       },
       onResumeAutomaticApprovalBatch: { anchorID in
-        chatState.resumeAutomaticApprovalBatch(
-          containing: anchorID,
-          in: context,
-          sessionID: sessionID
-        )
+        chatState.resumeAutomaticApprovalBatch(containing: anchorID)
       },
       onDenyToolCall: { toolCallID in
         chatState.denyToolCall(id: toolCallID)
@@ -48,9 +38,7 @@ struct ChatTranscriptHost: View {
       onAnswerAskUser: { toolCallID, answer in
         chatState.answerAskUserToolCall(
           id: toolCallID,
-          answer: answer,
-          in: context,
-          sessionID: sessionID
+          answer: answer
         )
       }
     )

@@ -1,11 +1,7 @@
-import SumikaCore
 import SwiftUI
 
-/// A muted runtime-telemetry line pinned to the bottom of the sidebar. Shows the
-/// model process's memory and CPU at a glance, with the full breakdown in a
-/// popover. RAM/CPU describe the app-global model process, so they belong here
-/// rather than in the per-session composer.
-struct ModelRuntimeFooter: View {
+/// App-global memory and CPU usage shown at the bottom of the sidebar.
+struct ProcessResourceFooter: View {
   let processUsage: ProcessResourceUsage?
   @State private var isPopoverPresented = false
 
@@ -36,11 +32,11 @@ struct ModelRuntimeFooter: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .help("Model runtime resource usage")
-    .accessibilityIdentifier("sidebar.modelRuntimeFooter")
-    .accessibilityLabel("Model runtime resource usage")
+    .help("Sumika process resource usage")
+    .accessibilityIdentifier("sidebar.processResourceFooter")
+    .accessibilityLabel("Sumika process resource usage")
     .popover(isPresented: $isPopoverPresented, arrowEdge: .top) {
-      ModelRuntimePopover(processUsage: processUsage)
+      ProcessResourcePopover(processUsage: processUsage)
     }
   }
 
@@ -57,12 +53,12 @@ struct ModelRuntimeFooter: View {
   }
 }
 
-private struct ModelRuntimePopover: View {
+private struct ProcessResourcePopover: View {
   let processUsage: ProcessResourceUsage?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("Model runtime")
+      Text("Sumika process")
         .font(.headline)
 
       VStack(alignment: .leading, spacing: 6) {

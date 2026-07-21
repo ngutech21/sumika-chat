@@ -4,6 +4,7 @@ import SwiftUI
 
 struct WorkspaceChatView: View, Equatable {
   let chatState: ChatFeatureState
+  let workspace: Workspace
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let modelManagementState: ModelManagementFeatureState
@@ -17,13 +18,14 @@ struct WorkspaceChatView: View, Equatable {
   @Binding var isModelContextDebugVisible: Bool
   @Binding var isWorkspaceTerminalVisible: Bool
   let onCreateSession: (Workspace.ID) -> ChatSession.ID?
-  let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
+  let onSendMessage: (String) -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
   @State private var previewState = WorkspacePreviewFeatureState()
 
   static func == (lhs: WorkspaceChatView, rhs: WorkspaceChatView) -> Bool {
     ObjectIdentifier(lhs.chatState) == ObjectIdentifier(rhs.chatState)
+      && lhs.workspace == rhs.workspace
       && lhs.context == rhs.context
       && lhs.sessionID == rhs.sessionID
       && ObjectIdentifier(lhs.modelManagementState)
@@ -50,6 +52,7 @@ struct WorkspaceChatView: View, Equatable {
     HStack(spacing: 0) {
       WorkspaceChatMainColumn(
         chatState: chatState,
+        workspace: workspace,
         context: context,
         sessionID: sessionID,
         modelManagementState: modelManagementState,
@@ -102,6 +105,7 @@ struct WorkspaceChatView: View, Equatable {
 
 private struct WorkspaceChatMainColumn: View, Equatable {
   let chatState: ChatFeatureState
+  let workspace: Workspace
   let context: WorkspaceChatContext
   let sessionID: ChatSession.ID?
   let modelManagementState: ModelManagementFeatureState
@@ -112,13 +116,14 @@ private struct WorkspaceChatMainColumn: View, Equatable {
   let speechInputController: ComposerSpeechInputController
   let previewState: WorkspacePreviewFeatureState
   @Binding var isWorkspaceTerminalVisible: Bool
-  let onSendMessage: (String, WorkspaceChatContext, ChatSession.ID?) -> Bool
+  let onSendMessage: (String) -> Bool
   let onSelectMCPServerIDs: ([UUID]) -> Void
   let onOpenAudioModels: () -> Void
   @State private var composerHeight: CGFloat = 0
 
   static func == (lhs: WorkspaceChatMainColumn, rhs: WorkspaceChatMainColumn) -> Bool {
     ObjectIdentifier(lhs.chatState) == ObjectIdentifier(rhs.chatState)
+      && lhs.workspace == rhs.workspace
       && lhs.context == rhs.context
       && lhs.sessionID == rhs.sessionID
       && ObjectIdentifier(lhs.modelManagementState)
@@ -146,8 +151,6 @@ private struct WorkspaceChatMainColumn: View, Equatable {
       ZStack(alignment: .bottom) {
         ChatTranscriptHost(
           chatState: chatState,
-          context: context,
-          sessionID: sessionID,
           modelState: modelManagementState.state.modelState,
           appBehaviorSettings: appBehaviorSettings,
           assistantSpeechService: assistantSpeechService,
@@ -157,9 +160,8 @@ private struct WorkspaceChatMainColumn: View, Equatable {
 
         WorkspaceChatComposerHost(
           chatState: chatState,
+          workspace: workspace,
           modelManagementState: modelManagementState,
-          context: context,
-          sessionID: sessionID,
           mcpServers: mcpServers,
           mcpServerStatuses: mcpServerStatuses,
           previewState: previewState,

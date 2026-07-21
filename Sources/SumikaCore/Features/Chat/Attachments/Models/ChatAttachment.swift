@@ -232,10 +232,6 @@ package enum ChatAttachmentLimits {
   package static let supportedImageFileExtensions: Set<String> = [
     "jpeg", "jpg", "png", "webp",
   ]
-
-  package static var supportedFileExtensions: Set<String> {
-    supportedTextFileExtensions.union(supportedImageFileExtensions)
-  }
 }
 
 package enum ChatAttachmentError: LocalizedError {
@@ -303,15 +299,6 @@ package struct ActiveAttachmentContext: Codable, Equatable, Sendable {
   package func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(attachmentIDs, forKey: .attachmentIDs)
-  }
-
-  package mutating func activate(_ attachments: [ChatAttachment]) {
-    for attachment in attachments where attachment.kind == .image {
-      guard !attachmentIDs.contains(attachment.id) else {
-        continue
-      }
-      attachmentIDs.append(attachment.id)
-    }
   }
 
   package mutating func remove(_ id: AttachmentID) {

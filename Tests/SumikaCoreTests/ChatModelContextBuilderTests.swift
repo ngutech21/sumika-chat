@@ -132,7 +132,6 @@ struct ChatModelContextBuilderTests {
         == .userPrompt(
           UserPromptContext(
             prompt: "summarize this",
-            systemContext: ["System"] + currentPromptContext.renderedBlocks,
             currentPromptContext: currentPromptContext.consumedContext
           )
         ))
@@ -186,7 +185,6 @@ struct ChatModelContextBuilderTests {
           UserPromptContext(
             prompt: "explain attached",
             attachmentNames: ["Foo.swift"],
-            systemContext: ["System"] + currentPromptContext.renderedBlocks,
             currentPromptContext: currentPromptContext.consumedContext
           )
         ))
