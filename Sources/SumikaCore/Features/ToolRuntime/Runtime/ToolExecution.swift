@@ -175,8 +175,8 @@ private struct TypedExecutorAdapter<T: TypedToolExecutor>: DynamicToolExecutor {
   }
 }
 
-package struct AnyToolExecutor: Sendable {
-  package let definition: ToolDefinition
+struct AnyToolExecutor: Sendable {
+  let definition: ToolDefinition
   /// Present only for dynamic executors: lets the request validator decode
   /// raw arguments for tools without a built-in codec catalog entry.
   let dynamicCodec: AnyToolCodec?
@@ -450,7 +450,7 @@ package struct AnyToolExecutor: Sendable {
   }
 }
 
-package struct ToolExecutorRegistry: Sendable {
+struct ToolExecutorRegistry: Sendable {
   private static let chatWebExecutors = [
     AnyToolExecutor(WebSearchToolExecutor()),
     AnyToolExecutor(WebFetchToolExecutor()),
@@ -466,47 +466,14 @@ package struct ToolExecutorRegistry: Sendable {
     AnyToolExecutor(WorkspaceDiagnosticsToolExecutor()),
   ]
 
-  private static func codingAgentExecutors(todoWriteEnabled: Bool) -> [AnyToolExecutor] {
-    var executors = [
-      AnyToolExecutor(ReadFileToolExecutor()),
-      AnyToolExecutor(ShowFileToolExecutor()),
-      AnyToolExecutor(ListFilesToolExecutor()),
-      AnyToolExecutor(GlobFilesToolExecutor()),
-      AnyToolExecutor(SearchFilesToolExecutor()),
-      AnyToolExecutor(WorkspaceDiffToolExecutor()),
-      AnyToolExecutor(WorkspaceDiagnosticsToolExecutor()),
-      AnyToolExecutor(BrowserRefreshToolExecutor()),
-      AnyToolExecutor(BrowserInspectToolExecutor()),
-      AnyToolExecutor(EditFileToolExecutor()),
-      AnyToolExecutor(WriteFileToolExecutor()),
-      AnyToolExecutor(RunCommandToolExecutor()),
-    ]
-    if todoWriteEnabled {
-      executors.append(AnyToolExecutor(TodoWriteToolExecutor()))
-    }
-    executors.append(contentsOf: [
-      AnyToolExecutor(AskUserToolExecutor()),
-      AnyToolExecutor(FinishTaskToolExecutor()),
-      AnyToolExecutor(WebSearchToolExecutor()),
-      AnyToolExecutor(WebFetchToolExecutor()),
-    ])
-    return executors
-  }
+  static let chatWeb = ToolExecutorRegistry(chatWebExecutors)
 
-  package static let chatWeb = ToolExecutorRegistry(chatWebExecutors)
-
-  package static let readOnly = ToolExecutorRegistry(readOnlyExecutors)
-
-  package static let codingAgent = codingAgentRegistry(todoWriteEnabled: true)
-
-  package static func codingAgentRegistry(todoWriteEnabled: Bool) -> ToolExecutorRegistry {
-    ToolExecutorRegistry(codingAgentExecutors(todoWriteEnabled: todoWriteEnabled))
-  }
+  static let readOnly = ToolExecutorRegistry(readOnlyExecutors)
 
   private let orderedExecutors: [AnyToolExecutor]
   private let executorsByName: [ToolName: AnyToolExecutor]
 
-  package init(_ executors: [AnyToolExecutor] = []) {
+  init(_ executors: [AnyToolExecutor] = []) {
     orderedExecutors = executors
     executorsByName = Dictionary(
       uniqueKeysWithValues: executors.map { executor in
@@ -514,18 +481,18 @@ package struct ToolExecutorRegistry: Sendable {
       })
   }
 
-  package init(executors: [ToolName: AnyToolExecutor]) {
+  init(executors: [ToolName: AnyToolExecutor]) {
     self.init(
       executors.sorted { lhs, rhs in
         lhs.key.rawValue.localizedStandardCompare(rhs.key.rawValue) == .orderedAscending
       }.map(\.value))
   }
 
-  package var toolRegistry: ToolRegistry {
+  var toolRegistry: ToolRegistry {
     ToolRegistry(tools: orderedExecutors.map(\.definition))
   }
 
-  package var definitions: [ToolDefinition] {
+  var definitions: [ToolDefinition] {
     orderedExecutors.map(\.definition)
   }
 
@@ -550,7 +517,7 @@ package struct ToolExecutorRegistry: Sendable {
   /// names win over additions, and duplicate names within `additional` keep
   /// their first occurrence, so composed registries never crash the
   /// unique-name index.
-  package func merging(_ additional: [AnyToolExecutor]) -> ToolExecutorRegistry {
+  func merging(_ additional: [AnyToolExecutor]) -> ToolExecutorRegistry {
     var executors = orderedExecutors
     var seenNames = Set(executors.map(\.definition.name))
     for executor in additional where !seenNames.contains(executor.definition.name) {
@@ -589,7 +556,7 @@ enum ToolInputDecoder {
 }
 
 package struct ToolOrchestrator: Sendable {
-  private let executorRegistry: ToolExecutorRegistry
+  let executorRegistry: ToolExecutorRegistry
   private let validator: ToolCallRequestValidator
   private let readTracker: ReadFileReadTracker
   private let latestCommandResultStore: LatestCommandResultStore
@@ -599,7 +566,25 @@ package struct ToolOrchestrator: Sendable {
   private let webAccessSettingsProvider: @Sendable () async -> WebAccessSettings
 
   package init(
-    executorRegistry: ToolExecutorRegistry = .readOnly,
+    browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
+    webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
+      .disabled
+    }
+  ) {
+    self.init(
+      executorRegistry: .readOnly,
+      validator: ToolCallRequestValidator(),
+      readTracker: ReadFileReadTracker(),
+      latestCommandResultStore: LatestCommandResultStore(),
+      webSearcher: DefaultWebSearchService(),
+      webFetcher: DefaultWebFetchService(),
+      browserToolService: browserToolService,
+      webAccessSettingsProvider: webAccessSettingsProvider
+    )
+  }
+
+  init(
+    executorRegistry: ToolExecutorRegistry,
     browserToolService: any BrowserToolServing = UnavailableBrowserToolService(),
     webAccessSettingsProvider: @escaping @Sendable () async -> WebAccessSettings = {
       .disabled

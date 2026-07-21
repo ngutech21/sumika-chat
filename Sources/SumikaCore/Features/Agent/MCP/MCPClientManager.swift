@@ -21,13 +21,8 @@ package struct MCPServerStatus: Equatable, Sendable, Identifiable {
 
 /// Connected dynamic tool executors grouped by their stable server identity.
 package struct MCPAgentToolExecutorGroup: Sendable {
-  package var serverID: UUID
-  package var executors: [AnyToolExecutor]
-
-  package init(serverID: UUID, executors: [AnyToolExecutor]) {
-    self.serverID = serverID
-    self.executors = executors
-  }
+  let serverID: UUID
+  let executors: [AnyToolExecutor]
 }
 
 extension MCPClientError {
@@ -229,7 +224,7 @@ package actor MCPClientManager: MCPToolCalling {
 
   /// Dynamic executors for every tool on every connected server, in stable
   /// configuration order.
-  package func agentToolExecutors() -> [AnyToolExecutor] {
+  func agentToolExecutors() -> [AnyToolExecutor] {
     agentToolExecutorGroups().flatMap(\.executors)
   }
 

@@ -46,8 +46,8 @@ final class AppState {
       modelSettingsStore: modelSettingsStore,
       runtime: runtime,
       modelAvailability: modelAvailability,
-      toolOrchestrator: ToolOrchestrator(
-        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false),
+      toolOrchestrator: ToolOrchestrator.agent(
+        todoWriteEnabled: false,
         browserToolService: browserToolService,
         webAccessSettingsProvider: {
           await webAccessSettingsStore.settings()
@@ -315,10 +315,7 @@ final class AppState {
 
   func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
     let selection = normalizedMCPServerSelection(serverIDs)
-    conversationEngine.setSelectedMCPServerIDs(
-      selection,
-      agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
-    )
+    conversationEngine.setSelectedMCPServerIDs(selection)
     reconcileMCPConnectionsIfNeeded()
   }
 
@@ -330,32 +327,20 @@ final class AppState {
     let selection = normalizedMCPServerSelection(
       conversationEngine.composerSessionState.selectedMCPServerIDs
     )
-    conversationEngine.reconcileSelectedMCPServerIDs(
-      selection,
-      agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
+    conversationEngine.reconcileAgentTools(
+      todoWriteEnabled: settingsState.appBehaviorSettings.todoWriteToolEnabled,
+      mcpExecutorGroups: mcpAgentToolExecutorGroups,
+      selectedMCPServerIDs: selection
     )
   }
 
-  /// The agent registry is always recomposed as a whole: built-in coding
-  /// tools (honoring the todo_write setting) plus dynamic executors from the
-  /// connected MCP servers selected by the active session.
+  /// Supplies current settings and connected MCP contributions to Core. The
+  /// Agent feature owns registry membership and composition.
   private func refreshAgentToolRegistry() {
-    let selection = conversationEngine.composerSessionState.selectedMCPServerIDs
-    conversationEngine.setAgentToolExecutorRegistry(
-      agentToolExecutorRegistry(selectedServerIDs: selection)
+    conversationEngine.configureAgentTools(
+      todoWriteEnabled: settingsState.appBehaviorSettings.todoWriteToolEnabled,
+      mcpExecutorGroups: mcpAgentToolExecutorGroups
     )
-  }
-
-  private func agentToolExecutorRegistry(selectedServerIDs: [UUID]) -> ToolExecutorRegistry {
-    let selectedIDs = Set(selectedServerIDs)
-    let mcpExecutors =
-      mcpAgentToolExecutorGroups
-      .filter { selectedIDs.contains($0.serverID) }
-      .flatMap(\.executors)
-    return ToolExecutorRegistry.codingAgentRegistry(
-      todoWriteEnabled: settingsState.appBehaviorSettings.todoWriteToolEnabled
-    )
-    .merging(mcpExecutors)
   }
 
   private func normalizedMCPServerSelection(_ serverIDs: [UUID]) -> [UUID] {
@@ -472,10 +457,7 @@ final class AppState {
     }
     conversationSessionCoordinator.switchSession(to: session)
     let selection = normalizedMCPServerSelection(session.selectedMCPServerIDs)
-    conversationEngine.reconcileSelectedMCPServerIDs(
-      selection,
-      agentToolExecutorRegistry: agentToolExecutorRegistry(selectedServerIDs: selection)
-    )
+    conversationEngine.reconcileSelectedMCPServerIDs(selection)
     reconcileMCPConnectionsIfNeeded()
   }
 

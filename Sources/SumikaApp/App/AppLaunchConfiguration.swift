@@ -168,8 +168,8 @@ enum AppLaunchConfiguration {
       modelDownloader: modelDownloader,
       runtime: runtime,
       modelAvailability: modelAvailability,
-      toolOrchestrator: ToolOrchestrator(
-        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false),
+      toolOrchestrator: ToolOrchestrator.agent(
+        todoWriteEnabled: false,
         browserToolService: browserToolService,
         webAccessSettingsProvider: {
           await webAccessSettingsStore.settings()

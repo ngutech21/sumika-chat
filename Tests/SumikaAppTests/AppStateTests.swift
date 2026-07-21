@@ -1210,8 +1210,8 @@ struct AppStateTests {
     let conversation = AppLaunchConfiguration.makeConversationComposition(
       modelSettingsStore: modelSettingsStore,
       runtime: AppStateTestRuntime(),
-      toolOrchestrator: ToolOrchestrator(
-        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false),
+      toolOrchestrator: ToolOrchestrator.agent(
+        todoWriteEnabled: false,
         browserToolService: browserToolService,
         webAccessSettingsProvider: {
           await webAccessSettingsStore.settings()
@@ -1382,8 +1382,8 @@ struct AppStateTests {
     let conversation = AppLaunchConfiguration.makeConversationComposition(
       modelSettingsStore: modelSettingsStore,
       runtime: AppStateTestRuntime(),
-      toolOrchestrator: ToolOrchestrator(
-        executorRegistry: .codingAgentRegistry(todoWriteEnabled: false),
+      toolOrchestrator: ToolOrchestrator.agent(
+        todoWriteEnabled: false,
         browserToolService: browserToolService,
         webAccessSettingsProvider: {
           await webAccessSettingsStore.settings()

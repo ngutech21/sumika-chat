@@ -61,9 +61,12 @@ struct ConversationEngineTests {
   }
 
   @Test
-  func interruptingPendingInteractionAppliesQueuedAgentToolRegistry() async throws {
+  func interruptingPendingInteractionAppliesQueuedAgentToolConfiguration() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["new answer"])
     let selectedServerID = UUID()
+    let unselectedServerID = UUID()
+    let selectedToolName = ToolName(rawValue: "mcp__selected__echo")
+    let unselectedToolName = ToolName(rawValue: "mcp__unselected__echo")
     let approvalRecord = makeToolCallRecord(status: .awaitingApproval)
     let sessionID = UUID()
     let engine = ConversationEngine(
@@ -80,9 +83,13 @@ struct ConversationEngineTests {
     let workspace = try makeWorkspace(sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
 
-    engine.reconcileSelectedMCPServerIDs(
-      [selectedServerID],
-      agentToolExecutorRegistry: .readOnly
+    engine.reconcileAgentTools(
+      todoWriteEnabled: false,
+      mcpExecutorGroups: [
+        makeMCPExecutorGroup(serverID: selectedServerID, serverSlug: "selected"),
+        makeMCPExecutorGroup(serverID: unselectedServerID, serverSlug: "unselected"),
+      ],
+      selectedMCPServerIDs: [selectedServerID]
     )
 
     #expect(engine.chatSession.selectedMCPServerIDs.isEmpty)
@@ -98,7 +105,10 @@ struct ConversationEngineTests {
     let capturedToolContexts = await runtime.capturedToolContexts
     let toolContext = try #require(capturedToolContexts.first ?? nil)
     #expect(toolContext.registry.definition(for: .readFile) != nil)
-    #expect(toolContext.registry.definition(for: .editFile) == nil)
+    #expect(toolContext.registry.definition(for: .editFile) != nil)
+    #expect(toolContext.registry.definition(for: .todoWrite) == nil)
+    #expect(toolContext.registry.definition(for: selectedToolName) != nil)
+    #expect(toolContext.registry.definition(for: unselectedToolName) == nil)
     #expect(engine.chatSession.selectedMCPServerIDs == [selectedServerID])
   }
 
@@ -173,26 +183,17 @@ struct ConversationEngineTests {
     let second = UUID()
 
     #expect(!engine.canChangeMCPServerSelection)
-    engine.setSelectedMCPServerIDs(
-      [first],
-      agentToolExecutorRegistry: .codingAgent
-    )
+    engine.setSelectedMCPServerIDs([first])
     #expect(engine.chatSession.selectedMCPServerIDs.isEmpty)
 
     engine.setInteractionMode(.agent)
     #expect(engine.canChangeMCPServerSelection)
-    engine.setSelectedMCPServerIDs(
-      [first],
-      agentToolExecutorRegistry: .codingAgent
-    )
+    engine.setSelectedMCPServerIDs([first])
     #expect(engine.chatSession.selectedMCPServerIDs == [first])
     #expect(engine.composerSessionState.selectedMCPServerIDs == [first])
 
     engine.isGenerating = true
-    engine.setSelectedMCPServerIDs(
-      [second],
-      agentToolExecutorRegistry: .codingAgent
-    )
+    engine.setSelectedMCPServerIDs([second])
     #expect(engine.chatSession.selectedMCPServerIDs == [first])
   }
 
@@ -2064,6 +2065,45 @@ struct ConversationEngineTests {
       nil
     }
   }
+}
+
+private struct ConversationEngineMCPToolClient: MCPToolCalling {
+  func callTool(
+    serverID: UUID,
+    connectionToken: UUID,
+    name: String,
+    arguments: ToolCallArguments
+  ) async throws -> MCPToolResult {
+    _ = serverID
+    _ = connectionToken
+    _ = name
+    _ = arguments
+    throw CancellationError()
+  }
+}
+
+private func makeMCPExecutorGroup(
+  serverID: UUID,
+  serverSlug: String
+) -> MCPAgentToolExecutorGroup {
+  MCPAgentToolExecutorGroup(
+    serverID: serverID,
+    executors: [
+      AnyToolExecutor(
+        dynamic: MCPToolExecutor(
+          serverID: serverID,
+          connectionToken: UUID(),
+          serverName: serverSlug,
+          serverSlug: serverSlug,
+          remoteTool: MCPRemoteTool(
+            name: "echo",
+            description: "Echo a value."
+          ),
+          client: ConversationEngineMCPToolClient()
+        )
+      )
+    ]
+  )
 }
 
 private struct ChatControllerFakeFetcher: WebFetching {

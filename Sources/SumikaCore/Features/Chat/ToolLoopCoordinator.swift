@@ -76,8 +76,8 @@ struct ToolLoopCoordinator: Sendable {
   init(
     chatWebToolOrchestrator: any ToolOrchestrating = ToolOrchestrator(
       executorRegistry: .chatWeb),
-    agentToolOrchestrator: any ToolOrchestrating = ToolOrchestrator(
-      executorRegistry: .codingAgent),
+    agentToolOrchestrator: any ToolOrchestrating = ToolOrchestrator.agent(
+      todoWriteEnabled: true),
     focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer(),
     turnTracer: any TurnTracing = NoopTurnTracer()
   ) {

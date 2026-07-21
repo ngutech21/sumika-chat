@@ -38,6 +38,7 @@ package final class ConversationEngine {
   @ObservationIgnored private let transcriptMutator = ChatTranscriptMutator()
   @ObservationIgnored private let workflowEventApplier = ChatWorkflowEventApplier()
   @ObservationIgnored private var onSessionDidChange: (@MainActor @Sendable () -> Void)?
+  @ObservationIgnored private var agentToolConfiguration: AgentToolConfiguration?
   @ObservationIgnored private var pendingAgentToolExecutorRegistry: ToolExecutorRegistry?
   @ObservationIgnored private var pendingSelectedMCPServerIDs: [UUID]?
   @ObservationIgnored private var activeModelContextDebugToolPromptMode: ToolPromptMode?
@@ -86,7 +87,7 @@ package final class ConversationEngine {
     runtimeContextClearCoordinator: RuntimeContextClearCoordinator,
     chatGenerationCoordinator: ChatGenerationCoordinator,
     chatSession: ChatSession = ChatSession(),
-    toolOrchestrator: ToolOrchestrator = ToolOrchestrator(executorRegistry: .codingAgent),
+    toolOrchestrator: ToolOrchestrator = ToolOrchestrator.agent(todoWriteEnabled: true),
     chatAttachmentLoader: any ChatAttachmentLoading = ChatAttachmentLoader(),
     turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
@@ -321,13 +322,36 @@ extension ConversationEngine {
     notifySessionDidChange()
   }
 
-  func configureAgentTools(todoWriteEnabled: Bool) {
+  package func configureAgentTools(
+    todoWriteEnabled: Bool,
+    mcpExecutorGroups: [MCPAgentToolExecutorGroup] = []
+  ) {
+    updateAgentToolConfiguration(
+      todoWriteEnabled: todoWriteEnabled,
+      mcpExecutorGroups: mcpExecutorGroups
+    )
+    let selectedServerIDs = pendingSelectedMCPServerIDs ?? chatSession.selectedMCPServerIDs
     setAgentToolExecutorRegistry(
-      ToolExecutorRegistry.codingAgentRegistry(todoWriteEnabled: todoWriteEnabled)
+      configuredAgentToolExecutorRegistry(selectedMCPServerIDs: selectedServerIDs)
     )
   }
 
-  package func setAgentToolExecutorRegistry(_ executorRegistry: ToolExecutorRegistry) {
+  /// Reconciles connected MCP contributions and persisted selection as one
+  /// Core operation so the matching registry is installed or deferred with
+  /// the selection that produced it.
+  package func reconcileAgentTools(
+    todoWriteEnabled: Bool,
+    mcpExecutorGroups: [MCPAgentToolExecutorGroup],
+    selectedMCPServerIDs: [UUID]
+  ) {
+    updateAgentToolConfiguration(
+      todoWriteEnabled: todoWriteEnabled,
+      mcpExecutorGroups: mcpExecutorGroups
+    )
+    reconcileSelectedMCPServerIDs(selectedMCPServerIDs)
+  }
+
+  private func setAgentToolExecutorRegistry(_ executorRegistry: ToolExecutorRegistry) {
     guard !isGenerating, !isInputBlocked else {
       pendingAgentToolExecutorRegistry = executorRegistry
       return
@@ -335,30 +359,27 @@ extension ConversationEngine {
     applyAgentToolExecutorRegistry(executorRegistry, shouldRefreshContext: true)
   }
 
-  package func setSelectedMCPServerIDs(
-    _ serverIDs: [UUID],
-    agentToolExecutorRegistry: ToolExecutorRegistry
-  ) {
+  package func setSelectedMCPServerIDs(_ serverIDs: [UUID]) {
     guard canChangeMCPServerSelection else {
       return
     }
-    applySelectedMCPServerIDs(serverIDs, agentToolExecutorRegistry: agentToolExecutorRegistry)
+    applySelectedMCPServerIDs(serverIDs)
   }
 
   /// Reconciles persisted selection with global MCP configuration. Unlike a
   /// user action this may run in Chat mode, but it is deferred across an
   /// active generation or unresolved interaction so validated calls keep the
   /// registry that created them.
-  package func reconcileSelectedMCPServerIDs(
-    _ serverIDs: [UUID],
-    agentToolExecutorRegistry: ToolExecutorRegistry
-  ) {
+  package func reconcileSelectedMCPServerIDs(_ serverIDs: [UUID]) {
+    let executorRegistry = configuredAgentToolExecutorRegistry(
+      selectedMCPServerIDs: serverIDs
+    )
     guard !isGenerating, !isInputBlocked else {
       pendingSelectedMCPServerIDs = serverIDs
-      pendingAgentToolExecutorRegistry = agentToolExecutorRegistry
+      pendingAgentToolExecutorRegistry = executorRegistry
       return
     }
-    applySelectedMCPServerIDs(serverIDs, agentToolExecutorRegistry: agentToolExecutorRegistry)
+    applySelectedMCPServerIDs(serverIDs)
   }
 
   package func prepareForModelRuntimeAction(
@@ -393,15 +414,35 @@ extension ConversationEngine {
   }
 
   private func applySelectedMCPServerIDs(
-    _ serverIDs: [UUID],
-    agentToolExecutorRegistry: ToolExecutorRegistry
+    _ serverIDs: [UUID]
   ) {
     let selectionChanged = chatSession.selectedMCPServerIDs != serverIDs
     chatSession.setSelectedMCPServerIDs(serverIDs)
-    applyAgentToolExecutorRegistry(agentToolExecutorRegistry, shouldRefreshContext: true)
+    applyAgentToolExecutorRegistry(
+      configuredAgentToolExecutorRegistry(selectedMCPServerIDs: serverIDs),
+      shouldRefreshContext: true
+    )
     if selectionChanged {
       notifySessionDidChange()
     }
+  }
+
+  private func configuredAgentToolExecutorRegistry(
+    selectedMCPServerIDs: [UUID]
+  ) -> ToolExecutorRegistry {
+    agentToolConfiguration?.executorRegistry(
+      selectedMCPServerIDs: selectedMCPServerIDs
+    ) ?? toolOrchestrator.executorRegistry
+  }
+
+  private func updateAgentToolConfiguration(
+    todoWriteEnabled: Bool,
+    mcpExecutorGroups: [MCPAgentToolExecutorGroup]
+  ) {
+    agentToolConfiguration = AgentToolConfiguration(
+      todoWriteEnabled: todoWriteEnabled,
+      mcpExecutorGroups: mcpExecutorGroups
+    )
   }
 
   func finishGeneratingTurn(contextRefreshMode: ToolPromptMode = .disabled) {

@@ -64,9 +64,6 @@ struct AgentCompositionIntegrationTests {
       modeSettings: settings.modeSettings,
       interactionMode: .agent
     )
-
-   
-
     let engine = ConversationEngine(
       conversationModel: { [modelController] in
         modelController.conversationState
@@ -79,8 +76,7 @@ struct AgentCompositionIntegrationTests {
       ),
       chatSession: session
     )
-
-
+    engine.configureAgentTools(todoWriteEnabled: true)
     modelController.setEventHandlers(
       engine.modelManagementEventHandlers { message in
         Issue.record("Unexpected model runtime error: \(message)")

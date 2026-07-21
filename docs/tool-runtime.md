@@ -491,12 +491,18 @@ declarations.
   disabled or disconnected servers, so a selection survives until that server
   reconnects. IDs removed from global configuration are pruned when the session
   becomes active.
-- Tool availability is Agent-only: only executor groups selected by the active
-  session are merged into the coding-agent registry through
-  `ToolExecutorRegistry.merging`. The registry is recomposed on session or
-  selection changes, server connect/disconnect/reconnect, and todo-write setting
-  changes. Chat (web) sessions never expose MCP tools, and selection changes are
-  blocked during generation or unresolved approval/user-input interactions.
+- Tool availability is Agent-only. `SumikaApp` forwards the todo-write setting,
+  connected MCP executor groups, and selected server IDs as configuration
+  facts; it does not assemble a registry. The Agent feature filters
+  contributions by the active session and composes them with its built-in
+  coding tools. `ToolExecutorRegistry` and duplicate-name handling remain
+  internal implementation details. The effective registry is recomposed on
+  session or selection changes, server connect/disconnect/reconnect, and
+  todo-write setting changes. `ConversationEngine` installs or defers the
+  matching selection and registry together so an active or paused turn keeps
+  its frozen tools. Chat (web) sessions never expose MCP tools, and user
+  selection changes are blocked during generation or unresolved
+  approval/user-input interactions.
 - Each regular server connection has a non-persisted token captured by its
   `MCPToolExecutor`. Scope changes, deselection, shutdown, and reconnect rotate
   that token. Execution first compares the executor token with the manager's
