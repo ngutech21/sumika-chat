@@ -25,18 +25,6 @@ struct AppUpdaterTests {
   }
 
   @Test
-  func unitTestHostDoesNotStartUpdater() {
-    #expect(
-      !AppLaunchConfiguration.shouldStartUpdater(
-        environment: [
-          "XCTestConfigurationFilePath": "/tmp/sumika-tests.xctestconfiguration"
-        ],
-        isDebugBuild: false
-      )
-    )
-  }
-
-  @Test
   func uiTestLaunchDoesNotStartUpdater() {
     #expect(
       !AppLaunchConfiguration.shouldStartUpdater(

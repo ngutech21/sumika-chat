@@ -2183,7 +2183,8 @@ struct MLXChatRuntimeTemplateTests {
       markCompleted: { _ in },
       markCancelled: { reason in
         await recorder.record(reason)
-      }
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
     )
     let upstreamTask = try #require(plan?.task)
     var outputStream: AsyncThrowingStream<ChatModelStreamEvent, Error>? = try #require(plan?.stream)
@@ -2757,7 +2758,8 @@ struct MLXChatRuntimeTemplateTests {
       markNativeToolCallBoundary: { output, nativeToolCalls in
         await boundaryRecorder.record(output: output, nativeToolCalls: nativeToolCalls)
       },
-      markCancelled: { _ in }
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
     )
 
     var iterator = stream.makeAsyncIterator()
@@ -3042,7 +3044,8 @@ struct MLXChatRuntimeTemplateTests {
       markCompleted: { _ in },
       markCancelled: { reason in
         await recorder.record(reason)
-      }
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
     )
 
     do {

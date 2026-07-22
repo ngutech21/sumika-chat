@@ -21,7 +21,6 @@ enum AppLaunchConfiguration {
   ) -> Bool {
     !isDebugBuild
       && environment["SUMIKA_UI_TEST_MODE"] != "1"
-      && !isXcodeUnitTestHost(environment: environment)
   }
 
   @MainActor
@@ -37,13 +36,6 @@ enum AppLaunchConfiguration {
         environment: environment,
         runtime: resolvedRuntime,
         turnTracer: debugTraceStore
-      )
-    }
-
-    if isXcodeUnitTestHost(environment: environment) {
-      return makeUnitTestHostAppState(
-        environment: environment,
-        runtime: resolvedRuntime
       )
     }
 
@@ -107,45 +99,6 @@ enum AppLaunchConfiguration {
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: mcpServersStore
-    )
-  }
-
-  @MainActor
-  private static func makeUnitTestHostAppState(
-    environment: [String: String],
-    runtime: any ChatModelRuntime
-  ) -> AppState {
-    let storageRoot = URL(
-      filePath: environment["SUMIKA_UNIT_TEST_STORAGE_ROOT"]
-        ?? FileManager.default.temporaryDirectory
-        .appending(path: "sumika-unit-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
-        .path(percentEncoded: false),
-      directoryHint: .isDirectory
-    )
-
-    return makeConfiguredAppState(
-      modelDownloader: UnavailableModelDownloader(),
-      runtime: runtime,
-      modelAvailability: { _ in false },
-      turnTracer: NoopTurnTracer(),
-      workspaceStore: WorkspaceStore(
-        baseURL: storageRoot
-      ),
-      modelSettingsStore: makeUnitTestHostModelSettingsStore(
-        environment: environment,
-        storageRoot: storageRoot
-      ),
-      webAccessSettingsStore: WebAccessSettingsStore(
-        settingsURL: storageRoot.appending(
-          path: "web-access-settings.json", directoryHint: .notDirectory)
-      ),
-      appBehaviorSettingsStore: AppBehaviorSettingsStore(
-        settingsURL: storageRoot.appending(
-          path: "app-behavior-settings.json", directoryHint: .notDirectory)
-      ),
-      mcpServersStore: MCPServersStore(
-        settingsURL: storageRoot.appending(path: "mcp-servers.json", directoryHint: .notDirectory)
-      )
     )
   }
 
@@ -220,26 +173,6 @@ enum AppLaunchConfiguration {
     )
     sumika.models.loadPersistedModelSelection()
     return sumika
-  }
-
-  nonisolated private static func makeUnitTestHostModelSettingsStore(
-    environment: [String: String],
-    storageRoot: URL
-  ) -> ModelSettingsStore {
-    let userDefaults =
-      UserDefaults(
-        suiteName: environment["SUMIKA_UNIT_TEST_DEFAULTS_SUITE"]
-          ?? "sumika-unit-tests-\(UUID().uuidString)"
-      ) ?? .standard
-
-    return ModelSettingsStore(
-      userDefaults: userDefaults,
-      settingsURL: storageRoot.appending(path: "model-settings.json", directoryHint: .notDirectory)
-    )
-  }
-
-  private static func isXcodeUnitTestHost(environment: [String: String]) -> Bool {
-    environment["XCTestConfigurationFilePath"] != nil
   }
 
   private static func makeUITestWorkspaceLibrary(

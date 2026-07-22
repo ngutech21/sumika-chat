@@ -28,10 +28,10 @@ controllers call coordinators/services; services exchange structured models.
 SwiftUI views must not parse model output, touch the filesystem directly, run shell
 commands, make permission decisions, or know MLX details.
 
-Run ordinary package unit and integration tests through SwiftPM. The
-`SumikaHostedTests` Xcode host remains only for Xcode-specific workflows such as
-the existing sanitizer and coverage tasks; do not route the normal test suite
-through it.
+Run package unit and integration tests, sanitizers, and coverage through SwiftPM.
+The Xcode project owns only the app launcher/resources and UI tests. Production
+launch code must not detect unit-test-host environment or construct unit-test
+adapters; package tests inject their adapters directly at existing seams.
 
 Do not create new top-level folders or abstractions unless real code requires them.
 Start small. Do not introduce empty folders or abstractions before there is real
@@ -146,6 +146,8 @@ Prefer the project task runner:
 ```sh
 just build
 just test
+just test-tsan
+just test-asan
 just test-ui
 just lint
 just format
@@ -198,10 +200,11 @@ commit the regenerated Xcode lockfile as part of that PR.
 
 CI runs `just test`, which executes all SwiftPM unit and integration test targets,
 including `SumikaCore`, `SumikaApp`, `SumikaRuntimeMLX`, and
-`DataModelGenerator`. CI does not run UI tests. `just test-ui` is local-only,
-enables `SUMIKA_DEBUG_TRACE=1`, must never download a model, and should skip
-cleanly if the model selected by `SumikaUITests.modelID` is missing. Use
-`just data-model` to regenerate `docs/data-model.md`.
+`DataModelGenerator`. Nightly CI also runs the same SwiftPM graph through
+`just test-tsan` and `just test-asan`. CI does not run UI tests. `just test-ui` is
+local-only, enables `SUMIKA_DEBUG_TRACE=1`, must never download a model, and
+should skip cleanly if the model selected by `SumikaUITests.modelID` is missing.
+Use `just data-model` to regenerate `docs/data-model.md`.
 
 ## Debugging And Tracing
 

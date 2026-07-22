@@ -1326,37 +1326,6 @@ struct AppStateTests {
   }
 
   @Test
-  func unitTestHostLaunchDoesNotAutoloadRealModel() async throws {
-    let runtime = AppStateTestRuntime()
-    let fixture = try makeLaunchFixture()
-    let settingsURL = fixture.storageRoot.appending(
-      path: "app-behavior-settings.json",
-      directoryHint: .notDirectory
-    )
-    try JSONEncoder().encode(AppBehaviorSettings(autoloadLastModel: true)).write(
-      to: settingsURL,
-      options: .atomic
-    )
-    let appState = AppLaunchConfiguration.makeAppState(
-      environment: [
-        "XCTestConfigurationFilePath": "/tmp/sumika-unit-tests.xctestconfiguration",
-        "SUMIKA_UNIT_TEST_STORAGE_ROOT": fixture.storageRoot.path(percentEncoded: false),
-        "SUMIKA_UNIT_TEST_DEFAULTS_SUITE": "sumika-unit-tests-\(UUID().uuidString)",
-      ],
-      runtime: runtime
-    )
-
-    try await waitUntil {
-      !appState.workspaceState.isLoading
-    }
-    appState.startModelRuntimeServices()
-
-    #expect(appState.settingsState.appBehaviorSettings.autoloadLastModel)
-    #expect(appState.modelManagementState.state.modelState == .notLoaded)
-    #expect(await runtime.loadCount() == 0)
-  }
-
-  @Test
   func injectedSumikaUsesSuppliedBrowserToolService() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let webAccessSettingsStore = InMemoryWebAccessSettingsStore()

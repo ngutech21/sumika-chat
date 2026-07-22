@@ -269,11 +269,11 @@ just final-check
 ```
 
 `just build` and `just release-unsigned` run the `Sumika` Xcode scheme with a
-stable DerivedData path under `build/DerivedData`. `just test` combines the
-headless SwiftPM core/generator tests with the Xcode-hosted app and MLX runtime
-unit tests. `just lint` runs SwiftLint using `.swiftlint.yml`. `just format`
-checks Swift sources with `swift-format`. `just final-check` runs the broader
-local verification suite before review.
+stable DerivedData path under `build/DerivedData`. `just test` runs every unit
+and integration test target through SwiftPM; Xcode remains responsible for the
+app launcher/resources and UI tests. `just lint` runs SwiftLint using
+`.swiftlint.yml`. `just format` checks Swift sources with `swift-format`.
+`just final-check` runs the broader local verification suite before review.
 
 `just resolve-packages` resolves both the root SwiftPM graph and the Xcode app
 graph, then synchronizes the Xcode pin states with the root resolution. Commit

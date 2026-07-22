@@ -88,11 +88,11 @@ jobs:
 
       - name: Run TSan
         timeout-minutes: 25
-        run: just test-app-tsan
+        run: just test-tsan
 
       - name: Run ASan
         timeout-minutes: 25
-        run: just test-app-asan
+        run: just test-asan
 
       - name: Import Developer ID certificate
         timeout-minutes: 5

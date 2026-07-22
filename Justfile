@@ -10,7 +10,7 @@ export_dir := "build/artifacts/export"
 export_options := "script/DeveloperIDExportOptions.plist"
 developer_team := "G8Z2RHV3P5"
 
-swift := env("SWIFT", "swift")
+swift := env("SWIFT", "xcrun swift")
 
 
 default:
@@ -156,17 +156,11 @@ data-model:
     mkdir -p .build/data-model-build .build/swiftpm-cache .build/clang-module-cache .build/swiftpm-home
     HOME="$PWD/.build/swiftpm-home" CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" {{swift}} run -q --disable-sandbox --build-path .build/data-model-build --cache-path .build/swiftpm-cache DataModelGenerator
 
-test-app-tsan:
-    @set --; \
-    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
-    if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}}-tsan "$@" -enableThreadSanitizer YES -parallel-testing-enabled NO test
+test-tsan:
+    {{swift}} test --no-parallel --sanitize thread
 
-test-app-asan:
-    @set --; \
-    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
-    if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}}-asan "$@" -enableAddressSanitizer YES -parallel-testing-enabled NO test
+test-asan:
+    {{swift}} test --no-parallel --sanitize address
 
 test-ui:
     @echo "MLX trace directory: $HOME/Library/Application Support/Sumika/debug/traces"; \
@@ -190,29 +184,18 @@ signpost-report scenario="manual-chat" last="20m":
     xcrun swift -module-cache-path .build/swift-script-module-cache script/chat_signpost_report.swift --last "{{last}}" --scenario "{{scenario}}"
 
 coverage:
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -enableCodeCoverage YES test
-    @result=$(ls -td {{derived_data}}/Logs/Test/*.xcresult 2>/dev/null | head -n 1); \
-    if [ -z "$result" ]; then \
-        echo "No test result bundle found."; \
-        exit 1; \
-    fi; \
-    xcrun xccov view --report "$result"
+    {{swift}} test --no-parallel --enable-code-coverage
+    @report="$({{swift}} test --show-codecov-path)"; \
+    test -f "$report" || { echo "No SwiftPM coverage report found at $report."; exit 1; }; \
+    {{swift}} script/coverage_low.swift "$report" --summary
 
 coverage-low threshold="80":
-    @log=$(mktemp); \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} -enableCodeCoverage YES test >"$log" 2>&1 || { cat "$log"; rm -f "$log"; exit 1; }; \
-    rm -f "$log"
+    {{swift}} test --no-parallel --enable-code-coverage
     @threshold="{{threshold}}"; \
     threshold="${threshold#threshold=}"; \
-    result=$(ls -td {{derived_data}}/Logs/Test/*.xcresult 2>/dev/null | head -n 1); \
-    if [ -z "$result" ]; then \
-        echo "No test result bundle found."; \
-        exit 1; \
-    fi; \
-    json=$(mktemp); \
-    xcrun xccov view --report --json "$result" >"$json" || { rm -f "$json"; exit 1; }; \
-    xcrun swift script/coverage_low.swift "$json" --threshold "$threshold"; \
-    rm -f "$json"
+    report="$({{swift}} test --show-codecov-path)"; \
+    test -f "$report" || { echo "No SwiftPM coverage report found at $report."; exit 1; }; \
+    {{swift}} script/coverage_low.swift "$report" --threshold "$threshold"
 
 lint:
     @command -v swiftlint >/dev/null || { echo "swiftlint is not installed. Install it with: brew install swiftlint"; exit 127; }
@@ -267,8 +250,12 @@ typos:
 
 periphery:
     periphery scan --retain-public --retain-codable-properties --baseline .periphery-core-baseline --relative-results --disable-update-check
+    {{swift}} test list --enable-index-store > /dev/null
     @set --; \
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
     if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "platform=macOS" -derivedDataPath "{{derived_data}}" -parallelizeTargets "$@" CODE_SIGNING_ALLOWED=NO ENABLE_BITCODE=NO DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=YES INDEX_ENABLE_DATA_STORE=YES build-for-testing
-    periphery scan --project Sumika.xcodeproj --schemes Sumika --skip-build --index-store-path "{{derived_data}}/Index.noindex/DataStore" --retain-public --retain-codable-properties --report-include "Sources/SumikaApp/**/*.swift" --report-include "Sources/SumikaRuntimeMLX/**/*.swift" --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check
+    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "platform=macOS" -derivedDataPath "{{derived_data}}" -parallelizeTargets "$@" CODE_SIGNING_ALLOWED=NO ENABLE_BITCODE=NO DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=YES INDEX_ENABLE_DATA_STORE=YES build
+    @swiftpm_bin_path="$({{swift}} build --show-bin-path)"; \
+    swiftpm_index_store="$swiftpm_bin_path/index/store"; \
+    test -d "$swiftpm_index_store" || { echo "No SwiftPM test index found at $swiftpm_index_store."; exit 1; }; \
+    periphery scan --project Sumika.xcodeproj --schemes Sumika --skip-build --index-store-path "{{derived_data}}/Index.noindex/DataStore" --index-store-path "$swiftpm_index_store" --retain-public --retain-codable-properties --report-include "Sources/SumikaApp/**/*.swift" --report-include "Sources/SumikaRuntimeMLX/**/*.swift" --report-include "sumika/**/*.swift" --baseline .periphery-app-baseline --relative-results --disable-update-check
