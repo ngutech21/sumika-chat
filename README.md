@@ -276,10 +276,15 @@ checks Swift sources with `swift-format`. `just final-check` runs the broader
 local verification suite before review.
 
 `just resolve-packages` resolves both the root SwiftPM graph and the Xcode app
-graph. Commit both `Package.resolved` files after dependency changes.
+graph, then synchronizes the Xcode pin states with the root resolution. Commit
+both `Package.resolved` files after dependency changes. The root lockfile is the
+canonical pin selection; the Xcode lockfile retains its workspace-specific
+metadata.
 `just check-package-locks` disables automatic dependency updates and verifies
-that both committed lockfiles still satisfy their graph. The two files
-represent different resolver roots and are not expected to be byte-identical.
+that both committed lockfiles still satisfy their graph and resolve identical
+package pins. The files represent different resolver roots and are not expected
+to be byte-identical; metadata such as `originHash` and normalized repository
+URLs may differ.
 If a Dependabot PR changes the root graph and this check reports a stale Xcode
 lockfile, run `just resolve-packages` and commit the regenerated Xcode
 `Package.resolved` file to the PR.

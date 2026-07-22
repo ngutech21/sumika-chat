@@ -26,6 +26,13 @@ resolve-packages:
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
     if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
     xcodebuild -resolvePackageDependencies -project {{project}} -scheme {{scheme}} "$@"
+    just sync-package-lock-parity
+
+check-package-lock-parity:
+    {{swift}} -module-cache-path .build/swift-script-module-cache script/package_lock_parity.swift check Package.resolved Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+sync-package-lock-parity:
+    {{swift}} -module-cache-path .build/swift-script-module-cache script/package_lock_parity.swift sync Package.resolved Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 check-package-locks:
     {{swift}} package --disable-automatic-resolution resolve
@@ -33,6 +40,7 @@ check-package-locks:
     if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
     if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
     xcodebuild -resolvePackageDependencies -project {{project}} -scheme {{scheme}} -onlyUsePackageVersionsFromResolvedFile "$@"
+    just check-package-lock-parity
     git diff --exit-code -- Package.resolved Sumika.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 build:

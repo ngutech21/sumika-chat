@@ -183,11 +183,15 @@ xcodebuild -project Sumika.xcodeproj -scheme Sumika -destination "platform=macOS
 ./script/build_and_run.sh --verify
 ```
 
-`just resolve-packages` updates both the root SwiftPM lockfile and the Xcode app
-lockfile. Commit both after dependency changes; they represent different
-resolver roots and are not expected to be byte-identical. CI runs
+`just resolve-packages` updates both graphs and synchronizes the Xcode package
+pin states with the root SwiftPM lockfile. Commit both lockfiles after dependency
+changes; they represent different resolver roots and are not expected to be
+byte-identical. Treat the root lockfile as the canonical pin selection while
+preserving Xcode-specific metadata in the Xcode lockfile. CI runs
 `just check-package-locks` with automatic dependency updates disabled to reject
-missing or stale lockfiles without upgrading packages during a CI run.
+missing or stale lockfiles without upgrading packages during a CI run, and to
+require identical package identities, versions, revisions, and branch pins
+across both resolver roots.
 If a dependency PR changes only the root graph, run `just resolve-packages` and
 commit the regenerated Xcode lockfile as part of that PR.
 

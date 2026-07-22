@@ -1,5 +1,5 @@
 {
-  "originHash" : "8016886989b2577b4704b3fecc821cb69834cd99beaa8577d4a4174c1a7fe42d",
+  "originHash" : "d3925b279120c6fb191313ddd9645d5f545a7509662538c82a1600037ba16927",
   "pins" : [
     {
       "identity" : "eventsource",
@@ -33,7 +33,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ml-explore/mlx-swift-lm",
       "state" : {
-        "revision" : "343cae3799054b2e138ebfb1ae8d7d0f6c6a4a5b"
+        "revision" : "78eaa5bbcc722ead5c03b0460cdc3ac4de85071e"
       }
     },
     {
@@ -59,8 +59,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-asn1.git",
       "state" : {
-        "revision" : "a9a5efd40eaf558a2bcd48d64b1d1646be686008",
-        "version" : "1.7.1"
+        "revision" : "eb50cbd14606a9161cbc5d452f18797c90ef0bab",
+        "version" : "1.7.0"
       }
     },
     {
@@ -140,8 +140,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio.git",
       "state" : {
-        "revision" : "0b18836bd8b0162e7e17a995a3fbee20ed8f3b2b",
-        "version" : "2.101.3"
+        "revision" : "cd3e1152083706d77b223fb29110e590efcc70c0",
+        "version" : "2.101.2"
       }
     },
     {
@@ -212,8 +212,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/migueldeicaza/SwiftTerm",
       "state" : {
-        "revision" : "849e8a4f3d6f79ddee07152400137f1370c32621",
-        "version" : "1.14.0"
+        "revision" : "dd2fb8ac5b861e7bf617c872895e338f38165648",
+        "version" : "1.15.0"
       }
     },
     {
