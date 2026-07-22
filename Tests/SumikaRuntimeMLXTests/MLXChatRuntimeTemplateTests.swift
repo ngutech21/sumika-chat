@@ -82,14 +82,6 @@ struct MLXChatRuntimeTemplateTests {
       "<turn" + "|>",
       "<|" + "im_end" + "|>",
     ]
-    let allowedFiles = Set([
-      repositoryURL
-        .appending(
-          path: "Sources/SumikaRuntimeMLX/Services/MLXDebugTraceStore.swift",
-          directoryHint: .notDirectory
-        )
-        .standardizedFileURL.path(percentEncoded: false)
-    ])
 
     var matches: [String] = []
     for directoryURL in searchedDirectories {
@@ -104,9 +96,7 @@ struct MLXChatRuntimeTemplateTests {
       }
       for case let fileURL as URL in enumerator where fileURL.pathExtension == "swift" {
         let path = fileURL.standardizedFileURL.path(percentEncoded: false)
-        guard !allowedFiles.contains(path) else {
-          continue
-        }
+
         let contents = try String(contentsOf: fileURL, encoding: .utf8)
         for token in forbiddenTokens where contents.contains(token) {
           matches.append("\(path): \(token)")
