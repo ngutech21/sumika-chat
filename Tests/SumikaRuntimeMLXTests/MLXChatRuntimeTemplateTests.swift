@@ -58,8 +58,6 @@ struct MLXChatRuntimeTemplateTests {
     #expect(modelConfiguration.eosTokenIds.contains(106))
   }
 
-
-
   @Test
   func mlxToolCallFormatInferenceDocumentsGemmaAndQwenCoverage() {
     #expect(ToolCallFormat.infer(from: "gemma4_unified") == .gemma4)
