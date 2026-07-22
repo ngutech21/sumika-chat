@@ -239,6 +239,11 @@ just build
 open "build/DerivedData/Build/Products/Debug/Sumika.app"
 ```
 
+The first Xcode build may ask you to enable the pinned `MLXHuggingFaceMacros`
+package macro. Review and approve it in Xcode. Hosted CI cannot approve package
+plugins or macros interactively and uses the explicit validation-skip flags in
+the project task runner.
+
 Build an unsigned release app:
 
 ```sh

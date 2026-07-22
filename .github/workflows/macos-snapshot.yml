@@ -19,7 +19,7 @@ jobs:
     env:
       DERIVED_DATA_PATH: build/DerivedData/macos-snapshot
       CLONED_SOURCE_PACKAGES_DIR_PATH: .build/xcode-source-packages
-      # Hosted runners cannot approve mlx-swift's CudaBuild plugin interactively.
+      # Hosted runners cannot approve mlx-swift package plugins or macros interactively.
       SKIP_PACKAGE_PLUGIN_VALIDATION: "1"
       SUMIKA_GIT_COMMIT: ${{ github.sha }}
       DEVELOPER_ID_APPLICATION: Developer ID Application

@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 45
     env:
       CLONED_SOURCE_PACKAGES_DIR_PATH: .build/xcode-source-packages
-      # Hosted runners cannot approve mlx-swift's CudaBuild plugin interactively.
+      # Hosted runners cannot approve mlx-swift package plugins or macros interactively.
       SKIP_PACKAGE_PLUGIN_VALIDATION: "1"
 
     steps:
