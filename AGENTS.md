@@ -8,7 +8,7 @@ focused, inspectable, reviewable, and explicit: local context, short steps,
 auditable shell execution, and macOS-native SwiftUI/AppKit UI. Do not assume
 network access is available or desirable.
 
-## Architecture Rules
+## Architecture And Ownership
 
 Follow the existing layout:
 
@@ -22,41 +22,79 @@ Follow the existing layout:
 - Xcode app launcher/resources: `sumika/`
 - UI tests: `SumikaUITests/`
 
-Keep dependencies one-way: `SumikaApp` -> `SumikaRuntimeMLX` -> `SumikaCore`;
-`SumikaApp` may also use `SumikaCore` directly. Views call controllers or app state;
-controllers call coordinators/services; services exchange structured models.
-SwiftUI views must not parse model output, touch the filesystem directly, run shell
-commands, make permission decisions, or know MLX details.
-
-Run package unit and integration tests, sanitizers, and coverage through SwiftPM.
-The Xcode project owns only the app launcher/resources and UI tests. Production
-launch code must not detect unit-test-host environment or construct unit-test
-adapters; package tests inject their adapters directly at existing seams.
-
-Do not create new top-level folders or abstractions unless real code requires them.
-Start small. Do not introduce empty folders or abstractions before there is real
-code to put in them.
-
-## Core/App Boundaries
-
+- Keep dependencies one-way: `SumikaApp` -> `SumikaRuntimeMLX` -> `SumikaCore`;
+  `SumikaApp` may also use `SumikaCore` directly.
 - Keep agent/domain workflows, models, policies, and vendor-neutral protocols in
-  `SumikaCore`. Treat it as a pure Swift agent module: it must not import SwiftUI,
-  AppKit, MLX, SwiftTreeSitter, or TreeSitter language modules, and its target must
-  not depend on Tree-sitter products or scanner targets.
-- Keep MLX/Gemma/Qwen backends in `Sources/SumikaRuntimeMLX/` behind core
-  protocols.
-- Keep presentation-specific backends such as Tree-sitter code highlighting in
-  `Sources/SumikaApp/` behind core protocols.
-- SwiftUI controllers are UI facades only: hold view state, expose small user
-  actions, call coordinators/services, and map results back to UI.
-- Workflow lifecycle belongs in coordinators. Execution, side effects,
-  persistence, and platform integration belong in services/executors. Context and
-  prompt selection belong in builders/policies.
-- Testability without SwiftUI does not determine ownership by itself. Keep
-  presentation, vendor, runtime, and platform adapters outside core even when
-  they are independently testable.
+  `SumikaCore`. It must not import SwiftUI, AppKit, MLX, SwiftTreeSitter, or
+  TreeSitter language modules, or depend on Tree-sitter products/scanner targets.
+- Keep MLX/Gemma/Qwen backends in `SumikaRuntimeMLX` behind core protocols. Keep
+  presentation-specific backends such as Tree-sitter highlighting in `SumikaApp`.
+- Views call controllers or app state; controllers are thin UI facades that call
+  coordinators/services and map results to UI. Views must not parse model output,
+  access files, run commands, make permission decisions, or know MLX details.
+- Workflow lifecycle belongs in coordinators; execution, side effects,
+  persistence, and platform integration in services/executors; context and prompt
+  selection in builders/policies.
+- Testability does not determine ownership. Keep presentation, vendor, runtime,
+  and platform adapters outside core even when independently testable.
+- SwiftPM owns package tests, sanitizers, and coverage. Xcode owns only the app
+  launcher/resources and UI tests. Production launch code must not detect a unit
+  test host or construct test adapters; package tests inject adapters at seams.
+- Do not create new top-level folders, empty abstractions, or speculative layers.
+  Start with the smallest structure required by real code.
+
+## API And Module Design
+
+- Default declarations to the narrowest access level that satisfies current
+  callers. Add `public` or `package` API only for a concrete caller outside the
+  owning target or module, and identify that caller before widening access.
+- Keep public interfaces small and stable. Do not expose storage models, runtime
+  details, helper types, intermediate workflow state, dependency internals, or
+  mutation points merely for caller convenience.
+- Apply SOLID at concrete boundaries: keep responsibilities cohesive, protocols
+  substitutable and role-specific, and high-level policy independent of vendor or
+  platform implementations. Do not introduce a seam without a concrete caller,
+  alternate implementation, test boundary, or independently changing owner.
+- Prefer deep modules: a small interface should hide substantial implementation
+  detail and enforce its own invariants. Directory depth, file count, wrapper
+  count, and forwarding layers do not make a module deep.
+- Do not add speculative protocols, factories, wrappers, dependency injection, or
+  pass-through facades. An abstraction must reduce caller knowledge or coordination,
+  not merely rename or forward another API.
+- Keep code near its canonical owner. Preserve cohesive vertical slices, such as
+  the one-file-per-tool layout, when their inputs, validation, execution, and
+  results change together. Move only genuinely shared policy or infrastructure
+  into horizontal modules.
+- Give each type one primary responsibility and one reason to change. Before
+  extending a large controller, coordinator, service, store, or runtime, verify
+  that the new behavior shares its owner, lifecycle, invariants, and dependencies.
+  Split unrelated responsibilities instead of growing a god type.
+- Line counts and file sizes are review signals, not design goals. Do not split a
+  cohesive implementation into shallow types solely to satisfy a size metric.
+
+## Refactoring Completion
+
+A refactoring is complete only when the repository has one canonical path for the
+refactored behavior:
+
+- Migrate every in-scope caller to the new path.
+- Remove replaced implementations, compatibility adapters, obsolete overloads,
+  unused protocols, stale flags, tests, fixtures, and documentation.
+- Search explicitly for old type names, symbols, configuration keys, and call
+  patterns after migration; do not assume compiler success proves cleanup.
+- Do not retain parallel old and new architectures for hypothetical compatibility.
+  A staged migration is allowed only when explicitly requested; document its
+  remaining callers, temporary boundary, and deletion condition.
+- Run dead-code analysis after structural refactors and inspect the final diff for
+  additions without the corresponding expected deletions.
+- Preserve unrelated user changes while cleaning the complete refactoring scope.
+
+Before finishing a structural refactor or API change, summarize new or widened
+APIs, new types and their responsibilities, old code removed, and any retained
+legacy path with its concrete reason. State when no public API was added.
 
 ## Data Model Policy
+
 Prefer clean ADTs, single sources of truth, derived projections, and intentional
 `Codable` schemas covered by tests.
 
@@ -141,96 +179,39 @@ product/session state. Persist it on `ChatSession` and trace
 
 ## Build And Test
 
-Prefer the project task runner:
+Use the project task runner and the narrowest feedback loop that covers the change:
 
-```sh
-just build
-just test
-just test-tsan
-just test-asan
-just test-ui
-just lint
-just format
-just typos
-just data-model
-just coverage
-just coverage-low
-just final-check
-just periphery
-```
-
-Use the narrowest feedback loop while debugging:
-
-- All package unit and integration tests: `just test`.
 - One target, suite, or test: use `swift test --filter <pattern>`.
+- Package unit and integration tests: `just test`.
 - Xcode app launcher, resources, embedding, or project wiring: `just build`.
 - UI tests, accessibility IDs, launch test mode, model-loading UI, chat/agent UI,
   or MLX trace behavior used by UI tests: `just test-ui`.
 - Cross-boundary changes spanning package logic and the Xcode shell: run both
   `just test` and `just build`.
+- Concurrency or memory-safety work: use `just test-tsan` or `just test-asan` as
+  relevant. Data-model schema changes must run `just data-model`.
+- Add or update focused tests for shared logic, patch and prompt construction,
+  command execution, and tool execution.
 
-For final verification after implementation, prefer `just final-check`. It runs `typos`, `format`, `lint`, `periphery`, `test`. If a focused test just
-passed during debugging, it is acceptable to run only the missing equivalent
-checks instead of repeating the same test suite immediately. For docs/comments
-only, explain why build/test suites were not run and use the narrowest relevant
+For final verification after implementation, prefer `just final-check`; it runs
+`typos`, `format`, `lint`, `periphery`, and `test`. If an equivalent focused test
+already passed, run only the missing checks instead of repeating it. For docs or
+comments only, explain why build/tests were skipped and run the narrowest relevant
 check, such as `just typos`.
 
-Other useful commands:
-
-```sh
-xcrun swift build --target SumikaCore
-xcrun swift build
-xcrun swift test
-xcodebuild -project Sumika.xcodeproj -scheme Sumika -destination "platform=macOS" build
-./script/build_and_run.sh
-./script/build_and_run.sh --verify
-```
-
-`just resolve-packages` updates both graphs and synchronizes the Xcode package
-pin states with the root SwiftPM lockfile. Commit both lockfiles after dependency
-changes; they represent different resolver roots and are not expected to be
-byte-identical. Treat the root lockfile as the canonical pin selection while
-preserving Xcode-specific metadata in the Xcode lockfile. CI runs
-`just check-package-locks` with automatic dependency updates disabled to reject
-missing or stale lockfiles without upgrading packages during a CI run, and to
-require identical package identities, versions, revisions, and branch pins
-across both resolver roots.
-If a dependency PR changes only the root graph, run `just resolve-packages` and
-commit the regenerated Xcode lockfile as part of that PR.
-
-CI runs `just test`, which executes all SwiftPM unit and integration test targets,
-including `SumikaCore`, `SumikaApp`, `SumikaRuntimeMLX`, and
-`DataModelGenerator`. Nightly CI also runs the same SwiftPM graph through
-`just test-tsan` and `just test-asan`. CI does not run UI tests. `just test-ui` is
-local-only, enables `SUMIKA_DEBUG_TRACE=1`, must never download a model, and
-should skip cleanly if the model selected by `SumikaUITests.modelID` is missing.
-Use `just data-model` to regenerate `docs/data-model.md`.
+After dependency changes, run `just resolve-packages`, commit both lockfiles, and
+follow the lockfile policy in `README.md`. UI tests are local-only, must never
+download a model, and should skip cleanly when the configured model is absent.
 
 ## Debugging And Tracing
 
 Use the project script before inventing new launch flows:
 
-```sh
-./script/build_and_run.sh --logs
-./script/build_and_run.sh --telemetry
-./script/build_and_run.sh --trace
-```
-
-- `--logs`: stream process logs for `Sumika`.
-- `--telemetry`: stream subsystem logs for `chat.sumika`.
-- `--trace`: run with `SUMIKA_DEBUG_TRACE=1`.
-
-Normal trace:
-
-```text
-~/Library/Application Support/Sumika/debug/mlx-trace.jsonl
-```
-
-UI-test per-run traces:
-
-```text
-~/Library/Application Support/Sumika/debug/traces/
-```
+- `./script/build_and_run.sh --logs`: stream `Sumika` process logs.
+- `./script/build_and_run.sh --telemetry`: stream `chat.sumika` subsystem logs.
+- `./script/build_and_run.sh --trace`: run with `SUMIKA_DEBUG_TRACE=1`.
+- Normal trace: `~/Library/Application Support/Sumika/debug/mlx-trace.jsonl`.
+- UI-test traces: `~/Library/Application Support/Sumika/debug/traces/`.
 
 Do not create additional chat/model performance trace formats. Extend
 `MLXDebugTraceStore`. Existing row kinds are `mlx_request`,
@@ -246,6 +227,3 @@ bottleneck.
 - Include `Fixes #<id>` in a second paragraph for issue-closing commits.
 - Review diffs before committing; avoid generated files, build output, and
   unrelated changes.
-- Use `just format`, `just lint`, and `just typos`.
-- Add tests or focused verification for shared logic, patch application, prompt
-  construction, command execution, and tool execution.
