@@ -13,13 +13,11 @@ private enum ModelDownloadError: LocalizedError {
   }
 }
 
-struct HuggingFaceModelDownloader: ModelDownloading, @unchecked Sendable {
+struct HuggingFaceModelDownloader: ModelDownloading {
   private let hubClient: HubClient
-  private let fileManager: FileManager
 
-  init(hubClient: HubClient = .default, fileManager: FileManager = .default) {
+  init(hubClient: HubClient = .default) {
     self.hubClient = hubClient
-    self.fileManager = fileManager
   }
 
   func download(
@@ -30,7 +28,7 @@ struct HuggingFaceModelDownloader: ModelDownloading, @unchecked Sendable {
       throw ModelDownloadError.invalidRepositoryID(model.huggingFaceRepoID)
     }
 
-    try fileManager.createDirectory(
+    try FileManager.default.createDirectory(
       at: LocalModelDirectory.defaultBaseURL,
       withIntermediateDirectories: true
     )
