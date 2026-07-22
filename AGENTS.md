@@ -28,9 +28,10 @@ controllers call coordinators/services; services exchange structured models.
 SwiftUI views must not parse model output, touch the filesystem directly, run shell
 commands, make permission decisions, or know MLX details.
 
-`SumikaHostedTests` is the Xcode test host for the SwiftPM app/runtime test sources.
-Keep it because Xcode builds and embeds the MLX Metal test resources that
-command-line SwiftPM does not provide.
+Run ordinary package unit and integration tests through SwiftPM. The
+`SumikaHostedTests` Xcode host remains only for Xcode-specific workflows such as
+the existing sanitizer and coverage tasks; do not route the normal test suite
+through it.
 
 Do not create new top-level folders or abstractions unless real code requires them.
 Start small. Do not introduce empty folders or abstractions before there is real
@@ -144,10 +145,8 @@ Prefer the project task runner:
 
 ```sh
 just build
-just test-core
-just test-app
-just test-ui
 just test
+just test-ui
 just lint
 just format
 just typos
@@ -160,11 +159,13 @@ just periphery
 
 Use the narrowest feedback loop while debugging:
 
-- Core-only: `just test-core`.
-- App-target only: `just test-app`.
+- All package unit and integration tests: `just test`.
+- One target, suite, or test: use `swift test --filter <pattern>`.
+- Xcode app launcher, resources, embedding, or project wiring: `just build`.
 - UI tests, accessibility IDs, launch test mode, model-loading UI, chat/agent UI,
   or MLX trace behavior used by UI tests: `just test-ui`.
-- Cross-boundary or build/test wiring: `just test`.
+- Cross-boundary changes spanning package logic and the Xcode shell: run both
+  `just test` and `just build`.
 
 For final verification after implementation, prefer `just final-check`. It runs `typos`, `format`, `lint`, `periphery`, `test`. If a focused test just
 passed during debugging, it is acceptable to run only the missing equivalent
@@ -195,9 +196,9 @@ across both resolver roots.
 If a dependency PR changes only the root graph, run `just resolve-packages` and
 commit the regenerated Xcode lockfile as part of that PR.
 
-CI runs `just test`: headless SwiftPM tests for `SumikaCore` and
-`DataModelGenerator`, followed by Xcode-hosted unit tests for `SumikaApp` and
-`SumikaRuntimeMLX`. CI does not run UI tests. `just test-ui` is local-only,
+CI runs `just test`, which executes all SwiftPM unit and integration test targets,
+including `SumikaCore`, `SumikaApp`, `SumikaRuntimeMLX`, and
+`DataModelGenerator`. CI does not run UI tests. `just test-ui` is local-only,
 enables `SUMIKA_DEBUG_TRACE=1`, must never download a model, and should skip
 cleanly if the model selected by `SumikaUITests.modelID` is missing. Use
 `just data-model` to regenerate `docs/data-model.md`.

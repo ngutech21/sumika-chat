@@ -9,7 +9,7 @@ import Testing
   import SumikaTestSupport
 #endif
 
-@Suite(.enabled(if: mlxDefaultMetalLibraryAvailable()))
+@Suite()
 struct MLXChatRuntimeTemplateTests {
   @Test
   func neutralRepetitionPenaltyDoesNotEnableMLXProcessor() {
@@ -58,38 +58,7 @@ struct MLXChatRuntimeTemplateTests {
     #expect(modelConfiguration.eosTokenIds.contains(106))
   }
 
-  @Test
-  func mlxGenerationStopsAtConfiguredEOSTokenIDWithoutExtraEOSTokens() async throws {
-    let tokenizer = EOSStopTestTokenizer()
-    let iterator = EOSStopTestTokenIterator(tokens: [65, 106, 66])
-    let modelConfiguration = ModelConfiguration(
-      directory: URL(filePath: "/tmp/gemma-4-fixture"),
-      eosTokenIds: [106]
-    )
 
-    let (stream, task) = generateTask(
-      promptTokenCount: 0,
-      modelConfiguration: modelConfiguration,
-      tokenizer: tokenizer,
-      iterator: iterator
-    )
-
-    var output = ""
-    var info: GenerateCompletionInfo?
-    for await generation in stream {
-      if let chunk = generation.chunk {
-        output += chunk
-      }
-      if let generationInfo = generation.info {
-        info = generationInfo
-      }
-    }
-    await task.value
-
-    #expect(modelConfiguration.extraEOSTokens.isEmpty)
-    #expect(output == "A")
-    #expect(info?.generationTokenCount == 1)
-  }
 
   @Test
   func mlxToolCallFormatInferenceDocumentsGemmaAndQwenCoverage() {

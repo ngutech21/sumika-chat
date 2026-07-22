@@ -81,28 +81,10 @@ jobs:
           launchctl limit maxfiles
           ps -axo pid,ppid,state,etime,%cpu,%mem,command
 
-      - name: Run core tests on macOS
-        id: core_tests
-        timeout-minutes: 20
-        env:
-          SWIFT_BACKTRACE: enable
-        run: just test-core
-
-      - name: Print core test failure diagnostics
-        if: failure() && steps.core_tests.outcome == 'failure'
-        run: |
-          ps -axo pid,ppid,state,etime,%cpu,%mem,command
-          if [ -d "$HOME/Library/Logs/DiagnosticReports" ]; then
-            find "$HOME/Library/Logs/DiagnosticReports" \
-              -type f \
-              -mmin -30 \
-              -print \
-              -exec sed -n '1,240p' {} \;
-          fi
 
       - name: Run app tests on macOS
         timeout-minutes: 20
-        run: just test-app incremental
+        run: just test
 
       - name: Run TSan
         timeout-minutes: 25

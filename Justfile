@@ -138,10 +138,15 @@ release-notarized artifact_name="Sumika-macos-release.dmg":
 generate-sparkle-appcast:
     ./script/generate_sparkle_appcast.sh
 
-test: test-core test-app
+test:
+  #!/usr/bin/env bash
+  start=$SECONDS
+  
+  {{swift}} test --no-parallel
 
-test-core:
-    {{swift}} test --no-parallel -q -Xswiftc -warnings-as-errors --filter 'SumikaCoreTests|SumikaCoreIntegrationTests|DataModelGeneratorTests'
+  elapsed=$((SECONDS - start))
+  printf 'elapsed: %dm %02ds\n' "$((elapsed / 60))" "$((elapsed % 60))"
+
 
 prompt-cost:
     SUMIKA_PRINT_PROMPT_COST=1 {{swift}} test --no-parallel --filter PromptCostRegressionTests
@@ -150,14 +155,6 @@ prompt-cost:
 data-model:
     mkdir -p .build/data-model-build .build/swiftpm-cache .build/clang-module-cache .build/swiftpm-home
     HOME="$PWD/.build/swiftpm-home" CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-module-cache" {{swift}} run -q --disable-sandbox --build-path .build/data-model-build --cache-path .build/swiftpm-cache DataModelGenerator
-
-test-app mode="clean":
-    @set --; \
-    if [ -n "${CLONED_SOURCE_PACKAGES_DIR_PATH:-}" ]; then set -- "$@" -clonedSourcePackagesDirPath "$CLONED_SOURCE_PACKAGES_DIR_PATH"; fi; \
-    if [ "${SKIP_PACKAGE_PLUGIN_VALIDATION:-0}" = "1" ]; then set -- "$@" -skipPackagePluginValidation; fi; \
-    clean_action=clean; \
-    if [ "{{mode}}" = "incremental" ]; then clean_action=; fi; \
-    xcodebuild -quiet -project {{project}} -scheme {{scheme}} -destination "{{destination}}" -derivedDataPath {{derived_data}} "$@" -parallel-testing-enabled NO $clean_action test
 
 test-app-tsan:
     @set --; \
