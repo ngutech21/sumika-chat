@@ -1,14 +1,14 @@
 import MLXLMCommon
 import SumikaCore
 
-nonisolated enum MLXSessionCacheMode: String, Equatable, Sendable {
+enum MLXSessionCacheMode: String, Equatable, Sendable {
   case newSession = "new_session"
   case reusedSession = "reused_session"
   case appendDelta = "append_delta"
   case dirtyRebuild = "dirty_rebuild"
 }
 
-nonisolated enum MLXSessionInvalidationReason: Equatable, Sendable {
+enum MLXSessionInvalidationReason: Equatable, Sendable {
   case signatureMismatch
   case cancelled
   case interrupted
@@ -17,7 +17,7 @@ nonisolated enum MLXSessionInvalidationReason: Equatable, Sendable {
   case modelChanged
 }
 
-nonisolated enum MLXSessionCacheReason: String, Equatable, Sendable {
+enum MLXSessionCacheReason: String, Equatable, Sendable {
   case newSessionNoCache = "no_cached_session"
   case reusedSession = "reused_session"
   case appendOnlyDelta = "append_only_delta"
@@ -53,14 +53,14 @@ nonisolated enum MLXSessionCacheReason: String, Equatable, Sendable {
   }
 }
 
-nonisolated struct MLXSessionCacheIdentity: Equatable, Sendable {
+struct MLXSessionCacheIdentity: Equatable, Sendable {
   let systemPrompt: String?
   let projectionMode: ModelContextProjectionMode
   let maxKVSize: Int?
   let reasoningEnabled: Bool
 }
 
-nonisolated enum MLXCachedSessionState: Equatable, Sendable {
+enum MLXCachedSessionState: Equatable, Sendable {
   case clean
   case inFlight(generationID: MLXGenerationID)
   case dirty(reason: MLXSessionInvalidationReason)
@@ -103,7 +103,7 @@ nonisolated enum MLXCachedSessionState: Equatable, Sendable {
   }
 }
 
-nonisolated struct MLXSessionCacheTrace: Equatable, Sendable {
+struct MLXSessionCacheTrace: Equatable, Sendable {
   let cacheMode: MLXSessionCacheMode
   let cacheReason: MLXSessionCacheReason
   let contextSignature: String
@@ -116,14 +116,14 @@ nonisolated struct MLXSessionCacheTrace: Equatable, Sendable {
   let systemPromptChanged: Bool?
 }
 
-nonisolated struct CachedMLXSession {
+struct CachedMLXSession {
   let session: MLXLMCommon.ChatSession
   let prefix: [ProviderPromptMessage]
   let identity: MLXSessionCacheIdentity
   let state: MLXCachedSessionState
 }
 
-nonisolated struct MLXSessionCachePlan {
+struct MLXSessionCachePlan {
   let session: MLXLMCommon.ChatSession
   let trace: MLXSessionCacheTrace
   let appendDeltaStartIndex: Int?

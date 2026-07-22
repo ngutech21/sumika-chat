@@ -2,7 +2,7 @@ import Foundation
 import HuggingFace
 import SumikaCore
 
-nonisolated package enum ModelDownloadError: LocalizedError {
+package enum ModelDownloadError: LocalizedError {
   case invalidRepositoryID(String)
 
   package var errorDescription: String? {
@@ -13,7 +13,7 @@ nonisolated package enum ModelDownloadError: LocalizedError {
   }
 }
 
-nonisolated package struct HuggingFaceModelDownloader: ModelDownloading, @unchecked Sendable {
+package struct HuggingFaceModelDownloader: ModelDownloading, @unchecked Sendable {
   private let hubClient: HubClient
   private let fileManager: FileManager
 

@@ -9,7 +9,7 @@ import Tokenizers
 
 package final actor MLXChatRuntime: ChatModelRuntime {
   /// Leaves image sizing to each model processor instead of pre-resizing to 512 px.
-  nonisolated static var modelNativeMediaProcessing: UserInput.Processing {
+  static var modelNativeMediaProcessing: UserInput.Processing {
     .init()
   }
 
@@ -123,19 +123,19 @@ package final actor MLXChatRuntime: ChatModelRuntime {
     lastRuntimeCacheDebugSnapshot
   }
 
-  nonisolated static func mlxRepetitionPenalty(
+  static func mlxRepetitionPenalty(
     from settings: ChatGenerationSettings
   ) -> Float? {
     settings.repetitionPenalty == 1 ? nil : Float(settings.repetitionPenalty)
   }
 
-  nonisolated static func mlxPresencePenalty(
+  static func mlxPresencePenalty(
     from settings: ChatGenerationSettings
   ) -> Float? {
     settings.presencePenalty == 0 ? nil : Float(settings.presencePenalty)
   }
 
-  nonisolated static func appendTransientInstructions(
+  static func appendTransientInstructions(
     _ instructions: [String],
     toPromptSnapshot promptSnapshot: [ProviderPromptMessage],
     promptMessages: [Chat.Message]
@@ -684,15 +684,15 @@ extension MLXChatRuntime {
     }
   }
 
-  nonisolated private static let maxMLXCacheBytes = 512 * 1024 * 1024
+  private static let maxMLXCacheBytes = 512 * 1024 * 1024
 
-  nonisolated private static func chatTemplateAdditionalContext(
+  private static func chatTemplateAdditionalContext(
     reasoningEnabled: Bool
   ) -> [String: any Sendable] {
     ["enable_thinking": reasoningEnabled]
   }
 
-  nonisolated private static func toolCallSnapshot(
+  private static func toolCallSnapshot(
     from toolCall: ChatRuntimeToolCall
   ) -> ProviderToolCall {
     ProviderToolCall(
@@ -703,7 +703,7 @@ extension MLXChatRuntime {
     )
   }
 
-  nonisolated static func nativeToolCallBoundarySnapshot(
+  static func nativeToolCallBoundarySnapshot(
     output: String,
     nativeToolCalls: [ChatRuntimeToolCall]
   ) -> ProviderPromptMessage {

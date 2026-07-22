@@ -1,7 +1,7 @@
 import Foundation
 import MLX
 
-nonisolated enum MLXChatRuntimeError: LocalizedError {
+enum MLXChatRuntimeError: LocalizedError {
   case modelNotLoaded
   case missingUserMessage
   case invalidChatTemplateMessageSequence
@@ -30,14 +30,14 @@ nonisolated enum MLXChatRuntimeError: LocalizedError {
   }
 }
 
-nonisolated enum MLXMemoryClearReason: String, Equatable, Sendable {
+enum MLXMemoryClearReason: String, Equatable, Sendable {
   case unload
   case clearContext = "clear_context"
   case runtimeError = "runtime_error"
   case interruptedStream = "interrupted_stream"
 }
 
-nonisolated struct MLXMemoryCacheClearer: Sendable {
+struct MLXMemoryCacheClearer: Sendable {
   static let live = MLXMemoryCacheClearer { _ in
     Memory.clearCache()
   }

@@ -2,7 +2,7 @@ import Foundation
 import SumikaCore
 
 package actor MLXDebugTraceStore: TurnTracing {
-  nonisolated static var isEnabled: Bool {
+  static var isEnabled: Bool {
     let value = ProcessInfo.processInfo.environment["SUMIKA_DEBUG_TRACE"] ?? ""
     return ["1", "true", "yes", "on"].contains(value.lowercased())
   }
@@ -216,7 +216,7 @@ package actor MLXDebugTraceStore: TurnTracing {
     }
   }
 
-  nonisolated private static func defaultFileURL() -> URL {
+  private static func defaultFileURL() -> URL {
     if let traceFile = ProcessInfo.processInfo.environment["SUMIKA_DEBUG_TRACE_FILE"],
       !traceFile.isEmpty
     {
@@ -235,7 +235,7 @@ package actor MLXDebugTraceStore: TurnTracing {
       .appending(path: "mlx-trace.jsonl", directoryHint: .notDirectory)
   }
 
-  nonisolated private static func debugDirectory() -> URL {
+  private static func debugDirectory() -> URL {
     URL.applicationSupportDirectory
       .appending(path: "Sumika", directoryHint: .isDirectory)
       .appending(path: "debug", directoryHint: .isDirectory)

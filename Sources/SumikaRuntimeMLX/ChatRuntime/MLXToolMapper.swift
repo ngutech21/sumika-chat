@@ -2,8 +2,8 @@ import Foundation
 import MLXLMCommon
 import SumikaCore
 
-nonisolated enum MLXToolMapper {
-  nonisolated static func toolSpecs(from toolContext: ChatRuntimeToolContext?) -> [ToolSpec]? {
+enum MLXToolMapper {
+  static func toolSpecs(from toolContext: ChatRuntimeToolContext?) -> [ToolSpec]? {
     guard let toolContext else {
       return nil
     }
@@ -14,7 +14,7 @@ nonisolated enum MLXToolMapper {
     return tools.map(toolSpec(for:))
   }
 
-  nonisolated private static func toolSpec(for definition: ToolDefinition) -> ToolSpec {
+  private static func toolSpec(for definition: ToolDefinition) -> ToolSpec {
     [
       "type": "function",
       "function": [
@@ -30,7 +30,7 @@ nonisolated enum MLXToolMapper {
   /// instead of deriving a flat schema. JSON `null` values (pydantic servers
   /// emit `"default": null`) are dropped rather than mapped to `NSNull`,
   /// which the Jinja chat-template engine cannot convert.
-  nonisolated private static func parametersSchema(
+  private static func parametersSchema(
     for definition: ToolDefinition
   ) -> any Sendable {
     guard let rawSchema = definition.rawParametersSchema else {
@@ -39,7 +39,7 @@ nonisolated enum MLXToolMapper {
     return nullFreeSendableValue(from: rawSchema) ?? [String: any Sendable]()
   }
 
-  nonisolated private static func nullFreeSendableValue(
+  private static func nullFreeSendableValue(
     from value: ToolArgumentValue
   ) -> (any Sendable)? {
     switch value {
@@ -58,7 +58,7 @@ nonisolated enum MLXToolMapper {
     }
   }
 
-  nonisolated private static func jsonSchemaObject(
+  private static func jsonSchemaObject(
     for parameters: [ToolParameterDefinition]
   ) -> [String: any Sendable] {
     var properties: [String: any Sendable] = [:]
@@ -79,7 +79,7 @@ nonisolated enum MLXToolMapper {
     ] as [String: any Sendable]
   }
 
-  nonisolated private static func jsonSchemaProperty(
+  private static func jsonSchemaProperty(
     for parameter: ToolParameterDefinition
   ) -> [String: any Sendable] {
     var schema: [String: any Sendable] = [
@@ -104,7 +104,7 @@ nonisolated enum MLXToolMapper {
     return schema
   }
 
-  nonisolated private static func jsonSchemaObjectValue(
+  private static func jsonSchemaObjectValue(
     for object: ToolJSONSchemaObject
   ) -> [String: any Sendable] {
     var properties: [String: any Sendable] = [:]
@@ -120,7 +120,7 @@ nonisolated enum MLXToolMapper {
     ] as [String: any Sendable]
   }
 
-  nonisolated private static func jsonSchemaPropertyValue(
+  private static func jsonSchemaPropertyValue(
     for property: ToolJSONSchemaProperty
   ) -> [String: any Sendable] {
     var schema: [String: any Sendable] = [
@@ -145,7 +145,7 @@ nonisolated enum MLXToolMapper {
     return schema
   }
 
-  nonisolated private static func sendableValue(
+  private static func sendableValue(
     from value: ToolArgumentValue
   ) -> any Sendable {
     switch value {
@@ -164,7 +164,7 @@ nonisolated enum MLXToolMapper {
     }
   }
 
-  nonisolated static func chatRuntimeToolCall(
+  static func chatRuntimeToolCall(
     from toolCall: MLXLMCommon.ToolCall,
     usedIDs: inout Set<UUID>
   ) -> ChatRuntimeToolCall {
@@ -175,7 +175,7 @@ nonisolated enum MLXToolMapper {
     )
   }
 
-  nonisolated private static func toolArgumentValue(from value: JSONValue) -> ToolArgumentValue {
+  private static func toolArgumentValue(from value: JSONValue) -> ToolArgumentValue {
     switch value {
     case .null:
       return .null

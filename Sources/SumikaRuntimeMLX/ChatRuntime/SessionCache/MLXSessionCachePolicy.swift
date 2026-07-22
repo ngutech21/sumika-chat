@@ -2,8 +2,8 @@ import Foundation
 import MLXLMCommon
 import SumikaCore
 
-nonisolated enum MLXSessionCachePolicy {
-  nonisolated static func cacheIdentity(
+enum MLXSessionCachePolicy {
+  static func cacheIdentity(
     systemPrompt: String,
     settings: ChatGenerationSettings,
     projectionMode: ModelContextProjectionMode
@@ -16,7 +16,7 @@ nonisolated enum MLXSessionCachePolicy {
     )
   }
 
-  nonisolated static func streamMessages(
+  static func streamMessages(
     history: [Chat.Message],
     promptMessages: [Chat.Message],
     appendDeltaStartIndex: Int?
@@ -28,7 +28,7 @@ nonisolated enum MLXSessionCachePolicy {
     return Array(history[boundedStartIndex...]) + promptMessages
   }
 
-  nonisolated static func chatSessionInstructions(
+  static func chatSessionInstructions(
     for mode: MLXSessionCacheMode,
     systemPrompt: String
   ) -> String? {
@@ -40,7 +40,7 @@ nonisolated enum MLXSessionCachePolicy {
     }
   }
 
-  nonisolated static func runtimeCacheDebugSnapshot(
+  static func runtimeCacheDebugSnapshot(
     from trace: MLXSessionCacheTrace,
     appendDeltaStartIndex: Int?,
     generationID: UUID,
@@ -64,7 +64,7 @@ nonisolated enum MLXSessionCachePolicy {
     )
   }
 
-  nonisolated private static func reuseStrategyName(for mode: MLXSessionCacheMode) -> String {
+  private static func reuseStrategyName(for mode: MLXSessionCacheMode) -> String {
     switch mode {
     case .newSession, .dirtyRebuild:
       "new_session"
@@ -75,7 +75,7 @@ nonisolated enum MLXSessionCachePolicy {
     }
   }
 
-  nonisolated static func trace(
+  static func trace(
     mode: MLXSessionCacheMode,
     reason: MLXSessionCacheReason,
     currentHistory: [ProviderPromptMessage],
@@ -107,7 +107,7 @@ nonisolated enum MLXSessionCachePolicy {
     )
   }
 
-  nonisolated static func identityMismatchReason(
+  static func identityMismatchReason(
     cached: MLXSessionCacheIdentity,
     current: MLXSessionCacheIdentity
   ) -> MLXSessionCacheReason {
@@ -120,7 +120,7 @@ nonisolated enum MLXSessionCachePolicy {
     return .identityChanged
   }
 
-  nonisolated static func firstMismatchIndex(
+  static func firstMismatchIndex(
     cachedPrefix: [ProviderPromptMessage],
     currentHistory: [ProviderPromptMessage]
   ) -> Int? {
@@ -131,7 +131,7 @@ nonisolated enum MLXSessionCachePolicy {
     return cachedPrefix.count == currentHistory.count ? nil : sharedCount
   }
 
-  nonisolated static func isPrefix(
+  static func isPrefix(
     _ prefix: [ProviderPromptMessage],
     of messages: [ProviderPromptMessage]
   ) -> Bool {
@@ -147,7 +147,7 @@ nonisolated enum MLXSessionCachePolicy {
   /// because its paired assistant tool_call lives in the cached prefix, not in the
   /// delta. The caller forces a full rebuild in that case so call and result are
   /// templated adjacently.
-  nonisolated static func deltaBeginsWithToolResult(
+  static func deltaBeginsWithToolResult(
     cachedPrefixCount: Int,
     historySnapshot: [ProviderPromptMessage],
     promptFirstRole: String?
@@ -159,20 +159,20 @@ nonisolated enum MLXSessionCachePolicy {
     return historySnapshot[cachedPrefixCount].role == toolRole
   }
 
-  nonisolated static func contentByteCount(for messages: [Chat.Message]) -> Int {
+  static func contentByteCount(for messages: [Chat.Message]) -> Int {
     messages.reduce(0) { byteCount, message in
       byteCount + message.content.utf8.count + message.images.count
     }
   }
 
-  nonisolated static func contextSignature(
+  static func contextSignature(
     for messages: [ProviderPromptMessage],
     identity: MLXSessionCacheIdentity
   ) -> String {
     "identity-\(identitySignature(for: identity)):history-\(contextSignature(for: messages))"
   }
 
-  nonisolated private static func identitySignature(
+  private static func identitySignature(
     for identity: MLXSessionCacheIdentity
   ) -> String {
     hashSignature { updateString in
@@ -184,7 +184,7 @@ nonisolated enum MLXSessionCachePolicy {
     }
   }
 
-  nonisolated static func contextSignature(for messages: [ProviderPromptMessage]) -> String {
+  static func contextSignature(for messages: [ProviderPromptMessage]) -> String {
     var hash: UInt64 = 14_695_981_039_346_656_037
     func update(_ byte: UInt8) {
       hash ^= UInt64(byte)
@@ -234,7 +234,7 @@ nonisolated enum MLXSessionCachePolicy {
     return String(format: "%016llx", hash)
   }
 
-  nonisolated private static func toolArgumentSignature(from value: ToolArgumentValue) -> String {
+  private static func toolArgumentSignature(from value: ToolArgumentValue) -> String {
     switch value {
     case .string(let string):
       return "string:\(string)"
@@ -254,7 +254,7 @@ nonisolated enum MLXSessionCachePolicy {
     }
   }
 
-  nonisolated private static func hashSignature(_ body: ((String) -> Void) -> Void) -> String {
+  private static func hashSignature(_ body: ((String) -> Void) -> Void) -> String {
     var hash: UInt64 = 14_695_981_039_346_656_037
     func update(_ byte: UInt8) {
       hash ^= UInt64(byte)

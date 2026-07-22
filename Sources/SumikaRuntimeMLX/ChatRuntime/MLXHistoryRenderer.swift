@@ -1,21 +1,21 @@
 import MLXLMCommon
 import SumikaCore
 
-nonisolated struct MLXGenerationInput {
+struct MLXGenerationInput {
   let history: [Chat.Message]
   let historySnapshot: [ProviderPromptMessage]
   let promptMessages: [Chat.Message]
   let promptSnapshot: [ProviderPromptMessage]
 }
 
-nonisolated enum MLXHistoryRenderer {
+enum MLXHistoryRenderer {
   /// Full history keeps the rendered transcript append-only so the cached
   /// KV prefix stays a byte-stable prefix of every later generation. Receipt
   /// compaction rewrites past observations and would invalidate the cache
   /// after every tool turn.
-  nonisolated static let runtimeProjectionMode = ModelContextProjectionMode.fullHistory
+  static let runtimeProjectionMode = ModelContextProjectionMode.fullHistory
 
-  nonisolated static func imageInputs(
+  static func imageInputs(
     from attachments: [ChatAttachment],
     attachmentStore: ChatAttachmentStore = ChatAttachmentStore()
   ) throws -> [UserInput.Image] {
@@ -24,19 +24,19 @@ nonisolated enum MLXHistoryRenderer {
     }
   }
 
-  nonisolated static func imageTypes(from attachments: [ChatAttachment]) -> [String]? {
+  static func imageTypes(from attachments: [ChatAttachment]) -> [String]? {
     let types = attachments.compactMap(\.mimeType)
     return types.isEmpty ? nil : types
   }
 
-  nonisolated static func imageByteCount(from attachments: [ChatAttachment]) -> Int? {
+  static func imageByteCount(from attachments: [ChatAttachment]) -> Int? {
     let byteCount = attachments.filter { $0.kind == .image }.reduce(0) { total, attachment in
       total + attachment.byteSize
     }
     return byteCount == 0 ? nil : byteCount
   }
 
-  nonisolated static func runtimeHistoryMessages(
+  static func runtimeHistoryMessages(
     systemPrompt: String,
     history: [Chat.Message]
   ) throws -> [Chat.Message] {
@@ -50,11 +50,11 @@ nonisolated enum MLXHistoryRenderer {
     return try validatedTemplateMessages(messages, allowsSystemPrompt: true)
   }
 
-  nonisolated static func normalizedRuntimeSystemPrompt(_ systemPrompt: String) -> String? {
+  static func normalizedRuntimeSystemPrompt(_ systemPrompt: String) -> String? {
     ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt)
   }
 
-  nonisolated static func generationInput(
+  static func generationInput(
     from transcript: ModelPromptProjection,
     images: [UserInput.Image] = []
   ) throws -> MLXGenerationInput {
@@ -80,7 +80,7 @@ nonisolated enum MLXHistoryRenderer {
     )
   }
 
-  nonisolated static func validatedTemplateMessages(
+  static func validatedTemplateMessages(
     _ messages: [Chat.Message],
     allowsSystemPrompt: Bool = false
   ) throws -> [Chat.Message] {
@@ -112,7 +112,7 @@ nonisolated enum MLXHistoryRenderer {
   }
 
   /// Maps normalized snapshots back to `Chat.Message`.
-  nonisolated static func chatMessages(
+  static func chatMessages(
     from snapshots: [ProviderPromptMessage]
   ) -> [Chat.Message] {
     snapshots.map { snapshot in
@@ -134,7 +134,7 @@ nonisolated enum MLXHistoryRenderer {
     }
   }
 
-  nonisolated private static func mlxToolCall(
+  private static func mlxToolCall(
     from snapshot: ProviderToolCall
   ) -> MLXLMCommon.ToolCall {
     MLXLMCommon.ToolCall(
@@ -146,7 +146,7 @@ nonisolated enum MLXHistoryRenderer {
     )
   }
 
-  nonisolated private static func jsonValue(from value: ToolArgumentValue) -> JSONValue {
+  private static func jsonValue(from value: ToolArgumentValue) -> JSONValue {
     switch value {
     case .string(let string):
       return .string(string)
@@ -169,7 +169,7 @@ nonisolated enum MLXHistoryRenderer {
     }
   }
 
-  nonisolated static func validatedChatMessages(
+  static func validatedChatMessages(
     from snapshots: [ProviderPromptMessage]
   ) throws -> [Chat.Message] {
     try validatedTemplateMessages(chatMessages(from: snapshots))

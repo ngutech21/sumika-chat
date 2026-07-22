@@ -2,13 +2,13 @@ import Foundation
 import MLXLMCommon
 import SumikaCore
 
-nonisolated struct MLXModelStreamPlan {
+struct MLXModelStreamPlan {
   let stream: AsyncThrowingStream<ChatModelStreamEvent, Error>
   let task: Task<Void, Never>
 }
 
-nonisolated enum MLXModelStreamProcessor {
-  nonisolated static func modelStreamPlan(
+enum MLXModelStreamProcessor {
+  static func modelStreamPlan(
     from stream: AsyncThrowingStream<Generation, Error>,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
     traceID: UUID,
@@ -194,7 +194,7 @@ nonisolated enum MLXModelStreamProcessor {
     return MLXModelStreamPlan(stream: outputStream, task: task)
   }
 
-  nonisolated private static func recordRuntimeTTFT(
+  private static func recordRuntimeTTFT(
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
@@ -228,7 +228,7 @@ nonisolated enum MLXModelStreamProcessor {
     )
   }
 
-  nonisolated private static func recordRuntimeDecode(
+  private static func recordRuntimeDecode(
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
@@ -261,7 +261,7 @@ nonisolated enum MLXModelStreamProcessor {
     )
   }
 
-  nonisolated private static func yieldSegments(
+  private static func yieldSegments(
     _ segments: [ReasoningTraceSegment],
     to continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     visibleOutput: inout String
@@ -282,7 +282,7 @@ nonisolated enum MLXModelStreamProcessor {
     return false
   }
 
-  nonisolated private static func finalizeStream(
+  private static func finalizeStream(
     continuation: AsyncThrowingStream<ChatModelStreamEvent, Error>.Continuation,
     output: String,
     visibleOutput: String,
@@ -368,7 +368,7 @@ nonisolated enum MLXModelStreamProcessor {
     continuation.finish()
   }
 
-  nonisolated static func clearMemoryCache(
+  static func clearMemoryCache(
     reason: MLXMemoryClearReason,
     traceID: UUID?,
     traceMetadata: TurnTraceMetadata?,
@@ -407,12 +407,12 @@ nonisolated enum MLXModelStreamProcessor {
 
 }
 
-nonisolated enum ReasoningTraceSegment: Equatable {
+enum ReasoningTraceSegment: Equatable {
   case visible(String)
   case thinking(String)
 }
 
-nonisolated struct ReasoningTraceParser {
+struct ReasoningTraceParser {
   private enum Storage {
     case none(PassThroughReasoningTraceParser)
     case gemma(GemmaThoughtChannelParser)
@@ -468,7 +468,7 @@ nonisolated struct ReasoningTraceParser {
   }
 }
 
-nonisolated private struct PassThroughReasoningTraceParser {
+private struct PassThroughReasoningTraceParser {
   mutating func append(_ chunk: String) -> [ReasoningTraceSegment] {
     chunk.isEmpty ? [] : [.visible(chunk)]
   }
@@ -478,7 +478,7 @@ nonisolated private struct PassThroughReasoningTraceParser {
   }
 }
 
-nonisolated struct GemmaThoughtChannelParser {
+struct GemmaThoughtChannelParser {
   private static let thoughtMarkers = [
     "<|channel|>thought",
     "<|channel>thought",
@@ -563,7 +563,7 @@ nonisolated struct GemmaThoughtChannelParser {
   }
 }
 
-nonisolated struct QwenThinkTagParser {
+struct QwenThinkTagParser {
   private static let openMarker = "<think>"
   private static let closeMarker = "</think>"
 
@@ -636,7 +636,7 @@ nonisolated struct QwenThinkTagParser {
   }
 }
 
-nonisolated private func longestSuffixMatchingPrefix(in value: String, of marker: String) -> String
+private func longestSuffixMatchingPrefix(in value: String, of marker: String) -> String
 {
   guard !value.isEmpty, !marker.isEmpty else {
     return ""
@@ -655,7 +655,7 @@ nonisolated private func longestSuffixMatchingPrefix(in value: String, of marker
   return ""
 }
 
-nonisolated private func longestSuffixMatchingAnyPrefix(
+private func longestSuffixMatchingAnyPrefix(
   in value: String,
   of markers: [String]
 ) -> String {

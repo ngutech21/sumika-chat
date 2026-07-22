@@ -1,8 +1,8 @@
-nonisolated struct MLXGenerationID: Equatable, Hashable, Sendable {
+struct MLXGenerationID: Equatable, Hashable, Sendable {
   let rawValue: UInt64
 }
 
-nonisolated struct MLXGenerationOwnership: Equatable, Sendable {
+struct MLXGenerationOwnership: Equatable, Sendable {
   private var nextRawValue: UInt64 = 0
   private(set) var activeGenerationID: MLXGenerationID?
 
@@ -34,12 +34,12 @@ nonisolated struct MLXGenerationOwnership: Equatable, Sendable {
   }
 }
 
-nonisolated struct ActiveMLXGeneration: Sendable {
+struct ActiveMLXGeneration: Sendable {
   let id: MLXGenerationID
   let task: Task<Void, Never>
 }
 
-nonisolated struct MLXActiveGenerationRegistry: Sendable {
+struct MLXActiveGenerationRegistry: Sendable {
   private(set) var activeGeneration: ActiveMLXGeneration?
 
   mutating func register(id: MLXGenerationID, task: Task<Void, Never>) {
