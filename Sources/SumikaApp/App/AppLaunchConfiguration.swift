@@ -28,21 +28,20 @@ enum AppLaunchConfiguration {
     environment: [String: String] = ProcessInfo.processInfo.environment,
     runtime: (any ChatModelRuntime)? = nil
   ) -> AppState {
-    let debugTraceStore = MLXDebugTraceStore()
-    let resolvedRuntime = runtime ?? MLXChatRuntime(debugTraceStore: debugTraceStore)
+    let mlxEnvironment = MLXRuntimeComposition.makeChatEnvironment(overriding: runtime)
 
     if environment["SUMIKA_UI_TEST_MODE"] == "1" {
       return makeUITestAppState(
         environment: environment,
-        runtime: resolvedRuntime,
-        turnTracer: debugTraceStore
+        runtime: mlxEnvironment.runtime,
+        turnTracer: mlxEnvironment.turnTracer
       )
     }
 
     return makeConfiguredAppState(
-      modelDownloader: HuggingFaceModelDownloader(),
-      runtime: resolvedRuntime,
-      turnTracer: debugTraceStore
+      modelDownloader: MLXRuntimeComposition.makeModelDownloader(),
+      runtime: mlxEnvironment.runtime,
+      turnTracer: mlxEnvironment.turnTracer
     )
   }
 

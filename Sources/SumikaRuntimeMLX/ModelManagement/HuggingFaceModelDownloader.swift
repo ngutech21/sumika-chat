@@ -2,10 +2,10 @@ import Foundation
 import HuggingFace
 import SumikaCore
 
-package enum ModelDownloadError: LocalizedError {
+private enum ModelDownloadError: LocalizedError {
   case invalidRepositoryID(String)
 
-  package var errorDescription: String? {
+  var errorDescription: String? {
     switch self {
     case .invalidRepositoryID(let repoID):
       "Invalid Hugging Face model repository: \(repoID)"
@@ -13,16 +13,16 @@ package enum ModelDownloadError: LocalizedError {
   }
 }
 
-package struct HuggingFaceModelDownloader: ModelDownloading, @unchecked Sendable {
+struct HuggingFaceModelDownloader: ModelDownloading, @unchecked Sendable {
   private let hubClient: HubClient
   private let fileManager: FileManager
 
-  package init(hubClient: HubClient = .default, fileManager: FileManager = .default) {
+  init(hubClient: HubClient = .default, fileManager: FileManager = .default) {
     self.hubClient = hubClient
     self.fileManager = fileManager
   }
 
-  package func download(
+  func download(
     model: ManagedModel,
     progressHandler: @MainActor @Sendable @escaping (Progress) -> Void
   ) async throws -> URL {

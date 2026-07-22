@@ -636,8 +636,7 @@ struct QwenThinkTagParser {
   }
 }
 
-private func longestSuffixMatchingPrefix(in value: String, of marker: String) -> String
-{
+private func longestSuffixMatchingPrefix(in value: String, of marker: String) -> String {
   guard !value.isEmpty, !marker.isEmpty else {
     return ""
   }

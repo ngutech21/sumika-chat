@@ -7,7 +7,7 @@ import MLXVLM
 import SumikaCore
 import Tokenizers
 
-package final actor MLXChatRuntime: ChatModelRuntime {
+final actor MLXChatRuntime: ChatModelRuntime {
   /// Leaves image sizing to each model processor instead of pre-resizing to 512 px.
   static var modelNativeMediaProcessing: UserInput.Processing {
     .init()
@@ -27,7 +27,7 @@ package final actor MLXChatRuntime: ChatModelRuntime {
   private let memoryCacheClearer: MLXMemoryCacheClearer
   private let debugTraceStore: MLXDebugTraceStore
 
-  package init(debugTraceStore: MLXDebugTraceStore) {
+  init(debugTraceStore: MLXDebugTraceStore) {
     self.memoryCacheClearer = .live
     self.debugTraceStore = debugTraceStore
   }
@@ -40,7 +40,7 @@ package final actor MLXChatRuntime: ChatModelRuntime {
     self.debugTraceStore = debugTraceStore
   }
 
-  package func load(configuration: ChatModelConfiguration) async throws {
+  func load(configuration: ChatModelConfiguration) async throws {
     #if !arch(arm64)
       throw MLXChatRuntimeError.unsupportedArchitecture
     #endif
@@ -73,7 +73,7 @@ package final actor MLXChatRuntime: ChatModelRuntime {
     invalidateCachedSession(reason: .modelChanged)
   }
 
-  package func unload() async {
+  func unload() async {
     lifecycleTransitionInProgress = true
     defer { lifecycleTransitionInProgress = false }
     await cancelAndDrainActiveGeneration(reason: .modelChanged)
@@ -93,7 +93,7 @@ package final actor MLXChatRuntime: ChatModelRuntime {
     )
   }
 
-  package func clearContext() async {
+  func clearContext() async {
     lifecycleTransitionInProgress = true
     defer { lifecycleTransitionInProgress = false }
     await cancelAndDrainActiveGeneration(reason: .signatureMismatch)
@@ -109,7 +109,7 @@ package final actor MLXChatRuntime: ChatModelRuntime {
     )
   }
 
-  package func generatedTokenCount(for text: String) async throws -> Int {
+  func generatedTokenCount(for text: String) async throws -> Int {
     guard let modelContainer else {
       throw MLXChatRuntimeError.modelNotLoaded
     }
@@ -119,7 +119,7 @@ package final actor MLXChatRuntime: ChatModelRuntime {
     }
   }
 
-  package func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
+  func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
     lastRuntimeCacheDebugSnapshot
   }
 
@@ -173,7 +173,7 @@ package final actor MLXChatRuntime: ChatModelRuntime {
     return (updatedSnapshot, updatedMessages)
   }
 
-  package func streamReply(
+  func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
     promptPlan: ChatRuntimePromptPlan,

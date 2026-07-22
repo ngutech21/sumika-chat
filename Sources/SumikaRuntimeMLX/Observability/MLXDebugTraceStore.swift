@@ -1,7 +1,7 @@
 import Foundation
 import SumikaCore
 
-package actor MLXDebugTraceStore: TurnTracing {
+actor MLXDebugTraceStore: TurnTracing {
   static var isEnabled: Bool {
     let value = ProcessInfo.processInfo.environment["SUMIKA_DEBUG_TRACE"] ?? ""
     return ["1", "true", "yes", "on"].contains(value.lowercased())
@@ -10,7 +10,7 @@ package actor MLXDebugTraceStore: TurnTracing {
   private let fileURL: URL
   private let maxFieldCharacters = 80_000
 
-  package init() {
+  init() {
     self.fileURL = Self.defaultFileURL()
   }
 
@@ -92,7 +92,7 @@ package actor MLXDebugTraceStore: TurnTracing {
     append(response)
   }
 
-  package func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
+  func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
     guard Self.isEnabled else {
       return
     }
