@@ -22,17 +22,6 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
-  func presencePenaltyMappingMapsZeroToNilAndForwardsNonZero() {
-    // Chat mode leaves presence penalty off; agent mode enables it.
-    #expect(MLXChatRuntime.mlxPresencePenalty(from: .chatDefault) == nil)
-    #expect(MLXChatRuntime.mlxPresencePenalty(from: .agentDefault) == 0.5)
-
-    var settings = ChatGenerationSettings.chatDefault
-    settings.presencePenalty = 0.8
-    #expect(MLXChatRuntime.mlxPresencePenalty(from: settings) == 0.8)
-  }
-
-  @Test
   func chatSessionMediaProcessingDelegatesSizingToModelProcessor() {
     let processing = MLXChatRuntime.modelNativeMediaProcessing
 

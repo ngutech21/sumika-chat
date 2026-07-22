@@ -129,12 +129,6 @@ final actor MLXChatRuntime: ChatModelRuntime {
     settings.repetitionPenalty == 1 ? nil : Float(settings.repetitionPenalty)
   }
 
-  static func mlxPresencePenalty(
-    from settings: ChatGenerationSettings
-  ) -> Float? {
-    settings.presencePenalty == 0 ? nil : Float(settings.presencePenalty)
-  }
-
   static func appendTransientInstructions(
     _ instructions: [String],
     toPromptSnapshot promptSnapshot: [ProviderPromptMessage],
@@ -212,7 +206,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
       topK: settings.topK,
       repetitionPenalty: Self.mlxRepetitionPenalty(from: settings),
       repetitionContextSize: settings.repetitionContextSize,
-      presencePenalty: Self.mlxPresencePenalty(from: settings),
+      presencePenalty: Float(settings.presencePenalty),
       presenceContextSize: settings.repetitionContextSize
     )
     let additionalContext = Self.chatTemplateAdditionalContext(
