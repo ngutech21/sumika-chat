@@ -37,15 +37,6 @@ nonisolated enum MLXMemoryClearReason: String, Equatable, Sendable {
   case interruptedStream = "interrupted_stream"
 }
 
-nonisolated enum MLXModelStreamTermination: Equatable, Sendable {
-  case completed
-  case downstreamTerminated
-  case cancelled
-  case nativeToolCallBoundary
-  case runtimeError
-  case interruptedStream
-}
-
 nonisolated struct MLXMemoryCacheClearer: Sendable {
   static let live = MLXMemoryCacheClearer { _ in
     Memory.clearCache()

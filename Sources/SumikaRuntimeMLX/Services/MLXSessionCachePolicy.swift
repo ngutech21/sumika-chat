@@ -60,8 +60,7 @@ nonisolated enum MLXSessionCachePolicy {
       appendedMessageCount: trace.appendedMessageCount,
       mismatchReason: trace.mismatchReason,
       firstMismatchIndex: trace.firstMismatchIndex,
-      systemPromptChanged: trace.systemPromptChanged,
-      currentPromptContextChanged: trace.currentPromptContextChanged
+      systemPromptChanged: trace.systemPromptChanged
     )
   }
 
@@ -104,8 +103,7 @@ nonisolated enum MLXSessionCachePolicy {
       appendedMessageCount: appendedMessageCount,
       mismatchReason: mismatchReason,
       firstMismatchIndex: firstMismatchIndex,
-      systemPromptChanged: cachedIdentity.map { $0.systemPrompt != currentIdentity.systemPrompt },
-      currentPromptContextChanged: nil
+      systemPromptChanged: cachedIdentity.map { $0.systemPrompt != currentIdentity.systemPrompt }
     )
   }
 

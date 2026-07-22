@@ -382,7 +382,6 @@ extension MLXChatRuntime {
         mismatchReason: cachePlan.trace.mismatchReason,
         firstMismatchIndex: cachePlan.trace.firstMismatchIndex,
         systemPromptChanged: cachePlan.trace.systemPromptChanged,
-        currentPromptContextChanged: cachePlan.trace.currentPromptContextChanged,
         imageCount: imageAttachments.isEmpty ? nil : imageAttachments.count,
         imageTypes: MLXHistoryRenderer.imageTypes(from: imageAttachments),
         imageByteCount: MLXHistoryRenderer.imageByteCount(from: imageAttachments)

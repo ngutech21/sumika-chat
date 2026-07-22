@@ -15,22 +15,6 @@ nonisolated enum MLXHistoryRenderer {
   /// after every tool turn.
   nonisolated static let runtimeProjectionMode = ModelContextProjectionMode.fullHistory
 
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  nonisolated static func chatMessage(
-    from entry: ProjectedModelContextEntry,
-    images: [UserInput.Image] = []
-  ) -> Chat.Message {
-    switch entry.role {
-    case .user:
-      return .user(entry.content, images: images)
-    case .assistant:
-      return .assistant(entry.content)
-    case .tool:
-      return .tool(entry.content)
-    }
-  }
-
   nonisolated static func imageInputs(
     from attachments: [ChatAttachment],
     attachmentStore: ChatAttachmentStore = ChatAttachmentStore()
@@ -46,27 +30,10 @@ nonisolated enum MLXHistoryRenderer {
   }
 
   nonisolated static func imageByteCount(from attachments: [ChatAttachment]) -> Int? {
-    let byteCount = attachments.reduce(0) { total, attachment in
+    let byteCount = attachments.filter { $0.kind == .image }.reduce(0) { total, attachment in
       total + attachment.byteSize
     }
     return byteCount == 0 ? nil : byteCount
-  }
-
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  nonisolated static func templateMessages(
-    from transcript: ModelPromptProjection,
-    attachments: [ChatAttachment],
-    systemPrompt: String
-  ) throws -> [Chat.Message] {
-    _ = attachments
-    let history = try validatedChatMessages(
-      from: ProviderPromptProjection.normalized(from: transcript).messages
-    )
-    return try validatedTemplateMessages(
-      runtimeHistoryMessages(systemPrompt: systemPrompt, history: history),
-      allowsSystemPrompt: true
-    )
   }
 
   nonisolated static func runtimeHistoryMessages(
@@ -208,28 +175,4 @@ nonisolated enum MLXHistoryRenderer {
     try validatedTemplateMessages(chatMessages(from: snapshots))
   }
 
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  nonisolated static func generationHistoryMessages(
-    from entries: ArraySlice<ProjectedModelContextEntry>
-  ) throws -> [Chat.Message] {
-    try validatedChatMessages(from: generationHistorySnapshot(from: entries))
-  }
-
-  nonisolated static func generationHistorySnapshot(
-    from entries: ArraySlice<ProjectedModelContextEntry>
-  ) -> [ProviderPromptMessage] {
-    ProviderPromptProjection.normalized(
-      from: entries,
-      dropsTrailingUser: true
-    ).messages
-  }
-
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  nonisolated static func generationHistoryMessages(
-    from transcript: ModelPromptProjection
-  ) throws -> [Chat.Message] {
-    try generationInput(from: transcript).history
-  }
 }

@@ -13,7 +13,7 @@ struct MLXDebugTraceStoreTests {
     let fileURL = temporaryTraceFileURL()
     let store = MLXDebugTraceStore(fileURL: fileURL)
 
-    await store.traceTurnEvent(
+    await store.recordTurnTraceEvent(
       TurnTraceEvent(phase: .runtimeTTFT, durationMs: 10, ttftMs: 10)
     )
 
@@ -31,7 +31,7 @@ struct MLXDebugTraceStoreTests {
     let fileURL = temporaryTraceFileURL()
     let store = MLXDebugTraceStore(fileURL: fileURL)
 
-    await store.traceTurnEvent(
+    await store.recordTurnTraceEvent(
       TurnTraceEvent(
         turnID: turnID,
         generationID: generationID,
@@ -50,7 +50,6 @@ struct MLXDebugTraceStoreTests {
         mismatchReason: "history_prefix_mismatch",
         firstMismatchIndex: 2,
         systemPromptChanged: false,
-        currentPromptContextChanged: true,
         toolCallFormat: "native",
         toolValidationStatus: "invalid",
         toolValidationError: "Unknown argument(s): id, status.",
@@ -91,7 +90,6 @@ struct MLXDebugTraceStoreTests {
     #expect(object["mismatchReason"] as? String == "history_prefix_mismatch")
     #expect(object["firstMismatchIndex"] as? Int == 2)
     #expect(object["systemPromptChanged"] as? Bool == false)
-    #expect(object["currentPromptContextChanged"] as? Bool == true)
     #expect(object["toolCallFormat"] as? String == "native")
     #expect(object["toolValidationStatus"] as? String == "invalid")
     #expect(object["toolValidationError"] as? String == "Unknown argument(s): id, status.")
@@ -173,7 +171,7 @@ struct MLXDebugTraceStoreTests {
 
     let store = MLXDebugTraceStore()
 
-    await store.traceTurnEvent(
+    await store.recordTurnTraceEvent(
       TurnTraceEvent(phase: .runtimeTTFT, durationMs: 10, ttftMs: 10)
     )
 
@@ -192,7 +190,7 @@ struct MLXDebugTraceStoreTests {
 
     let store = MLXDebugTraceStore()
 
-    await store.traceTurnEvent(
+    await store.recordTurnTraceEvent(
       TurnTraceEvent(phase: .runtimeTTFT, durationMs: 10, ttftMs: 10)
     )
 

@@ -57,7 +57,7 @@ package actor MLXDebugTraceStore: TurnTracing {
     if !imageMetadata.isEmpty {
       request["imageInputs"] = imageMetadata
       request["imageCount"] = imageMetadata.count
-      request["imageByteCount"] = imageAttachments.imageByteCount
+      request["imageByteCount"] = MLXHistoryRenderer.imageByteCount(from: imageAttachments)
     }
     append(request)
   }
@@ -93,10 +93,6 @@ package actor MLXDebugTraceStore: TurnTracing {
   }
 
   package func recordTurnTraceEvent(_ event: TurnTraceEvent) async {
-    traceTurnEvent(event)
-  }
-
-  package func traceTurnEvent(_ event: TurnTraceEvent) {
     guard Self.isEnabled else {
       return
     }
@@ -131,7 +127,6 @@ package actor MLXDebugTraceStore: TurnTracing {
       ("mismatchReason", event.mismatchReason),
       ("firstMismatchIndex", event.firstMismatchIndex),
       ("systemPromptChanged", event.systemPromptChanged),
-      ("currentPromptContextChanged", event.currentPromptContextChanged),
       ("toolCallFormat", event.toolCallFormat),
       ("toolValidationStatus", event.toolValidationStatus),
       ("toolValidationError", event.toolValidationError),
@@ -244,13 +239,5 @@ package actor MLXDebugTraceStore: TurnTracing {
     URL.applicationSupportDirectory
       .appending(path: "Sumika", directoryHint: .isDirectory)
       .appending(path: "debug", directoryHint: .isDirectory)
-  }
-}
-
-extension Array where Element == ChatAttachment {
-  fileprivate nonisolated var imageByteCount: Int {
-    filter { $0.kind == .image }.reduce(0) { total, attachment in
-      total + attachment.byteSize
-    }
   }
 }

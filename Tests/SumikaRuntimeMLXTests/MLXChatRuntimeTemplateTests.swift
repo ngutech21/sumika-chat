@@ -866,8 +866,7 @@ struct MLXChatRuntimeTemplateTests {
       appendedMessageCount: 1,
       mismatchReason: nil,
       firstMismatchIndex: nil,
-      systemPromptChanged: nil,
-      currentPromptContextChanged: nil
+      systemPromptChanged: nil
     )
 
     let snapshot = MLXSessionCachePolicy.runtimeCacheDebugSnapshot(
@@ -2215,17 +2214,6 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
-  func modelStreamMemoryClearPolicyClearsOnlyDirtyRuntimeState() {
-    #expect(MLXModelStreamProcessor.memoryClearReason(for: .completed) == nil)
-    #expect(MLXModelStreamProcessor.memoryClearReason(for: .downstreamTerminated) == nil)
-    #expect(MLXModelStreamProcessor.memoryClearReason(for: .cancelled) == nil)
-    #expect(MLXModelStreamProcessor.memoryClearReason(for: .nativeToolCallBoundary) == nil)
-    #expect(MLXModelStreamProcessor.memoryClearReason(for: .runtimeError) == .runtimeError)
-    #expect(
-      MLXModelStreamProcessor.memoryClearReason(for: .interruptedStream) == .interruptedStream)
-  }
-
-  @Test
   func completedModelStreamDoesNotClearMemoryCache() async throws {
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let source = AsyncThrowingStream<Generation, Error> { continuation in
@@ -3036,7 +3024,11 @@ struct MLXChatRuntimeTemplateTests {
       )
     )
 
-    let runtimeToolCall = MLXToolMapper.chatRuntimeToolCall(from: mlxToolCall)
+    var usedIDs = Set<UUID>()
+    let runtimeToolCall = MLXToolMapper.chatRuntimeToolCall(
+      from: mlxToolCall,
+      usedIDs: &usedIDs
+    )
 
     #expect(runtimeToolCall.name == "read_file")
     #expect(runtimeToolCall.arguments["path"] == .string("README.md"))
@@ -3203,15 +3195,8 @@ struct MLXChatRuntimeTemplateTests {
   private func generationHistoryAndPrompt(
     from entries: [ModelContextEntry]
   ) throws -> (history: [Chat.Message], prompt: Chat.Message) {
-    let projectedEntries = projectedEntries(from: entries)
-    let lastPromptIndex = try #require(
-      projectedEntries.lastIndex { $0.role == .user || $0.role == .tool }
-    )
-    let history = try MLXHistoryRenderer.generationHistoryMessages(
-      from: projectedEntries[..<lastPromptIndex]
-    )
-    let prompt = MLXHistoryRenderer.chatMessage(from: projectedEntries[lastPromptIndex])
-    return (history, prompt)
+    let input = try generationInput(from: entries)
+    return (input.history, try #require(input.promptMessages.last))
   }
 
   private func writeFileToolCall(
@@ -3273,93 +3258,8 @@ struct MLXChatRuntimeTemplateTests {
       appendedMessageCount: 0,
       mismatchReason: nil,
       firstMismatchIndex: nil,
-      systemPromptChanged: nil,
-      currentPromptContextChanged: nil
+      systemPromptChanged: nil
     )
-  }
-}
-
-private struct EOSStopTestTokenIterator: TokenIteratorProtocol {
-  let tokens: [Int]
-  private var index = 0
-  private(set) var tokenCount = 0
-
-  var maxTokens: Int? {
-    tokens.count
-  }
-
-  var promptPrefillTime: TimeInterval {
-    0
-  }
-
-  init(tokens: [Int]) {
-    self.tokens = tokens
-  }
-
-  func makeIterator() -> EOSStopTestTokenIterator {
-    self
-  }
-
-  mutating func next() -> Int? {
-    guard index < tokens.count else {
-      return nil
-    }
-    defer {
-      index += 1
-      tokenCount += 1
-    }
-    return tokens[index]
-  }
-
-  mutating func discardGeneratedToken() {}
-}
-
-private struct EOSStopTestTokenizer: Tokenizer {
-  func encode(text: String, addSpecialTokens: Bool) -> [Int] {
-    text.utf8.map(Int.init)
-  }
-
-  func decode(tokenIds: [Int], skipSpecialTokens: Bool) -> String {
-    tokenIds.map { tokenID in
-      switch tokenID {
-      case 65:
-        "A"
-      case 66:
-        "B"
-      case 106:
-        "<eot>"
-      default:
-        ""
-      }
-    }.joined()
-  }
-
-  func convertTokenToId(_ token: String) -> Int? {
-    nil
-  }
-
-  func convertIdToToken(_ id: Int) -> String? {
-    nil
-  }
-
-  var bosToken: String? {
-    nil
-  }
-
-  var eosToken: String? {
-    nil
-  }
-
-  var unknownToken: String? {
-    nil
-  }
-
-  func applyChatTemplate(
-    messages: [[String: any Sendable]],
-    tools: [[String: any Sendable]]?,
-    additionalContext: [String: any Sendable]?
-  ) throws -> [Int] {
-    []
   }
 }
 

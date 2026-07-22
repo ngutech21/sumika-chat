@@ -51,7 +51,6 @@ struct TurnTraceEventTests {
       mismatchReason: "history_prefix_mismatch",
       firstMismatchIndex: 1,
       systemPromptChanged: true,
-      currentPromptContextChanged: false,
       toolCallFormat: "native",
       toolValidationStatus: "invalid",
       toolValidationError: "Unknown argument(s): id, status.",
@@ -100,7 +99,6 @@ struct TurnTraceEventTests {
     #expect(object["mismatchReason"] as? String == "history_prefix_mismatch")
     #expect(object["firstMismatchIndex"] as? Int == 1)
     #expect(object["systemPromptChanged"] as? Bool == true)
-    #expect(object["currentPromptContextChanged"] as? Bool == false)
     #expect(object["toolCallFormat"] as? String == "native")
     #expect(object["toolValidationStatus"] as? String == "invalid")
     #expect(object["toolValidationError"] as? String == "Unknown argument(s): id, status.")

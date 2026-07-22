@@ -210,10 +210,6 @@ private struct RuntimeCacheDebugSection: View {
             title: "System prompt",
             value: booleanValue(snapshot.systemPromptChanged)
           )
-          RuntimeCacheDebugRow(
-            title: "Prompt context",
-            value: booleanValue(snapshot.currentPromptContextChanged)
-          )
           RuntimeCacheDebugRow(title: "Signature", value: snapshot.contextSignature)
           if let previousContextSignature = snapshot.previousContextSignature {
             RuntimeCacheDebugRow(title: "Previous", value: previousContextSignature)

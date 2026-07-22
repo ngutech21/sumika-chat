@@ -15,7 +15,6 @@ package struct RuntimeCacheDebugSnapshot: Equatable, Sendable {
   package let mismatchReason: String?
   package let firstMismatchIndex: Int?
   package let systemPromptChanged: Bool?
-  package let currentPromptContextChanged: Bool?
 
   package init(
     generationID: UUID,
@@ -31,8 +30,7 @@ package struct RuntimeCacheDebugSnapshot: Equatable, Sendable {
     appendedMessageCount: Int,
     mismatchReason: String? = nil,
     firstMismatchIndex: Int? = nil,
-    systemPromptChanged: Bool? = nil,
-    currentPromptContextChanged: Bool? = nil
+    systemPromptChanged: Bool? = nil
   ) {
     self.generationID = generationID
     self.recordedAt = recordedAt
@@ -48,6 +46,5 @@ package struct RuntimeCacheDebugSnapshot: Equatable, Sendable {
     self.mismatchReason = mismatchReason
     self.firstMismatchIndex = firstMismatchIndex
     self.systemPromptChanged = systemPromptChanged
-    self.currentPromptContextChanged = currentPromptContextChanged
   }
 }

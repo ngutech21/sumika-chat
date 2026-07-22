@@ -42,12 +42,6 @@ nonisolated struct ActiveMLXGeneration: Sendable {
 nonisolated struct MLXActiveGenerationRegistry: Sendable {
   private(set) var activeGeneration: ActiveMLXGeneration?
 
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  var activeGenerationID: MLXGenerationID? {
-    activeGeneration?.id
-  }
-
   mutating func register(id: MLXGenerationID, task: Task<Void, Never>) {
     activeGeneration = ActiveMLXGeneration(id: id, task: task)
   }

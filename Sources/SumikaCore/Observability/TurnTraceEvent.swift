@@ -41,7 +41,6 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
   package let mismatchReason: String?
   package let firstMismatchIndex: Int?
   package let systemPromptChanged: Bool?
-  package let currentPromptContextChanged: Bool?
   package let toolCallFormat: String?
   package let toolValidationStatus: String?
   package let toolValidationError: String?
@@ -78,7 +77,6 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
     mismatchReason: String? = nil,
     firstMismatchIndex: Int? = nil,
     systemPromptChanged: Bool? = nil,
-    currentPromptContextChanged: Bool? = nil,
     toolCallFormat: String? = nil,
     toolValidationStatus: String? = nil,
     toolValidationError: String? = nil,
@@ -114,7 +112,6 @@ package struct TurnTraceEvent: Codable, Equatable, Sendable {
     self.mismatchReason = mismatchReason
     self.firstMismatchIndex = firstMismatchIndex
     self.systemPromptChanged = systemPromptChanged
-    self.currentPromptContextChanged = currentPromptContextChanged
     self.toolCallFormat = toolCallFormat
     self.toolValidationStatus = toolValidationStatus
     self.toolValidationError = toolValidationError

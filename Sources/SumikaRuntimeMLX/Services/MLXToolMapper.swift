@@ -164,15 +164,6 @@ nonisolated enum MLXToolMapper {
     }
   }
 
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  nonisolated static func chatRuntimeToolCall(from toolCall: MLXLMCommon.ToolCall)
-    -> ChatRuntimeToolCall
-  {
-    var usedIDs = Set<UUID>()
-    return chatRuntimeToolCall(from: toolCall, usedIDs: &usedIDs)
-  }
-
   nonisolated static func chatRuntimeToolCall(
     from toolCall: MLXLMCommon.ToolCall,
     usedIDs: inout Set<UUID>

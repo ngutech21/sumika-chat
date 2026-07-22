@@ -8,37 +8,6 @@ nonisolated struct MLXModelStreamPlan {
 }
 
 nonisolated enum MLXModelStreamProcessor {
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  nonisolated static func modelStream(
-    from stream: AsyncThrowingStream<Generation, Error>,
-    reasoningTraceFormat: ReasoningTraceFormat = .none,
-    traceID: UUID,
-    traceMetadata: TurnTraceMetadata?,
-    cacheTrace: MLXSessionCacheTrace,
-    debugTraceStore: MLXDebugTraceStore,
-    markCompleted: @escaping @Sendable (String) async -> Void,
-    markNativeToolCallBoundary: @escaping @Sendable (String, [ChatRuntimeToolCall]) async -> Void =
-      {
-        _, _ in
-      },
-    markCancelled: @escaping @Sendable (MLXSessionInvalidationReason) async -> Void,
-    memoryCacheClearer: MLXMemoryCacheClearer = .live
-  ) -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
-    modelStreamPlan(
-      from: stream,
-      reasoningTraceFormat: reasoningTraceFormat,
-      traceID: traceID,
-      traceMetadata: traceMetadata,
-      cacheTrace: cacheTrace,
-      debugTraceStore: debugTraceStore,
-      markCompleted: markCompleted,
-      markNativeToolCallBoundary: markNativeToolCallBoundary,
-      markCancelled: markCancelled,
-      memoryCacheClearer: memoryCacheClearer
-    ).stream
-  }
-
   nonisolated static func modelStreamPlan(
     from stream: AsyncThrowingStream<Generation, Error>,
     reasoningTraceFormat: ReasoningTraceFormat = .none,
@@ -193,16 +162,14 @@ nonisolated enum MLXModelStreamProcessor {
         continuation.finish(throwing: CancellationError())
       } catch {
         await markCancelled(.runtimeError)
-        if let memoryClearReason = memoryClearReason(for: .runtimeError) {
-          await clearMemoryCache(
-            reason: memoryClearReason,
-            traceID: traceID,
-            traceMetadata: traceMetadata,
-            cacheTrace: cacheTrace,
-            debugTraceStore: debugTraceStore,
-            memoryCacheClearer: memoryCacheClearer
-          )
-        }
+        await clearMemoryCache(
+          reason: .runtimeError,
+          traceID: traceID,
+          traceMetadata: traceMetadata,
+          cacheTrace: cacheTrace,
+          debugTraceStore: debugTraceStore,
+          memoryCacheClearer: memoryCacheClearer
+        )
         await debugTraceStore.traceResponse(
           id: traceID,
           output: output,
@@ -256,8 +223,7 @@ nonisolated enum MLXModelStreamProcessor {
         appendedMessageCount: cacheTrace.appendedMessageCount,
         mismatchReason: cacheTrace.mismatchReason,
         firstMismatchIndex: cacheTrace.firstMismatchIndex,
-        systemPromptChanged: cacheTrace.systemPromptChanged,
-        currentPromptContextChanged: cacheTrace.currentPromptContextChanged
+        systemPromptChanged: cacheTrace.systemPromptChanged
       )
     )
   }
@@ -290,8 +256,7 @@ nonisolated enum MLXModelStreamProcessor {
         appendedMessageCount: cacheTrace.appendedMessageCount,
         mismatchReason: cacheTrace.mismatchReason,
         firstMismatchIndex: cacheTrace.firstMismatchIndex,
-        systemPromptChanged: cacheTrace.systemPromptChanged,
-        currentPromptContextChanged: cacheTrace.currentPromptContextChanged
+        systemPromptChanged: cacheTrace.systemPromptChanged
       )
     )
   }
@@ -355,16 +320,14 @@ nonisolated enum MLXModelStreamProcessor {
     if didReachTokenLimit {
       let error = MLXChatRuntimeError.generationTokenLimitReached
       await markCancelled(.interrupted)
-      if let memoryClearReason = memoryClearReason(for: .interruptedStream) {
-        await clearMemoryCache(
-          reason: memoryClearReason,
-          traceID: traceID,
-          traceMetadata: traceMetadata,
-          cacheTrace: cacheTrace,
-          debugTraceStore: debugTraceStore,
-          memoryCacheClearer: memoryCacheClearer
-        )
-      }
+      await clearMemoryCache(
+        reason: .interruptedStream,
+        traceID: traceID,
+        traceMetadata: traceMetadata,
+        cacheTrace: cacheTrace,
+        debugTraceStore: debugTraceStore,
+        memoryCacheClearer: memoryCacheClearer
+      )
       await debugTraceStore.traceResponse(
         id: traceID,
         output: output,
@@ -378,16 +341,14 @@ nonisolated enum MLXModelStreamProcessor {
     if !didCompleteNaturally {
       let error = MLXChatRuntimeError.interruptedStream
       await markCancelled(.interrupted)
-      if let memoryClearReason = memoryClearReason(for: .interruptedStream) {
-        await clearMemoryCache(
-          reason: memoryClearReason,
-          traceID: traceID,
-          traceMetadata: traceMetadata,
-          cacheTrace: cacheTrace,
-          debugTraceStore: debugTraceStore,
-          memoryCacheClearer: memoryCacheClearer
-        )
-      }
+      await clearMemoryCache(
+        reason: .interruptedStream,
+        traceID: traceID,
+        traceMetadata: traceMetadata,
+        cacheTrace: cacheTrace,
+        debugTraceStore: debugTraceStore,
+        memoryCacheClearer: memoryCacheClearer
+      )
       await debugTraceStore.traceResponse(
         id: traceID,
         output: output,
@@ -405,19 +366,6 @@ nonisolated enum MLXModelStreamProcessor {
       metrics: completedMetrics
     )
     continuation.finish()
-  }
-
-  nonisolated static func memoryClearReason(
-    for termination: MLXModelStreamTermination
-  ) -> MLXMemoryClearReason? {
-    switch termination {
-    case .runtimeError:
-      .runtimeError
-    case .interruptedStream:
-      .interruptedStream
-    case .completed, .downstreamTerminated, .cancelled, .nativeToolCallBoundary:
-      nil
-    }
   }
 
   nonisolated static func clearMemoryCache(
@@ -448,13 +396,12 @@ nonisolated enum MLXModelStreamProcessor {
       appendedMessageCount: cacheTrace?.appendedMessageCount,
       mismatchReason: cacheTrace?.mismatchReason,
       firstMismatchIndex: cacheTrace?.firstMismatchIndex,
-      systemPromptChanged: cacheTrace?.systemPromptChanged,
-      currentPromptContextChanged: cacheTrace?.currentPromptContextChanged
+      systemPromptChanged: cacheTrace?.systemPromptChanged
     )
     if let traceMetadata {
       await traceMetadata.tracer.recordTurnTraceEvent(event)
     } else {
-      await debugTraceStore.traceTurnEvent(event)
+      await debugTraceStore.recordTurnTraceEvent(event)
     }
   }
 

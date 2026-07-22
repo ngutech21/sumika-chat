@@ -502,7 +502,6 @@ classDiagram
     mismatchReason: String?
     firstMismatchIndex: Int?
     systemPromptChanged: Bool?
-    currentPromptContextChanged: Bool?
   }
 
   class FocusedFileState {

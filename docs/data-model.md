@@ -1335,7 +1335,6 @@ Properties:
 - `cacheMode: String?`
 - `cacheReason: String?`
 - `contextSignature: String?`
-- `currentPromptContextChanged: Bool?`
 - `durationMs: Double`
 - `firstMismatchIndex: Int?`
 - `generationID: UUID?`

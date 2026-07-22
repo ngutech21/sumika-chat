@@ -15,7 +15,6 @@ nonisolated enum MLXSessionInvalidationReason: Equatable, Sendable {
   case downstreamTerminated
   case runtimeError
   case modelChanged
-  case nativeToolCallBoundary
 }
 
 nonisolated enum MLXSessionCacheReason: String, Equatable, Sendable {
@@ -33,7 +32,6 @@ nonisolated enum MLXSessionCacheReason: String, Equatable, Sendable {
   case invalidatedGenRuntimeError = "invalidated_generation_runtime_error"
   case invalidatedModelChanged = "invalidated_model_changed"
   case invalidatedRuntimeContextCleared = "invalidated_runtime_context_cleared"
-  case invalidatedNativeToolCallBoundary = "invalidated_native_tool_call_boundary"
 
   static func generationInvalidationReason(
     from reason: MLXSessionInvalidationReason
@@ -51,8 +49,6 @@ nonisolated enum MLXSessionCacheReason: String, Equatable, Sendable {
       .invalidatedGenRuntimeError
     case .modelChanged:
       .invalidatedModelChanged
-    case .nativeToolCallBoundary:
-      .invalidatedNativeToolCallBoundary
     }
   }
 }
@@ -118,7 +114,6 @@ nonisolated struct MLXSessionCacheTrace: Equatable, Sendable {
   let mismatchReason: String?
   let firstMismatchIndex: Int?
   let systemPromptChanged: Bool?
-  let currentPromptContextChanged: Bool?
 }
 
 nonisolated struct CachedMLXSession {
