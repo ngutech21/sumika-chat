@@ -118,8 +118,13 @@ nonisolated enum MLXModelStreamProcessor {
           }
 
           if let info = generation.info {
-            if case .length = info.stopReason {
+            switch info.stopReason {
+            case .stop:
+              break
+            case .length:
               didReachTokenLimit = true
+            case .cancelled:
+              throw CancellationError()
             }
             if yieldSegments(
               reasoningParser.finish(),

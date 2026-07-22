@@ -2306,6 +2306,50 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func cancelledModelStreamInvalidatesInsteadOfCompleting() async throws {
+    let completionRecorder = MLXStreamCompletionRecorder()
+    let invalidationRecorder = MLXStreamInvalidationRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("partial"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 1,
+            promptTime: 0.1,
+            generationTime: 0.1,
+            stopReason: .cancelled
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = MLXModelStreamProcessor.modelStream(
+      from: source,
+      traceID: UUID(),
+      traceMetadata: nil,
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { output in
+        await completionRecorder.record(output)
+      },
+      markCancelled: { reason in
+        await invalidationRecorder.record(reason)
+      },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    )
+
+    do {
+      try await drainModelStream(stream)
+      Issue.record("Expected cancelled model stream to throw CancellationError.")
+    } catch is CancellationError {
+      #expect(await invalidationRecorder.firstReason == .cancelled)
+      #expect(await completionRecorder.firstOutput == nil)
+    } catch {
+      Issue.record("Expected CancellationError, got \(error).")
+    }
+  }
+
+  @Test
   func thoughtChannelParserSplitsThoughtBlocksAcrossChunks() {
     var parser = GemmaThoughtChannelParser()
 
