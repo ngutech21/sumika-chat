@@ -96,6 +96,8 @@ final class ModelRuntimeController {
     downloadTask?.cancel()
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func currentOperationID() -> UUID {
     modelOperationID
   }
@@ -126,6 +128,8 @@ final class ModelRuntimeController {
     }
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func setModelDirectory(_ url: URL) {
     modelPath = url.path(percentEncoded: false)
     modelState = .notLoaded
@@ -197,6 +201,8 @@ final class ModelRuntimeController {
     return shouldUnloadRuntime
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func isModelDownloaded(_ model: ManagedModel) -> Bool {
     modelAvailabilitySnapshot[model.id] ?? false
   }
@@ -273,6 +279,8 @@ final class ModelRuntimeController {
     }
   }
 
+  // Test-only compatibility overload; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func saveSelectedModelSettings(
     systemPrompt: String,
     generationSettings: ChatGenerationSettings
@@ -323,6 +331,8 @@ final class ModelRuntimeController {
     }
   }
 
+  // Test-only convenience; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func loadSelectedModel() {
     modelPath = selectedModel.localPath
     refreshModelGenerationConfigPreset()

@@ -79,6 +79,8 @@ package struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     payload.mimeType
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var metadata: ChatAttachmentMetadata? {
     switch payload {
     case .text(let payload):
@@ -212,6 +214,8 @@ package struct ChatAttachmentMetadata: Codable, Equatable, Sendable {
     self.contentSHA256 = contentSHA256
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var imageSummary: String {
     let type = mimeType ?? "image"
     return "\(type), \(byteCount) bytes"

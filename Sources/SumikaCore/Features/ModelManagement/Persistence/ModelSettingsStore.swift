@@ -3,9 +3,13 @@ import Foundation
 package struct StoredModelSettings: Codable, Equatable, Sendable {
   package var modeSettings: ChatModeSettingsSet
   package var contextTokenLimit: Int
+  // Test-only compatibility projection; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var systemPrompt: String {
     modeSettings.agent.systemPrompt
   }
+  // Test-only compatibility projection; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var generationSettings: ChatGenerationSettings {
     modeSettings.agent.generationSettings
   }

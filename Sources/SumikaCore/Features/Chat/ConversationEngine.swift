@@ -66,6 +66,8 @@ final class ConversationEngine {
     )
   #endif
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func canSend(prompt: String) -> Bool {
     hasActiveConversation
       && conversationModelState.loadState == .ready
@@ -187,6 +189,8 @@ extension ConversationEngine {
     activeWorkspaceID == workspaceID && activeSessionID == sessionID
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func updateActiveWorkspace(_ workspace: Workspace) {
     guard let sessionID = activeSessionID,
       workspace.sessions.contains(where: { $0.id == sessionID })
@@ -280,12 +284,16 @@ extension ConversationEngine {
     onSessionDidChange = handler
   }
 
+  // Test-only convenience overload; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func setSessionChangeHandler(
     _ handler: @escaping @MainActor @Sendable () -> Void
   ) {
     onSessionDidChange = { _, _ in handler() }
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   var sessionID: ChatSession.ID {
     chatSession.id
   }
@@ -445,6 +453,8 @@ extension ConversationEngine {
     resumeAutomaticApprovalBatch(containing: batchAnchorID)
   }
 
+  // Test-only workspace adapter; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func enableAutomaticToolApproval(in workspace: Workspace) {
     activeConversation?.workspace = workspace
     enableAutomaticToolApproval()
@@ -657,6 +667,7 @@ extension ConversationEngine {
   /// Internal compatibility seam for focused engine tests. Package callers use
   /// `ConversationFeature.activate` followed by `sendMessage(prompt:)`.
   @discardableResult
+  // swiftlint:disable:next unused_declaration
   func sendMessage(
     prompt: String,
     in workspace: Workspace,
@@ -706,6 +717,8 @@ extension ConversationEngine {
     }
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func clearChatHistory() {
     guard hasActiveConversation else {
       return
@@ -985,6 +998,8 @@ extension ConversationEngine {
     )
   }
 
+  // Test-only workspace adapter; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func approveToolCall(id toolCallID: ToolCallRecord.ID, in workspace: Workspace) {
     activeConversation?.workspace = workspace
     approveToolCall(id: toolCallID)
@@ -1023,6 +1038,8 @@ extension ConversationEngine {
     )
   }
 
+  // Test-only workspace adapter; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func approveToolCallBatch(
     containing batchAnchorID: ToolCallRecord.ID,
     in workspace: Workspace
@@ -1147,6 +1164,8 @@ extension ConversationEngine {
     )
   }
 
+  // Test-only workspace adapter; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func answerAskUserToolCall(
     id toolCallID: ToolCallRecord.ID,
     answer: String,

@@ -4,5 +4,5 @@ parent_config: .swiftlint.yml
 # is in an inactive conditional-compilation branch. Regular lint still covers
 # these files; only compiler-log analysis needs to skip them.
 excluded:
-  - Sources/SumikaCore/Services/WebAccess.swift
-  - Sources/SumikaCore/Services/WebContentExtraction.swift
+  - Sources/SumikaCore/Features/WebAccess/WebAccess.swift
+  - Sources/SumikaCore/Features/WebAccess/WebContentExtraction.swift

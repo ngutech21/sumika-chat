@@ -492,6 +492,8 @@ struct ToolExecutorRegistry: Sendable {
     ToolRegistry(tools: orderedExecutors.map(\.definition))
   }
 
+  // Test-only registry projection; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   var definitions: [ToolDefinition] {
     orderedExecutors.map(\.definition)
   }
@@ -705,6 +707,8 @@ struct ToolOrchestrator: Sendable {
     )
   }
 
+  // Test-only raw-request adapter; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func execute(request rawRequest: RawToolCallRequest, workspace: Workspace) async
     -> ToolCallRecord
   {
@@ -750,6 +754,8 @@ struct ToolOrchestrator: Sendable {
     )
   }
 
+  // Test-only raw-request adapter; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   func executeApproved(request rawRequest: RawToolCallRequest, workspace: Workspace) async
     -> ToolCallRecord
   {

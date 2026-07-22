@@ -177,7 +177,11 @@ package struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   package var workspaceID: Workspace.ID { raw.workspaceID }
   package var sessionID: ChatSession.ID { raw.sessionID }
   package var toolName: ToolName { raw.toolName }
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var createdAt: Date { raw.createdAt }
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var rawArguments: ToolCallArguments { raw.arguments }
 
   private init(raw: RawToolCallRequest, payload: ToolCallPayload) {
@@ -588,6 +592,8 @@ nonisolated extension ToolCallModelMessage {
       """
   }
 
+  // Test-only projection; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var modelContextRole: ModelContextRole {
     .assistant
   }
@@ -697,6 +703,8 @@ package struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
     state.approvalPreview
   }
 
+  // Test-only projection; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var resultPreview: ToolResultPreview? {
     state.preview
   }
@@ -1300,14 +1308,20 @@ nonisolated extension ToolResultPayload {
     preview.status
   }
 
+  // Test-only projection; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var text: String {
     preview.text
   }
 
+  // Test-only projection; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var truncated: Bool {
     preview.truncated
   }
 
+  // Test-only projection; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var redacted: Bool {
     preview.redacted
   }
@@ -1551,6 +1565,8 @@ package struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
     try container.encode(workspaceRelativePaths, forKey: .workspaceRelativePaths)
   }
 
+  // Test-only projection; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var modelFacingPaths: [String] {
     let relativePaths = workspaceRelativePaths.map(\.rawValue)
     return relativePaths.isEmpty ? normalizedPaths : relativePaths

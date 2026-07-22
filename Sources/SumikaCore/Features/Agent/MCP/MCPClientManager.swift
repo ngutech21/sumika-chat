@@ -222,8 +222,10 @@ actor MCPClientManager: MCPToolCalling {
     }
   }
 
-  /// Dynamic executors for every tool on every connected server, in stable
-  /// configuration order.
+  // Test-only flattened projection, exercised through @testable import.
+  // Dynamic executors for every tool on every connected server, in stable
+  // configuration order.
+  // swiftlint:disable:next unused_declaration
   func agentToolExecutors() -> [AnyToolExecutor] {
     agentToolExecutorGroups().flatMap(\.executors)
   }

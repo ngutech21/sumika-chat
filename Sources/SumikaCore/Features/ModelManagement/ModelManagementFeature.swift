@@ -1,4 +1,3 @@
-import Foundation
 import Observation
 
 /// The package-visible model-management interface. It owns every sequencing

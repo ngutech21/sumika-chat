@@ -8,6 +8,8 @@ package struct ContextBudget: Codable, Equatable, Sendable {
   package static let focusedFileDefault = ContextBudget(maxCharacters: 4_000)
   package static let workspaceInstructionsDefault = ContextBudget(maxCharacters: 8_000)
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package static func checked(maxCharacters: Int) -> ContextBudget? {
     guard maxCharacters > 0 else {
       return nil
@@ -71,6 +73,8 @@ package enum WorkspaceInstructionsPromptContext: Codable, Equatable, Sendable {
     case removed
   }
 
+  // Test-only; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var path: WorkspaceRelativePath {
     switch self {
     case .snapshot(let snapshot):

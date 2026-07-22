@@ -23,6 +23,8 @@ package struct ToolCallingPolicy: Codable, Equatable, Sendable {
     self.allowsMultipleToolCalls = allowsMultipleToolCalls
   }
 
+  // Test-only policy fixture; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package static let unsupported = ToolCallingPolicy(
     isEnabled: false,
     allowsMultipleToolCalls: false
@@ -84,10 +86,14 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.enabled = enabled
   }
 
+  // Test-only compatibility projection; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var defaultSystemPrompt: String {
     defaultModeSettings.agent.systemPrompt
   }
 
+  // Test-only compatibility projection; exercised through @testable import.
+  // swiftlint:disable:next unused_declaration
   package var defaultGenerationSettings: ChatGenerationSettings {
     defaultModeSettings.agent.generationSettings
   }
