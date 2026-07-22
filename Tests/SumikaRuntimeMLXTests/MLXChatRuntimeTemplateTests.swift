@@ -422,6 +422,40 @@ struct MLXChatRuntimeTemplateTests {
   }
 
   @Test
+  func cacheContextSignatureCanonicalizesToolCallPayload() {
+    let first = [
+      ProviderPromptMessage(
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          ProviderToolCall(
+            id: "call-1",
+            name: "read_file",
+            arguments: ["z": .number(2), "a": .string("x")]
+          )
+        ]
+      )
+    ]
+    let reordered = [
+      ProviderPromptMessage(
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          ProviderToolCall(
+            id: "call-1",
+            name: "read_file",
+            arguments: ["a": .string("x"), "z": .number(2)]
+          )
+        ]
+      )
+    ]
+
+    #expect(
+      MLXSessionCachePolicy.contextSignature(for: first)
+        == MLXSessionCachePolicy.contextSignature(for: reordered))
+  }
+
+  @Test
   func templateMessagesUseFrozenTranscriptContent() throws {
     let callID = UUID()
     let transcript = ModelPromptProjection(

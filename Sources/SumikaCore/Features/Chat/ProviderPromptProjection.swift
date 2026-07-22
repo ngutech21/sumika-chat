@@ -76,9 +76,9 @@ package struct ProviderToolCall: Equatable, Sendable {
     self.arguments = arguments
   }
 
-  /// Canonical representation used only for provider byte accounting. The
-  /// sorted-key encoding prevents dictionary iteration order from changing the
-  /// result.
+  /// Canonical representation used for provider byte accounting and stable
+  /// diagnostic signatures. The sorted-key encoding prevents dictionary
+  /// iteration order from changing the result.
   package var canonicalPayloadJSON: String {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]

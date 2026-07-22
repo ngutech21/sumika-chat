@@ -202,15 +202,7 @@ enum MLXSessionCachePolicy {
       if !message.toolCalls.isEmpty {
         update(0xFD)
         for toolCall in message.toolCalls {
-          for byte in (toolCall.id ?? "nil").utf8 {
-            update(byte)
-          }
-          update(0)
-          for byte in toolCall.name.utf8 {
-            update(byte)
-          }
-          update(0)
-          for byte in toolArgumentSignature(from: .object(toolCall.arguments)).utf8 {
+          for byte in toolCall.canonicalPayloadJSON.utf8 {
             update(byte)
           }
           update(0)
@@ -232,26 +224,6 @@ enum MLXSessionCachePolicy {
     }
 
     return String(format: "%016llx", hash)
-  }
-
-  private static func toolArgumentSignature(from value: ToolArgumentValue) -> String {
-    switch value {
-    case .string(let string):
-      return "string:\(string)"
-    case .number(let number):
-      return "number:\(number)"
-    case .bool(let bool):
-      return "bool:\(bool)"
-    case .array(let array):
-      return "array:[\(array.map(toolArgumentSignature(from:)).joined(separator: ","))]"
-    case .object(let object):
-      let entries = object.keys.sorted().map { key in
-        "\(key):\(toolArgumentSignature(from: object[key] ?? .null))"
-      }
-      return "object:{\(entries.joined(separator: ","))}"
-    case .null:
-      return "null"
-    }
   }
 
   private static func hashSignature(_ body: ((String) -> Void) -> Void) -> String {
