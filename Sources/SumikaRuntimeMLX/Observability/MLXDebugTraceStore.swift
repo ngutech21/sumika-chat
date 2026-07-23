@@ -2,7 +2,7 @@ import Foundation
 import SumikaCore
 
 actor MLXDebugTraceStore: TurnTracing {
-  static var isEnabled: Bool {
+  private static var isEnabled: Bool {
     let value = ProcessInfo.processInfo.environment["SUMIKA_DEBUG_TRACE"] ?? ""
     return ["1", "true", "yes", "on"].contains(value.lowercased())
   }
@@ -14,7 +14,7 @@ actor MLXDebugTraceStore: TurnTracing {
     self.fileURL = Self.defaultFileURL()
   }
 
-  init(fileURL: URL = MLXDebugTraceStore.defaultFileURL()) {
+  init(fileURL: URL) {
     self.fileURL = fileURL
   }
 
