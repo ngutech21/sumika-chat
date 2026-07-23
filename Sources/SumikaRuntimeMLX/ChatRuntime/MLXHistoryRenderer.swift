@@ -40,7 +40,7 @@ enum MLXHistoryRenderer {
     systemPrompt: String,
     history: [Chat.Message]
   ) throws -> [Chat.Message] {
-    let normalizedSystemPrompt = normalizedRuntimeSystemPrompt(systemPrompt)
+    let normalizedSystemPrompt = ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt)
     let messages =
       if let normalizedSystemPrompt {
         [Chat.Message.system(normalizedSystemPrompt)] + history
@@ -48,10 +48,6 @@ enum MLXHistoryRenderer {
         history
       }
     return try validatedTemplateMessages(messages, allowsSystemPrompt: true)
-  }
-
-  static func normalizedRuntimeSystemPrompt(_ systemPrompt: String) -> String? {
-    ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt)
   }
 
   static func generationInput(
@@ -80,7 +76,7 @@ enum MLXHistoryRenderer {
     )
   }
 
-  static func validatedTemplateMessages(
+  private static func validatedTemplateMessages(
     _ messages: [Chat.Message],
     allowsSystemPrompt: Bool = false
   ) throws -> [Chat.Message] {
@@ -112,7 +108,7 @@ enum MLXHistoryRenderer {
   }
 
   /// Maps normalized snapshots back to `Chat.Message`.
-  static func chatMessages(
+  private static func chatMessages(
     from snapshots: [ProviderPromptMessage]
   ) -> [Chat.Message] {
     snapshots.map { snapshot in
@@ -169,7 +165,7 @@ enum MLXHistoryRenderer {
     }
   }
 
-  static func validatedChatMessages(
+  private static func validatedChatMessages(
     from snapshots: [ProviderPromptMessage]
   ) throws -> [Chat.Message] {
     try validatedTemplateMessages(chatMessages(from: snapshots))

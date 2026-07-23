@@ -40,7 +40,7 @@ struct ActiveMLXGeneration: Sendable {
 }
 
 struct MLXActiveGenerationRegistry: Sendable {
-  private(set) var activeGeneration: ActiveMLXGeneration?
+  private var activeGeneration: ActiveMLXGeneration?
 
   mutating func register(id: MLXGenerationID, task: Task<Void, Never>) {
     activeGeneration = ActiveMLXGeneration(id: id, task: task)

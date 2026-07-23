@@ -9,7 +9,7 @@ enum MLXSessionCachePolicy {
     projectionMode: ModelContextProjectionMode
   ) -> MLXSessionCacheIdentity {
     MLXSessionCacheIdentity(
-      systemPrompt: MLXHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt),
+      systemPrompt: ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt),
       projectionMode: projectionMode,
       maxKVSize: settings.maxKVSize,
       reasoningEnabled: settings.reasoningEnabled
@@ -34,7 +34,7 @@ enum MLXSessionCachePolicy {
   ) -> String? {
     switch mode {
     case .newSession, .dirtyRebuild:
-      MLXHistoryRenderer.normalizedRuntimeSystemPrompt(systemPrompt)
+      ModelFacingPromptRenderer.normalizedSystemPrompt(systemPrompt)
     case .reusedSession, .appendDelta:
       nil
     }

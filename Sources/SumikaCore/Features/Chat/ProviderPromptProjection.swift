@@ -217,18 +217,6 @@ package struct ProviderPromptProjection: Equatable, Sendable {
     )
   }
 
-  // Test-only; exercised through package test imports.
-  // swiftlint:disable:next unused_declaration
-  package static func normalized(
-    from entries: ArraySlice<ProjectedModelContextEntry>,
-    dropsTrailingUser: Bool = false
-  ) -> ProviderPromptProjection {
-    ProviderPromptProjector.normalized(
-      from: entries,
-      dropsTrailingUser: dropsTrailingUser
-    )
-  }
-
   package static func generationSegments(
     from transcript: ModelPromptProjection
   ) -> ProviderPromptGenerationSegments? {
@@ -270,25 +258,6 @@ private enum ProviderPromptProjector {
       dropsTrailingUser: false
     )
     return ProviderPromptGenerationSegments(history: history, prompt: prompt)
-  }
-
-  static func normalized(
-    from entries: ArraySlice<ProjectedModelContextEntry>,
-    dropsTrailingUser: Bool
-  ) -> ProviderPromptProjection {
-    var messages: [ProviderPromptMessage] = []
-    for entry in entries where !entry.content.isEmpty {
-      appendNormalized(
-        ProviderPromptMessage(
-          role: entry.role.rawValue,
-          content: entry.content,
-          imageSignatures: entry.imageSignatures
-        ),
-        to: &messages
-      )
-    }
-    dropTrailingUsersIfNeeded(from: &messages, dropsTrailingUser: dropsTrailingUser)
-    return ProviderPromptProjection(messages: messages)
   }
 
   static func normalized(
