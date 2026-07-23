@@ -592,12 +592,6 @@ nonisolated extension ToolCallModelMessage {
       """
   }
 
-  // Test-only projection; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var modelContextRole: ModelContextRole {
-    .assistant
-  }
-
   private var isPayloadOmittedFromHistory: Bool {
     toolName == .writeFile || toolName == .editFile || toolName == .todoWrite
   }
@@ -1563,13 +1557,6 @@ package struct ToolPermissionEvaluation: Codable, Equatable, Sendable {
     try container.encode(riskLevel, forKey: .riskLevel)
     try container.encode(normalizedPaths, forKey: .normalizedPaths)
     try container.encode(workspaceRelativePaths, forKey: .workspaceRelativePaths)
-  }
-
-  // Test-only projection; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var modelFacingPaths: [String] {
-    let relativePaths = workspaceRelativePaths.map(\.rawValue)
-    return relativePaths.isEmpty ? normalizedPaths : relativePaths
   }
 
   package var firstModelFacingPath: WorkspaceRelativePath? {

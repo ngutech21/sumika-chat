@@ -213,13 +213,6 @@ package struct ChatAttachmentMetadata: Codable, Equatable, Sendable {
     self.byteCount = byteCount
     self.contentSHA256 = contentSHA256
   }
-
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var imageSummary: String {
-    let type = mimeType ?? "image"
-    return "\(type), \(byteCount) bytes"
-  }
 }
 
 package enum ChatAttachmentLimits {

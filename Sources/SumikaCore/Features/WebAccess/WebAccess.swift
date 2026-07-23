@@ -250,7 +250,6 @@ enum WebAccessLimits {
 
 enum WebAccessError: LocalizedError, Equatable, Sendable {
   case disabled
-  case invalidQuery
   case invalidURL(String)
   case missingSearXNGBaseURL
   case missingFirecrawlBaseURL
@@ -259,7 +258,6 @@ enum WebAccessError: LocalizedError, Equatable, Sendable {
   case blockedAddress(String)
   case tooManyRedirects
   case nonHTTPResponse
-  case unsupportedContentType(String?)
   case invalidResponseEncoding
   case requestFailed(String)
 
@@ -267,8 +265,6 @@ enum WebAccessError: LocalizedError, Equatable, Sendable {
     switch self {
     case .disabled:
       "Web access is disabled."
-    case .invalidQuery:
-      "Search query is empty."
     case .invalidURL(let value):
       "Invalid URL: \(value)."
     case .missingSearXNGBaseURL:
@@ -285,8 +281,6 @@ enum WebAccessError: LocalizedError, Equatable, Sendable {
       "Too many redirects."
     case .nonHTTPResponse:
       "Response was not an HTTP response."
-    case .unsupportedContentType(let contentType):
-      "Unsupported content type: \(contentType ?? "unknown")."
     case .invalidResponseEncoding:
       "Response could not be decoded as text."
     case .requestFailed(let message):
