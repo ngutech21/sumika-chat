@@ -108,8 +108,7 @@ struct ChatTranscriptMutatorTests {
     let assistantID = UUID()
     let metrics = ChatGenerationMetrics(
       generatedTokenCount: 12,
-      tokensPerSecond: 4.5,
-      durationMs: 2_666.67
+      tokensPerSecond: 4.5
     )
     var state = makeState(items: [
       .assistantMessage(
@@ -137,8 +136,7 @@ struct ChatTranscriptMutatorTests {
   func annotateToolCallCreatesValidToolCallMessageAndKeepsContext() {
     let attachment = makeAttachment(name: "Package.swift")
     let assistantID = UUID()
-    let metrics = ChatGenerationMetrics(
-      generatedTokenCount: 20, tokensPerSecond: 8, durationMs: 250)
+    let metrics = ChatGenerationMetrics(generatedTokenCount: 20, tokensPerSecond: 8)
     let toolCall = ToolCallModelMessage(
       callID: UUID(),
       toolName: .readFile,

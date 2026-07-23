@@ -115,7 +115,6 @@
                     "content" : "Hi there!",
                     "deliveryStatus" : "complete",
                     "generationMetrics" : {
-                      "durationMs" : 117.6,
                       "generatedTokenCount" : 5,
                       "tokensPerSecond" : 42.5
                     },

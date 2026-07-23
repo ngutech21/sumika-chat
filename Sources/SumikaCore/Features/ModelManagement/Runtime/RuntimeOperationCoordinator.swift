@@ -67,13 +67,6 @@ actor RuntimeOperationCoordinator {
     return snapshot
   }
 
-  func generatedTokenCount(for text: String, operationID: UUID) async throws -> Int {
-    try checkCurrent(operationID)
-    let count = try await runtime.generatedTokenCount(for: text)
-    try checkCurrent(operationID)
-    return count
-  }
-
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],

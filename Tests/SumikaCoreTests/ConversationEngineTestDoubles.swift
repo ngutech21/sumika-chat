@@ -424,8 +424,7 @@ actor ControlledStreamingRuntime: ChatModelRuntime {
           .completed(
             ChatGenerationMetrics(
               generatedTokenCount: events.count,
-              tokensPerSecond: 100,
-              durationMs: Double(events.count) * 10
+              tokensPerSecond: 100
             )
           )
         )
@@ -681,8 +680,7 @@ actor ChatSessionFakeChatModelRuntime: ChatModelRuntime {
           .completed(
             ChatGenerationMetrics(
               generatedTokenCount: events.count,
-              tokensPerSecond: 100,
-              durationMs: Double(events.count) * 10
+              tokensPerSecond: 100
             )
           )
         )

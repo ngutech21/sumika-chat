@@ -107,16 +107,6 @@ final actor MLXChatRuntime: ChatModelRuntime {
     )
   }
 
-  func generatedTokenCount(for text: String) async throws -> Int {
-    guard let modelContainer else {
-      throw MLXChatRuntimeError.modelNotLoaded
-    }
-
-    return await modelContainer.perform { context in
-      context.tokenizer.encode(text: text, addSpecialTokens: false).count
-    }
-  }
-
   func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
     lastRuntimeCacheDebugSnapshot
   }

@@ -132,7 +132,6 @@ struct ChatGenerationCoordinator {
       ChatDiagnostics.endInterval(streamReplyInterval)
     }
 
-    let generationStartedAt = Date()
     let stream = try await requestRuntimeStream(
       transcript: transcript,
       attachments: attachments,
@@ -275,15 +274,9 @@ struct ChatGenerationCoordinator {
         case .completed(let metrics):
           flushBufferedThinkingChunks()
           flushBufferedChunks()
-          let completedMetrics = try await generationMetrics(
-            from: metrics,
-            generatedContent: generatedContent,
-            startedAt: generationStartedAt,
-            operationID: operationID
-          )
           try await runtimeOperations.checkCurrentOperation(operationID)
           ChatDiagnostics.measure("Generation metrics update", category: .generation) {
-            updateGenerationMetrics(completedMetrics)
+            updateGenerationMetrics(metrics)
           }
           didComplete = true
         }
@@ -345,53 +338,4 @@ struct ChatGenerationCoordinator {
     await updateRuntimeCacheDebugSnapshot(snapshot)
   }
 
-  private func generationMetrics(
-    from metrics: ChatGenerationMetrics?,
-    generatedContent: String,
-    startedAt: Date,
-    operationID: UUID
-  ) async throws -> ChatGenerationMetrics? {
-    let durationMs = Date().timeIntervalSince(startedAt) * 1000
-    if let metrics {
-      return ChatGenerationMetrics(
-        generatedTokenCount: metrics.generatedTokenCount,
-        tokensPerSecond: metrics.tokensPerSecond,
-        durationMs: durationMs
-      )
-    }
-
-    return try await partialGenerationMetrics(
-      generatedContent: generatedContent,
-      durationMs: durationMs,
-      operationID: operationID
-    )
-  }
-
-  private func partialGenerationMetrics(
-    generatedContent: String,
-    durationMs: Double,
-    operationID: UUID
-  ) async throws -> ChatGenerationMetrics? {
-    guard !generatedContent.isEmpty else {
-      return nil
-    }
-
-    let tokenCountInterval = ChatDiagnostics.beginInterval(
-      "Generation partial token count",
-      category: .generation
-    )
-    defer {
-      ChatDiagnostics.endInterval(tokenCountInterval)
-    }
-    let generatedTokenCount = try await runtimeOperations.generatedTokenCount(
-      for: generatedContent,
-      operationID: operationID
-    )
-    let durationSeconds = max(durationMs / 1000, 0.001)
-    return ChatGenerationMetrics(
-      generatedTokenCount: generatedTokenCount,
-      tokensPerSecond: Double(generatedTokenCount) / durationSeconds,
-      durationMs: durationMs
-    )
-  }
 }

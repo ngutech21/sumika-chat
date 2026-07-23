@@ -482,8 +482,7 @@ struct ChatTranscriptRendererTests {
   func generationMetricsSummaryShowsTokenRate() {
     let metrics = ChatGenerationMetrics(
       generatedTokenCount: 493,
-      tokensPerSecond: 12.973,
-      durationMs: 38_000
+      tokensPerSecond: 12.973
     )
 
     #expect(metrics.visibleSummary.hasSuffix(" tok/s"))
@@ -497,8 +496,7 @@ struct ChatTranscriptRendererTests {
     let toolID = UUID()
     let metrics = ChatGenerationMetrics(
       generatedTokenCount: 12,
-      tokensPerSecond: 3,
-      durationMs: 4000
+      tokensPerSecond: 3
     )
     let parser = AssistantBlockParserSpy()
     let renderer = ChatTranscriptRenderer(assistantBlocks: parser.blocks)

@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct ChatGenerationCoordinatorTests {
   @Test
-  func regularAssistantStreamingAddsDurationToCompletedMetrics() async throws {
+  func regularAssistantStreamingPreservesRuntimeMetrics() async throws {
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
     let coordinator = ChatGenerationCoordinator(
       runtime: runtime,
@@ -28,7 +28,31 @@ struct ChatGenerationCoordinatorTests {
     #expect(result.assistantContent == "hello world")
     #expect(updatedMetrics?.generatedTokenCount == 2)
     #expect(updatedMetrics?.tokensPerSecond == 100)
-    #expect(try #require(updatedMetrics).durationMs > 0)
+  }
+
+  @Test
+  func completedStreamWithoutRuntimeMetricsDoesNotEstimateTokenRate() async throws {
+    let coordinator = ChatGenerationCoordinator(
+      runtime: MetricsOmittingRuntime(),
+      streamingFlushInterval: 0,
+      streamingFlushCharacterLimit: 1
+    )
+    var didUpdateMetrics = false
+    var updatedMetrics: ChatGenerationMetrics?
+
+    let result = try await coordinator.streamAssistantReplyResult(
+      transcript: ModelPromptProjection(),
+      promptPlan: ChatRuntimePromptPlan(stableInstructions: "Answer normally."),
+      settings: .agentDefault,
+      appendChunk: { _ in },
+      updateGenerationMetrics: { metrics in
+        didUpdateMetrics = true
+        updatedMetrics = metrics
+      })
+
+    #expect(result.assistantContent == "hello")
+    #expect(didUpdateMetrics)
+    #expect(updatedMetrics == nil)
   }
 
   @Test
@@ -287,22 +311,6 @@ struct ChatGenerationCoordinatorTests {
     #expect(chunks.isEmpty)
   }
 
-  @Test
-  func staleGeneratedTokenCountDoesNotCallRuntime() async throws {
-    let operationID = UUID()
-    let runtime = OperationLaneControlledRuntime()
-    let runtimeOperations = RuntimeOperationCoordinator(
-      runtime: runtime,
-      initialOperationID: UUID()
-    )
-
-    await #expect(throws: CancellationError.self) {
-      _ = try await runtimeOperations.generatedTokenCount(for: "stale", operationID: operationID)
-    }
-
-    #expect(await runtime.generatedTokenCountRequestCount == 0)
-  }
-
   private func waitUntilAsync(
     timeout: Duration = .seconds(2),
     _ condition: @escaping () async -> Bool
@@ -313,6 +321,33 @@ struct ChatGenerationCoordinatorTests {
         throw TestWaitTimeoutError()
       }
       try await Task.sleep(for: .milliseconds(10))
+    }
+  }
+}
+
+private actor MetricsOmittingRuntime: ChatModelRuntime {
+  func load(configuration: ChatModelConfiguration) async throws {
+    _ = configuration
+  }
+
+  func unload() async {}
+  func clearContext() async {}
+
+  func streamReply(
+    for transcript: ModelPromptProjection,
+    attachments: [ChatAttachment],
+    promptPlan: ChatRuntimePromptPlan,
+    settings: ChatGenerationSettings
+  ) async throws -> AsyncThrowingStream<ChatModelStreamEvent, Error> {
+    _ = transcript
+    _ = attachments
+    _ = promptPlan
+    _ = settings
+
+    return AsyncThrowingStream { continuation in
+      continuation.yield(.chunk("hello"))
+      continuation.yield(.completed(nil))
+      continuation.finish()
     }
   }
 }
@@ -349,7 +384,7 @@ private actor RuntimeCacheSnapshotRuntime: ChatModelRuntime {
       continuation.yield(.chunk("hello"))
       continuation.yield(
         .completed(
-          ChatGenerationMetrics(generatedTokenCount: 1, tokensPerSecond: 100, durationMs: 10)
+          ChatGenerationMetrics(generatedTokenCount: 1, tokensPerSecond: 100)
         )
       )
       continuation.finish()
@@ -361,7 +396,6 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
   private var streamContinuation: CheckedContinuation<Void, Never>?
   private var didReleaseStream = false
   private(set) var yieldedChunkCount = 0
-  private(set) var generatedTokenCountRequestCount = 0
 
   func load(configuration: ChatModelConfiguration) async throws {
     _ = configuration
@@ -369,12 +403,6 @@ private actor OperationLaneControlledRuntime: ChatModelRuntime {
 
   func unload() async {}
   func clearContext() async {}
-
-  func generatedTokenCount(for text: String) async throws -> Int {
-    _ = text
-    generatedTokenCountRequestCount += 1
-    return 1
-  }
 
   func streamReply(
     for transcript: ModelPromptProjection,

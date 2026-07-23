@@ -157,8 +157,7 @@ struct ChatWorkflowEventApplierTests {
     let assistantMessageID = UUID()
     let metrics = ChatGenerationMetrics(
       generatedTokenCount: 2,
-      tokensPerSecond: 20,
-      durationMs: 100
+      tokensPerSecond: 20
     )
     var state = makeState()
 

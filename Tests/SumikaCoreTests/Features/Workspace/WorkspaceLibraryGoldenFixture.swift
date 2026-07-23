@@ -83,8 +83,7 @@ enum WorkspaceLibraryGoldenFixture {
                 content: "Hi there!",
                 generationMetrics: ChatGenerationMetrics(
                   generatedTokenCount: 5,
-                  tokensPerSecond: 42.5,
-                  durationMs: 117.6
+                  tokensPerSecond: 42.5
                 ),
                 deliveryStatus: .complete,
                 modelProjectionPolicy: .override("Hi!")

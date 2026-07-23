@@ -1320,8 +1320,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   func toolGenerationRateAppearsOnlyInExpandedDetails() throws {
     let metrics = ChatGenerationMetrics(
       generatedTokenCount: 493,
-      tokensPerSecond: 12.973,
-      durationMs: 38_000
+      tokensPerSecond: 12.973
     )
     let row = nativeToolRow(
       id: "tool",

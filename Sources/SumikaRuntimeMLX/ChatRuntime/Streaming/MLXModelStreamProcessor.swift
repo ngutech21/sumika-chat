@@ -103,19 +103,16 @@ enum MLXModelStreamProcessor {
               didTerminateDownstream = true
               break generationLoop
             }
-            let decodeStartedAt = firstChunkAt ?? iterationStartedAt
-            let durationMs = Date().timeIntervalSince(decodeStartedAt) * 1000
             let metrics = ChatGenerationMetrics(
               generatedTokenCount: info.generationTokenCount,
-              tokensPerSecond: info.tokensPerSecond,
-              durationMs: durationMs
+              tokensPerSecond: info.tokensPerSecond
             )
             completedMetrics = metrics
             await recordRuntimeDecode(
               traceID: traceID,
               traceMetadata: traceMetadata,
               cacheTrace: cacheTrace,
-              decodeStartedAt: decodeStartedAt,
+              durationMs: info.generateTime * 1000,
               tokensPerSecond: info.tokensPerSecond
             )
             didCompleteNaturally = true
@@ -232,7 +229,7 @@ enum MLXModelStreamProcessor {
     traceID: UUID,
     traceMetadata: TurnTraceMetadata?,
     cacheTrace: MLXSessionCacheTrace,
-    decodeStartedAt: Date,
+    durationMs: Double,
     tokensPerSecond: Double
   ) async {
     guard let traceMetadata else {
@@ -243,7 +240,7 @@ enum MLXModelStreamProcessor {
         turnID: traceMetadata.turnID,
         generationID: traceID,
         phase: .runtimeDecode,
-        durationMs: Date().timeIntervalSince(decodeStartedAt) * 1000,
+        durationMs: durationMs,
         toolLoopIteration: traceMetadata.toolLoopIteration,
         tokensPerSecond: tokensPerSecond,
         cacheMode: cacheTrace.cacheMode.rawValue,

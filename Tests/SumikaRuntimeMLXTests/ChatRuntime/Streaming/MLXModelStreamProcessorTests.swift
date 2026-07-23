@@ -109,6 +109,45 @@ struct MLXModelStreamProcessorTests {
   }
 
   @Test
+  func completedModelStreamUsesUpstreamGenerateTimeForDecodeTrace() async throws {
+    let traceID = UUID()
+    let tracer = MLXStreamTurnTraceRecorder()
+    let source = AsyncThrowingStream<Generation, Error> { continuation in
+      continuation.yield(.chunk("done"))
+      continuation.yield(
+        .info(
+          GenerateCompletionInfo(
+            promptTokenCount: 8,
+            generationTokenCount: 5,
+            promptTime: 0.1,
+            generationTime: 0.25
+          )
+        ))
+      continuation.finish()
+    }
+    let stream = modelStream(
+      from: source,
+      traceID: traceID,
+      traceMetadata: TurnTraceMetadata(
+        turnID: nil,
+        generationID: traceID,
+        tracer: tracer
+      ),
+      cacheTrace: defaultCacheTrace(),
+      debugTraceStore: temporaryDebugTraceStore(),
+      markCompleted: { _ in },
+      markCancelled: { _ in },
+      memoryCacheClearer: MLXMemoryCacheClearer { _ in }
+    )
+
+    try await drainModelStream(stream)
+
+    let event = try #require(await tracer.firstEvent(for: .runtimeDecode))
+    #expect(event.durationMs == 250)
+    #expect(event.tokensPerSecond == 20)
+  }
+
+  @Test
   func tokenLimitedModelStreamFailsInsteadOfCompletingTruncatedOutput() async throws {
     let memoryClearRecorder = MLXMemoryClearRecorder()
     let invalidationRecorder = MLXStreamInvalidationRecorder()
@@ -748,6 +787,18 @@ struct MLXModelStreamProcessorTests {
 
     func record(_ reason: MLXMemoryClearReason) {
       recordedReasons.append(reason)
+    }
+  }
+
+  private actor MLXStreamTurnTraceRecorder: TurnTracing {
+    private var events: [TurnTraceEvent] = []
+
+    func recordTurnTraceEvent(_ event: TurnTraceEvent) {
+      events.append(event)
+    }
+
+    func firstEvent(for phase: TurnTracePhase) -> TurnTraceEvent? {
+      events.first { $0.phase == phase }
     }
   }
 

@@ -883,7 +883,6 @@ struct ConversationEngineTests {
     let generationMetrics = try #require(engine.chatSession.testMessages[1].generationMetrics)
     #expect(generationMetrics.generatedTokenCount == 2)
     #expect(generationMetrics.tokensPerSecond == 100)
-    #expect(generationMetrics.durationMs > 0)
     let capturedMessages = await runtime.capturedMessages
     #expect(await runtime.capturedAttachments == [[attachment]])
     #expect(

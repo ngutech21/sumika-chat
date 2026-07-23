@@ -5,7 +5,6 @@ package protocol ChatModelRuntime: Sendable {
   func unload() async
   func clearContext() async
   func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot?
-  func generatedTokenCount(for text: String) async throws -> Int
   func streamReply(
     for transcript: ModelPromptProjection,
     attachments: [ChatAttachment],
@@ -75,9 +74,5 @@ package struct ChatRuntimeToolCall: Equatable, Sendable {
 extension ChatModelRuntime {
   package func runtimeCacheDebugSnapshot() async -> RuntimeCacheDebugSnapshot? {
     nil
-  }
-
-  package func generatedTokenCount(for text: String) async throws -> Int {
-    text.split(whereSeparator: \.isWhitespace).count
   }
 }
