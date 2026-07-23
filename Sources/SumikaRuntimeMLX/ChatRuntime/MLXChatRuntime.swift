@@ -1,11 +1,9 @@
 import Foundation
 import MLX
-import MLXHuggingFace
 import MLXLLM
 import MLXLMCommon
 import MLXVLM
 import SumikaCore
-import Tokenizers
 
 final actor MLXChatRuntime: ChatModelRuntime {
   /// Leaves image sizing to each model processor instead of pre-resizing to 512 px.
@@ -50,7 +48,7 @@ final actor MLXChatRuntime: ChatModelRuntime {
     await cancelAndDrainActiveGeneration(reason: .modelChanged)
     configureMLXMemory()
 
-    let tokenizerLoader = #huggingFaceTokenizerLoader()
+    let tokenizerLoader = makeHuggingFaceTokenizerLoader()
 
     let container =
       if configuration.supportsImageInput {

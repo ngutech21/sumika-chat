@@ -1,8 +1,10 @@
 parent_config: .swiftlint.yml
 
-# SourceKit attempts to load FoundationNetworking on macOS even when its import
-# is in an inactive conditional-compilation branch. Regular lint still covers
-# these files; only compiler-log analysis needs to skip them.
 excluded:
+  # SourceKit attempts to load FoundationNetworking on macOS even when its import
+  # is in an inactive conditional-compilation branch.
   - Sources/SumikaCore/Features/WebAccess/WebAccess.swift
   - Sources/SumikaCore/Features/WebAccess/WebContentExtraction.swift
+  # SourceKit cannot load MLXHuggingFaceMacros while replaying the compiler log.
+  # Keep only the macro expansion out of analysis so its runtime callers remain visible.
+  - Sources/SumikaRuntimeMLX/ChatRuntime/MLXTokenizerLoader.swift

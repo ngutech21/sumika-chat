@@ -217,6 +217,8 @@ package struct ProviderPromptProjection: Equatable, Sendable {
     )
   }
 
+  // Test-only; exercised through package test imports.
+  // swiftlint:disable:next unused_declaration
   package static func normalized(
     from entries: ArraySlice<ProjectedModelContextEntry>,
     dropsTrailingUser: Bool = false
