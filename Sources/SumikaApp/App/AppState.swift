@@ -15,12 +15,11 @@ final class AppState {
   private(set) var route: AppRoute?
   @ObservationIgnored private let sumika: Sumika
   @ObservationIgnored let browserToolService: HTMLPreviewBrowserToolService
-  @ObservationIgnored private let modelSettingsStore: any ModelSettingsStoring
   @ObservationIgnored private var defaultSessionModelID = ManagedModelCatalog.defaultModel.id
   @ObservationIgnored private var defaultSessionModeSettings =
     ManagedModelCatalog.defaultModel.defaultModeSettings
   @ObservationIgnored private var didAttemptAutoloadLastModel = false
-  @ObservationIgnored private var routeWasAutomaticMissingModelRedirect = false
+  @ObservationIgnored private var startupTask: Task<Void, Never>?
 
   convenience init(
     workspaceStore: any WorkspaceStoring = WorkspaceStore(),
@@ -48,7 +47,6 @@ final class AppState {
     )
     self.init(
       workspaceStore: workspaceStore,
-      modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: mcpServersStore,
@@ -66,7 +64,6 @@ final class AppState {
 
   init(
     workspaceStore: any WorkspaceStoring = WorkspaceStore(),
-    modelSettingsStore: any ModelSettingsStoring = ModelSettingsStore(),
     webAccessSettingsStore: any WebAccessSettingsStoring = WebAccessSettingsStore(),
     appBehaviorSettingsStore: any AppBehaviorSettingsStoring = AppBehaviorSettingsStore(),
     mcpServersStore: any MCPServersStoring = MCPServersStore(),
@@ -78,10 +75,13 @@ final class AppState {
     sumika: Sumika,
     turnTracer: any TurnTracing
   ) {
-    self.modelSettingsStore = modelSettingsStore
+    let initialModelID = sumika.models.state.selectedModel.id
+    let initialModeSettings = sumika.models.modeSettings
     self.browserToolService = browserToolService
     self.sumika = sumika
     self.modelManagementState = ModelManagementFeatureState(models: sumika.models)
+    self.defaultSessionModelID = initialModelID
+    self.defaultSessionModeSettings = initialModeSettings
     self.assistantSpeechService = assistantSpeechService
     self.audioModelController = audioModelController
     self.composerSpeechInputController =
@@ -128,7 +128,9 @@ final class AppState {
       settings.speechInputAudioModelID = modelID.rawValue
       self.updateAppBehaviorSettings(settings)
     }
-    loadStoredLibrary()
+    startupTask = Task { @MainActor [weak self] in
+      await self?.loadStoredLibrary()
+    }
   }
 
   @discardableResult
@@ -191,7 +193,6 @@ final class AppState {
 
   func selectModels() {
     route = .models
-    routeWasAutomaticMissingModelRedirect = false
     reconcileMCPConnectionsIfNeeded()
   }
 
@@ -400,11 +401,8 @@ final class AppState {
     return "\(serverName) connected successfully and advertised \(tools)."
   }
 
-  func startModelRuntimeServices() {
-    modelManagementState.startRuntimeServices()
-    audioModelController.refreshAvailability()
-    routeToModelsIfNoTextModelIsDownloaded()
-    attemptAutoloadLastModelIfReady()
+  func waitForStartup() async {
+    await startupTask?.value
   }
 
   @discardableResult
@@ -504,32 +502,24 @@ final class AppState {
     )
   }
 
-  private func loadStoredLibrary() {
-    Task { [modelSettingsStore] in
-      let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
-      let selectedModelID = await modelSettingsStore.selectedModelID(
-        availableModelIDs: availableModelIDs)
-      let selectedModel =
-        ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
-      let settings = await modelSettingsStore.settings(for: selectedModel)
-      await settingsState.load()
+  private func loadStoredLibrary() async {
+    await modelManagementState.initialize()
+    audioModelController.refreshAvailability()
+    await settingsState.load()
 
-      applyAppBehaviorSettings(settingsState.appBehaviorSettings)
-      await sumika.agent.loadServerConfiguration(settingsState.mcpServers)
-      defaultSessionModelID = selectedModel.id
-      defaultSessionModeSettings = settings.modeSettings
-      let defaultSessionFactory = self.makeDefaultSessionFactory()
-      await self.workspaceState.loadLibrary(defaultSessionFactory: defaultSessionFactory)
-      self.workspaceState.retainSelectedMCPServerIDs(
-        Set(self.settingsState.mcpServers.map(\.id))
-      )
-      if self.route != .models || self.routeWasAutomaticMissingModelRedirect {
-        self.route = self.routeFromWorkspaceSelection()
-        self.routeWasAutomaticMissingModelRedirect = false
-      }
-      self.reconcileMCPConnectionsIfNeeded()
-      self.attemptAutoloadLastModelIfReady()
+    applyAppBehaviorSettings(settingsState.appBehaviorSettings)
+    await sumika.agent.loadServerConfiguration(settingsState.mcpServers)
+    let defaultSessionFactory = makeDefaultSessionFactory()
+    await workspaceState.loadLibrary(defaultSessionFactory: defaultSessionFactory)
+    workspaceState.retainSelectedMCPServerIDs(
+      Set(settingsState.mcpServers.map(\.id))
+    )
+    if route != .models {
+      route = routeFromWorkspaceSelection()
     }
+    routeToModelsIfNoTextModelIsDownloaded()
+    reconcileMCPConnectionsIfNeeded()
+    attemptAutoloadLastModelIfReady()
   }
 
   private func routeFromWorkspaceSelection() -> AppRoute? {
@@ -553,11 +543,11 @@ final class AppState {
   }
 
   private func routeToModelsIfNoTextModelIsDownloaded() {
-    if modelManagementState.downloadedModels.isEmpty {
-      route = .models
-      routeWasAutomaticMissingModelRedirect = true
-      reconcileMCPConnectionsIfNeeded()
+    guard modelManagementState.downloadedModels.isEmpty, route == nil else {
+      return
     }
+    route = .models
+    reconcileMCPConnectionsIfNeeded()
   }
 
   private func attemptAutoloadLastModelIfReady() {

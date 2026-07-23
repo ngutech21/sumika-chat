@@ -108,23 +108,21 @@ final class ModelRuntimeController {
     }
   #endif
 
-  func prepareDefaultModelDirectory() {
+  func prepareDefaultModelDirectory() async {
     let lifecycleCoordinator = modelLifecycleCoordinator
-    Task {
-      do {
-        let baseURL = try await Task.detached {
-          try lifecycleCoordinator.ensureDefaultModelDirectoryExists()
-        }.value
-        if modelPath.isEmpty {
-          modelPath = selectedModel.localPath
-        } else if !modelPath.hasPrefix(baseURL.path(percentEncoded: false)) {
-          modelPath = selectedModel.localPath
-        }
-        refreshModelGenerationConfigPreset()
-        refreshModelAvailability()
-      } catch {
-        onError?(error.localizedDescription)
+    do {
+      let baseURL = try await Task.detached {
+        try lifecycleCoordinator.ensureDefaultModelDirectoryExists()
+      }.value
+      if modelPath.isEmpty {
+        modelPath = selectedModel.localPath
+      } else if !modelPath.hasPrefix(baseURL.path(percentEncoded: false)) {
+        modelPath = selectedModel.localPath
       }
+      refreshModelGenerationConfigPreset()
+      refreshModelAvailability()
+    } catch {
+      onError?(error.localizedDescription)
     }
   }
 
@@ -304,30 +302,6 @@ final class ModelRuntimeController {
         return
       }
       modelGenerationConfigPreset = preset
-    }
-  }
-
-  func loadPersistedModelSelection(notifyModelDidChange: Bool = false) {
-    Task { [modelSettingsStore] in
-      let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
-      let selectedModelID = await modelSettingsStore.selectedModelID(
-        availableModelIDs: availableModelIDs)
-      let selectedModel =
-        ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
-      let settings = await modelSettingsStore.settings(for: selectedModel)
-
-      guard canChangeModel else {
-        return
-      }
-
-      self.selectedModelID = selectedModel.id
-      modelPath = selectedModel.localPath
-      modelContextTokenLimit = settings.contextTokenLimit
-      selectedModeSettings = settings.modeSettings
-      refreshModelGenerationConfigPreset()
-      if notifyModelDidChange {
-        onModelDidChange?(settings)
-      }
     }
   }
 

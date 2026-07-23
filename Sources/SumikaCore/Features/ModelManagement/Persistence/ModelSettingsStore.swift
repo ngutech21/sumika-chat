@@ -85,6 +85,33 @@ private enum ModelSettingsFileCodingKeys: String, CodingKey {
   case modelSettings
 }
 
+package struct RestoredModelConfiguration: Equatable, Sendable {
+  package let model: ManagedModel
+  package let settings: StoredModelSettings
+
+  package init(model: ManagedModel, settings: StoredModelSettings) {
+    self.model = model
+    self.settings = settings
+  }
+}
+
+package enum ModelSettingsRestoreError: LocalizedError, Equatable, Sendable {
+  case invalidSelectedModel(String)
+  case unreadableSettings(String)
+  case invalidSettings(String)
+
+  package var errorDescription: String? {
+    switch self {
+    case .invalidSelectedModel(let modelID):
+      "The saved model “\(modelID)” is no longer available."
+    case .unreadableSettings(let message):
+      "Saved model settings could not be read: \(message)"
+    case .invalidSettings(let message):
+      "Saved model settings are invalid: \(message)"
+    }
+  }
+}
+
 package protocol ModelSettingsStoring: Sendable {
   func selectedModelID(availableModelIDs: Set<String>) async -> String
   func setSelectedModelID(_ modelID: String) async
@@ -153,16 +180,37 @@ package actor ModelSettingsStore: ModelSettingsStoring {
 
   package func settings(for model: ManagedModel) async -> StoredModelSettings {
     guard let stored = readSettingsFile().modelSettings[model.id] else {
-      return StoredModelSettings(
-        modeSettings: Self.applyingGenerationConfigPreset(
-          generationConfigPresetProvider(model),
-          to: model.defaultModeSettings
-        ),
-        contextTokenLimit: model.defaultContextTokenLimit
-      )
+      return defaultSettings(for: model)
     }
 
     return stored
+  }
+
+  package func restoreConfiguration(
+    availableModels: [ManagedModel]
+  ) async throws -> RestoredModelConfiguration? {
+    let storedSelection = userDefaultsBox.userDefaults.object(forKey: selectedModelKey)
+    let storedModelID: String?
+    if let storedSelection {
+      guard let modelID = storedSelection as? String, !modelID.isEmpty else {
+        throw ModelSettingsRestoreError.invalidSelectedModel(String(describing: storedSelection))
+      }
+      storedModelID = modelID
+    } else {
+      storedModelID = nil
+    }
+
+    let settingsFile = try readSettingsFileIfPresent()
+    guard storedModelID != nil || settingsFile != nil else {
+      return nil
+    }
+
+    let modelID = storedModelID ?? ManagedModelCatalog.defaultModelID
+    guard let model = availableModels.first(where: { $0.id == modelID }) else {
+      throw ModelSettingsRestoreError.invalidSelectedModel(modelID)
+    }
+    let settings = settingsFile?.modelSettings[model.id] ?? defaultSettings(for: model)
+    return RestoredModelConfiguration(model: model, settings: settings)
   }
 
   /// Layers the model's own `generation_config.json` sampling preset onto the built-in
@@ -200,14 +248,40 @@ package actor ModelSettingsStore: ModelSettingsStoring {
     try data.write(to: settingsURL, options: .atomic)
   }
 
+  private func defaultSettings(for model: ManagedModel) -> StoredModelSettings {
+    StoredModelSettings(
+      modeSettings: Self.applyingGenerationConfigPreset(
+        generationConfigPresetProvider(model),
+        to: model.defaultModeSettings
+      ),
+      contextTokenLimit: model.defaultContextTokenLimit
+    )
+  }
+
   private func readSettingsFile() -> SettingsFile {
-    guard
-      let data = try? Data(contentsOf: settingsURL),
-      let decoded = try? JSONDecoder().decode(SettingsFile.self, from: data)
-    else {
+    do {
+      return try readSettingsFileIfPresent() ?? SettingsFile(modelSettings: [:])
+    } catch {
       return SettingsFile(modelSettings: [:])
     }
+  }
 
-    return decoded
+  private func readSettingsFileIfPresent() throws -> SettingsFile? {
+    guard FileManager.default.fileExists(atPath: settingsURL.path(percentEncoded: false)) else {
+      return nil
+    }
+
+    let data: Data
+    do {
+      data = try Data(contentsOf: settingsURL)
+    } catch {
+      throw ModelSettingsRestoreError.unreadableSettings(error.localizedDescription)
+    }
+
+    do {
+      return try JSONDecoder().decode(SettingsFile.self, from: data)
+    } catch {
+      throw ModelSettingsRestoreError.invalidSettings(error.localizedDescription)
+    }
   }
 }

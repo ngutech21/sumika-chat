@@ -33,8 +33,8 @@ package final class ModelManagementFeature {
     state.modelState == .ready && !conversationEngine.activity.isBusy
   }
 
-  package func startRuntimeServices() {
-    modelController.prepareDefaultModelDirectory()
+  package func initialize() async {
+    await modelController.prepareDefaultModelDirectory()
   }
 
   package func selectModel(_ model: ManagedModel) {
@@ -95,10 +95,6 @@ package final class ModelManagementFeature {
 
   package func isSelectedModelDownloaded() -> Bool {
     modelController.isSelectedModelDownloaded()
-  }
-
-  package func loadPersistedModelSelection() {
-    modelController.loadPersistedModelSelection()
   }
 
   func handleModelRuntimeError(_ message: String) {

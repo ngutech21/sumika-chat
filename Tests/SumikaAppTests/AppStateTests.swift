@@ -853,7 +853,7 @@ struct AppStateTests {
       modelAvailability: { _ in false }
     )
 
-    appState.startModelRuntimeServices()
+    await appState.waitForStartup()
 
     try await waitUntil {
       !appState.workspaceState.isLoading
@@ -1187,6 +1187,38 @@ struct AppStateTests {
   }
 
   @Test
+  func makeSumikaAppliesRestoredConfigurationBeforeConstructionCompletes() throws {
+    let model = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
+    let settings = StoredModelSettings(
+      modeSettings: ChatModeSettingsSet(
+        chat: ChatModeSettings(
+          systemPrompt: "Restored chat configuration.",
+          generationSettings: .chatDefault
+        ),
+        agent: ChatModeSettings(
+          systemPrompt: "Restored agent configuration.",
+          generationSettings: .agentDefault
+        )
+      ),
+      contextTokenLimit: 65_536
+    )
+
+    let sumika = AppLaunchConfiguration.makeSumika(
+      configuration: Sumika.Configuration(
+        initialModel: model,
+        initialModelSettings: settings
+      ),
+      modelSettingsStore: InMemoryModelSettingsStore(),
+      runtime: AppStateTestRuntime(),
+      turnTracer: NoopTurnTracer()
+    )
+
+    #expect(sumika.models.state.selectedModel == model)
+    #expect(sumika.models.state.modelContextTokenLimit == settings.contextTokenLimit)
+    #expect(sumika.models.modeSettings == settings.modeSettings)
+  }
+
+  @Test
   func autoloadLastModelDefaultsOffAndDoesNotLoadOnStartup() async throws {
     let modelSettingsStore = InMemoryModelSettingsStore()
     let appBehaviorSettingsStore = InMemoryAppBehaviorSettingsStore()
@@ -1203,7 +1235,6 @@ struct AppStateTests {
     )
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
-      modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: InMemoryMCPServersStore(),
@@ -1215,7 +1246,7 @@ struct AppStateTests {
     try await waitUntil {
       !appState.workspaceState.isLoading
     }
-    appState.startModelRuntimeServices()
+    await appState.waitForStartup()
 
     #expect(appState.settingsState.appBehaviorSettings == AppBehaviorSettings())
     #expect(!appState.settingsState.appBehaviorSettings.todoWriteToolEnabled)
@@ -1240,7 +1271,7 @@ struct AppStateTests {
     try await waitUntil {
       !appState.workspaceState.isLoading
     }
-    appState.startModelRuntimeServices()
+    await appState.waitForStartup()
 
     let updated = AppBehaviorSettings(autoloadLastModel: true)
     appState.updateAppBehaviorSettings(updated)
@@ -1288,7 +1319,7 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
 
-    appState.startModelRuntimeServices()
+    await appState.waitForStartup()
 
     try await waitUntil {
       appState.modelManagementState.state.modelState == .ready
@@ -1318,7 +1349,7 @@ struct AppStateTests {
       !appState.workspaceState.isLoading
     }
 
-    appState.startModelRuntimeServices()
+    await appState.waitForStartup()
 
     #expect(appState.settingsState.appBehaviorSettings.autoloadLastModel)
     #expect(appState.modelManagementState.state.modelState == .notLoaded)
@@ -1342,7 +1373,6 @@ struct AppStateTests {
 
     let appState = AppState(
       workspaceStore: InMemoryWorkspaceStore(initialLibrary: WorkspaceLibrary()),
-      modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
       mcpServersStore: InMemoryMCPServersStore(),
       browserToolService: browserToolService,
@@ -1370,7 +1400,7 @@ struct AppStateTests {
       [.chunk("Preview refreshed.")],
     ])
     let fixture = try makeLaunchFixture()
-    let appState = AppLaunchConfiguration.makeAppState(
+    let launchState = await AppLaunchConfiguration.bootstrap(
       environment: [
         "SUMIKA_UI_TEST_MODE": "1",
         "SUMIKA_UI_TEST_STORAGE_ROOT": fixture.storageRoot.path(percentEncoded: false),
@@ -1379,6 +1409,14 @@ struct AppStateTests {
       ],
       runtime: runtime
     )
+    let appState: AppState
+    switch launchState {
+    case .ready(let readyAppState):
+      appState = readyAppState
+    case .loading, .recovered:
+      Issue.record("Expected UI-test bootstrap to produce a ready app state.")
+      return
+    }
     let probe = BrowserToolProbe()
 
     try await waitUntil {

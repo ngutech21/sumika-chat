@@ -11,7 +11,7 @@ public struct SumikaApplication: App {
     false
   @NSApplicationDelegateAdaptor(SumikaAppDelegate.self) private var appDelegate
   @StateObject private var appUpdater: AppUpdater
-  @State private var appState: AppState
+  @State private var launchState = AppLaunchState.loading
 
   @MainActor
   public init() {
@@ -21,17 +21,36 @@ public struct SumikaApplication: App {
         startingUpdater: AppLaunchConfiguration.shouldStartUpdater()
       )
     )
-    _appState = State(initialValue: AppLaunchConfiguration.makeAppState())
   }
 
   public var body: some Scene {
     Window("Sumika", id: "main") {
-      ContentView(appState: appState)
-        .onAppear {
-          appDelegate.prepareForTermination = {
-            await appState.prepareForTermination()
-          }
+      Group {
+        if let appState {
+          ContentView(appState: appState)
+            .onAppear {
+              appDelegate.prepareForTermination = {
+                await appState.prepareForTermination()
+              }
+            }
+            .alert(
+              "Model Settings Could Not Be Restored",
+              isPresented: recoveryAlertBinding
+            ) {
+              Button("OK") {}
+            } message: {
+              Text(launchState.recoveryMessage ?? "")
+            }
+        } else {
+          AppLaunchLoadingView()
         }
+      }
+      .task {
+        guard case .loading = launchState else {
+          return
+        }
+        launchState = await AppLaunchConfiguration.bootstrap()
+      }
     }
     .commands {
       CommandGroup(replacing: .appInfo) {
@@ -52,18 +71,19 @@ public struct SumikaApplication: App {
           createSessionInActiveWorkspace()
         }
         .keyboardShortcut("n")
-        .disabled(appState.workspaceState.activeWorkspaceContext == nil)
+        .disabled(appState?.workspaceState.activeWorkspaceContext == nil)
 
         Button("Add Workspace…") {
           chooseWorkspace()
         }
         .keyboardShortcut("o", modifiers: [.command, .shift])
+        .disabled(appState == nil)
 
         Button("Remove Workspace…") {
           confirmRemoveActiveWorkspace()
         }
         .keyboardShortcut(.delete, modifiers: [.command, .shift])
-        .disabled(appState.workspaceState.activeWorkspaceContext == nil)
+        .disabled(appState?.workspaceState.activeWorkspaceContext == nil)
       }
       CommandGroup(after: .sidebar) {
         #if DEBUG
@@ -76,18 +96,42 @@ public struct SumikaApplication: App {
     }
 
     Settings {
-      AppSettingsView(
-        settingsState: appState.settingsState,
-        onUpdateAppBehaviorSettings: appState.updateAppBehaviorSettings,
-        onUpdateMCPServers: appState.updateMCPServers,
-        canTestMCPServers: appState.workspaceState.activeWorkspace != nil,
-        onTestMCPServer: appState.testMCPServer
-      )
+      if let appState {
+        AppSettingsView(
+          settingsState: appState.settingsState,
+          onUpdateAppBehaviorSettings: appState.updateAppBehaviorSettings,
+          onUpdateMCPServers: appState.updateMCPServers,
+          canTestMCPServers: appState.workspaceState.activeWorkspace != nil,
+          onTestMCPServer: appState.testMCPServer
+        )
+      } else {
+        AppLaunchLoadingView()
+          .frame(width: 420, height: 240)
+      }
     }
   }
 
+  private var appState: AppState? {
+    launchState.appState
+  }
+
+  private var recoveryAlertBinding: Binding<Bool> {
+    Binding(
+      get: { launchState.recoveryMessage != nil },
+      set: { isPresented in
+        guard !isPresented, case .recovered(let appState, _) = launchState else {
+          return
+        }
+        launchState = .ready(appState)
+      }
+    )
+  }
+
   private func createSessionInActiveWorkspace() {
-    guard let workspaceID = appState.workspaceState.activeWorkspaceContext?.id else {
+    guard
+      let appState,
+      let workspaceID = appState.workspaceState.activeWorkspaceContext?.id
+    else {
       return
     }
     _ = appState.createSession(in: workspaceID)
@@ -107,6 +151,9 @@ public struct SumikaApplication: App {
   }
 
   private func chooseWorkspace() {
+    guard let appState else {
+      return
+    }
     let panel = NSOpenPanel()
     panel.canChooseFiles = false
     panel.canChooseDirectories = true
@@ -121,7 +168,7 @@ public struct SumikaApplication: App {
   }
 
   private func confirmRemoveActiveWorkspace() {
-    guard let workspace = appState.workspaceState.activeWorkspace else {
+    guard let appState, let workspace = appState.workspaceState.activeWorkspace else {
       return
     }
 
@@ -136,5 +183,18 @@ public struct SumikaApplication: App {
     if alert.runModal() == .alertFirstButtonReturn {
       appState.removeWorkspace(workspace.id)
     }
+  }
+}
+
+private struct AppLaunchLoadingView: View {
+  var body: some View {
+    VStack(spacing: 12) {
+      ProgressView()
+        .controlSize(.large)
+      Text("Restoring Sumika…")
+        .foregroundStyle(.secondary)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .frame(minWidth: 420, minHeight: 240)
   }
 }

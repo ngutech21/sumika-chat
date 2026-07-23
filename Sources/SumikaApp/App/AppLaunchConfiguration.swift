@@ -2,6 +2,29 @@ import Foundation
 import SumikaCore
 import SumikaRuntimeMLX
 
+@MainActor
+enum AppLaunchState {
+  case loading
+  case ready(AppState)
+  case recovered(AppState, message: String)
+
+  var appState: AppState? {
+    switch self {
+    case .loading:
+      nil
+    case .ready(let appState), .recovered(let appState, _):
+      appState
+    }
+  }
+
+  var recoveryMessage: String? {
+    guard case .recovered(_, let message) = self else {
+      return nil
+    }
+    return message
+  }
+}
+
 enum AppLaunchConfiguration {
   static func shouldStartUpdater(
     environment: [String: String] = ProcessInfo.processInfo.environment
@@ -24,25 +47,72 @@ enum AppLaunchConfiguration {
   }
 
   @MainActor
-  static func makeAppState(
-    environment: [String: String] = ProcessInfo.processInfo.environment,
-    runtime: (any ChatModelRuntime)? = nil
-  ) -> AppState {
-    let mlxEnvironment = MLXRuntimeComposition.makeChatEnvironment(overriding: runtime)
-
-    if environment["SUMIKA_UI_TEST_MODE"] == "1" {
-      return makeUITestAppState(
-        environment: environment,
-        runtime: mlxEnvironment.runtime,
-        turnTracer: mlxEnvironment.turnTracer
-      )
-    }
-
+  static func makePreviewAppState() -> AppState {
+    let mlxEnvironment = MLXRuntimeComposition.makeChatEnvironment()
     return makeConfiguredAppState(
+      configuration: Sumika.Configuration(),
       modelDownloader: MLXRuntimeComposition.makeModelDownloader(),
       runtime: mlxEnvironment.runtime,
       turnTracer: mlxEnvironment.turnTracer
     )
+  }
+
+  @MainActor
+  static func bootstrap(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    runtime: (any ChatModelRuntime)? = nil
+  ) async -> AppLaunchState {
+    let mlxEnvironment = MLXRuntimeComposition.makeChatEnvironment(overriding: runtime)
+
+    if environment["SUMIKA_UI_TEST_MODE"] == "1" {
+      let appState = makeUITestAppState(
+        environment: environment,
+        runtime: mlxEnvironment.runtime,
+        turnTracer: mlxEnvironment.turnTracer
+      )
+      await appState.waitForStartup()
+      return .ready(appState)
+    }
+
+    let modelSettingsStore = ModelSettingsStore()
+    let restoration: Result<Sumika.Configuration, Error>
+    do {
+      let restored = try await modelSettingsStore.restoreConfiguration(
+        availableModels: ManagedModelCatalog.models
+      )
+      let configuration =
+        restored.map {
+          Sumika.Configuration(
+            initialModel: $0.model,
+            initialModelSettings: $0.settings
+          )
+        } ?? Sumika.Configuration()
+      restoration = .success(configuration)
+    } catch {
+      restoration = .failure(error)
+    }
+
+    let configuration = try? restoration.get()
+    let appState = makeConfiguredAppState(
+      configuration: configuration ?? Sumika.Configuration(),
+      modelDownloader: MLXRuntimeComposition.makeModelDownloader(),
+      runtime: mlxEnvironment.runtime,
+      turnTracer: mlxEnvironment.turnTracer,
+      modelSettingsStore: modelSettingsStore
+    )
+    await appState.waitForStartup()
+
+    switch restoration {
+    case .success:
+      return .ready(appState)
+    case .failure(let error):
+      return .recovered(
+        appState,
+        message:
+          "Saved model configuration could not be restored. Sumika started with defaults. "
+          + error.localizedDescription
+      )
+    }
   }
 
   @MainActor
@@ -90,6 +160,9 @@ enum AppLaunchConfiguration {
     try? FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
 
     return makeConfiguredAppState(
+      configuration: Sumika.Configuration(
+        initialModel: selectedModel
+      ),
       modelDownloader: UnavailableModelDownloader(),
       runtime: runtime,
       turnTracer: turnTracer,
@@ -103,6 +176,7 @@ enum AppLaunchConfiguration {
 
   @MainActor
   private static func makeConfiguredAppState(
+    configuration: Sumika.Configuration,
     modelDownloader: any ModelDownloading,
     runtime: any ChatModelRuntime,
     modelAvailability: (@Sendable (ManagedModel) -> Bool)? = nil,
@@ -115,6 +189,7 @@ enum AppLaunchConfiguration {
   ) -> AppState {
     let browserToolService = HTMLPreviewBrowserToolService()
     let sumika = makeSumika(
+      configuration: configuration,
       modelSettingsStore: modelSettingsStore,
       modelDownloader: modelDownloader,
       runtime: runtime,
@@ -128,7 +203,6 @@ enum AppLaunchConfiguration {
 
     return AppState(
       workspaceStore: workspaceStore,
-      modelSettingsStore: modelSettingsStore,
       webAccessSettingsStore: webAccessSettingsStore,
       appBehaviorSettingsStore: appBehaviorSettingsStore,
       mcpServersStore: mcpServersStore,
@@ -140,6 +214,7 @@ enum AppLaunchConfiguration {
 
   @MainActor
   static func makeSumika(
+    configuration: Sumika.Configuration = Sumika.Configuration(),
     modelSettingsStore: any ModelSettingsStoring,
     modelDownloader: any ModelDownloading = UnavailableModelDownloader(),
     runtime: any ChatModelRuntime,
@@ -150,16 +225,8 @@ enum AppLaunchConfiguration {
     },
     turnTracer: any TurnTracing
   ) -> Sumika {
-    let selectedModel = ManagedModelCatalog.defaultModel
-    let storedSettings = StoredModelSettings(
-      modeSettings: selectedModel.defaultModeSettings,
-      contextTokenLimit: selectedModel.defaultContextTokenLimit
-    )
-    let sumika = Sumika(
-      configuration: Sumika.Configuration(
-        initialModel: selectedModel,
-        initialModelSettings: storedSettings
-      ),
+    Sumika(
+      configuration: configuration,
       dependencies: Sumika.Dependencies(
         runtime: runtime,
         modelSettingsStore: modelSettingsStore,
@@ -170,8 +237,6 @@ enum AppLaunchConfiguration {
         turnTracer: turnTracer
       )
     )
-    sumika.models.loadPersistedModelSelection()
-    return sumika
   }
 
   private static func makeUITestWorkspaceLibrary(

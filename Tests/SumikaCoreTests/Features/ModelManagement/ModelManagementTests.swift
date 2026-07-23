@@ -92,6 +92,94 @@ struct ModelManagementTests {
   }
 
   @Test
+  func restoreConfigurationReturnsNilWhenNoConfigurationExists() async throws {
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: temporarySettingsURL(),
+      generationConfigPresetProvider: { _ in nil }
+    )
+
+    let restored = try await store.restoreConfiguration(
+      availableModels: ManagedModelCatalog.models
+    )
+
+    #expect(restored == nil)
+  }
+
+  @Test
+  func restoreConfigurationReturnsPersistedSelectionAndSettings() async throws {
+    let userDefaultsSuiteName = makeUserDefaultsSuiteName()
+    let settingsURL = temporarySettingsURL()
+    let model = try #require(ManagedModelCatalog.model(id: "gemma4-26b-qat-4bit"))
+    let settings = StoredModelSettings(
+      modeSettings: ChatModeSettingsSet(
+        chat: ChatModeSettings(
+          systemPrompt: "Restored chat settings.",
+          generationSettings: .chatDefault
+        ),
+        agent: ChatModeSettings(
+          systemPrompt: "Restored agent settings.",
+          generationSettings: .agentDefault
+        )
+      ),
+      contextTokenLimit: 65_536
+    )
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(suiteName: userDefaultsSuiteName),
+      settingsURL: settingsURL
+    )
+    await store.setSelectedModelID(model.id)
+    try await store.save(settings: settings, for: model)
+
+    let reloadedStore = ModelSettingsStore(
+      userDefaults: makeUserDefaults(suiteName: userDefaultsSuiteName),
+      settingsURL: settingsURL
+    )
+    let restored = try #require(
+      try await reloadedStore.restoreConfiguration(
+        availableModels: ManagedModelCatalog.models
+      )
+    )
+
+    #expect(restored.model == model)
+    #expect(restored.settings == settings)
+  }
+
+  @Test
+  func restoreConfigurationRejectsCorruptSettingsFile() async throws {
+    let settingsURL = temporarySettingsURL()
+    try FileManager.default.createDirectory(
+      at: settingsURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try "not json".write(to: settingsURL, atomically: true, encoding: .utf8)
+    let store = ModelSettingsStore(
+      userDefaults: makeUserDefaults(),
+      settingsURL: settingsURL,
+      generationConfigPresetProvider: { _ in nil }
+    )
+
+    await #expect(throws: ModelSettingsRestoreError.self) {
+      try await store.restoreConfiguration(availableModels: ManagedModelCatalog.models)
+    }
+  }
+
+  @Test
+  func restoreConfigurationRejectsUnavailableSelectedModel() async throws {
+    let userDefaults = makeUserDefaults()
+    userDefaults.set("removed-model", forKey: "selectedModelID")
+    let store = ModelSettingsStore(
+      userDefaults: userDefaults,
+      settingsURL: temporarySettingsURL(),
+      generationConfigPresetProvider: { _ in nil }
+    )
+
+    await #expect(throws: ModelSettingsRestoreError.self) {
+      try await store.restoreConfiguration(availableModels: ManagedModelCatalog.models)
+    }
+  }
+
+  @Test
   func settingsStoreFallsBackToDefaultsForCorruptSettingsFile() async throws {
     let settingsURL = temporarySettingsURL()
     try FileManager.default.createDirectory(

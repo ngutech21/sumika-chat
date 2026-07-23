@@ -61,8 +61,8 @@ final class ModelManagementFeatureState {
     }
   }
 
-  func startRuntimeServices() {
-    models.startRuntimeServices()
+  func initialize() async {
+    await models.initialize()
   }
 
   func selectModel(_ model: ManagedModel) {

@@ -38,7 +38,6 @@ struct ContentView: View {
     .frame(minWidth: 880, minHeight: 560)
     .onAppear {
       processResourceMonitor.start()
-      appState.startModelRuntimeServices()
     }
     .modifier(
       WorkspaceErrorAlert(
@@ -172,7 +171,7 @@ struct ContentView: View {
 }
 
 #Preview {
-  ContentView(appState: AppLaunchConfiguration.makeAppState())
+  ContentView(appState: AppLaunchConfiguration.makePreviewAppState())
 }
 
 private struct WorkspaceRouteHost: View {
