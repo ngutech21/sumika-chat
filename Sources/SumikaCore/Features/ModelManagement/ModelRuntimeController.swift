@@ -277,21 +277,6 @@ final class ModelRuntimeController {
     }
   }
 
-  // Test-only compatibility overload; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  func saveSelectedModelSettings(
-    systemPrompt: String,
-    generationSettings: ChatGenerationSettings
-  ) {
-    let settings = ChatModeSettings(
-      systemPrompt: systemPrompt,
-      generationSettings: generationSettings
-    )
-    saveSelectedModelSettings(
-      modeSettings: ChatModeSettingsSet(chat: settings, agent: settings)
-    )
-  }
-
   private func refreshModelGenerationConfigPreset() {
     let modelDirectory = URL(fileURLWithPath: modelPath, isDirectory: true)
     Task {

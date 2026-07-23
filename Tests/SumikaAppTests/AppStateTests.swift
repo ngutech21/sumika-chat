@@ -1873,8 +1873,7 @@ private actor InMemoryModelSettingsStore: ModelSettingsStoring {
   func settings(for model: ManagedModel) async -> StoredModelSettings {
     settingsByModelID[model.id]
       ?? StoredModelSettings(
-        systemPrompt: model.defaultSystemPrompt,
-        generationSettings: model.defaultGenerationSettings,
+        modeSettings: model.defaultModeSettings,
         contextTokenLimit: model.defaultContextTokenLimit
       )
   }

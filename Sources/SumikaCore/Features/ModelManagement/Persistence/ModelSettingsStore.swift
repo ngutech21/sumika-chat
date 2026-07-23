@@ -3,35 +3,12 @@ import Foundation
 package struct StoredModelSettings: Codable, Equatable, Sendable {
   package var modeSettings: ChatModeSettingsSet
   package var contextTokenLimit: Int
-  // Test-only compatibility projection; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var systemPrompt: String {
-    modeSettings.agent.systemPrompt
-  }
-  // Test-only compatibility projection; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var generationSettings: ChatGenerationSettings {
-    modeSettings.agent.generationSettings
-  }
 
   package init(
     modeSettings: ChatModeSettingsSet = .defaultSettings,
     contextTokenLimit: Int = ManagedModelCatalog.defaultContextTokenLimit
   ) {
     self.modeSettings = modeSettings
-    self.contextTokenLimit = contextTokenLimit
-  }
-
-  package init(
-    systemPrompt: String,
-    generationSettings: ChatGenerationSettings,
-    contextTokenLimit: Int = ManagedModelCatalog.defaultContextTokenLimit
-  ) {
-    let settings = ChatModeSettings(
-      systemPrompt: systemPrompt,
-      generationSettings: generationSettings
-    )
-    self.modeSettings = ChatModeSettingsSet(chat: settings, agent: settings)
     self.contextTokenLimit = contextTokenLimit
   }
 

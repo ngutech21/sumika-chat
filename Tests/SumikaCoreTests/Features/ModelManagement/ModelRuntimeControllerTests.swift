@@ -10,10 +10,13 @@ struct ModelRuntimeControllerTests {
   func initializesSelectedModelFromStore() async throws {
     let store = RuntimeFakeModelSettingsStore()
     let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
-    let settings = StoredModelSettings(
+    let sharedModeSettings = ChatModeSettings(
       systemPrompt: "Tiny model prompt",
       generationSettings: ChatGenerationSettings(
-        temperature: 0.2, topP: 0.7, topK: 10, maxTokens: 256),
+        temperature: 0.2, topP: 0.7, topK: 10, maxTokens: 256)
+    )
+    let settings = StoredModelSettings(
+      modeSettings: ChatModeSettingsSet(chat: sharedModeSettings, agent: sharedModeSettings),
       contextTokenLimit: 16_384
     )
     store.selectedModelIDValue = selectedModel.id
@@ -66,10 +69,13 @@ struct ModelRuntimeControllerTests {
     let store = RuntimeFakeModelSettingsStore()
     let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
     store.selectedModelIDValue = "gemma4-26b-qat-4bit"
-    let settings = StoredModelSettings(
+    let sharedModeSettings = ChatModeSettings(
       systemPrompt: "Tiny model prompt",
       generationSettings: ChatGenerationSettings(
-        temperature: 0.2, topP: 0.7, topK: 10, maxTokens: 256),
+        temperature: 0.2, topP: 0.7, topK: 10, maxTokens: 256)
+    )
+    let settings = StoredModelSettings(
+      modeSettings: ChatModeSettingsSet(chat: sharedModeSettings, agent: sharedModeSettings),
       contextTokenLimit: 16_384
     )
     store.settingsByModelID[selectedModel.id] = settings
@@ -171,16 +177,20 @@ struct ModelRuntimeControllerTests {
       maxTokens: 768,
       maxKVSize: 8192
     )
-
-    controller.saveSelectedModelSettings(
+    let sharedModeSettings = ChatModeSettings(
       systemPrompt: "Use concise code review notes.",
       generationSettings: generationSettings
     )
+    let modeSettings = ChatModeSettingsSet(
+      chat: sharedModeSettings,
+      agent: sharedModeSettings
+    )
+
+    controller.saveSelectedModelSettings(modeSettings: modeSettings)
 
     try await waitUntil { store.savedSettingsByModelID[controller.selectedModel.id] != nil }
     let savedSettings = store.savedSettingsByModelID[controller.selectedModel.id]
-    #expect(savedSettings?.systemPrompt == "Use concise code review notes.")
-    #expect(savedSettings?.generationSettings == generationSettings)
+    #expect(savedSettings?.modeSettings == modeSettings)
     #expect(savedSettings?.contextTokenLimit == 12_288)
   }
 
@@ -459,8 +469,7 @@ private final class RuntimeFakeModelSettingsStore: ModelSettingsStoring, @unchec
   func settings(for model: ManagedModel) async -> StoredModelSettings {
     settingsByModelID[model.id]
       ?? StoredModelSettings(
-        systemPrompt: model.defaultSystemPrompt,
-        generationSettings: model.defaultGenerationSettings,
+        modeSettings: model.defaultModeSettings,
         contextTokenLimit: model.defaultContextTokenLimit
       )
   }
