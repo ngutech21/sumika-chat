@@ -633,6 +633,26 @@ extension ConversationEngine {
       turnToolRegistry: turnToolRegistry,
       runtime: runtime
     )
+    if promptMode == .afterToolBudgetExhausted {
+      let toolLoopOutcome = try await turnExecutionCoordinator.finishAfterToolBudgetExhaustion(
+        workspace: workspace,
+        sessionID: existingRecord.request.sessionID,
+        assistantMessageID: nextAssistantMessageID,
+        turnID: turnID,
+        interactionMode: chatSession.interactionMode,
+        runtime: runtime,
+        conversation: self,
+        turnToolOrchestrator: turnToolOrchestrator,
+        stableInstructions: stableInstructions,
+        toolLoopIteration: runtime.selectedModel.maxToolLoopIterations + 1
+      )
+      return try await resolveToolLoopOutcome(
+        toolLoopOutcome,
+        in: workspace,
+        turnID: turnID,
+        runtime: runtime
+      )
+    }
     let generationResult = try await turnExecutionCoordinator.streamAssistantReply(
       to: nextAssistantMessageID,
       runtime: runtime,
@@ -754,6 +774,31 @@ extension ConversationEngine {
       turnToolRegistry: turnToolRegistry,
       runtime: runtime
     )
+    if promptMode == .afterToolBudgetExhausted {
+      guard let budgetWorkspace = workspace ?? activeWorkspace,
+        let turnToolOrchestrator
+      else {
+        return .fail(cancelsStreaming: false)
+      }
+      let toolLoopOutcome = try await turnExecutionCoordinator.finishAfterToolBudgetExhaustion(
+        workspace: budgetWorkspace,
+        sessionID: firstRecord.request.sessionID,
+        assistantMessageID: nextAssistantMessageID,
+        turnID: turnID,
+        interactionMode: chatSession.interactionMode,
+        runtime: runtime,
+        conversation: self,
+        turnToolOrchestrator: turnToolOrchestrator,
+        stableInstructions: stableInstructions,
+        toolLoopIteration: runtime.selectedModel.maxToolLoopIterations + 1
+      )
+      return try await resolveToolLoopOutcome(
+        toolLoopOutcome,
+        in: budgetWorkspace,
+        turnID: turnID,
+        runtime: runtime
+      )
+    }
     let generationResult = try await turnExecutionCoordinator.streamAssistantReply(
       to: nextAssistantMessageID,
       runtime: runtime,
@@ -818,6 +863,9 @@ extension ConversationEngine {
     in turn: ChatTurn,
     maxToolLoopIterations: Int
   ) -> ToolFollowUpFinalReason? {
+    if turn.toolCallBatchCount >= maxToolLoopIterations {
+      return .toolBatchBudgetExhausted
+    }
     if batch.records.contains(where: { $0.status == .denied }) {
       return .denial
     }
@@ -839,9 +887,6 @@ extension ConversationEngine {
         return .repeatedRunCommandFailure
       }
       priorItems.append(item)
-    }
-    if turn.toolCallBatchCount >= maxToolLoopIterations {
-      return .toolBatchBudgetExhausted
     }
     return nil
   }

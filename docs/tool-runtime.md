@@ -116,14 +116,16 @@ flowchart TD
   A mixed batch is rejected in full and no sibling side effect runs. Other
   direct-result behavior is also limited to single-call responses. Invalid
   batches consume a normal loop iteration and receive a tool-capable correction
-  generation only when budget remains. After the normal Agent loop consumes its
-  final action batch, it starts exactly one additional generation exposing only
-  `finish_task`. A valid call renders its summary directly and ends the turn.
+  generation only when budget remains. After any Agent path consumes its final
+  action batch, including a continuation resumed after approval, `ask_user`,
+  denial, or reload, it starts exactly one additional generation exposing only
+  `finish_task`. At this hard boundary, finish-only finalization takes precedence
+  over other force-final reasons such as denial, duplicate blocking, or repeated
+  command failure. A valid call renders its summary directly and ends the turn.
   Missing or invalid calls end the turn with
   `Tool limit reached before reliable completion. Changes may be incomplete.`;
-  no repair generation or action-tool execution follows. Approval, `ask_user`,
-  denial, duplicate-recovery, and chat-web finalization keep their existing
-  no-tools behavior.
+  no repair generation or action-tool execution follows. Chat-web finalization
+  keeps its no-tools behavior.
 - The turn-wide budget is derived from the ordered tool-call batches in
   `ChatTurn.items`. A multi-call assistant response counts once, and approval,
   `ask_user`, persistence, or reload pauses do not reset the consumed count.
@@ -133,7 +135,8 @@ flowchart TD
   budget without adding persisted budget state.
 - Successful write/edit follow-ups use the normal tool loop and keep the active
   tool schema while budget remains. Explicit denial and other force-final rules
-  may still select a no-tools follow-up.
+  may still select a no-tools follow-up before the Agent action budget is
+  exhausted.
 - `finish_task` is an Agent-only terminal control tool. A valid call stores its
   typed request/result like every other tool, then projects the request's
   `summary` directly as visible assistant content and stops the turn without a

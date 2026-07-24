@@ -184,12 +184,11 @@ struct ToolFollowUpPromptPolicyTests {
   }
 
   @Test
-  func everyTypedForceFinalReasonUsesProfileAppropriateFinalMode() {
+  func nonBudgetForceFinalReasonsUseProfileAppropriateFinalMode() {
     let reasons: [ToolFollowUpFinalReason] = [
       .denial,
       .blockedDuplicate,
       .repeatedRunCommandFailure,
-      .toolBatchBudgetExhausted,
     ]
 
     for reason in reasons {
@@ -203,6 +202,38 @@ struct ToolFollowUpPromptPolicyTests {
           for: .chatWeb,
           finalReason: reason
         ) == .afterChatWebToolResultFinal)
+    }
+  }
+
+  @Test
+  func agentBudgetExhaustionUsesFinishTaskOnlyMode() {
+    #expect(
+      ToolFollowUpPromptPolicy.promptMode(
+        for: .agent,
+        finalReason: .toolBatchBudgetExhausted
+      ) == .afterToolBudgetExhausted)
+    #expect(
+      ToolFollowUpPromptPolicy.promptMode(
+        for: .chatWeb,
+        finalReason: .toolBatchBudgetExhausted
+      ) == .afterChatWebToolResultFinal)
+  }
+
+  @Test
+  func finishTaskOnlyModeOutranksOtherFinalReasonsAtBudgetBoundary() {
+    let reasons: [ToolFollowUpFinalReason] = [
+      .denial,
+      .blockedDuplicate,
+      .repeatedRunCommandFailure,
+      .toolBatchBudgetExhausted,
+    ]
+
+    for reason in reasons {
+      #expect(
+        ToolFollowUpPromptPolicy.promptMode(
+          default: .afterToolBudgetExhausted,
+          finalReason: reason
+        ) == .afterToolBudgetExhausted)
     }
   }
 }

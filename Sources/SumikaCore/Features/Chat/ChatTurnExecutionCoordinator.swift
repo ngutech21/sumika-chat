@@ -424,7 +424,7 @@ struct ChatTurnExecutionCoordinator {
     return .complete
   }
 
-  private func finishAfterToolBudgetExhaustion(
+  func finishAfterToolBudgetExhaustion(
     workspace: Workspace,
     sessionID: ChatSession.ID,
     assistantMessageID: UUID,

@@ -130,6 +130,7 @@ struct ConversationEngineToolLoopTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     try createListFixtureDirectories(in: workspace, count: budget - 1)
+    let summary = "Finished after the approved write at the tool batch limit."
     let initialRuntime = ChatSessionFakeChatModelRuntime(
       eventTurns: listFileEventTurns(count: budget - 1)
         + [[writeToolCall(path: "final.txt", content: "final")]]
@@ -154,7 +155,16 @@ struct ConversationEngineToolLoopTests {
       from: JSONEncoder().encode(initialController.chatSession)
     )
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: [
-      [.chunk("Finished at the tool batch limit.")]
+      [
+        .toolCall(
+          ChatRuntimeToolCall(
+            name: "finish_task",
+            arguments: [
+              "status": .string("done"),
+              "summary": .string(summary),
+            ]
+          ))
+      ]
     ])
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     try engine.loadSession(from: workspace, sessionID: sessionID)
@@ -168,16 +178,19 @@ struct ConversationEngineToolLoopTests {
     try await waitUntil { !engine.isGenerating }
 
     #expect(engine.chatSession.turns.first?.status == .completed)
-    #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget)
+    #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget + 1)
     #expect(
       try String(
         contentsOf: workspace.rootURL.appending(path: "final.txt"),
         encoding: .utf8
       ) == "final"
     )
+    #expect(engine.chatSession.toolCalls.last?.request.toolName == .finishTask)
+    #expect(engine.chatSession.toolCalls.last?.status == .completed)
+    #expect(engine.chatSession.testMessages.last?.content == summary)
     let toolContexts = await runtime.capturedToolContexts
     #expect(toolContexts.count == 1)
-    #expect(toolContexts[0] == nil)
+    #expect(toolContexts[0]?.registry.tools.map(\.name) == [.finishTask])
   }
 
   @Test
@@ -186,6 +199,7 @@ struct ConversationEngineToolLoopTests {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     try createListFixtureDirectories(in: workspace, count: budget - 1)
+    let summary = "Finished after the user answered at the tool batch limit."
     let runtime = ChatSessionFakeChatModelRuntime(
       eventTurns: listFileEventTurns(count: budget - 1)
         + [
@@ -200,7 +214,16 @@ struct ConversationEngineToolLoopTests {
                 ]
               ))
           ],
-          [.chunk("Finished after the answer at the tool batch limit.")],
+          [
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "finish_task",
+                arguments: [
+                  "status": .string("done"),
+                  "summary": .string(summary),
+                ]
+              ))
+          ],
         ]
     )
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
@@ -220,10 +243,131 @@ struct ConversationEngineToolLoopTests {
     try await waitUntil { !engine.isGenerating }
 
     #expect(engine.chatSession.turns.first?.status == .completed)
-    #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget)
+    #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget + 1)
+    #expect(engine.chatSession.toolCalls.last?.request.toolName == .finishTask)
+    #expect(engine.chatSession.toolCalls.last?.status == .completed)
+    #expect(engine.chatSession.testMessages.last?.content == summary)
     let toolContexts = await runtime.capturedToolContexts
     #expect(toolContexts.count == budget + 1)
-    #expect(toolContexts[budget] == nil)
+    #expect(toolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
+  }
+
+  @Test
+  func automaticApprovalAtToolBudgetBoundaryUsesFinishTaskOnlyFinalization() async throws {
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createListFixtureDirectories(in: workspace, count: budget - 1)
+    let summary = "The final command failed, so the task is blocked."
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget - 1)
+        + [
+          [
+            runCommandToolCall(
+              "false",
+              reason: "Exercise automatic approval at the tool budget boundary."
+            )
+          ],
+          [
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "finish_task",
+                arguments: [
+                  "status": .string("blocked"),
+                  "summary": .string(summary),
+                ]
+              ))
+          ],
+        ]
+    )
+    let engine = ConversationEngine(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: .codingAgentRegistry(todoWriteEnabled: true)
+      )
+    )
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+    engine.enableAutomaticToolApproval(in: workspace)
+
+    engine.sendMessage(
+      prompt: "inspect the fixtures and run the final command",
+      in: workspace,
+      sessionID: sessionID
+    )
+
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(engine.chatSession.turns.first?.status == .completed)
+    #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget + 1)
+    #expect(engine.chatSession.toolCalls.count == budget + 1)
+    let commandRecord = try #require(engine.chatSession.toolCalls.dropLast().last)
+    #expect(commandRecord.request.toolName == .runCommand)
+    #expect(commandRecord.status == .failed)
+    #expect(commandRecord.approvalSource == .automatic)
+    #expect(engine.chatSession.toolCalls.last?.request.toolName == .finishTask)
+    #expect(engine.chatSession.toolCalls.last?.status == .completed)
+    #expect(engine.chatSession.testMessages.last?.content == summary)
+
+    let toolContexts = await runtime.capturedToolContexts
+    #expect(toolContexts.count == budget + 1)
+    #expect(toolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
+  }
+
+  @Test
+  func denialAtToolBudgetBoundaryUsesFinishTaskOnlyFinalization() async throws {
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(sessionID: sessionID)
+    try createListFixtureDirectories(in: workspace, count: budget - 1)
+    let summary = "The final write was denied, so the task is blocked."
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget - 1)
+        + [
+          [writeToolCall(path: "denied.txt", content: "denied")],
+          [
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "finish_task",
+                arguments: [
+                  "status": .string("blocked"),
+                  "summary": .string(summary),
+                ]
+              ))
+          ],
+        ]
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+
+    engine.sendMessage(
+      prompt: "inspect the fixtures and write the final file",
+      in: workspace,
+      sessionID: sessionID
+    )
+    try await waitUntil { engine.hasPendingApproval }
+    let pendingRecord = try #require(engine.chatSession.toolCalls.last)
+    engine.denyToolCall(id: pendingRecord.id)
+
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(engine.chatSession.turns.first?.status == .completed)
+    #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget + 1)
+    #expect(engine.chatSession.toolCalls.count == budget + 1)
+    let deniedRecord = try #require(engine.chatSession.toolCalls.dropLast().last)
+    #expect(deniedRecord.request.toolName == .writeFile)
+    #expect(deniedRecord.status == .denied)
+    #expect(engine.chatSession.toolCalls.last?.request.toolName == .finishTask)
+    #expect(engine.chatSession.toolCalls.last?.status == .completed)
+    #expect(engine.chatSession.testMessages.last?.content == summary)
+
+    let toolContexts = await runtime.capturedToolContexts
+    #expect(toolContexts.count == budget + 1)
+    #expect(toolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
   }
 
   @Test

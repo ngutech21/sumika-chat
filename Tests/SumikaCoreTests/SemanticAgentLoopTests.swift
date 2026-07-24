@@ -224,8 +224,16 @@ struct SemanticAgentLoopTests {
           ))
       ]
     }
+    let summary = "Stopped after the turn-wide tool batch budget was exhausted."
     eventTurns.append([
-      .chunk("Stopped after the turn-wide tool batch budget was exhausted.")
+      .toolCall(
+        ChatRuntimeToolCall(
+          name: "finish_task",
+          arguments: [
+            "status": .string("blocked"),
+            "summary": .string(summary),
+          ]
+        ))
     ])
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: eventTurns)
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
@@ -252,14 +260,15 @@ struct SemanticAgentLoopTests {
 
     try await waitUntil { engine.chatSession.turns.first?.status == .completed }
 
-    #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget)
-    #expect(engine.chatSession.toolCalls.count == budget)
+    #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget + 1)
+    #expect(engine.chatSession.toolCalls.count == budget + 1)
     #expect(engine.chatSession.toolCalls.allSatisfy { $0.status == .completed })
+    #expect(engine.chatSession.testMessages.last?.content == summary)
 
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 1)
     #expect(capturedToolContexts.dropLast().allSatisfy { $0 != nil })
-    #expect(capturedToolContexts[budget] == nil)
+    #expect(capturedToolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
   }
 
   private func waitUntil(

@@ -204,12 +204,14 @@ state.
 - The currently active turn is allowed to include its own tool result while
   generating the direct follow-up response.
 - Direct follow-up responses may emit another tool call within the turn
-  coordinator's configured turn budget. When the budget is exhausted — or when a
-  second consecutive identical duplicate is blocked — the final follow-up sends no
-  tool specs and adds the profile-appropriate final/no-tools guidance to the latest
-  tool record's `modelFollowUpNotice` (agent vs chat-web variant). If that final
-  generation has no visible assistant text, the turn fails with an empty-response
-  diagnostic.
+  coordinator's configured turn budget. When the Agent action budget is
+  exhausted, exactly one additional generation exposes only `finish_task`,
+  including continuations resumed after approval, `ask_user`, denial, or reload.
+  A blocked duplicate or another force-final reason before that boundary sends no
+  tool specs and adds the profile-appropriate final/no-tools guidance to the
+  latest tool record's `modelFollowUpNotice`. Chat-web budget exhaustion also
+  remains a no-tools final follow-up. If a no-tools final generation has no
+  visible assistant text, the turn fails with an empty-response diagnostic.
 - Final no-tools follow-ups selected after denied tools or another force-final
   rule disable tools. If the model still emits a native tool attempt, the caller
   treats the follow-up as final and does not execute another tool.

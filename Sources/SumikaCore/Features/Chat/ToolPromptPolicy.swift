@@ -78,6 +78,9 @@ enum ToolFollowUpPromptPolicy {
     default defaultMode: ToolPromptMode? = nil,
     finalReason: ToolFollowUpFinalReason? = nil
   ) -> ToolPromptMode {
+    if toolProfile == .agent, finalReason == .toolBatchBudgetExhausted {
+      return .afterToolBudgetExhausted
+    }
     guard finalReason == nil else {
       return ToolPromptMode.finalMode(for: toolProfile)
     }
@@ -88,6 +91,9 @@ enum ToolFollowUpPromptPolicy {
     default defaultMode: ToolPromptMode,
     finalReason: ToolFollowUpFinalReason?
   ) -> ToolPromptMode {
+    if defaultMode == .afterToolBudgetExhausted {
+      return defaultMode
+    }
     guard finalReason != nil else {
       return defaultMode
     }

@@ -88,7 +88,9 @@ reasoning-only output are not successful stop conditions.
   it. The selected `ManagedModel` supplies the maximum: catalog models default
   to eight iterations, while the 30B-and-larger entries currently opt into
   twelve. Invalid batches consume normal budget and receive no extra repair
-  round at the hard boundary.
+  round at the hard boundary. After any Agent path consumes the final action
+  batch, including a continuation resumed after approval, `ask_user`, denial, or
+  reload, exactly one additional generation exposes only `finish_task`.
 
 ## MLX Session Policy
 
