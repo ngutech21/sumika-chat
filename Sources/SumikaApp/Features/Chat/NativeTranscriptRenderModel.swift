@@ -271,7 +271,7 @@ struct NativeToolDetailContent: Equatable {
     let approvalLine: [String] =
       switch record.approvalSource {
       case .automatic:
-        ["Approval: Auto-approved"]
+        ["Approval: Automatic"]
       case .manual:
         ["Approval: Approved manually"]
       case nil:

@@ -1885,10 +1885,11 @@ extension NativeChatMessageCellView {
     nameLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
     header.addArrangedSubview(nameLabel)
     if record.approvalSource == .automatic {
-      let approvalLabel = makeSecondaryLabel("Auto-approved")
-      approvalLabel.textColor = .systemOrange
+      let approvalLabel = makeSecondaryLabel("automatic")
+      approvalLabel.textColor = .tertiaryLabelColor
       approvalLabel.maximumNumberOfLines = 1
       approvalLabel.lineBreakMode = .byClipping
+      approvalLabel.setAccessibilityLabel("Approved automatically")
       approvalLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
       header.addArrangedSubview(approvalLabel)
     }

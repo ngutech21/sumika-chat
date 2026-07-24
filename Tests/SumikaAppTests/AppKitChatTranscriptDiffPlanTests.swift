@@ -1206,7 +1206,7 @@ struct AppKitChatTranscriptDiffPlanTests {
 
     let details = NativeToolDetailContent(record: record)
 
-    #expect(details.permissionLines == ["Approval: Auto-approved"])
+    #expect(details.permissionLines == ["Approval: Automatic"])
   }
 
   @Test
@@ -1480,7 +1480,7 @@ struct AppKitChatTranscriptDiffPlanTests {
       cell.descendantTextFields.first { $0.stringValue == ToolName.runCommand.rawValue }
     )
     let approvalLabel = try #require(
-      cell.descendantTextFields.first { $0.stringValue == "Auto-approved" }
+      cell.descendantTextFields.first { $0.stringValue == "automatic" }
     )
     let previewLabel = try #require(
       cell.descendantTextFields.first { $0.stringValue == previewCommand }
@@ -1491,6 +1491,9 @@ struct AppKitChatTranscriptDiffPlanTests {
 
     #expect(nameLabel.maximumNumberOfLines == 1)
     #expect(approvalLabel.maximumNumberOfLines == 1)
+    #expect(approvalLabel.textColor == .tertiaryLabelColor)
+    #expect(approvalLabel.accessibilityLabel() == "Approved automatically")
+    #expect(cell.accessibilityLabel() == "Tool run_command, done, approved automatically")
     #expect(
       approvalLabel.contentCompressionResistancePriority(for: .horizontal)
         > previewLabel.contentCompressionResistancePriority(for: .horizontal)

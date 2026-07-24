@@ -93,7 +93,7 @@ extension RenderedChatTurnItem {
       let parts: [String?] = [
         "Tool \(record.request.toolName.rawValue)",
         record.status.nativeDisplayName,
-        record.approvalSource == .automatic ? "auto-approved" : nil,
+        record.approvalSource == .automatic ? "approved automatically" : nil,
       ]
       return parts.compactMap(\.self).joined(separator: ", ")
     }
