@@ -90,12 +90,7 @@ extension RenderedChatTurnItem {
     case .assistantMessage:
       return shouldShowAssistantPlaceholder ? assistantPlaceholderTitle : "Assistant message"
     case .tool(let record):
-      let parts: [String?] = [
-        "Tool \(record.request.toolName.rawValue)",
-        record.status.nativeDisplayName,
-        record.approvalSource == .automatic ? "approved automatically" : nil,
-      ]
-      return parts.compactMap(\.self).joined(separator: ", ")
+      return "Tool \(record.request.toolName.rawValue), \(record.status.nativeDisplayName)"
     }
   }
 

@@ -419,7 +419,7 @@ extension NativeChatTranscriptCoordinator: NSTableViewDelegate {
   func tableView(_: NSTableView, heightOfRow row: Int) -> CGFloat {
     ChatDiagnostics.measure("Transcript row height", category: .transcript) {
       guard row >= 0, row < rowIDs.count, let rowModel = rowsByID[rowIDs[row]] else {
-        return 44
+        return NativeTranscriptCellKind.assistantMessage.minimumHeight
       }
       if rowModel.isStreamingTranscriptRow,
         let notedHeight = lastNotedHeightByRowID[rowModel.id]
@@ -859,7 +859,7 @@ extension NativeChatTranscriptCoordinator {
     else {
       return
     }
-    pendingMeasuredHeightByRowID[rowID] = ceil(max(44, height))
+    pendingMeasuredHeightByRowID[rowID] = ceil(max(row.cellKind.minimumHeight, height))
     if !streamingRowsBeingCommitted.contains(rowID) {
       scheduleStreamingHeightUpdate(for: [rowID])
     }
@@ -1307,6 +1307,8 @@ final class NativeChatMessageCellView: NSTableCellView {
   private var configuredKind: NativeTranscriptCellKind?
   private var pendingMeasuredRowID: String?
   private var isReportingMeasuredHeight = false
+  private var contentHostTopConstraint: NSLayoutConstraint?
+  private var contentHostBottomConstraint: NSLayoutConstraint?
   private var alignmentConstraints: [NSLayoutConstraint] = []
   fileprivate var actions: NativeTranscriptCellActions?
   private var askUserPopUpButton: NSPopUpButton?
@@ -1352,7 +1354,7 @@ final class NativeChatMessageCellView: NSTableCellView {
 
       cell.needsLayout = true
       cell.layoutSubtreeIfNeeded()
-      return ceil(max(44, cell.fittingSize.height))
+      return ceil(max(row.cellKind.minimumHeight, cell.fittingSize.height))
     }
   }
 
@@ -1393,6 +1395,7 @@ final class NativeChatMessageCellView: NSTableCellView {
       }
     }
     let kind = row.cellKind
+    updateVerticalInsets(for: kind)
 
     if configuredRowID == row.id,
       configuredKind == kind,
@@ -1440,10 +1443,21 @@ final class NativeChatMessageCellView: NSTableCellView {
   private func setupContentHost() {
     contentHost.translatesAutoresizingMaskIntoConstraints = false
     addSubview(contentHost)
+    let topConstraint = contentHost.topAnchor.constraint(equalTo: topAnchor)
+    let bottomConstraint = contentHost.bottomAnchor.constraint(
+      lessThanOrEqualTo: bottomAnchor
+    )
+    contentHostTopConstraint = topConstraint
+    contentHostBottomConstraint = bottomConstraint
     NSLayoutConstraint.activate([
-      contentHost.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-      contentHost.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
+      topConstraint,
+      bottomConstraint,
     ])
+  }
+
+  private func updateVerticalInsets(for kind: NativeTranscriptCellKind) {
+    contentHostTopConstraint?.constant = kind.verticalInset
+    contentHostBottomConstraint?.constant = -kind.verticalInset
   }
 
   private func replaceHostedContent(with contentView: NSView) {
@@ -1838,8 +1852,8 @@ final class NativeChatMessageCellView: NSTableCellView {
       spinner.controlSize = .small
       spinner.startAnimation(nil)
       NSLayoutConstraint.activate([
-        spinner.widthAnchor.constraint(equalToConstant: 13),
-        spinner.heightAnchor.constraint(equalToConstant: 13),
+        spinner.widthAnchor.constraint(equalToConstant: 12),
+        spinner.heightAnchor.constraint(equalToConstant: 12),
       ])
       spinner.setAccessibilityElement(false)
       return spinner
@@ -1855,8 +1869,8 @@ final class NativeChatMessageCellView: NSTableCellView {
     imageView.contentTintColor = status.nativeQuietColor
     imageView.setAccessibilityElement(false)
     NSLayoutConstraint.activate([
-      imageView.widthAnchor.constraint(equalToConstant: 13),
-      imageView.heightAnchor.constraint(equalToConstant: 13),
+      imageView.widthAnchor.constraint(equalToConstant: 12),
+      imageView.heightAnchor.constraint(equalToConstant: 12),
     ])
     return imageView
   }
@@ -1871,11 +1885,11 @@ extension NativeChatMessageCellView {
     rowID: String,
     state: NativeTranscriptCellState
   ) -> NSView {
-    let stack = verticalStack(spacing: 7)
+    let stack = verticalStack(spacing: 5)
     let toolCall = record.transcriptToolCall
     let hasDetails = record.hasNativeToolDetails || generationMetrics != nil
 
-    let header = horizontalStack(spacing: 7)
+    let header = horizontalStack(spacing: 5)
     header.distribution = .fill
     header.addArrangedSubview(makeToolStatusIndicator(status: record.status))
     let nameLabel = makeTextLabel(toolCall.toolName.rawValue, color: .labelColor)
@@ -1884,15 +1898,6 @@ extension NativeChatMessageCellView {
     nameLabel.lineBreakMode = .byClipping
     nameLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
     header.addArrangedSubview(nameLabel)
-    if record.approvalSource == .automatic {
-      let approvalLabel = makeSecondaryLabel("automatic")
-      approvalLabel.textColor = .tertiaryLabelColor
-      approvalLabel.maximumNumberOfLines = 1
-      approvalLabel.lineBreakMode = .byClipping
-      approvalLabel.setAccessibilityLabel("Approved automatically")
-      approvalLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-      header.addArrangedSubview(approvalLabel)
-    }
     if let preview = toolCall.nativeHeaderPreview {
       let summaryLabel = makeSecondaryLabel(preview.text)
       summaryLabel.lineBreakMode = preview.lineBreakMode
@@ -2006,7 +2011,9 @@ extension NativeChatMessageCellView {
 
     pendingMeasuredRowID = nil
     isReportingMeasuredHeight = true
-    let measuredHeight = ceil(max(44, fittingSize.height))
+    let minimumHeight =
+      configuredKind?.minimumHeight ?? NativeTranscriptCellKind.assistantMessage.minimumHeight
+    let measuredHeight = ceil(max(minimumHeight, fittingSize.height))
     isReportingMeasuredHeight = false
     guard measuredHeight.isFinite, configuredRowID == measuredRowID else {
       return

@@ -609,6 +609,32 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func activityRowsUseCompactHeightWithoutShrinkingMessages() {
+    let startedAt = Date(timeIntervalSinceReferenceDate: 1000)
+    let thinkingRow = nativeCompletedThinkingRow(
+      id: "thinking",
+      revision: 1,
+      content: "Inspected the workspace.",
+      startedAt: startedAt,
+      completedAt: startedAt.addingTimeInterval(4)
+    )
+    let toolRow = nativeToolRow(id: "tool", revision: 1)
+    let generationRow = NativeTranscriptRow(
+      id: "generation",
+      revision: 1,
+      body: .generationIndicator(revision: 1)
+    )
+    let assistantRow = nativeAssistantRow(id: "assistant", revision: 1)
+    let userRow = nativeUserRow(id: "user", revision: 1)
+
+    #expect(NativeTranscriptRowMeasurer.height(for: thinkingRow, width: 640) == 28)
+    #expect(NativeTranscriptRowMeasurer.height(for: toolRow, width: 640) == 28)
+    #expect(NativeTranscriptRowMeasurer.height(for: generationRow, width: 640) == 28)
+    #expect(NativeTranscriptRowMeasurer.height(for: assistantRow, width: 640) >= 44)
+    #expect(NativeTranscriptRowMeasurer.height(for: userRow, width: 640) >= 44)
+  }
+
+  @Test
   func heightMeasurementUsesProvidedMarkdownBlocks() {
     var markdownBlockRequests = 0
     var cache = NativeTranscriptHeightCache()
@@ -1464,7 +1490,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
-  func longAutomaticToolHeaderTruncatesOnlyPreviewAndExpandsToFullCommand() throws {
+  func automaticApprovalAppearsOnlyInExpandedToolDetails() throws {
     let fullCommand = """
       git add main.py
       && git commit -m "Add win condition: first to 21 points wins with victory screen and restart"
@@ -1479,9 +1505,6 @@ struct AppKitChatTranscriptDiffPlanTests {
     let nameLabel = try #require(
       cell.descendantTextFields.first { $0.stringValue == ToolName.runCommand.rawValue }
     )
-    let approvalLabel = try #require(
-      cell.descendantTextFields.first { $0.stringValue == "automatic" }
-    )
     let previewLabel = try #require(
       cell.descendantTextFields.first { $0.stringValue == previewCommand }
     )
@@ -1490,14 +1513,8 @@ struct AppKitChatTranscriptDiffPlanTests {
     )
 
     #expect(nameLabel.maximumNumberOfLines == 1)
-    #expect(approvalLabel.maximumNumberOfLines == 1)
-    #expect(approvalLabel.textColor == .tertiaryLabelColor)
-    #expect(approvalLabel.accessibilityLabel() == "Approved automatically")
-    #expect(cell.accessibilityLabel() == "Tool run_command, done, approved automatically")
-    #expect(
-      approvalLabel.contentCompressionResistancePriority(for: .horizontal)
-        > previewLabel.contentCompressionResistancePriority(for: .horizontal)
-    )
+    #expect(!cell.descendantTextValues.contains("automatic"))
+    #expect(cell.accessibilityLabel() == "Tool run_command, done")
     #expect(previewLabel.maximumNumberOfLines == 1)
     #expect(previewLabel.lineBreakMode == .byTruncatingTail)
     #expect(previewLabel.accessibilityLabel() == fullCommand)
@@ -1516,6 +1533,7 @@ struct AppKitChatTranscriptDiffPlanTests {
         $0.stringValue == "command: \(fullCommand)"
       }
     )
+    #expect(cell.descendantTextValues.contains("Approval: Automatic"))
   }
 
   @Test
@@ -1805,8 +1823,8 @@ struct AppKitChatTranscriptDiffPlanTests {
     let ticker = try #require(cell.descendants(of: NativeReasoningTickerView.self).first)
     #expect(ticker.textForTesting == "Inspecting the workspace.")
     let tickerHeight = ticker.intrinsicContentSize.height
-    let threeLineFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-    #expect(tickerHeight >= NSLayoutManager().defaultLineHeight(for: threeLineFont) * 3)
+    let twoLineFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+    #expect(tickerHeight >= NSLayoutManager().defaultLineHeight(for: twoLineFont) * 2)
 
     cell.configure(row: grownRow, state: NativeTranscriptCellState(), actions: testNativeActions())
     let grownTicker = try #require(cell.descendants(of: NativeReasoningTickerView.self).first)

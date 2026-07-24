@@ -14,6 +14,24 @@ enum NativeTranscriptCellKind: Equatable {
   case tool
   case generationIndicator
 
+  var minimumHeight: CGFloat {
+    switch self {
+    case .assistantThinking, .tool, .generationIndicator:
+      28
+    case .userMessage, .assistantMessage:
+      44
+    }
+  }
+
+  var verticalInset: CGFloat {
+    switch self {
+    case .assistantThinking, .tool, .generationIndicator:
+      3
+    case .userMessage, .assistantMessage:
+      6
+    }
+  }
+
   var telemetryName: String {
     switch self {
     case .userMessage:
@@ -533,10 +551,10 @@ enum NativeTranscriptRowMeasurer {
     let bubbleVerticalPadding: CGFloat = 16
     let copyRowHeight: CGFloat = 18
     let contentSpacing: CGFloat = 4
-    let cellVerticalPadding: CGFloat = 12
+    let cellVerticalPadding = NativeTranscriptCellKind.userMessage.verticalInset * 2
     return ceil(
       max(
-        44,
+        NativeTranscriptCellKind.userMessage.minimumHeight,
         textHeight
           + bubbleVerticalPadding
           + copyRowHeight

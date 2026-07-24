@@ -10,7 +10,7 @@ import SumikaCore
 // new lines push old ones out of view like a feed. The fixed intrinsic height
 // keeps the transcript row from ever resizing while the model thinks.
 final class NativeReasoningTickerView: NSView {
-  private static let visibleLineCount: CGFloat = 3
+  private static let visibleLineCount: CGFloat = 2
 
   private let textView = NativeStreamingTextView()
   private let fadeMask = CAGradientLayer()
@@ -133,7 +133,7 @@ final class NativeAssistantThinkingView: NSView {
     stack.orientation = .vertical
     stack.alignment = .leading
     stack.distribution = .gravityAreas
-    stack.spacing = 5
+    stack.spacing = 4
     addSubview(stack)
     NSLayoutConstraint.activate([
       stack.topAnchor.constraint(equalTo: topAnchor),
@@ -145,13 +145,13 @@ final class NativeAssistantThinkingView: NSView {
     header.orientation = .horizontal
     header.alignment = .centerY
     header.distribution = .fill
-    header.spacing = 7
+    header.spacing = 5
     stack.addArrangedSubview(header)
 
     statusHost.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
-      statusHost.widthAnchor.constraint(equalToConstant: 13),
-      statusHost.heightAnchor.constraint(equalToConstant: 13),
+      statusHost.widthAnchor.constraint(equalToConstant: 12),
+      statusHost.heightAnchor.constraint(equalToConstant: 12),
     ])
     header.addArrangedSubview(statusHost)
 
@@ -176,8 +176,8 @@ final class NativeAssistantThinkingView: NSView {
       toggleThinkingExpansion(currentRowID)
     }
     NSLayoutConstraint.activate([
-      disclosureButton.widthAnchor.constraint(equalToConstant: 18),
-      disclosureButton.heightAnchor.constraint(equalToConstant: 18),
+      disclosureButton.widthAnchor.constraint(equalToConstant: 16),
+      disclosureButton.heightAnchor.constraint(equalToConstant: 16),
     ])
     header.addArrangedSubview(disclosureButton)
   }
@@ -359,8 +359,8 @@ private func nativeThinkingStatusIndicator(
     spinner.controlSize = .small
     spinner.startAnimation(nil)
     NSLayoutConstraint.activate([
-      spinner.widthAnchor.constraint(equalToConstant: 13),
-      spinner.heightAnchor.constraint(equalToConstant: 13),
+      spinner.widthAnchor.constraint(equalToConstant: 12),
+      spinner.heightAnchor.constraint(equalToConstant: 12),
     ])
     spinner.setAccessibilityElement(false)
     return spinner
@@ -373,8 +373,8 @@ private func nativeThinkingStatusIndicator(
   imageView.contentTintColor = .tertiaryLabelColor
   imageView.setAccessibilityElement(false)
   NSLayoutConstraint.activate([
-    imageView.widthAnchor.constraint(equalToConstant: 13),
-    imageView.heightAnchor.constraint(equalToConstant: 13),
+    imageView.widthAnchor.constraint(equalToConstant: 12),
+    imageView.heightAnchor.constraint(equalToConstant: 12),
   ])
   return imageView
 }
