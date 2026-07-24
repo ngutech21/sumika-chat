@@ -126,7 +126,7 @@ struct ConversationEngineToolLoopTests {
 
   @Test
   func reloadedApprovalUsesAlreadyConsumedTurnBatchBudget() async throws {
-    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     try createListFixtureDirectories(in: workspace, count: budget - 1)
@@ -182,7 +182,7 @@ struct ConversationEngineToolLoopTests {
 
   @Test
   func askUserResumeUsesAlreadyConsumedTurnBatchBudget() async throws {
-    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     try createListFixtureDirectories(in: workspace, count: budget - 1)
@@ -228,7 +228,7 @@ struct ConversationEngineToolLoopTests {
 
   @Test
   func sendMessageRunsReadOnlyToolsUntilBudgetThenStreamsFinalAssistantResponse() async throws {
-    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     try createListFixtureDirectories(in: workspace, count: budget)
@@ -293,8 +293,46 @@ struct ConversationEngineToolLoopTests {
   }
 
   @Test
+  func largeModelUsesItsConfiguredToolLoopBudget() async throws {
+    let model = try #require(
+      ManagedModelCatalog.model(id: "qwen3.6-35b-a3b-8bit")
+    )
+    let budget = model.maxToolLoopIterations
+    let sessionID = UUID()
+    let workspace = try makeWorkspace(
+      sessionID: sessionID,
+      selectedModelID: model.id
+    )
+    try createListFixtureDirectories(in: workspace, count: budget)
+    let runtime = ChatSessionFakeChatModelRuntime(
+      eventTurns: listFileEventTurns(count: budget)
+        + [[.chunk("Stopped at the model-specific tool limit.")]]
+    )
+    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    try engine.loadSession(from: workspace, sessionID: sessionID)
+    engine.modelRuntime.modelState = .ready
+    engine.setInteractionMode(.agent)
+
+    engine.sendMessage(
+      prompt: "inspect every fixture directory",
+      in: workspace,
+      sessionID: sessionID
+    )
+
+    try await waitUntil { !engine.isGenerating }
+
+    #expect(budget == 12)
+    #expect(engine.chatSession.toolCalls.count == budget)
+    #expect(engine.chatSession.turns.first?.toolCallBatchCount == budget)
+    let capturedToolContexts = await runtime.capturedToolContexts
+    #expect(capturedToolContexts.count == budget + 1)
+    #expect(capturedToolContexts.dropLast().allSatisfy { $0 != nil })
+    #expect(capturedToolContexts[budget] == nil)
+  }
+
+  @Test
   func sendMessageFailsWhenBudgetFinalizationHasNoVisibleText() async throws {
-    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     try createListFixtureDirectories(in: workspace, count: budget)
@@ -723,7 +761,8 @@ struct ConversationEngineToolLoopTests {
   func invalidBatchAtToolBudgetBoundaryFinalizesWithoutToolCapableRepair() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    let callsBeforeInvalidBatch = ChatToolLoopLimits.defaultMaxToolLoopIterations - 1
+    let callsBeforeInvalidBatch =
+      ManagedModelCatalog.defaultModel.maxToolLoopIterations - 1
     try createListFixtureDirectories(in: workspace, count: callsBeforeInvalidBatch)
     let finalSummary = "The final mixed batch was invalid, so I stopped."
     let runtime = ChatSessionFakeChatModelRuntime(
@@ -760,8 +799,8 @@ struct ConversationEngineToolLoopTests {
     #expect(Array(engine.chatSession.toolCalls.suffix(2)).map(\.status) == [.failed, .failed])
     #expect(engine.chatSession.turns.first?.toolCallBatchCount == callsBeforeInvalidBatch + 1)
     let toolContexts = await runtime.capturedToolContexts
-    #expect(toolContexts.count == ChatToolLoopLimits.defaultMaxToolLoopIterations + 1)
-    #expect(toolContexts[ChatToolLoopLimits.defaultMaxToolLoopIterations] == nil)
+    #expect(toolContexts.count == ManagedModelCatalog.defaultModel.maxToolLoopIterations + 1)
+    #expect(toolContexts[ManagedModelCatalog.defaultModel.maxToolLoopIterations] == nil)
   }
 
   @Test
@@ -1221,7 +1260,7 @@ struct ConversationEngineToolLoopTests {
 
   @Test
   func toolBudgetExhaustionUsesFinalizationPath() async throws {
-    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     // Distinct list_files calls (different paths) so the duplicate block never fires and
@@ -2225,7 +2264,10 @@ struct ConversationEngineToolLoopTests {
     }
   }
 
-  private func makeWorkspace(sessionID: ChatSession.ID) throws -> Workspace {
+  private func makeWorkspace(
+    sessionID: ChatSession.ID,
+    selectedModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID
+  ) throws -> Workspace {
     let rootURL = FileManager.default.temporaryDirectory.appending(
       path: "sumika-tests-\(UUID().uuidString)",
       directoryHint: .isDirectory
@@ -2242,7 +2284,7 @@ struct ConversationEngineToolLoopTests {
       sessions: [
         ChatSession(
           id: sessionID,
-          selectedModelID: ManagedModelCatalog.defaultModelID,
+          selectedModelID: selectedModelID,
           modeSettings: testModeSettings(
             systemPrompt: ChatPromptDefaults.agentSystemPrompt,
             generationSettings: .agentDefault

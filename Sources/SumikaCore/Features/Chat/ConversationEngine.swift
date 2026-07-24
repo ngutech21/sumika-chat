@@ -48,7 +48,6 @@ final class ConversationEngine {
   @ObservationIgnored let turnExecutionCoordinator: ChatTurnExecutionCoordinator
   @ObservationIgnored var workspaceInstructionsLoader: any WorkspaceInstructionsLoading
   @ObservationIgnored let toolResumeCoordinator = ToolResumeCoordinator()
-  @ObservationIgnored let maxToolLoopIterations: Int
   @ObservationIgnored private let modelContextBuilder = ChatModelContextBuilder()
   @ObservationIgnored private let attachmentCoordinator: ChatAttachmentCoordinator
   @ObservationIgnored private let transcriptMutator = ChatTranscriptMutator()
@@ -129,7 +128,6 @@ final class ConversationEngine {
       turnTracer: turnTracer
     )
     self.workspaceInstructionsLoader = workspaceInstructionsLoader
-    self.maxToolLoopIterations = ChatToolLoopLimits.defaultMaxToolLoopIterations
     self.toolOrchestrator = toolOrchestrator
     self.toolLoopCoordinator = ToolLoopCoordinator(
       turnTracer: turnTracer

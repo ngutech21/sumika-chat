@@ -28,22 +28,19 @@ struct ChatTurnExecutionCoordinator {
   private let toolPromptPolicy: ToolPromptPolicy
   private let toolFollowUpNoticePolicy: ToolFollowUpNoticePolicy
   private let turnTracer: any TurnTracing
-  private let maxToolLoopIterations: Int
 
   init(
     focusedFileReducer: FocusedFileStateReducer = FocusedFileStateReducer(),
     modelContextBuilder: ChatModelContextBuilder = ChatModelContextBuilder(),
     toolPromptPolicy: ToolPromptPolicy = ToolPromptPolicy(),
     toolFollowUpNoticePolicy: ToolFollowUpNoticePolicy = ToolFollowUpNoticePolicy(),
-    turnTracer: any TurnTracing = NoopTurnTracer(),
-    maxToolLoopIterations: Int = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    turnTracer: any TurnTracing = NoopTurnTracer()
   ) {
     self.focusedFileReducer = focusedFileReducer
     self.modelContextBuilder = modelContextBuilder
     self.toolPromptPolicy = toolPromptPolicy
     self.toolFollowUpNoticePolicy = toolFollowUpNoticePolicy
     self.turnTracer = turnTracer
-    self.maxToolLoopIterations = maxToolLoopIterations
   }
 
   func emitUserTurnStartEvents(
@@ -286,6 +283,7 @@ struct ChatTurnExecutionCoordinator {
     var currentAssistantMessageID = lastAssistantMessageID
     var currentNativeToolCalls = lastNativeToolCalls
     let toolCallingPolicy = runtime.selectedModel.toolCallingPolicy
+    let maxToolLoopIterations = runtime.selectedModel.maxToolLoopIterations
     let turnToolRegistry = turnToolOrchestrator.toolRegistry
 
     while !currentNativeToolCalls.isEmpty {

@@ -121,6 +121,8 @@ flowchart TD
 - The turn-wide budget is derived from the ordered tool-call batches in
   `ChatTurn.items`. A multi-call assistant response counts once, and approval,
   `ask_user`, persistence, or reload pauses do not reset the consumed count.
+  Its maximum comes from the selected `ManagedModel`, so model-specific catalog
+  configuration remains effective across resumed turns.
 - Successful write/edit follow-ups use the normal tool loop and keep the active
   tool schema while budget remains. Explicit denial and other force-final rules
   may still select a no-tools follow-up.

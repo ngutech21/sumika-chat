@@ -26,6 +26,7 @@ struct ModelManagementTests {
     )
 
     #expect(!model.supportsWorkspaceTools)
+    #expect(model.maxToolLoopIterations == 8)
   }
 
   @Test
@@ -37,6 +38,32 @@ struct ModelManagementTests {
 
     let qwen35B = try #require(ManagedModelCatalog.model(id: "qwen3.6-35b-a3b-4bit"))
     #expect(qwen35B.reasoningTraceFormat == .qwenThinkTags)
+  }
+
+  @Test
+  func catalogDeclaresToolLoopBudgetsByModelSize() throws {
+    let smallModelIDs = [
+      "gemma4-e4b-qat-4bit",
+      "gemma4-12b-qat-4bit",
+      "gemma4-26b-qat-4bit",
+      "qwen3.6-27B-4bit",
+      "qwen3.6-27B-8bit",
+    ]
+    for modelID in smallModelIDs {
+      let model = try #require(ManagedModelCatalog.model(id: modelID))
+      #expect(model.maxToolLoopIterations == 8)
+    }
+
+    let largeModelIDs = [
+      "gemma4-31b-qat-4bit",
+      "qwen3.6-35b-a3b-4bit",
+      "qwen3.6-35b-a3b-8bit",
+      "qwen3.6-40B-8bit-heretic",
+    ]
+    for modelID in largeModelIDs {
+      let model = try #require(ManagedModelCatalog.model(id: modelID))
+      #expect(model.maxToolLoopIterations == 12)
+    }
   }
 
   @Test

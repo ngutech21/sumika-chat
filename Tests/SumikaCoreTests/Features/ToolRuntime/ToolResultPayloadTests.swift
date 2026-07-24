@@ -87,7 +87,7 @@ struct ToolResultPayloadTests {
           path: nil,
           reason: .toolBudgetExceeded(
             requestedTool: .editFile,
-            iterationLimit: ChatToolLoopLimits.defaultMaxToolLoopIterations
+            iterationLimit: ManagedModelCatalog.defaultModel.maxToolLoopIterations
           ),
           recovery: .askUser(message: "Send another message to continue.")
         )),
@@ -215,7 +215,7 @@ struct ToolResultPayloadTests {
 
   @Test
   func budgetExceededFailurePreviewExplainsLimit() {
-    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let payload = ToolResultPayload.failure(
       ToolFailure(
         toolName: .editFile,

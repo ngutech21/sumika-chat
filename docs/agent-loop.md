@@ -85,8 +85,10 @@ reasoning-only output are not successful stop conditions.
 - The budget counts native assistant tool-call batches, not individual calls;
   one multi-call response consumes one batch. The count is derived from the
   persisted turn items, so approval, `ask_user`, and reload pauses cannot reset
-  it. Invalid batches consume normal budget and receive no extra repair round at
-  the hard boundary.
+  it. The selected `ManagedModel` supplies the maximum: catalog models default
+  to eight iterations, while the 30B-and-larger entries currently opt into
+  twelve. Invalid batches consume normal budget and receive no extra repair
+  round at the hard boundary.
 
 ## MLX Session Policy
 

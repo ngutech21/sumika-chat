@@ -1,9 +1,5 @@
 import Foundation
 
-enum ChatToolLoopLimits {
-  static let defaultMaxToolLoopIterations = 8
-}
-
 // Turn execution stays in the canonical live-session owner so cancellation,
 // transcript application, and finalization cannot drift apart.
 @MainActor
@@ -607,7 +603,7 @@ extension ConversationEngine {
       return .fail(cancelsStreaming: false)
     }
     let finalReason: ToolFollowUpFinalReason? =
-      turn.toolCallBatchCount >= maxToolLoopIterations
+      turn.toolCallBatchCount >= runtime.selectedModel.maxToolLoopIterations
       ? .toolBatchBudgetExhausted
       : nil
     let promptMode = ToolFollowUpPromptPolicy.promptMode(
@@ -722,7 +718,11 @@ extension ConversationEngine {
     )
     let promptMode = ToolFollowUpPromptPolicy.promptMode(
       for: toolProfile,
-      finalReason: finalReason(batch, in: turn)
+      finalReason: finalReason(
+        batch,
+        in: turn,
+        maxToolLoopIterations: runtime.selectedModel.maxToolLoopIterations
+      )
     )
     let nextAssistantMessageID = UUID()
     applyWorkflowEvents([
@@ -815,7 +815,8 @@ extension ConversationEngine {
 
   private func finalReason(
     _ batch: ToolCallBatch,
-    in turn: ChatTurn
+    in turn: ChatTurn,
+    maxToolLoopIterations: Int
   ) -> ToolFollowUpFinalReason? {
     if batch.records.contains(where: { $0.status == .denied }) {
       return .denial

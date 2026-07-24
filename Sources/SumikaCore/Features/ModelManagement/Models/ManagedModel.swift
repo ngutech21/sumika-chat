@@ -51,6 +51,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
   package let defaultModeSettings: ChatModeSettingsSet
   package let defaultContextTokenLimit: Int
   package let enabled: Bool
+  package let maxToolLoopIterations: Int
 
   package init(
     id: String,
@@ -67,7 +68,8 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     reasoningTraceFormat: ReasoningTraceFormat = .none,
     defaultModeSettings: ChatModeSettingsSet,
     defaultContextTokenLimit: Int,
-    enabled: Bool
+    enabled: Bool,
+    maxToolLoopIterations: Int = 8
   ) {
     self.id = id
     self.displayName = displayName
@@ -84,6 +86,7 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.defaultModeSettings = defaultModeSettings
     self.defaultContextTokenLimit = defaultContextTokenLimit
     self.enabled = enabled
+    self.maxToolLoopIterations = maxToolLoopIterations
   }
 
   package var supportsWorkspaceTools: Bool {
@@ -205,7 +208,8 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .gemmaChannel,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true
+      enabled: true,
+      maxToolLoopIterations: 12
     ),
 
     ManagedModel(
@@ -223,7 +227,8 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true
+      enabled: true,
+      maxToolLoopIterations: 12
     ),
     ManagedModel(
       id: "qwen3.6-35b-a3b-8bit",
@@ -240,7 +245,8 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true
+      enabled: true,
+      maxToolLoopIterations: 12
     ),
     ManagedModel(
       id: "qwen3.6-27B-4bit",
@@ -292,7 +298,8 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true
+      enabled: true,
+      maxToolLoopIterations: 12
     ),
   ].filter(\.enabled)
 

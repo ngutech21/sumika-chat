@@ -209,7 +209,7 @@ struct SemanticAgentLoopTests {
 
   @Test
   func repeatedApprovalPausesDoNotResetTurnToolBatchBudget() async throws {
-    let budget = ChatToolLoopLimits.defaultMaxToolLoopIterations
+    let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     var eventTurns = (0..<budget).map { index in
