@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.1](https://github.com/ngutech21/sumika-chat/compare/v1.4.0...v1.4.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* ensure finish_task is called as the last tool ([38bb9e0](https://github.com/ngutech21/sumika-chat/commit/38bb9e0939053c99f683ebf37045f66177772dd0))
+* format ([6b73e0c](https://github.com/ngutech21/sumika-chat/commit/6b73e0cc2f5c84728a80672fa8ba8f8a0c014fd5))
+* handle cancellation in model stream processing ([681c10e](https://github.com/ngutech21/sumika-chat/commit/681c10eb858d883da0e68a15a8d1438f60bb5171))
+* truncate long tool headers in transcript ([0af3006](https://github.com/ngutech21/sumika-chat/commit/0af3006f83531b121091aafa1c94c5a2222fdd21))
+
 ## [1.4.0](https://github.com/ngutech21/sumika-chat/compare/v1.3.0...v1.4.0) (2026-07-19)
 
 
