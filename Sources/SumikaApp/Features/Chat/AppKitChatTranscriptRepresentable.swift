@@ -81,6 +81,7 @@ final class NativeChatTranscriptCoordinator: NSObject {
   private var onDenyToolCall: (ToolCallRecord.ID) -> Void
   private var onAnswerAskUser: (ToolCallRecord.ID, String) -> Void
   private weak var tableView: NSTableView?
+  private var lastViewportWidth: CGFloat?
   private var dataSource: NSTableViewDiffableDataSource<NativeTranscriptSection, String>?
   private var rowsByID: [String: NativeTranscriptRow] = [:]
   private var rowIDs: [String] = []
@@ -125,7 +126,9 @@ final class NativeChatTranscriptCoordinator: NSObject {
 extension NativeChatTranscriptCoordinator {
 
   func makeScrollView() -> NSScrollView {
+    lastViewportWidth = nil
     let tableView = NativeTranscriptNSTableView()
+    tableView.style = .plain
     tableView.headerView = nil
     tableView.usesAlternatingRowBackgroundColors = false
     tableView.selectionHighlightStyle = .none
@@ -148,6 +151,7 @@ extension NativeChatTranscriptCoordinator {
     scrollView.borderType = .noBorder
     scrollView.hasVerticalScroller = true
     scrollView.hasHorizontalScroller = false
+    scrollView.horizontalScrollElasticity = .none
     scrollView.autohidesScrollers = true
     // The floating composer manages the bottom inset itself, so opt out of the
     // system-driven adjustment and drive `contentInsets` explicitly.
@@ -460,11 +464,14 @@ extension NativeChatTranscriptCoordinator {
       return false
     }
     let targetWidth = max(scrollView.contentSize.width, 1)
-    guard abs(tableColumn.width - targetWidth) >= 0.5 else {
-      return false
+    let didChangeViewportWidth =
+      lastViewportWidth.map { abs($0 - targetWidth) >= 0.5 } ?? true
+    lastViewportWidth = targetWidth
+    let didChangeColumnWidth = abs(tableColumn.width - targetWidth) >= 0.5
+    if didChangeColumnWidth {
+      tableColumn.width = targetWidth
     }
-    tableColumn.width = targetWidth
-    return true
+    return didChangeViewportWidth || didChangeColumnWidth
   }
 
   private func applySnapshot(

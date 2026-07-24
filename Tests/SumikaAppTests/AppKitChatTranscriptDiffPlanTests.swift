@@ -7,6 +7,43 @@ import Testing
 @MainActor
 struct AppKitChatTranscriptDiffPlanTests {
   @Test
+  func transcriptViewportCannotScrollHorizontally() throws {
+    let coordinator = AppKitChatTranscriptRepresentable.Coordinator(
+      onToggleSpeech: { _, _ in },
+      onApproveToolCall: { _ in },
+      onDenyToolCall: { _ in },
+      onAnswerAskUser: { _, _ in }
+    )
+    let scrollView = coordinator.makeScrollView()
+    scrollView.setFrameSize(NSSize(width: 640, height: 300))
+    scrollView.layoutSubtreeIfNeeded()
+    let tableView = try #require(scrollView.documentView as? NSTableView)
+
+    coordinator.update(
+      rows: [],
+      accessibilityValue: "ready",
+      isSpeechEnabled: false,
+      activeSpeechRowID: nil,
+      in: scrollView
+    )
+    tableView.layoutSubtreeIfNeeded()
+    scrollView.layoutSubtreeIfNeeded()
+
+    let clipView = scrollView.contentView
+    let proposedBounds = NSRect(
+      x: 100,
+      y: clipView.bounds.origin.y,
+      width: clipView.bounds.width,
+      height: clipView.bounds.height
+    )
+    let constrainedBounds = clipView.constrainBoundsRect(proposedBounds)
+
+    #expect(scrollView.horizontalScrollElasticity == .none)
+    #expect(tableView.frame.width == clipView.bounds.width)
+    #expect(constrainedBounds.origin.x == 0)
+  }
+
+  @Test
   func sameRowIDsReconfigureChangedRowsWithoutSnapshot() {
     let plan = NativeTranscriptDiffPlan.make(
       previousIDs: ["user", "assistant"],
