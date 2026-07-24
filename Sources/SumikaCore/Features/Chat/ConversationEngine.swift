@@ -1266,11 +1266,16 @@ extension ConversationEngine {
   }
 
   private func effectiveToolRegistry(for promptMode: ToolPromptMode) -> ToolRegistry {
+    if promptMode == .afterToolBudgetExhausted {
+      return ToolRegistry(tools: [.finishTask])
+    }
+
     let profile: ToolExecutionProfile
     switch promptMode {
     case .chatWeb, .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal:
       profile = .chatWeb
-    case .enabled(true), .afterToolResultCanContinue, .afterToolResultFinal:
+    case .enabled(true), .afterToolResultCanContinue, .afterToolBudgetExhausted,
+      .afterToolResultFinal:
       profile = .agent
     case .disabled, .enabled(false):
       profile = .disabled

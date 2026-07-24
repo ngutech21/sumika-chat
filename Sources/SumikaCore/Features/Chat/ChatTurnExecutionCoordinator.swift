@@ -155,6 +155,7 @@ struct ChatTurnExecutionCoordinator {
       session: conversation.chatSession,
       turnID: turnID
     )
+    let suppressVisibleAssistantContent = toolPromptMode == .afterToolBudgetExhausted
     var guardedAssistantChunks = ""
     var generationResult = try await runtime.chatGenerationCoordinator.streamAssistantReplyResult(
       turnID: turnID,
@@ -169,7 +170,7 @@ struct ChatTurnExecutionCoordinator {
         guard conversation.isActive(turnID) else {
           return
         }
-        if failedCommandGuard != nil {
+        if failedCommandGuard != nil || suppressVisibleAssistantContent {
           guardedAssistantChunks += chunk
           return
         }
@@ -235,7 +236,7 @@ struct ChatTurnExecutionCoordinator {
     guard conversation.isActive(turnID) else {
       return ChatGenerationResult(assistantContent: "")
     }
-    if let failedCommandGuard {
+    if let failedCommandGuard, !suppressVisibleAssistantContent {
       let streamedContent =
         guardedAssistantChunks.isEmpty ? generationResult.assistantContent : guardedAssistantChunks
       let guardedContent = guardedVisibleContent(
@@ -295,12 +296,17 @@ struct ChatTurnExecutionCoordinator {
         throw ChatGenerationError.emptyModelResponse
       }
       let toolLoopIteration = consumedBatchCount + 1
-      let followUpPromptMode = ToolFollowUpPromptPolicy.promptMode(
-        for: toolProfile,
-        finalReason: toolLoopIteration == maxToolLoopIterations
-          ? .toolBatchBudgetExhausted
-          : nil
-      )
+      let followUpPromptMode =
+        if toolProfile == .agent, toolLoopIteration == maxToolLoopIterations {
+          ToolPromptMode.afterToolBudgetExhausted
+        } else {
+          ToolFollowUpPromptPolicy.promptMode(
+            for: toolProfile,
+            finalReason: toolLoopIteration == maxToolLoopIterations
+              ? .toolBatchBudgetExhausted
+              : nil
+          )
+        }
       guard
         let step = try await runtime.toolLoopCoordinator.run(
           ToolLoopRequest(
@@ -345,6 +351,20 @@ struct ChatTurnExecutionCoordinator {
         return .stop
       case .resumeAutomaticApproval(let batchAnchorID):
         return .resumeAutomaticApproval(batchAnchorID: batchAnchorID)
+      case .resumeGeneration(let nextAssistantMessageID, .afterToolBudgetExhausted),
+        .resumeCorrectionGeneration(let nextAssistantMessageID, .afterToolBudgetExhausted):
+        return try await finishAfterToolBudgetExhaustion(
+          workspace: workspace,
+          sessionID: sessionID,
+          assistantMessageID: nextAssistantMessageID,
+          turnID: turnID,
+          interactionMode: interactionMode,
+          runtime: runtime,
+          conversation: conversation,
+          turnToolOrchestrator: turnToolOrchestrator,
+          stableInstructions: stableInstructions,
+          toolLoopIteration: maxToolLoopIterations + 1
+        )
       case .resumeGeneration(let nextAssistantMessageID, let promptMode):
         conversation.setActiveToolPromptMode(promptMode)
         let generationResult = try await streamAssistantReply(
@@ -403,6 +423,133 @@ struct ChatTurnExecutionCoordinator {
 
     return .complete
   }
+
+  private func finishAfterToolBudgetExhaustion(
+    workspace: Workspace,
+    sessionID: ChatSession.ID,
+    assistantMessageID: UUID,
+    turnID: ChatTurn.ID,
+    interactionMode: WorkspaceInteractionMode,
+    runtime: ChatTurnRuntimeContext,
+    conversation: ConversationEngine,
+    turnToolOrchestrator: ToolOrchestrator,
+    stableInstructions: String,
+    toolLoopIteration: Int
+  ) async throws -> ChatToolLoopOutcome {
+    let finishTaskOrchestrator = turnToolOrchestrator.replacingExecutorRegistry(
+      ToolExecutorRegistry([
+        AnyToolExecutor(FinishTaskToolExecutor())
+      ])
+    )
+    let finishTaskRegistry = finishTaskOrchestrator.toolRegistry
+    let generationResult = try await streamAssistantReply(
+      to: assistantMessageID,
+      runtime: runtime,
+      conversation: conversation,
+      interactionMode: interactionMode,
+      toolPromptMode: .afterToolBudgetExhausted,
+      turnToolRegistry: finishTaskRegistry,
+      stableInstructions: stableInstructions,
+      turnID: turnID,
+      toolLoopIteration: toolLoopIteration
+    )
+    try Task.checkCancellation()
+    guard conversation.isActive(turnID) else {
+      return .stop
+    }
+    guard !generationResult.nativeToolCalls.isEmpty else {
+      appendToolBudgetFallback(
+        to: assistantMessageID,
+        conversation: conversation
+      )
+      return .complete
+    }
+
+    guard
+      let step = try await runtime.toolLoopCoordinator.run(
+        ToolLoopRequest(
+          workspace: workspace,
+          sessionID: sessionID,
+          turnID: turnID,
+          assistantMessageID: assistantMessageID,
+          items: conversation.chatSession.turns.flatMap(\.items),
+          focusedFileState: conversation.chatSession.focusedFileState,
+          interactionMode: interactionMode,
+          followUpPromptMode: .afterToolBudgetExhausted,
+          toolLoopIteration: toolLoopIteration,
+          toolCallingPolicy: runtime.selectedModel.toolCallingPolicy,
+          nativeToolCalls: generationResult.nativeToolCalls
+        ),
+        using: finishTaskOrchestrator
+      )
+    else {
+      appendToolBudgetFallback(
+        to: assistantMessageID,
+        conversation: conversation
+      )
+      return .complete
+    }
+    try Task.checkCancellation()
+    guard conversation.isActive(turnID) else {
+      return .stop
+    }
+
+    conversation.applyWorkflowEvents(step.events)
+    conversation.notifySessionDidChange()
+    guard step.continuation != .stopTurn else {
+      return .complete
+    }
+
+    let fallbackMessageID =
+      switch step.continuation {
+      case .resumeGeneration(let messageID, _),
+        .resumeCorrectionGeneration(let messageID, _):
+        messageID
+      case .none, .awaitingApproval, .awaitingUserAnswer, .resumeAutomaticApproval,
+        .stopTurn:
+        assistantMessageID
+      }
+    appendToolBudgetFallback(
+      to: fallbackMessageID,
+      conversation: conversation
+    )
+    return .complete
+  }
+
+  private func appendToolBudgetFallback(
+    to assistantMessageID: UUID,
+    conversation: ConversationEngine
+  ) {
+    let targetMessage = conversation.chatSession.turns
+      .flatMap(\.items)
+      .compactMap { item -> AssistantTurnMessage? in
+        guard case .assistantMessage(let message) = item,
+          message.id == assistantMessageID
+        else {
+          return nil
+        }
+        return message
+      }
+      .first
+    var events: [ChatWorkflowEvent] = [
+      .assistantChunkAppended(
+        chunk: Self.toolBudgetFallback,
+        messageID: assistantMessageID
+      )
+    ]
+    if targetMessage?.deliveryStatus == .streaming {
+      events.append(
+        .assistantGenerationCompleted(
+          messageID: assistantMessageID,
+          metrics: targetMessage?.generationMetrics
+        ))
+    }
+    conversation.applyWorkflowEvents(events)
+    conversation.notifySessionDidChange()
+  }
+
+  private static let toolBudgetFallback =
+    "Tool limit reached before reliable completion. Changes may be incomplete."
 
   func requireVisibleTextOrToolCall(_ generationResult: ChatGenerationResult) throws {
     guard
@@ -521,20 +668,24 @@ extension ChatTurnExecutionCoordinator {
     toolCallingPolicy: ToolCallingPolicy,
     turnToolRegistry: ToolRegistry
   ) throws -> ChatRuntimePromptPlan {
+    let runtimeToolRegistry =
+      toolPromptMode == .afterToolBudgetExhausted
+      ? ToolRegistry(tools: [.finishTask])
+      : turnToolRegistry
     let cacheIdentityInstructions = try ToolSchemaCacheIdentity.instructions(
       stableInstructions: stableInstructions,
-      registry: turnToolRegistry
+      registry: runtimeToolRegistry
     )
     return ChatRuntimePromptPlan(
       stableInstructions: stableInstructions,
       transientInstructions: transientInstructions(
         session: session,
-        turnToolRegistry: turnToolRegistry
+        turnToolRegistry: runtimeToolRegistry
       ),
       toolContext: runtimeToolContext(
         for: toolPromptMode,
         policy: toolCallingPolicy,
-        registry: turnToolRegistry,
+        registry: runtimeToolRegistry,
         cacheIdentityInstructions: cacheIdentityInstructions
       ),
       cacheIdentityInstructions: cacheIdentityInstructions
@@ -554,7 +705,7 @@ extension ChatTurnExecutionCoordinator {
     case .disabled, .enabled(false), .afterToolResultFinal, .afterChatWebToolResultFinal:
       return nil
     case .chatWeb, .afterChatWebToolResultCanContinue, .afterToolResultCanContinue,
-      .enabled(true):
+      .afterToolBudgetExhausted, .enabled(true):
       break
     }
     return ChatRuntimeToolContext(

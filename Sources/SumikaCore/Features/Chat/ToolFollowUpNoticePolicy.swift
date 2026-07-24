@@ -51,6 +51,10 @@ struct ToolFollowUpNoticePolicy: Sendable {
     state: AgentTurnState,
     promptMode: ToolPromptMode
   ) -> String? {
+    if promptMode == .afterToolBudgetExhausted {
+      return Self.toolBudgetExhaustedNotice
+    }
+
     if promptMode.isFinal {
       // run_command exists only in the agent profile, so this escalation never applies to
       // the chat-web final variant. When the loop brake forced this final generation after
@@ -94,6 +98,12 @@ struct ToolFollowUpNoticePolicy: Sendable {
     Never say files were changed unless a successful write_file or edit_file result exists in this turn.
     Failed or invalid write/edit tool results mean no workspace change happened.
     If more work is needed, briefly say what remains and ask the user to send another message.
+    """
+
+  private static let toolBudgetExhaustedNotice =
+    """
+    The action-tool budget is exhausted. Call finish_task exactly once and alone.
+    Put the complete user-visible final response in summary. Do not emit visible text or call any other tool.
     """
 
   private static let finalChatWebToolResultNotice =

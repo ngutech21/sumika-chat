@@ -6,6 +6,7 @@ enum ToolPromptMode: Equatable, Sendable {
   case chatWeb
   case afterChatWebToolResultCanContinue
   case afterToolResultCanContinue
+  case afterToolBudgetExhausted
   case afterToolResultFinal
   case afterChatWebToolResultFinal
 
@@ -16,7 +17,7 @@ enum ToolPromptMode: Equatable, Sendable {
     case .afterToolResultFinal, .afterChatWebToolResultFinal:
       return true
     case .disabled, .enabled, .chatWeb, .afterChatWebToolResultCanContinue,
-      .afterToolResultCanContinue:
+      .afterToolResultCanContinue, .afterToolBudgetExhausted:
       return false
     }
   }
@@ -50,7 +51,8 @@ enum ToolPromptMode: Equatable, Sendable {
     switch self {
     case .chatWeb, .afterChatWebToolResultCanContinue, .afterChatWebToolResultFinal:
       return .afterChatWebToolResultFinal
-    case .enabled(true), .afterToolResultCanContinue, .afterToolResultFinal:
+    case .enabled(true), .afterToolResultCanContinue, .afterToolBudgetExhausted,
+      .afterToolResultFinal:
       return .afterToolResultFinal
     case .disabled, .enabled(false):
       return .disabled
@@ -135,7 +137,7 @@ struct ToolPromptPolicy: Sendable {
         toolRegistry: toolRegistry,
         toolCallingPolicy: toolCallingPolicy
       )
-    case .afterToolResultCanContinue:
+    case .afterToolResultCanContinue, .afterToolBudgetExhausted:
       return nativeAgentSystemPrompt(
         basePrompt: basePrompt,
         toolRegistry: toolRegistry,

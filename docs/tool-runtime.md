@@ -116,13 +116,21 @@ flowchart TD
   A mixed batch is rejected in full and no sibling side effect runs. Other
   direct-result behavior is also limited to single-call responses. Invalid
   batches consume a normal loop iteration and receive a tool-capable correction
-  generation only when budget remains. At the hard budget boundary, the next
-  response is final and exposes no tools; no extra repair iteration is granted.
+  generation only when budget remains. After the normal Agent loop consumes its
+  final action batch, it starts exactly one additional generation exposing only
+  `finish_task`. A valid call renders its summary directly and ends the turn.
+  Missing or invalid calls end the turn with
+  `Tool limit reached before reliable completion. Changes may be incomplete.`;
+  no repair generation or action-tool execution follows. Approval, `ask_user`,
+  denial, duplicate-recovery, and chat-web finalization keep their existing
+  no-tools behavior.
 - The turn-wide budget is derived from the ordered tool-call batches in
   `ChatTurn.items`. A multi-call assistant response counts once, and approval,
   `ask_user`, persistence, or reload pauses do not reset the consumed count.
-  Its maximum comes from the selected `ManagedModel`, so model-specific catalog
-  configuration remains effective across resumed turns.
+  Its action-batch maximum comes from the selected `ManagedModel`, so
+  model-specific catalog configuration remains effective across resumed turns.
+  The terminal `finish_task` control batch may be appended after that action
+  budget without adding persisted budget state.
 - Successful write/edit follow-ups use the normal tool loop and keep the active
   tool schema while budget remains. Explicit denial and other force-final rules
   may still select a no-tools follow-up.
@@ -702,7 +710,9 @@ declarations.
   `done`, `blocked`, or `needs_user`; `summary` must be non-empty after trimming
   and is the complete user-visible final response. A successful call must be
   emitted alone and stops the tool loop directly. Invalid calls remain normal
-  failed observations and may use the remaining iteration budget for repair.
+  failed observations and may use the remaining action-iteration budget for
+  repair. The finish-only generation after action-budget exhaustion never gets
+  a repair generation.
 - Successful `write_file` and `edit_file` results are ordinary structured tool
   observations. They resume the normal tool loop with native tools available
   while the iteration budget remains, so the model can verify the change or

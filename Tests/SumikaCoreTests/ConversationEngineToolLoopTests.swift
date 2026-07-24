@@ -227,14 +227,27 @@ struct ConversationEngineToolLoopTests {
   }
 
   @Test
-  func sendMessageRunsReadOnlyToolsUntilBudgetThenStreamsFinalAssistantResponse() async throws {
+  func toolBudgetExhaustionExposesOnlyFinishTaskAndShowsItsSummary() async throws {
     let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     try createListFixtureDirectories(in: workspace, count: budget)
+    let summary = "Stopped after the recorded file listings."
     let runtime = ChatSessionFakeChatModelRuntime(
       eventTurns: listFileEventTurns(count: budget)
-        + [[.chunk("Tool limit reached. I stopped after the recorded file listings.")]]
+        + [
+          [
+            .chunk("This separate text must not be shown."),
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "finish_task",
+                arguments: [
+                  "status": .string("blocked"),
+                  "summary": .string(summary),
+                ]
+              )),
+          ]
+        ]
     )
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     try engine.loadSession(from: workspace, sessionID: sessionID)
@@ -245,11 +258,14 @@ struct ConversationEngineToolLoopTests {
 
     try await waitUntil { !engine.isGenerating }
 
-    #expect(engine.chatSession.toolCalls.count == budget)
+    #expect(engine.chatSession.toolCalls.count == budget + 1)
     #expect(engine.chatSession.toolCalls.allSatisfy { $0.status == .completed })
+    #expect(engine.chatSession.toolCalls.last?.request.toolName == .finishTask)
+    #expect(engine.chatSession.testMessages.last?.content == summary)
     #expect(
-      engine.chatSession.testMessages.last?.content
-        == "Tool limit reached. I stopped after the recorded file listings.")
+      !engine.chatSession.testMessages.contains {
+        $0.content.contains("This separate text must not be shown.")
+      })
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == budget + 1)
@@ -266,16 +282,16 @@ struct ConversationEngineToolLoopTests {
     #expect(
       capturedPromptPlans[budget].cacheIdentityInstructions.contains("[tool-schema-sha256:"))
     #expect(
-      capturedPromptPlans[budget].cacheIdentityInstructions
-        == capturedPromptPlans[0].cacheIdentityInstructions)
-    #expect(
       capturedPromptPlans[budget].cacheIdentityInstructions != capturedSystemPrompts[0])
+    #expect(
+      capturedPromptPlans[budget].cacheIdentityInstructions
+        != capturedPromptPlans[0].cacheIdentityInstructions)
     #expect(capturedPromptPlans[budget].transientInstructions.isEmpty)
 
     let capturedMessages = await runtime.capturedMessages
     #expect(
       latestToolFollowUpNotice(in: capturedMessages, at: budget)?
-        .contains("No more tools are available for this generation") == true)
+        .contains("The action-tool budget is exhausted") == true)
 
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 1)
@@ -289,7 +305,11 @@ struct ConversationEngineToolLoopTests {
     #expect(
       capturedToolContexts[0]?.cacheSystemPrompt
         == capturedToolContexts[1]?.cacheSystemPrompt)
-    #expect(capturedToolContexts[budget] == nil)
+    let finishContext = try #require(capturedToolContexts[budget])
+    #expect(finishContext.registry.tools.map(\.name) == [.finishTask])
+    #expect(
+      finishContext.cacheSystemPrompt
+        == capturedPromptPlans[budget].cacheIdentityInstructions)
   }
 
   @Test
@@ -306,7 +326,7 @@ struct ConversationEngineToolLoopTests {
     try createListFixtureDirectories(in: workspace, count: budget)
     let runtime = ChatSessionFakeChatModelRuntime(
       eventTurns: listFileEventTurns(count: budget)
-        + [[.chunk("Stopped at the model-specific tool limit.")]]
+        + [[]]
     )
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     try engine.loadSession(from: workspace, sessionID: sessionID)
@@ -327,17 +347,18 @@ struct ConversationEngineToolLoopTests {
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 1)
     #expect(capturedToolContexts.dropLast().allSatisfy { $0 != nil })
-    #expect(capturedToolContexts[budget] == nil)
+    #expect(capturedToolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
   }
 
   @Test
-  func sendMessageFailsWhenBudgetFinalizationHasNoVisibleText() async throws {
+  func thinkingOnlyBudgetFinalizationShowsDeterministicFallback() async throws {
     let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     try createListFixtureDirectories(in: workspace, count: budget)
     let runtime = ChatSessionFakeChatModelRuntime(
-      eventTurns: listFileEventTurns(count: budget) + [[]]
+      eventTurns: listFileEventTurns(count: budget)
+        + [[.thinkingChunk("Preparing the final task summary.")]]
     )
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
     try engine.loadSession(from: workspace, sessionID: sessionID)
@@ -350,9 +371,18 @@ struct ConversationEngineToolLoopTests {
 
     #expect(engine.chatSession.toolCalls.count == budget)
     #expect(engine.chatSession.toolCalls.allSatisfy { $0.status == .completed })
-    #expect(engine.chatSession.turns.first?.status == .failed)
-    #expect(engine.chatSession.turns.first?.modelContextPolicy == .excluded)
-    #expect(engine.errorMessage == ChatGenerationError.emptyModelResponse.localizedDescription)
+    #expect(engine.chatSession.turns.first?.status == .completed)
+    #expect(engine.chatSession.turns.first?.modelContextPolicy != .excluded)
+    #expect(engine.errorMessage == nil)
+    let fallbackMessage = try #require(
+      engine.chatSession.testMessages.first {
+        $0.content
+          == "Tool limit reached before reliable completion. Changes may be incomplete."
+      })
+    let fallbackMetrics = try #require(fallbackMessage.generationMetrics)
+    #expect(fallbackMessage.deliveryStatus == .complete)
+    #expect(fallbackMetrics.generatedTokenCount == 1)
+    #expect(fallbackMetrics.tokensPerSecond == 100)
 
     let capturedSystemPrompts = await runtime.capturedSystemPrompts
     #expect(capturedSystemPrompts.count == budget + 1)
@@ -365,12 +395,12 @@ struct ConversationEngineToolLoopTests {
     let capturedMessages = await runtime.capturedMessages
     #expect(
       latestToolFollowUpNotice(in: capturedMessages, at: budget)?
-        .contains("No more tools are available for this generation") == true)
+        .contains("The action-tool budget is exhausted") == true)
     #expect(capturedMessages.count == budget + 1)
 
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 1)
-    #expect(capturedToolContexts[budget] == nil)
+    #expect(capturedToolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
   }
 
   @Test
@@ -758,7 +788,7 @@ struct ConversationEngineToolLoopTests {
   }
 
   @Test
-  func invalidBatchAtToolBudgetBoundaryFinalizesWithoutToolCapableRepair() async throws {
+  func invalidBatchAtToolBudgetBoundaryUsesFinishOnlyFinalization() async throws {
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
     let callsBeforeInvalidBatch =
@@ -783,7 +813,16 @@ struct ConversationEngineToolLoopTests {
                 ]
               )),
           ],
-          [.chunk(finalSummary)],
+          [
+            .toolCall(
+              ChatRuntimeToolCall(
+                name: "finish_task",
+                arguments: [
+                  "status": .string("blocked"),
+                  "summary": .string(finalSummary),
+                ]
+              ))
+          ],
         ]
     )
     let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
@@ -796,11 +835,16 @@ struct ConversationEngineToolLoopTests {
 
     #expect(engine.chatSession.turns.first?.status == .completed)
     #expect(engine.chatSession.testMessages.last?.content == finalSummary)
-    #expect(Array(engine.chatSession.toolCalls.suffix(2)).map(\.status) == [.failed, .failed])
-    #expect(engine.chatSession.turns.first?.toolCallBatchCount == callsBeforeInvalidBatch + 1)
+    #expect(
+      Array(engine.chatSession.toolCalls.suffix(3)).map(\.status)
+        == [.failed, .failed, .completed])
+    #expect(engine.chatSession.toolCalls.last?.request.toolName == .finishTask)
+    #expect(engine.chatSession.turns.first?.toolCallBatchCount == callsBeforeInvalidBatch + 2)
     let toolContexts = await runtime.capturedToolContexts
     #expect(toolContexts.count == ManagedModelCatalog.defaultModel.maxToolLoopIterations + 1)
-    #expect(toolContexts[ManagedModelCatalog.defaultModel.maxToolLoopIterations] == nil)
+    let finishContext = try #require(
+      toolContexts[ManagedModelCatalog.defaultModel.maxToolLoopIterations])
+    #expect(finishContext.registry.tools.map(\.name) == [.finishTask])
   }
 
   @Test
@@ -1259,18 +1303,31 @@ struct ConversationEngineToolLoopTests {
   }
 
   @Test
-  func toolBudgetExhaustionUsesFinalizationPath() async throws {
+  func actionToolIsNotExecutedAfterToolBudgetExhaustion() async throws {
     let budget = ManagedModelCatalog.defaultModel.maxToolLoopIterations
     let sessionID = UUID()
     let workspace = try makeWorkspace(sessionID: sessionID)
-    // Distinct list_files calls (different paths) so the duplicate block never fires and
-    // the loop runs to the iteration budget, then finalizes with tools stripped.
+    try createListFixtureDirectories(in: workspace, count: budget)
+    let executionCounter = ToolExecutionCounter()
     var eventTurns = listFileEventTurns(count: budget)
     eventTurns.append([
-      .chunk("Tool limit reached. I stopped after the recorded file listings.")
+      .toolCall(
+        ChatRuntimeToolCall(
+          name: "list_files",
+          arguments: ["path": .string(".")]
+        ))
     ])
     let runtime = ChatSessionFakeChatModelRuntime(eventTurns: eventTurns)
-    let engine = ConversationEngine(runtime: runtime, modelPath: "/tmp/model")
+    let engine = ConversationEngine(
+      runtime: runtime,
+      modelPath: "/tmp/model",
+      toolOrchestrator: ToolOrchestrator(
+        executorRegistry: ToolExecutorRegistry([
+          AnyToolExecutor(CountingListFilesToolExecutor(counter: executionCounter)),
+          AnyToolExecutor(FinishTaskToolExecutor()),
+        ])
+      )
+    )
     try engine.loadSession(from: workspace, sessionID: sessionID)
     engine.modelRuntime.modelState = .ready
     engine.setInteractionMode(.agent)
@@ -1280,15 +1337,18 @@ struct ConversationEngineToolLoopTests {
     try await waitUntil { !engine.isGenerating }
 
     #expect(engine.chatSession.turns.first?.status == .completed)
-    #expect(engine.chatSession.toolCalls.count == budget)
+    #expect(engine.chatSession.toolCalls.count == budget + 1)
     #expect(engine.chatSession.toolCalls.first?.resultPayload?.status == .success)
+    #expect(engine.chatSession.toolCalls.last?.request.toolName == .listFiles)
+    #expect(engine.chatSession.toolCalls.last?.status == .failed)
+    #expect(await executionCounter.count == budget)
     #expect(
       engine.chatSession.testMessages.last?.content
-        == "Tool limit reached. I stopped after the recorded file listings.")
+        == "Tool limit reached before reliable completion. Changes may be incomplete.")
 
     let capturedToolContexts = await runtime.capturedToolContexts
     #expect(capturedToolContexts.count == budget + 1)
-    #expect(capturedToolContexts[budget] == nil)
+    #expect(capturedToolContexts[budget]?.registry.tools.map(\.name) == [.finishTask])
   }
 
   @Test
@@ -2292,6 +2352,32 @@ struct ConversationEngineToolLoopTests {
         )
       ]
     )
+  }
+}
+
+private actor ToolExecutionCounter {
+  private(set) var count = 0
+
+  func increment() {
+    count += 1
+  }
+}
+
+private struct CountingListFilesToolExecutor: TypedToolExecutor {
+  static let codec = ListFilesToolExecutor.codec
+
+  let counter: ToolExecutionCounter
+
+  func evaluatePermission(
+    _ input: ListFilesInput,
+    context: ToolContext
+  ) -> ToolPermissionEvaluation {
+    ListFilesToolExecutor().evaluatePermission(input, context: context)
+  }
+
+  func run(_ input: ListFilesInput, context: ToolContext) async -> ToolResultPayload {
+    await counter.increment()
+    return await ListFilesToolExecutor().run(input, context: context)
   }
 }
 

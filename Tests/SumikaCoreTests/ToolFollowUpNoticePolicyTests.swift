@@ -58,6 +58,25 @@ struct ToolFollowUpNoticePolicyTests {
   }
 
   @Test
+  func exhaustedToolBudgetRequiresFinishTaskOnly() throws {
+    let record = completedReadRecord(id: UUID(), path: "README.md", content: "hi")
+
+    let update = try #require(
+      ToolFollowUpNoticePolicy().update(
+        session: session(with: [record]),
+        turnID: defaultTurnID,
+        promptMode: .afterToolBudgetExhausted
+      ))
+
+    #expect(
+      update.record.modelFollowUpNotice
+        == """
+        The action-tool budget is exhausted. Call finish_task exactly once and alone.
+        Put the complete user-visible final response in summary. Do not emit visible text or call any other tool.
+        """)
+  }
+
+  @Test
   func repeatedFailingRunCommandEscalatesToUserOnFinal() throws {
     // Two consecutive identical failing run_commands + a forced final generation must yield
     // an actionable escalation (names the command + error, asks the user to act) rather than

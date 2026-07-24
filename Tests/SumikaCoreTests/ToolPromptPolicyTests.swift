@@ -135,6 +135,7 @@ struct ToolPromptPolicyTests {
     #expect(ToolPromptMode.afterToolResultFinal.isFinal)
     #expect(ToolPromptMode.afterChatWebToolResultFinal.isFinal)
     #expect(!ToolPromptMode.afterToolResultCanContinue.isFinal)
+    #expect(!ToolPromptMode.afterToolBudgetExhausted.isFinal)
     #expect(!ToolPromptMode.afterChatWebToolResultCanContinue.isFinal)
     #expect(!ToolPromptMode.chatWeb.isFinal)
 
