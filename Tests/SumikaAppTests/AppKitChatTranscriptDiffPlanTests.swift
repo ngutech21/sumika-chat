@@ -1490,6 +1490,31 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func toolHeaderTogglesFromEntireRowHitArea() throws {
+    var toggledRowIDs: [String] = []
+    var actions = testNativeActions()
+    actions.toggleToolExpansion = { toggledRowIDs.append($0) }
+    let cell = configuredNativeCell(
+      for: nativeToolRow(
+        id: "tool",
+        revision: 1,
+        record: nativeCompletedCommandToolRecord()
+      ),
+      actions: actions
+    )
+    let header = try #require(
+      cell.descendants(of: NativeTranscriptDisclosureHeaderView.self).first
+    )
+    let trailingHeaderPoint = NSPoint(x: header.bounds.maxX - 2, y: header.bounds.midY)
+
+    #expect(header.hitTest(trailingHeaderPoint) === header)
+
+    header.performDisclosureAction()
+
+    #expect(toggledRowIDs == ["tool"])
+  }
+
+  @Test
   func automaticApprovalAppearsOnlyInExpandedToolDetails() throws {
     let fullCommand = """
       git add main.py
@@ -1565,6 +1590,48 @@ struct AppKitChatTranscriptDiffPlanTests {
     let expandedFrame = expandedButton.frame(in: cell)
 
     #expect(abs(expandedFrame.minX - collapsedFrame.minX) < 1)
+  }
+
+  @Test
+  func reasoningHeaderTogglesFromEntireRowHitArea() throws {
+    var toggledRowIDs: [String] = []
+    var actions = testNativeActions()
+    actions.toggleThinkingExpansion = { toggledRowIDs.append($0) }
+    let cell = configuredNativeCell(
+      for: nativeThinkingRow(id: "thinking", revision: 1),
+      actions: actions
+    )
+    let header = try #require(
+      cell.descendants(of: NativeTranscriptDisclosureHeaderView.self).first
+    )
+    let trailingHeaderPoint = NSPoint(x: header.bounds.maxX - 2, y: header.bounds.midY)
+
+    #expect(header.hitTest(trailingHeaderPoint) === header)
+
+    header.performDisclosureAction()
+
+    #expect(toggledRowIDs == ["thinking"])
+  }
+
+  @Test
+  func userRowsAddConversationSpacingWithoutInflatingActivityRows() throws {
+    let userCell = configuredNativeCell(
+      for: nativeUserRow(id: "user", revision: 1)
+    )
+    let toolCell = configuredNativeCell(
+      for: nativeToolRow(
+        id: "tool",
+        revision: 1,
+        record: nativeCompletedCommandToolRecord()
+      )
+    )
+    let userContentHost = try #require(userCell.subviews.first)
+    let toolContentHost = try #require(toolCell.subviews.first)
+    let userTopInset = userCell.bounds.maxY - userContentHost.frame.maxY
+    let toolTopInset = toolCell.bounds.maxY - toolContentHost.frame.maxY
+
+    #expect(abs(userTopInset - 12) < 0.5)
+    #expect(abs(toolTopInset - 3) < 0.5)
   }
 
   @Test
@@ -2551,7 +2618,8 @@ private func nativeImageAttachment(
 @MainActor
 private func configuredNativeCell(
   for row: NativeTranscriptRow,
-  state: NativeTranscriptCellState = NativeTranscriptCellState()
+  state: NativeTranscriptCellState = NativeTranscriptCellState(),
+  actions: NativeTranscriptCellActions = testNativeActions()
 ) -> NativeChatMessageCellView {
   let cell = NativeChatMessageCellView(
     identifier: NSUserInterfaceItemIdentifier("NativeChatMessageCellView.Test")
@@ -2560,7 +2628,7 @@ private func configuredNativeCell(
   cell.configure(
     row: row,
     state: state,
-    actions: testNativeActions()
+    actions: actions
   )
   cell.setFrameSize(NSSize(width: 640, height: 240))
   let widthConstraint = cell.widthAnchor.constraint(equalToConstant: 640)

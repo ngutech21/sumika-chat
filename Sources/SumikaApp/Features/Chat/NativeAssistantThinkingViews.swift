@@ -83,7 +83,7 @@ final class NativeReasoningTickerView: NSView {
 
 final class NativeAssistantThinkingView: NSView {
   private let stack = NSStackView()
-  private let header = NSStackView()
+  private let header = NativeTranscriptDisclosureHeaderView()
   private let statusHost = NSView()
   private let titleLabel = NSTextField(wrappingLabelWithString: "Reasoning")
   private let disclosureButton = NativeActionButton(title: "")
@@ -146,7 +146,14 @@ final class NativeAssistantThinkingView: NSView {
     header.alignment = .centerY
     header.distribution = .fill
     header.spacing = 5
+    header.actionHandler = { [weak self] in
+      guard let self else {
+        return
+      }
+      toggleThinkingExpansion(currentRowID)
+    }
     stack.addArrangedSubview(header)
+    header.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
     statusHost.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
@@ -180,6 +187,11 @@ final class NativeAssistantThinkingView: NSView {
       disclosureButton.heightAnchor.constraint(equalToConstant: 16),
     ])
     header.addArrangedSubview(disclosureButton)
+
+    let trailingSpacer = NSView()
+    trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    trailingSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    header.addArrangedSubview(trailingSpacer)
   }
 
   private func updateStatus(_ status: AssistantThinkingMessage.DeliveryStatus) {

@@ -1456,8 +1456,8 @@ final class NativeChatMessageCellView: NSTableCellView {
   }
 
   private func updateVerticalInsets(for kind: NativeTranscriptCellKind) {
-    contentHostTopConstraint?.constant = kind.verticalInset
-    contentHostBottomConstraint?.constant = -kind.verticalInset
+    contentHostTopConstraint?.constant = kind.topInset
+    contentHostBottomConstraint?.constant = -kind.bottomInset
   }
 
   private func replaceHostedContent(with contentView: NSView) {
@@ -1889,7 +1889,11 @@ extension NativeChatMessageCellView {
     let toolCall = record.transcriptToolCall
     let hasDetails = record.hasNativeToolDetails || generationMetrics != nil
 
-    let header = horizontalStack(spacing: 5)
+    let header = NativeTranscriptDisclosureHeaderView()
+    header.translatesAutoresizingMaskIntoConstraints = false
+    header.orientation = .horizontal
+    header.alignment = .centerY
+    header.spacing = 5
     header.distribution = .fill
     header.addArrangedSubview(makeToolStatusIndicator(status: record.status))
     let nameLabel = makeTextLabel(toolCall.toolName.rawValue, color: .labelColor)
@@ -1908,6 +1912,9 @@ extension NativeChatMessageCellView {
       header.addArrangedSubview(summaryLabel)
     }
     if hasDetails {
+      header.actionHandler = { [weak self] in
+        self?.actions?.toggleToolExpansion(rowID)
+      }
       header.addArrangedSubview(
         makeIconButton(
           systemSymbolName: state.isToolExpanded ? "chevron.down" : "chevron.right",
@@ -1920,7 +1927,7 @@ extension NativeChatMessageCellView {
     }
     header.addArrangedSubview(spacer())
     stack.addArrangedSubview(header)
-    header.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor).isActive = true
+    header.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
     if state.isToolExpanded, hasDetails {
       stack.addArrangedSubview(makeToolDetails(record: record, metrics: generationMetrics))

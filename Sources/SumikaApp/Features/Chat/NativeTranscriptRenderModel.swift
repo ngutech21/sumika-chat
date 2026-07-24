@@ -23,7 +23,18 @@ enum NativeTranscriptCellKind: Equatable {
     }
   }
 
-  var verticalInset: CGFloat {
+  var topInset: CGFloat {
+    switch self {
+    case .userMessage:
+      12
+    case .assistantThinking, .tool, .generationIndicator:
+      3
+    case .assistantMessage:
+      6
+    }
+  }
+
+  var bottomInset: CGFloat {
     switch self {
     case .assistantThinking, .tool, .generationIndicator:
       3
@@ -551,7 +562,9 @@ enum NativeTranscriptRowMeasurer {
     let bubbleVerticalPadding: CGFloat = 16
     let copyRowHeight: CGFloat = 18
     let contentSpacing: CGFloat = 4
-    let cellVerticalPadding = NativeTranscriptCellKind.userMessage.verticalInset * 2
+    let cellVerticalPadding =
+      NativeTranscriptCellKind.userMessage.topInset
+      + NativeTranscriptCellKind.userMessage.bottomInset
     return ceil(
       max(
         NativeTranscriptCellKind.userMessage.minimumHeight,

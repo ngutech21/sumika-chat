@@ -192,6 +192,45 @@ final class NativeActionButton: NSButton {
   }
 }
 
+final class NativeTranscriptDisclosureHeaderView: NSStackView {
+  var actionHandler: (() -> Void)?
+
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    guard actionHandler != nil, bounds.contains(point) else {
+      return super.hitTest(point)
+    }
+    if let hitView = super.hitTest(point), hitView.isInsideButton(until: self) {
+      return hitView
+    }
+    return self
+  }
+
+  override func mouseUp(with event: NSEvent) {
+    let point = convert(event.locationInWindow, from: nil)
+    guard bounds.contains(point) else {
+      return
+    }
+    performDisclosureAction()
+  }
+
+  func performDisclosureAction() {
+    actionHandler?()
+  }
+}
+
+extension NSView {
+  fileprivate func isInsideButton(until ancestor: NSView) -> Bool {
+    var view: NSView? = self
+    while let currentView = view, currentView !== ancestor {
+      if currentView is NSButton {
+        return true
+      }
+      view = currentView.superview
+    }
+    return false
+  }
+}
+
 final class NativeAttachmentPreviewButton: NSButton {
   var actionHandler: ((NSView) -> Void)?
 
