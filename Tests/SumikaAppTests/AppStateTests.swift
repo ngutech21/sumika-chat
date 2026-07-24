@@ -1858,17 +1858,9 @@ private actor SlowSaveWorkspaceStore: WorkspaceStoring {
 }
 
 private actor InMemoryModelSettingsStore: ModelSettingsStoring {
-  private var selectedModelID = ManagedModelCatalog.defaultModelID
   private var settingsByModelID: [ManagedModel.ID: StoredModelSettings] = [:]
 
-  func selectedModelID(availableModelIDs: Set<String>) async -> String {
-    availableModelIDs.contains(selectedModelID)
-      ? selectedModelID : ManagedModelCatalog.defaultModelID
-  }
-
-  func setSelectedModelID(_ modelID: String) async {
-    selectedModelID = modelID
-  }
+  func setSelectedModelID(_: String) async {}
 
   func settings(for model: ManagedModel) async -> StoredModelSettings {
     settingsByModelID[model.id]

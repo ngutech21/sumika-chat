@@ -90,7 +90,6 @@ package enum ModelSettingsRestoreError: LocalizedError, Equatable, Sendable {
 }
 
 package protocol ModelSettingsStoring: Sendable {
-  func selectedModelID(availableModelIDs: Set<String>) async -> String
   func setSelectedModelID(_ modelID: String) async
   func settings(for model: ManagedModel) async -> StoredModelSettings
   func save(settings: StoredModelSettings, for model: ManagedModel) async throws
@@ -138,17 +137,6 @@ package actor ModelSettingsStore: ModelSettingsStoring {
     self.userDefaultsBox = UserDefaultsBox(userDefaults: userDefaults)
     self.settingsURL = settingsURL
     self.generationConfigPresetProvider = generationConfigPresetProvider
-  }
-
-  package func selectedModelID(availableModelIDs: Set<String>) async -> String {
-    guard
-      let storedID = userDefaultsBox.userDefaults.string(forKey: selectedModelKey),
-      availableModelIDs.contains(storedID)
-    else {
-      return ManagedModelCatalog.defaultModelID
-    }
-
-    return storedID
   }
 
   package func setSelectedModelID(_ modelID: String) async {

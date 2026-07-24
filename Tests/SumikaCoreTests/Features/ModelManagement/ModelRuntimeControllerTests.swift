@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct ModelRuntimeControllerTests {
   @Test
-  func initializesSelectedModelFromStore() async throws {
+  func initializesWithSelectedModelConfiguration() async throws {
     let store = RuntimeFakeModelSettingsStore()
     let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
     let sharedModeSettings = ChatModeSettings(
@@ -19,9 +19,11 @@ struct ModelRuntimeControllerTests {
       modeSettings: ChatModeSettingsSet(chat: sharedModeSettings, agent: sharedModeSettings),
       contextTokenLimit: 16_384
     )
-    store.selectedModelIDValue = selectedModel.id
-    store.settingsByModelID[selectedModel.id] = settings
-    let controller = await makeController(modelSettingsStore: store)
+    let controller = await makeController(
+      initialModelID: selectedModel.id,
+      initialSettings: settings,
+      modelSettingsStore: store
+    )
 
     #expect(controller.selectedModelID == selectedModel.id)
     #expect(controller.selectedModel.id == selectedModel.id)
@@ -68,7 +70,6 @@ struct ModelRuntimeControllerTests {
   func selectingModelPersistsSelectionAndPublishesSettings() async throws {
     let store = RuntimeFakeModelSettingsStore()
     let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
-    store.selectedModelIDValue = "gemma4-26b-qat-4bit"
     let sharedModeSettings = ChatModeSettings(
       systemPrompt: "Tiny model prompt",
       generationSettings: ChatGenerationSettings(
@@ -79,7 +80,10 @@ struct ModelRuntimeControllerTests {
       contextTokenLimit: 16_384
     )
     store.settingsByModelID[selectedModel.id] = settings
-    let controller = await makeController(modelSettingsStore: store)
+    let controller = await makeController(
+      initialModelID: "gemma4-26b-qat-4bit",
+      modelSettingsStore: store
+    )
     var publishedSettings: StoredModelSettings?
     controller.onModelDidChange = { publishedSettings = $0 }
 
@@ -89,7 +93,7 @@ struct ModelRuntimeControllerTests {
     #expect(controller.selectedModelID == selectedModel.id)
     #expect(controller.modelPath == selectedModel.localPath)
     #expect(controller.modelContextTokenLimit == settings.contextTokenLimit)
-    #expect(store.selectedModelIDValue == selectedModel.id)
+    #expect(store.persistedSelectedModelID == selectedModel.id)
     #expect(publishedSettings == settings)
   }
 
@@ -97,8 +101,8 @@ struct ModelRuntimeControllerTests {
   func selectingModelRefreshesSelectedModelAvailability() async throws {
     let selectedModel = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
     let store = RuntimeFakeModelSettingsStore()
-    store.selectedModelIDValue = "gemma4-26b-qat-4bit"
     let controller = await makeController(
+      initialModelID: "gemma4-26b-qat-4bit",
       modelSettingsStore: store,
       modelAvailability: { $0.id == selectedModel.id }
     )
@@ -255,8 +259,8 @@ struct ModelRuntimeControllerTests {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = RuntimeControllerRecordingRuntime()
     let store = RuntimeFakeModelSettingsStore()
-    store.selectedModelIDValue = "gemma4-12b-qat-4bit"
     let controller = await makeController(
+      initialModelID: "gemma4-12b-qat-4bit",
       modelSettingsStore: store,
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
@@ -275,8 +279,8 @@ struct ModelRuntimeControllerTests {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = RuntimeControllerRecordingRuntime()
     let store = RuntimeFakeModelSettingsStore()
-    store.selectedModelIDValue = "qwen3.6-27B-4bit"
     let controller = await makeController(
+      initialModelID: "qwen3.6-27B-4bit",
       modelSettingsStore: store,
       runtime: runtime,
       modelPath: modelDirectory.path(percentEncoded: false)
@@ -378,6 +382,8 @@ struct ModelRuntimeControllerTests {
   }
 
   private func makeController(
+    initialModelID: ManagedModel.ID = ManagedModelCatalog.defaultModelID,
+    initialSettings: StoredModelSettings? = nil,
     modelSettingsStore: RuntimeFakeModelSettingsStore =
       RuntimeFakeModelSettingsStore(),
     modelDownloader: RuntimeControllerFakeModelDownloader = RuntimeControllerFakeModelDownloader(),
@@ -385,12 +391,14 @@ struct ModelRuntimeControllerTests {
     modelPath: String? = nil,
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool = { _ in false }
   ) async -> ModelRuntimeController {
-    let availableModelIDs = Set(ManagedModelCatalog.models.map(\.id))
-    let selectedModelID = await modelSettingsStore.selectedModelID(
-      availableModelIDs: availableModelIDs)
     let selectedModel =
-      ManagedModelCatalog.model(id: selectedModelID) ?? ManagedModelCatalog.defaultModel
-    let settings = await modelSettingsStore.settings(for: selectedModel)
+      ManagedModelCatalog.model(id: initialModelID) ?? ManagedModelCatalog.defaultModel
+    let settings =
+      if let initialSettings {
+        initialSettings
+      } else {
+        await modelSettingsStore.settings(for: selectedModel)
+      }
     let runtimeOperations = RuntimeOperationCoordinator(runtime: runtime)
     let lifecycleCoordinator = ModelLifecycleCoordinator(
       modelDownloader: modelDownloader,
@@ -453,17 +461,12 @@ struct ModelRuntimeControllerTests {
 }
 
 private final class RuntimeFakeModelSettingsStore: ModelSettingsStoring, @unchecked Sendable {
-  var selectedModelIDValue = ManagedModelCatalog.defaultModelID
+  var persistedSelectedModelID: ManagedModel.ID?
   var settingsByModelID: [String: StoredModelSettings] = [:]
   var savedSettingsByModelID: [String: StoredModelSettings] = [:]
 
-  func selectedModelID(availableModelIDs: Set<String>) async -> String {
-    availableModelIDs.contains(selectedModelIDValue)
-      ? selectedModelIDValue : ManagedModelCatalog.defaultModelID
-  }
-
   func setSelectedModelID(_ modelID: String) async {
-    selectedModelIDValue = modelID
+    persistedSelectedModelID = modelID
   }
 
   func settings(for model: ManagedModel) async -> StoredModelSettings {

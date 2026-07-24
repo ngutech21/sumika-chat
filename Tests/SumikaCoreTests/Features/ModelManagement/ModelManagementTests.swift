@@ -4,21 +4,6 @@ import Testing
 @testable import SumikaCore
 
 struct ModelManagementTests {
-
-  @Test
-  func settingsStoreDefaultsSelectedModelTo12B() async {
-    let userDefaults = makeUserDefaults()
-    let store = ModelSettingsStore(
-      userDefaults: userDefaults,
-      settingsURL: temporarySettingsURL()
-    )
-
-    let selectedModelID = await store.selectedModelID(
-      availableModelIDs: Set(ManagedModelCatalog.models.map(\.id)))
-
-    #expect(selectedModelID == "gemma4-12b-qat-4bit")
-  }
-
   @Test
   func supportsWorkspaceToolsTracksToolCallingPolicyEnabledFlag() {
     #expect(ManagedModelCatalog.defaultModel.supportsWorkspaceTools)
@@ -55,11 +40,10 @@ struct ModelManagementTests {
   }
 
   @Test
-  func settingsStorePersistsSelectedModelAndPerModelSettings() async throws {
-    let userDefaultsSuiteName = makeUserDefaultsSuiteName()
+  func settingsStorePersistsPerModelSettings() async throws {
     let settingsURL = temporarySettingsURL()
     let store = ModelSettingsStore(
-      userDefaults: makeUserDefaults(suiteName: userDefaultsSuiteName),
+      userDefaults: makeUserDefaults(),
       settingsURL: settingsURL
     )
     let model = try #require(ManagedModelCatalog.model(id: "gemma4-12b-qat-4bit"))
@@ -77,17 +61,12 @@ struct ModelManagementTests {
       contextTokenLimit: 32_768
     )
 
-    await store.setSelectedModelID(model.id)
     try await store.save(settings: settings, for: model)
 
     let reloadedStore = ModelSettingsStore(
-      userDefaults: makeUserDefaults(suiteName: userDefaultsSuiteName),
+      userDefaults: makeUserDefaults(),
       settingsURL: settingsURL
     )
-    #expect(
-      await reloadedStore.selectedModelID(
-        availableModelIDs: Set(ManagedModelCatalog.models.map(\.id)))
-        == model.id)
     #expect(await reloadedStore.settings(for: model) == settings)
   }
 
