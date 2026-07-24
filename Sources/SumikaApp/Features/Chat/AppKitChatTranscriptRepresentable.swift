@@ -1880,16 +1880,25 @@ extension NativeChatMessageCellView {
     header.addArrangedSubview(makeToolStatusIndicator(status: record.status))
     let nameLabel = makeTextLabel(toolCall.toolName.rawValue, color: .labelColor)
     nameLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+    nameLabel.maximumNumberOfLines = 1
+    nameLabel.lineBreakMode = .byClipping
+    nameLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
     header.addArrangedSubview(nameLabel)
     if record.approvalSource == .automatic {
       let approvalLabel = makeSecondaryLabel("Auto-approved")
       approvalLabel.textColor = .systemOrange
+      approvalLabel.maximumNumberOfLines = 1
+      approvalLabel.lineBreakMode = .byClipping
+      approvalLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
       header.addArrangedSubview(approvalLabel)
     }
-    if let summary = toolCall.nativeHeaderSummary {
-      let summaryLabel = makeSecondaryLabel(summary)
-      summaryLabel.lineBreakMode = .byTruncatingMiddle
+    if let preview = toolCall.nativeHeaderPreview {
+      let summaryLabel = makeSecondaryLabel(preview.text)
+      summaryLabel.lineBreakMode = preview.lineBreakMode
       summaryLabel.maximumNumberOfLines = 1
+      summaryLabel.setAccessibilityLabel(preview.accessibilityLabel)
+      summaryLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+      summaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
       header.addArrangedSubview(summaryLabel)
     }
     if hasDetails {

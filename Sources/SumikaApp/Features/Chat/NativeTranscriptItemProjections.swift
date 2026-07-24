@@ -266,8 +266,14 @@ extension ToolResultPreview {
   }
 }
 
+struct NativeToolHeaderPreview: Equatable {
+  let text: String
+  let accessibilityLabel: String
+  let lineBreakMode: NSLineBreakMode
+}
+
 extension ToolCallModelMessage {
-  var nativeHeaderSummary: String? {
+  var nativeHeaderPreview: NativeToolHeaderPreview? {
     func argumentValue(named name: String) -> String? {
       guard let value = arguments.first(where: { $0.name == name })?.value,
         !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -277,22 +283,39 @@ extension ToolCallModelMessage {
       return value
     }
 
+    let summary: String?
+    let lineBreakMode: NSLineBreakMode
     switch toolName {
     case .runCommand:
-      return argumentValue(named: "command")
+      summary = argumentValue(named: "command")
+      lineBreakMode = .byTruncatingTail
     case .writeFile, .editFile, .readFile, .showFile:
-      return argumentValue(named: "path")
+      summary = argumentValue(named: "path")
+      lineBreakMode = .byTruncatingMiddle
     case .webSearch:
-      return argumentValue(named: "query")
+      summary = argumentValue(named: "query")
+      lineBreakMode = .byTruncatingTail
     case .webFetch:
-      return argumentValue(named: "url")
+      summary = argumentValue(named: "url")
+      lineBreakMode = .byTruncatingMiddle
     case .browserInspect:
-      return argumentValue(named: "selector") ?? "document.body"
+      summary = argumentValue(named: "selector") ?? "document.body"
+      lineBreakMode = .byTruncatingTail
     case .browserRefresh:
-      return argumentValue(named: "hard")
+      summary = argumentValue(named: "hard")
+      lineBreakMode = .byTruncatingTail
     default:
       return nil
     }
+
+    guard let summary else {
+      return nil
+    }
+    return NativeToolHeaderPreview(
+      text: summary.split(whereSeparator: \.isWhitespace).joined(separator: " "),
+      accessibilityLabel: summary,
+      lineBreakMode: lineBreakMode
+    )
   }
 }
 

@@ -1222,6 +1222,54 @@ struct AppKitChatTranscriptDiffPlanTests {
   }
 
   @Test
+  func toolHeaderPreviewsNormalizeWhitespaceAndChooseSemanticTruncation() throws {
+    let command = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .runCommand,
+      arguments: [
+        ToolCallModelArgument(name: "command", value: "git add main.py\n\t&&   git commit")
+      ]
+    )
+    let path = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .readFile,
+      arguments: [
+        ToolCallModelArgument(
+          name: "path",
+          value: "/Users/steffen/projects/sumika-chat/Sources/SumikaApp/main.swift"
+        )
+      ]
+    )
+    let query = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .webSearch,
+      arguments: [ToolCallModelArgument(name: "query", value: "early Pong arcade features")]
+    )
+    let url = ToolCallModelMessage(
+      callID: UUID(),
+      toolName: .webFetch,
+      arguments: [
+        ToolCallModelArgument(
+          name: "url",
+          value: "https://example.com/research/archive/pong/history"
+        )
+      ]
+    )
+
+    let commandPreview = try #require(command.nativeHeaderPreview)
+    let pathPreview = try #require(path.nativeHeaderPreview)
+    let queryPreview = try #require(query.nativeHeaderPreview)
+    let urlPreview = try #require(url.nativeHeaderPreview)
+
+    #expect(commandPreview.text == "git add main.py && git commit")
+    #expect(commandPreview.accessibilityLabel == "git add main.py\n\t&&   git commit")
+    #expect(commandPreview.lineBreakMode == .byTruncatingTail)
+    #expect(pathPreview.lineBreakMode == .byTruncatingMiddle)
+    #expect(queryPreview.lineBreakMode == .byTruncatingTail)
+    #expect(urlPreview.lineBreakMode == .byTruncatingMiddle)
+  }
+
+  @Test
   func coordinatorStateIsStoredByRowIDAndPrunedByActiveRows() {
     var store = NativeTranscriptCoordinatorState()
 
@@ -1413,6 +1461,58 @@ struct AppKitChatTranscriptDiffPlanTests {
     let expandedFrame = expandedButton.frame(in: cell)
 
     #expect(abs(expandedFrame.minX - collapsedFrame.minX) < 1)
+  }
+
+  @Test
+  func longAutomaticToolHeaderTruncatesOnlyPreviewAndExpandsToFullCommand() throws {
+    let fullCommand = """
+      git add main.py
+      && git commit -m "Add win condition: first to 21 points wins with victory screen and restart"
+      """
+    let previewCommand =
+      "git add main.py && git commit -m \"Add win condition: first to 21 points wins with victory screen and restart\""
+    var record = nativeCompletedCommandToolRecord(command: fullCommand)
+    record.approvalSource = .automatic
+    let row = nativeToolRow(id: "long-command", revision: 1, record: record)
+    let cell = configuredNativeCell(for: row)
+
+    let nameLabel = try #require(
+      cell.descendantTextFields.first { $0.stringValue == ToolName.runCommand.rawValue }
+    )
+    let approvalLabel = try #require(
+      cell.descendantTextFields.first { $0.stringValue == "Auto-approved" }
+    )
+    let previewLabel = try #require(
+      cell.descendantTextFields.first { $0.stringValue == previewCommand }
+    )
+    let disclosureButton = try #require(
+      cell.descendantButtons(accessibilityLabel: "Show details").first
+    )
+
+    #expect(nameLabel.maximumNumberOfLines == 1)
+    #expect(approvalLabel.maximumNumberOfLines == 1)
+    #expect(
+      approvalLabel.contentCompressionResistancePriority(for: .horizontal)
+        > previewLabel.contentCompressionResistancePriority(for: .horizontal)
+    )
+    #expect(previewLabel.maximumNumberOfLines == 1)
+    #expect(previewLabel.lineBreakMode == .byTruncatingTail)
+    #expect(previewLabel.accessibilityLabel() == fullCommand)
+    #expect(previewLabel.frame.width < previewLabel.intrinsicContentSize.width)
+    #expect(disclosureButton.frame(in: cell).maxX < cell.bounds.width)
+
+    cell.configure(
+      row: row,
+      state: NativeTranscriptCellState(isToolExpanded: true),
+      actions: testNativeActions()
+    )
+    cell.layoutSubtreeIfNeeded()
+
+    #expect(
+      cell.descendantTextFields.contains {
+        $0.stringValue == "command: \(fullCommand)"
+      }
+    )
   }
 
   @Test
@@ -2299,8 +2399,11 @@ private func nativeApprovalToolRecord(
   )
 }
 
-private func nativeCompletedCommandToolRecord(stdout: String = "Tests passed.") -> ToolCallRecord {
-  let request = nativeRunCommandRequest(command: "swift test")
+private func nativeCompletedCommandToolRecord(
+  command: String = "swift test",
+  stdout: String = "Tests passed."
+) -> ToolCallRecord {
+  let request = nativeRunCommandRequest(command: command)
   return ToolCallRecord(
     request: request,
     evaluation: ToolPermissionEvaluation(
@@ -2311,7 +2414,7 @@ private func nativeCompletedCommandToolRecord(stdout: String = "Tests passed.") 
     state: .completed(
       .runCommand(
         RunCommandResult(
-          command: "swift test",
+          command: command,
           timeoutSeconds: 120,
           exitCode: 0,
           durationMs: 1_000,
