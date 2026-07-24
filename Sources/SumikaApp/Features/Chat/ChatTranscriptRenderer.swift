@@ -447,7 +447,8 @@ extension AssistantTurnMessage {
     if hidesPlaceholderForStreamingReasoning, shouldShowAssistantPlaceholder {
       return false
     }
-    return shouldShowAssistantPlaceholder || !content.isEmpty
+    return shouldShowAssistantPlaceholder
+      || !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 }
 

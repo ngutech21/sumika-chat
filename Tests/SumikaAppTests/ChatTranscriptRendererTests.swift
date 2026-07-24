@@ -479,6 +479,47 @@ struct ChatTranscriptRendererTests {
   }
 
   @Test
+  func completedWhitespaceOnlyAssistantWithMetricsIsHidden() {
+    let turnID = UUID()
+    let thinkingID = UUID()
+    let assistantID = UUID()
+    let toolID = UUID()
+    let renderer = ChatTranscriptRenderer()
+
+    let items = renderer.items(for: [
+      ChatTurn(
+        id: turnID,
+        status: .completed,
+        items: [
+          .assistantThinking(
+            AssistantThinkingMessage(
+              id: thinkingID,
+              content: "Inspecting files"
+            )
+          ),
+          .assistantMessage(
+            AssistantTurnMessage(
+              id: assistantID,
+              content: "\n\n",
+              generationMetrics: ChatGenerationMetrics(
+                generatedTokenCount: 12,
+                tokensPerSecond: 18.8
+              )
+            )
+          ),
+          .tool(makeToolCallRecord(id: toolID, status: .completed)),
+        ]
+      )
+    ])
+
+    #expect(
+      items.map(\.id) == [
+        "\(turnID.uuidString):thinking:\(thinkingID.uuidString)",
+        "\(turnID.uuidString):tool:\(toolID.uuidString)",
+      ])
+  }
+
+  @Test
   func generationMetricsSummaryShowsTokenRate() {
     let metrics = ChatGenerationMetrics(
       generatedTokenCount: 493,
