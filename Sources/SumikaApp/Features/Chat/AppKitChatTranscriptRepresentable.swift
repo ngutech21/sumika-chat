@@ -1553,7 +1553,7 @@ final class NativeChatMessageCellView: NSTableCellView {
       outerStack.addArrangedSubview(
         paddedContainer(
           stack,
-          fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12),
+          fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.06),
           cornerRadius: 10
         ))
     }
