@@ -216,10 +216,10 @@ private final class PipeDataCollector: @unchecked Sendable {
   }
 }
 
-internal actor DefaultCommandProcessRunner: CommandProcessRunning {
+internal struct DefaultCommandProcessRunner: CommandProcessRunning {
   internal init() {}
 
-  internal nonisolated func run(
+  internal func run(
     _ request: CommandProcessRequest
   ) async throws -> CommandProcessResult {
     try await runCommandProcess(request)
