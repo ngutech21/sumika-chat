@@ -177,13 +177,6 @@ package struct ToolCallRequest: Codable, Identifiable, Equatable, Sendable {
   package var workspaceID: Workspace.ID { raw.workspaceID }
   package var sessionID: ChatSession.ID { raw.sessionID }
   package var toolName: ToolName { raw.toolName }
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var createdAt: Date { raw.createdAt }
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var rawArguments: ToolCallArguments { raw.arguments }
-
   private init(raw: RawToolCallRequest, payload: ToolCallPayload) {
     self.raw = raw
     self.payload = payload
@@ -514,7 +507,7 @@ nonisolated extension InvalidToolCallReason {
   }
 }
 
-package struct ToolCallModelMessage: Codable, Equatable, Sendable {
+package struct ToolCallModelMessage: Equatable, Sendable {
   package var callID: UUID
   package var toolName: ToolName
   package var arguments: [ToolCallModelArgument]
@@ -614,7 +607,7 @@ nonisolated extension ToolCallModelMessage {
   }
 }
 
-package struct ToolCallModelArgument: Codable, Identifiable, Equatable, Sendable {
+package struct ToolCallModelArgument: Identifiable, Equatable, Sendable {
   package var id: String { name }
 
   package var name: String
@@ -695,12 +688,6 @@ package struct ToolCallRecord: Codable, Identifiable, Equatable, Sendable {
 
   package var approvalPreview: ToolResultPreview? {
     state.approvalPreview
-  }
-
-  // Test-only projection; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var resultPreview: ToolResultPreview? {
-    state.preview
   }
 
   package init(
@@ -1302,19 +1289,19 @@ nonisolated extension ToolResultPayload {
     preview.status
   }
 
-  // Test-only projection; exercised through @testable import.
+  // Shared assertion surface for tests covering every concrete tool-result payload.
   // swiftlint:disable:next unused_declaration
   package var text: String {
     preview.text
   }
 
-  // Test-only projection; exercised through @testable import.
+  // Shared assertion surface for tests covering every concrete tool-result payload.
   // swiftlint:disable:next unused_declaration
   package var truncated: Bool {
     preview.truncated
   }
 
-  // Test-only projection; exercised through @testable import.
+  // Shared assertion surface for persistence tests covering redacted results.
   // swiftlint:disable:next unused_declaration
   package var redacted: Bool {
     preview.redacted
@@ -1485,7 +1472,7 @@ nonisolated extension RecoveryHint {
   }
 }
 
-package struct ToolResultModelMessage: Codable, Equatable, Sendable {
+package struct ToolResultModelMessage: Equatable, Sendable {
   package var callID: UUID
   package var toolName: ToolName
   package var payload: ToolResultPayload

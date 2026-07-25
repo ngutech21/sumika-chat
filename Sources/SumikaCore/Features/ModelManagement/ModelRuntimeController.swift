@@ -7,7 +7,6 @@ final class ModelRuntimeController {
   var availableModels = ManagedModelCatalog.models
   var selectedModelID: ManagedModel.ID
   var downloadState: ModelDownloadState = .idle
-  var downloadProgress: Double?
   var modelPath: String
   var modelState: ModelLoadState = .notLoaded
   var modelContextTokenLimit = ManagedModelCatalog.defaultContextTokenLimit
@@ -96,12 +95,6 @@ final class ModelRuntimeController {
     downloadTask?.cancel()
   }
 
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  func currentOperationID() -> UUID {
-    modelOperationID
-  }
-
   #if DEBUG
     func setModelLoadStateForTesting(_ state: ModelLoadState) {
       modelState = state
@@ -126,14 +119,6 @@ final class ModelRuntimeController {
     }
   }
 
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  func setModelDirectory(_ url: URL) {
-    modelPath = url.path(percentEncoded: false)
-    modelState = .notLoaded
-    refreshModelGenerationConfigPreset()
-  }
-
   func setContextTokenLimit(_ limit: Int) {
     modelContextTokenLimit = limit
   }
@@ -147,7 +132,6 @@ final class ModelRuntimeController {
     selectedModelID = model.id
     modelPath = model.localPath
     downloadState = .idle
-    downloadProgress = nil
     modelContextTokenLimit = model.defaultContextTokenLimit
     modelGenerationConfigPreset = nil
     modelAvailabilitySnapshot[model.id] = modelLifecycleCoordinator.isModelDownloaded(model)
@@ -175,7 +159,6 @@ final class ModelRuntimeController {
       selectedModelID = model.id
       modelPath = model.localPath
       downloadState = .idle
-      downloadProgress = nil
       modelContextTokenLimit = model.defaultContextTokenLimit
       modelGenerationConfigPreset = nil
     } else if modelPath.isEmpty {
@@ -197,12 +180,6 @@ final class ModelRuntimeController {
     }
 
     return shouldUnloadRuntime
-  }
-
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  func isModelDownloaded(_ model: ManagedModel) -> Bool {
-    modelAvailabilitySnapshot[model.id] ?? false
   }
 
   func isSelectedModelDownloaded() -> Bool {
@@ -231,29 +208,24 @@ final class ModelRuntimeController {
     let model = selectedModel
     let lifecycleCoordinator = modelLifecycleCoordinator
     downloadTask?.cancel()
-    downloadProgress = nil
     downloadState = .downloading(progress: nil)
 
     downloadTask = Task {
       do {
         let result = try await lifecycleCoordinator.download(model: model) { progress in
           let fraction = Self.normalizedDownloadProgress(progress)
-          self.downloadProgress = fraction
-          self.downloadState = .downloading(progress: self.downloadProgress)
+          self.downloadState = .downloading(progress: fraction)
         }
         try Task.checkCancellation()
         downloadState = .downloaded
-        downloadProgress = 1
         modelPath = result.localPath
         modelAvailabilitySnapshot[model.id] = true
         refreshModelGenerationConfigPreset()
       } catch is CancellationError {
         downloadState = .idle
-        downloadProgress = nil
       } catch {
         downloadState = .failed(error.localizedDescription)
         onError?(error.localizedDescription)
-        downloadProgress = nil
       }
 
       downloadTask = nil
@@ -288,14 +260,6 @@ final class ModelRuntimeController {
       }
       modelGenerationConfigPreset = preset
     }
-  }
-
-  // Test-only convenience; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  func loadSelectedModel() {
-    modelPath = selectedModel.localPath
-    refreshModelGenerationConfigPreset()
-    loadModel()
   }
 
   func loadModel() {

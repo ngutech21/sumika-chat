@@ -586,10 +586,8 @@ final class BlockingFirstAttachmentLoader: ChatAttachmentLoading, @unchecked Sen
       return []
     }
     return [
-      ChatAttachment(
-        url: url,
+      makeTextChatAttachment(
         displayName: url.lastPathComponent,
-        kind: .text,
         content: callNumber == 1 ? "first" : "second"
       )
     ]

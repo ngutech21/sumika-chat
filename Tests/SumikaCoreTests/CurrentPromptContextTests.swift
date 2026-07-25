@@ -6,10 +6,8 @@ import Testing
 struct CurrentPromptContextSelectorTests {
   @Test
   func attachedFileProducesAttachedFileBlock() throws {
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/project/Sources/Foo.swift"),
+    let attachment = makeTextChatAttachment(
       displayName: "Foo.swift",
-      kind: .text,
       content: "let value = 1"
     )
     let workspace = Workspace(
@@ -61,10 +59,8 @@ struct CurrentPromptContextSelectorTests {
         )
       ]
     )
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/Attached.swift"),
+    let attachment = makeTextChatAttachment(
       displayName: attachedPath.rawValue,
-      kind: .text,
       content: "let attached = true"
     )
 
@@ -88,16 +84,12 @@ struct CurrentPromptContextSelectorTests {
 
   @Test
   func multipleAttachmentsProduceBlocksInAttachmentOrder() throws {
-    let first = ChatAttachment(
-      url: URL(filePath: "/tmp/First.swift"),
+    let first = makeTextChatAttachment(
       displayName: "First.swift",
-      kind: .text,
       content: "first"
     )
-    let second = ChatAttachment(
-      url: URL(filePath: "/tmp/Second.swift"),
+    let second = makeTextChatAttachment(
       displayName: "Second.swift",
-      kind: .text,
       content: "second"
     )
 
@@ -127,10 +119,8 @@ struct CurrentPromptContextSelectorTests {
   @Test
   func attachedFileExcerptIsTruncatedBySharedCharacterBudget() throws {
     let budget = try #require(ContextBudget.checked(maxCharacters: 6))
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/Long.swift"),
+    let attachment = makeTextChatAttachment(
       displayName: "Long.swift",
-      kind: .text,
       content: "0123456789"
     )
 
@@ -169,10 +159,8 @@ struct CurrentPromptContextSelectorTests {
         )
       ]
     )
-    let invalidAttachment = ChatAttachment(
-      url: URL(filePath: "/tmp/Invalid.swift"),
+    let invalidAttachment = makeTextChatAttachment(
       displayName: "  \n",
-      kind: .text,
       content: "let invalid = true"
     )
 
@@ -393,10 +381,8 @@ struct CurrentPromptContextSelectorTests {
 struct CurrentPromptContextRendererTests {
   @Test
   func rendersAttachedFileContextStably() throws {
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/project/Sources/Foo.swift"),
+    let attachment = makeTextChatAttachment(
       displayName: "Foo.swift",
-      kind: .text,
       content: "let value = 1"
     )
     let workspace = Workspace(
@@ -435,10 +421,8 @@ struct CurrentPromptContextRendererTests {
 
   @Test
   func renderedContextIncludesTypedAttachedFileSnapshot() throws {
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/project/Sources/Foo.swift"),
+    let attachment = makeTextChatAttachment(
       displayName: "Foo.swift",
-      kind: .text,
       content: "let value = 1"
     )
     let workspace = Workspace(
@@ -475,10 +459,8 @@ struct CurrentPromptContextRendererTests {
 
   @Test
   func rendersEmptyAttachedFileWithoutEmptyExcerpt() throws {
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/Empty.swift"),
+    let attachment = makeTextChatAttachment(
       displayName: "Empty.swift",
-      kind: .text,
       content: ""
     )
     let context = CurrentPromptContextSelector().selectContext(

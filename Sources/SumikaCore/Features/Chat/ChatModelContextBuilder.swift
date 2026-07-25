@@ -1,21 +1,15 @@
 import Foundation
 
 internal struct ChatModelContextBuilder: Sendable {
-  private let promptContextSelector: any CurrentPromptContextSelecting
   private let focusedFileReusePolicy: FocusedFilePromptReusePolicy
 
-  internal init(
-    promptContextSelector: any CurrentPromptContextSelecting = CurrentPromptContextSelector()
-  ) {
-    self.promptContextSelector = promptContextSelector
+  internal init() {
     focusedFileReusePolicy = .conservative
   }
 
   init(
-    promptContextSelector: any CurrentPromptContextSelecting = CurrentPromptContextSelector(),
     focusedFileReusePolicy: FocusedFilePromptReusePolicy
   ) {
-    self.promptContextSelector = promptContextSelector
     self.focusedFileReusePolicy = focusedFileReusePolicy
   }
 
@@ -260,7 +254,7 @@ internal struct ChatModelContextBuilder: Sendable {
     workspace: Workspace? = nil,
     budget: ContextBudget = .focusedFileDefault
   ) -> RenderedCurrentPromptContext {
-    let context = promptContextSelector.selectContext(
+    let context = CurrentPromptContextSelector().selectContext(
       userInput: userInput,
       mode: mode,
       focusedFileState: focusedFileState,

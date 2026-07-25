@@ -162,7 +162,7 @@ struct WorkspaceStoreTests {
             path: WorkspaceRelativePath(rawValue: "README.md"),
             content: ToolTextOutput(text: "Preview", truncated: true, redacted: true)
           )))
-    #expect(reloadedToolCall.resultPreview?.redacted == true)
+    #expect(reloadedToolCall.state.preview?.redacted == true)
     #expect(
       reloaded.workspaces.first?.sessions.first?.turns
         == (try normalizedForV1Persistence(session)).turns
@@ -310,10 +310,8 @@ struct WorkspaceStoreTests {
           items: [.userMessage(UserTurnMessage(content: "hello"))])
       ],
       pendingAttachments: [
-        ChatAttachment(
-          url: URL(filePath: "/tmp/project/README.md"),
+        makeTextChatAttachment(
           displayName: "README.md",
-          kind: .text,
           content: "draft"
         )
       ],

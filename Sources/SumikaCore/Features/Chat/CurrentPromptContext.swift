@@ -397,18 +397,7 @@ package struct RenderedCurrentPromptContext: Equatable, Sendable {
   }
 }
 
-internal protocol CurrentPromptContextSelecting: Sendable {
-  func selectContext(
-    userInput: String,
-    mode: WorkspaceInteractionMode,
-    focusedFileState: FocusedFileState,
-    attachments: [ChatAttachment],
-    workspace: Workspace?,
-    budget: ContextBudget
-  ) -> CurrentPromptContext
-}
-
-internal struct CurrentPromptContextSelector: CurrentPromptContextSelecting {
+internal struct CurrentPromptContextSelector: Sendable {
   package init() {}
 
   package func selectContext(

@@ -34,7 +34,9 @@ struct ModelRuntimeControllerTests {
   @Test
   func stateProjectsModelManagementFactsWithoutExposingMutableStorage() async throws {
     let downloadedModel = ManagedModelCatalog.defaultModel
+    let initialOperationID = UUID()
     let controller = await makeController(
+      initialOperationID: initialOperationID,
       modelAvailability: { $0.id == downloadedModel.id }
     )
     controller.refreshModelAvailability()
@@ -54,7 +56,7 @@ struct ModelRuntimeControllerTests {
     #expect(conversationState.selectedModel == state.selectedModel)
     #expect(conversationState.loadState == state.modelState)
     #expect(conversationState.contextTokenLimit == state.modelContextTokenLimit)
-    #expect(conversationState.operationID == controller.currentOperationID())
+    #expect(conversationState.operationID == initialOperationID)
   }
 
   @Test
@@ -110,7 +112,7 @@ struct ModelRuntimeControllerTests {
 
     controller.selectModel(selectedModel)
 
-    #expect(controller.isModelDownloaded(selectedModel))
+    #expect(controller.state.isModelDownloaded(selectedModel))
   }
 
   @Test
@@ -121,9 +123,8 @@ struct ModelRuntimeControllerTests {
     controller.downloadSelectedModel()
 
     try await waitUntil { controller.downloadState == .downloaded }
-    #expect(controller.downloadProgress == 1)
     #expect(downloader.downloadedModelID == ManagedModelCatalog.defaultModelID)
-    #expect(controller.isModelDownloaded(ManagedModelCatalog.defaultModel))
+    #expect(controller.state.isModelDownloaded(ManagedModelCatalog.defaultModel))
   }
 
   @Test
@@ -133,11 +134,9 @@ struct ModelRuntimeControllerTests {
 
     controller.downloadSelectedModel()
 
-    try await waitUntil { controller.downloadProgress == 0.25 }
-    #expect(controller.downloadState == .downloading(progress: 0.25))
+    try await waitUntil { controller.downloadState == .downloading(progress: 0.25) }
 
     try await waitUntil { controller.downloadState == .downloaded }
-    #expect(controller.downloadProgress == 1)
   }
 
   @Test
@@ -154,19 +153,7 @@ struct ModelRuntimeControllerTests {
       controller.downloadState
         == .failed(RuntimeControllerFakeDownloadError.failed.localizedDescription)
     }
-    #expect(controller.downloadProgress == nil)
     #expect(errorMessage == RuntimeControllerFakeDownloadError.failed.localizedDescription)
-  }
-
-  @Test
-  func setModelDirectoryUpdatesPathWhenRuntimeIsNotLoaded() async throws {
-    let controller = await makeController()
-    let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
-
-    controller.setModelDirectory(modelDirectory)
-
-    #expect(controller.modelPath == modelDirectory.path(percentEncoded: false))
-    #expect(controller.modelState == .notLoaded)
   }
 
   @Test
@@ -199,20 +186,6 @@ struct ModelRuntimeControllerTests {
   }
 
   @Test
-  func loadSelectedModelResetsPathToSelectedModelDirectoryBeforeLoading() async throws {
-    let runtime = RuntimeControllerRecordingRuntime()
-    let controller = await makeController(runtime: runtime, modelPath: "/tmp/custom-model")
-    controller.modelAvailabilitySnapshot[controller.selectedModel.id] = true
-    let initialOperationID = controller.currentOperationID()
-
-    controller.loadSelectedModel()
-
-    #expect(controller.modelPath == controller.selectedModel.localPath)
-    #expect(controller.currentOperationID() != initialOperationID)
-    try await waitUntil { controller.modelState != .loading }
-  }
-
-  @Test
   func applyingSameSessionModelDoesNotCancelInFlightLoad() async throws {
     let modelDirectory = try makeModelDirectory(config: #"{"n_ctx":2048}"#)
     let runtime = RuntimeControllerRaceLoadingRuntime()
@@ -224,12 +197,12 @@ struct ModelRuntimeControllerTests {
 
     controller.loadModel()
     try await waitUntilAsync { await runtime.loadCount == 1 }
-    let loadOperationID = controller.currentOperationID()
+    let loadOperationID = controller.conversationState.operationID
 
     let didResetRuntime = controller.applySessionModel(controller.selectedModel)
 
     #expect(!didResetRuntime)
-    #expect(controller.currentOperationID() == loadOperationID)
+    #expect(controller.conversationState.operationID == loadOperationID)
     await runtime.releaseFirstLoad()
     try await waitUntil { controller.modelState == .ready }
     #expect(await runtime.loadCount == 1)
@@ -389,6 +362,7 @@ struct ModelRuntimeControllerTests {
     modelDownloader: RuntimeControllerFakeModelDownloader = RuntimeControllerFakeModelDownloader(),
     runtime: any ChatModelRuntime = RuntimeControllerRecordingRuntime(),
     modelPath: String? = nil,
+    initialOperationID: UUID = UUID(),
     modelAvailability: @escaping @Sendable (ManagedModel) -> Bool = { _ in false }
   ) async -> ModelRuntimeController {
     let selectedModel =
@@ -412,7 +386,7 @@ struct ModelRuntimeControllerTests {
       modelSettingsStore: modelSettingsStore,
       runtimeOperations: runtimeOperations,
       modelLifecycleCoordinator: lifecycleCoordinator,
-      initialOperationID: UUID()
+      initialOperationID: initialOperationID
     )
   }
 

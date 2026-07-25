@@ -108,7 +108,7 @@ struct ChatTranscriptMutator: Sendable {
   }
 
   func updateDeliveryStatus(
-    _ status: AssistantTurnMessage.DeliveryStatus,
+    _ status: AssistantDeliveryStatus,
     for messageID: UUID,
     in state: inout ChatSession
   ) {
@@ -118,7 +118,7 @@ struct ChatTranscriptMutator: Sendable {
   }
 
   func updateThinkingDeliveryStatus(
-    _ status: AssistantThinkingMessage.DeliveryStatus,
+    _ status: AssistantDeliveryStatus,
     for messageID: UUID,
     in state: inout ChatSession
   ) {

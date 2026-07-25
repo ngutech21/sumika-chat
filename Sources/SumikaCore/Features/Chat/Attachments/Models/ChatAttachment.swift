@@ -43,10 +43,6 @@ package struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     try container.encode(createdAt, forKey: .createdAt)
   }
 
-  package var displayPath: String {
-    displayName
-  }
-
   package var kind: ChatAttachmentKind {
     payload.kind
   }
@@ -79,57 +75,9 @@ package struct ChatAttachment: Codable, Identifiable, Equatable, Sendable {
     payload.mimeType
   }
 
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var metadata: ChatAttachmentMetadata? {
-    switch payload {
-    case .text(let payload):
-      ChatAttachmentMetadata(
-        mimeType: nil,
-        byteCount: payload.byteSize,
-        contentSHA256: payload.contentSHA256
-      )
-    case .image(let payload):
-      ChatAttachmentMetadata(
-        mimeType: payload.mimeType,
-        byteCount: payload.byteSize,
-        contentSHA256: payload.contentSHA256
-      )
-    }
-  }
-
-  package init(
-    id: AttachmentID = AttachmentID(),
-    url _: URL,
-    displayName: String,
-    kind: ChatAttachmentKind,
-    content: String,
-    metadata: ChatAttachmentMetadata? = nil
-  ) {
-    let payload: ChatAttachmentPayload
-    switch kind {
-    case .text:
-      payload = .text(
-        TextAttachmentPayload(
-          content: content,
-          byteSize: metadata?.byteCount ?? content.utf8.count,
-          contentSHA256: metadata?.contentSHA256 ?? ""
-        )
-      )
-    case .image:
-      payload = .image(
-        ImageAttachmentPayload(
-          mimeType: metadata?.mimeType ?? "image",
-          byteSize: metadata?.byteCount ?? content.utf8.count,
-          contentSHA256: metadata?.contentSHA256 ?? ""
-        )
-      )
-    }
-    self.init(id: id, displayName: displayName, payload: payload)
-  }
 }
 
-package enum ChatAttachmentKind: String, Codable, Equatable, Sendable {
+package enum ChatAttachmentKind: String, Equatable, Sendable {
   case text
   case image
 }
@@ -195,22 +143,6 @@ package struct ImageAttachmentPayload: Codable, Equatable, Sendable {
   package init(mimeType: String, byteSize: Int, contentSHA256: String) {
     self.mimeType = mimeType
     self.byteSize = byteSize
-    self.contentSHA256 = contentSHA256
-  }
-}
-
-package struct ChatAttachmentMetadata: Codable, Equatable, Sendable {
-  package let mimeType: String?
-  package let byteCount: Int
-  package let contentSHA256: String?
-
-  package init(
-    mimeType: String?,
-    byteCount: Int,
-    contentSHA256: String? = nil
-  ) {
-    self.mimeType = mimeType
-    self.byteCount = byteCount
     self.contentSHA256 = contentSHA256
   }
 }

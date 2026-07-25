@@ -28,7 +28,7 @@ struct TestTranscriptMessage: Equatable {
   var content: String
   var attachments: [ChatAttachment]
   var generationMetrics: ChatGenerationMetrics?
-  var deliveryStatus: AssistantTurnMessage.DeliveryStatus?
+  var deliveryStatus: AssistantDeliveryStatus?
   var toolCall: ToolCallModelMessage?
   var toolResult: ToolResultModelMessage?
 
@@ -38,7 +38,7 @@ struct TestTranscriptMessage: Equatable {
     content: String = "",
     attachments: [ChatAttachment] = [],
     generationMetrics: ChatGenerationMetrics? = nil,
-    deliveryStatus: AssistantTurnMessage.DeliveryStatus? = nil,
+    deliveryStatus: AssistantDeliveryStatus? = nil,
     toolCall: ToolCallModelMessage? = nil,
     toolResult: ToolResultModelMessage? = nil
   ) {
@@ -144,7 +144,7 @@ extension ChatTurnItem {
     }
   }
 
-  var deliveryStatusForTesting: AssistantTurnMessage.DeliveryStatus? {
+  var deliveryStatusForTesting: AssistantDeliveryStatus? {
     guard case .assistantMessage(let message) = self else {
       return nil
     }

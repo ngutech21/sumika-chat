@@ -206,16 +206,12 @@ struct FocusedFileStateReducerTests {
   func multipleAttachmentsCreateAmbiguousRecentPathsWithoutActivePath() {
     let reducer = FocusedFileStateReducer()
     let attachments = [
-      ChatAttachment(
-        url: URL(filePath: "/tmp/project/index.html"),
+      makeTextChatAttachment(
         displayName: "index.html",
-        kind: .text,
         content: "html"
       ),
-      ChatAttachment(
-        url: URL(filePath: "/tmp/project/style.css"),
+      makeTextChatAttachment(
         displayName: "style.css",
-        kind: .text,
         content: "css"
       ),
     ]
@@ -241,16 +237,11 @@ struct FocusedFileStateReducerTests {
   @Test
   func imageAttachmentDoesNotCreateFocusedFileState() {
     let reducer = FocusedFileStateReducer()
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/sumika-pasteboard/clipboard-image.png"),
+    let attachment = makeImageChatAttachment(
       displayName: "clipboard-image.png",
-      kind: .image,
-      content: "[Image attachment: clipboard-image.png, image/png, 128 bytes]",
-      metadata: ChatAttachmentMetadata(
-        mimeType: "image/png",
-        byteCount: 128,
-        contentSHA256: "hash"
-      )
+      mimeType: "image/png",
+      byteSize: 128,
+      contentSHA256: "hash"
     )
 
     let state = reducer.applyingAttachments(
@@ -280,16 +271,11 @@ struct FocusedFileStateReducerTests {
         )
       ]
     )
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/sumika-pasteboard/clipboard-image.png"),
+    let attachment = makeImageChatAttachment(
       displayName: "clipboard-image.png",
-      kind: .image,
-      content: "[Image attachment: clipboard-image.png, image/png, 128 bytes]",
-      metadata: ChatAttachmentMetadata(
-        mimeType: "image/png",
-        byteCount: 128,
-        contentSHA256: "image-hash"
-      )
+      mimeType: "image/png",
+      byteSize: 128,
+      contentSHA256: "image-hash"
     )
 
     let state = reducer.applyingAttachments(

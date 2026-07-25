@@ -221,18 +221,7 @@ final class ChatFeatureState {
     guard let session = workspaceState.activeSession else {
       return ChatComposerSessionState()
     }
-    let activeAttachmentIDs = Set(session.activeAttachmentContext.attachmentIDs)
-    return ChatComposerSessionState(
-      pendingAttachments: session.pendingAttachments,
-      activeAttachments: session.pendingAttachments.filter {
-        activeAttachmentIDs.contains($0.id)
-      },
-      interactionMode: session.interactionMode,
-      toolApprovalPolicy: session.toolApprovalPolicy,
-      selectedMCPServerIDs: session.selectedMCPServerIDs,
-      reasoningEnabled: session.generationSettings.reasoningEnabled,
-      todoState: session.interactionMode == .agent ? session.todoState : nil
-    )
+    return ChatComposerSessionState(session: session)
   }
 
   private func performIntent(_ intent: () throws -> Void) {

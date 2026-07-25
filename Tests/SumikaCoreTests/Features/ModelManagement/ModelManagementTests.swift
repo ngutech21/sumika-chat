@@ -18,11 +18,13 @@ struct ModelManagementTests {
       isRecommended: false,
       requiresLargeMemory: false,
       stability: .experimental,
-      toolCallingPolicy: .unsupported,
+      toolCallingPolicy: ToolCallingPolicy(
+        isEnabled: false,
+        allowsMultipleToolCalls: false
+      ),
       supportsImageInput: false,
       defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: 1024,
-      enabled: true
+      defaultContextTokenLimit: 1024
     )
 
     #expect(!model.supportsWorkspaceTools)

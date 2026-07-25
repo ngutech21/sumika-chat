@@ -87,7 +87,7 @@ struct ToolExecutionTests {
     #expect(path == WorkspaceRelativePath(rawValue: "landing.html"))
     #expect(suggestions.first?.path == WorkspaceRelativePath(rawValue: "index.html"))
     #expect(outside.status == .denied)
-    #expect(outside.resultPreview?.text.contains("Did you mean one of these?") == false)
+    #expect(outside.state.preview?.text.contains("Did you mean one of these?") == false)
   }
 
   @Test
@@ -225,7 +225,7 @@ struct ToolExecutionTests {
     #expect(firstPath.rawValue == "README.md")
     #expect(secondPath.rawValue == "README.md")
     #expect(readKey == ReadKey(path: WorkspaceRelativePath(rawValue: "README.md")))
-    #expect(second.resultPreview?.text.contains("Use the existing context") == true)
+    #expect(second.state.preview?.text.contains("Use the existing context") == true)
   }
 
   @Test
@@ -254,7 +254,7 @@ struct ToolExecutionTests {
 
     #expect(path.rawValue == "README.md")
     #expect(count == 4)
-    #expect(fourth.resultPreview?.text.contains("Repeated read_file loop detected") == true)
+    #expect(fourth.state.preview?.text.contains("Repeated read_file loop detected") == true)
   }
 
   @Test
@@ -546,12 +546,12 @@ struct ToolExecutionTests {
     )
 
     #expect(completed.status == .completed)
-    #expect(completed.resultPreview?.status == .success)
+    #expect(completed.state.preview?.status == .success)
     #expect(denied.status == .denied)
-    #expect(denied.resultPreview?.status == .denied)
+    #expect(denied.state.preview?.status == .denied)
     #expect(unregisteredWriteFile.status == .failed)
     #expect(unknownExecutor.status == .failed)
-    #expect(unknownExecutor.resultPreview?.status == .failed)
+    #expect(unknownExecutor.state.preview?.status == .failed)
   }
 
   @Test
@@ -1033,7 +1033,7 @@ struct ToolExecutionTests {
       ])
     #expect(
       result.evaluation.workspaceRelativePaths == [WorkspaceRelativePath(rawValue: "README.md")])
-    #expect(result.resultPreview == nil)
+    #expect(result.state.preview == nil)
     #expect(
       try String(contentsOf: workspace.rootURL.appending(path: "README.md"), encoding: .utf8)
         == "old")
@@ -1058,7 +1058,7 @@ struct ToolExecutionTests {
 
     #expect(result.status == .completed)
     #expect(result.evaluation.decision == .requiresApproval)
-    #expect(result.resultPreview?.status == .success)
+    #expect(result.state.preview?.status == .success)
     #expect(
       try String(contentsOf: workspace.rootURL.appending(path: "README.md"), encoding: .utf8)
         == "new")
@@ -1119,8 +1119,8 @@ struct ToolExecutionTests {
 
     #expect(result.status == .denied)
     #expect(result.evaluation.decision == .denied)
-    #expect(result.resultPreview?.status == .denied)
-    #expect(result.resultPreview?.affectedPaths.isEmpty == true)
+    #expect(result.state.preview?.status == .denied)
+    #expect(result.state.preview?.affectedPaths.isEmpty == true)
     guard case .failure(let failure) = result.resultPayload else {
       Issue.record("Expected permission-denied failure payload.")
       return
@@ -1181,7 +1181,7 @@ struct ToolExecutionTests {
 
     #expect(missingContent.status == .failed)
     #expect(unknownArgument.status == .failed)
-    #expect(unknownArgument.resultPreview?.text.contains("Unknown argument") == true)
+    #expect(unknownArgument.state.preview?.text.contains("Unknown argument") == true)
   }
 
   @Test
@@ -1240,8 +1240,8 @@ struct ToolExecutionTests {
 
     #expect(result.status == .awaitingApproval)
     #expect(result.evaluation.decision == .requiresApproval)
-    #expect(result.resultPreview?.text.contains(command) == true)
-    #expect(result.resultPreview?.text.contains("Timeout: 10 seconds") == true)
+    #expect(result.state.preview?.text.contains(command) == true)
+    #expect(result.state.preview?.text.contains("Timeout: 10 seconds") == true)
     #expect(await runner.spawnCount == 0)
     guard case .runCommand(let input) = result.request.payload else {
       Issue.record("Expected run_command typed input.")
@@ -1335,8 +1335,8 @@ struct ToolExecutionTests {
     }
     #expect(payload.exitCode == 2)
     #expect(payload.stderr.text == "tests failed\n")
-    #expect(result.resultPreview?.status == .failed)
-    #expect(result.resultPreview?.text.contains("Exit code: 2") == true)
+    #expect(result.state.preview?.status == .failed)
+    #expect(result.state.preview?.text.contains("Exit code: 2") == true)
   }
 
   @Test
@@ -1610,7 +1610,7 @@ struct ToolExecutionTests {
       return
     }
     #expect(payload.diagnostics.isEmpty)
-    #expect(result.resultPreview?.text == "No diagnostics found for cmd_empty.")
+    #expect(result.state.preview?.text == "No diagnostics found for cmd_empty.")
   }
 
   @Test
@@ -1734,7 +1734,7 @@ struct ToolExecutionTests {
     )
 
     #expect(result.status == .awaitingApproval)
-    #expect(result.resultPreview?.text.contains("Timeout: 120 seconds") == true)
+    #expect(result.state.preview?.text.contains("Timeout: 120 seconds") == true)
   }
 
   @Test
@@ -1770,9 +1770,9 @@ struct ToolExecutionTests {
 
     #expect(invalidTimeout.status == .failed)
     #expect(
-      invalidTimeout.resultPreview?.text.contains("timeoutSeconds must be an integer") == true)
+      invalidTimeout.state.preview?.text.contains("timeoutSeconds must be an integer") == true)
     #expect(unknownArgument.status == .failed)
-    #expect(unknownArgument.resultPreview?.text.contains("Unknown argument") == true)
+    #expect(unknownArgument.state.preview?.text.contains("Unknown argument") == true)
   }
 
   @Test
@@ -1884,19 +1884,19 @@ struct ToolExecutionTests {
 
     #expect(valid.status == .completed)
     #expect(missingPath.status == .failed)
-    #expect(missingPath.resultPreview?.text.contains("Missing required argument: path") == true)
+    #expect(missingPath.state.preview?.text.contains("Missing required argument: path") == true)
     #expect(wrongPathType.status == .failed)
-    #expect(wrongPathType.resultPreview?.text.contains("Invalid argument type for path") == true)
+    #expect(wrongPathType.state.preview?.text.contains("Invalid argument type for path") == true)
     #expect(unknownArgument.status == .failed)
-    #expect(unknownArgument.resultPreview?.text.contains("Unknown argument") == true)
+    #expect(unknownArgument.state.preview?.text.contains("Unknown argument") == true)
     #expect(invalidOffset.status == .failed)
-    #expect(invalidOffset.resultPreview?.text.contains("offset must be greater") == true)
+    #expect(invalidOffset.state.preview?.text.contains("offset must be greater") == true)
     #expect(invalidLimit.status == .failed)
-    #expect(invalidLimit.resultPreview?.text.contains("limit must be greater") == true)
+    #expect(invalidLimit.state.preview?.text.contains("limit must be greater") == true)
     #expect(stringPagination.status == .completed)
-    #expect(stringPagination.resultPreview?.text == "1: hello")
+    #expect(stringPagination.state.preview?.text == "1: hello")
     #expect(invalidStringLimit.status == .failed)
-    #expect(invalidStringLimit.resultPreview?.text.contains("limit must be greater") == true)
+    #expect(invalidStringLimit.state.preview?.text.contains("limit must be greater") == true)
   }
 
   @Test
@@ -1910,7 +1910,7 @@ struct ToolExecutionTests {
     )
 
     #expect(withoutPath.status == .completed)
-    #expect(withoutPath.resultPreview?.text.contains("README.md") == true)
+    #expect(withoutPath.state.preview?.text.contains("README.md") == true)
   }
 
   @Test
@@ -1934,9 +1934,9 @@ struct ToolExecutionTests {
     #expect(result.status == .denied)
     #expect(result.evaluation.decision == .denied)
     #expect(result.evaluation.riskLevel == .high)
-    #expect(result.resultPreview?.status == .denied)
+    #expect(result.state.preview?.status == .denied)
     #expect(
-      result.resultPreview?.text
+      result.state.preview?.text
         == "read_file failed: Permission denied. Tool call workspace does not match the active workspace."
     )
   }

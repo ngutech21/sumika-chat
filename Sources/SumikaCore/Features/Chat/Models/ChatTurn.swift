@@ -134,7 +134,7 @@ package struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
   }
 
   mutating func updateAssistantDeliveryStatus(
-    _ status: AssistantTurnMessage.DeliveryStatus,
+    _ status: AssistantDeliveryStatus,
     for messageID: UUID,
     at timestamp: Date = Date()
   ) {
@@ -144,7 +144,7 @@ package struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
   }
 
   mutating func updateAssistantThinkingDeliveryStatus(
-    _ status: AssistantThinkingMessage.DeliveryStatus,
+    _ status: AssistantDeliveryStatus,
     for messageID: UUID,
     at timestamp: Date = Date()
   ) {
@@ -532,26 +532,26 @@ package enum AssistantModelProjectionPolicy: Codable, Equatable, Sendable {
   }
 }
 
-package struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
-  package enum DeliveryStatus: String, Codable, Equatable, Sendable {
-    case complete
-    case streaming
-    case cancelled
-  }
+package enum AssistantDeliveryStatus: String, Codable, Equatable, Sendable {
+  case complete
+  case streaming
+  case cancelled
+}
 
+package struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable {
   package let id: UUID
   package var content: String
   package var modelProjectionPolicy: AssistantModelProjectionPolicy
   package var attachments: [ChatAttachment]
   package var generationMetrics: ChatGenerationMetrics?
-  package var deliveryStatus: DeliveryStatus
+  package var deliveryStatus: AssistantDeliveryStatus
 
   package init(
     id: UUID = UUID(),
     content: String,
     attachments: [ChatAttachment] = [],
     generationMetrics: ChatGenerationMetrics? = nil,
-    deliveryStatus: DeliveryStatus = .complete,
+    deliveryStatus: AssistantDeliveryStatus = .complete,
     modelProjectionPolicy: AssistantModelProjectionPolicy = .visibleContent
   ) {
     self.id = id
@@ -586,7 +586,7 @@ package struct AssistantTurnMessage: Codable, Identifiable, Equatable, Sendable 
       forKey: .generationMetrics
     )
     deliveryStatus = try container.decodeIfPresent(
-      DeliveryStatus.self,
+      AssistantDeliveryStatus.self,
       forKey: .deliveryStatus,
       default: .complete
     )
@@ -617,22 +617,16 @@ nonisolated extension AssistantTurnMessage {
 }
 
 package struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Sendable {
-  package enum DeliveryStatus: String, Codable, Equatable, Sendable {
-    case complete
-    case streaming
-    case cancelled
-  }
-
   package let id: UUID
   package var content: String
-  package var deliveryStatus: DeliveryStatus
+  package var deliveryStatus: AssistantDeliveryStatus
   package var startedAt: Date?
   package var completedAt: Date?
 
   package init(
     id: UUID = UUID(),
     content: String,
-    deliveryStatus: DeliveryStatus = .complete,
+    deliveryStatus: AssistantDeliveryStatus = .complete,
     startedAt: Date? = nil,
     completedAt: Date? = nil
   ) {
@@ -663,7 +657,7 @@ package struct AssistantThinkingMessage: Codable, Identifiable, Equatable, Senda
     id = try container.decodeIfPresent(UUID.self, forKey: .id, default: UUID())
     content = try container.decodeIfPresent(String.self, forKey: .content, default: "")
     deliveryStatus = try container.decodeIfPresent(
-      DeliveryStatus.self,
+      AssistantDeliveryStatus.self,
       forKey: .deliveryStatus,
       default: .complete
     )

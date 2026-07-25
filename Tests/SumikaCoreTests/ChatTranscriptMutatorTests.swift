@@ -319,10 +319,8 @@ private func makeState(
 }
 
 private func makeAttachment(name: String) -> ChatAttachment {
-  ChatAttachment(
-    url: URL(fileURLWithPath: "/tmp/\(name)"),
+  makeTextChatAttachment(
     displayName: name,
-    kind: .text,
     content: "content"
   )
 }

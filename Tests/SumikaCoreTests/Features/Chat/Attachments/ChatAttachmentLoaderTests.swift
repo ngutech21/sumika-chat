@@ -14,7 +14,6 @@ struct ChatAttachmentLoaderTests {
     let attachment = try #require(attachments.first)
     #expect(attachments.count == 1)
     #expect(attachment.displayName == "Source.swift")
-    #expect(attachment.displayPath == "Source.swift")
     #expect(attachment.kind == .text)
     #expect(attachment.content == "let value = 1")
   }
@@ -48,9 +47,9 @@ struct ChatAttachmentLoaderTests {
     #expect(attachment.kind == .image)
     #expect(attachment.content.contains("Image attachment: screenshot.png"))
     #expect(!attachment.content.contains("iVBOR"))
-    #expect(attachment.metadata?.mimeType == "image/png")
-    #expect(attachment.metadata?.byteCount == imageData.count)
-    #expect(attachment.metadata?.contentSHA256 != nil)
+    #expect(attachment.mimeType == "image/png")
+    #expect(attachment.byteSize == imageData.count)
+    #expect(!attachment.contentSHA256.isEmpty)
     guard case .image(let payload) = attachment.payload else {
       Issue.record("Expected image payload.")
       return
@@ -74,7 +73,7 @@ struct ChatAttachmentLoaderTests {
     )
 
     #expect(attachments.map(\.kind) == [.image, .image])
-    #expect(attachments.map { $0.metadata?.mimeType } == ["image/jpeg", "image/webp"])
+    #expect(attachments.map(\.mimeType) == ["image/jpeg", "image/webp"])
   }
 
   @Test
@@ -134,10 +133,8 @@ struct ChatAttachmentLoaderTests {
   func loadAttachmentsSkipsExistingAttachmentPaths() throws {
     let loader = ChatAttachmentLoader()
     let fileURL = try write("first", to: "README.md")
-    let existing = ChatAttachment(
-      url: fileURL,
+    let existing = makeTextChatAttachment(
       displayName: "README.md",
-      kind: .text,
       content: "already attached"
     )
 

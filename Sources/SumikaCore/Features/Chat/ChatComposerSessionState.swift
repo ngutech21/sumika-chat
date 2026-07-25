@@ -26,4 +26,29 @@ package struct ChatComposerSessionState: Equatable, Sendable {
     self.reasoningEnabled = reasoningEnabled
     self.todoState = todoState
   }
+
+  package init(session: ChatSession) {
+    let activeAttachmentIDs = Set(session.activeAttachmentContext.attachmentIDs)
+    let visibleTodoState: TodoState? =
+      if session.interactionMode == .agent,
+        let todoState = session.todoState,
+        !todoState.items.isEmpty
+      {
+        todoState
+      } else {
+        nil
+      }
+
+    self.init(
+      pendingAttachments: session.pendingAttachments,
+      activeAttachments: session.pendingAttachments.filter {
+        activeAttachmentIDs.contains($0.id)
+      },
+      interactionMode: session.interactionMode,
+      toolApprovalPolicy: session.toolApprovalPolicy,
+      selectedMCPServerIDs: session.selectedMCPServerIDs,
+      reasoningEnabled: session.generationSettings.reasoningEnabled,
+      todoState: visibleTodoState
+    )
+  }
 }

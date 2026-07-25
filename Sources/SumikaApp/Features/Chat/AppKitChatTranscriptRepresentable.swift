@@ -2276,7 +2276,7 @@ extension NativeChatMessageCellView {
     )
 
     let container = clickableContainer(imageView)
-    container.toolTip = attachment.displayPath
+    container.toolTip = attachment.displayName
     container.setAccessibilityElement(true)
     container.setAccessibilityRole(.button)
     container.setAccessibilityLabel("Attached image \(attachment.displayName)")
@@ -2298,7 +2298,7 @@ extension NativeChatMessageCellView {
       fillColor: NSColor.secondaryLabelColor.withAlphaComponent(0.12),
       cornerRadius: 8
     )
-    container.toolTip = attachment.displayPath
+    container.toolTip = attachment.displayName
     container.setAccessibilityElement(true)
     container.setAccessibilityLabel("Attached file \(attachment.displayName)")
     return container

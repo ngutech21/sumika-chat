@@ -199,9 +199,9 @@ struct ToolDiscoveryExecutionTests {
     )
 
     #expect(glob.status == .completed)
-    #expect(glob.resultPreview?.text == "Sources/App.swift")
+    #expect(glob.state.preview?.text == "Sources/App.swift")
     #expect(search.status == .completed)
-    #expect(search.resultPreview?.text == "Sources/App.swift:1: let value = 1")
+    #expect(search.state.preview?.text == "Sources/App.swift:1: let value = 1")
   }
 
   private func request(

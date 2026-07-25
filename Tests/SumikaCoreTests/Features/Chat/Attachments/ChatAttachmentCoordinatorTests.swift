@@ -279,10 +279,8 @@ private struct ChatAttachmentTestError: LocalizedError {
 }
 
 private func makeAttachment(name: String, content: String) -> ChatAttachment {
-  ChatAttachment(
-    url: URL(filePath: "/tmp/\(name)"),
+  makeTextChatAttachment(
     displayName: name,
-    kind: .text,
     content: content
   )
 }

@@ -94,7 +94,7 @@ final class NativeAssistantThinkingView: NSView {
   private var currentRowID: String
   private var currentContent = ""
   private var currentTickerContent = ""
-  private var currentStatus: AssistantThinkingMessage.DeliveryStatus?
+  private var currentStatus: AssistantDeliveryStatus?
 
   init(
     message: AssistantThinkingMessage,
@@ -194,7 +194,7 @@ final class NativeAssistantThinkingView: NSView {
     header.addArrangedSubview(trailingSpacer)
   }
 
-  private func updateStatus(_ status: AssistantThinkingMessage.DeliveryStatus) {
+  private func updateStatus(_ status: AssistantDeliveryStatus) {
     guard currentStatus != status else {
       return
     }
@@ -362,7 +362,7 @@ final class NativeAssistantThinkingView: NSView {
 }
 
 private func nativeThinkingStatusIndicator(
-  status: AssistantThinkingMessage.DeliveryStatus
+  status: AssistantDeliveryStatus
 ) -> NSView {
   if status == .streaming {
     let spinner = NSProgressIndicator()

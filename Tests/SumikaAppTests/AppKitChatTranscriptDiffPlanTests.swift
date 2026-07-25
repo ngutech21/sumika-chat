@@ -1943,7 +1943,7 @@ struct AppKitChatTranscriptDiffPlanTests {
   func reasoningTitleReflectsStatusAndDuration() {
     let startedAt = Date(timeIntervalSinceReferenceDate: 0)
     func message(
-      status: AssistantThinkingMessage.DeliveryStatus,
+      status: AssistantDeliveryStatus,
       duration: TimeInterval? = nil
     ) -> AssistantThinkingMessage {
       AssistantThinkingMessage(

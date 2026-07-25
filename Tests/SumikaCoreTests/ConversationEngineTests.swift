@@ -176,6 +176,18 @@ struct ConversationEngineTests {
   }
 
   @Test
+  func composerSessionStateHidesEmptyAgentTodoState() {
+    let state = ChatComposerSessionState(
+      session: ChatSession(
+        interactionMode: .agent,
+        todoState: TodoState(items: [])
+      )
+    )
+
+    #expect(state.todoState == nil)
+  }
+
+  @Test
   func mcpServerSelectionIsAgentOnlyAndBlockedDuringGeneration() {
     let engine = ConversationEngine(
       runtime: ChatSessionFakeChatModelRuntime(),
@@ -840,10 +852,8 @@ struct ConversationEngineTests {
 
   @Test
   func sendMessageStreamsAssistantReplyAndClearsAttachments() async throws {
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/source.swift"),
+    let attachment = makeTextChatAttachment(
       displayName: "source.swift",
-      kind: .text,
       content: "let value = 1"
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["hello", " world"])
@@ -922,15 +932,10 @@ struct ConversationEngineTests {
 
   @Test
   func sendMessageForVisionModelForwardsImageAttachmentsToRuntime() async throws {
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/screenshot.png"),
+    let attachment = makeImageChatAttachment(
       displayName: "screenshot.png",
-      kind: .image,
-      content: "[Image attachment: screenshot.png, image/png, 128 bytes]",
-      metadata: ChatAttachmentMetadata(
-        mimeType: "image/png",
-        byteCount: 128
-      )
+      mimeType: "image/png",
+      byteSize: 128
     )
     let runtime = ChatSessionFakeChatModelRuntime(chunks: ["looks like a screenshot"])
     let engine = ConversationEngine(
@@ -1301,7 +1306,7 @@ struct ConversationEngineTests {
 
     #expect(engine.chatSession.toolCalls.count == 1)
     #expect(engine.chatSession.toolCalls[0].status == .completed)
-    #expect(engine.chatSession.toolCalls[0].resultPreview?.text == "1: project notes")
+    #expect(engine.chatSession.toolCalls[0].state.preview?.text == "1: project notes")
     #expect(
       engine.chatSession.focusedFileState.activePath
         == WorkspaceRelativePath(rawValue: "README.md"))
@@ -1673,7 +1678,7 @@ struct ConversationEngineTests {
     #expect(record.request.toolName == .readFile)
     #expect(record.status == .failed)
     #expect(
-      record.resultPreview?.text.contains(
+      record.state.preview?.text.contains(
         "Tool is not available in the active registry: read_file."
       ) == true)
   }
@@ -1737,7 +1742,7 @@ struct ConversationEngineTests {
     #expect(blockedRead.request.toolName == .readFile)
     #expect(blockedRead.status == .failed)
     #expect(
-      blockedRead.resultPreview?.text.contains(
+      blockedRead.state.preview?.text.contains(
         "Tool is not available in the active registry: read_file."
       ) == true)
     #expect(engine.chatSession.testMessages.last?.content == "Approved fetch completed.")
@@ -2083,12 +2088,12 @@ struct ConversationEngineTests {
     name: String,
     kind: ChatAttachmentKind = .text
   ) -> ChatAttachment {
-    ChatAttachment(
-      url: URL(filePath: "/tmp/\(name)"),
-      displayName: name,
-      kind: kind,
-      content: "fixture"
-    )
+    switch kind {
+    case .text:
+      makeTextChatAttachment(displayName: name, content: "fixture")
+    case .image:
+      makeImageChatAttachment(displayName: name, byteSize: 7)
+    }
   }
 
   private func makeToolCallRecord(status: ToolCallStatus) -> ToolCallRecord {

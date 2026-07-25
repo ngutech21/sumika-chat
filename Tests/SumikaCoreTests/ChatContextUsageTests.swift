@@ -13,32 +13,6 @@ struct ChatContextUsageTests {
   }
 
   @Test
-  func summaryWithoutTokenLimitShowsUsedTokens() {
-    let usage = ChatContextUsage(usedTokens: 42, tokenLimit: nil)
-
-    #expect(usage.summary == "42 tokens")
-  }
-
-  @Test
-  func summaryWithTokenLimitShowsUsedAndLimit() {
-    let usage = ChatContextUsage(usedTokens: 42, tokenLimit: 128)
-
-    #expect(usage.summary == "42/128 tokens")
-  }
-
-  @Test
-  func estimatedSummaryUsesTildePrefix() {
-    let usage = ChatContextUsage(
-      usedTokens: 42,
-      tokenLimit: 128,
-      accuracy: .estimate,
-      isStale: true
-    )
-
-    #expect(usage.summary == "~42/128 tokens")
-  }
-
-  @Test
   func fractionIsNilWithoutPositiveLimit() {
     #expect(ChatContextUsage(usedTokens: 42, tokenLimit: nil).fraction == nil)
     #expect(ChatContextUsage(usedTokens: 42, tokenLimit: 0).fraction == nil)
@@ -51,18 +25,6 @@ struct ChatContextUsageTests {
     #expect(usage.fraction == 1)
   }
 
-  @Test
-  func availableTokensUsesRemainingPositiveBudget() {
-    let usage = ChatContextUsage(usedTokens: 42, tokenLimit: 128)
-
-    #expect(usage.availableTokens == 86)
-  }
-
-  @Test
-  func availableTokensIsNilWithoutLimitAndClampedAtZero() {
-    #expect(ChatContextUsage(usedTokens: 42, tokenLimit: nil).availableTokens == nil)
-    #expect(ChatContextUsage(usedTokens: 300, tokenLimit: 100).availableTokens == 0)
-  }
 }
 
 struct ContextUsageSnapshotTests {
@@ -81,17 +43,13 @@ struct ContextUsageSnapshotTests {
   @Test
   func estimatedUsageCountsTextAttachmentsAndIgnoresImages() throws {
     let snapshot = try makeSnapshot(attachments: [
-      ChatAttachment(
-        url: URL(filePath: "/tmp/notes.txt"),
+      makeTextChatAttachment(
         displayName: "notes.txt",
-        kind: .text,
         content: "0123456789"
       ),
-      ChatAttachment(
-        url: URL(filePath: "/tmp/photo.png"),
+      makeImageChatAttachment(
         displayName: "photo.png",
-        kind: .image,
-        content: "ignored image bytes"
+        byteSize: 19
       ),
     ])
 

@@ -32,10 +32,10 @@ struct ToolEditExecutionTests {
       result.evaluation.workspaceRelativePaths == [
         WorkspaceRelativePath(rawValue: "Sources/App.swift")
       ])
-    #expect(result.resultPreview?.status == .success)
-    #expect(result.resultPreview?.affectedPaths == ["Sources/App.swift"])
-    #expect(result.resultPreview?.text.contains("-let title = \"Old\"") == true)
-    #expect(result.resultPreview?.text.contains("+let title = \"New\"") == true)
+    #expect(result.state.preview?.status == .success)
+    #expect(result.state.preview?.affectedPaths == ["Sources/App.swift"])
+    #expect(result.state.preview?.text.contains("-let title = \"Old\"") == true)
+    #expect(result.state.preview?.text.contains("+let title = \"New\"") == true)
     #expect(
       try String(
         contentsOf: workspace.rootURL.appending(path: "Sources/App.swift"), encoding: .utf8)
@@ -57,7 +57,7 @@ struct ToolEditExecutionTests {
     )
 
     #expect(result.status == .completed)
-    #expect(result.resultPreview?.status == .success)
+    #expect(result.state.preview?.status == .success)
     guard case .editFile(.success(let path, _, let matchStrategy)) = result.resultPayload else {
       Issue.record("Expected edit_file success payload.")
       return
@@ -84,7 +84,7 @@ struct ToolEditExecutionTests {
     )
 
     #expect(result.status == .completed)
-    #expect(result.resultPreview?.text.contains("normalizedLineEndings match strategy") == true)
+    #expect(result.state.preview?.text.contains("normalizedLineEndings match strategy") == true)
     guard case .editFile(.success(_, _, let matchStrategy)) = result.resultPayload else {
       Issue.record("Expected edit_file success payload.")
       return
@@ -280,10 +280,10 @@ struct ToolEditExecutionTests {
     )
 
     #expect(result.status == .awaitingApproval)
-    #expect(result.resultPreview?.status == .success)
-    #expect(result.resultPreview?.text.contains("normalizedLineEndings match") == true)
-    #expect(result.resultPreview?.text.contains("-two") == true)
-    #expect(result.resultPreview?.text.contains("+TWO") == true)
+    #expect(result.state.preview?.status == .success)
+    #expect(result.state.preview?.text.contains("normalizedLineEndings match") == true)
+    #expect(result.state.preview?.text.contains("-two") == true)
+    #expect(result.state.preview?.text.contains("+TWO") == true)
     #expect(
       try String(contentsOf: workspace.rootURL.appending(path: "notes.txt"), encoding: .utf8)
         == "one\r\ntwo\r\nthree\r\n")
@@ -302,7 +302,7 @@ struct ToolEditExecutionTests {
     )
 
     #expect(result.status == .failed)
-    #expect(result.resultPreview?.text.contains("matched more than once") == true)
+    #expect(result.state.preview?.text.contains("matched more than once") == true)
   }
 
   @Test
@@ -349,7 +349,7 @@ struct ToolEditExecutionTests {
     )
 
     #expect(result.status == .denied)
-    #expect(result.resultPreview?.status == .denied)
+    #expect(result.state.preview?.status == .denied)
   }
 
   @Test
@@ -378,11 +378,11 @@ struct ToolEditExecutionTests {
       workspace: workspace
     )
     #expect(missing.status == .failed)
-    #expect(missing.resultPreview?.text.contains("old_text was not found") == true)
+    #expect(missing.state.preview?.text.contains("old_text was not found") == true)
     #expect(ambiguous.status == .failed)
-    #expect(ambiguous.resultPreview?.text.contains("matched more than once") == true)
+    #expect(ambiguous.state.preview?.text.contains("matched more than once") == true)
     #expect(overlapping.status == .failed)
-    #expect(overlapping.resultPreview?.text.contains("matched more than once") == true)
+    #expect(overlapping.state.preview?.text.contains("matched more than once") == true)
   }
 
   @Test
@@ -411,11 +411,11 @@ struct ToolEditExecutionTests {
     )
 
     #expect(identical.status == .failed)
-    #expect(identical.resultPreview?.text.contains("different from old_text") == true)
+    #expect(identical.state.preview?.text.contains("different from old_text") == true)
     #expect(emptyOldText.status == .failed)
-    #expect(emptyOldText.resultPreview?.text.contains("must not be empty") == true)
+    #expect(emptyOldText.state.preview?.text.contains("must not be empty") == true)
     #expect(nonUTF8.status == .failed)
-    #expect(nonUTF8.resultPreview?.text.contains("not valid UTF-8") == true)
+    #expect(nonUTF8.state.preview?.text.contains("not valid UTF-8") == true)
   }
 
   @Test
@@ -431,10 +431,10 @@ struct ToolEditExecutionTests {
     )
 
     #expect(result.status == .failed)
-    #expect(result.resultPreview?.status == .failed)
-    #expect(result.resultPreview?.text.contains("old_text was not found") == true)
-    #expect(result.resultPreview?.text.contains("Current file excerpt:") == true)
-    #expect(result.resultPreview?.text.contains("clock = pygame.time.Clock()") == true)
+    #expect(result.state.preview?.status == .failed)
+    #expect(result.state.preview?.text.contains("old_text was not found") == true)
+    #expect(result.state.preview?.text.contains("Current file excerpt:") == true)
+    #expect(result.state.preview?.text.contains("clock = pygame.time.Clock()") == true)
     guard
       case .editFile(.oldTextNotFound(let path, let currentContent, let recovery)) =
         result.resultPayload
@@ -481,7 +481,7 @@ struct ToolEditExecutionTests {
 
     #expect(pendingMissing.status == .awaitingApproval)
     #expect(missing.status == .failed)
-    #expect(missing.resultPreview?.text.contains("old_text was not found") == true)
+    #expect(missing.state.preview?.text.contains("old_text was not found") == true)
     guard
       case .editFile(.oldTextNotFound(let missingPath, let currentContent, let recovery)) =
         missing.resultPayload
@@ -494,7 +494,7 @@ struct ToolEditExecutionTests {
     #expect(recovery == .readFile(path: WorkspaceRelativePath(rawValue: "notes.txt")))
     #expect(pendingAmbiguous.status == .awaitingApproval)
     #expect(ambiguous.status == .failed)
-    #expect(ambiguous.resultPreview?.text.contains("matched more than once") == true)
+    #expect(ambiguous.state.preview?.text.contains("matched more than once") == true)
     guard
       case .editFile(.multipleMatches(let ambiguousPath, let matchCount, _)) =
         ambiguous.resultPayload
@@ -519,10 +519,10 @@ struct ToolEditExecutionTests {
     )
 
     #expect(missing.status == .failed)
-    #expect(missing.resultPreview?.text.contains("File not found: landing.html") == true)
-    #expect(missing.resultPreview?.text.contains("Did you mean one of these?") == true)
-    #expect(missing.resultPreview?.text.contains("index.html") == true)
-    #expect(missing.resultPreview?.affectedPaths == ["landing.html"])
+    #expect(missing.state.preview?.text.contains("File not found: landing.html") == true)
+    #expect(missing.state.preview?.text.contains("Did you mean one of these?") == true)
+    #expect(missing.state.preview?.text.contains("index.html") == true)
+    #expect(missing.state.preview?.affectedPaths == ["landing.html"])
   }
 
   @Test
@@ -546,8 +546,8 @@ struct ToolEditExecutionTests {
 
     #expect(pending.status == .awaitingApproval)
     #expect(missing.status == .failed)
-    #expect(missing.resultPreview?.text.contains("File not found: notes.txt") == true)
-    #expect(missing.resultPreview?.text.contains("notes-backup.txt") == true)
+    #expect(missing.state.preview?.text.contains("File not found: notes.txt") == true)
+    #expect(missing.state.preview?.text.contains("notes-backup.txt") == true)
     guard
       case .editFile(.failed(let path, .fileNotFound(_, let suggestions))) =
         missing.resultPayload

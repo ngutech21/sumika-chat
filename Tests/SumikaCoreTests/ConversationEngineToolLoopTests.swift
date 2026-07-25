@@ -586,7 +586,7 @@ struct ConversationEngineToolLoopTests {
 
     let record = try #require(engine.chatSession.toolCalls.first)
     #expect(record.request.toolName == .runCommand)
-    #expect(record.resultPreview?.status == .failed)
+    #expect(record.state.preview?.status == .failed)
     #expect(
       engine.chatSession.testMessages.last?.content.contains(
         "The previous command failed."
@@ -1914,7 +1914,7 @@ struct ConversationEngineToolLoopTests {
     #expect(engine.chatSession.toolCalls[0].request.toolName == .editFile)
     #expect(engine.chatSession.toolCalls[0].status == .failed)
     #expect(
-      engine.chatSession.toolCalls[0].resultPreview?.text.contains("not found") == true)
+      engine.chatSession.toolCalls[0].state.preview?.text.contains("not found") == true)
     #expect(engine.chatSession.toolCalls[1].request.toolName == .readFile)
     #expect(engine.chatSession.toolCalls[1].status == .completed)
     #expect(engine.chatSession.testMessages.last?.content == "The file contains project notes.")

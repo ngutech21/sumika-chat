@@ -154,10 +154,8 @@ struct ChatModelContextBuilderTests {
 
   @Test
   func currentPromptSystemContextFreezesRenderedAttachedFileContextIntoUserPrompt() throws {
-    let attachment = ChatAttachment(
-      url: URL(filePath: "/tmp/project/Sources/Foo.swift"),
+    let attachment = makeTextChatAttachment(
       displayName: "Foo.swift",
-      kind: .text,
       content: "func attached() {}"
     )
     let workspace = Workspace(

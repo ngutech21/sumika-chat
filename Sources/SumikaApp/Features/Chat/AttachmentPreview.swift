@@ -36,7 +36,7 @@ struct AttachmentPreview: View {
     .padding(.vertical, verticalPadding)
     .background(Color.secondary.opacity(0.12))
     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    .help(attachment.displayPath)
+    .help(attachment.displayName)
     .accessibilityElement(children: .combine)
     .accessibilityLabel(accessibilityLabel)
     .task(id: thumbnailLoadKey) {

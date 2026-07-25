@@ -81,11 +81,8 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
 
     let imageData = try Data(contentsOf: url)
 
-    let metadata = ChatAttachmentMetadata(
-      mimeType: mimeType(forExtension: fileExtension),
-      byteCount: fileSize,
-      contentSHA256: ChatAttachmentStore.contentSHA256(for: imageData)
-    )
+    let mimeType = mimeType(forExtension: fileExtension) ?? "image"
+    let contentSHA256 = ChatAttachmentStore.contentSHA256(for: imageData)
     let id = AttachmentID()
     _ = try attachmentStore.storeFile(from: url, id: id, displayName: fileName)
     return ChatAttachment(
@@ -93,9 +90,9 @@ package struct ChatAttachmentLoader: ChatAttachmentLoading {
       displayName: fileName,
       payload: .image(
         ImageAttachmentPayload(
-          mimeType: metadata.mimeType ?? "image",
+          mimeType: mimeType,
           byteSize: fileSize,
-          contentSHA256: metadata.contentSHA256 ?? ""
+          contentSHA256: contentSHA256
         )
       )
     )

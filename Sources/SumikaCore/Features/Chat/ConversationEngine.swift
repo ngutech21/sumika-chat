@@ -238,42 +238,12 @@ extension ConversationEngine {
 
   private func syncComposerSessionState() {
     let nextState =
-      activeConversation.map { Self.composerSessionState(for: $0.session) }
+      activeConversation.map { ChatComposerSessionState(session: $0.session) }
       ?? ChatComposerSessionState()
     guard composerSessionState != nextState else {
       return
     }
     composerSessionState = nextState
-  }
-
-  private static func composerSessionState(for session: ChatSession) -> ChatComposerSessionState {
-    ChatComposerSessionState(
-      pendingAttachments: session.pendingAttachments,
-      activeAttachments: activeAttachments(in: session),
-      interactionMode: session.interactionMode,
-      toolApprovalPolicy: session.toolApprovalPolicy,
-      selectedMCPServerIDs: session.selectedMCPServerIDs,
-      reasoningEnabled: session.generationSettings.reasoningEnabled,
-      todoState: visibleTodoState(in: session)
-    )
-  }
-
-  private static func activeAttachments(in session: ChatSession) -> [ChatAttachment] {
-    let activeIDs = Set(session.activeAttachmentContext.attachmentIDs)
-    guard !activeIDs.isEmpty else {
-      return []
-    }
-    return session.pendingAttachments.filter { activeIDs.contains($0.id) }
-  }
-
-  private static func visibleTodoState(in session: ChatSession) -> TodoState? {
-    guard session.interactionMode == .agent,
-      let todoState = session.todoState,
-      !todoState.items.isEmpty
-    else {
-      return nil
-    }
-    return todoState
   }
 
   func setSessionChangeHandler(

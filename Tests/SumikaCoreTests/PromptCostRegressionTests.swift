@@ -754,7 +754,7 @@ private enum PromptCostMeasurement {
       EncodedToolCall(
         id: RuntimeToolCallID.string(for: request.id),
         name: request.toolName.rawValue,
-        arguments: request.rawArguments
+        arguments: request.raw.arguments
       ))
   }
 

@@ -25,27 +25,6 @@ package struct ChatContextUsage: Equatable, Sendable {
     self.isStale = isStale
   }
 
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var availableTokens: Int? {
-    guard let tokenLimit else {
-      return nil
-    }
-
-    return max(tokenLimit - usedTokens, 0)
-  }
-
-  // Test-only; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package var summary: String {
-    let prefix = accuracy == .estimate ? "~" : ""
-    guard let tokenLimit else {
-      return "\(prefix)\(usedTokens) tokens"
-    }
-
-    return "\(prefix)\(usedTokens)/\(tokenLimit) tokens"
-  }
-
   package var fraction: Double? {
     guard let tokenLimit, tokenLimit > 0 else {
       return nil

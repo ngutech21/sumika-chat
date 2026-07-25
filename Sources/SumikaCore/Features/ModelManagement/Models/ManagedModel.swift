@@ -11,7 +11,7 @@ package enum ReasoningTraceFormat: Equatable, Sendable {
   case qwenThinkTags
 }
 
-package struct ToolCallingPolicy: Codable, Equatable, Sendable {
+package struct ToolCallingPolicy: Equatable, Sendable {
   package var isEnabled: Bool
   package var allowsMultipleToolCalls: Bool
 
@@ -23,12 +23,6 @@ package struct ToolCallingPolicy: Codable, Equatable, Sendable {
     self.allowsMultipleToolCalls = allowsMultipleToolCalls
   }
 
-  // Test-only policy fixture; exercised through @testable import.
-  // swiftlint:disable:next unused_declaration
-  package static let unsupported = ToolCallingPolicy(
-    isEnabled: false,
-    allowsMultipleToolCalls: false
-  )
   package static let nativeMLX = ToolCallingPolicy(
     isEnabled: true,
     allowsMultipleToolCalls: true
@@ -50,7 +44,6 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
   package let reasoningTraceFormat: ReasoningTraceFormat
   package let defaultModeSettings: ChatModeSettingsSet
   package let defaultContextTokenLimit: Int
-  package let enabled: Bool
   package let maxToolLoopIterations: Int
 
   package init(
@@ -68,7 +61,6 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     reasoningTraceFormat: ReasoningTraceFormat = .none,
     defaultModeSettings: ChatModeSettingsSet,
     defaultContextTokenLimit: Int,
-    enabled: Bool,
     maxToolLoopIterations: Int = 8
   ) {
     self.id = id
@@ -85,7 +77,6 @@ package struct ManagedModel: Identifiable, Equatable, Sendable {
     self.reasoningTraceFormat = reasoningTraceFormat
     self.defaultModeSettings = defaultModeSettings
     self.defaultContextTokenLimit = defaultContextTokenLimit
-    self.enabled = enabled
     self.maxToolLoopIterations = maxToolLoopIterations
   }
 
@@ -109,23 +100,6 @@ package enum ManagedModelCatalog {
 
   package static let models: [ManagedModel] = [
     ManagedModel(
-      id: "gemma4-e2b-qat-4bit",
-      displayName: "Gemma 4 E2B QAT 4-bit",
-      detail: "Gemma 4 model with local vision support.",
-      huggingFaceRepoID: "mlx-community/gemma-4-E2B-it-qat-4bit",
-      localDirectoryName: "gemma-4-E2B-it-qat-4bit",
-      estimatedDownloadSize: "4.3 GB",
-      isRecommended: false,
-      requiresLargeMemory: false,
-      stability: .stable,
-      toolCallingPolicy: .nativeMLX,
-      supportsImageInput: true,
-      reasoningTraceFormat: .gemmaChannel,
-      defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: false
-    ),
-    ManagedModel(
       id: "gemma4-e4b-qat-4bit",
       displayName: "Gemma 4 E4B QAT 4-bit",
       detail: "Gemma 4 small model",
@@ -139,25 +113,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: true,
       reasoningTraceFormat: .gemmaChannel,
       defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true
-    ),
-    ManagedModel(
-      id: "gemma-4-e4b-it-4bit",
-      displayName: "Gemma 4 E4B 4-bit",
-      detail: "Gemma 4 model with local vision support.",
-      huggingFaceRepoID: "mlx-community/gemma-4-e4b-it-4bit",
-      localDirectoryName: "gemma-4-e4b-it-4bit",
-      estimatedDownloadSize: "5.2 GB",
-      isRecommended: false,
-      requiresLargeMemory: false,
-      stability: .stable,
-      toolCallingPolicy: .nativeMLX,
-      supportsImageInput: true,
-      reasoningTraceFormat: .gemmaChannel,
-      defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: false
+      defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
       id: "gemma4-12b-qat-4bit",
@@ -173,8 +129,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: true,
       reasoningTraceFormat: .gemmaChannel,
       defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true
+      defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
       id: "gemma4-26b-qat-4bit",
@@ -190,8 +145,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: true,
       reasoningTraceFormat: .gemmaChannel,
       defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true
+      defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
       id: "gemma4-31b-qat-4bit",
@@ -208,7 +162,6 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .gemmaChannel,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true,
       maxToolLoopIterations: 12
     ),
 
@@ -227,7 +180,6 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true,
       maxToolLoopIterations: 12
     ),
     ManagedModel(
@@ -245,7 +197,6 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true,
       maxToolLoopIterations: 12
     ),
     ManagedModel(
@@ -262,8 +213,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true
+      defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
       id: "qwen3.6-27B-8bit",
@@ -279,8 +229,7 @@ package enum ManagedModelCatalog {
       supportsImageInput: true,
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: .defaultSettings,
-      defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true
+      defaultContextTokenLimit: defaultContextTokenLimit
     ),
     ManagedModel(
       id: "qwen3.6-40B-8bit-heretic",
@@ -298,10 +247,9 @@ package enum ManagedModelCatalog {
       reasoningTraceFormat: .qwenThinkTags,
       defaultModeSettings: .defaultSettings,
       defaultContextTokenLimit: defaultContextTokenLimit,
-      enabled: true,
       maxToolLoopIterations: 12
     ),
-  ].filter(\.enabled)
+  ]
 
   package static var defaultModel: ManagedModel {
     models.first { $0.id == defaultModelID } ?? models[0]
